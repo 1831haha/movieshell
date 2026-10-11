@@ -79,11 +79,11 @@ object ApiSourceStore {
  * 备份 JSON 格式：
  * { "version": 1,
  *   "apiSources": [ {"name","url","enabled"} ],
- *   "activeRules": {"drpy": "...", "py": "...", "ai": null, "php": null, "web": null} }
+ *   "activeRules": {"drpy": "...", "py": "...", "php": null, "web": null} }
  *
  * - apiSources 来自 ApiSourceStore（持久化文件，不存在则用默认订阅）；
  * - activeRules.drpy/py 读各 Manager 现有 API（内存状态）；
- * - ai/php/web 目前没有 active 概念，固定导出 null，恢复时忽略。
+ * - php/web 目前没有 active 概念，固定导出 null，恢复时忽略。
  */
 object BackupManager {
     private const val TAG = "BackupManager"
@@ -114,7 +114,6 @@ object BackupManager {
             putJsonObject("activeRules") {
                 put("drpy", DrpySourceManager.activeRuleName())
                 put("py", PySourceManager.activeRuleName())
-                put("ai", null as String?)
                 put("php", null as String?)
                 put("web", null as String?)
             }
@@ -161,7 +160,7 @@ object BackupManager {
                     PySourceManager.setActiveRule(name)
                 }
             }
-            // ai / php / web：当前版本无 active 概念，恢复时忽略
+            // php / web：当前版本无 active 概念，恢复时忽略
             RestoreResult.Ok
         } catch (e: Exception) {
             Log.w(TAG, "恢复备份失败", e)

@@ -66,7 +66,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.Vod as ModelVod
-import com.movieshell.data.repo.AiSourceManager
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.ui.components.GradientBlock
@@ -116,12 +115,12 @@ fun HomeScreen(
             val home = runCatching {
                 if (DrpySourceManager.hasActiveRule()) DrpySourceManager.home()
                 else if (PySourceManager.hasActiveRule()) PySourceManager.home()
-                else AiSourceManager.home()
+                else emptyList()
             }.getOrDefault(emptyList())
             val cats = runCatching {
                 if (DrpySourceManager.hasActiveRule()) DrpySourceManager.categories()
                 else if (PySourceManager.hasActiveRule()) PySourceManager.categories()
-                else AiSourceManager.categories()
+                else emptyList()
             }.getOrDefault(emptyList())
             drpyCats = cats
             drpyList = home.ifEmpty { null }
@@ -137,7 +136,7 @@ fun HomeScreen(
             val list = runCatching {
                 if (DrpySourceManager.hasActiveRule()) DrpySourceManager.category(cat.typeId, 1)
                 else if (PySourceManager.hasActiveRule()) PySourceManager.category(cat.typeId, 1)
-                else AiSourceManager.category(cat.typeId, 1)
+                else emptyList()
             }.getOrDefault(emptyList())
             drpyList = list.ifEmpty { null }
             selectedCategory = index
@@ -146,8 +145,7 @@ fun HomeScreen(
     }
 
     fun refreshDrpyState() {
-        val active = DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule() ||
-            AiSourceManager.hasActiveRule()
+        val active = DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule()
         val changed = active != drpyActive
         drpyActive = active
         if (active && (changed || drpyList == null)) loadDrpyHome()
@@ -173,12 +171,12 @@ fun HomeScreen(
                 val home = runCatching {
                     if (DrpySourceManager.hasActiveRule()) DrpySourceManager.home()
                     else if (PySourceManager.hasActiveRule()) PySourceManager.home()
-                    else AiSourceManager.home()
+                    else emptyList()
                 }.getOrDefault(emptyList())
                 val cats = runCatching {
                     if (DrpySourceManager.hasActiveRule()) DrpySourceManager.categories()
                     else if (PySourceManager.hasActiveRule()) PySourceManager.categories()
-                    else AiSourceManager.categories()
+                    else emptyList()
                 }.getOrDefault(emptyList())
                 drpyCats = cats
                 drpyList = home.ifEmpty { null }

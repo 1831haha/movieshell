@@ -24,7 +24,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
@@ -64,7 +63,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.repo.AiSourceManager
 import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
@@ -112,14 +110,13 @@ private fun deletePyRuleFile(context: Context, name: String): Boolean {
 
 /** 文件导入目标：filesDir 下的子目录 + 允许的后缀 */
 private data class ImportTarget(
-    val dirName: String,          // filesDir 下子目录：drpy / py / ai / php
+    val dirName: String,          // filesDir 下子目录：drpy / py / php
     val extensions: List<String>, // 允许的后缀，带点，如 ".js"
     val label: String,            // 分组名，用于 Toast 提示
 )
 
 private val IMPORT_DPRY = ImportTarget("drpy", listOf(".js"), "JS文件夹")
 private val IMPORT_PY = ImportTarget("py", listOf(".py"), "PY文件夹")
-private val IMPORT_AI = ImportTarget("ai", listOf(".js", ".json", ".py"), "AI文件夹")
 private val IMPORT_PHP = ImportTarget("php", listOf(".php"), "PHP文件夹")
 
 /** 导入结果 */
@@ -159,7 +156,7 @@ private fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): Im
     }
 }
 
-/** 扫描 filesDir/<dirName>/ 下的文件，转成 SourceEntry 列表（给 AI/PHP 分组用）；activeName 命中的条目 enabled=true（高亮为当前激活） */
+/** 扫描 filesDir/<dirName>/ 下的文件，转成 SourceEntry 列表（给 PHP 分组用）；activeName 命中的条目 enabled=true（高亮为当前激活） */
 private fun listLocalFolderEntries(
     context: Context,
     dirName: String,
@@ -201,10 +198,6 @@ fun SourcesScreen(
     val tailGroups = remember {
         mutableStateListOf(
             SourceGroup(
-                id = "ai", name = "AI文件夹", icon = Icons.Filled.AutoAwesome,
-                entries = mutableStateListOf(),
-            ),
-            SourceGroup(
                 id = "php", name = "PHP文件夹", icon = Icons.Filled.Extension,
                 entries = mutableStateListOf(),
             ),
@@ -219,16 +212,14 @@ fun SourcesScreen(
         )
     }
 
-    /** 刷新 AI/PHP 分组：从 filesDir/ai|php 扫描真实文件，激活中的条目高亮 */
+    /** 刷新 PHP 分组：从 filesDir/php 扫描真实文件，激活中的条目高亮 */
     fun refreshLocalFolder(groupId: String) {
         val group = tailGroups.firstOrNull { it.id == groupId } ?: return
         val (dirName, desc) = when (groupId) {
-            "ai" -> "ai" to "AI 规则"
             "php" -> "php" to "PHP 规则"
             else -> return
         }
         val activeName = when (groupId) {
-            "ai" -> AiSourceManager.activeRuleName()
             "php" -> PhpSourceManager.activeRuleName()
             else -> null
         }
@@ -256,18 +247,6 @@ fun SourcesScreen(
     fun selectPyRule(name: String) {
         PySourceManager.setActiveRule(name)
         activePyRuleName = name
-    }
-
-    /** AI 规则激活：点击条目即设为当前规则；形态不支持执行时如实 Toast。 */
-    fun selectAiRule(name: String) {
-        AiSourceManager.setActiveRule(name)
-        refreshLocalFolder("ai")
-        Toast.makeText(
-            context,
-            if (AiSourceManager.isExecutable()) "AI 规则已激活：$name"
-            else "已选中 $name，但该格式暂不支持执行（仅 JS / PY / JSON-CMS 可跑）",
-            Toast.LENGTH_LONG
-        ).show()
     }
 
     /** PHP 规则选中：仅做选中标记（手机端无 PHP 解释器，不可执行），如实 Toast。 */
@@ -306,7 +285,6 @@ fun SourcesScreen(
         pyRules.clear()
         pyRules.addAll(PySourceManager.listRules())
         activePyRuleName = PySourceManager.activeRuleName()
-        refreshLocalFolder("ai")
         refreshLocalFolder("php")
         refreshWebSites()
     }
@@ -335,14 +313,6 @@ fun SourcesScreen(
                             selectPyRule(r.fileName)
                         }
                         Toast.makeText(context, "已导入 ${r.fileName}", Toast.LENGTH_SHORT).show()
-                    }
-                    "ai" -> {
-                        refreshLocalFolder("ai")
-                        if (AiSourceManager.activeRuleName() == null) {
-                            selectAiRule(r.fileName)
-                        } else {
-                            Toast.makeText(context, "已导入 ${r.fileName}", Toast.LENGTH_SHORT).show()
-                        }
                     }
                     "php" -> {
                         refreshLocalFolder("php")
@@ -380,15 +350,11 @@ fun SourcesScreen(
 
     fun removeLocalFolderEntry(groupId: String, entry: SourceEntry) {
         val dirName = when (groupId) {
-            "ai" -> "ai"
             "php" -> "php"
             else -> return
         }
         runCatching { File(File(context.filesDir, dirName), entry.name).delete() }
         // 删的是当前激活的规则 -> 清空激活，避免悬空引用
-        if (groupId == "ai" && AiSourceManager.activeRuleName() == entry.name) {
-            AiSourceManager.setActiveRule(null)
-        }
         if (groupId == "php" && PhpSourceManager.activeRuleName() == entry.name) {
             PhpSourceManager.setActiveRule(null)
         }
@@ -521,13 +487,11 @@ fun SourcesScreen(
             }
             items(tailGroups, key = { it.id }) { group ->
                 val importTarget = when (group.id) {
-                    "ai" -> IMPORT_AI
                     "php" -> IMPORT_PHP
                     else -> null
                 }
-                // AI/PHP 条目点击即激活（选中）当前规则
+                // PHP 条目点击即选中当前规则
                 val onSelect: ((SourceEntry) -> Unit)? = when (group.id) {
-                    "ai" -> { entry -> selectAiRule(entry.name) }
                     "php" -> { entry -> selectPhpRule(entry.name) }
                     else -> null
                 }
@@ -1008,7 +972,7 @@ private fun GroupCard(
     onRemove: (SourceEntry) -> Unit,
     onImport: (() -> Unit)? = null,
     onToggle: (() -> Unit)? = null,
-    /** 非空时条目可点击选中（AI/PHP 分组用）；此时隐藏 Switch，改显示激活对勾 */
+    /** 非空时条目可点击选中（PHP 分组用）；此时隐藏 Switch，改显示激活对勾 */
     onSelect: ((SourceEntry) -> Unit)? = null,
 ) {
     Card(
@@ -1086,7 +1050,7 @@ private fun SourceEntryRow(
     entry: SourceEntry,
     onRemove: () -> Unit,
     onToggle: (() -> Unit)? = null,
-    /** 非空时整行文本区可点击选中（AI/PHP 分组用）；此时隐藏 Switch，改用对勾显示激活态 */
+    /** 非空时整行文本区可点击选中（PHP 分组用）；此时隐藏 Switch，改用对勾显示激活态 */
     onSelect: (() -> Unit)? = null,
 ) {
     // 选中模式下 entry.enabled 表示"当前激活"，普通模式下它是 Switch 开关态

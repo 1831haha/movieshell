@@ -64,7 +64,6 @@ private val MANUAL_SECTIONS = listOf(
             "PY 规则：.py 文件（hipy 风格），Chaquopy 内置 Python 直接执行，✅ 可用。",
             "网页源：✅ 可用，站源页「网页站源」添加网站，内置嗅探抓 m3u8 / mp4 直链播放。",
             "磁力 magnet：✅ 可用，需要本机装好转播服务并启动。",
-            "AI 规则：混合形态桶——.js 走 drpy 引擎 ✅，.py 走 PY 引擎 ✅，TVBox 配置形态的 .json ✅，其他 .json 暂不支持。",
             "PHP 规则：❌ 暂不支持执行——手机上没有 PHP 解释器，只能导入保存，点它会如实提示。",
         ),
     ),
@@ -75,8 +74,8 @@ private val MANUAL_SECTIONS = listOf(
             "JS 规则：站源页「JS文件夹」点「导入」，选 .js 文件。",
             "PY 规则：站源页「PY文件夹」点「导入」，选 .py 文件。",
             "网页源：站源页「网页站源」点「添加」，填网站名称和地址（http 开头），点条目进入网页嗅探。",
-            "AI / PHP：对应分组点「导入」选文件；AI 的 js/py 能直接跑，PHP 目前只能保存不能执行。",
-            "本地路径（一般不用记）：/data/data/com.movieshell.debug/files/ 下 drpy/、py/、ai/、php/、web/ 各放一类；直接用导入/添加按钮最省事，有 root 的话可以用 MT 管理器进 data/data 查看。",
+            "PHP：对应分组点「导入」选文件；目前只能保存不能执行。",
+            "本地路径（一般不用记）：/data/data/com.movieshell.debug/files/ 下 drpy/、py/、php/、web/ 各放一类；直接用导入/添加按钮最省事，有 root 的话可以用 MT 管理器进 data/data 查看。",
             "导入后如果该分组还没有激活的规则，新文件会自动设为当前，不用再点一遍。",
         ),
     ),
@@ -104,7 +103,8 @@ private val MANUAL_SECTIONS = listOf(
     ManualSection(
         title = "开发进度",
         points = listOf(
-            "v0.4 已实现：网页源（WebView 嗅探直链）、AI 规则引擎（js/py/json 分发）、订阅备份恢复、播放倍速与手势、接口站源持久化。",
+            "v0.4 已实现：网页源（WebView 嗅探直链）、订阅备份恢复、播放倍速与手势、接口站源持久化。",
+            "v0.4.1：AI 功能已砍掉（整个 AI 源类型移除）。",
             "PHP 规则执行：手机端无 PHP 解释器是硬约束，暂不支持，已在 App 内如实提示。",
             "下一步（规划中）：多源聚合搜索、订阅云同步、播放器投屏。",
             "每个版本都会发安装包实测，版本号在设置页「关于」里看。",
