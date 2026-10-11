@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -35,6 +36,7 @@ import com.movieshell.player.PlayerManager
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
 import com.movieshell.ui.detail.DetailScreen
+import com.movieshell.ui.favorites.FavoritesScreen
 import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.manual.ManualScreen
 import com.movieshell.ui.search.SearchScreen
@@ -50,6 +52,7 @@ private val tabs = listOf(
     Tab("search", "搜索", Icons.Filled.Search),
     Tab("sources", "站源", Icons.Filled.Storage),
     Tab("settings", "设置", Icons.Filled.Settings),
+    Tab("favorites", "收藏", Icons.Filled.Favorite),
 )
 
 private const val DETAIL_ROUTE = "detail/{vodId}"
@@ -116,6 +119,11 @@ class MainActivity : ComponentActivity() {
                         composable("settings") {
                             SettingsScreen(
                                 onManualClick = { navController.navigate("manual") },
+                            )
+                        }
+                        composable("favorites") {
+                            FavoritesScreen(
+                                onVodClick = { vodId -> navController.navigate("detail/$vodId") },
                             )
                         }
                         composable("manual") {

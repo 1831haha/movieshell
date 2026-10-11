@@ -1,5 +1,6 @@
 package com.movieshell.ui.detail
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
@@ -33,6 +35,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -54,8 +58,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.model.Episode
+import com.movieshell.data.model.PlayLine
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.FavoriteItem
+import com.movieshell.data.repo.FavoriteStore
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.player.MagnetPlayer
@@ -95,6 +102,14 @@ fun DetailScreen(
     val episodes: List<Episode> = remember(detail) {
         detail?.let { SiteRepository().parseEpisodes(it) }.orEmpty()
     }
+    // 多线路：按 Episode.flag 分组；只有一条线路时 playLines.size==1，不显示 Tab
+    val playLines: List<PlayLine> = remember(episodes) {
+        episodes.groupBy { it.flag.ifBlank { "默认线路" } }
+            .map { (name, eps) -> PlayLine(name, eps) }
+    }
+    var selectedLine by remember { mutableIntStateOf(0) }
+    val safeLine = if (playLines.isNotEmpty()) selectedLine.coerceIn(playLines.indices) else 0
+    val lineEpisodes: List<Episode> = playLines.getOrNull(safeLine)?.episodes.orEmpty()
 
     val vod: Vod = remember(detail) {
         detail?.let {
@@ -113,8 +128,24 @@ fun DetailScreen(
     }
 
     var selectedEpisode by remember { mutableIntStateOf(0) }
-    var favorite by remember { mutableStateOf(false) }
     var showMagnetDialog by remember { mutableStateOf(false) }
+
+    // 当前来源名：收藏时记下来，收藏列表里展示
+    val sourceName = remember {
+        when {
+            DrpySourceManager.hasActiveRule() ->
+                DrpySourceManager.activeRuleName()?.removeSuffix(".js")
+                    ?.ifBlank { "drpy规则" } ?: "drpy规则"
+            PySourceManager.hasActiveRule() ->
+                PySourceManager.activeRuleName()?.removeSuffix(".py")
+                    ?.ifBlank { "PY规则" } ?: "PY规则"
+            else -> "站源"
+        }
+    }
+    var favorite by remember { mutableStateOf(false) }
+    LaunchedEffect(vodId, sourceName) {
+        favorite = FavoriteStore.isFavorite(context, vodId, sourceName)
+    }
 
     /** 统一播放决策：磁力 -> MagnetPlayer；否则 drpy/PY playUrl 取直链 */
     fun playEpisode(ep: Episode) {
@@ -138,12 +169,12 @@ fun DetailScreen(
         }
     }
 
-    val safeSelected = if (episodes.isNotEmpty()) {
-        selectedEpisode.coerceIn(0, episodes.size - 1)
+    val safeSelected = if (lineEpisodes.isNotEmpty()) {
+        selectedEpisode.coerceIn(0, lineEpisodes.size - 1)
     } else selectedEpisode
     val playLabel = when {
-        episodes.isNotEmpty() ->
-            "播放 ${episodes[safeSelected].name.ifBlank { "第${safeSelected + 1}集" }}"
+        lineEpisodes.isNotEmpty() ->
+            "播放 ${lineEpisodes[safeSelected].name.ifBlank { "第${safeSelected + 1}集" }}"
         vod.episodes > 1 -> "播放 第${selectedEpisode + 1}集"
         else -> "立即播放"
     }
@@ -158,9 +189,31 @@ fun DetailScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { favorite = !favorite }) {
+                    IconButton(onClick = {
+                        scope.launch {
+                            if (favorite) {
+                                FavoriteStore.remove(context, vodId, sourceName)
+                                Toast.makeText(context, "已取消收藏", Toast.LENGTH_SHORT)
+                                    .show()
+                            } else {
+                                FavoriteStore.add(
+                                    context,
+                                    FavoriteItem(
+                                        vodId = vodId,
+                                        name = vod.title,
+                                        pic = detail?.vodPic.orEmpty(),
+                                        sourceName = sourceName,
+                                        savedAt = System.currentTimeMillis(),
+                                    ),
+                                )
+                                Toast.makeText(context, "已收藏", Toast.LENGTH_SHORT).show()
+                            }
+                            favorite = FavoriteStore.isFavorite(context, vodId, sourceName)
+                        }
+                    }) {
                         Icon(
-                            imageVector = Icons.Filled.FavoriteBorder,
+                            imageVector = if (favorite) Icons.Filled.Favorite
+                            else Icons.Filled.FavoriteBorder,
                             contentDescription = "收藏",
                             tint = if (favorite) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurface,
@@ -291,8 +344,8 @@ fun DetailScreen(
                 item {
                     Button(
                         onClick = {
-                            if (episodes.isNotEmpty()) {
-                                playEpisode(episodes[safeSelected])
+                            if (lineEpisodes.isNotEmpty()) {
+                                playEpisode(lineEpisodes[safeSelected])
                             } else {
                                 // 演示数据：无真实地址，播放页显示"暂无可播地址"
                                 onPlay("", vod.title)
@@ -310,12 +363,31 @@ fun DetailScreen(
                     Spacer(Modifier.height(8.dp))
                 }
 
-                // 选集：drpy 真实选集优先
+                // 选集：drpy 真实选集优先；多条线路时上方显示线路 TabRow
                 when {
-                    episodes.isNotEmpty() -> {
+                    lineEpisodes.isNotEmpty() -> {
+                        if (playLines.size > 1) {
+                            item {
+                                ScrollableTabRow(
+                                    selectedTabIndex = safeLine,
+                                    edgePadding = 16.dp,
+                                ) {
+                                    playLines.forEachIndexed { i, line ->
+                                        Tab(
+                                            selected = safeLine == i,
+                                            onClick = {
+                                                selectedLine = i
+                                                selectedEpisode = 0
+                                            },
+                                            text = { Text(line.name) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         item {
                             Text(
-                                text = "选集（共 ${episodes.size} 集）",
+                                text = "选集（共 ${lineEpisodes.size} 集）",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -329,7 +401,7 @@ fun DetailScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                episodes.forEachIndexed { i, ep ->
+                                lineEpisodes.forEachIndexed { i, ep ->
                                     FilterChip(
                                         selected = safeSelected == i,
                                         onClick = { selectedEpisode = i },

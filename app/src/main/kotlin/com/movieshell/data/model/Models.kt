@@ -102,6 +102,16 @@ data class Episode(
     val url: String = ""
 )
 
+/**
+ * 播放线路：name=线路名（vod_play_from 的分组名，如"线路1"/"m3u8"），
+ * episodes=该线路的选集。由 UI 层按 Episode.flag 分组得到，
+ * VodDetail 本体仍只存 play_from / play_url 原文。
+ */
+data class PlayLine(
+    val name: String,
+    val episodes: List<Episode> = emptyList()
+)
+
 /** 分类：对应 CMS 的 class 数组项 {type_id, type_name}。 */
 @Serializable
 data class CategoryType(
