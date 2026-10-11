@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -88,6 +89,7 @@ fun PlayerScreen(
     var resizeIndex by remember { mutableIntStateOf(0) } // 默认适应
     var showEpisodes by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+    var showServiceMissingDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     BackHandler(onBack = onBack)
@@ -112,14 +114,27 @@ fun PlayerScreen(
 
     // 播放 / 切集：先保存上一集进度，再播新地址（带断点续播）
     // url 为空表示暂无可播放地址（演示数据阶段），不启动播放器
+    // magnet: 地址不直接播，走 MagnetPlayer 探测本机转播服务后再起播；
+    // 历史记录一律用原始 url（磁力链接本身）做 key，保证磁力也能断点续播
     var lastUrl by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(url) {
         lastUrl?.let { prev -> savePlayerProgress(context, title, prev) }
         if (url.isNotBlank()) {
-            PlayerManager.init(context)
             val resumeAt = HistoryStore.getProgress(context, url)
                 .takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
-            PlayerManager.play(url, startPositionMs = resumeAt)
+            val started = if (MagnetPlayer.isMagnet(url)) {
+                MagnetPlayer.playIfReady(
+                    context = context,
+                    magnet = url,
+                    title = title,
+                    startPositionMs = resumeAt,
+                )
+            } else {
+                PlayerManager.init(context)
+                PlayerManager.play(url, startPositionMs = resumeAt)
+                true
+            }
+            showServiceMissingDialog = !started
         }
         lastUrl = url
     }
@@ -222,6 +237,22 @@ fun PlayerScreen(
                 onEpisodeClick = {
                     showEpisodes = false
                     onEpisodeClick(it)
+                },
+            )
+        }
+
+        // 磁力转播服务未启动提示
+        if (showServiceMissingDialog) {
+            AlertDialog(
+                onDismissRequest = { showServiceMissingDialog = false },
+                title = { Text("磁力转播服务未启动") },
+                text = {
+                    Text("未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream 后再试")
+                },
+                confirmButton = {
+                    TextButton(onClick = { showServiceMissingDialog = false }) {
+                        Text("知道了")
+                    }
                 },
             )
         }
