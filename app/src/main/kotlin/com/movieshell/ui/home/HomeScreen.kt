@@ -100,7 +100,7 @@ fun HomeScreen(
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset {
-                if (refreshing || source != NestedScrollSource.UserInput) return Offset.Zero
+                if (refreshing || source != NestedScrollSource.Drag) return Offset.Zero
                 val atTop = gridState.firstVisibleItemIndex == 0 &&
                     gridState.firstVisibleItemScrollOffset == 0
                 if (!atTop) {

@@ -75,8 +75,9 @@ open class Vod(
     open val typeName: String = ""
 )
 
-/** 影片详情：继承 Vod 全部字段，追加介绍/演员/导演/播放来源与播放地址。 */
-@Serializable
+/** 影片详情：继承 Vod 全部字段，追加介绍/演员/导演/播放来源与播放地址。
+ *  注意：不加 @Serializable（由 CmsApi 手工构造），避免与父类 Vod 的同名属性
+ *  在 kotlinx.serialization 中产生重复 serial name 编译错误。 */
 data class VodDetail(
     override val vodId: String = "",
     override val vodName: String = "",
