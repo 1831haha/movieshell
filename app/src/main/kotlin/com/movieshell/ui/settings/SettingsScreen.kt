@@ -1,5 +1,8 @@
 package com.movieshell.ui.settings
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contracts.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -9,12 +12,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -32,18 +37,57 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.movieshell.data.repo.BackupManager
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onManualClick: () -> Unit = {}) {
+    val context = LocalContext.current
     var theme by remember { mutableStateOf("深色") }
     var showThemeDialog by remember { mutableStateOf(false) }
     var player by remember { mutableStateOf("内置播放器（ExoPlayer）") }
     var showPlayerDialog by remember { mutableStateOf(false) }
     var cacheSize by remember { mutableStateOf("128 MB") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
+
+    // 备份/恢复 launcher：必须在 onClick 引用之前声明
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        try {
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(BackupManager.exportJson(context).toByteArray(Charsets.UTF_8))
+            }
+            Toast.makeText(context, "备份已导出", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(context, "导出失败：${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        try {
+            val text = context.contentResolver.openInputStream(uri)?.use { input ->
+                input.readBytes().toString(Charsets.UTF_8)
+            } ?: return@rememberLauncherForActivityResult
+            when (val r = BackupManager.importJson(context, text)) {
+                is BackupManager.RestoreResult.Ok ->
+                    Toast.makeText(context, "恢复成功", Toast.LENGTH_SHORT).show()
+                is BackupManager.RestoreResult.Failed ->
+                    Toast.makeText(context, "恢复失败：${r.reason}", Toast.LENGTH_LONG).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "恢复失败：${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -76,6 +120,24 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
                     title = "清理缓存",
                     subtitle = "共占用 $cacheSize",
                     onClick = { showClearCacheDialog = true },
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            SettingsGroup(title = "备份与恢复") {
+                SettingsRow(
+                    icon = Icons.Filled.Backup,
+                    title = "备份到文件",
+                    subtitle = "导出订阅与规则配置为 JSON 文件",
+                    onClick = {
+                        val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                        exportLauncher.launch("movieshell_backup_$ts.json")
+                    },
+                )
+                SettingsRow(
+                    icon = Icons.Filled.Restore,
+                    title = "从文件恢复",
+                    subtitle = "从 JSON 备份文件恢复订阅与规则",
+                    onClick = { importLauncher.launch("application/json") },
                 )
             }
             Spacer(Modifier.height(12.dp))

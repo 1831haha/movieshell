@@ -2,10 +2,14 @@ package com.movieshell.player
 
 import android.app.Activity
 import android.content.Context
+import android.media.AudioManager
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -52,8 +57,10 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import kotlin.math.abs
+import kotlinx.coroutines.delay
 
-private val SPEEDS = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+private val SPEEDS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
 private val RESIZE_MODES = listOf(
     AspectRatioFrameLayout.RESIZE_MODE_FIT to "适应",
@@ -63,6 +70,15 @@ private val RESIZE_MODES = listOf(
 
 /** 断点续播阈值：上次进度超过 10 秒才续播 */
 private const val RESUME_THRESHOLD_MS = 10_000L
+
+/** 手势：水平滑动每走这么多像素触发一次 ±10 秒快进/快退 */
+private const val SEEK_STEP_PX = 60f
+
+/** 手势：垂直滑动每走这么多像素触发一次亮度/音量调节 */
+private const val ADJUST_STEP_PX = 50f
+
+/** 手势：亮度每步调节量（0~1） */
+private const val BRIGHTNESS_STEP = 0.05f
 
 /**
  * 全屏播放器界面。
@@ -85,11 +101,12 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
-    var speedIndex by remember { mutableIntStateOf(1) } // 默认 1.0x
+    var speedIndex by remember { mutableIntStateOf(2) } // 默认 1.0x
     var resizeIndex by remember { mutableIntStateOf(0) } // 默认适应
     var showEpisodes by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var showServiceMissingDialog by remember { mutableStateOf(false) }
+    var gestureHint by remember { mutableStateOf<String?>(null) } // 手势临时指示
     val snackbarHostState = remember { SnackbarHostState() }
 
     BackHandler(onBack = onBack)
@@ -153,6 +170,14 @@ fun PlayerScreen(
         }
     }
 
+    // 手势指示条：显示约 0.9 秒后自动隐藏
+    LaunchedEffect(gestureHint) {
+        if (gestureHint != null) {
+            delay(900)
+            gestureHint = null
+        }
+    }
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (url.isBlank()) {
             Text(
@@ -180,6 +205,82 @@ fun PlayerScreen(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
+        }
+
+        // 手势层：左右滑动=±10 秒快进/快退；左半屏上下=亮度；右半屏上下=音量。
+        // 轻点不消费事件，透传给 PlayerView 自带控制器，不影响现有控制 UI。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        var mode = 0 // 0=未定 1=水平 2=垂直
+                        val slopChange = awaitTouchSlopOrCancellation(down.id) { change, _ ->
+                            val dx = change.position.x - down.position.x
+                            val dy = change.position.y - down.position.y
+                            mode = if (abs(dx) > abs(dy)) 1 else 2
+                        }
+                        if (slopChange == null || mode == 0) return@awaitEachGesture // 轻点：不消费
+                        var last = slopChange.position
+                        var accX = 0f
+                        var accY = 0f
+                        val leftHalf = down.position.x < size.width / 2
+                        do {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                                ?: break
+                            val dx = change.position.x - last.x
+                            val dy = change.position.y - last.y
+                            last = change.position
+                            when (mode) {
+                                1 -> {
+                                    accX += dx
+                                    if (abs(accX) >= SEEK_STEP_PX) {
+                                        val dir = if (accX > 0) 1 else -1
+                                        accX = 0f
+                                        PlayerManager.player?.let { p ->
+                                            val end = p.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+                                            p.seekTo(
+                                                (p.currentPosition + dir * 10_000L)
+                                                    .coerceIn(0L, end)
+                                            )
+                                            gestureHint =
+                                                if (dir > 0) "快进 10 秒 »" else "« 快退 10 秒"
+                                        }
+                                    }
+                                }
+                                2 -> {
+                                    accY += dy
+                                    if (abs(accY) >= ADJUST_STEP_PX) {
+                                        val up = accY < 0
+                                        accY = 0f
+                                        gestureHint = if (leftHalf) {
+                                            val pct = adjustBrightness(context, up)
+                                            if (pct >= 0) "亮度 $pct%" else null
+                                        } else {
+                                            val pct = adjustVolume(context, up)
+                                            if (pct >= 0) "音量 $pct%" else null
+                                        }
+                                    }
+                                }
+                            }
+                            change.consume()
+                        } while (change.pressed)
+                    }
+                },
+        )
+
+        // 手势指示条：中央临时提示
+        gestureHint?.let { hint ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+            ) {
+                Text(hint, color = Color.White, style = MaterialTheme.typography.titleMedium)
+            }
         }
 
         // 顶部栏：返回 + 标题 + 倍速 + 画面比例 + 选集
@@ -257,6 +358,30 @@ fun PlayerScreen(
             )
         }
     }
+}
+
+/** 左半屏上下滑动：调节屏幕亮度。返回调节后的亮度百分比，失败返回 -1 */
+private fun adjustBrightness(context: Context, up: Boolean): Int {
+    val activity = context as? Activity ?: return -1
+    val lp = activity.window.attributes
+    val cur = if (lp.screenBrightness < 0) 0.5f else lp.screenBrightness
+    val next = (cur + if (up) BRIGHTNESS_STEP else -BRIGHTNESS_STEP).coerceIn(0.01f, 1f)
+    lp.screenBrightness = next
+    activity.window.attributes = lp
+    return (next * 100).toInt()
+}
+
+/** 右半屏上下滑动：调节媒体音量。返回调节后的音量百分比，失败返回 -1 */
+private fun adjustVolume(context: Context, up: Boolean): Int {
+    val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return -1
+    am.adjustStreamVolume(
+        AudioManager.STREAM_MUSIC,
+        if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
+        0,
+    )
+    val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+    if (max <= 0) return -1
+    return am.getStreamVolume(AudioManager.STREAM_MUSIC) * 100 / max
 }
 
 /** 读取当前进度并写入历史记录 */
