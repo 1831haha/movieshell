@@ -1,6 +1,8 @@
 package com.movieshell.ui.sources
 
+import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -40,6 +42,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,9 +52,12 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.movieshell.data.repo.DrpySourceManager
+import java.io.File
 
 /** 站源条目：开关状态用 mutableStateOf 包裹，保证 Switch 切换即时刷新 */
 class SourceEntry(
@@ -72,27 +78,41 @@ class SourceGroup(
     var expanded by mutableStateOf(true)
 }
 
+/** 在 filesDir/drpy 下按规则名删除对应的 .js 文件（兼容 name 带/不带 .js 后缀） */
+private fun deleteDrpyRuleFile(context: Context, name: String): Boolean {
+    val dir = File(context.filesDir, "drpy")
+    val target = dir.listFiles()?.firstOrNull {
+        it.isFile && (it.name == name || it.nameWithoutExtension == name)
+    } ?: return false
+    return runCatching { target.delete() }.getOrDefault(false)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SourcesScreen() {
-    val groups = remember {
+    val context = LocalContext.current
+
+    // drpy 规则：从 DrpySourceManager 读真实数据（filesDir/drpy/*.js）
+    val drpyRules = remember { mutableStateListOf<DrpySourceManager.RuleInfo>() }
+    var activeRuleName by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        drpyRules.clear()
+        drpyRules.addAll(DrpySourceManager.listRules())
+        activeRuleName = DrpySourceManager.activeRuleName()
+    }
+
+    val apiGroup = remember {
+        SourceGroup(
+            id = "api", name = "接口站源", icon = Icons.Filled.Language,
+            entries = mutableStateListOf(
+                SourceEntry("量子资源", "https://cj.lziapi.com/api.php/provide/vod/"),
+                SourceEntry("天空资源", "https://api.tiankongapi.com/api.php/provide/vod/"),
+                SourceEntry("暴风资源", "https://bfzyapi.com/api.php/provide/vod/", enabled = false),
+            ),
+        )
+    }
+    val tailGroups = remember {
         mutableStateListOf(
-            SourceGroup(
-                id = "api", name = "接口站源", icon = Icons.Filled.Language,
-                entries = mutableStateListOf(
-                    SourceEntry("量子资源", "https://cj.lziapi.com/api.php/provide/vod/"),
-                    SourceEntry("天空资源", "https://api.tiankongapi.com/api.php/provide/vod/"),
-                    SourceEntry("暴风资源", "https://bfzyapi.com/api.php/provide/vod/", enabled = false),
-                ),
-            ),
-            SourceGroup(
-                id = "js", name = "JS文件夹", icon = Icons.Filled.Code,
-                entries = mutableStateListOf(
-                    SourceEntry("douban.js", "drpy 规则 · 128 KB"),
-                    SourceEntry("bilibili.js", "drpy 规则 · 96 KB", enabled = false),
-                    SourceEntry("ikanbot.js", "drpy 规则 · 74 KB"),
-                ),
-            ),
             SourceGroup(
                 id = "py", name = "PY文件夹", icon = Icons.Filled.Terminal,
                 entries = mutableStateListOf(
@@ -126,10 +146,25 @@ fun SourcesScreen() {
         val name = runCatching {
             url.substringAfter("://").substringBefore("/").substringBefore(":")
         }.getOrDefault("自定义订阅").ifBlank { "自定义订阅" }
-        groups.first { it.id == "api" }.entries.add(0, SourceEntry(name, url))
+        apiGroup.entries.add(0, SourceEntry(name, url))
         urlInput = ""
         urlError = false
         showAddDialog = false
+    }
+
+    fun selectDrpyRule(name: String) {
+        DrpySourceManager.setActiveRule(name)
+        activeRuleName = name
+    }
+
+    fun removeDrpyRule(name: String) {
+        deleteDrpyRuleFile(context, name)
+        drpyRules.removeAll { it.name == name }
+        if (activeRuleName == name) {
+            // 删掉的是当前规则 -> 清空激活状态
+            DrpySourceManager.setActiveRule(null)
+            activeRuleName = null
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -151,7 +186,22 @@ fun SourcesScreen() {
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(groups, key = { it.id }) { group ->
+            item {
+                GroupCard(
+                    group = apiGroup,
+                    onRemove = { entry -> apiGroup.entries.remove(entry) },
+                )
+            }
+            // JS 分组：真实 drpy 规则数据
+            item {
+                DrpyGroupCard(
+                    rules = drpyRules,
+                    activeRuleName = activeRuleName,
+                    onSelect = ::selectDrpyRule,
+                    onRemove = ::removeDrpyRule,
+                )
+            }
+            items(tailGroups, key = { it.id }) { group ->
                 GroupCard(
                     group = group,
                     onRemove = { entry -> group.entries.remove(entry) },
@@ -193,6 +243,132 @@ fun SourcesScreen() {
                 TextButton(onClick = { showAddDialog = false }) { Text("取消") }
             },
         )
+    }
+}
+
+/** drpy 规则分组卡：数据来自 DrpySourceManager.listRules() */
+@Composable
+private fun DrpyGroupCard(
+    rules: SnapshotStateList<DrpySourceManager.RuleInfo>,
+    activeRuleName: String?,
+    onSelect: (String) -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(true) }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Code,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = "JS文件夹",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                BadgedBox(badge = { Badge { Text(rules.size.toString()) } }) {
+                    Spacer(Modifier.size(4.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                IconButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (expanded) "收起" else "展开",
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = expanded) {
+                Column {
+                    if (rules.isEmpty()) {
+                        Text(
+                            text = "该分组暂无文件",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    } else {
+                        rules.forEach { rule ->
+                            DrpyRuleRow(
+                                rule = rule,
+                                isActive = rule.name == activeRuleName,
+                                onSelect = { onSelect(rule.name) },
+                                onRemove = { onRemove(rule.name) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** drpy 规则行：点击设为当前规则；删除后若是当前规则则清空激活状态 */
+@Composable
+private fun DrpyRuleRow(
+    rule: DrpySourceManager.RuleInfo,
+    isActive: Boolean,
+    onSelect: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onSelect)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = rule.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (isActive) {
+                    Spacer(Modifier.width(8.dp))
+                    Badge(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ) { Text("当前") }
+                }
+            }
+            Text(
+                text = "drpy 规则 · ${rule.sizeKb} KB",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = "删除",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 

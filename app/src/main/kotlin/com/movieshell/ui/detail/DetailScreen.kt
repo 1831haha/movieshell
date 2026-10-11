@@ -24,7 +24,9 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -32,34 +34,109 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.movieshell.data.model.Episode
+import com.movieshell.data.model.VodDetail
+import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.SiteRepository
+import com.movieshell.player.MagnetPlayer
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.data.DemoData
+import com.movieshell.ui.data.Vod
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun DetailScreen(
     vodId: String,
     onBack: () -> Unit,
-    onPlay: (vodId: String, episode: Int) -> Unit = { _, _ -> },
+    onPlay: (playUrl: String, title: String) -> Unit = { _, _ -> },
 ) {
-    val vod = remember(vodId) { DemoData.find(vodId) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // ---- drpy 接入 ----
+    val drpyActive = remember { DrpySourceManager.hasActiveRule() }
+    var detailLoading by remember { mutableStateOf(false) }
+    var detail by remember { mutableStateOf<VodDetail?>(null) }
+    LaunchedEffect(vodId) {
+        if (drpyActive) {
+            detailLoading = true
+            detail = runCatching { DrpySourceManager.detail(vodId) }.getOrNull()
+            detailLoading = false
+        }
+    }
+    // 真实选集：vodPlayFrom/vodPlayUrl 对齐
+    val episodes: List<Episode> = remember(detail) {
+        detail?.let { SiteRepository().parseEpisodes(it) }.orEmpty()
+    }
+
+    val vod: Vod = remember(detail) {
+        detail?.let {
+            Vod(
+                id = it.vodId.ifBlank { vodId },
+                title = it.vodName.ifBlank { vodId },
+                category = it.typeName,
+                year = it.vodYear,
+                rating = it.vodRemarks,
+                area = "",
+                actors = it.vodActor.ifBlank { "未知" },
+                desc = it.vodDesc.ifBlank { "暂无简介" },
+                episodes = episodes.size,
+            )
+        } ?: DemoData.find(vodId)
+    }
+
     var selectedEpisode by remember { mutableIntStateOf(0) }
     var favorite by remember { mutableStateOf(false) }
+    var showMagnetDialog by remember { mutableStateOf(false) }
+
+    /** 统一播放决策：磁力 -> MagnetPlayer；否则 drpy playUrl 取直链 */
+    fun playEpisode(ep: Episode) {
+        scope.launch {
+            if (MagnetPlayer.isMagnet(ep.url)) {
+                val ok = runCatching {
+                    MagnetPlayer.playIfReady(context, ep.url, vod.title)
+                }.getOrDefault(false)
+                // 服务通则已直接起播；不通则弹窗提示
+                if (!ok) showMagnetDialog = true
+            } else {
+                val link = runCatching {
+                    DrpySourceManager.playUrl(if (ep.flag.isBlank()) "" else ep.flag, ep.url)
+                }.getOrDefault("")
+                // link 为空 -> 播放页保持"暂无可播地址"逻辑
+                onPlay(link, "${vod.title} ${ep.name.ifBlank { "第${selectedEpisode + 1}集" }}")
+            }
+        }
+    }
+
+    val safeSelected = if (episodes.isNotEmpty()) {
+        selectedEpisode.coerceIn(0, episodes.size - 1)
+    } else selectedEpisode
+    val playLabel = when {
+        episodes.isNotEmpty() ->
+            "播放 ${episodes[safeSelected].name.ifBlank { "第${safeSelected + 1}集" }}"
+        vod.episodes > 1 -> "播放 第${selectedEpisode + 1}集"
+        else -> "立即播放"
+    }
 
     Scaffold(
         topBar = {
@@ -86,152 +163,223 @@ fun DetailScreen(
             )
         },
     ) { inner ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(inner),
-        ) {
-            // 海报头图
-            item {
-                GradientBlock(
-                    key = vod.id,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f),
-                ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        0.4f to Color.Transparent,
-                                        1f to Color(0xAA000000),
-                                    )
-                                )
-                        )
-                        // 居中播放按钮
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .size(64.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xCC000000)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = "播放",
-                                tint = Color.White,
-                                modifier = Modifier.size(40.dp),
-                            )
-                        }
-                        Text(
-                            text = vod.title,
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(16.dp),
-                            color = Color.White,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-            }
-
-            // 标题与元信息
-            item {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Filled.Star,
-                            contentDescription = null,
-                            tint = Color(0xFFFFB300),
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = vod.rating,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFFB300),
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        MetaChip(vod.year)
-                        MetaChip(vod.category)
-                        MetaChip(vod.area)
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "主演：${vod.actors}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+        if (drpyActive && detailLoading && detail == null) {
+            // drpy 详情加载中
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(inner),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        text = "简介",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = vod.desc,
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = "加载中…",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 22.sp,
                     )
                 }
             }
-
-            // 播放按钮
-            item {
-                Button(
-                    onClick = { onPlay(vod.id, selectedEpisode) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    shape = RoundedCornerShape(12.dp),
-                ) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = if (vod.episodes > 1) "播放 第${selectedEpisode + 1}集" else "立即播放",
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // 选集
-            if (vod.episodes > 1) {
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(inner),
+            ) {
+                // 海报头图
                 item {
-                    Text(
-                        text = "选集（共 ${vod.episodes} 集）",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
+                    GradientBlock(
+                        key = vod.id,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f),
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            0.4f to Color.Transparent,
+                                            1f to Color(0xAA000000),
+                                        )
+                                    )
+                            )
+                            // 居中播放按钮
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .size(64.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xCC000000)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PlayArrow,
+                                    contentDescription = "播放",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(40.dp),
+                                )
+                            }
+                            Text(
+                                text = vod.title,
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(16.dp),
+                                color = Color.White,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
                 }
+
+                // 标题与元信息
                 item {
-                    FlowRow(
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.Star,
+                                contentDescription = null,
+                                tint = Color(0xFFFFB300),
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = vod.rating,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFFB300),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            MetaChip(vod.year)
+                            MetaChip(vod.category)
+                            MetaChip(vod.area)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "主演：${vod.actors}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = "简介",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = vod.desc,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 22.sp,
+                        )
+                    }
+                }
+
+                // 播放按钮
+                item {
+                    Button(
+                        onClick = {
+                            if (episodes.isNotEmpty()) {
+                                playEpisode(episodes[safeSelected])
+                            } else {
+                                // 演示数据：无真实地址，播放页显示"暂无可播地址"
+                                onPlay("", vod.title)
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                     ) {
-                        repeat(vod.episodes) { i ->
-                            FilterChip(
-                                selected = selectedEpisode == i,
-                                onClick = { selectedEpisode = i },
-                                label = { Text("第${i + 1}集") },
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(text = playLabel)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                // 选集：drpy 真实选集优先
+                when {
+                    episodes.isNotEmpty() -> {
+                        item {
+                            Text(
+                                text = "选集（共 ${episodes.size} 集）",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             )
                         }
+                        item {
+                            FlowRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                episodes.forEachIndexed { i, ep ->
+                                    FilterChip(
+                                        selected = safeSelected == i,
+                                        onClick = { selectedEpisode = i },
+                                        label = {
+                                            Text(ep.name.ifBlank { "第${i + 1}集" })
+                                        },
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(24.dp))
+                        }
                     }
-                    Spacer(Modifier.height(24.dp))
+                    vod.episodes > 1 -> {
+                        item {
+                            Text(
+                                text = "选集（共 ${vod.episodes} 集）",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
+                        item {
+                            FlowRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                repeat(vod.episodes) { i ->
+                                    FilterChip(
+                                        selected = selectedEpisode == i,
+                                        onClick = { selectedEpisode = i },
+                                        label = { Text("第${i + 1}集") },
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(24.dp))
+                        }
+                    }
+                    else -> {
+                        item { Spacer(Modifier.height(16.dp)) }
+                    }
                 }
-            } else {
-                item { Spacer(Modifier.height(16.dp)) }
             }
         }
+    }
+
+    // 磁力转播服务未启动提示
+    if (showMagnetDialog) {
+        AlertDialog(
+            onDismissRequest = { showMagnetDialog = false },
+            title = { Text("磁力转播服务未启动") },
+            text = {
+                Text("未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream 后再试")
+            },
+            confirmButton = {
+                TextButton(onClick = { showMagnetDialog = false }) { Text("知道了") }
+            },
+        )
     }
 }
 

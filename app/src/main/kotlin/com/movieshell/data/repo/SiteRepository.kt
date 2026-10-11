@@ -61,11 +61,11 @@ class SiteRepository(
         if (site.type.isCms()) cmsApi.detail(site, vodId)
         else runCatching { drpyEngine?.detail(vodId) }.getOrNull() ?: VodDetail(vodId = vodId)
 
-    /** 搜索；站源声明 searchable=0 时直接返回空，不发请求。 */
+    /** 搜索；站源声明 searchable=0 时直接返回空，不发请求。非 CMS 站走 drpy 引擎。 */
     suspend fun search(site: Site, wd: String): List<Vod> {
         if (!site.searchable || wd.isBlank()) return emptyList()
         return if (site.type.isCms()) cmsApi.search(site, wd)
-        else emptyList() // v0.1：drpy 搜索随引擎一起在 v0.2 实现
+        else runCatching { drpyEngine?.search(wd) }.getOrNull().orEmpty()
     }
 
     /**

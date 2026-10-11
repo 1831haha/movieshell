@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -34,10 +35,12 @@ import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,9 +53,28 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.movieshell.data.model.Vod as ModelVod
+import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
+import kotlinx.coroutines.launch
+
+/** drpy 影片 -> 界面 Vod */
+private fun ModelVod.toUiVod() = Vod(
+    id = vodId,
+    title = vodName,
+    category = typeName,
+    year = vodYear,
+    rating = vodRemarks,
+    area = "",
+    actors = "",
+    desc = "",
+    episodes = 0,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +83,23 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
     var submitted by remember { mutableStateOf("") }
     val history = remember { mutableStateListOf<String>() }
     val focusManager = LocalFocusManager.current
+    val scope = rememberCoroutineScope()
+
+    // ---- drpy 接入 ----
+    var drpyActive by remember { mutableStateOf(false) }
+    var drpySearching by remember { mutableStateOf(false) }
+    var drpyResults by remember { mutableStateOf<List<Vod>?>(null) } // null=尚未搜过
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                drpyActive = DrpySourceManager.hasActiveRule()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     fun doSearch(text: String) {
         val t = text.trim()
@@ -70,14 +109,26 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
         history.add(0, t)
         if (history.size > 10) history.removeAt(history.lastIndex)
         focusManager.clearFocus()
+        if (drpyActive) {
+            // 有激活的 drpy 规则：走规则搜索
+            drpySearching = true
+            drpyResults = null
+            scope.launch {
+                val list = runCatching { DrpySourceManager.search(t) }.getOrDefault(emptyList())
+                drpyResults = list.map { it.toUiVod() }
+                drpySearching = false
+            }
+        }
     }
 
-    val results: List<Vod> = remember(submitted) {
+    // 演示数据搜索（无激活规则时用）
+    val demoResults: List<Vod> = remember(submitted) {
         if (submitted.isBlank()) emptyList()
         else DemoData.vods.filter {
             it.title.contains(submitted) || it.actors.contains(submitted) || it.category.contains(submitted)
         }
     }
+    val results: List<Vod>? = if (drpyActive) drpyResults else demoResults
 
     Column(modifier = Modifier.fillMaxSize()) {
         // 搜索框
@@ -170,8 +221,21 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                 }
             }
         } else {
-            // 搜索结果
-            if (results.isEmpty()) {
+            // 搜索结果：drpy 搜索中显示加载圈
+            if (drpyActive && (drpySearching || results == null)) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "搜索中…",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else if (results.isNullOrEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -192,7 +256,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(results, key = { it.id }) { vod ->
+                    items(results.orEmpty(), key = { it.id }) { vod ->
                         ListItem(
                             headlineContent = {
                                 Text(vod.title, fontWeight = FontWeight.SemiBold)

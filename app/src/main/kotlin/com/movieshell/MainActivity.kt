@@ -26,10 +26,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.player.PlayerManager
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
-import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.search.SearchScreen
@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         PlayerManager.init(this)
+        DrpySourceManager.init(this)
         setContent {
             MovieShellTheme {
                 val navController = rememberNavController()
@@ -103,13 +104,12 @@ class MainActivity : ComponentActivity() {
                             DetailScreen(
                                 vodId = entry.arguments?.getString("vodId").orEmpty(),
                                 onBack = { navController.popBackStack() },
-                                onPlay = { vodId, episode ->
-                                    // 演示数据暂无真实流地址，URL 为空由播放页处理；
-                                    // 接入站源后此处传入真实播放地址
-                                    val title = DemoData.find(vodId).title
+                                onPlay = { playUrl, title ->
+                                    // DetailScreen 已做完播放决策（磁力/直链解析）：
+                                    // playUrl 为空 -> 播放页显示"暂无可播放地址"
                                     navController.navigateToPlayer(
-                                        url = "",
-                                        title = "$title 第${episode + 1}集",
+                                        url = playUrl,
+                                        title = title,
                                     )
                                 },
                             )

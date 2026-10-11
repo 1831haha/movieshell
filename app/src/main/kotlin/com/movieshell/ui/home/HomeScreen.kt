@@ -38,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -60,12 +61,31 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.movieshell.data.model.CategoryType
+import com.movieshell.data.model.Vod as ModelVod
+import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** drpy 影片 -> 界面 Vod（id=vodId, title=vodName, category=typeName, year=vodYear, rating=vodRemarks） */
+private fun ModelVod.toUiVod() = Vod(
+    id = vodId,
+    title = vodName,
+    category = typeName,
+    year = vodYear,
+    rating = vodRemarks,
+    area = "",
+    actors = "",
+    desc = "",
+    episodes = 0,
+)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -82,13 +102,73 @@ fun HomeScreen(
     var selectedCategory by remember { mutableIntStateOf(0) } // 0 = 全部
     var shuffleSeed by remember { mutableIntStateOf(0) }
 
+    // ---- drpy 接入 ----
+    var drpyActive by remember { mutableStateOf(false) }
+    var drpyLoading by remember { mutableStateOf(false) }
+    var drpyCats by remember { mutableStateOf<List<CategoryType>>(emptyList()) }
+    var drpyList by remember { mutableStateOf<List<ModelVod>?>(null) } // null=未加载/失败
+
+    fun loadDrpyHome() {
+        scope.launch {
+            drpyLoading = true
+            val home = runCatching { DrpySourceManager.home() }.getOrDefault(emptyList())
+            val cats = runCatching { DrpySourceManager.categories() }.getOrDefault(emptyList())
+            drpyCats = cats
+            drpyList = home.ifEmpty { null }
+            selectedCategory = 0
+            drpyLoading = false
+        }
+    }
+
+    fun loadDrpyCategory(index: Int) { // index >= 1，对应 drpyCats[index-1]
+        val cat = drpyCats.getOrNull(index - 1) ?: return
+        scope.launch {
+            drpyLoading = true
+            val list = runCatching { DrpySourceManager.category(cat.typeId, 1) }.getOrDefault(emptyList())
+            drpyList = list.ifEmpty { null }
+            selectedCategory = index
+            drpyLoading = false
+        }
+    }
+
+    fun refreshDrpyState() {
+        val active = DrpySourceManager.hasActiveRule()
+        val changed = active != drpyActive
+        drpyActive = active
+        if (active && (changed || drpyList == null)) loadDrpyHome()
+    }
+
+    // 底部 tab 切换回来（saveState 恢复时）也要重新检查激活状态，
+    // 否则在站源页设了当前规则后首页还停留在演示数据
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refreshDrpyState()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     fun doRefresh() {
         if (refreshing) return
         refreshing = true
-        scope.launch {
-            delay(1200) // 占位：模拟刷新耗时
-            refreshing = false
-            pullOffset = 0f
+        if (drpyActive) {
+            // 下拉刷新：重调 home
+            scope.launch {
+                val home = runCatching { DrpySourceManager.home() }.getOrDefault(emptyList())
+                val cats = runCatching { DrpySourceManager.categories() }.getOrDefault(emptyList())
+                drpyCats = cats
+                drpyList = home.ifEmpty { null }
+                selectedCategory = 0
+                refreshing = false
+                pullOffset = 0f
+            }
+        } else {
+            scope.launch {
+                delay(1200) // 占位：模拟刷新耗时
+                refreshing = false
+                pullOffset = 0f
+            }
         }
     }
 
@@ -123,17 +203,31 @@ fun HomeScreen(
         }
     }
 
-    val filtered: List<Vod> = remember(selectedCategory, shuffleSeed) {
-        val base = if (selectedCategory == 0) {
-            DemoData.vods
-        } else {
-            val cat = DemoData.categories[selectedCategory - 1]
-            DemoData.vods.filter { it.category == cat }
+    // drpy 数据就绪：用真实数据；失败/为空 -> 回退演示数据
+    val drpyUiList: List<Vod>? = drpyList?.takeIf { it.isNotEmpty() }?.map { it.toUiVod() }
+    val drpyReady = drpyActive && drpyUiList != null
+    val chipLabels: List<String> =
+        if (drpyReady && drpyCats.isNotEmpty()) listOf("全部") + drpyCats.map { it.typeName }
+        else listOf("全部") + DemoData.categories
+
+    val filtered: List<Vod> = when {
+        drpyReady -> remember(shuffleSeed, drpyUiList) {
+            val base = drpyUiList!!
+            if (shuffleSeed == 0) base
+            else base.drop(shuffleSeed % base.size) + base.take(shuffleSeed % base.size)
         }
-        if (shuffleSeed == 0) base else base.drop(shuffleSeed % base.size) + base.take(shuffleSeed % base.size)
+        else -> remember(selectedCategory, shuffleSeed) {
+            val base = if (selectedCategory == 0) {
+                DemoData.vods
+            } else {
+                val cat = DemoData.categories[selectedCategory - 1]
+                DemoData.vods.filter { it.category == cat }
+            }
+            if (shuffleSeed == 0) base else base.drop(shuffleSeed % base.size) + base.take(shuffleSeed % base.size)
+        }
     }
 
-    val featured = remember { DemoData.vods.take(3) }
+    val featured: List<Vod> = (if (drpyReady) drpyUiList else DemoData.vods).orEmpty().take(3)
 
     Column(modifier = Modifier.fillMaxSize()) {
         // 下拉刷新指示条（占位）
@@ -189,27 +283,44 @@ fun HomeScreen(
                 }
             }
 
-            // 推荐位横滑大卡片
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                HeroPager(featured = featured, onVodClick = onVodClick)
+            // drpy 首次加载中
+            if (drpyActive && drpyLoading && drpyList == null) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
             }
 
-            // 分类行
+            // 推荐位横滑大卡片
+            if (featured.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    HeroPager(featured = featured, onVodClick = onVodClick)
+                }
+            }
+
+            // 分类行：drpy 真实分类；失败回退演示分类
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    FilterChip(
-                        selected = selectedCategory == 0,
-                        onClick = { selectedCategory = 0 },
-                        label = { Text("全部") },
-                    )
-                    DemoData.categories.forEachIndexed { index, cat ->
+                    chipLabels.forEachIndexed { index, label ->
                         FilterChip(
-                            selected = selectedCategory == index + 1,
-                            onClick = { selectedCategory = index + 1 },
-                            label = { Text(cat) },
+                            selected = selectedCategory == index,
+                            onClick = {
+                                if (drpyReady && drpyCats.isNotEmpty()) {
+                                    if (index == 0) loadDrpyHome() else loadDrpyCategory(index)
+                                } else {
+                                    selectedCategory = index
+                                }
+                            },
+                            label = { Text(label) },
                         )
                     }
                 }
