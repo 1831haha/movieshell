@@ -171,6 +171,41 @@ fun SourcesScreen() {
     // PY 规则：从 PySourceManager 读真实数据（filesDir/py/*.py）
     val pyRules = remember { mutableStateListOf<PySourceManager.RuleInfo>() }
     var activePyRuleName by remember { mutableStateOf<String?>(null) }
+
+    /** 刷新 AI/PHP 分组：从 filesDir/ai|php 扫描真实文件 */
+    fun refreshLocalFolder(groupId: String) {
+        val group = tailGroups.firstOrNull { it.id == groupId } ?: return
+        val (dirName, desc) = when (groupId) {
+            "ai" -> "ai" to "AI 规则"
+            "php" -> "php" to "PHP 规则"
+            else -> return
+        }
+        group.entries.clear()
+        group.entries.addAll(listLocalFolderEntries(context, dirName, desc))
+    }
+
+    fun refreshDrpyRules() {
+        drpyRules.clear()
+        drpyRules.addAll(DrpySourceManager.listRules())
+        activeRuleName = DrpySourceManager.activeRuleName()
+    }
+
+    fun refreshPyRules() {
+        pyRules.clear()
+        pyRules.addAll(PySourceManager.listRules())
+        activePyRuleName = PySourceManager.activeRuleName()
+    }
+
+    fun selectDrpyRule(name: String) {
+        DrpySourceManager.setActiveRule(name)
+        activeRuleName = name
+    }
+
+    fun selectPyRule(name: String) {
+        PySourceManager.setActiveRule(name)
+        activePyRuleName = name
+    }
+
     LaunchedEffect(Unit) {
         drpyRules.clear()
         drpyRules.addAll(DrpySourceManager.listRules())
@@ -203,30 +238,6 @@ fun SourcesScreen() {
                 entries = mutableStateListOf(),
             ),
         )
-    }
-
-    /** 刷新 AI/PHP 分组：从 filesDir/ai|php 扫描真实文件 */
-    fun refreshLocalFolder(groupId: String) {
-        val group = tailGroups.firstOrNull { it.id == groupId } ?: return
-        val (dirName, desc) = when (groupId) {
-            "ai" -> "ai" to "AI 规则"
-            "php" -> "php" to "PHP 规则"
-            else -> return
-        }
-        group.entries.clear()
-        group.entries.addAll(listLocalFolderEntries(context, dirName, desc))
-    }
-
-    fun refreshDrpyRules() {
-        drpyRules.clear()
-        drpyRules.addAll(DrpySourceManager.listRules())
-        activeRuleName = DrpySourceManager.activeRuleName()
-    }
-
-    fun refreshPyRules() {
-        pyRules.clear()
-        pyRules.addAll(PySourceManager.listRules())
-        activePyRuleName = PySourceManager.activeRuleName()
     }
 
     // 文件导入：一个 launcher + 待处理目标；选错后缀 Toast 提示
@@ -309,11 +320,6 @@ fun SourcesScreen() {
         showAddDialog = false
     }
 
-    fun selectDrpyRule(name: String) {
-        DrpySourceManager.setActiveRule(name)
-        activeRuleName = name
-    }
-
     fun removeDrpyRule(name: String) {
         deleteDrpyRuleFile(context, name)
         drpyRules.removeAll { it.name == name }
@@ -322,11 +328,6 @@ fun SourcesScreen() {
             DrpySourceManager.setActiveRule(null)
             activeRuleName = null
         }
-    }
-
-    fun selectPyRule(name: String) {
-        PySourceManager.setActiveRule(name)
-        activePyRuleName = name
     }
 
     fun removePyRule(name: String) {
