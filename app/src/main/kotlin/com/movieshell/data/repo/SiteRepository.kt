@@ -5,6 +5,10 @@ import com.movieshell.data.model.Episode
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
+import com.movieshell.data.model.isCmsSite
+import com.movieshell.data.model.isJavaSpider
+import com.movieshell.data.model.isPhpSite
+import com.movieshell.data.model.isPySite
 import com.movieshell.data.model.toSite
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DrpyEngine
@@ -25,7 +29,10 @@ data class SiteSearchResult(val site: Site, val vods: List<Vod>)
  * 职责：
  *  1. loadFromConfig() 解析 TVBox 订阅 JSON，沉淀可用站源列表；
  *  2. 按 site 把 home/category/detail/search 分发："php:" 走 PhpSourceManager（明确不支持，返回空）、
- *     type=0/1 走 CmsApi、PY 站（type=3 或 api 以 .py 结尾）走 PY 引擎，其余走 drpy 引擎；
+ *     csp_ 开头的 Java spider 站（需 tvkj.jar，明确不支持，返回空）、
+ *     type=0/1 走 CmsApi、PY 站（type=3 且 api 以 .py 结尾）走 PY 引擎、
+ *     drpy 站（type=4 或 api 以 .js 结尾）走 drpy 引擎；
+ *     订阅展开的子站点（key 前缀 "sub:"）走 SubSiteEngines 的按站引擎；
  *  3. parseEpisodes() 把详情里的 vod_play_from / vod_play_url 对齐成 Episode 列表。
  */
 class SiteRepository(
@@ -55,37 +62,42 @@ class SiteRepository(
     /** 按 key 取站源，找不到返回 null。 */
     fun findSite(key: String): Site? = sites.find { it.key == key }
 
-    /** 首页推荐/最新：PHP 明确不支持，返回空。 */
+    /** 首页推荐/最新：PHP / csp_ Java spider 明确不支持，返回空。 */
     suspend fun home(site: Site): List<Vod> =
-        if (site.isPhp()) emptyList() // PHP 需 PHP 解释器，手机端暂不支持执行
-        else if (site.type.isCms()) cmsApi.home(site)
-        else if (site.isPy()) runCatching { pyEngine?.home() }.getOrNull().orEmpty()
-        else runCatching { drpyEngine?.home() }.getOrNull().orEmpty()
+        if (site.isPhpSite()) emptyList() // PHP 需 PHP 解释器，手机端暂不支持执行
+        else if (site.isJavaSpider()) emptyList() // csp_ Java spider：需 tvkj.jar，无运行环境
+        else if (site.isCmsSite()) cmsApi.home(site)
+        else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.home() }.getOrNull().orEmpty()
+        else runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.home() }.getOrNull().orEmpty()
 
     /** 分类：Pair(分类列表, 当前分类第 pg 页)。 */
     suspend fun category(site: Site, tid: String, pg: Int): Pair<List<CategoryType>, List<Vod>> =
-        if (site.isPhp()) emptyList<CategoryType>() to emptyList() // PHP 暂不支持执行
-        else if (site.type.isCms()) cmsApi.category(site, tid, pg)
-        else if (site.isPy()) runCatching { pyEngine?.categories() }.getOrNull().orEmpty() to
-            runCatching { pyEngine?.category(tid, pg) }.getOrNull().orEmpty()
+        if (site.isPhpSite()) emptyList<CategoryType>() to emptyList() // PHP 暂不支持执行
+        else if (site.isJavaSpider()) emptyList<CategoryType>() to emptyList()
+        else if (site.isCmsSite()) cmsApi.category(site, tid, pg)
+        else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.categories() }.getOrNull().orEmpty() to
+            runCatching { subOr(pyEngine) { pyEngineFor(site) }?.category(tid, pg) }.getOrNull().orEmpty()
         else emptyList<CategoryType>() to
-            runCatching { drpyEngine?.category(tid, pg) }.getOrNull().orEmpty()
+            runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.category(tid, pg) }.getOrNull().orEmpty()
 
     /** 详情。 */
     suspend fun detail(site: Site, vodId: String): VodDetail =
-        if (site.isPhp()) VodDetail(vodId = vodId) // PHP 暂不支持执行
-        else if (site.type.isCms()) cmsApi.detail(site, vodId)
-        else if (site.isPy()) runCatching { pyEngine?.detail(vodId) }.getOrNull()
+        if (site.isPhpSite()) VodDetail(vodId = vodId) // PHP 暂不支持执行
+        else if (site.isJavaSpider()) VodDetail(vodId = vodId)
+        else if (site.isCmsSite()) cmsApi.detail(site, vodId)
+        else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.detail(vodId) }.getOrNull()
             ?: VodDetail(vodId = vodId)
-        else runCatching { drpyEngine?.detail(vodId) }.getOrNull() ?: VodDetail(vodId = vodId)
+        else runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.detail(vodId) }.getOrNull()
+            ?: VodDetail(vodId = vodId)
 
     /** 搜索；站源声明 searchable=0 时直接返回空，不发请求。非 CMS 站走 drpy/PY 引擎。 */
     suspend fun search(site: Site, wd: String): List<Vod> {
         if (!site.searchable || wd.isBlank()) return emptyList()
-        return if (site.isPhp()) emptyList() // PHP 暂不支持执行
-        else if (site.type.isCms()) cmsApi.search(site, wd)
-        else if (site.isPy()) runCatching { pyEngine?.search(wd) }.getOrNull().orEmpty()
-        else runCatching { drpyEngine?.search(wd) }.getOrNull().orEmpty()
+        return if (site.isPhpSite()) emptyList() // PHP 暂不支持执行
+        else if (site.isJavaSpider()) emptyList()
+        else if (site.isCmsSite()) cmsApi.search(site, wd)
+        else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.search(wd) }.getOrNull().orEmpty()
+        else runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.getOrNull().orEmpty()
     }
 
     /**
@@ -130,11 +142,16 @@ class SiteRepository(
     /** PHP 播放：手机端无 PHP 解释器，暂不支持，返回空串。 */
     suspend fun phpPlay(flag: String, id: String): String = ""
 
-    /** TVBox type=3（或 api 以 .py 结尾）是 PY 规则站。 */
-    private fun Site.isPy(): Boolean = type == 3 || api.trim().endsWith(".py", ignoreCase = true)
-
-    /** PhpSourceManager 合成站源：key 前缀 "php:"（见 PhpSourceManager.activeSite）。 */
-    private fun Site.isPhp(): Boolean = key.startsWith("php:", ignoreCase = true)
-
-    private fun Int.isCms(): Boolean = this == 0 || this == 1
+    /**
+     * 订阅子站点优先用其专属引擎（SubSiteEngines 按 key 前缀 "sub:" 识别），
+     * 非订阅站 / 识别失败时回退到构造时传入的默认引擎。
+     */
+    private fun subOr(
+        default: DrpyEngine?,
+        sub: SubSiteEngines.() -> DrpyEngine?,
+    ): DrpyEngine? = try {
+        SubSiteEngines.sub() ?: default
+    } catch (e: Exception) {
+        default
+    }
 }

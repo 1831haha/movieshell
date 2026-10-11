@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -31,7 +32,11 @@ import androidx.navigation.navArgument
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.SubSiteEngines
+import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.WebSourceManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.movieshell.player.PlayerManager
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
@@ -65,6 +70,11 @@ class MainActivity : ComponentActivity() {
         PySourceManager.init(this)
         PhpSourceManager.init(this)
         WebSourceManager.init(this)
+        SubSiteEngines.init(this)
+        // v0.5.1 升级修复：订阅站源相对路径/丢失规则文件后台修复，不阻塞启动
+        lifecycleScope.launch(Dispatchers.IO) {
+            SubSiteStore.repairOnUpgrade(this@MainActivity)
+        }
         setContent {
             MovieShellTheme {
                 val navController = rememberNavController()

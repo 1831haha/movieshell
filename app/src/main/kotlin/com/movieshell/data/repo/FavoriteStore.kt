@@ -18,7 +18,9 @@ data class FavoriteItem(
     val name: String = "",
     val pic: String = "",
     val sourceName: String = "",
-    val savedAt: Long = 0L
+    val savedAt: Long = 0L,
+    /** v0.5.1：订阅子站点的 key（"sub:…"），回跳详情时恢复站点上下文；本地规则收藏为空 */
+    val subSiteKey: String = ""
 )
 
 /**

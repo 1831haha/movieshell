@@ -118,3 +118,33 @@ data class CategoryType(
     val typeId: String = "",
     val typeName: String = ""
 )
+
+// ---------------- 站源类型判定（Repository / UI 共用，v0.5.1 统一口径） ----------------
+
+/** PhpSourceManager 合成站源：key 前缀 "php:"（手机端无 PHP 解释器，不执行）。 */
+fun Site.isPhpSite(): Boolean = key.startsWith("php:", ignoreCase = true)
+
+/**
+ * csp_ 开头的 Java spider 站：规则是跑在订阅自带 tvkj.jar 里的 Java 类，
+ * 壳子没有 Java spider 运行时，不进任何引擎（home/category/detail/search/play 全部返回空）。
+ */
+fun Site.isJavaSpider(): Boolean = api.trim().startsWith("csp_", ignoreCase = true)
+
+/** CMS 站：type=0（XML）/ type=1（JSON）。 */
+fun Site.isCmsSite(): Boolean = type == 0 || type == 1
+
+/**
+ * PY 站：type=3 且 api 以 .py 结尾。
+ * 注意旧逻辑曾把所有 type=3 都判成 PY（v0.5.1 修复：csp_ / drpy 不再误判）。
+ */
+fun Site.isPySite(): Boolean =
+    !isJavaSpider() && type == 3 && api.trim().endsWith(".py", ignoreCase = true)
+
+/** drpy 站：type=4，或 api 以 .js 结尾（含订阅下载到本地的规则）。 */
+fun Site.isDrpySite(): Boolean =
+    !isJavaSpider() && (type == 4 || api.trim().endsWith(".js", ignoreCase = true))
+
+/** 订阅展开的子站点：key 前缀 "sub:"（见 SubSiteStore.toSite）。 */
+fun Site.isSubSite(): Boolean = key.startsWith(SubSiteKeyPrefix)
+
+const val SubSiteKeyPrefix = "sub:"

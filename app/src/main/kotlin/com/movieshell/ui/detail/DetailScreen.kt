@@ -60,11 +60,15 @@ import androidx.compose.ui.unit.sp
 import com.movieshell.data.model.Episode
 import com.movieshell.data.model.PlayLine
 import com.movieshell.data.model.VodDetail
+import com.movieshell.data.model.isCmsSite
+import com.movieshell.data.model.isPySite
+import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.FavoriteItem
 import com.movieshell.data.repo.FavoriteStore
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
+import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.player.MagnetPlayer
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.data.DemoData
@@ -82,13 +86,20 @@ fun DetailScreen(
     val scope = rememberCoroutineScope()
 
     // ---- drpy / PY 规则接入（drpy 优先，其次 PY） ----
+    // v0.5.1：从订阅站源点进来时带站点上下文（DetailSiteHolder），详情/播放按站走引擎；
+    // 否则走本地规则旧逻辑。
+    val subSite = remember { DetailSiteHolder.site }
     val drpyActive = remember {
         DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule()
     }
     var detailLoading by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<VodDetail?>(null) }
     LaunchedEffect(vodId) {
-        if (drpyActive) {
+        if (subSite != null) {
+            detailLoading = true
+            detail = runCatching { SiteRepository().detail(subSite, vodId) }.getOrNull()
+            detailLoading = false
+        } else if (drpyActive) {
             detailLoading = true
             detail = runCatching {
                 if (DrpySourceManager.hasActiveRule()) DrpySourceManager.detail(vodId)
@@ -130,9 +141,10 @@ fun DetailScreen(
     var selectedEpisode by remember { mutableIntStateOf(0) }
     var showMagnetDialog by remember { mutableStateOf(false) }
 
-    // 当前来源名：收藏时记下来，收藏列表里展示
+    // 当前来源名：收藏时记下来，收藏列表里展示；订阅站同时记 site key 以便回跳
     val sourceName = remember {
         when {
+            subSite != null -> subSite.name
             DrpySourceManager.hasActiveRule() ->
                 DrpySourceManager.activeRuleName()?.removeSuffix(".js")
                     ?.ifBlank { "drpy规则" } ?: "drpy规则"
@@ -159,9 +171,18 @@ fun DetailScreen(
             } else {
                 val flag = if (ep.flag.isBlank()) "" else ep.flag
                 val link = runCatching {
-                    if (DrpySourceManager.hasActiveRule()) DrpySourceManager.playUrl(flag, ep.url)
-                    else if (PySourceManager.hasActiveRule()) PySourceManager.playUrl(flag, ep.url)
-                    else ""
+                    when {
+                        subSite == null ->
+                            if (DrpySourceManager.hasActiveRule()) DrpySourceManager.playUrl(flag, ep.url)
+                            else if (PySourceManager.hasActiveRule()) PySourceManager.playUrl(flag, ep.url)
+                            else ""
+                        // CMS 站：vod_play_url 里就是直链，直接播
+                        subSite.isCmsSite() -> ep.url
+                        subSite.isPySite() ->
+                            SubSiteEngines.pyEngineFor(subSite)?.play(flag, ep.url).orEmpty()
+                        else ->
+                            SubSiteEngines.drpyEngineFor(subSite)?.play(flag, ep.url).orEmpty()
+                    }
                 }.getOrDefault("")
                 // link 为空 -> 播放页保持"暂无可播地址"逻辑
                 onPlay(link, "${vod.title} ${ep.name.ifBlank { "第${selectedEpisode + 1}集" }}")
@@ -204,6 +225,7 @@ fun DetailScreen(
                                         pic = detail?.vodPic.orEmpty(),
                                         sourceName = sourceName,
                                         savedAt = System.currentTimeMillis(),
+                                        subSiteKey = subSite?.key.orEmpty(),
                                     ),
                                 )
                                 Toast.makeText(context, "已收藏", Toast.LENGTH_SHORT).show()

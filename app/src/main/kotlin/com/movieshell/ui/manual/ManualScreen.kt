@@ -61,6 +61,8 @@ private val MANUAL_SECTIONS = listOf(
         title = "支持的源类型一览",
         points = listOf(
             "TVBox JSON 订阅：CMS type0 / type1 接口，✅ 可用，点「添加订阅」粘贴地址。",
+            "TVBox 完整订阅配置（含 sites 数组，如带几十个站的大包）：✅ v0.5.1 起支持——站源页点订阅条目展开「解析站点」，CMS / drpy / PY 站可用，csp_ Java spider 站不支持。",
+            "csp_ 开头的 Java spider 源：❌ 不支持，详见下面「为什么 csp_ 源播不了」一节。",
             "JS drpy 规则：.js 文件，WebView 真执行，✅ 可用。",
             "PY 规则：.py 文件（hipy 风格），Chaquopy 内置 Python 直接执行，✅ 可用。",
             "网页源：✅ 可用，站源页「网页站源」添加网站，内置嗅探抓 m3u8 / mp4 直链播放。",
@@ -72,6 +74,8 @@ private val MANUAL_SECTIONS = listOf(
         title = "每种源怎么加",
         points = listOf(
             "接口站源：站源页点「添加订阅」，粘贴 TVBox JSON 订阅地址，确定就行；增删和开关会自动保存。",
+            "完整订阅配置（含 sites 数组）：添加后点订阅条目右边的展开箭头，点「解析站点」——App 会下载并展开全部站点，站名后面带类型徽标（CMS / drpy / PY / 不支持）；点某个可用站点就是「设为点播页当前源」，首页会切到该站的推荐和分类；搜索页会自动逐站搜（不支持的站自动跳过）。",
+            "纯 CMS 地址（直接返回采集数据的接口）：不用解析，按老样子当单个 CMS 源用。",
             "JS 规则：站源页「JS文件夹」点「导入」，选 .js 文件。",
             "PY 规则：站源页「PY文件夹」点「导入」，选 .py 文件。",
             "网页源：站源页「网页站源」点「添加」，填网站名称和地址（http 开头），点条目进入网页嗅探。",
@@ -109,9 +113,19 @@ private val MANUAL_SECTIONS = listOf(
             "v0.4 已实现：网页源（WebView 嗅探直链）、订阅备份恢复、播放倍速与手势、接口站源持久化。",
             "v0.4.1：AI 功能已砍掉（整个 AI 源类型移除）。",
             "v0.5 已实现：详情页多线路切换、聚合搜索（一次搜所有源）+ 搜索历史、追剧收藏、网页嗅探透传 Referer/UA。",
+            "v0.5.1 已实现：完整 TVBox 订阅配置解析（sites 展开、drpy 规则相对路径下载到本地、csp_ 站标不支持）、点播页可设订阅当前源、type=3 按 api 后缀正确分流（修了之前全判成 PY 源的 bug）。",
             "PHP 规则执行：评估结论是建议砍掉（手机端无 PHP 解释器是硬约束），等最终拍板；拍板前 App 内如实提示暂不支持。",
             "下一步（规划中）：订阅云同步、播放器投屏。",
             "每个版本都会发安装包实测，版本号在设置页「关于」里看。",
+        ),
+    ),
+    ManualSection(
+        title = "为什么 csp_ Java spider 源播不了",
+        points = listOf(
+            "csp_ 开头（如 csp_Douban）的站，规则不是 JS/PY 文件，而是一个跑在订阅自带 tvkj.jar 里的 Java 类（Java spider）。",
+            "TVBox 系壳子播它，靠的是把 jar 动态加载进自己进程再反射调用 spider 类——壳子得专门写一套 DexClassLoader 加载机制，还要跟着 jar 的版本修兼容。",
+            "MovieShell 现在没有这套 Java spider 运行时，所以这类站点统一标「不支持」，点它会如实告诉你原因，不会进引擎瞎试浪费时间。",
+            "想看的站如果是 csp_ 的，可以去找找同名的 drpy（.js）/ PY（.py）/ CMS 版本，功能一般是一样的。",
         ),
     ),
     ManualSection(

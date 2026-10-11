@@ -43,8 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.FavoriteItem
 import com.movieshell.data.repo.FavoriteStore
+import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.GradientBlock
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -133,7 +135,16 @@ fun FavoritesScreen(
                 ) {
                     items(items, key = { "${it.sourceName}\u001f${it.vodId}" }) { item ->
                         Card(
-                            onClick = { onVodClick(item.vodId) },
+                            onClick = {
+                                // v0.5.1：订阅站收藏回跳详情时恢复站点上下文
+                                DetailSiteHolder.site = item.subSiteKey
+                                    .takeIf { it.isNotBlank() }
+                                    ?.let { key ->
+                                        SubSiteStore.findSite(context, key)
+                                            ?.let { (subUrl, rec) -> SubSiteStore.toSite(subUrl, rec) }
+                                    }
+                                onVodClick(item.vodId)
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 6.dp),

@@ -56,6 +56,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
@@ -65,9 +66,17 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.movieshell.data.model.CategoryType
+import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod as ModelVod
+import com.movieshell.data.model.isCmsSite
+import com.movieshell.data.model.isPySite
+import com.movieshell.data.repo.ApiSourceStore
+import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.SiteRepository
+import com.movieshell.data.repo.SubSiteEngines
+import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.data.DemoData
@@ -97,6 +106,74 @@ fun HomeScreen(
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val context = LocalContext.current
+
+    // ---- 订阅当前源（v0.5.1）：站源页"设为点播页当前源"指定的订阅子站点 ----
+    val subRepo = remember { SiteRepository() }
+    var subSite by remember { mutableStateOf<Site?>(null) }
+    var lastSubKey by remember { mutableStateOf<String?>(null) }
+
+    /** 读持久化的订阅当前源；记录被删/被标不支持/订阅被关时返回 null */
+    fun currentSubSite(): Site? {
+        val cur = SubSiteStore.getCurrent(context) ?: return null
+        val subEnabled =
+            ApiSourceStore.load(context).find { it.url == cur.subUrl }?.enabled ?: false
+        if (!subEnabled) return null
+        val cache = SubSiteStore.getCached(context, cur.subUrl) ?: return null
+        val rec = cache.sites.firstOrNull { it.key == cur.siteKey } ?: return null
+        if (!rec.enabled || rec.kind == SubSiteStore.KIND_UNSUPPORTED) return null
+        return SubSiteStore.toSite(cur.subUrl, rec)
+    }
+
+    /** 当前数据源的首页：订阅当前源 > 本地 drpy > 本地 PY */
+    suspend fun engineHome(): List<ModelVod> {
+        val s = subSite
+        if (s != null) return runCatching { subRepo.home(s) }.getOrDefault(emptyList())
+        return runCatching {
+            if (DrpySourceManager.hasActiveRule()) DrpySourceManager.home()
+            else if (PySourceManager.hasActiveRule()) PySourceManager.home()
+            else emptyList()
+        }.getOrDefault(emptyList())
+    }
+
+    /** 当前数据源的分类：订阅 CMS 站走 CMS 分类接口，drpy/PY 站走引擎 categories() */
+    suspend fun engineCats(): List<CategoryType> {
+        val s = subSite
+        if (s != null) {
+            if (s.isCmsSite()) return runCatching { subRepo.category(s, "", 1).first }
+                .getOrDefault(emptyList())
+            if (s.isPySite()) return runCatching { SubSiteEngines.pyEngineFor(s)?.categories() }
+                .getOrNull().orEmpty()
+            return runCatching { SubSiteEngines.drpyEngineFor(s)?.categories() }
+                .getOrNull().orEmpty()
+        }
+        return runCatching {
+            if (DrpySourceManager.hasActiveRule()) DrpySourceManager.categories()
+            else if (PySourceManager.hasActiveRule()) PySourceManager.categories()
+            else emptyList()
+        }.getOrDefault(emptyList())
+    }
+
+    /** 当前数据源的分类列表 */
+    suspend fun engineCategory(tid: String, pg: Int): List<ModelVod> {
+        val s = subSite
+        if (s != null) return runCatching { subRepo.category(s, tid, pg).second }
+            .getOrDefault(emptyList())
+        return runCatching {
+            if (DrpySourceManager.hasActiveRule()) DrpySourceManager.category(tid, pg)
+            else if (PySourceManager.hasActiveRule()) PySourceManager.category(tid, pg)
+            else emptyList()
+        }.getOrDefault(emptyList())
+    }
+
+    /**
+     * 进详情：订阅当前源时把站点上下文带给详情页（详情/播放按站走引擎），
+     * 否则传 null，详情页走本地规则旧逻辑。
+     */
+    fun goDetail(vodId: String) {
+        DetailSiteHolder.site = subSite
+        onVodClick(vodId)
+    }
 
     var refreshing by remember { mutableStateOf(false) }
     var pullOffset by remember { mutableFloatStateOf(0f) }
@@ -112,16 +189,8 @@ fun HomeScreen(
     fun loadDrpyHome() {
         scope.launch {
             drpyLoading = true
-            val home = runCatching {
-                if (DrpySourceManager.hasActiveRule()) DrpySourceManager.home()
-                else if (PySourceManager.hasActiveRule()) PySourceManager.home()
-                else emptyList()
-            }.getOrDefault(emptyList())
-            val cats = runCatching {
-                if (DrpySourceManager.hasActiveRule()) DrpySourceManager.categories()
-                else if (PySourceManager.hasActiveRule()) PySourceManager.categories()
-                else emptyList()
-            }.getOrDefault(emptyList())
+            val home = engineHome()
+            val cats = engineCats()
             drpyCats = cats
             drpyList = home.ifEmpty { null }
             selectedCategory = 0
@@ -133,11 +202,7 @@ fun HomeScreen(
         val cat = drpyCats.getOrNull(index - 1) ?: return
         scope.launch {
             drpyLoading = true
-            val list = runCatching {
-                if (DrpySourceManager.hasActiveRule()) DrpySourceManager.category(cat.typeId, 1)
-                else if (PySourceManager.hasActiveRule()) PySourceManager.category(cat.typeId, 1)
-                else emptyList()
-            }.getOrDefault(emptyList())
+            val list = engineCategory(cat.typeId, 1)
             drpyList = list.ifEmpty { null }
             selectedCategory = index
             drpyLoading = false
@@ -145,10 +210,16 @@ fun HomeScreen(
     }
 
     fun refreshDrpyState() {
-        val active = DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule()
+        val cur = currentSubSite()
+        val curKey = cur?.key
+        val siteChanged = curKey != lastSubKey
+        subSite = cur
+        lastSubKey = curKey
+        val active = cur != null ||
+            DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule()
         val changed = active != drpyActive
         drpyActive = active
-        if (active && (changed || drpyList == null)) loadDrpyHome()
+        if (active && (changed || siteChanged || drpyList == null)) loadDrpyHome()
     }
 
     // 底部 tab 切换回来（saveState 恢复时）也要重新检查激活状态，
@@ -168,16 +239,8 @@ fun HomeScreen(
         if (drpyActive) {
             // 下拉刷新：重调 home
             scope.launch {
-                val home = runCatching {
-                    if (DrpySourceManager.hasActiveRule()) DrpySourceManager.home()
-                    else if (PySourceManager.hasActiveRule()) PySourceManager.home()
-                    else emptyList()
-                }.getOrDefault(emptyList())
-                val cats = runCatching {
-                    if (DrpySourceManager.hasActiveRule()) DrpySourceManager.categories()
-                    else if (PySourceManager.hasActiveRule()) PySourceManager.categories()
-                    else emptyList()
-                }.getOrDefault(emptyList())
+                val home = engineHome()
+                val cats = engineCats()
                 drpyCats = cats
                 drpyList = home.ifEmpty { null }
                 selectedCategory = 0
@@ -321,7 +384,7 @@ fun HomeScreen(
             // 推荐位横滑大卡片
             if (featured.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    HeroPager(featured = featured, onVodClick = onVodClick)
+                    HeroPager(featured = featured, onVodClick = ::goDetail)
                 }
             }
 
@@ -378,7 +441,7 @@ fun HomeScreen(
                     subtitle = "${vod.year} · ${vod.rating}分",
                     badge = vod.rating,
                     modifier = Modifier.aspectRatio(3f / 4.6f),
-                    onClick = { onVodClick(vod.id) },
+                    onClick = { goDetail(vod.id) },
                 )
             }
         }
