@@ -8,6 +8,7 @@ import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.TvBoxConfigParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -187,7 +188,7 @@ object SubSiteStore {
                 }
                 val baseUri = URI(subUrl.trim())
                 // 站点展开（含规则文件下载）并行做：大包几十个站时串行太慢
-                val sites = coroutineScope {
+                val sites: List<SubSiteRecord> = coroutineScope {
                     config.sites.map { sc ->
                         async {
                             runCatching { expandSite(context, subUrl.trim(), baseUri, sc) }

@@ -77,6 +77,7 @@ import com.movieshell.data.repo.SubCache
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.WebSourceManager
 import java.io.File
+import kotlinx.coroutines.launch
 
 /** 站源条目：开关状态用 mutableStateOf 包裹，保证 Switch 切换即时刷新 */
 class SourceEntry(

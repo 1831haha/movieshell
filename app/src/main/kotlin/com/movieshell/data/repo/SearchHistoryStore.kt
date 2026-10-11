@@ -3,10 +3,10 @@ package com.movieshell.data.repo
 import android.content.Context
 import android.util.Log
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import java.io.File
 
 /**
@@ -28,10 +28,16 @@ object SearchHistoryStore {
         val f = file(context)
         if (!f.isFile) return emptyList()
         return try {
-            Json.parseToJsonElement(f.readText()).jsonArray
-                .mapNotNull { it.jsonPrimitive.contentOrNull }
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
+            val arr: JsonArray =
+                Json.parseToJsonElement(f.readText()) as? JsonArray ?: return emptyList()
+            val out = ArrayList<String>(arr.size)
+            for (el: JsonElement in arr) {
+                val prim: JsonPrimitive = el as? JsonPrimitive ?: continue
+                if (!prim.isString) continue
+                val s: String = prim.content.trim()
+                if (s.isNotEmpty()) out.add(s)
+            }
+            out
         } catch (e: Exception) {
             Log.w(TAG, "读取 $FILE_NAME 失败", e)
             emptyList()
@@ -44,7 +50,7 @@ object SearchHistoryStore {
         if (q.isEmpty()) return
         try {
             val updated = (listOf(q) + list(context).filter { it != q }).take(MAX_SIZE)
-            val arr = buildJsonArray { updated.forEach { put(it) } }
+            val arr = buildJsonArray { updated.forEach { s: String -> add(JsonPrimitive(s)) } }
             file(context).writeText(arr.toString())
         } catch (e: Exception) {
             Log.w(TAG, "写入 $FILE_NAME 失败", e)
