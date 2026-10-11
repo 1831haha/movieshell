@@ -172,6 +172,29 @@ fun SourcesScreen() {
     val pyRules = remember { mutableStateListOf<PySourceManager.RuleInfo>() }
     var activePyRuleName by remember { mutableStateOf<String?>(null) }
 
+    val apiGroup = remember {
+        SourceGroup(
+            id = "api", name = "接口站源", icon = Icons.Filled.Language,
+            entries = mutableStateListOf(
+                SourceEntry("量子资源", "https://cj.lziapi.com/api.php/provide/vod/"),
+                SourceEntry("天空资源", "https://api.tiankongapi.com/api.php/provide/vod/"),
+                SourceEntry("暴风资源", "https://bfzyapi.com/api.php/provide/vod/", enabled = false),
+            ),
+        )
+    }
+    val tailGroups = remember {
+        mutableStateListOf(
+            SourceGroup(
+                id = "ai", name = "AI文件夹", icon = Icons.Filled.AutoAwesome,
+                entries = mutableStateListOf(),
+            ),
+            SourceGroup(
+                id = "php", name = "PHP文件夹", icon = Icons.Filled.Extension,
+                entries = mutableStateListOf(),
+            ),
+        )
+    }
+
     /** 刷新 AI/PHP 分组：从 filesDir/ai|php 扫描真实文件 */
     fun refreshLocalFolder(groupId: String) {
         val group = tailGroups.firstOrNull { it.id == groupId } ?: return
@@ -215,29 +238,6 @@ fun SourcesScreen() {
         activePyRuleName = PySourceManager.activeRuleName()
         refreshLocalFolder("ai")
         refreshLocalFolder("php")
-    }
-
-    val apiGroup = remember {
-        SourceGroup(
-            id = "api", name = "接口站源", icon = Icons.Filled.Language,
-            entries = mutableStateListOf(
-                SourceEntry("量子资源", "https://cj.lziapi.com/api.php/provide/vod/"),
-                SourceEntry("天空资源", "https://api.tiankongapi.com/api.php/provide/vod/"),
-                SourceEntry("暴风资源", "https://bfzyapi.com/api.php/provide/vod/", enabled = false),
-            ),
-        )
-    }
-    val tailGroups = remember {
-        mutableStateListOf(
-            SourceGroup(
-                id = "ai", name = "AI文件夹", icon = Icons.Filled.AutoAwesome,
-                entries = mutableStateListOf(),
-            ),
-            SourceGroup(
-                id = "php", name = "PHP文件夹", icon = Icons.Filled.Extension,
-                entries = mutableStateListOf(),
-            ),
-        )
     }
 
     // 文件导入：一个 launcher + 待处理目标；选错后缀 Toast 提示
