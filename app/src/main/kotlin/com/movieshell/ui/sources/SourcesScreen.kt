@@ -55,6 +55,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -62,6 +63,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.movieshell.data.repo.ApiSource
+import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.WebSourceManager
@@ -182,11 +185,9 @@ fun SourcesScreen(
     val apiGroup = remember {
         SourceGroup(
             id = "api", name = "接口站源", icon = Icons.Filled.Language,
-            entries = mutableStateListOf(
-                SourceEntry("量子资源", "https://cj.lziapi.com/api.php/provide/vod/"),
-                SourceEntry("天空资源", "https://api.tiankongapi.com/api.php/provide/vod/"),
-                SourceEntry("暴风资源", "https://bfzyapi.com/api.php/provide/vod/", enabled = false),
-            ),
+            entries = ApiSourceStore.load(context)
+                .map { SourceEntry(it.name, it.url, it.enabled) }
+                .toMutableStateList(),
         )
     }
     val tailGroups = remember {
@@ -199,6 +200,14 @@ fun SourcesScreen(
                 id = "php", name = "PHP文件夹", icon = Icons.Filled.Extension,
                 entries = mutableStateListOf(),
             ),
+        )
+    }
+
+    /** 接口站源持久化：增删/开关后写回 filesDir/api_sources.json，供备份使用 */
+    fun persistApiGroup() {
+        ApiSourceStore.save(
+            context,
+            apiGroup.entries.map { ApiSource(it.name, it.detail, it.enabled) },
         )
     }
 
@@ -366,6 +375,7 @@ fun SourcesScreen(
             url.substringAfter("://").substringBefore("/").substringBefore(":")
         }.getOrDefault("自定义订阅").ifBlank { "自定义订阅" }
         apiGroup.entries.add(0, SourceEntry(name, url))
+        persistApiGroup()
         urlInput = ""
         urlError = false
         showAddDialog = false
@@ -413,7 +423,11 @@ fun SourcesScreen(
             item {
                 GroupCard(
                     group = apiGroup,
-                    onRemove = { entry -> apiGroup.entries.remove(entry) },
+                    onRemove = { entry ->
+                        apiGroup.entries.remove(entry)
+                        persistApiGroup()
+                    },
+                    onToggle = ::persistApiGroup,
                 )
             }
             // JS 分组：真实 drpy 规则数据
@@ -927,6 +941,7 @@ private fun GroupCard(
     group: SourceGroup,
     onRemove: (SourceEntry) -> Unit,
     onImport: (() -> Unit)? = null,
+    onToggle: (() -> Unit)? = null,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -984,7 +999,11 @@ private fun GroupCard(
                         )
                     } else {
                         group.entries.forEach { entry ->
-                            SourceEntryRow(entry = entry, onRemove = { onRemove(entry) })
+                            SourceEntryRow(
+                                entry = entry,
+                                onRemove = { onRemove(entry) },
+                                onToggle = onToggle,
+                            )
                         }
                     }
                 }
@@ -997,6 +1016,7 @@ private fun GroupCard(
 private fun SourceEntryRow(
     entry: SourceEntry,
     onRemove: () -> Unit,
+    onToggle: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -1030,7 +1050,10 @@ private fun SourceEntryRow(
         }
         Switch(
             checked = entry.enabled,
-            onCheckedChange = { entry.enabled = it },
+            onCheckedChange = {
+                entry.enabled = it
+                onToggle?.invoke()
+            },
         )
     }
 }
