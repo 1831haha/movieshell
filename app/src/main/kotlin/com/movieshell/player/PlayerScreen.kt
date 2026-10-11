@@ -148,7 +148,9 @@ fun PlayerScreen(
                 )
             } else {
                 PlayerManager.init(context)
-                PlayerManager.play(url, startPositionMs = resumeAt)
+                // 网页嗅探命中的直链自带 Referer/UA（SniffPlayHeaders 一次性取出）；
+                // 其他来源没有记录则为空 map，行为与之前一致。
+                PlayerManager.play(url, headers = SniffPlayHeaders.take(url), startPositionMs = resumeAt)
                 true
             }
             showServiceMissingDialog = !started

@@ -53,20 +53,24 @@ object PlayerManager {
     }
 
     /**
-     * 播放 [url]。headers 会作为本次请求的默认请求头。
+     * 播放 [url]。headers 会作为本次请求的默认请求头；
+     * 其中 "User-Agent" 会单独走工厂的 UA 通道（保证真正生效，
+     * 不受 [DefaultHttpDataSource.Factory] 内置 UA 覆盖）。
      *
      * @param startPositionMs 起播位置（毫秒），用于断点续播，<=0 表示从头播。
      */
     fun play(url: String, headers: Map<String, String> = emptyMap(), startPositionMs: Long = 0L) {
         val player = exoPlayer ?: return
         val app = appContext ?: return
+        val rest = headers.toMutableMap()
+        val ua = rest.remove("User-Agent")?.takeIf { it.isNotBlank() } ?: USER_AGENT
         val httpFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(USER_AGENT)
+            .setUserAgent(ua)
             .setConnectTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
             .setReadTimeoutMs(DefaultHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS)
             .setAllowCrossProtocolRedirects(true)
-        if (headers.isNotEmpty()) {
-            httpFactory.setDefaultRequestProperties(headers)
+        if (rest.isNotEmpty()) {
+            httpFactory.setDefaultRequestProperties(rest)
         }
         val mediaSource = DefaultMediaSourceFactory(app)
             .setDataSourceFactory(httpFactory)

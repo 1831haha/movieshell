@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import com.movieshell.player.SniffPlayHeaders
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -74,10 +75,27 @@ fun WebSniffScreen(
     // AndroidView factory 里创建的 WebView 引用，供销毁用
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
-    /** 命中直链：停止加载 -> 交给播放器（只执行一次） */
-    fun onHit(view: WebView?, directUrl: String) {
+    /**
+     * 命中直链：先把 Referer/UA 存进 [SniffPlayHeaders]，再停止加载 -> 交给播放器
+     * （只执行一次）。
+     *
+     * Referer 优先取本次拦截到的请求的 Referer 头（部分站点校验它），
+     * 拿不到则退回当前页面 URL；UA 取 WebView 实际使用的 UA
+     * （页面 JS 拿到直链时用的就是它，播放器用同一 UA 最不容易被拦）。
+     */
+    fun onHit(view: WebView?, request: WebResourceRequest?, directUrl: String) {
         if (!hitDone.compareAndSet(false, true)) return
+        // 拦截线程可安全读 request；view.url/settings 必须在 UI 线程读
+        val reqReferer = runCatching { request?.requestHeaders?.get("Referer") }
+            .getOrNull()?.takeIf { it.isNotBlank() }
         view?.post {
+            val referer = reqReferer ?: view.url.orEmpty()
+            val userAgent = runCatching { view.settings?.userAgentString }.getOrNull().orEmpty()
+            val headers = buildMap {
+                if (referer.isNotBlank()) put("Referer", referer)
+                if (userAgent.isNotBlank()) put("User-Agent", userAgent)
+            }
+            SniffPlayHeaders.put(directUrl, headers)
             view.stopLoading()
             onPlay(directUrl, pageTitle.ifBlank { name })
         }
@@ -130,7 +148,7 @@ fun WebSniffScreen(
                             ): WebResourceResponse? {
                                 val reqUrl = request?.url?.toString().orEmpty()
                                 if (reqUrl.isNotEmpty() && isPlayableDirectUrl(reqUrl)) {
-                                    onHit(view, reqUrl)
+                                    onHit(view, request, reqUrl)
                                 }
                                 return super.shouldInterceptRequest(view, request)
                             }
