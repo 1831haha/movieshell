@@ -9,6 +9,15 @@ import com.movieshell.data.model.toSite
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DrpyEngine
 import com.movieshell.data.source.TvBoxConfigParser
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * 聚合搜索的单站点结果分组：站点 + 该站点的搜索结果。
+ */
+data class SiteSearchResult(val site: Site, val vods: List<Vod>)
 
 /**
  * 站源聚合层：UI / ViewModel 只跟这个类打交道。
@@ -77,6 +86,30 @@ class SiteRepository(
         else if (site.type.isCms()) cmsApi.search(site, wd)
         else if (site.isPy()) runCatching { pyEngine?.search(wd) }.getOrNull().orEmpty()
         else runCatching { drpyEngine?.search(wd) }.getOrNull().orEmpty()
+    }
+
+    /**
+     * 聚合搜索：对所有已启用站源并发搜索。
+     *
+     * - 复用单源 search()（CMS / drpy / PY 各走原实现，不重写）；
+     * - 每个站源独立协程 + supervisorScope：单个源失败/超时只跳过该源，不影响其他源；
+     * - 每个源超时 timeoutMs（默认 15 秒），超时/失败静默返回空；
+     * - 网页源是 URL 直达形态、无搜索接口，天然不在 sites 列表中（已跳过）；
+     * - 返回按站源原顺序排列的分组，只含结果非空的站源。
+     */
+    suspend fun searchAll(wd: String, timeoutMs: Long = 15_000): List<SiteSearchResult> {
+        if (wd.isBlank()) return emptyList()
+        val targets = getEnabledSites()
+        return supervisorScope {
+            targets.map { site ->
+                async {
+                    val vods = runCatching {
+                        withTimeoutOrNull(timeoutMs) { search(site, wd) }
+                    }.getOrNull().orEmpty()
+                    SiteSearchResult(site, vods)
+                }
+            }.awaitAll()
+        }.filter { it.vods.isNotEmpty() }
     }
 
     /**

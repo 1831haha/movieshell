@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -56,13 +57,20 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import android.content.Context
 import com.movieshell.data.model.Vod as ModelVod
+import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.SearchHistoryStore
+import com.movieshell.data.repo.SiteRepository
+import com.movieshell.data.repo.SiteSearchResult
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** drpy 影片 -> 界面 Vod */
 private fun ModelVod.toUiVod() = Vod(
@@ -77,26 +85,79 @@ private fun ModelVod.toUiVod() = Vod(
     episodes = 0,
 )
 
+/**
+ * 为聚合搜索拼 TVBox 订阅 JSON：
+ * - 接口站源：ApiSourceStore 里启用的条目（type=1 CMS）；
+ * - 本地 drpy / PY 规则：有激活规则时各补一条合成站点（走引擎适配器）。
+ * 网页源是 URL 直达形态、无搜索接口，不参与聚合搜索。
+ */
+private fun buildSearchConfigJson(context: Context): String {
+    val arr = JSONArray()
+    ApiSourceStore.load(context)
+        .filter { it.enabled }
+        .forEach { s ->
+            arr.put(
+                JSONObject().apply {
+                    put("key", "cms:${s.url}")
+                    put("name", s.name)
+                    put("type", 1)
+                    put("api", s.url)
+                }
+            )
+        }
+    if (DrpySourceManager.hasActiveRule()) {
+        arr.put(
+            JSONObject().apply {
+                put("key", "drpy:active")
+                put("name", "drpy:${DrpySourceManager.activeRuleName().orEmpty()}")
+                put("type", 4)
+                put("api", "drpy")
+            }
+        )
+    }
+    if (PySourceManager.hasActiveRule()) {
+        arr.put(
+            JSONObject().apply {
+                put("key", "py:active")
+                put("name", "py:${PySourceManager.activeRuleName().orEmpty()}")
+                put("type", 3)
+                put("api", "active.py")
+            }
+        )
+    }
+    return JSONObject().put("sites", arr).toString()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
+    val context = LocalContext.current
     var query by remember { mutableStateOf("") }
     var submitted by remember { mutableStateOf("") }
     val history = remember { mutableStateListOf<String>() }
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
 
-    // ---- drpy / PY 规则接入 ----
-    var drpyActive by remember { mutableStateOf(false) }
-    var drpySearching by remember { mutableStateOf(false) }
-    var drpyResults by remember { mutableStateOf<List<Vod>?>(null) } // null=尚未搜过
+    // 聚合搜索 repo：drpy / PY 走当前激活规则的引擎适配器
+    val repo = remember {
+        SiteRepository(
+            drpyEngine = DrpySourceManager.drpyEngineAdapter,
+            pyEngine = PySourceManager.engineAdapter,
+        )
+    }
+    var searching by remember { mutableStateOf(false) }
+    var groupedResults by remember { mutableStateOf<List<SiteSearchResult>?>(null) } // null=尚未搜过
 
+    // 搜索历史：进入页面读一次，切回页面时刷新
+    fun refreshHistory() {
+        history.clear()
+        history.addAll(SearchHistoryStore.list(context))
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
+        refreshHistory()
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                drpyActive = DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule()
-            }
+            if (event == Lifecycle.Event.ON_RESUME) refreshHistory()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -106,34 +167,17 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
         val t = text.trim()
         if (t.isEmpty()) return
         submitted = t
-        history.remove(t)
-        history.add(0, t)
-        if (history.size > 10) history.removeAt(history.lastIndex)
+        SearchHistoryStore.add(context, t)
+        refreshHistory()
         focusManager.clearFocus()
-        if (drpyActive) {
-            // 有激活的 drpy/PY 规则：走规则搜索（drpy 优先）
-            drpySearching = true
-            drpyResults = null
-            scope.launch {
-                val list = runCatching {
-                    if (DrpySourceManager.hasActiveRule()) DrpySourceManager.search(t)
-                    else if (PySourceManager.hasActiveRule()) PySourceManager.search(t)
-                    else emptyList()
-                }.getOrDefault(emptyList())
-                drpyResults = list.map { it.toUiVod() }
-                drpySearching = false
-            }
+        searching = true
+        groupedResults = null
+        scope.launch {
+            repo.loadFromConfig(buildSearchConfigJson(context))
+            groupedResults = repo.searchAll(t)
+            searching = false
         }
     }
-
-    // 演示数据搜索（无激活规则时用）
-    val demoResults: List<Vod> = remember(submitted) {
-        if (submitted.isBlank()) emptyList()
-        else DemoData.vods.filter {
-            it.title.contains(submitted) || it.actors.contains(submitted) || it.category.contains(submitted)
-        }
-    }
-    val results: List<Vod>? = if (drpyActive) drpyResults else demoResults
 
     Column(modifier = Modifier.fillMaxSize()) {
         // 搜索框
@@ -181,7 +225,10 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                     ) {
                         SectionHeader(icon = Icons.Filled.History, title = "搜索历史")
                         if (history.isNotEmpty()) {
-                            TextButton(onClick = { history.clear() }) { Text("清空") }
+                            TextButton(onClick = {
+                                SearchHistoryStore.clear(context)
+                                refreshHistory()
+                            }) { Text("清空") }
                         }
                     }
                 }
@@ -197,7 +244,9 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                 } else {
                     items(history, key = { it }) { h ->
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { query = h; doSearch(h) },
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
@@ -214,7 +263,12 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                     .padding(vertical = 10.dp),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
-                            IconButton(onClick = { history.remove(h) }) {
+                            IconButton(onClick = {
+                                history.remove(h)
+                                // 同步回持久化：删掉该条后重写
+                                SearchHistoryStore.clear(context)
+                                history.forEach { SearchHistoryStore.add(context, it) }
+                            }) {
                                 Icon(
                                     imageVector = Icons.Filled.Close,
                                     contentDescription = "删除",
@@ -226,8 +280,8 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                 }
             }
         } else {
-            // 搜索结果：drpy 搜索中显示加载圈
-            if (drpyActive && (drpySearching || results == null)) {
+            // 聚合搜索结果：按源分组
+            if (searching || groupedResults == null) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -236,11 +290,11 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                     CircularProgressIndicator()
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        text = "搜索中…",
+                        text = "聚合搜索中…",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            } else if (results.isNullOrEmpty()) {
+            } else if (groupedResults.isNullOrEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -254,46 +308,73 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                     TextButton(onClick = { submitted = ""; query = "" }) { Text("返回") }
                 }
             } else {
+                val groups = groupedResults.orEmpty()
+                val total = groups.sumOf { it.vods.size }
                 Text(
-                    text = "找到 ${results.size} 个结果",
+                    text = "共 $total 个结果 · ${groups.size} 个源",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(results.orEmpty(), key = { it.id }) { vod ->
-                        ListItem(
-                            headlineContent = {
-                                Text(vod.title, fontWeight = FontWeight.SemiBold)
-                            },
-                            supportingContent = {
-                                Text("${vod.category} · ${vod.year} · ${vod.rating}分 · ${vod.actors}")
-                            },
-                            leadingContent = {
-                                GradientBlock(
-                                    key = vod.id,
-                                    modifier = Modifier
-                                        .size(width = 48.dp, height = 68.dp)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                ) {
-                                    Text(
-                                        text = vod.title.first().toString(),
-                                        color = Color.White.copy(alpha = 0.7f),
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
-                            },
-                            trailingContent = {
-                                IconButton(onClick = { onVodClick(vod.id) }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.PlayArrow,
-                                        contentDescription = "播放",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            },
-                            modifier = Modifier.clickable { onVodClick(vod.id) },
-                        )
+                    groups.forEach { group ->
+                        // 分组头：源名 + 条数
+                        item(key = "head:${group.site.key}") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    text = group.site.name,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    text = "${group.vods.size} 条",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        val uiVods = group.vods.map { it.toUiVod() }
+                        items(uiVods, key = { "vod:${group.site.key}:${it.id}" }) { vod ->
+                            ListItem(
+                                headlineContent = {
+                                    Text(vod.title, fontWeight = FontWeight.SemiBold)
+                                },
+                                supportingContent = {
+                                    Text("${vod.category} · ${vod.year} · ${vod.rating}分 · ${vod.actors}")
+                                },
+                                leadingContent = {
+                                    GradientBlock(
+                                        key = vod.id,
+                                        modifier = Modifier
+                                            .size(width = 48.dp, height = 68.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                    ) {
+                                        Text(
+                                            text = vod.title.first().toString(),
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                },
+                                trailingContent = {
+                                    IconButton(onClick = { onVodClick(vod.id) }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.PlayArrow,
+                                            contentDescription = "播放",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.clickable { onVodClick(vod.id) },
+                            )
+                        }
                     }
                 }
             }
