@@ -1,0 +1,171 @@
+package com.movieshell.ui.web
+
+import android.annotation.SuppressLint
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.Toast
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.delay
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * 直链判定（纯函数，可单元测试）：
+ * 只看 URL 的 path 部分（去掉 query/fragment 后）是否以 .m3u8/.mp4 结尾，
+ * 忽略大小写。带 query 的 m3u8（如 xxx.m3u8?token=abc）同样命中。
+ */
+fun isPlayableDirectUrl(url: String): Boolean {
+    val path = runCatching {
+        url.substringBefore('#').substringBefore('?')
+    }.getOrDefault(url).lowercase()
+    return path.endsWith(".m3u8") || path.endsWith(".mp4")
+}
+
+/** 嗅探超时：20 秒内没抓到直链则提示用户，可继续手动浏览 */
+private const val SNIFF_TIMEOUT_MS = 20_000L
+
+/**
+ * 网页源嗅探页：可见 WebView 加载目标站，用户可自行浏览点播；
+ * WebViewClient.shouldInterceptRequest 嗅探到第一条 m3u8/mp4 直链后
+ * 停止加载并回调 onPlay 交给现有播放器；20 秒超时仅 Toast 提示不关页面。
+ */
+@SuppressLint("SetJavaScriptEnabled")
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WebSniffScreen(
+    name: String,
+    url: String,
+    onBack: () -> Unit,
+    onPlay: (directUrl: String, title: String) -> Unit,
+) {
+    val context = LocalContext.current
+
+    var progress by remember { mutableIntStateOf(0) }
+    var pageTitle by remember { mutableStateOf(name) }
+    // 首条命中标记：只取第一条直链
+    val hitDone = remember { AtomicBoolean(false) }
+    // 超时提示标记：超时后只提示一次
+    var timeoutToasted by remember { mutableStateOf(false) }
+    // AndroidView factory 里创建的 WebView 引用，供销毁用
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    /** 命中直链：停止加载 -> 交给播放器（只执行一次） */
+    fun onHit(view: WebView?, directUrl: String) {
+        if (!hitDone.compareAndSet(false, true)) return
+        view?.post {
+            view.stopLoading()
+            onPlay(directUrl, pageTitle.ifBlank { name })
+        }
+    }
+
+    fun showTimeoutToast() {
+        if (!timeoutToasted && !hitDone.get()) {
+            timeoutToasted = true
+            Toast.makeText(context, "未嗅探到可播放直链，可继续手动浏览", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(pageTitle, maxLines = 1) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(inner),
+        ) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.mediaPlaybackRequiresUserGesture = false
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                progress = newProgress
+                            }
+
+                            override fun onReceivedTitle(view: WebView?, title: String?) {
+                                if (!title.isNullOrBlank()) pageTitle = title
+                            }
+                        }
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldInterceptRequest(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                            ): WebResourceResponse? {
+                                val reqUrl = request?.url?.toString().orEmpty()
+                                if (reqUrl.isNotEmpty() && isPlayableDirectUrl(reqUrl)) {
+                                    onHit(view, reqUrl)
+                                }
+                                return super.shouldInterceptRequest(view, request)
+                            }
+                        }
+                        webViewRef = this
+                        loadUrl(url)
+                    }
+                },
+            )
+            if (progress in 1..99) {
+                LinearProgressIndicator(
+                    progress = { progress / 100f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+
+    // 20 秒嗅探超时：只 Toast，不关闭页面
+    LaunchedEffect(url) {
+        delay(SNIFF_TIMEOUT_MS)
+        showTimeoutToast()
+    }
+
+    // 页面销毁时销毁 WebView，防止泄漏
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching {
+                webViewRef?.apply {
+                    stopLoading()
+                    removeAllViews()
+                    destroy()
+                }
+            }
+            webViewRef = null
+        }
+    }
+}

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -63,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.WebSourceManager
 import java.io.File
 
 /** 站源条目：开关状态用 mutableStateOf 包裹，保证 Switch 切换即时刷新 */
@@ -162,7 +164,9 @@ private fun listLocalFolderEntries(context: Context, dirName: String, desc: Stri
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SourcesScreen() {
+fun SourcesScreen(
+    onWebSniff: (name: String, url: String) -> Unit = { _, _ -> },
+) {
     val context = LocalContext.current
 
     // drpy 规则：从 DrpySourceManager 读真实数据（filesDir/drpy/*.js）
@@ -171,6 +175,9 @@ fun SourcesScreen() {
     // PY 规则：从 PySourceManager 读真实数据（filesDir/py/*.py）
     val pyRules = remember { mutableStateListOf<PySourceManager.RuleInfo>() }
     var activePyRuleName by remember { mutableStateOf<String?>(null) }
+    // 网页站源：从 WebSourceManager 读真实数据（filesDir/web/*.json）
+    val webSites = remember { mutableStateListOf<WebSourceManager.WebSite>() }
+    var activeWebSiteName by remember { mutableStateOf<String?>(null) }
 
     val apiGroup = remember {
         SourceGroup(
@@ -229,6 +236,24 @@ fun SourcesScreen() {
         activePyRuleName = name
     }
 
+    fun refreshWebSites() {
+        webSites.clear()
+        webSites.addAll(WebSourceManager.listSites())
+        activeWebSiteName = WebSourceManager.activeSiteName()
+    }
+
+    fun removeWebSite(fileName: String) {
+        WebSourceManager.deleteSite(fileName)
+        webSites.removeAll { it.fileName == fileName }
+        if (activeWebSiteName == fileName) activeWebSiteName = null
+    }
+
+    fun openWebSniff(site: WebSourceManager.WebSite) {
+        WebSourceManager.setActiveSite(site.fileName)
+        activeWebSiteName = site.fileName
+        onWebSniff(site.name, site.url)
+    }
+
     LaunchedEffect(Unit) {
         drpyRules.clear()
         drpyRules.addAll(DrpySourceManager.listRules())
@@ -238,6 +263,7 @@ fun SourcesScreen() {
         activePyRuleName = PySourceManager.activeRuleName()
         refreshLocalFolder("ai")
         refreshLocalFolder("php")
+        refreshWebSites()
     }
 
     // 文件导入：一个 launcher + 待处理目标；选错后缀 Toast 提示
@@ -304,6 +330,31 @@ fun SourcesScreen() {
     var showAddDialog by remember { mutableStateOf(false) }
     var urlInput by remember { mutableStateOf("") }
     var urlError by remember { mutableStateOf(false) }
+
+    // 网页站源添加对话框：名称 + URL（URL 必须 http(s) 开头）
+    var showWebAddDialog by remember { mutableStateOf(false) }
+    var webNameInput by remember { mutableStateOf("") }
+    var webUrlInput by remember { mutableStateOf("") }
+    var webUrlError by remember { mutableStateOf(false) }
+
+    fun addWebSite() {
+        val url = webUrlInput.trim()
+        if (!(url.startsWith("http://") || url.startsWith("https://"))) {
+            webUrlError = true
+            return
+        }
+        val site = WebSourceManager.addSite(webNameInput, url)
+        if (site == null) {
+            webUrlError = true
+            return
+        }
+        refreshWebSites()
+        webNameInput = ""
+        webUrlInput = ""
+        webUrlError = false
+        showWebAddDialog = false
+        Toast.makeText(context, "已添加 ${site.name}", Toast.LENGTH_SHORT).show()
+    }
 
     fun addSubscription() {
         val url = urlInput.trim()
@@ -385,6 +436,16 @@ fun SourcesScreen() {
                     onImport = { requestImport(IMPORT_PY) },
                 )
             }
+            // 网页站源分组：点击条目进入 WebView 嗅探
+            item {
+                WebGroupCard(
+                    sites = webSites,
+                    activeSiteName = activeWebSiteName,
+                    onSelect = ::openWebSniff,
+                    onRemove = ::removeWebSite,
+                    onAdd = { showWebAddDialog = true },
+                )
+            }
             items(tailGroups, key = { it.id }) { group ->
                 val importTarget = when (group.id) {
                     "ai" -> IMPORT_AI
@@ -431,6 +492,50 @@ fun SourcesScreen() {
             },
             dismissButton = {
                 TextButton(onClick = { showAddDialog = false }) { Text("取消") }
+            },
+        )
+    }
+
+    if (showWebAddDialog) {
+        AlertDialog(
+            onDismissRequest = { showWebAddDialog = false },
+            title = { Text("添加网页站源") },
+            text = {
+                Column {
+                    Text(
+                        text = "输入网站名称和地址，点击条目即在内置浏览器中打开并嗅探直链",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = webNameInput,
+                        onValueChange = { webNameInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("名称") },
+                        placeholder = { Text("如：示例影视站") },
+                        singleLine = true,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = webUrlInput,
+                        onValueChange = { webUrlInput = it; webUrlError = false },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("网址") },
+                        placeholder = { Text("https://…") },
+                        singleLine = true,
+                        isError = webUrlError,
+                        supportingText = if (webUrlError) {
+                            { Text("请输入以 http:// 或 https:// 开头的有效地址") }
+                        } else null,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = ::addWebSite) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showWebAddDialog = false }) { Text("取消") }
             },
         )
     }
@@ -673,6 +778,133 @@ private fun PyRuleRow(
             }
             Text(
                 text = "hipy 规则 · ${rule.sizeKb} KB",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = "删除",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+/** 网页站源分组卡：数据来自 WebSourceManager.listSites() */
+@Composable
+private fun WebGroupCard(
+    sites: SnapshotStateList<WebSourceManager.WebSite>,
+    activeSiteName: String?,
+    onSelect: (WebSourceManager.WebSite) -> Unit,
+    onRemove: (String) -> Unit,
+    onAdd: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(true) }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Public,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = "网页站源",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                BadgedBox(badge = { Badge { Text(sites.size.toString()) } }) {
+                    Spacer(Modifier.size(4.dp))
+                }
+                TextButton(onClick = onAdd) { Text("添加") }
+                IconButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (expanded) "收起" else "展开",
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = expanded) {
+                Column {
+                    if (sites.isEmpty()) {
+                        Text(
+                            text = "点击右上角「添加」录入网页站源，点击条目进入嗅探",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    } else {
+                        sites.forEach { site ->
+                            WebSiteRow(
+                                site = site,
+                                isActive = site.fileName == activeSiteName,
+                                onSelect = { onSelect(site) },
+                                onRemove = { onRemove(site.fileName) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 网页站源行：点击进入 WebView 嗅探；删除后若是当前站点则清空激活状态 */
+@Composable
+private fun WebSiteRow(
+    site: WebSourceManager.WebSite,
+    isActive: Boolean,
+    onSelect: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onSelect)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = site.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (isActive) {
+                    Spacer(Modifier.width(8.dp))
+                    Badge(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ) { Text("上次打开") }
+                }
+            }
+            Text(
+                text = site.url,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

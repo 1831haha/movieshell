@@ -1,5 +1,6 @@
 package com.movieshell
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -28,6 +29,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.WebSourceManager
 import com.movieshell.player.PlayerManager
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
@@ -38,6 +40,7 @@ import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.sources.SourcesScreen
 import com.movieshell.ui.theme.MovieShellTheme
+import com.movieshell.ui.web.WebSniffScreen
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
@@ -56,6 +59,7 @@ class MainActivity : ComponentActivity() {
         PlayerManager.init(this)
         DrpySourceManager.init(this)
         PySourceManager.init(this)
+        WebSourceManager.init(this)
         setContent {
             MovieShellTheme {
                 val navController = rememberNavController()
@@ -98,7 +102,15 @@ class MainActivity : ComponentActivity() {
                                 onVodClick = { vodId -> navController.navigate("detail/$vodId") },
                             )
                         }
-                        composable("sources") { SourcesScreen() }
+                        composable("sources") {
+                            SourcesScreen(
+                                onWebSniff = { siteName, siteUrl ->
+                                    navController.navigate(
+                                        "web_sniff/${Uri.encode(siteName)}/${Uri.encode(siteUrl)}"
+                                    )
+                                },
+                            )
+                        }
                         composable("settings") {
                             SettingsScreen(
                                 onManualClick = { navController.navigate("manual") },
@@ -125,6 +137,27 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         playerDestination(onBack = { navController.popBackStack() })
+                        composable(
+                            route = "web_sniff/{name}/{url}",
+                            arguments = listOf(
+                                navArgument("name") { type = NavType.StringType },
+                                navArgument("url") { type = NavType.StringType },
+                            ),
+                        ) { entry ->
+                            val siteName = entry.arguments?.getString("name").orEmpty()
+                            val siteUrl = entry.arguments?.getString("url").orEmpty()
+                            WebSniffScreen(
+                                name = siteName,
+                                url = siteUrl,
+                                onBack = { navController.popBackStack() },
+                                onPlay = { playUrl, title ->
+                                    navController.navigateToPlayer(
+                                        url = playUrl,
+                                        title = title,
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
             }
