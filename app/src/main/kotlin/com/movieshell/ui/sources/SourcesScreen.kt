@@ -1,6 +1,11 @@
 package com.movieshell.ui.sources
 
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -97,6 +102,64 @@ private fun deletePyRuleFile(context: Context, name: String): Boolean {
     return runCatching { target.delete() }.getOrDefault(false)
 }
 
+/** 文件导入目标：filesDir 下的子目录 + 允许的后缀 */
+private data class ImportTarget(
+    val dirName: String,          // filesDir 下子目录：drpy / py / ai / php
+    val extensions: List<String>, // 允许的后缀，带点，如 ".js"
+    val label: String,            // 分组名，用于 Toast 提示
+)
+
+private val IMPORT_DPRY = ImportTarget("drpy", listOf(".js"), "JS文件夹")
+private val IMPORT_PY = ImportTarget("py", listOf(".py"), "PY文件夹")
+private val IMPORT_AI = ImportTarget("ai", listOf(".js", ".json", ".py"), "AI文件夹")
+private val IMPORT_PHP = ImportTarget("php", listOf(".php"), "PHP文件夹")
+
+/** 导入结果 */
+private sealed interface ImportResult {
+    data class Ok(val fileName: String) : ImportResult
+    object WrongExt : ImportResult
+    data class Failed(val reason: String) : ImportResult
+}
+
+/**
+ * 把用户选中的文件拷贝到 filesDir/<dirName>/。
+ * - 文件名取原名（重名则加时间戳后缀避免覆盖）
+ * - 后缀不在允许列表内 -> WrongExt
+ */
+private fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): ImportResult {
+    val displayName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+        val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
+    } ?: return ImportResult.Failed("读取文件名失败")
+    val ext = "." + displayName.substringAfterLast('.', "").lowercase()
+    if (target.extensions.none { it.equals(ext, ignoreCase = true) }) {
+        return ImportResult.WrongExt
+    }
+    return try {
+        val dir = File(context.filesDir, target.dirName).apply { mkdirs() }
+        var dst = File(dir, displayName)
+        if (dst.exists()) {
+            val base = displayName.substringBeforeLast('.')
+            dst = File(dir, "${base}_${System.currentTimeMillis()}$ext")
+        }
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            dst.outputStream().use { input.copyTo(it) }
+        } ?: return ImportResult.Failed("无法读取所选文件")
+        ImportResult.Ok(dst.name)
+    } catch (e: Exception) {
+        ImportResult.Failed(e.message ?: "未知错误")
+    }
+}
+
+/** 扫描 filesDir/<dirName>/ 下的文件，转成 SourceEntry 列表（给 AI/PHP 分组用） */
+private fun listLocalFolderEntries(context: Context, dirName: String, desc: String): List<SourceEntry> {
+    val dir = File(context.filesDir, dirName).apply { mkdirs() }
+    return dir.listFiles { f -> f.isFile }
+        .orEmpty()
+        .sortedBy { it.name }
+        .map { f -> SourceEntry(f.name, "$desc · ${f.length() / 1024} KB", enabled = false) }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SourcesScreen() {
@@ -115,6 +178,8 @@ fun SourcesScreen() {
         pyRules.clear()
         pyRules.addAll(PySourceManager.listRules())
         activePyRuleName = PySourceManager.activeRuleName()
+        refreshLocalFolder("ai")
+        refreshLocalFolder("php")
     }
 
     val apiGroup = remember {
@@ -135,11 +200,94 @@ fun SourcesScreen() {
             ),
             SourceGroup(
                 id = "php", name = "PHP文件夹", icon = Icons.Filled.Extension,
-                entries = mutableStateListOf(
-                    SourceEntry("cms_ali.php", "cms 采集 · 12 KB", enabled = false),
-                ),
+                entries = mutableStateListOf(),
             ),
         )
+    }
+
+    /** 刷新 AI/PHP 分组：从 filesDir/ai|php 扫描真实文件 */
+    fun refreshLocalFolder(groupId: String) {
+        val group = tailGroups.firstOrNull { it.id == groupId } ?: return
+        val (dirName, desc) = when (groupId) {
+            "ai" -> "ai" to "AI 规则"
+            "php" -> "php" to "PHP 规则"
+            else -> return
+        }
+        group.entries.clear()
+        group.entries.addAll(listLocalFolderEntries(context, dirName, desc))
+    }
+
+    fun refreshDrpyRules() {
+        drpyRules.clear()
+        drpyRules.addAll(DrpySourceManager.listRules())
+        activeRuleName = DrpySourceManager.activeRuleName()
+    }
+
+    fun refreshPyRules() {
+        pyRules.clear()
+        pyRules.addAll(PySourceManager.listRules())
+        activePyRuleName = PySourceManager.activeRuleName()
+    }
+
+    // 文件导入：一个 launcher + 待处理目标；选错后缀 Toast 提示
+    var pendingImport by remember { mutableStateOf<ImportTarget?>(null) }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        val target = pendingImport
+        pendingImport = null
+        if (target == null || uri == null) return@rememberLauncherForActivityResult
+        when (val r = importRuleFile(context, uri, target)) {
+            is ImportResult.Ok -> {
+                when (target.dirName) {
+                    "drpy" -> {
+                        refreshDrpyRules()
+                        if (DrpySourceManager.activeRuleName() == null) {
+                            selectDrpyRule(r.fileName)
+                        }
+                        Toast.makeText(context, "已导入 ${r.fileName}", Toast.LENGTH_SHORT).show()
+                    }
+                    "py" -> {
+                        refreshPyRules()
+                        if (PySourceManager.activeRuleName() == null) {
+                            selectPyRule(r.fileName)
+                        }
+                        Toast.makeText(context, "已导入 ${r.fileName}", Toast.LENGTH_SHORT).show()
+                    }
+                    else -> {
+                        refreshLocalFolder(target.dirName)
+                        Toast.makeText(
+                            context,
+                            "已保存到${target.label}，该类型执行引擎开发中",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+            is ImportResult.WrongExt ->
+                Toast.makeText(
+                    context,
+                    "请选择 ${target.extensions.joinToString(" / ")} 文件",
+                    Toast.LENGTH_LONG
+                ).show()
+            is ImportResult.Failed ->
+                Toast.makeText(context, "导入失败：${r.reason}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun requestImport(target: ImportTarget) {
+        pendingImport = target
+        importLauncher.launch("*/*")
+    }
+
+    fun removeLocalFolderEntry(groupId: String, entry: SourceEntry) {
+        val dirName = when (groupId) {
+            "ai" -> "ai"
+            "php" -> "php"
+            else -> return
+        }
+        runCatching { File(File(context.filesDir, dirName), entry.name).delete() }
+        tailGroups.firstOrNull { it.id == groupId }?.entries?.remove(entry)
     }
 
     var showAddDialog by remember { mutableStateOf(false) }
@@ -223,6 +371,7 @@ fun SourcesScreen() {
                     activeRuleName = activeRuleName,
                     onSelect = ::selectDrpyRule,
                     onRemove = ::removeDrpyRule,
+                    onImport = { requestImport(IMPORT_DPRY) },
                 )
             }
             // PY 分组：真实 PY 规则数据
@@ -232,12 +381,19 @@ fun SourcesScreen() {
                     activeRuleName = activePyRuleName,
                     onSelect = ::selectPyRule,
                     onRemove = ::removePyRule,
+                    onImport = { requestImport(IMPORT_PY) },
                 )
             }
             items(tailGroups, key = { it.id }) { group ->
+                val importTarget = when (group.id) {
+                    "ai" -> IMPORT_AI
+                    "php" -> IMPORT_PHP
+                    else -> null
+                }
                 GroupCard(
                     group = group,
-                    onRemove = { entry -> group.entries.remove(entry) },
+                    onRemove = { entry -> removeLocalFolderEntry(group.id, entry) },
+                    onImport = importTarget?.let { t -> { requestImport(t) } },
                 )
             }
             item { Spacer(Modifier.height(8.dp)) }
@@ -286,6 +442,7 @@ private fun DrpyGroupCard(
     activeRuleName: String?,
     onSelect: (String) -> Unit,
     onRemove: (String) -> Unit,
+    onImport: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(true) }
     Card(
@@ -316,7 +473,7 @@ private fun DrpyGroupCard(
                 BadgedBox(badge = { Badge { Text(rules.size.toString()) } }) {
                     Spacer(Modifier.size(4.dp))
                 }
-                Spacer(Modifier.width(12.dp))
+                TextButton(onClick = onImport) { Text("导入") }
                 IconButton(
                     onClick = { expanded = !expanded },
                     modifier = Modifier.size(36.dp),
@@ -412,6 +569,7 @@ private fun PyGroupCard(
     activeRuleName: String?,
     onSelect: (String) -> Unit,
     onRemove: (String) -> Unit,
+    onImport: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(true) }
     Card(
@@ -442,7 +600,7 @@ private fun PyGroupCard(
                 BadgedBox(badge = { Badge { Text(rules.size.toString()) } }) {
                     Spacer(Modifier.size(4.dp))
                 }
-                Spacer(Modifier.width(12.dp))
+                TextButton(onClick = onImport) { Text("导入") }
                 IconButton(
                     onClick = { expanded = !expanded },
                     modifier = Modifier.size(36.dp),
@@ -535,6 +693,7 @@ private fun PyRuleRow(
 private fun GroupCard(
     group: SourceGroup,
     onRemove: (SourceEntry) -> Unit,
+    onImport: (() -> Unit)? = null,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -565,7 +724,11 @@ private fun GroupCard(
                 BadgedBox(badge = { Badge { Text(group.entries.size.toString()) } }) {
                     Spacer(Modifier.size(4.dp))
                 }
-                Spacer(Modifier.width(12.dp))
+                if (onImport != null) {
+                    TextButton(onClick = onImport) { Text("导入") }
+                } else {
+                    Spacer(Modifier.width(12.dp))
+                }
                 IconButton(
                     onClick = { group.expanded = !group.expanded },
                     modifier = Modifier.size(36.dp),
