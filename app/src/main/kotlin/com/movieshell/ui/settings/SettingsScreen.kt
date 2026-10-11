@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.AlertDialog
@@ -36,7 +37,7 @@ import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(onManualClick: () -> Unit = {}) {
     var theme by remember { mutableStateOf("深色") }
     var showThemeDialog by remember { mutableStateOf(false) }
     var player by remember { mutableStateOf("内置播放器（ExoPlayer）") }
@@ -75,6 +76,15 @@ fun SettingsScreen() {
                     title = "清理缓存",
                     subtitle = "共占用 $cacheSize",
                     onClick = { showClearCacheDialog = true },
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            SettingsGroup(title = "帮助") {
+                SettingsRow(
+                    icon = Icons.Filled.MenuBook,
+                    title = "使用手册",
+                    subtitle = "加站源 / 规则 / 磁力，看这篇就够了",
+                    onClick = onManualClick,
                 )
             }
             Spacer(Modifier.height(12.dp))

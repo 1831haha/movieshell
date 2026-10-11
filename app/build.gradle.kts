@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("com.chaquo.python")
 }
 
 android {
@@ -18,6 +19,11 @@ android {
 
         vectorDrawables {
             useSupportLibrary = true
+        }
+
+        ndk {
+            // Chaquopy：只打 arm64-v8a（项目 ABI 基线），省体积
+            abiFilters += "arm64-v8a"
         }
     }
 
@@ -46,6 +52,19 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        // Python 版本：3.10（Chaquopy 17 默认值，hipy 生态兼容性最好）
+        version = "3.10"
+        // 构建机 Python：CI 里用 actions/setup-python 装 3.10，PATH 里有 python3.10
+        buildPython("python3.10")
+        pip {
+            // 纯 Python 包，零原生风险；lxml/Crypto 走 base/spider.py 里的可选 import
+            install("requests")
         }
     }
 }

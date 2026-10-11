@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.movieshell.data.model.Episode
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.player.MagnetPlayer
 import com.movieshell.ui.components.GradientBlock
@@ -73,14 +74,19 @@ fun DetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // ---- drpy 接入 ----
-    val drpyActive = remember { DrpySourceManager.hasActiveRule() }
+    // ---- drpy / PY 规则接入（drpy 优先） ----
+    val drpyActive = remember {
+        DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule()
+    }
     var detailLoading by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<VodDetail?>(null) }
     LaunchedEffect(vodId) {
         if (drpyActive) {
             detailLoading = true
-            detail = runCatching { DrpySourceManager.detail(vodId) }.getOrNull()
+            detail = runCatching {
+                if (DrpySourceManager.hasActiveRule()) DrpySourceManager.detail(vodId)
+                else PySourceManager.detail(vodId)
+            }.getOrNull()
             detailLoading = false
         }
     }
@@ -109,7 +115,7 @@ fun DetailScreen(
     var favorite by remember { mutableStateOf(false) }
     var showMagnetDialog by remember { mutableStateOf(false) }
 
-    /** 统一播放决策：磁力 -> MagnetPlayer；否则 drpy playUrl 取直链 */
+    /** 统一播放决策：磁力 -> MagnetPlayer；否则 drpy/PY playUrl 取直链 */
     fun playEpisode(ep: Episode) {
         scope.launch {
             if (MagnetPlayer.isMagnet(ep.url)) {
@@ -119,8 +125,10 @@ fun DetailScreen(
                 // 服务通则已直接起播；不通则弹窗提示
                 if (!ok) showMagnetDialog = true
             } else {
+                val flag = if (ep.flag.isBlank()) "" else ep.flag
                 val link = runCatching {
-                    DrpySourceManager.playUrl(if (ep.flag.isBlank()) "" else ep.flag, ep.url)
+                    if (DrpySourceManager.hasActiveRule()) DrpySourceManager.playUrl(flag, ep.url)
+                    else PySourceManager.playUrl(flag, ep.url)
                 }.getOrDefault("")
                 // link 为空 -> 播放页保持"暂无可播地址"逻辑
                 onPlay(link, "${vod.title} ${ep.name.ifBlank { "第${selectedEpisode + 1}集" }}")

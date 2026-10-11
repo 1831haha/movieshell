@@ -21,7 +21,8 @@ import com.movieshell.data.source.TvBoxConfigParser
  */
 class SiteRepository(
     private val cmsApi: CmsApi = CmsApi(),
-    private val drpyEngine: DrpyEngine? = null
+    private val drpyEngine: DrpyEngine? = null,
+    private val pyEngine: DrpyEngine? = null
 ) {
 
     private val sites = mutableListOf<Site>()
@@ -45,26 +46,32 @@ class SiteRepository(
     /** 按 key 取站源，找不到返回 null。 */
     fun findSite(key: String): Site? = sites.find { it.key == key }
 
-    /** 首页推荐/最新。 */
+    /** 首页推荐/最新：type=3（或 api 以 .py 结尾）走 PY 引擎。 */
     suspend fun home(site: Site): List<Vod> =
         if (site.type.isCms()) cmsApi.home(site)
+        else if (site.isPy()) runCatching { pyEngine?.home() }.getOrNull().orEmpty()
         else runCatching { drpyEngine?.home() }.getOrNull().orEmpty()
 
     /** 分类：Pair(分类列表, 当前分类第 pg 页)。 */
     suspend fun category(site: Site, tid: String, pg: Int): Pair<List<CategoryType>, List<Vod>> =
         if (site.type.isCms()) cmsApi.category(site, tid, pg)
+        else if (site.isPy()) runCatching { pyEngine?.categories() }.getOrNull().orEmpty() to
+            runCatching { pyEngine?.category(tid, pg) }.getOrNull().orEmpty()
         else emptyList<CategoryType>() to
             runCatching { drpyEngine?.category(tid, pg) }.getOrNull().orEmpty()
 
     /** 详情。 */
     suspend fun detail(site: Site, vodId: String): VodDetail =
         if (site.type.isCms()) cmsApi.detail(site, vodId)
+        else if (site.isPy()) runCatching { pyEngine?.detail(vodId) }.getOrNull()
+            ?: VodDetail(vodId = vodId)
         else runCatching { drpyEngine?.detail(vodId) }.getOrNull() ?: VodDetail(vodId = vodId)
 
-    /** 搜索；站源声明 searchable=0 时直接返回空，不发请求。非 CMS 站走 drpy 引擎。 */
+    /** 搜索；站源声明 searchable=0 时直接返回空，不发请求。非 CMS 站走 drpy/PY 引擎。 */
     suspend fun search(site: Site, wd: String): List<Vod> {
         if (!site.searchable || wd.isBlank()) return emptyList()
         return if (site.type.isCms()) cmsApi.search(site, wd)
+        else if (site.isPy()) runCatching { pyEngine?.search(wd) }.getOrNull().orEmpty()
         else runCatching { drpyEngine?.search(wd) }.getOrNull().orEmpty()
     }
 
@@ -78,6 +85,13 @@ class SiteRepository(
     /** drpy 播放：v0.1 引擎未实现，返回空串。 */
     suspend fun drpyPlay(flag: String, id: String): String =
         runCatching { drpyEngine?.play(flag, id) }.getOrNull().orEmpty()
+
+    /** PY 播放：playerContent 返回的直链 url。 */
+    suspend fun pyPlay(flag: String, id: String): String =
+        runCatching { pyEngine?.play(flag, id) }.getOrNull().orEmpty()
+
+    /** TVBox type=3（或 api 以 .py 结尾）是 PY 规则站。 */
+    private fun Site.isPy(): Boolean = type == 3 || api.trim().endsWith(".py", ignoreCase = true)
 
     private fun Int.isCms(): Boolean = this == 0 || this == 1
 }

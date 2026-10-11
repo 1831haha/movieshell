@@ -1,0 +1,141 @@
+package com.movieshell.data.source
+
+import android.util.Log
+import com.movieshell.data.model.CategoryType
+import com.movieshell.data.model.Vod
+import com.movieshell.data.model.VodDetail
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+
+/**
+ * PY 规则（hipy 风格）客户端：经 PyEngine 调规则文件的 Spider 方法，
+ * 把返回的 dict 转成 App 的 Vod / VodDetail / CategoryType 模型。
+ *
+ * hipy 方法与返回约定（base.spider）：
+ * - homeContent(filter)      -> {"class":[{type_id,type_name}], "filters":{..}, "list":[...]}
+ * - categoryContent(tid,pg,filter,extend) -> {"page":n,"pagecount":n,"list":[...],"total":n}
+ * - detailContent(ids)       -> {"list":[{vod_id,vod_name,vod_pic,vod_content,vod_actor,
+ *                                vod_director,vod_play_from,vod_play_url,...}]}
+ * - playerContent(flag,id,vipFlags) -> {"url":..,"parse":0/1,"header":{..}}
+ * - searchContent(key,quick,pg) -> {"list":[...]}
+ */
+class PyApi(private val engine: PyEngine = ChaquopyEngine) {
+
+    private val jsonLenient = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    /** 解开 {"ok":true,"data":{...}} 信封；失败返回 null。 */
+    private fun envelope(text: String): JsonObject? = runCatching {
+        val root = jsonLenient.parseToJsonElement(text).jsonObject
+        val ok = (root["ok"] as? JsonPrimitive)?.contentOrNull == "true"
+        if (!ok) {
+            Log.w(TAG, "PY 规则返回失败: ${root["error"]}")
+            return null
+        }
+        (root["data"] as? JsonObject)
+    }.getOrNull()
+
+    private fun dataList(text: String): List<JsonObject> =
+        envelope(text)?.let { (it["list"] as? JsonArray).orEmpty().mapNotNull { e -> e as? JsonObject } }
+            .orEmpty()
+
+    /** 首页：推荐列表（homeContent 的 list；无 list 时退化为空）。 */
+    suspend fun home(rulePath: String): List<Vod> =
+        dataList(engine.invoke(rulePath, "homeContent", """{"filter":true}"""))
+            .map { it.toVod() }
+
+    /** 分类列表（homeContent 的 class 数组）。 */
+    suspend fun categories(rulePath: String): List<CategoryType> = runCatching {
+        val data = envelope(engine.invoke(rulePath, "homeContent", """{"filter":true}"""))
+            ?: return emptyList()
+        (data["class"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject) }.map {
+            CategoryType(typeId = it.optString("type_id"), typeName = it.optString("type_name"))
+        }.filter { it.typeId.isNotBlank() }
+    }.getOrDefault(emptyList())
+
+    /** 分类翻页。 */
+    suspend fun category(rulePath: String, tid: String, pg: Int): List<Vod> =
+        dataList(
+            engine.invoke(
+                rulePath, "categoryContent",
+                """{"tid":${tid.q()},"pg":$pg,"filter":true,"extend":{}}"""
+            )
+        ).map { it.toVod() }
+
+    /** 详情。 */
+    suspend fun detail(rulePath: String, vodId: String): VodDetail = runCatching {
+        val first = dataList(
+            engine.invoke(rulePath, "detailContent", """{"ids":[${vodId.q()}]}""")
+        ).firstOrNull() ?: return VodDetail(vodId = vodId)
+        first.toVodDetail()
+    }.getOrDefault(VodDetail(vodId = vodId))
+
+    /** 搜索。 */
+    suspend fun search(rulePath: String, wd: String): List<Vod> =
+        dataList(
+            engine.invoke(
+                rulePath, "searchContent",
+                """{"key":${wd.q()},"quick":"false"}"""
+            )
+        ).map { it.toVod() }
+
+    /** 播放：返回 Pair(直链 url, parse 标记)。parse=1 表示需要解析线路（暂按直链处理）。 */
+    suspend fun play(rulePath: String, flag: String, id: String): Pair<String, Int> = runCatching {
+        val data = envelope(
+            engine.invoke(
+                rulePath, "playerContent",
+                """{"flag":${flag.q()},"id":${id.q()}}"""
+            )
+        ) ?: return "" to 0
+        val url = data.optString("url")
+        val parse = data["parse"]?.toString()?.trim('"')?.toIntOrNull() ?: 0
+        if (parse != 0) Log.i(TAG, "playerContent 返回 parse=$parse，暂按直链处理: $url")
+        url to parse
+    }.getOrDefault("" to 0)
+
+    // ---------------- 内部 ----------------
+
+    private fun String.q(): String =
+        "\"" + this.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+    private fun JsonObject.toVod(): Vod = Vod(
+        vodId = optString("vod_id"),
+        vodName = optString("vod_name"),
+        vodPic = optString("vod_pic"),
+        vodRemarks = optString("vod_remarks"),
+        vodYear = optString("vod_year"),
+        typeName = optString("type_name")
+    )
+
+    private fun JsonObject.toVodDetail(): VodDetail = VodDetail(
+        vodId = optString("vod_id"),
+        vodName = optString("vod_name"),
+        vodPic = optString("vod_pic"),
+        vodRemarks = optString("vod_remarks"),
+        vodYear = optString("vod_year"),
+        typeName = optString("type_name"),
+        vodDesc = optString("vod_content").stripHtml(),
+        vodActor = optString("vod_actor"),
+        vodDirector = optString("vod_director"),
+        vodPlayFrom = optString("vod_play_from"),
+        vodPlayUrl = optString("vod_play_url")
+    )
+
+    private fun JsonObject.optString(key: String): String {
+        val prim = (this[key] as? JsonPrimitive) ?: return ""
+        if (prim is JsonNull) return ""
+        return prim.contentOrNull.orEmpty()
+    }
+
+    private fun String.stripHtml(): String =
+        this.replace(Regex("<[^>]*>"), "").replace("&nbsp;", " ").trim()
+
+    companion object {
+        private const val TAG = "PyApi"
+    }
+}

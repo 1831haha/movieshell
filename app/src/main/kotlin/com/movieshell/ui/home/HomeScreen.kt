@@ -67,6 +67,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.Vod as ModelVod
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.PySourceManager
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.data.DemoData
@@ -102,7 +103,7 @@ fun HomeScreen(
     var selectedCategory by remember { mutableIntStateOf(0) } // 0 = 全部
     var shuffleSeed by remember { mutableIntStateOf(0) }
 
-    // ---- drpy 接入 ----
+    // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
     var drpyActive by remember { mutableStateOf(false) }
     var drpyLoading by remember { mutableStateOf(false) }
     var drpyCats by remember { mutableStateOf<List<CategoryType>>(emptyList()) }
@@ -111,8 +112,14 @@ fun HomeScreen(
     fun loadDrpyHome() {
         scope.launch {
             drpyLoading = true
-            val home = runCatching { DrpySourceManager.home() }.getOrDefault(emptyList())
-            val cats = runCatching { DrpySourceManager.categories() }.getOrDefault(emptyList())
+            val home = runCatching {
+                if (DrpySourceManager.hasActiveRule()) DrpySourceManager.home()
+                else PySourceManager.home()
+            }.getOrDefault(emptyList())
+            val cats = runCatching {
+                if (DrpySourceManager.hasActiveRule()) DrpySourceManager.categories()
+                else PySourceManager.categories()
+            }.getOrDefault(emptyList())
             drpyCats = cats
             drpyList = home.ifEmpty { null }
             selectedCategory = 0
@@ -124,7 +131,10 @@ fun HomeScreen(
         val cat = drpyCats.getOrNull(index - 1) ?: return
         scope.launch {
             drpyLoading = true
-            val list = runCatching { DrpySourceManager.category(cat.typeId, 1) }.getOrDefault(emptyList())
+            val list = runCatching {
+                if (DrpySourceManager.hasActiveRule()) DrpySourceManager.category(cat.typeId, 1)
+                else PySourceManager.category(cat.typeId, 1)
+            }.getOrDefault(emptyList())
             drpyList = list.ifEmpty { null }
             selectedCategory = index
             drpyLoading = false
@@ -132,7 +142,7 @@ fun HomeScreen(
     }
 
     fun refreshDrpyState() {
-        val active = DrpySourceManager.hasActiveRule()
+        val active = DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule()
         val changed = active != drpyActive
         drpyActive = active
         if (active && (changed || drpyList == null)) loadDrpyHome()
@@ -155,8 +165,14 @@ fun HomeScreen(
         if (drpyActive) {
             // 下拉刷新：重调 home
             scope.launch {
-                val home = runCatching { DrpySourceManager.home() }.getOrDefault(emptyList())
-                val cats = runCatching { DrpySourceManager.categories() }.getOrDefault(emptyList())
+                val home = runCatching {
+                    if (DrpySourceManager.hasActiveRule()) DrpySourceManager.home()
+                    else PySourceManager.home()
+                }.getOrDefault(emptyList())
+                val cats = runCatching {
+                    if (DrpySourceManager.hasActiveRule()) DrpySourceManager.categories()
+                    else PySourceManager.categories()
+                }.getOrDefault(emptyList())
                 drpyCats = cats
                 drpyList = home.ifEmpty { null }
                 selectedCategory = 0

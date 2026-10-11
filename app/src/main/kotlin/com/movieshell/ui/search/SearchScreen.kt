@@ -58,6 +58,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.movieshell.data.model.Vod as ModelVod
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.PySourceManager
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
@@ -85,7 +86,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
 
-    // ---- drpy 接入 ----
+    // ---- drpy / PY 规则接入 ----
     var drpyActive by remember { mutableStateOf(false) }
     var drpySearching by remember { mutableStateOf(false) }
     var drpyResults by remember { mutableStateOf<List<Vod>?>(null) } // null=尚未搜过
@@ -94,7 +95,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                drpyActive = DrpySourceManager.hasActiveRule()
+                drpyActive = DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -110,11 +111,14 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
         if (history.size > 10) history.removeAt(history.lastIndex)
         focusManager.clearFocus()
         if (drpyActive) {
-            // 有激活的 drpy 规则：走规则搜索
+            // 有激活的 drpy/PY 规则：走规则搜索（drpy 优先）
             drpySearching = true
             drpyResults = null
             scope.launch {
-                val list = runCatching { DrpySourceManager.search(t) }.getOrDefault(emptyList())
+                val list = runCatching {
+                    if (DrpySourceManager.hasActiveRule()) DrpySourceManager.search(t)
+                    else PySourceManager.search(t)
+                }.getOrDefault(emptyList())
                 drpyResults = list.map { it.toUiVod() }
                 drpySearching = false
             }

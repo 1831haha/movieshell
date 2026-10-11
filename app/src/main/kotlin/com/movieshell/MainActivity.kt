@@ -27,11 +27,13 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.PySourceManager
 import com.movieshell.player.PlayerManager
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.home.HomeScreen
+import com.movieshell.ui.manual.ManualScreen
 import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.sources.SourcesScreen
@@ -53,6 +55,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         PlayerManager.init(this)
         DrpySourceManager.init(this)
+        PySourceManager.init(this)
         setContent {
             MovieShellTheme {
                 val navController = rememberNavController()
@@ -96,7 +99,14 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable("sources") { SourcesScreen() }
-                        composable("settings") { SettingsScreen() }
+                        composable("settings") {
+                            SettingsScreen(
+                                onManualClick = { navController.navigate("manual") },
+                            )
+                        }
+                        composable("manual") {
+                            ManualScreen(onBack = { navController.popBackStack() })
+                        }
                         composable(
                             route = DETAIL_ROUTE,
                             arguments = listOf(navArgument("vodId") { type = NavType.StringType }),
