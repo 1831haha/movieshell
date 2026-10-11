@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
@@ -63,9 +64,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.movieshell.data.repo.AiSourceManager
 import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.WebSourceManager
 import java.io.File
@@ -156,13 +159,18 @@ private fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): Im
     }
 }
 
-/** 扫描 filesDir/<dirName>/ 下的文件，转成 SourceEntry 列表（给 AI/PHP 分组用） */
-private fun listLocalFolderEntries(context: Context, dirName: String, desc: String): List<SourceEntry> {
+/** 扫描 filesDir/<dirName>/ 下的文件，转成 SourceEntry 列表（给 AI/PHP 分组用）；activeName 命中的条目 enabled=true（高亮为当前激活） */
+private fun listLocalFolderEntries(
+    context: Context,
+    dirName: String,
+    desc: String,
+    activeName: String? = null,
+): List<SourceEntry> {
     val dir = File(context.filesDir, dirName).apply { mkdirs() }
     return dir.listFiles { f -> f.isFile }
         .orEmpty()
         .sortedBy { it.name }
-        .map { f -> SourceEntry(f.name, "$desc · ${f.length() / 1024} KB", enabled = false) }
+        .map { f -> SourceEntry(f.name, "$desc · ${f.length() / 1024} KB", enabled = f.name == activeName) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -211,7 +219,7 @@ fun SourcesScreen(
         )
     }
 
-    /** 刷新 AI/PHP 分组：从 filesDir/ai|php 扫描真实文件 */
+    /** 刷新 AI/PHP 分组：从 filesDir/ai|php 扫描真实文件，激活中的条目高亮 */
     fun refreshLocalFolder(groupId: String) {
         val group = tailGroups.firstOrNull { it.id == groupId } ?: return
         val (dirName, desc) = when (groupId) {
@@ -219,8 +227,13 @@ fun SourcesScreen(
             "php" -> "php" to "PHP 规则"
             else -> return
         }
+        val activeName = when (groupId) {
+            "ai" -> AiSourceManager.activeRuleName()
+            "php" -> PhpSourceManager.activeRuleName()
+            else -> null
+        }
         group.entries.clear()
-        group.entries.addAll(listLocalFolderEntries(context, dirName, desc))
+        group.entries.addAll(listLocalFolderEntries(context, dirName, desc, activeName))
     }
 
     fun refreshDrpyRules() {
@@ -243,6 +256,29 @@ fun SourcesScreen(
     fun selectPyRule(name: String) {
         PySourceManager.setActiveRule(name)
         activePyRuleName = name
+    }
+
+    /** AI 规则激活：点击条目即设为当前规则；形态不支持执行时如实 Toast。 */
+    fun selectAiRule(name: String) {
+        AiSourceManager.setActiveRule(name)
+        refreshLocalFolder("ai")
+        Toast.makeText(
+            context,
+            if (AiSourceManager.isExecutable()) "AI 规则已激活：$name"
+            else "已选中 $name，但该格式暂不支持执行（仅 JS / PY / JSON-CMS 可跑）",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    /** PHP 规则选中：仅做选中标记（手机端无 PHP 解释器，不可执行），如实 Toast。 */
+    fun selectPhpRule(name: String) {
+        PhpSourceManager.setActiveRule(name)
+        refreshLocalFolder("php")
+        Toast.makeText(
+            context,
+            "已选中 $name：${PhpSourceManager.UNSUPPORTED_REASON}",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     fun refreshWebSites() {
@@ -300,6 +336,22 @@ fun SourcesScreen(
                         }
                         Toast.makeText(context, "已导入 ${r.fileName}", Toast.LENGTH_SHORT).show()
                     }
+                    "ai" -> {
+                        refreshLocalFolder("ai")
+                        if (AiSourceManager.activeRuleName() == null) {
+                            selectAiRule(r.fileName)
+                        } else {
+                            Toast.makeText(context, "已导入 ${r.fileName}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    "php" -> {
+                        refreshLocalFolder("php")
+                        Toast.makeText(
+                            context,
+                            "已保存到PHP文件夹，${PhpSourceManager.UNSUPPORTED_REASON}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                     else -> {
                         refreshLocalFolder(target.dirName)
                         Toast.makeText(
@@ -333,6 +385,13 @@ fun SourcesScreen(
             else -> return
         }
         runCatching { File(File(context.filesDir, dirName), entry.name).delete() }
+        // 删的是当前激活的规则 -> 清空激活，避免悬空引用
+        if (groupId == "ai" && AiSourceManager.activeRuleName() == entry.name) {
+            AiSourceManager.setActiveRule(null)
+        }
+        if (groupId == "php" && PhpSourceManager.activeRuleName() == entry.name) {
+            PhpSourceManager.setActiveRule(null)
+        }
         tailGroups.firstOrNull { it.id == groupId }?.entries?.remove(entry)
     }
 
@@ -466,10 +525,17 @@ fun SourcesScreen(
                     "php" -> IMPORT_PHP
                     else -> null
                 }
+                // AI/PHP 条目点击即激活（选中）当前规则
+                val onSelect: ((SourceEntry) -> Unit)? = when (group.id) {
+                    "ai" -> { entry -> selectAiRule(entry.name) }
+                    "php" -> { entry -> selectPhpRule(entry.name) }
+                    else -> null
+                }
                 GroupCard(
                     group = group,
                     onRemove = { entry -> removeLocalFolderEntry(group.id, entry) },
                     onImport = importTarget?.let { t -> { requestImport(t) } },
+                    onSelect = onSelect,
                 )
             }
             item { Spacer(Modifier.height(8.dp)) }
@@ -942,6 +1008,8 @@ private fun GroupCard(
     onRemove: (SourceEntry) -> Unit,
     onImport: (() -> Unit)? = null,
     onToggle: (() -> Unit)? = null,
+    /** 非空时条目可点击选中（AI/PHP 分组用）；此时隐藏 Switch，改显示激活对勾 */
+    onSelect: ((SourceEntry) -> Unit)? = null,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1003,6 +1071,7 @@ private fun GroupCard(
                                 entry = entry,
                                 onRemove = { onRemove(entry) },
                                 onToggle = onToggle,
+                                onSelect = onSelect?.let { sel -> { sel(entry) } },
                             )
                         }
                     }
@@ -1017,18 +1086,29 @@ private fun SourceEntryRow(
     entry: SourceEntry,
     onRemove: () -> Unit,
     onToggle: (() -> Unit)? = null,
+    /** 非空时整行文本区可点击选中（AI/PHP 分组用）；此时隐藏 Switch，改用对勾显示激活态 */
+    onSelect: (() -> Unit)? = null,
 ) {
+    // 选中模式下 entry.enabled 表示"当前激活"，普通模式下它是 Switch 开关态
+    val isActive = onSelect != null && entry.enabled
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = if (onSelect != null) Modifier
+                .weight(1f)
+                .clickable(onClick = onSelect)
+            else Modifier.weight(1f)
+        ) {
             Text(
                 text = entry.name,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
+                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                color = if (isActive) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1048,12 +1128,26 @@ private fun SourceEntryRow(
                 modifier = Modifier.size(18.dp),
             )
         }
-        Switch(
-            checked = entry.enabled,
-            onCheckedChange = {
-                entry.enabled = it
-                onToggle?.invoke()
-            },
-        )
+        if (onSelect != null) {
+            // 选中模式：激活的条目显示对勾，占位保持行高对齐
+            if (isActive) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "当前使用",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+            } else {
+                Spacer(Modifier.size(24.dp))
+            }
+        } else {
+            Switch(
+                checked = entry.enabled,
+                onCheckedChange = {
+                    entry.enabled = it
+                    onToggle?.invoke()
+                },
+            )
+        }
     }
 }

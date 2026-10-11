@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.model.Episode
 import com.movieshell.data.model.VodDetail
+import com.movieshell.data.repo.AiSourceManager
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
@@ -74,9 +75,10 @@ fun DetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // ---- drpy / PY 规则接入（drpy 优先） ----
+    // ---- drpy / PY / AI 规则接入（drpy 优先，其次 PY，最后 AI） ----
     val drpyActive = remember {
-        DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule()
+        DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule() ||
+            AiSourceManager.hasActiveRule()
     }
     var detailLoading by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<VodDetail?>(null) }
@@ -85,7 +87,8 @@ fun DetailScreen(
             detailLoading = true
             detail = runCatching {
                 if (DrpySourceManager.hasActiveRule()) DrpySourceManager.detail(vodId)
-                else PySourceManager.detail(vodId)
+                else if (PySourceManager.hasActiveRule()) PySourceManager.detail(vodId)
+                else AiSourceManager.detail(vodId)
             }.getOrNull()
             detailLoading = false
         }
@@ -115,7 +118,7 @@ fun DetailScreen(
     var favorite by remember { mutableStateOf(false) }
     var showMagnetDialog by remember { mutableStateOf(false) }
 
-    /** 统一播放决策：磁力 -> MagnetPlayer；否则 drpy/PY playUrl 取直链 */
+    /** 统一播放决策：磁力 -> MagnetPlayer；否则 drpy/PY/AI playUrl 取直链 */
     fun playEpisode(ep: Episode) {
         scope.launch {
             if (MagnetPlayer.isMagnet(ep.url)) {
@@ -128,7 +131,8 @@ fun DetailScreen(
                 val flag = if (ep.flag.isBlank()) "" else ep.flag
                 val link = runCatching {
                     if (DrpySourceManager.hasActiveRule()) DrpySourceManager.playUrl(flag, ep.url)
-                    else PySourceManager.playUrl(flag, ep.url)
+                    else if (PySourceManager.hasActiveRule()) PySourceManager.playUrl(flag, ep.url)
+                    else AiSourceManager.playUrl(flag, ep.url)
                 }.getOrDefault("")
                 // link 为空 -> 播放页保持"暂无可播地址"逻辑
                 onPlay(link, "${vod.title} ${ep.name.ifBlank { "第${selectedEpisode + 1}集" }}")

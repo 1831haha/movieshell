@@ -27,7 +27,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.movieshell.data.repo.AiSourceManager
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.WebSourceManager
 import com.movieshell.player.PlayerManager
@@ -59,6 +61,8 @@ class MainActivity : ComponentActivity() {
         PlayerManager.init(this)
         DrpySourceManager.init(this)
         PySourceManager.init(this)
+        AiSourceManager.init(this)
+        PhpSourceManager.init(this)
         WebSourceManager.init(this)
         setContent {
             MovieShellTheme {

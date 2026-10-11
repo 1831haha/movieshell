@@ -57,6 +57,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.movieshell.data.model.Vod as ModelVod
+import com.movieshell.data.repo.AiSourceManager
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.ui.components.GradientBlock
@@ -95,7 +96,8 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                drpyActive = DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule()
+                drpyActive = DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule() ||
+                    AiSourceManager.hasActiveRule()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -117,7 +119,8 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
             scope.launch {
                 val list = runCatching {
                     if (DrpySourceManager.hasActiveRule()) DrpySourceManager.search(t)
-                    else PySourceManager.search(t)
+                    else if (PySourceManager.hasActiveRule()) PySourceManager.search(t)
+                    else AiSourceManager.search(t)
                 }.getOrDefault(emptyList())
                 drpyResults = list.map { it.toUiVod() }
                 drpySearching = false
