@@ -1,6 +1,7 @@
 package com.movieshell.player
 
 import android.app.Activity
+import android.app.OnPictureInPictureModeChangedListener
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.media.AudioManager
@@ -11,7 +12,6 @@ import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PlayerSettings
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
-import androidx.activity.OnPictureInPictureModeChangedListener
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable

@@ -4,12 +4,16 @@ import android.content.Context
 import android.widget.Toast
 import com.movieshell.data.model.Episode
 import com.movieshell.data.model.ParseConfig
+import com.movieshell.data.model.Site
+import com.movieshell.data.model.isCmsSite
+import com.movieshell.data.model.isJavaSpider
+import com.movieshell.data.model.isPySite
+import com.movieshell.data.model.isType4Site
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SubSiteEngines
-import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubSiteStore
 
 /**
@@ -21,7 +25,7 @@ import com.movieshell.data.repo.SubSiteStore
  */
 suspend fun resolvePlayUrl(
     context: Context,
-    subSite: SubSiteRecord?,
+    subSite: Site?,
     episode: Episode,
 ): String {
     if (MagnetPlayer.isMagnet(episode.url)) return episode.url
@@ -77,7 +81,7 @@ suspend fun resolvePlayUrl(
  */
 suspend fun effectiveParses(
     context: Context,
-    subSite: SubSiteRecord,
+    subSite: Site,
 ): List<ParseConfig> {
     val subParses = SubSiteStore.findSite(context, subSite.key)
         ?.let { (subUrl, _) -> SubSiteStore.getParses(context, subUrl) }

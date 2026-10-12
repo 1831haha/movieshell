@@ -11,6 +11,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.Extractor
 import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.flv.FlvExtractor
 import com.movieshell.data.repo.LogBus
@@ -97,7 +98,7 @@ object PlayerManager {
         val adFilterFactory = AdFilteringDataSource.Factory(httpFactory)
         // v0.19.0：显式声明 FLV 提取器（HTTP-FLV 直播/点播），不依赖默认工厂的隐含行为
         val extractorsFactory = ExtractorsFactory {
-            arrayOf(FlvExtractor()) + DefaultExtractorsFactory().createExtractors()
+            arrayOf<Extractor>(FlvExtractor()) + DefaultExtractorsFactory().createExtractors()
         }
         val mediaItem = MediaItem.Builder()
             .setUri(url)
