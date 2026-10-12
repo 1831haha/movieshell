@@ -89,8 +89,6 @@ class AdFilteringDataSource(
     }
 
     override fun getUri() = upstream.uri
-    override fun getResponseCode() = upstream.responseCode
-    override fun getResponseHeaders() = upstream.responseHeaders
     override fun close() {
         filteredStream?.close()
         filteredStream = null
