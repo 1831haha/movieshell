@@ -466,7 +466,7 @@ fun HomeScreen(
                         FilterChip(
                             selected = selectedCategory == index,
                             onClick = {
-                                // v0.12.0：有源即按站点分类加载（不再要求首页有数据）
+                                // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
                                 if (drpyActive && drpyCats.isNotEmpty()) {
                                     if (index == 0) loadDrpyHome() else loadDrpyCategory(index)
                                 } else {

@@ -403,17 +403,15 @@ fun DetailScreen(
                     }
                 }
 
-                // 播放按钮
+                // 播放按钮（v0.13.0：无播放源时禁用并明示，不再静默传空地址）
                 item {
                     Button(
                         onClick = {
                             if (lineEpisodes.isNotEmpty()) {
                                 playEpisode(lineEpisodes[safeSelected])
-                            } else {
-                                // 演示数据：无真实地址，播放页显示"暂无可播地址"
-                                onPlay("", vod.title)
                             }
                         },
+                        enabled = lineEpisodes.isNotEmpty(),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp),
@@ -421,7 +419,10 @@ fun DetailScreen(
                     ) {
                         Icon(Icons.Filled.PlayArrow, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text(text = playLabel)
+                        Text(
+                            text = if (lineEpisodes.isNotEmpty()) playLabel
+                            else "暂无可播地址"
+                        )
                     }
                     Spacer(Modifier.height(8.dp))
                 }

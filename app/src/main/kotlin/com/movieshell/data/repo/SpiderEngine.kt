@@ -90,6 +90,34 @@ object SpiderEngine {
     }
 
     /**
+     * v0.13.0：解析 spider ext 中的相对路径。
+     * 如 ext="./config/blys.json"，按订阅 URL 的目录解析为绝对 URL。
+     * ext 为绝对 URL 或非路径格式时原样返回。
+     */
+    private fun resolveExt(ext: String, subUrl: String): String {
+        if (ext.isBlank()) return ext
+        // 已是绝对 URL，直接返回
+        if (ext.startsWith("http://", ignoreCase = true) ||
+            ext.startsWith("https://", ignoreCase = true)) {
+            return ext
+        }
+        // 相对路径：按订阅 URL 的目录解析
+        if (ext.startsWith("./") || ext.startsWith("../") || !ext.contains(":")) {
+            return runCatching {
+                val base = java.net.URL(subUrl)
+                val basePath = base.path.substringBeforeLast("/", "")
+                val resolvedPath = if (ext.startsWith("./")) {
+                    "$basePath/${ext.removePrefix("./")}"
+                } else {
+                    "$basePath/$ext"
+                }
+                java.net.URL(base.protocol, base.host, base.port, resolvedPath).toString()
+            }.getOrDefault(ext)
+        }
+        return ext
+    }
+
+    /**
      * 取（或加载）该站的 spider 实例。jar 下载/init 失败返回 null。
      * 必须在 IO 线程调用。
      */
@@ -118,7 +146,9 @@ object SpiderEngine {
             val clazz = loader.loadClass(classNameForApi(site.api))
             val spider = clazz.getDeclaredConstructor().newInstance() as? Spider
                 ?: throw IllegalStateException("不是 Spider 子类")
-            spider.init(context.applicationContext, site.ext)
+            // v0.13.0：ext 相对路径（如 ./config/blys.json）按订阅 base 解析为绝对 URL
+            val resolvedExt = resolveExt(site.ext, subUrl)
+            spider.init(context.applicationContext, resolvedExt)
             instances[instanceKey(site)] = spider
             LogBus.i(TAG, "spider 加载成功：${site.api}")
             spider
