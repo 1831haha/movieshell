@@ -61,6 +61,7 @@ import com.movieshell.data.model.Episode
 import com.movieshell.data.model.PlayLine
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.model.isCmsSite
+import com.movieshell.data.model.isJavaSpider
 import com.movieshell.data.model.isPySite
 import com.movieshell.data.model.isType4Site
 import com.movieshell.data.repo.DetailSiteHolder

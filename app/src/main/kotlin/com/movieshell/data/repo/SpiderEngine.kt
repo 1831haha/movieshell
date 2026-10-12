@@ -164,9 +164,9 @@ object SpiderEngine {
         if (!t.startsWith("{")) return SpiderPlayResult(url = t)
         val o = json.parseToJsonElement(t).jsonObject
         fun opt(key: String): String =
-            (o[key] as? JsonPrimitive)?.contentOrNull.orEmpty()
+            (o[key] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
         val header = (o["header"] as? JsonObject)
-            ?.entries?.associate { (k, v) -> k to (v as? JsonPrimitive)?.contentOrNull.orEmpty() }
+            ?.entries?.associate { (k, v) -> k to (v as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty() }
             .orEmpty()
         SpiderPlayResult(
             url = opt("url").ifBlank { opt("playUrl") },
