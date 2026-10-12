@@ -3,11 +3,13 @@ package com.movieshell.data.repo
 import android.content.Context
 import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.Episode
+import com.movieshell.data.model.FilterGroup
 import com.movieshell.data.model.ParseConfig
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.model.isCmsSite
+import com.movieshell.data.model.isDrpySite
 import com.movieshell.data.model.isJavaSpider
 import com.movieshell.data.model.isNovelOrComic
 import com.movieshell.data.model.isPhpSite
@@ -80,16 +82,33 @@ class SiteRepository(
         else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.home() }.getOrNull().orEmpty()
         else runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.home() }.getOrNull().orEmpty()
 
-    /** 分类：Pair(分类列表, 当前分类第 pg 页)。 */
-    suspend fun category(site: Site, tid: String, pg: Int): Pair<List<CategoryType>, List<Vod>> =
+    /**
+     * 分类：Pair(分类列表, 当前分类第 pg 页)。
+     * @param filter drpy 站筛选键→选中值（对应规则 filter_url 里 {{fl.键名}} 的键名）；
+     * UI 筛选器后续接入后传入，当前调用方传空 map 即按规则默认值渲染。
+     */
+    suspend fun category(
+        site: Site,
+        tid: String,
+        pg: Int,
+        filter: Map<String, String> = emptyMap()
+    ): Pair<List<CategoryType>, List<Vod>> =
         if (site.isPhpSite()) emptyList<CategoryType>() to emptyList() // PHP 暂不支持执行
         else if (site.isJavaSpider()) emptyList<CategoryType>() to emptyList()
         else if (site.isType4Site()) type4Api.category(site, tid, pg)
         else if (site.isCmsSite()) cmsApi.category(site, tid, pg)
         else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.categories() }.getOrNull().orEmpty() to
-            runCatching { subOr(pyEngine) { pyEngineFor(site) }?.category(tid, pg) }.getOrNull().orEmpty()
+            runCatching { subOr(pyEngine) { pyEngineFor(site) }?.category(tid, pg, filter) }.getOrNull().orEmpty()
         else emptyList<CategoryType>() to
-            runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.category(tid, pg) }.getOrNull().orEmpty()
+            runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.category(tid, pg, filter) }.getOrNull().orEmpty()
+
+    /**
+     * drpy 站某分类的筛选定义（规则 filter 分组），给 UI 筛选器用。
+     * 非 drpy 站 / 规则没配 filter 时返回空列表。
+     */
+    suspend fun filters(site: Site, tid: String): List<FilterGroup> =
+        if (!site.isDrpySite()) emptyList()
+        else runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.filters(tid) }.getOrNull().orEmpty()
 
     /** 详情。 */
     suspend fun detail(site: Site, vodId: String): VodDetail =

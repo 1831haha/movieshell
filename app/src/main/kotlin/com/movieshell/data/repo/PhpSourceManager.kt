@@ -130,7 +130,7 @@ object PhpSourceManager {
 
         override suspend fun home(): List<Vod> = emptyList()
         override suspend fun categories(): List<CategoryType> = emptyList()
-        override suspend fun category(tid: String, pg: Int): List<Vod> = emptyList()
+        override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod> = emptyList()
         override suspend fun detail(id: String): VodDetail = VodDetail(vodId = id)
         override suspend fun search(wd: String): List<Vod> = emptyList()
         override suspend fun play(flag: String, id: String): String = ""

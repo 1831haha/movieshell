@@ -104,7 +104,7 @@ object PySourceManager {
     suspend fun categories(): List<CategoryType> =
         activeRulePath()?.let { runCatching { api.categories(it) }.getOrNull() }.orEmpty()
 
-    suspend fun category(tid: String, pg: Int): List<Vod> =
+    suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod> =
         activeRulePath()?.let { runCatching { api.category(it, tid, pg) }.getOrNull() }.orEmpty()
 
     suspend fun detail(vodId: String): VodDetail =
@@ -131,8 +131,8 @@ object PySourceManager {
             override suspend fun categories(): List<CategoryType> =
                 this@PySourceManager.categories()
 
-            override suspend fun category(tid: String, pg: Int): List<Vod> =
-                this@PySourceManager.category(tid, pg)
+            override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod> =
+                this@PySourceManager.category(tid, pg, filter)
 
             override suspend fun detail(id: String): VodDetail = this@PySourceManager.detail(id)
             override suspend fun search(wd: String): List<Vod> = this@PySourceManager.search(wd)

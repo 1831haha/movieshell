@@ -8,6 +8,8 @@ import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import com.movieshell.data.model.CategoryType
+import com.movieshell.data.model.FilterGroup
+import com.movieshell.data.model.FilterOption
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import kotlinx.coroutines.TimeoutCancellationException
@@ -43,8 +45,18 @@ interface DrpyEngine {
     /** 全部分类（来自 rule.class_parse 或 class_name/class_url）。 */
     suspend fun categories(): List<CategoryType>
 
-    /** 分类列表。 */
-    suspend fun category(tid: String, pg: Int): List<Vod>
+    /**
+     * 分类列表。
+     * @param filter 筛选键→选中值（对应规则 filter_url 里 {{fl.键名}} 的键名）；
+     * 空 map 时引擎按规则默认值渲染（filter_def[tid]，再取 filter 分组首项）。
+     */
+    suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod>
+
+    /**
+     * 该分类的筛选定义（drpy filterable 规则的 filter 分组）。
+     * 规则没配 filter / 非 drpy 引擎时返回空列表；UI 筛选器据此绘制。
+     */
+    suspend fun filters(tid: String): List<FilterGroup> = emptyList()
 
     /** 详情。 */
     suspend fun detail(id: String): VodDetail
@@ -127,14 +139,42 @@ class WebViewDrpyEngine(context: Context) : DrpyEngine {
         }
     }
 
-    override suspend fun category(tid: String, pg: Int): List<Vod> {
+    override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod> {
+        val filterJson = JSONObject().apply {
+            for ((k, v) in filter) put(k, v)
+        }.toString()
         val json = evalForJson(
-            "(async()=>__drpyCategory(${JSONObject.quote(tid)},$pg))()"
+            "(async()=>__drpyCategory(${JSONObject.quote(tid)},$pg,$filterJson))()"
         ) ?: return emptyList()
         return runCatching {
             JSONObject(json).optJSONArray("list").toVodList()
         }.getOrElse {
             Log.w(TAG, "category 解析失败", it)
+            emptyList()
+        }
+    }
+
+    override suspend fun filters(tid: String): List<FilterGroup> {
+        val json = evalForJson(
+            "(async()=>__drpyFilters(${JSONObject.quote(tid)}))()"
+        ) ?: return emptyList()
+        return runCatching {
+            val groups = JSONObject(json).optJSONArray("groups") ?: JSONArray()
+            buildList {
+                for (i in 0 until groups.length()) {
+                    val g = groups.optJSONObject(i) ?: continue
+                    val opts = g.optJSONArray("value") ?: JSONArray()
+                    val options = buildList {
+                        for (j in 0 until opts.length()) {
+                            val o = opts.optJSONObject(j) ?: continue
+                            add(FilterOption(o.optString("n"), o.optString("v")))
+                        }
+                    }
+                    add(FilterGroup(g.optString("key"), g.optString("name"), options))
+                }
+            }
+        }.getOrElse {
+            Log.w(TAG, "filters 解析失败", it)
             emptyList()
         }
     }

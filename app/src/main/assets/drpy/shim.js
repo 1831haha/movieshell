@@ -1,7 +1,11 @@
 /* drpy 规则执行垫片（movieshell WebView 引擎用）。
  * 在 WebView 全局作用域 evaluate，本文件 + 规则源码拼在一起执行。
  * 规则侧只用到：全局 request(url, options)、this.input / this.HOST / this.KEY / this.MY_PAGE、
- * 以及导出的 __drpyHome/__drpyCategory/__drpyDetail/__drpySearch/__drpyPlay（全部返回 JSON 字符串）。
+ * 以及导出的 __drpyHome/__drpyCategory/__drpyDetail/__drpySearch/__drpyPlay/__drpyFilters
+ *（全部返回 JSON 字符串）。
+ * 筛选支持（drpy2 语义）：rule.filter_url 里的 {{fl.键名}} 占位符按筛选值渲染后拼进
+ * url 的 fyfilter 处（无 fyfilter 标记时追加到 url 末尾）；无筛选值时按规则默认值
+ *（filter_def[tid]，再取 filter 分组首项）或空字符串渲染；gzip+base64 的 filter 字符串自动解开。
  * 已知不支持：cheerio/pdfa/pdfh 等 HTML 解析、模板简写（推荐:'json:...' 字符串形式）、
  * rule.lazy 返回非对象时的复杂嗅探、jsDelivr 远程依赖。
  */
@@ -36,10 +40,18 @@ function buildHeaders(rule, optHeaders) {
     return h;
 }
 
-/* ---------- 模板渲染：fyclass/fypage/fyid/** ---------- */
+/* ---------- 模板渲染：fyclass fypage fyid ** {{fl.键名}} {{fyclass}} ---------- */
 function renderTpl(tpl, ctx) {
     var u = String(tpl == null ? '' : tpl);
-    u = u.split('fyclass').join(encodeURIComponent(ctx.tid == null ? '' : String(ctx.tid)));
+    // {{fl.键名}} 筛选占位符（drpy2 用 jinja2 渲染，值原样拼接、不做 URL 编码；
+    // 键名可含中文，如 {{fl.排序}}）。无筛选值时渲染为空字符串（drpy2 默认行为）。
+    u = u.replace(/\{\{\s*fl\.([^{}]+?)\s*\}\}/g, function (m, k) {
+        var v = (ctx.fl && typeof ctx.fl === 'object') ? ctx.fl[k] : null;
+        return v == null ? '' : String(v);
+    });
+    var tid = encodeURIComponent(ctx.tid == null ? '' : String(ctx.tid));
+    u = u.replace(/\{\{\s*fyclass\s*\}\}/g, tid);
+    u = u.split('fyclass').join(tid);
     u = u.split('fypage').join(String(ctx.pg == null ? 1 : ctx.pg));
     u = u.split('fyid').join(String(ctx.id == null ? '' : ctx.id));
     u = u.split('**').join(encodeURIComponent(ctx.wd == null ? '' : String(ctx.wd)));
@@ -62,6 +74,64 @@ function makeCtx(rule, extra) {
         Object.keys(extra).forEach(function (k) { ctx[k] = extra[k]; });
     }
     return ctx;
+}
+
+/* ---------- drpy 筛选（filter_url / fyfilter / {{fl.键名}}） ---------- */
+
+/** base64(gzip JSON) → JSON 字符串；失败抛错，调用方吞掉走空筛选。 */
+async function ungzipB64(b64) {
+    var bin = atob(String(b64).trim());
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    var ds = new DecompressionStream('gzip');
+    return await new Response(new Blob([bytes]).stream().pipeThrough(ds)).text();
+}
+
+/**
+ * 取某分类的筛选分组：rule.filter 可能是对象，也可能是 gzip+base64 字符串
+ *（drpy2 的 ungzip 语义）。先按 tid 取，取不到再按 'default' 取。
+ */
+async function getFilterGroups(tid) {
+    try {
+        var f = (typeof rule !== 'undefined') ? rule.filter : null;
+        if (typeof f === 'string' && f.trim().length > 0) {
+            try { f = JSON.parse(await ungzipB64(f)); } catch (e) { return []; }
+        }
+        if (!f || typeof f !== 'object') return [];
+        var def = f[tid] || f['default'];
+        return Array.isArray(def) ? def : [];
+    } catch (e) { return []; }
+}
+
+/**
+ * 拼筛选值表（drpy2 语义）：
+ * 1) rule.filter_def[tid] 默认值打底（drpy2 的"自动合并不同分类默认筛选"）；
+ * 2) 缺的键用 rule.filter 分组首个选项的 v 补（规则里首项一般是"全部"）；
+ * 3) 调用方显式传入的筛选值覆盖。
+ */
+async function buildFilterMap(tid, selected) {
+    var fl = {};
+    try {
+        var fd = rule.filter_def;
+        if (fd && typeof fd === 'object') {
+            var d = fd[tid] || fd['default'];
+            if (d && typeof d === 'object') {
+                Object.keys(d).forEach(function (k) { fl[k] = str(d[k]); });
+            }
+        }
+    } catch (e) {}
+    var groups = await getFilterGroups(tid);
+    groups.forEach(function (g) {
+        g = g || {};
+        if (g.key && fl[g.key] == null) {
+            var opts = Array.isArray(g.value) ? g.value : [];
+            fl[g.key] = opts.length > 0 ? str(opts[0].v) : '';
+        }
+    });
+    if (selected && typeof selected === 'object') {
+        Object.keys(selected).forEach(function (k) { fl[k] = str(selected[k]); });
+    }
+    return fl;
 }
 
 /* ---------- 全局 request：转调 Java 桥（同步）/ node 桩（异步） ---------- */
@@ -133,17 +203,49 @@ globalThis.__drpyHome = async function () {
     } catch (e) { return errJson(e); }
 };
 
-globalThis.__drpyCategory = async function (tid, pg) {
+globalThis.__drpyCategory = async function (tid, pg, filter) {
     try {
         needRule();
         pg = pg || 1;
-        var input = absUrl(rule.host, rule.url || '', { tid: tid, pg: pg });
+        var urlTpl = rule.url || '';
+        var fl = {};
+        // drpy2 语义：有 filter_url 时先渲染它，再拼进 url 的 fyfilter 处；
+        // url 里没有 fyfilter 标记时追加到末尾（用 & 连接）。
+        if (rule.filter_url) {
+            fl = await buildFilterMap(tid, filter);
+            var furl = renderTpl(rule.filter_url, { tid: tid, pg: pg, fl: fl });
+            if (/fyfilter/.test(urlTpl)) {
+                urlTpl = urlTpl.replace('fyfilter', furl);
+            } else {
+                if (urlTpl.charAt(urlTpl.length - 1) !== '&' && furl.charAt(0) !== '&') urlTpl += '&';
+                urlTpl += furl;
+            }
+        }
+        var input = absUrl(rule.host, urlTpl, { tid: tid, pg: pg, fl: fl });
         var r = await rule.一级.call(makeCtx(rule, { input: input, TID: tid, PG: pg }));
         var page = pg;
         if (r && typeof r === 'object' && !Array.isArray(r) && r.page != null) {
             page = Number(r.page) || pg;
         }
         return JSON.stringify({ list: toList(r), page: page });
+    } catch (e) { return errJson(e); }
+};
+
+/* 筛选定义：给 UI 画筛选器用。返回 {filterable, groups:[{key,name,value:[{n,v}]}]} */
+globalThis.__drpyFilters = async function (tid) {
+    try {
+        needRule();
+        var groups = await getFilterGroups(tid);
+        var out = groups.map(function (g) {
+            g = g || {};
+            var opts = Array.isArray(g.value) ? g.value : [];
+            return {
+                key: str(g.key),
+                name: str(g.name),
+                value: opts.map(function (o) { o = o || {}; return { n: str(o.n), v: str(o.v) }; })
+            };
+        });
+        return JSON.stringify({ filterable: rule.filterable ? 1 : 0, groups: out });
     } catch (e) { return errJson(e); }
 };
 

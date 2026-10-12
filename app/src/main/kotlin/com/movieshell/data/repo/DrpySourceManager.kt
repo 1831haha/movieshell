@@ -3,6 +3,7 @@ package com.movieshell.data.repo
 import android.content.Context
 import android.util.Log
 import com.movieshell.data.model.CategoryType
+import com.movieshell.data.model.FilterGroup
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.source.DrpyEngine
@@ -114,8 +115,12 @@ object DrpySourceManager {
     suspend fun categories(): List<CategoryType> =
         runCatching { engine?.categories() }.getOrNull().orEmpty()
 
-    suspend fun category(tid: String, pg: Int): List<Vod> =
-        runCatching { engine?.category(tid, pg) }.getOrNull().orEmpty()
+    suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod> =
+        runCatching { engine?.category(tid, pg, filter) }.getOrNull().orEmpty()
+
+    /** 当前规则某分类的筛选定义（无筛选时空列表）。 */
+    suspend fun filters(tid: String): List<FilterGroup> =
+        runCatching { engine?.filters(tid) }.getOrNull().orEmpty()
 
     suspend fun detail(vodId: String): VodDetail =
         runCatching { engine?.detail(vodId) }.getOrNull() ?: VodDetail(vodId = vodId)
@@ -137,8 +142,11 @@ object DrpySourceManager {
 
         override suspend fun home(): List<Vod> = this@DrpySourceManager.home()
         override suspend fun categories(): List<CategoryType> = this@DrpySourceManager.categories()
-        override suspend fun category(tid: String, pg: Int): List<Vod> =
-            this@DrpySourceManager.category(tid, pg)
+        override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod> =
+            this@DrpySourceManager.category(tid, pg, filter)
+
+        override suspend fun filters(tid: String): List<FilterGroup> =
+            this@DrpySourceManager.filters(tid)
 
         override suspend fun detail(id: String): VodDetail = this@DrpySourceManager.detail(id)
         override suspend fun search(wd: String): List<Vod> = this@DrpySourceManager.search(wd)
