@@ -972,6 +972,7 @@ private fun FileGrid(
 
 /** 网格卡片：类型徽标 + 文件名 + 激活打勾 */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun FileCard(
     item: GridFileItem,
     badgeLabel: String,
