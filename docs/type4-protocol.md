@@ -191,3 +191,35 @@ class Spider extends BaseSpider {            // 类名不固定（见过 Spider�
 - **未找到 `run()` 源码**：公开仓库 `spider/php/lib/spider.php` 路径返回 404，
   未做进一步 URL 试探。§5 的调度表为高置信度推断，待源码或抓包确认。
 - 实测 7 文件与文档的方法签名、返回契约完全一致，文档可作为实现时的第二证据源。
+
+## §8 run() 调度确认补记（2026-10-12，用户提供 spider.php 源码，"Copyright 道长所有 Date: 2026/01/23"）
+
+BaseSpider::run() 精确调度逻辑（不再是推断）：
+- 每次请求先执行 `$this->init($extend)`；`$extend` = `$_GET['ext']` 经 base64→JSON 解码（解出数组则用数组）。
+- `ac=action` → `action($_GET['action'], $_GET['value'])`
+- `ac=play` 或 `$_GET['play']` 非空 → `playContent($flag, $playId)`，其中 `$playId = $_GET['play'] ?: $_GET['id']`
+- `$_GET['wd']` 非空 → `searchContent($wd, false, $pg)`
+- `$_GET['ids']` 非空 **且** `ac` 非空 → `detailContent(explode(',', $ids))`
+- `$_GET['t'] !== ''` **且** `ac` 非空 → `categoryContent($t, $pg, [], $extend)`
+- 无参数 → `homeContent($filter)` + `homeVideoContent()` 合并为 `{class, list, filters?}`
+- 异常 → `{"code":500,"msg":"..."}`
+
+App 侧 type=4（模式A）请求映射（定稿）：
+- 首页：`GET {api}` → `{class:[{type_id,type_name}], list:[vod...]}`
+- 分类：`GET {api}?ac=detail&t={tid}&pg={pg}` → `{list,page,pagecount,limit,total}`
+- 搜索：`GET {api}?wd={keyword}&pg={pg}` → `{list}`
+- 详情：`GET {api}?ac=detail&ids={vodId}` → `{list:[vod]}`；`vod_play_from`/`vod_play_url` 按 `$$$` / `#` / `$` 切分（同苹果 CMS）
+- 播放：`GET {api}?ac=play&flag={flag}&id={playId}` → `{parse:0|1, url, header}`；`parse=1` 走解析链路；`header` 透传给播放器
+- 注意：`t` 参数是"非空字符串"判断（`!== ''`），`ac` 只要非空即可；分类请求用 `ac=detail` 占位即可
+
+## §9 端口预留约定（2026-10-12 用户硬性要求）
+
+未来 MovieShell 若内置本地服务（含 PHP），端口必须避开用户自用应用和主流 App 已占用的端口：
+- 19978：用户 DsPlayer 的 T4 PHP 插件
+- 17890：magnet-stream 磁力转播服务
+- 9978：TVBox 系文件服务
+- 另避开 8080 / 8000 / 8888 等常见端口
+
+**未来内置 PHP 服务预留端口：29578。**
+
+注：v0.6.0 的 type=4 为纯客户端实现（只对外连 PHP 脚本 HTTP 地址，不在本地开端口），不受本条影响。

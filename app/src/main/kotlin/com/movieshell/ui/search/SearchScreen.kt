@@ -116,6 +116,7 @@ private suspend fun buildSearchConfigJson(context: Context): String {
                                 put("type", site.type)
                                 put("api", site.api)
                                 put("searchable", if (rec.searchable) 1 else 0)
+                                put("类型", site.typeLabel)
                             }
                         )
                     }

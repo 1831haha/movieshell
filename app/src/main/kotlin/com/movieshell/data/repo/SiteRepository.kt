@@ -7,12 +7,16 @@ import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.model.isCmsSite
 import com.movieshell.data.model.isJavaSpider
+import com.movieshell.data.model.isNovelOrComic
 import com.movieshell.data.model.isPhpSite
 import com.movieshell.data.model.isPySite
+import com.movieshell.data.model.isType4Site
 import com.movieshell.data.model.toSite
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DrpyEngine
 import com.movieshell.data.source.TvBoxConfigParser
+import com.movieshell.data.source.Type4Api
+import com.movieshell.data.source.Type4PlayResult
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
@@ -28,17 +32,19 @@ data class SiteSearchResult(val site: Site, val vods: List<Vod>)
  *
  * 职责：
  *  1. loadFromConfig() 解析 TVBox 订阅 JSON，沉淀可用站源列表；
- *  2. 按 site 把 home/category/detail/search 分发："php:" 走 PhpSourceManager（明确不支持，返回空）、
- *     csp_ 开头的 Java spider 站（需 tvkj.jar，明确不支持，返回空）、
- *     type=0/1 走 CmsApi、PY 站（type=3 且 api 以 .py 结尾）走 PY 引擎、
- *     drpy 站（type=4 或 api 以 .js 结尾）走 drpy 引擎；
+ *  2. 按 site 把 home/category/detail/search 分发："php:" 走 PhpSourceManager（本地 PHP 规则，
+ *     手机端无 PHP 解释器，明确不支持，返回空）、csp_ 开头的 Java spider 站（需 tvkj.jar，
+ *     明确不支持，返回空）、type=0/1 走 CmsApi、type=4 走 Type4Api（api 是 PHP 脚本的
+ *     HTTP 地址，壳子只发 HTTP 解析 JSON）、PY 站（type=3 且 api 以 .py 结尾）走 PY 引擎、
+ *     drpy 站（api 以 .js 结尾）走 drpy 引擎；小说/漫画站（扩展字段"类型"）跳过 home/search；
  *     订阅展开的子站点（key 前缀 "sub:"）走 SubSiteEngines 的按站引擎；
  *  3. parseEpisodes() 把详情里的 vod_play_from / vod_play_url 对齐成 Episode 列表。
  */
 class SiteRepository(
     private val cmsApi: CmsApi = CmsApi(),
     private val drpyEngine: DrpyEngine? = null,
-    private val pyEngine: DrpyEngine? = null
+    private val pyEngine: DrpyEngine? = null,
+    private val type4Api: Type4Api = Type4Api()
 ) {
 
     private val sites = mutableListOf<Site>()
@@ -62,10 +68,12 @@ class SiteRepository(
     /** 按 key 取站源，找不到返回 null。 */
     fun findSite(key: String): Site? = sites.find { it.key == key }
 
-    /** 首页推荐/最新：PHP / csp_ Java spider 明确不支持，返回空。 */
+    /** 首页推荐/最新：PHP / csp_ Java spider / 小说漫画站明确不支持，返回空。 */
     suspend fun home(site: Site): List<Vod> =
         if (site.isPhpSite()) emptyList() // PHP 需 PHP 解释器，手机端暂不支持执行
         else if (site.isJavaSpider()) emptyList() // csp_ Java spider：需 tvkj.jar，无运行环境
+        else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
+        else if (site.isType4Site()) type4Api.home(site)
         else if (site.isCmsSite()) cmsApi.home(site)
         else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.home() }.getOrNull().orEmpty()
         else runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.home() }.getOrNull().orEmpty()
@@ -74,6 +82,7 @@ class SiteRepository(
     suspend fun category(site: Site, tid: String, pg: Int): Pair<List<CategoryType>, List<Vod>> =
         if (site.isPhpSite()) emptyList<CategoryType>() to emptyList() // PHP 暂不支持执行
         else if (site.isJavaSpider()) emptyList<CategoryType>() to emptyList()
+        else if (site.isType4Site()) type4Api.category(site, tid, pg)
         else if (site.isCmsSite()) cmsApi.category(site, tid, pg)
         else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.categories() }.getOrNull().orEmpty() to
             runCatching { subOr(pyEngine) { pyEngineFor(site) }?.category(tid, pg) }.getOrNull().orEmpty()
@@ -84,6 +93,7 @@ class SiteRepository(
     suspend fun detail(site: Site, vodId: String): VodDetail =
         if (site.isPhpSite()) VodDetail(vodId = vodId) // PHP 暂不支持执行
         else if (site.isJavaSpider()) VodDetail(vodId = vodId)
+        else if (site.isType4Site()) type4Api.detail(site, vodId)
         else if (site.isCmsSite()) cmsApi.detail(site, vodId)
         else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.detail(vodId) }.getOrNull()
             ?: VodDetail(vodId = vodId)
@@ -95,6 +105,8 @@ class SiteRepository(
         if (!site.searchable || wd.isBlank()) return emptyList()
         return if (site.isPhpSite()) emptyList() // PHP 暂不支持执行
         else if (site.isJavaSpider()) emptyList()
+        else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
+        else if (site.isType4Site()) type4Api.search(site, wd)
         else if (site.isCmsSite()) cmsApi.search(site, wd)
         else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.search(wd) }.getOrNull().orEmpty()
         else runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.getOrNull().orEmpty()
@@ -141,6 +153,16 @@ class SiteRepository(
 
     /** PHP 播放：手机端无 PHP 解释器，暂不支持，返回空串。 */
     suspend fun phpPlay(flag: String, id: String): String = ""
+
+    /**
+     * type=4 播放：GET {api}?ac=play&flag={flag}&id={id}，返回 (直链, parse 标记, header)。
+     * parse=1 的站理论上要走订阅 parses 解析链路——parses 目前只解析保留、未接入播放链路，
+     * v0.6 暂按直链返回（TODO：parses 接入播放链路后，parse=1 在这里分流走解析）。
+     * header 由调用方（DetailScreen）经 SniffPlayHeaders.put 透传给播放器。
+     * 任何失败返回空结果，不抛异常。
+     */
+    suspend fun type4Play(site: Site, flag: String, id: String): Type4PlayResult =
+        runCatching { type4Api.play(site, flag, id) }.getOrNull() ?: Type4PlayResult()
 
     /**
      * 订阅子站点优先用其专属引擎（SubSiteEngines 按 key 前缀 "sub:" 识别），

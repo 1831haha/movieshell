@@ -27,10 +27,12 @@ import kotlin.math.abs
  * 请求必失败，点播页也完全没接订阅。本 Store 负责：
  *
  *  1. refresh()：下载订阅 JSON，用 TvBoxConfigParser 解析 sites，按规则展开：
+ *     - 扩展字段"类型"为小说/漫画 -> 标记 unsupported（App 只做视频点播）；
  *     - type=0/1 -> CMS，直用原始 api；
  *     - type=3 且 api 以 csp_ 开头 -> 标记 unsupported（Java spider，需 tvkj.jar）；
+ *     - type=4 -> type4（PHP 站：api 是 PHP 脚本的 HTTP 地址，直接请求，不下载）；
  *     - type=3 且 api 以 .py 结尾 -> 下载 .py 到 filesDir/py/subs/；
- *     - type=3/4 且 api 以 .js 结尾 -> 按订阅 base URL 补全 api/ext 为绝对 URL，
+ *     - type=3 且 api 以 .js 结尾 -> 按订阅 base URL 补全 api/ext 为绝对 URL，
  *       下载到 filesDir/drpy/subs/，挑出含 `var rule` 定义的那个做规则文件；
  *       drpy2.min.js 是 ES module（import 语法），WebView 里直接 evaluate 不可行，
  *       好在规则文件本身是标准 drpy 格式，直接用现有垫片执行 ext 即可；
@@ -51,11 +53,13 @@ data class SubSiteRecord(
     /** 修复用：展开前的原始 api/ext（相对路径形态） */
     val origApi: String = "",
     val origExt: String = "",
-    /** cms / drpy / py / unsupported */
+    /** cms / drpy / py / type4 / unsupported */
     val kind: String = SubSiteStore.KIND_CMS,
     val reason: String = "",
     val searchable: Boolean = true,
     val enabled: Boolean = true,
+    /** 订阅声明的扩展字段"类型"（如 "小说"/"漫画"） */
+    val typeLabel: String = "",
 )
 
 @Serializable
@@ -83,11 +87,16 @@ object SubSiteStore {
     const val KIND_CMS = "cms"
     const val KIND_DRPY = "drpy"
     const val KIND_PY = "py"
+    /** type=4 PHP 站：api 是 PHP 脚本的 HTTP 地址，无需下载，直接请求 */
+    const val KIND_TYPE4 = "type4"
     const val KIND_UNSUPPORTED = "unsupported"
 
     const val REASON_JAVA_SPIDER =
         "Java spider 源（api 以 csp_ 开头）：需要订阅自带的 tvkj.jar 里的 Java 类才能跑，" +
             "手机端没有 Java spider 运行环境，暂不支持。可以找找同名的 drpy / PY / CMS 源代替。"
+
+    const val REASON_NOVEL_COMIC =
+        "小说/漫画类站点：MovieShell 只做视频点播，该类型暂不支持。"
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
     private val client by lazy { CmsApi.defaultClient() }
@@ -107,6 +116,7 @@ object SubSiteStore {
         api = rec.api.trim(),
         searchable = rec.searchable,
         quickSearch = false,
+        typeLabel = rec.typeLabel,
     )
 
     /** 按 "sub:<id>:<key>" 反查 (subUrl, record)，找不到返回 null。 */
@@ -226,13 +236,24 @@ object SubSiteStore {
         val base = SubSiteRecord(
             key = sc.key, name = sc.name.ifBlank { sc.key }, type = sc.type,
             origApi = api, origExt = ext, searchable = searchable,
+            typeLabel = sc.typeLabel,
         )
+        // 小说/漫画站：App 只做视频点播，该类型统一标不支持（UI 打徽标，home/search 跳过）
+        val isNovelOrComic = sc.typeLabel.trim().let { it.contains("小说") || it.contains("漫画") }
+        if (isNovelOrComic) {
+            return base.copy(kind = KIND_UNSUPPORTED, api = api, ext = ext, reason = REASON_NOVEL_COMIC)
+        }
         // csp_ 开头：Java spider，直接标不支持（放最前，避免被 .js/.py 误判）
         if (api.startsWith("csp_", ignoreCase = true)) {
             return base.copy(kind = KIND_UNSUPPORTED, api = api, ext = ext, reason = REASON_JAVA_SPIDER)
         }
         if (sc.type == 0 || sc.type == 1) {
             return base.copy(kind = KIND_CMS, api = api, ext = ext)
+        }
+        // type=4：api 是 PHP 脚本的 HTTP 地址（PHP 跑在远端/本地服务里，壳子只发 HTTP），
+        // 无需下载规则文件；相对路径按订阅 base URL 补全，含中文/空格的由 Type4Api 请求时编码
+        if (sc.type == 4) {
+            return base.copy(kind = KIND_TYPE4, api = resolveUrl(baseUri, api), ext = ext)
         }
         if (api.endsWith(".py", ignoreCase = true)) {
             val url = resolveUrl(baseUri, api)

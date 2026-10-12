@@ -1199,13 +1199,14 @@ private fun SourceEntryRow(
     }
 }
 
-/** 类型徽标：CMS / drpy / PY / 不支持 */
+/** 类型徽标：CMS / drpy / PY / PHP / 不支持 */
 @Composable
 private fun KindBadge(kind: String) {
     val (label, color) = when (kind) {
         SubSiteStore.KIND_CMS -> "CMS" to MaterialTheme.colorScheme.primary
         SubSiteStore.KIND_DRPY -> "drpy" to MaterialTheme.colorScheme.tertiary
         SubSiteStore.KIND_PY -> "PY" to MaterialTheme.colorScheme.secondary
+        SubSiteStore.KIND_TYPE4 -> "PHP" to MaterialTheme.colorScheme.tertiary
         else -> "不支持" to MaterialTheme.colorScheme.error
     }
     Surface(
@@ -1223,7 +1224,7 @@ private fun KindBadge(kind: String) {
 
 /**
  * 接口站源卡（v0.5.1）。
- * 每条启用的订阅可展开站点列表：站名 + 类型徽标（CMS/drpy/PY/不支持）；
+ * 每条启用的订阅可展开站点列表：站名 + 类型徽标（CMS/drpy/PY/PHP/不支持）；
  * 点可用站点即"设为点播页当前源"（持久化），点"不支持"的站点 Toast 说明原因。
  */
 @Composable

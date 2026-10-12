@@ -52,7 +52,9 @@ object TvBoxConfigParser {
         quickSearch = this["quickSearch"].asIntOrNull() ?: 0,
         filterable = this["filterable"].asIntOrNull() ?: 0,
         ext = this["ext"].asStringOrNull().orEmpty(),
-        jar = this["jar"].asStringOrNull().orEmpty()
+        jar = this["jar"].asStringOrNull().orEmpty(),
+        // 扩展字段"类型"：小说/漫画站用它标识（勿用 categories），规整化到 Site.typeLabel
+        typeLabel = this["类型"].asStringOrNull().orEmpty()
     )
 
     private fun JsonObject.toParseConfig(): ParseConfig = ParseConfig(

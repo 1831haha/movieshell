@@ -62,6 +62,7 @@ import com.movieshell.data.model.PlayLine
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.model.isCmsSite
 import com.movieshell.data.model.isPySite
+import com.movieshell.data.model.isType4Site
 import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.FavoriteItem
@@ -70,6 +71,7 @@ import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.player.MagnetPlayer
+import com.movieshell.player.SniffPlayHeaders
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
@@ -180,6 +182,16 @@ fun DetailScreen(
                         subSite.isCmsSite() -> ep.url
                         subSite.isPySite() ->
                             SubSiteEngines.pyEngineFor(subSite)?.play(flag, ep.url).orEmpty()
+                        // type=4 站：GET {api}?ac=play&flag=&id= 拿直链；header 经
+                        // SniffPlayHeaders 透传给播放器（PlayerScreen 用 take 一次性取出）
+                        subSite.isType4Site() -> {
+                            val r = SiteRepository().type4Play(subSite, flag, ep.url)
+                            if (r.url.isNotBlank() && r.header.isNotEmpty()) {
+                                SniffPlayHeaders.put(r.url, r.header)
+                            }
+                            // TODO: r.parse==1 时应走订阅 parses 解析链路（parses 目前未接入播放链路），v0.6 暂按直链播
+                            r.url
+                        }
                         else ->
                             SubSiteEngines.drpyEngineFor(subSite)?.play(flag, ep.url).orEmpty()
                     }

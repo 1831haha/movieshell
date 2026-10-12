@@ -23,14 +23,16 @@ data class TvBoxConfig(
 data class SiteConfig(
     val key: String = "",
     val name: String = "",
-    /** 0=XML CMS, 1=JSON CMS(苹果CMS), 3=PY 源, 4=JS/DRPY 规则, 其他按扩展处理 */
+    /** 0=XML CMS, 1=JSON CMS(苹果CMS), 3=PY 源, 4=PHP 站（api 是 PHP 脚本的 HTTP 地址，走 Type4Api） */
     val type: Int = 1,
     val api: String = "",
     val searchable: Int = 1,
     val quickSearch: Int = 0,
     val filterable: Int = 0,
     val ext: String = "",
-    val jar: String = ""
+    val jar: String = "",
+    /** 扩展字段"类型"：如 "小说"/"漫画"（type=4 站用它标识非视频站） */
+    val typeLabel: String = ""
 )
 
 /** 解析线路（parses 数组单项），v0.1 仅解析保留，暂未接入播放链路。 */
@@ -49,7 +51,9 @@ data class Site(
     val type: Int,
     val api: String,
     val searchable: Boolean = true,
-    val quickSearch: Boolean = false
+    val quickSearch: Boolean = false,
+    /** 扩展字段"类型"（如 "小说"/"漫画"），从 SiteConfig.typeLabel 规整化而来 */
+    val typeLabel: String = ""
 )
 
 fun SiteConfig.toSite(): Site = Site(
@@ -58,7 +62,8 @@ fun SiteConfig.toSite(): Site = Site(
     type = type,
     api = api.trim(),
     searchable = searchable != 0,
-    quickSearch = quickSearch != 0
+    quickSearch = quickSearch != 0,
+    typeLabel = typeLabel.trim()
 )
 
 /**
@@ -140,9 +145,22 @@ fun Site.isCmsSite(): Boolean = type == 0 || type == 1
 fun Site.isPySite(): Boolean =
     !isJavaSpider() && type == 3 && api.trim().endsWith(".py", ignoreCase = true)
 
-/** drpy 站：type=4，或 api 以 .js 结尾（含订阅下载到本地的规则）。 */
+/** type=4 PHP 站：api 是 PHP 脚本的 HTTP 地址（PHP 跑在远端/本地服务里，壳子只发 HTTP 解析 JSON）。 */
+fun Site.isType4Site(): Boolean = type == 4
+
+/**
+ * drpy 站：api 以 .js 结尾（含订阅下载到本地的规则）。
+ * 注意 type==4 不再判 drpy（v0.6.0 起 type=4 = PHP 站，走 Type4Api）。
+ */
 fun Site.isDrpySite(): Boolean =
-    !isJavaSpider() && (type == 4 || api.trim().endsWith(".js", ignoreCase = true))
+    !isJavaSpider() && !isType4Site() && api.trim().endsWith(".js", ignoreCase = true)
+
+/**
+ * 小说/漫画站：订阅声明的扩展字段"类型"含"小说"/"漫画"。
+ * App 只做视频点播：home/search 跳过（返回空），站源列表打"不支持"徽标。
+ */
+fun Site.isNovelOrComic(): Boolean =
+    typeLabel.trim().let { it.contains("小说") || it.contains("漫画") }
 
 /** 订阅展开的子站点：key 前缀 "sub:"（见 SubSiteStore.toSite）。 */
 fun Site.isSubSite(): Boolean = key.startsWith(SubSiteKeyPrefix)
