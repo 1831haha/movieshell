@@ -35,17 +35,49 @@ object LogBus {
     val entries: StateFlow<List<Entry>> = _entries
 
     private var handlerInstalled = false
+    private var logFile: java.io.File? = null
 
     /** 尽早调用（MainActivity.onCreate 最前面）。 */
-    fun init() {
+    fun init(context: android.content.Context? = null) {
         synchronized(lock) {
             if (handlerInstalled) return
             handlerInstalled = true
         }
+        // v0.14.3：崩溃日志写文件，重启后不丢
+        context?.let {
+            logFile = java.io.File(it.filesDir, "crash.log")
+            // 启动时把上次的崩溃日志读回内存
+            runCatching {
+                val f = logFile!!
+                if (f.exists() && f.length() > 0) {
+                    val text = f.readText()
+                    if (text.isNotBlank()) {
+                        synchronized(lock) {
+                            deque.addLast(Entry(System.currentTimeMillis(), 'E', "CrashLog", "=== 上次崩溃日志 ==="))
+                            text.lineSequence().take(200).forEach { line ->
+                                if (line.isNotBlank()) {
+                                    deque.addLast(Entry(System.currentTimeMillis(), 'E', "CrashLog", line.take(500)))
+                                }
+                            }
+                            while (deque.size > MAX) deque.removeFirst()
+                            _entries.value = deque.toList()
+                        }
+                    }
+                    f.writeText("") // 读完清空，避免重复
+                }
+            }
+        }
         val prev = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             try {
-                e("AndroidRuntime", "未捕获异常 thread=${t.name}: ${Log.getStackTraceString(e)}")
+                val crashMsg = "未捕获异常 thread=${t.name}: ${Log.getStackTraceString(e)}"
+                e("AndroidRuntime", crashMsg)
+                // 同步写文件，确保崩溃前落盘
+                runCatching {
+                    logFile?.appendText(
+                        "${java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())} E/AndroidRuntime: ${crashMsg.take(2000)}\n"
+                    )
+                }
             } catch (_: Exception) {
                 // 记录本身不能再抛
             }

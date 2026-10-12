@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // v0.7.2：日志总线最先初始化（接住之后所有初始化的异常）
-        LogBus.init()
+        LogBus.init(this)
         LogBus.i("App", "MovieShell 启动")
         ThemeStore.init(this)
         LogStore.init(this)
