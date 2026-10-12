@@ -89,7 +89,7 @@ class SniffEngineTest {
             SniffEngine.resolveUrl("https://h.com/a/b.html", "c.html"),
         )
         assertEquals(
-            "https://cdn.com/x.js",
+            "http://cdn.com/x.js",
             SniffEngine.resolveUrl("http://h.com/a.html", "//cdn.com/x.js"),
         )
         assertEquals(
