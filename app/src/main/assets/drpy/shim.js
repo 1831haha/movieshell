@@ -541,6 +541,17 @@ globalThis.__drpyFilters = async function (tid) {
 globalThis.__drpyDetail = async function (id) {
     try {
         needRule();
+        // v0.11.9：二级='*'（直播站常见）表示用默认详情：单线路单集，id 直通播放
+        if (rule.二级 === '*') {
+            return JSON.stringify({
+                vod_id: str(id),
+                vod_name: str(id),
+                vod_pic: '',
+                vod_remarks: '',
+                vod_play_from: '默认',
+                vod_play_url: '直播$' + str(id),
+            });
+        }
         var input = absUrl(rule.host, rule.detailUrl || '', { id: id });
         var r = await runSection(rule.二级, makeCtx(rule, { input: input, ID: id })) || {};
         return JSON.stringify({
