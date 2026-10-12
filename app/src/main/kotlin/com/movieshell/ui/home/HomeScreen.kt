@@ -96,6 +96,7 @@ import com.movieshell.data.repo.ThemeStore
 import com.movieshell.ui.theme.themeGradientColors
 import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubSiteStore
+import com.movieshell.data.repo.SubCurrent
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.data.DemoData
@@ -775,9 +776,9 @@ private fun SourceSwitchSheet(
 ) {
     val context = LocalContext.current
     // v0.17.0：异步加载，避免主线程扫文件卡顿
-    var cur by remember { mutableStateOf<String?>(null) }
-    var drpyRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
-    var pyRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
+    var cur by remember { mutableStateOf<SubCurrent?>(null) }
+    var drpyRules by remember { mutableStateOf<List<DrpySourceManager.RuleInfo>>(emptyList()) }
+    var pyRules by remember { mutableStateOf<List<PySourceManager.RuleInfo>>(emptyList()) }
     var drpyActiveName by remember { mutableStateOf<String?>(null) }
     var pyActiveName by remember { mutableStateOf<String?>(null) }
     var subSites by remember { mutableStateOf<List<Pair<ApiSource, SubSiteRecord>>>(emptyList()) }
