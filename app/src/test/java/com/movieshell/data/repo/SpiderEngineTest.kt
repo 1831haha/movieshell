@@ -100,12 +100,12 @@ class SpiderEngineTest {
             val filesDir = File(tmp, "files")
             val src = File(tmp, "dnct6f_tvkj.jar")
                 .apply { writeBytes(ByteArray(128) { it.toByte() }) }
-            val dst1 = SpiderEngine.privateJarFile(filesDir, src)
-            assertTrue(dst1 != null && dst1!!.isFile && dst1.length() == 128L)
+            val dst1 = requireNotNull(SpiderEngine.privateJarFile(filesDir, src))
+            assertTrue(dst1.isFile && dst1.length() == 128L)
             val t1 = dst1.lastModified()
-            val dst2 = SpiderEngine.privateJarFile(filesDir, src)
-            assertEquals(dst1.absolutePath, dst2?.absolutePath)
-            assertEquals(t1, dst2!!.lastModified()) // 第二次大小一致，跳过 copy
+            val dst2 = requireNotNull(SpiderEngine.privateJarFile(filesDir, src))
+            assertEquals(dst1.absolutePath, dst2.absolutePath)
+            assertEquals(t1, dst2.lastModified()) // 第二次大小一致，跳过 copy
         } finally {
             tmp.deleteRecursively()
         }
