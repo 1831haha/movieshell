@@ -526,6 +526,8 @@ object SubSiteStore {
      * 修 fstat ENOENT（多站同引 drpy2.min.js 时并发写同一文件）与
      * "connection closed" 偶发失败。注意：不复用旧文件，刷新订阅时
      * 规则文件照旧重下，保证拿到上游最新内容。
+     * v0.11.0：404 时试一次"路径转小写"（vcloudc 仓库里 js/ 是小写，
+     * api.json 却写了 JS/、drpy_libs/ 等陈旧大写路径）；其他 4xx 直接停。
      */
     private fun downloadTo(context: Context, dir1: String, dir2: String, name: String, url: String): File? {
         val lock = downloadLocks.getOrPut("$dir1/$dir2/$name") { Any() }
@@ -539,9 +541,11 @@ object SubSiteStore {
             val dir = File(base, dir2).apply { mkdirs() }
             val dst = File(dir, name)
             var lastErr: String? = null
+            var tryUrl = url
+            var lowered = false
             repeat(3) { attempt ->
                 try {
-                    val req = Request.Builder().url(url).header("User-Agent", UA).build()
+                    val req = Request.Builder().url(tryUrl).header("User-Agent", UA).build()
                     client.newCall(req).execute().use { resp ->
                         if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
                         resp.body?.byteStream()?.use { input ->
@@ -557,11 +561,22 @@ object SubSiteStore {
                 } catch (e: Exception) {
                     lastErr = e.message
                     dst.delete()
-                    // v0.10.2：4xx 是服务端明确拒绝，重试没用，直接停（省时间、少刷屏）。
-                    val noRetry = (e as? IllegalStateException)?.message
-                        ?.let { Regex("HTTP (4\\d\\d)").containsMatchIn(it) } == true
-                    if (noRetry) break
-                    if (attempt < 2) LogBus.w(TAG, "规则下载重试 ${attempt + 2}/3 $url：${e.message}")
+                    val msg = (e as? IllegalStateException)?.message.orEmpty()
+                    // 404 且没试过小写路径：把 host 后的路径全转小写再试一次（不占 3 次重试）
+                    if (msg.contains("HTTP 404") && !lowered) {
+                        val low = tryUrl.replaceFirst(Regex("^(https?://[^/]+/)(.*)$")) {
+                            it.groupValues[1] + it.groupValues[2].lowercase()
+                        }
+                        if (low != tryUrl) {
+                            lowered = true
+                            tryUrl = low
+                            LogBus.i(TAG, "404 转小写路径重试：$low")
+                            return@repeat
+                        }
+                    }
+                    // 其他 4xx 是服务端明确拒绝，重试没用，直接停
+                    if (Regex("HTTP 4\\d\\d").containsMatchIn(msg)) break
+                    if (attempt < 2) LogBus.w(TAG, "规则下载重试 ${attempt + 2}/3 $tryUrl：${e.message}")
                 }
             }
             LogBus.e(TAG, "规则下载失败 $url：$lastErr")
