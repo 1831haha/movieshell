@@ -129,8 +129,33 @@ private val MANUAL_SECTIONS = listOf(
             "v0.5 已实现：详情页多线路切换、聚合搜索（一次搜所有源）+ 搜索历史、追剧收藏、网页嗅探透传 Referer/UA。",
             "v0.5.1 已实现：完整 TVBox 订阅配置解析（sites 展开、drpy 规则相对路径下载到本地、csp_ 站标不支持）、点播页可设订阅当前源、type=3 按 api 后缀正确分流（修了之前全判成 PY 源的 bug）。",
             "v0.6.0 已实现：type=4 PHP 站支持（Type4Api：首页/分类/搜索/详情/播放全链路，api 含中文/空格自动编码，播放 header 透传给播放器；小说/漫画站标不支持）。",
+            "v0.7.0 已实现：parses 解析链路（parse=1 自动走订阅解析线路，type1 JSON 取直链/type0 WebView 嗅探，失败自动换下一条）、Service Worker 嗅探补齐（SW 上下文的 .m3u8/.mp4 也能抓到）、drpy 分类筛选生效（filter_url 模板渲染，cheerio 类规则仍不支持）。",
             "下一步（规划中）：订阅云同步、播放器投屏。",
             "每个版本都会发安装包实测，版本号在设置页「关于」里看。",
+        ),
+    ),
+    ManualSection(
+        title = "解析链路（v0.7 新增）",
+        points = listOf(
+            "parses 是什么：TVBox 订阅 JSON 顶层的 parses 数组，是「解析线路」列表。有些站（type=4 的 PHP 站返回 parse=1）给出的播放地址不是直链，而是要再过一遍解析线路才能拿到真正的 .m3u8/.mp4。",
+            "type0 / type1 区别：type=1 是 JSON 接口——App 直接请求「线路地址+视频地址」，从返回 JSON 的 url 字段拿直链，快且稳；type=0 是网页嗅探——App 用内置浏览器打开解析页，从网络请求里抓第一条 .m3u8/.mp4，慢一些（单条最多等 20 秒）但能对付 JS 渲染的解析页。",
+            "怎么用：全自动。点播放时若站点标了 parse=1，App 按订阅里的 parses 顺序一条一条试，第一条出直链就播，不用手动选线路。v1 不提供手动切换线路。",
+            "失败会怎样：所有线路试完还没拿到直链，会弹 Toast「解析失败」。常见原因：订阅本身没带 parses、解析线路挂了。换个站源或换集试试。",
+        ),
+    ),
+    ManualSection(
+        title = "SW 嗅探说明（v0.7 新增）",
+        points = listOf(
+            "网页源嗅探新增 Service Worker 补齐：原来只拦 WebView 主线程的网络请求，部分站点把视频地址的请求走在 Service Worker 上下文里，原嗅探抓不到；现在这类请求也会被拦截判定，抓到 .m3u8/.mp4 直链即走与原来相同的命中流程（首条生效、停载、交播放器、透传 Referer/UA）。",
+            "生效条件：手机 WebView 版本支持 SW 拦截特性（较新的 Android System WebView 基本都支持）；不支持的机器静默沿用原嗅探链路，不影响使用，无需手动开启。",
+        ),
+    ),
+    ManualSection(
+        title = "drpy 分类筛选（v0.7 新增）",
+        points = listOf(
+            "filterable 标记的 drpy 规则，分类筛选（如年份/类型/地区/排序）已生效：筛选定义取自规则的 filter 分组（含 gzip 压缩写法自动解开），filter_url 里的 {{fl.键名}} 按所选值渲染后拼进分类请求，不选时按规则默认值渲染。",
+            "边界：cheerio 类规则（一级为 jsp:/json:/html 解析串，需 pdfa/pdfh/cheerio）的筛选仍不支持——垫片没有 HTML 解析能力，这类规则的分类列表本身也跑不起来。",
+            "筛选器 UI 尚未接入，当前按默认值出结果。",
         ),
     ),
     ManualSection(
