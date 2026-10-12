@@ -543,7 +543,7 @@ object SubSiteStore {
             var lastErr: String? = null
             var tryUrl = url
             var lowered = false
-            repeat(3) { attempt ->
+            for (attempt in 0 until 3) {
                 try {
                     val req = Request.Builder().url(tryUrl).header("User-Agent", UA).build()
                     client.newCall(req).execute().use { resp ->
@@ -571,7 +571,7 @@ object SubSiteStore {
                             lowered = true
                             tryUrl = low
                             LogBus.i(TAG, "404 转小写路径重试：$low")
-                            return@repeat
+                            continue
                         }
                     }
                     // 其他 4xx 是服务端明确拒绝，重试没用，直接停
