@@ -64,6 +64,11 @@ object PlayerManager {
     fun play(url: String, headers: Map<String, String> = emptyMap(), startPositionMs: Long = 0L) {
         val player = exoPlayer ?: return
         val app = appContext ?: return
+        // v0.12.1：空 URL 直接拒掉，避免 ExoPlayer 抛异常闪退
+        if (url.isBlank()) {
+            LogBus.e("Player", "播放地址为空，已拒绝")
+            return
+        }
         val rest = headers.toMutableMap()
         val ua = rest.remove("User-Agent")?.takeIf { it.isNotBlank() } ?: USER_AGENT
         val httpFactory = DefaultHttpDataSource.Factory()

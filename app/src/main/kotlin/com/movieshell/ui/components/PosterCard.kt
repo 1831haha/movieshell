@@ -19,10 +19,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 
 private val palettes = listOf(
     Color(0xFF243B6B) to Color(0xFF7C9CFF),
@@ -41,13 +43,14 @@ private fun paletteFor(key: String): Pair<Color, Color> {
 }
 
 /**
- * 渐变占位海报（不联网，用标题 hash 取色，保证同一影片颜色稳定）。
+ * 海报卡片（v0.12.1：有真实海报 URL 时用 Coil 加载，无 URL 时回退渐变占位）。
  */
 @Composable
 fun PosterCard(
     title: String,
     subtitle: String? = null,
     badge: String? = null,
+    posterUrl: String? = null,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
@@ -66,6 +69,15 @@ fun PosterCard(
                 .clip(RoundedCornerShape(12.dp))
                 .background(Brush.linearGradient(listOf(c1, c2))),
         ) {
+            // 真实海报（Coil 异步加载，失败/无 URL 时显示渐变占位）
+            if (!posterUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = posterUrl,
+                    contentDescription = title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
             // 底部压暗，衬标题
             Box(
                 modifier = Modifier
@@ -91,16 +103,18 @@ fun PosterCard(
                     fontWeight = FontWeight.Bold,
                 )
             }
-            // 装饰大字（取标题首字做水印感）
-            Text(
-                text = title.firstOrNull()?.toString() ?: "",
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(bottom = 24.dp),
-                color = Color.White.copy(alpha = 0.25f),
-                fontSize = 64.sp,
-                fontWeight = FontWeight.Black,
-            )
+            // 无海报时显示装饰大字（取标题首字做水印感）
+            if (posterUrl.isNullOrBlank()) {
+                Text(
+                    text = title.firstOrNull()?.toString() ?: "",
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(bottom = 24.dp),
+                    color = Color.White.copy(alpha = 0.25f),
+                    fontSize = 64.sp,
+                    fontWeight = FontWeight.Black,
+                )
+            }
         }
         Column(modifier = Modifier.padding(8.dp)) {
             Text(

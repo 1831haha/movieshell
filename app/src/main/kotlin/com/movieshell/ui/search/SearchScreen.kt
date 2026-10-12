@@ -87,6 +87,7 @@ private fun ModelVod.toUiVod() = Vod(
     actors = "",
     desc = "",
     episodes = 0,
+    poster = vodPic,
 )
 
 /**

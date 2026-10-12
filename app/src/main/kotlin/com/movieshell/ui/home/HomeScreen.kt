@@ -113,6 +113,7 @@ private fun ModelVod.toUiVod() = Vod(
     actors = "",
     desc = "",
     episodes = 0,
+    poster = vodPic,
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -529,6 +530,7 @@ fun HomeScreen(
                     title = vod.title,
                     subtitle = "${vod.year} · ${vod.rating}分",
                     badge = vod.rating,
+                    posterUrl = vod.poster,
                     modifier = Modifier.aspectRatio(3f / 4.6f),
                     onClick = { goDetail(vod.id) },
                 )

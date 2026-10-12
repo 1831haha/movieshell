@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 28
-        versionName = "0.12.0"
+        versionCode = 29
+        versionName = "0.12.1"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -94,6 +94,9 @@ dependencies {
 
     // 网页源嗅探：Service Worker 上下文拦截（androidx.webkit 1.5.0+ 引入 SW shouldInterceptRequest）
     implementation("androidx.webkit:webkit:1.10.0")
+
+    // 图片加载（v0.12.1：海报真实图片）
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
     // 播放器 (Media3 / ExoPlayer)
     implementation("androidx.media3:media3-exoplayer:1.4.1")

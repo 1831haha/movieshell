@@ -15,6 +15,7 @@ data class Vod(
     val actors: String,
     val desc: String,
     val episodes: Int,
+    val poster: String = "",
 )
 
 object DemoData {
