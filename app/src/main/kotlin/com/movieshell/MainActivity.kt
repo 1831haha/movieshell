@@ -18,9 +18,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Icon
@@ -59,8 +58,8 @@ import com.movieshell.player.PlayerManager
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
 import com.movieshell.ui.detail.DetailScreen
-import com.movieshell.ui.favorites.FavoritesScreen
 import com.movieshell.ui.home.HomeScreen
+import com.movieshell.ui.lab.LabScreen
 import com.movieshell.ui.log.LogBubbleOverlay
 import com.movieshell.ui.manual.ManualScreen
 import com.movieshell.ui.preview.FilePreviewScreen
@@ -74,10 +73,9 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 
 private val tabs = listOf(
     Tab("home", "首页", Icons.Filled.Home),
-    Tab("search", "搜索", Icons.Filled.Search),
     Tab("sources", "站源", Icons.Filled.Storage),
+    Tab("lab", "实验室", Icons.Filled.Science),
     Tab("settings", "设置", Icons.Filled.Settings),
-    Tab("favorites", "收藏", Icons.Filled.Favorite),
 )
 
 private const val DETAIL_ROUTE = "detail/{vodId}"
@@ -201,9 +199,9 @@ class MainActivity : ComponentActivity() {
                                 onManualClick = { navController.navigate("manual") },
                             )
                         }
-                        composable("favorites") {
-                            FavoritesScreen(
-                                onVodClick = { vodId -> navController.navigate("detail/$vodId") },
+                        composable("lab") {
+                            LabScreen(
+                                onBack = { navController.popBackStack() },
                             )
                         }
                         composable("manual") {
