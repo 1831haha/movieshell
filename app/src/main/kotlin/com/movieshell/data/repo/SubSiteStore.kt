@@ -2,6 +2,7 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import android.util.Log
+import com.movieshell.data.model.ParseConfig
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.SubSiteKeyPrefix
 import com.movieshell.data.source.CmsApi
@@ -68,6 +69,8 @@ data class SubCache(
     val baseUrl: String = "",
     val fetchedAt: Long = 0L,
     val sites: List<SubSiteRecord> = emptyList(),
+    /** 订阅顶层 parses 数组（解析线路），随订阅持久化，type=4 的 parse=1 播放走它解析 */
+    val parses: List<ParseConfig> = emptyList(),
 )
 
 @Serializable
@@ -133,6 +136,10 @@ object SubSiteStore {
     // ---------------- 缓存读写 ----------------
 
     fun getCached(context: Context, subUrl: String): SubCache? = loadAll(context)[subUrl]
+
+    /** 取某订阅的解析线路（顶层 parses 数组）：refresh 时随订阅持久化，无缓存返回空。 */
+    fun getParses(context: Context, subUrl: String): List<ParseConfig> =
+        getCached(context, subUrl)?.parses.orEmpty()
 
     fun removeCache(context: Context, subUrl: String) {
         val all = loadAll(context).toMutableMap()
@@ -215,6 +222,7 @@ object SubSiteStore {
                     baseUrl = baseOf(baseUri),
                     fetchedAt = System.currentTimeMillis(),
                     sites = sites,
+                    parses = config.parses,
                 )
                 val all = loadAll(context).toMutableMap()
                 all[cache.subUrl] = cache

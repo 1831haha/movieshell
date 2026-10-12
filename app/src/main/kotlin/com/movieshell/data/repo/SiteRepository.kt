@@ -1,7 +1,9 @@
 package com.movieshell.data.repo
 
+import android.content.Context
 import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.Episode
+import com.movieshell.data.model.ParseConfig
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
@@ -156,13 +158,32 @@ class SiteRepository(
 
     /**
      * type=4 播放：GET {api}?ac=play&flag={flag}&id={id}，返回 (直链, parse 标记, header)。
-     * parse=1 的站理论上要走订阅 parses 解析链路——parses 目前只解析保留、未接入播放链路，
-     * v0.6 暂按直链返回（TODO：parses 接入播放链路后，parse=1 在这里分流走解析）。
+     * parse=1 的站走 [type4PlayWithParses] 分流进订阅 parses 解析链路；
+     * 本函数是"无 parses 上下文"时的直链版本（parse=1 时按 v0.6 老行为原样返回）。
      * header 由调用方（DetailScreen）经 SniffPlayHeaders.put 透传给播放器。
      * 任何失败返回空结果，不抛异常。
      */
     suspend fun type4Play(site: Site, flag: String, id: String): Type4PlayResult =
         runCatching { type4Api.play(site, flag, id) }.getOrNull() ?: Type4PlayResult()
+
+    /**
+     * type=4 的 parse=1 分流（v0.7）：Type4Api 返回 parse=1 时，用该订阅的 parses
+     * 数组走 ParseApi 按顺序自动解析拿直链；全部失败返回空结果
+     * （调用方 UI 层 Toast "解析失败"）。
+     * parse=0 / 无 parses 时行为与 [type4Play] 一致（直链直接返回）。不抛异常。
+     */
+    suspend fun type4PlayWithParses(
+        site: Site,
+        flag: String,
+        id: String,
+        parses: List<ParseConfig>,
+        context: Context,
+    ): Type4PlayResult = runCatching {
+        val r = type4Api.play(site, flag, id)
+        if (r.parse != 1 || r.url.isBlank() || parses.isEmpty()) return@runCatching r
+        val direct = ParseApi().parse(parses, r.url, context)
+        if (direct.isBlank()) r.copy(url = "") else r.copy(url = direct)
+    }.getOrDefault(Type4PlayResult())
 
     /**
      * 订阅子站点优先用其专属引擎（SubSiteEngines 按 key 前缀 "sub:" 识别），
