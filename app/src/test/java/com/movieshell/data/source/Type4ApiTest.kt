@@ -63,7 +63,7 @@ class Type4ApiTest {
     @Test
     fun home_mapsTypesAndList() = runTest {
         val body = fixture("home")
-        server.dispatcher = staticDispatcher({ true } to json(body))
+        server.dispatcher = staticDispatcher({ _: String -> true } to json(body))
 
         val (types, list) = api.parseHome(body)
         assertEquals(5, types.size)
@@ -83,7 +83,7 @@ class Type4ApiTest {
     @Test
     fun category_returnsPagedList() = runTest {
         val body = fixture("category")
-        server.dispatcher = staticDispatcher({ true } to json(body))
+        server.dispatcher = staticDispatcher({ _: String -> true } to json(body))
 
         val (types, list) = api.category(site(), "10", 1)
         assertEquals(5, types.size)
@@ -99,7 +99,7 @@ class Type4ApiTest {
 
     @Test
     fun search_findsKeyword() = runTest {
-        server.dispatcher = staticDispatcher({ true } to json(fixture("search")))
+        server.dispatcher = staticDispatcher({ _: String -> true } to json(fixture("search")))
 
         val list = api.search(site(), "爱")
         assertEquals(8, list.size)
@@ -109,7 +109,7 @@ class Type4ApiTest {
 
     @Test
     fun detail_parsesVodAndEpisodes() = runTest {
-        server.dispatcher = staticDispatcher({ true } to json(fixture("detail")))
+        server.dispatcher = staticDispatcher({ _: String -> true } to json(fixture("detail")))
 
         val detail = api.detail(site(), "bc8df8d8c2")
         assertEquals("bc8df8d8c2", detail.vodId)
@@ -203,7 +203,7 @@ class Type4ApiTest {
     @Test
     fun errorEnvelope_returnsEmptyWithoutThrowing() = runTest {
         val err = """{"code":500,"msg":"spider error"}"""
-        server.dispatcher = staticDispatcher({ true } to json(err))
+        server.dispatcher = staticDispatcher({ _: String -> true } to json(err))
 
         assertTrue(api.home(site()).isEmpty())
         val (types, list) = api.category(site(), "10", 1)
