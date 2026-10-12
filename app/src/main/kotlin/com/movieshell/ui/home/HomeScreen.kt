@@ -315,7 +315,7 @@ fun HomeScreen(
     // 绝不用假数据冒充，否则切源也看不出变化
     val useDemo = !drpyActive
     val chipLabels: List<String> =
-        if (drpyReady && drpyCats.isNotEmpty()) listOf("全部") + drpyCats.map { it.typeName }
+        if (drpyActive && drpyCats.isNotEmpty()) listOf("全部") + drpyCats.map { it.typeName }
         else if (useDemo) listOf("全部") + DemoData.categories
         else listOf("全部")
 
