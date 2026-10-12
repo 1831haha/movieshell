@@ -11,6 +11,7 @@ import dalvik.system.DexClassLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -161,16 +162,25 @@ object SpiderEngine {
      */
     fun parsePlayJson(text: String): SpiderPlayResult = runCatching {
         val t = text.trim()
-        if (!t.startsWith("{")) return SpiderPlayResult(url = t)
+        if (!t.startsWith("{")) {
+            // 裸 url 直接透传；其余非 JSON 文本视为无效
+            return if (t.startsWith("http://") || t.startsWith("https://") || t.startsWith("magnet:")) {
+                SpiderPlayResult(url = t)
+            } else {
+                SpiderPlayResult()
+            }
+        }
         val o = json.parseToJsonElement(t).jsonObject
         fun opt(key: String): String =
             (o[key] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+        // parse 可能是数字 1 也可能是字符串 "1"，两种都认
+        val parseRaw = (o["parse"] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content
         val header = (o["header"] as? JsonObject)
             ?.entries?.associate { (k, v) -> k to (v as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty() }
             .orEmpty()
         SpiderPlayResult(
             url = opt("url").ifBlank { opt("playUrl") },
-            parse = opt("parse").toIntOrNull() ?: 0,
+            parse = parseRaw?.toIntOrNull() ?: 0,
             header = header,
         )
     }.getOrDefault(SpiderPlayResult())
