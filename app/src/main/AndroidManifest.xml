@@ -22,7 +22,10 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.MovieShell">
+            android:theme="@style/Theme.MovieShell"
+            android:supportsPictureInPicture="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation">
+            <!-- v0.19.0：画中画（configChanges 避免进小窗时重建 Activity） -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

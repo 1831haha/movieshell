@@ -1,12 +1,18 @@
 package com.movieshell.player
 
 import android.content.Context
+import android.net.Uri
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.extractor.flv.FlvExtractor
 import com.movieshell.data.repo.LogBus
 
 /**
@@ -60,8 +66,14 @@ object PlayerManager {
      * 不受 [DefaultHttpDataSource.Factory] 内置 UA 覆盖）。
      *
      * @param startPositionMs 起播位置（毫秒），用于断点续播，<=0 表示从头播。
+     * @param subtitleUrl 外挂字幕地址（.srt/.vtt），为空则不挂字幕。
      */
-    fun play(url: String, headers: Map<String, String> = emptyMap(), startPositionMs: Long = 0L) {
+    fun play(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        startPositionMs: Long = 0L,
+        subtitleUrl: String? = null,
+    ) {
         val player = exoPlayer ?: return
         val app = appContext ?: return
         // v0.12.1：空 URL 直接拒掉，避免 ExoPlayer 抛异常闪退
@@ -83,9 +95,34 @@ object PlayerManager {
         }
         // v0.18.0：m3u8 去广告——包装 DataSource，过滤播放列表中的广告分片
         val adFilterFactory = AdFilteringDataSource.Factory(httpFactory)
-        val mediaSource = DefaultMediaSourceFactory(app)
+        // v0.19.0：显式声明 FLV 提取器（HTTP-FLV 直播/点播），不依赖默认工厂的隐含行为
+        val extractorsFactory = ExtractorsFactory {
+            arrayOf(FlvExtractor()) + DefaultExtractorsFactory().createExtractors()
+        }
+        val mediaItem = MediaItem.Builder()
+            .setUri(url)
+            .apply {
+                // v0.19.0：外挂字幕（srt/vtt）
+                val sub = subtitleUrl?.trim().orEmpty()
+                if (sub.isNotEmpty()) {
+                    subtitleMimeType(sub)?.let { mime ->
+                        setSubtitleConfigurations(
+                            listOf(
+                                MediaItem.SubtitleConfiguration.Builder(Uri.parse(sub))
+                                    .setMimeType(mime)
+                                    .setLanguage("zh")
+                                    .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                                    .build()
+                            )
+                        )
+                        LogBus.i("Player", "挂载外挂字幕：$mime")
+                    }
+                }
+            }
+            .build()
+        val mediaSource = DefaultMediaSourceFactory(app, extractorsFactory)
             .setDataSourceFactory(adFilterFactory)
-            .createMediaSource(MediaItem.fromUri(url))
+            .createMediaSource(mediaItem)
         player.setMediaSource(mediaSource)
         player.prepare()
         if (startPositionMs > 0) player.seekTo(startPositionMs)
@@ -116,5 +153,15 @@ object PlayerManager {
         exoPlayer = null
         appContext = null
         onError = null
+    }
+
+    /** 外挂字幕地址 -> MIME：只认 .srt / .vtt，其他返回 null（不挂）。 */
+    private fun subtitleMimeType(url: String): String? {
+        val lower = url.substringBefore("?").lowercase()
+        return when {
+            lower.endsWith(".srt") -> MimeTypes.APPLICATION_SUBRIP
+            lower.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+            else -> null
+        }
     }
 }

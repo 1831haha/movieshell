@@ -17,6 +17,8 @@ object PlayerSettings {
     private const val KEY_SKIP_OUTRO = "skip_outro_sec"
     private const val PREFIX_INTRO = "skip_intro_vod_"
     private const val PREFIX_OUTRO = "skip_outro_vod_"
+    /** v0.19.0：外挂字幕地址按剧记忆 */
+    private const val PREFIX_SUBTITLE = "subtitle_vod_"
 
     private val _skipIntroSec = MutableStateFlow(0)
     val skipIntroSec: StateFlow<Int> = _skipIntroSec
@@ -84,5 +86,22 @@ object PlayerSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putInt(PREFIX_OUTRO + vodId.hashCode(), v).apply()
         LogBus.i("PlayerSettings", "剧 $vodId 片尾跳过设为 ${v}s")
+    }
+
+    /**
+     * v0.19.0：取某部剧的外挂字幕地址（.srt/.vtt），未设置返回 ""。
+     * vodId 为空直接返回 ""。
+     */
+    fun getSubtitleFor(context: Context, vodId: String?): String {
+        if (vodId.isNullOrBlank()) return ""
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(PREFIX_SUBTITLE + vodId.hashCode(), "").orEmpty()
+    }
+
+    /** v0.19.0：设置某部剧的外挂字幕地址（空字符串表示清除）。 */
+    fun setSubtitleFor(context: Context, vodId: String, url: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(PREFIX_SUBTITLE + vodId.hashCode(), url.trim()).apply()
+        LogBus.i("PlayerSettings", "剧 $vodId 字幕设为 ${url.trim().take(80)}")
     }
 }

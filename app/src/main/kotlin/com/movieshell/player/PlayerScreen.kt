@@ -1,11 +1,17 @@
 package com.movieshell.player
 
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.media.AudioManager
+import android.util.Rational
+import android.widget.Toast
+import com.movieshell.data.model.PlayLine
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PlayerSettings
 import android.view.ViewGroup
+import androidx.activity.ComponentActivity
+import androidx.activity.OnPictureInPictureModeChangedListener
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,16 +30,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
-import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,6 +75,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlin.math.abs
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
@@ -89,43 +100,52 @@ private const val BRIGHTNESS_STEP = 0.05f
 /**
  * 全屏播放器界面。
  *
- * @param url 当前播放地址（变化时自动切集并保存旧进度）
+ * @param url 初始播放地址（详情页已解析好的直链）
  * @param title 标题栏显示的标题
- * @param episodes 选集列表（为空则不显示选集按钮）
- * @param currentEpisode 当前集标识，用于在选集中高亮
- * @param onEpisodeClick 点击选集回调（调用方负责切 url）
+ * @param vodId 剧 ID（按剧取片头片尾/字幕）
  * @param onBack 返回回调
+ *
+ * v0.19.0：线路/选集走 PlaySession（详情页进入前写入），播放器内可切线路；
+ * 播放失败自动按线路顺序重试；支持外挂字幕与画中画。
  */
 @Composable
 fun PlayerScreen(
     url: String,
     title: String,
     vodId: String? = null,
-    episodes: List<String> = emptyList(),
-    currentEpisode: String? = null,
-    onEpisodeClick: (String) -> Unit = {},
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     var speedIndex by remember { mutableIntStateOf(2) } // 默认 1.0x
     var resizeIndex by remember { mutableIntStateOf(0) } // 默认适应
-    var showEpisodes by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var showServiceMissingDialog by remember { mutableStateOf(false) }
     var gestureHint by remember { mutableStateOf<String?>(null) } // 手势临时指示
     var showSkipSettings by remember { mutableStateOf(false) } // v0.16.3：按剧片头片尾设置
+    // v0.19.0
+    var playUrl by remember { mutableStateOf(url) } // 实际播放地址（切线路/重试时更新）
+    var showLines by remember { mutableStateOf(false) } // 线路+选集切换抽屉
+    var showSubtitleDialog by remember { mutableStateOf(false) } // 外挂字幕
+    var sessionSubtitle by remember { mutableStateOf<String?>(null) } // 本次字幕覆盖（未设置则按剧记忆）
+    var pipMode by remember { mutableStateOf(false) } // 画中画
+    var autoSwitching by remember { mutableStateOf(false) } // playUrl 变化来自自动重试
+    val triedLines = remember { mutableSetOf<Int>() } // 已试过的线路下标
+    var lastHeaders by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val sessionLines = remember { PlaySession.lines } // 进入前详情页已写入
     val snackbarHostState = remember { SnackbarHostState() }
 
     BackHandler(onBack = onBack)
 
     // DisposableEffect 的 onDispose 闭包捕获的是首次组合的值，
     // 用 rememberUpdatedState 保证退出时存的是最新的 url/title。
-    val currentUrl by rememberUpdatedState(url)
+    val currentPlayUrl by rememberUpdatedState(playUrl)
     val currentTitle by rememberUpdatedState(title)
 
-    // 沉浸式全屏 + 退出时保存进度
+    // 沉浸式全屏 + 退出时保存进度、清理播放会话
     DisposableEffect(Unit) {
+        PlaySession.playerVisible = true
         val window = (context as? Activity)?.window
         val controller = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
         controller?.hide(WindowInsetsCompat.Type.systemBars())
@@ -133,24 +153,37 @@ fun PlayerScreen(
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         onDispose {
             controller?.show(WindowInsetsCompat.Type.systemBars())
-            savePlayerProgress(context, currentTitle, currentUrl)
+            savePlayerProgress(context, currentTitle, currentPlayUrl)
+            PlaySession.playerVisible = false
+            PlaySession.clear()
         }
     }
 
+    // v0.19.0：画中画模式监听，小窗时隐藏自绘 UI（只留播放画面）
+    DisposableEffect(Unit) {
+        val activity = context as? ComponentActivity
+        if (activity == null) return@DisposableEffect onDispose {}
+        pipMode = activity.isInPictureInPictureMode
+        val listener = OnPictureInPictureModeChangedListener { inPip -> pipMode = inPip }
+        activity.addOnPictureInPictureModeChangedListener(listener)
+        onDispose { activity.removeOnPictureInPictureModeChangedListener(listener) }
+    }
+
     // 播放 / 切集：先保存上一集进度，再播新地址（带断点续播）
-    // url 为空表示暂无可播放地址（演示数据阶段），不启动播放器
+    // playUrl 为空表示暂无可播放地址，不启动播放器
     // magnet: 地址不直接播，走 MagnetPlayer 探测本机转播服务后再起播；
     // 历史记录一律用原始 url（磁力链接本身）做 key，保证磁力也能断点续播
     var lastUrl by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(url) {
+    LaunchedEffect(playUrl) {
+        if (!autoSwitching) triedLines.clear() else autoSwitching = false
         lastUrl?.let { prev -> savePlayerProgress(context, title, prev) }
-        if (url.isNotBlank()) {
-            val resumeAt = HistoryStore.getProgress(context, url)
+        if (playUrl.isNotBlank()) {
+            val resumeAt = HistoryStore.getProgress(context, playUrl)
                 .takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
-            val started = if (MagnetPlayer.isMagnet(url)) {
+            val started = if (MagnetPlayer.isMagnet(playUrl)) {
                 MagnetPlayer.playIfReady(
                     context = context,
-                    magnet = url,
+                    magnet = playUrl,
                     title = title,
                     startPositionMs = resumeAt,
                 )
@@ -160,21 +193,107 @@ fun PlayerScreen(
                 // 其他来源没有记录则为空 map，行为与之前一致。
                 // v0.14.0：片头跳过（非续播时从 skipIntroSec 开始）
                 // v0.16.2：按源取片头（siteKey 区分源）
+                val headers = SniffPlayHeaders.take(playUrl)
+                lastHeaders = headers
                 val skipIntro = PlayerSettings.getSkipIntroFor(context, vodId)
                 val startPos = if (resumeAt > 0) resumeAt
                 else if (skipIntro > 0) skipIntro * 1000L else 0L
-                PlayerManager.play(url, headers = SniffPlayHeaders.take(url), startPositionMs = startPos)
+                // v0.19.0：外挂字幕（本次覆盖优先，否则按剧记忆）
+                val subtitleUrl = (sessionSubtitle
+                    ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty())
+                    .ifBlank { null }
+                PlayerManager.play(
+                    playUrl,
+                    headers = headers,
+                    startPositionMs = startPos,
+                    subtitleUrl = subtitleUrl,
+                )
                 true
             }
             showServiceMissingDialog = !started
         }
-        lastUrl = url
+        lastUrl = playUrl
     }
 
-    // 播放错误 -> Snackbar 提示
+    /**
+     * v0.19.0：切到指定线路/选集（线路抽屉、片尾自动下一集共用）。
+     * 解析失败由 resolvePlayUrl 内部 Toast，不切。
+     */
+    fun switchEpisode(lineIdx: Int, epIdx: Int) {
+        val resolver = PlaySession.resolver ?: return
+        val ep = PlaySession.lines.getOrNull(lineIdx)?.episodes?.getOrNull(epIdx) ?: return
+        scope.launch {
+            val link = resolver(context, ep)
+            if (link.isNotBlank()) {
+                PlaySession.moveTo(lineIdx, epIdx)
+                triedLines.clear()
+                playUrl = link
+            }
+        }
+    }
+
+    /** v0.19.0：字幕变更后按当前位置重播（字幕需要重建 MediaSource 才能生效）。 */
+    fun replayWithSubtitle() {
+        val p = PlayerManager.player ?: return
+        val pos = p.currentPosition
+        val subtitleUrl = (sessionSubtitle
+            ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty())
+            .ifBlank { null }
+        PlayerManager.play(playUrl, headers = lastHeaders, startPositionMs = pos, subtitleUrl = subtitleUrl)
+    }
+
+    // v0.19.0：播放错误 -> 按线路顺序自动重试（同集换线路）；
+    // 全部线路试完仍失败才 Snackbar 提示。无 PlaySession（嗅探页直进）时保持原行为。
     DisposableEffect(Unit) {
         PlayerManager.setOnErrorListener { e ->
-            errorMsg = e.message ?: "播放出错"
+            val lines = PlaySession.lines
+            val resolver = PlaySession.resolver
+            val curLine = PlaySession.lineIndex
+            if (resolver != null && lines.size > 1 && curLine !in triedLines) {
+                triedLines.add(curLine)
+                scope.launch {
+                    var next = (curLine + 1) % lines.size
+                    var link = ""
+                    var targetLine = -1
+                    var targetEpIdx = 0
+                    var guard = 0
+                    while (guard < lines.size && link.isBlank()) {
+                        if (next !in triedLines) {
+                            triedLines.add(next)
+                            val line = lines[next]
+                            val epIdx = PlaySession.episodeIndex
+                                .coerceIn(0, (line.episodes.size - 1).coerceAtLeast(0))
+                            val ep = line.episodes.getOrNull(epIdx)
+                            // 磁力不参与自动重试（走 MagnetPlayer 分支，无 ExoPlayer 错误可重试）
+                            if (ep != null && !MagnetPlayer.isMagnet(ep.url)) {
+                                val resolved = resolver(context, ep)
+                                if (resolved.isNotBlank() && resolved != playUrl) {
+                                    link = resolved
+                                    targetLine = next
+                                    targetEpIdx = epIdx
+                                }
+                            }
+                        }
+                        next = (next + 1) % lines.size
+                        guard++
+                    }
+                    if (link.isNotBlank()) {
+                        PlaySession.moveTo(targetLine, targetEpIdx)
+                        Toast.makeText(
+                            context,
+                            "已自动切换到「${lines[targetLine].name}」",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        LogBus.i("Player", "播放失败，自动换线路：${lines[targetLine].name}")
+                        autoSwitching = true
+                        playUrl = link
+                    } else {
+                        errorMsg = "所有线路均播放失败"
+                    }
+                }
+            } else {
+                errorMsg = e.message ?: "播放出错"
+            }
         }
         onDispose { PlayerManager.setOnErrorListener(null) }
     }
@@ -186,8 +305,8 @@ fun PlayerScreen(
     }
 
     // v0.14.0：片尾跳过——距离结尾 skipOutroSec 时自动下一集（无下一集则暂停）
-    // v0.16.2：按源取片尾
-    LaunchedEffect(url) {
+    // v0.16.2：按源取片尾；v0.19.0：下一集走 PlaySession（播放器内线路/选集）
+    LaunchedEffect(playUrl) {
         val skipOutro = PlayerSettings.getSkipOutroFor(context, vodId)
         if (skipOutro > 0) {
             while (true) {
@@ -195,9 +314,10 @@ fun PlayerScreen(
                 val p = PlayerManager.player ?: break
                 val dur = p.duration
                 if (dur > 0 && p.currentPosition >= dur - skipOutro * 1000L) {
-                    val idx = episodes.indexOf(currentEpisode)
-                    if (idx >= 0 && idx + 1 < episodes.size) {
-                        onEpisodeClick(episodes[idx + 1])
+                    val nextIdx = PlaySession.episodeIndex + 1
+                    val hasNext = PlaySession.currentLine()?.episodes?.getOrNull(nextIdx) != null
+                    if (hasNext) {
+                        switchEpisode(PlaySession.lineIndex, nextIdx)
                     } else {
                         p.pause()
                     }
@@ -216,7 +336,7 @@ fun PlayerScreen(
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (url.isBlank()) {
+        if (playUrl.isBlank()) {
             Text(
                 text = "暂无可播放地址",
                 color = Color.White.copy(alpha = 0.6f),
@@ -244,6 +364,8 @@ fun PlayerScreen(
             )
         }
 
+        // v0.19.0：画中画时只留播放画面，全部自绘 UI 隐藏
+        if (!pipMode) {
         // 手势层：左右滑动=±10 秒快进/快退；左半屏上下=亮度；右半屏上下=音量。
         // 轻点不消费事件，透传给 PlayerView 自带控制器，不影响现有控制 UI。
         Box(
@@ -320,7 +442,7 @@ fun PlayerScreen(
             }
         }
 
-        // 顶部栏：返回 + 标题 + 倍速 + 画面比例 + 选集
+        // 顶部栏：返回 + 标题 + 倍速 + 快进快退 + 画面比例 + 线路/选集 + 字幕 + 画中画 + 跳过设置
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -370,10 +492,26 @@ fun PlayerScreen(
             ) {
                 Text(RESIZE_MODES[resizeIndex].second, color = Color.White)
             }
-            if (episodes.isNotEmpty()) {
-                IconButton(onClick = { showEpisodes = true }) {
-                    Icon(Icons.Filled.PlaylistPlay, contentDescription = "选集", tint = Color.White)
+            // v0.19.0：播放器内线路/选集切换（多条线路才显示）
+            if (sessionLines.size > 1) {
+                TextButton(onClick = { showLines = true }) {
+                    Text(
+                        PlaySession.currentLine()?.name?.take(4) ?: "线路",
+                        color = Color.White,
+                    )
                 }
+            } else if (sessionLines.size == 1 && (sessionLines[0].episodes.size > 1)) {
+                TextButton(onClick = { showLines = true }) {
+                    Text("选集", color = Color.White)
+                }
+            }
+            // v0.19.0：外挂字幕
+            IconButton(onClick = { showSubtitleDialog = true }) {
+                Icon(Icons.Filled.Subtitles, contentDescription = "字幕", tint = Color.White)
+            }
+            // v0.19.0：画中画
+            IconButton(onClick = { enterPip(context) }) {
+                Icon(Icons.Filled.PictureInPictureAlt, contentDescription = "画中画", tint = Color.White)
             }
             // v0.16.3：按剧片头片尾设置
             IconButton(onClick = { showSkipSettings = true }) {
@@ -386,14 +524,32 @@ fun PlayerScreen(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp),
         )
 
-        if (showEpisodes) {
-            EpisodeSheet(
-                episodes = episodes,
-                currentEpisode = currentEpisode,
-                onDismiss = { showEpisodes = false },
-                onEpisodeClick = {
-                    showEpisodes = false
-                    onEpisodeClick(it)
+        // v0.19.0：线路+选集抽屉
+        if (showLines) {
+            LineSheet(
+                lines = sessionLines,
+                lineIndex = PlaySession.lineIndex,
+                episodeIndex = PlaySession.episodeIndex,
+                onDismiss = { showLines = false },
+                onPick = { lineIdx, epIdx ->
+                    showLines = false
+                    switchEpisode(lineIdx, epIdx)
+                },
+            )
+        }
+
+        // v0.19.0：外挂字幕设置
+        if (showSubtitleDialog) {
+            SubtitleDialog(
+                initial = sessionSubtitle
+                    ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty(),
+                onDismiss = { showSubtitleDialog = false },
+                onSave = { url ->
+                    val clean = url.trim()
+                    sessionSubtitle = clean.ifBlank { null }
+                    if (vodId != null) PlayerSettings.setSubtitleFor(context, vodId, clean)
+                    showSubtitleDialog = false
+                    replayWithSubtitle()
                 },
             )
         }
@@ -405,6 +561,8 @@ fun PlayerScreen(
                 onDismiss = { showSkipSettings = false },
             )
         }
+
+        } // if (!pipMode)：画中画时只留播放画面
 
         // 磁力转播服务未启动提示
         if (showServiceMissingDialog) {
@@ -462,14 +620,34 @@ private fun savePlayerProgress(context: Context, title: String, url: String) {
     )
 }
 
-/** 底部弹出的选集抽屉 */
+/** v0.19.0：手动进画中画 */
+private fun enterPip(context: Context) {
+    val activity = context as? Activity ?: return
+    if (activity.isInPictureInPictureMode) return
+    runCatching {
+        activity.enterPictureInPictureMode(
+            PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(16, 9))
+                .build()
+        )
+        LogBus.i("Player", "手动进入画中画")
+    }.onFailure { LogBus.w("Player", "进入画中画失败：${it.message}") }
+}
+
+/**
+ * v0.19.0：播放器内线路+选集切换抽屉。
+ * 上方线路横滑 chips，下方该线路的选集列表；当前播放高亮。
+ */
 @Composable
-private fun EpisodeSheet(
-    episodes: List<String>,
-    currentEpisode: String?,
+private fun LineSheet(
+    lines: List<PlayLine>,
+    lineIndex: Int,
+    episodeIndex: Int,
     onDismiss: () -> Unit,
-    onEpisodeClick: (String) -> Unit,
+    onPick: (lineIdx: Int, epIdx: Int) -> Unit,
 ) {
+    var tab by remember { mutableIntStateOf(lineIndex.coerceIn(lines.indices)) }
+    val tabEpisodes = lines.getOrNull(tab)?.episodes.orEmpty()
     Box(Modifier.fillMaxSize()) {
         // 半透明遮罩，点击关闭
         Box(
@@ -482,14 +660,14 @@ private fun EpisodeSheet(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .fillMaxHeight(0.55f),
+                .fillMaxHeight(0.6f),
             shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
             color = MaterialTheme.colorScheme.surface,
         ) {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "选集（${episodes.size}）",
+                        text = "线路 / 选集",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
@@ -498,16 +676,26 @@ private fun EpisodeSheet(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    itemsIndexed(lines) { i, line ->
+                        FilterChip(
+                            selected = i == tab,
+                            onClick = { tab = i },
+                            label = { Text(line.name) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    itemsIndexed(episodes) { _, episode ->
-                        val selected = episode == currentEpisode
+                    itemsIndexed(tabEpisodes) { i, ep ->
+                        val selected = tab == lineIndex && i == episodeIndex
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onEpisodeClick(episode) },
+                                .clickable { onPick(tab, i) },
                             shape = RoundedCornerShape(8.dp),
                             color = if (selected) {
                                 MaterialTheme.colorScheme.primaryContainer
@@ -516,7 +704,7 @@ private fun EpisodeSheet(
                             },
                         ) {
                             Text(
-                                text = episode,
+                                text = ep.name.ifBlank { "第${i + 1}集" },
                                 maxLines = 1,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = if (selected) {
@@ -532,6 +720,50 @@ private fun EpisodeSheet(
             }
         }
     }
+}
+
+/**
+ * v0.19.0：外挂字幕设置对话框。填 .srt/.vtt 地址，保存后按当前位置重播生效；
+ * 按剧记忆（vodId 为空时仅本次有效）。
+ */
+@Composable
+private fun SubtitleDialog(
+    initial: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var url by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("外挂字幕") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "支持 .srt / .vtt 地址，保存后立即生效",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text("字幕地址") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(url) }) {
+                Text("保存并应用")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onSave("") }) {
+                Text("清除")
+            }
+        },
+    )
 }
 
 /**

@@ -71,10 +71,10 @@ import com.movieshell.data.repo.FavoriteStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
-import com.movieshell.data.repo.SubSiteEngines
-import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.player.MagnetPlayer
+import com.movieshell.player.PlaySession
 import com.movieshell.player.SniffPlayHeaders
+import com.movieshell.player.resolvePlayUrl
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
@@ -164,8 +164,8 @@ fun DetailScreen(
         favorite = FavoriteStore.isFavorite(context, vodId, sourceName)
     }
 
-    /** 统一播放决策：磁力 -> MagnetPlayer；否则 drpy/PY playUrl 取直链 */
-    fun playEpisode(ep: Episode) {
+    /** 统一播放决策（v0.19.0）：解析走公共 resolvePlayUrl；磁力直接起播不进播放器 */
+    fun playEpisode(ep: Episode, lineIndex: Int, episodeIndex: Int) {
         LogBus.i("UI", "点击播放: ${ep.name.ifBlank { "未命名剧集" }} url=${ep.url.take(100)}")
         scope.launch {
             if (MagnetPlayer.isMagnet(ep.url)) {
@@ -175,60 +175,13 @@ fun DetailScreen(
                 // 服务通则已直接起播；不通则弹窗提示
                 if (!ok) showMagnetDialog = true
             } else {
-                val flag = if (ep.flag.isBlank()) "" else ep.flag
-                val link = runCatching {
-                    when {
-                        subSite == null ->
-                            if (DrpySourceManager.hasActiveRule()) DrpySourceManager.playUrl(flag, ep.url)
-                            else if (PySourceManager.hasActiveRule()) PySourceManager.playUrl(flag, ep.url)
-                            else ""
-                        // CMS 站：vod_play_url 里就是直链，直接播
-                        subSite.isCmsSite() -> ep.url
-                        subSite.isPySite() ->
-                            SubSiteEngines.pyEngineFor(subSite)?.play(flag, ep.url).orEmpty()
-                        // type=4 站：GET {api}?ac=play&flag=&id= 拿直链；header 经
-                        // SniffPlayHeaders 透传给播放器（PlayerScreen 用 take 一次性取出）。
-                        // parse=1 时走该订阅的 parses 数组自动解析（type4PlayWithParses），
-                        // 全部失败 Toast "解析失败"。
-                        subSite.isType4Site() -> {
-                            val parses = SubSiteStore.findSite(context, subSite.key)
-                                ?.let { (subUrl, _) -> SubSiteStore.getParses(context, subUrl) }
-                                .orEmpty()
-                            val r = SiteRepository().type4PlayWithParses(
-                                subSite, flag, ep.url, parses, context
-                            )
-                            if (r.parse == 1 && r.url.isBlank()) {
-                                Toast.makeText(context, "解析失败", Toast.LENGTH_LONG).show()
-                            }
-                            if (r.url.isNotBlank() && r.header.isNotEmpty()) {
-                                SniffPlayHeaders.put(r.url, r.header)
-                            }
-                            r.url
-                        }
-                        // Java spider 站（v0.8.0）：playerContent 拿播放 JSON；header 经
-                        // SniffPlayHeaders 透传给播放器；parse=1 时走该订阅的 parses
-                        // 数组自动解析，全部失败 Toast "解析失败"。
-                        subSite.isJavaSpider() -> {
-                            val parses = SubSiteStore.findSite(context, subSite.key)
-                                ?.let { (subUrl, _) -> SubSiteStore.getParses(context, subUrl) }
-                                .orEmpty()
-                            val r = SiteRepository().spiderPlayWithParses(
-                                subSite, flag, ep.url, parses, context
-                            )
-                            if (r.parse == 1 && r.url.isBlank()) {
-                                Toast.makeText(context, "解析失败", Toast.LENGTH_LONG).show()
-                            }
-                            if (r.url.isNotBlank() && r.header.isNotEmpty()) {
-                                SniffPlayHeaders.put(r.url, r.header)
-                            }
-                            r.url
-                        }
-                        else ->
-                            SubSiteEngines.drpyEngineFor(subSite)?.play(flag, ep.url).orEmpty()
-                    }
-                }.getOrDefault("")
+                val link = resolvePlayUrl(context, subSite, ep)
+                // v0.19.0：写入播放会话，供播放器内切线路 / 失败自动重试
+                PlaySession.start(playLines, lineIndex, episodeIndex) { ctx, e ->
+                    resolvePlayUrl(ctx, subSite, e)
+                }
                 // link 为空 -> 播放页保持"暂无可播地址"逻辑
-                onPlay(link, "${vod.title} ${ep.name.ifBlank { "第${selectedEpisode + 1}集" }}")
+                onPlay(link, "${vod.title} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}")
             }
         }
     }
@@ -410,7 +363,7 @@ fun DetailScreen(
                     Button(
                         onClick = {
                             if (lineEpisodes.isNotEmpty()) {
-                                playEpisode(lineEpisodes[safeSelected])
+                                playEpisode(lineEpisodes[safeSelected], safeLine, safeSelected)
                             }
                         },
                         enabled = lineEpisodes.isNotEmpty(),

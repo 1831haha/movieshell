@@ -13,21 +13,26 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
@@ -38,6 +43,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -61,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.BackupManager
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
+import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.ThemeStore
@@ -86,6 +94,7 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
     var showPlayerDialog by remember { mutableStateOf(false) }
     var cacheSize by remember { mutableStateOf("128 MB") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
+    var showAddParseDialog by remember { mutableStateOf(false) } // v0.19.0：自定义解析接口
 
     // v0.7.2：备份直接导出到 xiaying/backup/，不再弹系统文件选择器
     fun exportBackup() {
@@ -158,6 +167,42 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
                     value = PlayerSettings.skipOutroSec.collectAsState().value,
                     onChange = { PlayerSettings.setSkipOutro(context, it) },
                 )
+            }
+            Spacer(Modifier.height(12.dp))
+            // v0.19.0：自定义解析接口（优先于订阅自带 parses）
+            SettingsGroup(title = "解析接口") {
+                val customParses by ParseStore.custom.collectAsState()
+                SettingsRow(
+                    icon = Icons.Filled.Add,
+                    title = "添加解析接口",
+                    subtitle = "自定义 jx 解析，播放时优先尝试",
+                    onClick = { showAddParseDialog = true },
+                )
+                customParses.forEachIndexed { index, parse ->
+                    SettingsRow(
+                        icon = Icons.Filled.Link,
+                        title = parse.name,
+                        subtitle = "${if (parse.type == 1) "JSON" else "嗅探"} · ${parse.url}",
+                        onClick = { },
+                        trailing = {
+                            IconButton(onClick = { ParseStore.remove(context, index) }) {
+                                Icon(
+                                    Icons.Filled.Delete,
+                                    contentDescription = "删除",
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        },
+                    )
+                }
+                if (customParses.isEmpty()) {
+                    Text(
+                        text = "暂无自定义解析，播放时只用订阅自带的解析线路",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
             }
             Spacer(Modifier.height(12.dp))
             SettingsGroup(title = "存储") {
@@ -265,8 +310,60 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
             onSelect = { player = it; showPlayerDialog = false },
         )
     }
-    if (showClearCacheDialog) {
+    // v0.19.0：添加自定义解析接口
+    if (showAddParseDialog) {
+        var parseName by remember { mutableStateOf("") }
+        var parseUrl by remember { mutableStateOf("") }
+        var parseType by remember { mutableStateOf(1) }
         AlertDialog(
+            onDismissRequest = { showAddParseDialog = false },
+            title = { Text("添加解析接口") },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = parseName,
+                        onValueChange = { parseName = it },
+                        label = { Text("名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = parseUrl,
+                        onValueChange = { parseUrl = it },
+                        label = { Text("接口地址（视频地址拼在后面）") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = parseType == 1, onClick = { parseType = 1 })
+                        Text("JSON 接口", modifier = Modifier.clickable { parseType = 1 })
+                        Spacer(modifier = Modifier.width(16.dp))
+                        RadioButton(selected = parseType == 0, onClick = { parseType = 0 })
+                        Text("网页嗅探", modifier = Modifier.clickable { parseType = 0 })
+                    }
+                    Text(
+                        text = "JSON：GET 地址+视频地址，取返回 JSON 的 url 字段；嗅探：用 WebView 打开抓直链",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        ParseStore.add(context, parseName, parseUrl, parseType)
+                        showAddParseDialog = false
+                    }
+                ) { Text("添加") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddParseDialog = false }) { Text("取消") }
+            },
+        )
+    }
+    if (showClearCacheDialog) {        AlertDialog(
             onDismissRequest = { showClearCacheDialog = false },
             title = { Text("清理缓存") },
             text = { Text("确定要清理 $cacheSize 缓存吗？播放记录与站源配置不会被删除。") },

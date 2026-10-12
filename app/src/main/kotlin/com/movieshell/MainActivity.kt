@@ -2,6 +2,8 @@ package com.movieshell
 
 import android.net.Uri
 import android.os.Bundle
+import android.util.Rational
+import android.app.PictureInPictureParams
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -49,6 +51,7 @@ import com.movieshell.data.repo.SpiderEngine
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteStore
+import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.SniffPatternStore
 import com.movieshell.data.repo.ThemeStore
@@ -56,6 +59,7 @@ import com.movieshell.data.repo.WebSourceManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.movieshell.player.PlayerManager
+import com.movieshell.player.PlaySession
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
 import com.movieshell.ui.detail.DetailScreen
@@ -90,6 +94,7 @@ class MainActivity : ComponentActivity() {
         ThemeStore.init(this)
         LogStore.init(this)
         PlayerSettings.init(this)
+        ParseStore.load(this) // v0.19.0：自定义解析接口
         // v0.7.2：存储迁移必须在各 Manager init 之前（Manager 的目录现在走 StoragePaths）
         if (!StoragePaths.migrateFromPrivate(this) && StoragePaths.hasAccess(this)) {
             Toast.makeText(this, "文件迁移失败，旧文件保留在原处", Toast.LENGTH_LONG).show()
@@ -280,6 +285,23 @@ class MainActivity : ComponentActivity() {
         // 真正退出应用时释放播放器；旋转等配置变更时不释放
         if (isFinishing) PlayerManager.release()
         super.onDestroy()
+    }
+
+    /**
+     * v0.19.0：播放中按 Home 键自动进画中画（暂停/不在播放页则不进）。
+     */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (PlaySession.playerVisible && PlayerManager.player?.isPlaying == true) {
+            runCatching {
+                enterPictureInPictureMode(
+                    PictureInPictureParams.Builder()
+                        .setAspectRatio(Rational(16, 9))
+                        .build()
+                )
+                LogBus.i("App", "自动进入画中画")
+            }.onFailure { LogBus.w("App", "进入画中画失败：${it.message}") }
+        }
     }
 }
 
