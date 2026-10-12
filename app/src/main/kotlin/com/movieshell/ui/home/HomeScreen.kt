@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -39,11 +41,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +68,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -225,8 +226,6 @@ fun HomeScreen(
 
     // ---- 站源切换 BottomSheet（v0.7.1） ----
     var showSourceSheet by remember { mutableStateOf(false) }
-    val sourceSheetState = rememberModalBottomSheetState()
-
     fun refreshDrpyState() {
         val cur = currentSubSite()
         val curKey = cur?.key
@@ -374,59 +373,47 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // 站源切换入口（v0.7.1）：显示当前源，点击弹 BottomSheet
+            // v0.11.8：顶部改成一行——左侧小放大镜（搜索），右侧换源胶囊
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Surface(
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    onClick = { showSourceSheet = true },
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = sourceLabel,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Icon(
-                            imageVector = Icons.Filled.ExpandMore,
-                            contentDescription = "切换站源",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-
-            // 顶部搜索栏（点击跳到搜索页）
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    onClick = onSearchClick,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                    // 左侧：小放大镜搜索按钮
+                    IconButton(onClick = onSearchClick) {
                         Icon(
                             imageVector = Icons.Filled.Search,
                             contentDescription = "搜索",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "搜索影片、剧集、综艺…",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    // 右侧：换源胶囊（v0.7.1 入口，收窄为右侧胶囊）
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        onClick = { showSourceSheet = true },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = sourceLabel,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 160.dp),
+                            )
+                            Icon(
+                                imageVector = Icons.Filled.ExpandMore,
+                                contentDescription = "切换站源",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -533,15 +520,21 @@ fun HomeScreen(
     }
 
     // 站源切换 BottomSheet（v0.7.1）
+    // v0.11.8：选源弹窗改成居中悬浮 Dialog（原来是底部 BottomSheet）
     if (showSourceSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showSourceSheet = false },
-            sheetState = sourceSheetState,
-        ) {
-            SourceSwitchSheet(
-                onDismiss = { showSourceSheet = false },
-                onChanged = { refreshDrpyState() },
-            )
+        Dialog(onDismissRequest = { showSourceSheet = false }) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 480.dp),
+            ) {
+                SourceSwitchSheet(
+                    onDismiss = { showSourceSheet = false },
+                    onChanged = { refreshDrpyState() },
+                )
+            }
         }
     }
 }
