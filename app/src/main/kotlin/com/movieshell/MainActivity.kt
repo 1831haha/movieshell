@@ -30,6 +30,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -107,12 +108,16 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             val themeMode by ThemeStore.mode.collectAsState()
+            val themeColorInt by ThemeStore.color.collectAsState()
             val darkTheme = when (themeMode) {
                 ThemeStore.MODE_LIGHT -> false
                 ThemeStore.MODE_DARK -> true
                 else -> isSystemInDarkTheme()
             }
-            MovieShellTheme(darkTheme = darkTheme) {
+            MovieShellTheme(
+                darkTheme = darkTheme,
+                themeColor = Color(themeColorInt),
+            ) {
                 // v0.7.2：存储权限引导（无权限时文件走私有回退目录，App 照常用）
                 var showPermDialog by remember { mutableStateOf(!StoragePaths.hasAccess(this@MainActivity)) }
                 if (showPermDialog) {

@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -89,6 +90,8 @@ import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SubSiteEngines
+import com.movieshell.data.repo.ThemeStore
+import com.movieshell.ui.theme.themeGradientColors
 import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.GradientBlock
@@ -121,6 +124,10 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val context = LocalContext.current
+    // v0.12.0：主题色（渐变底、胶囊高亮用）
+    val themeColorInt by ThemeStore.color.collectAsState()
+    val themeColor = Color(themeColorInt)
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
     // ---- 订阅当前源（v0.5.1）：站源页"设为点播页当前源"指定的订阅子站点 ----
     val subRepo = remember { SiteRepository() }
@@ -347,7 +354,14 @@ fun HomeScreen(
         else -> "演示数据"
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            // v0.12.0：影图式流动渐变底（主题色 → 背景色）
+            .background(
+                Brush.verticalGradient(themeGradientColors(themeColor, darkTheme))
+            ),
+    ) {
         // 下拉刷新指示条（占位）
         val indicatorH = with(density) { pullOffset.toDp() }.coerceAtMost(64.dp)
         Box(
@@ -450,7 +464,8 @@ fun HomeScreen(
                         FilterChip(
                             selected = selectedCategory == index,
                             onClick = {
-                                if (drpyReady && drpyCats.isNotEmpty()) {
+                                // v0.12.0：有源即按站点分类加载（不再要求首页有数据）
+                                if (drpyActive && drpyCats.isNotEmpty()) {
                                     if (index == 0) loadDrpyHome() else loadDrpyCategory(index)
                                 } else {
                                     selectedCategory = index
