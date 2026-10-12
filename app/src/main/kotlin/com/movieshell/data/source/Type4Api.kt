@@ -5,6 +5,7 @@ import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
+import com.movieshell.data.repo.SiteRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -24,7 +25,7 @@ import java.net.URLEncoder
 
 /**
  * type=4 播放请求的返回。
- * @param url 直链地址（parse=1 时暂按直链播，见 [SiteRepository.type4Play] 的 TODO）
+ * @param url 直链地址（parse=1 时是待解析的中间地址，见 [SiteRepository.type4PlayWithParses] 走订阅 parses 解析）
  * @param parse 0=直链直接播；1=需走订阅 parses 解析链路
  * @param header 播放 header 白名单（User-Agent/Referer/Origin/Cookie），调用方经 SniffPlayHeaders 透传给播放器
  */

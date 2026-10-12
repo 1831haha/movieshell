@@ -70,6 +70,7 @@ import com.movieshell.data.repo.FavoriteStore
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SubSiteEngines
+import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.player.MagnetPlayer
 import com.movieshell.player.SniffPlayHeaders
 import com.movieshell.ui.components.GradientBlock
@@ -183,13 +184,22 @@ fun DetailScreen(
                         subSite.isPySite() ->
                             SubSiteEngines.pyEngineFor(subSite)?.play(flag, ep.url).orEmpty()
                         // type=4 站：GET {api}?ac=play&flag=&id= 拿直链；header 经
-                        // SniffPlayHeaders 透传给播放器（PlayerScreen 用 take 一次性取出）
+                        // SniffPlayHeaders 透传给播放器（PlayerScreen 用 take 一次性取出）。
+                        // parse=1 时走该订阅的 parses 数组自动解析（type4PlayWithParses），
+                        // 全部失败 Toast "解析失败"。
                         subSite.isType4Site() -> {
-                            val r = SiteRepository().type4Play(subSite, flag, ep.url)
+                            val parses = SubSiteStore.findSite(context, subSite.key)
+                                ?.let { (subUrl, _) -> SubSiteStore.getParses(context, subUrl) }
+                                .orEmpty()
+                            val r = SiteRepository().type4PlayWithParses(
+                                subSite, flag, ep.url, parses, context
+                            )
+                            if (r.parse == 1 && r.url.isBlank()) {
+                                Toast.makeText(context, "解析失败", Toast.LENGTH_LONG).show()
+                            }
                             if (r.url.isNotBlank() && r.header.isNotEmpty()) {
                                 SniffPlayHeaders.put(r.url, r.header)
                             }
-                            // TODO: r.parse==1 时应走订阅 parses 解析链路（parses 目前未接入播放链路），v0.6 暂按直链播
                             r.url
                         }
                         else ->

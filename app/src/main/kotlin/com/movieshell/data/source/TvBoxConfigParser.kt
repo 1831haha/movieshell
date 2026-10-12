@@ -57,12 +57,38 @@ object TvBoxConfigParser {
         typeLabel = this["类型"].asStringOrNull().orEmpty()
     )
 
-    private fun JsonObject.toParseConfig(): ParseConfig = ParseConfig(
-        name = this["name"].asStringOrNull().orEmpty(),
-        url = this["url"].asStringOrNull().orEmpty(),
-        type = this["type"].asIntOrNull() ?: 0,
-        ext = this["ext"].asStringOrNull().orEmpty()
-    )
+    private fun JsonObject.toParseConfig(): ParseConfig {
+        // 真实订阅里 ext 可能是字符串，也可能是对象 {"flag":[...],"header":{"User-Agent":"..."}}：
+        // 对象形态拆成 header/flags 字段，ext 只保留字符串形态（对象形态时 ext 留空）。
+        val extEl = this["ext"]
+        var extStr = ""
+        val flags = mutableListOf<String>()
+        val header = mutableMapOf<String, String>()
+        if (extEl is JsonObject) {
+            when (val flagEl = extEl["flag"]) {
+                is JsonArray -> flagEl.forEach {
+                    (it as? JsonPrimitive)?.contentOrNull?.takeIf { s -> s.isNotBlank() }
+                        ?.let { s -> flags += s }
+                }
+                is JsonPrimitive -> flagEl.contentOrNull?.takeIf { it.isNotBlank() }
+                    ?.let { flags += it }
+            }
+            (extEl["header"] as? JsonObject)?.entries?.forEach { (k, v) ->
+                val value = (v as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+                if (k.isNotBlank() && value.isNotEmpty()) header[k] = value
+            }
+        } else {
+            extStr = extEl.asStringOrNull().orEmpty()
+        }
+        return ParseConfig(
+            name = this["name"].asStringOrNull().orEmpty(),
+            url = this["url"].asStringOrNull().orEmpty(),
+            type = this["type"].asIntOrNull() ?: 0,
+            ext = extStr,
+            header = header,
+            flags = flags
+        )
+    }
 
     // ---- 容忍式取值 helpers ----
 

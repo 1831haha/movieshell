@@ -35,13 +35,24 @@ data class SiteConfig(
     val typeLabel: String = ""
 )
 
-/** 解析线路（parses 数组单项），v0.1 仅解析保留，暂未接入播放链路。 */
+/**
+ * 解析线路（parses 数组单项，v0.7 接入播放链路）。
+ *
+ * 真实订阅里 ext 可能是字符串，也可能是对象
+ * `{"flag":[...],"header":{"User-Agent":"..."}}` —— TvBoxConfigParser.toParseConfig
+ * 会把对象形态拆成 header/flags 字段，ext 只保留字符串形态。
+ */
 @Serializable
 data class ParseConfig(
     val name: String = "",
     val url: String = "",
+    /** 0=WebView 嗅探页（加载 url+视频地址抓 .m3u8/.mp4），1=JSON 接口（GET url+视频地址取 url 字段） */
     val type: Int = 0,
-    val ext: String = ""
+    val ext: String = "",
+    /** ext 对象里的 header（如 User-Agent），请求解析线路时带上 */
+    val header: Map<String, String> = emptyMap(),
+    /** ext 对象里的 flag（该线路声明可解析的站点 flag），v0.7 仅解析保留、暂不参与过滤 */
+    val flags: List<String> = emptyList()
 )
 
 /** 运行时站源：从 SiteConfig 规整化而来，Repository / UI 只认这个。 */
