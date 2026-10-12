@@ -176,19 +176,29 @@ private class SubPyEngine(private val rulePath: String) : DrpyEngine {
     override fun loadRule(js: String) {}
 
     override suspend fun home(): List<Vod> =
-        runCatching { api.home(rulePath) }.getOrNull().orEmpty()
+        runCatching { api.home(rulePath) }
+            .onFailure { LogBus.e(TAG, "PY home 失败 $rulePath: ${it.message}") }
+            .getOrNull().orEmpty()
 
     override suspend fun categories(): List<CategoryType> =
-        runCatching { api.categories(rulePath) }.getOrNull().orEmpty()
+        runCatching { api.categories(rulePath) }
+            .onFailure { LogBus.e(TAG, "PY categories 失败 $rulePath: ${it.message}") }
+            .getOrNull().orEmpty()
 
     override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod> =
-        runCatching { api.category(rulePath, tid, pg) }.getOrNull().orEmpty()
+        runCatching { api.category(rulePath, tid, pg) }
+            .onFailure { LogBus.e(TAG, "PY category 失败 $rulePath: ${it.message}") }
+            .getOrNull().orEmpty()
 
     override suspend fun detail(id: String): VodDetail =
-        runCatching { api.detail(rulePath, id) }.getOrNull() ?: VodDetail(vodId = id)
+        runCatching { api.detail(rulePath, id) }
+            .onFailure { LogBus.e(TAG, "PY detail 失败 $rulePath: ${it.message}") }
+            .getOrNull() ?: VodDetail(vodId = id)
 
     override suspend fun search(wd: String): List<Vod> =
-        runCatching { api.search(rulePath, wd) }.getOrNull().orEmpty()
+        runCatching { api.search(rulePath, wd) }
+            .onFailure { LogBus.e(TAG, "PY search 失败 $rulePath: ${it.message}") }
+            .getOrNull().orEmpty()
 
     override suspend fun play(flag: String, id: String): String =
         runCatching { api.play(rulePath, flag, id).first }.getOrNull().orEmpty()

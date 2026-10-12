@@ -4,6 +4,7 @@ import android.util.Log
 import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
+import com.movieshell.data.repo.LogBus
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -34,7 +35,9 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
         val root = jsonLenient.parseToJsonElement(text).jsonObject
         val ok = (root["ok"] as? JsonPrimitive)?.contentOrNull == "true"
         if (!ok) {
-            Log.w(TAG, "PY 规则返回失败: ${root["error"]}")
+            val err = root["error"]?.toString() ?: "未知错误"
+            Log.w(TAG, "PY 规则返回失败: $err")
+            LogBus.e(TAG, "PY 规则失败: $err")
             return null
         }
         (root["data"] as? JsonObject)
