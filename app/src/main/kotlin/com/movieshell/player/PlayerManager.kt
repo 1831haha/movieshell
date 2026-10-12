@@ -81,8 +81,10 @@ object PlayerManager {
         if (rest.isNotEmpty()) {
             httpFactory.setDefaultRequestProperties(rest)
         }
+        // v0.18.0：m3u8 去广告——包装 DataSource，过滤播放列表中的广告分片
+        val adFilterFactory = AdFilteringDataSource.Factory(httpFactory)
         val mediaSource = DefaultMediaSourceFactory(app)
-            .setDataSourceFactory(httpFactory)
+            .setDataSourceFactory(adFilterFactory)
             .createMediaSource(MediaItem.fromUri(url))
         player.setMediaSource(mediaSource)
         player.prepare()

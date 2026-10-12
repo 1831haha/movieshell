@@ -1,6 +1,7 @@
 package com.movieshell.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,9 +57,17 @@ fun PosterCard(
 ) {
     val (c1, c2) = remember(title) { paletteFor(title) }
     Card(
-        modifier = modifier,
+        modifier = modifier
+            // v0.18.0：影图式毛玻璃卡片——半透明底 + 微光描边
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(12.dp),
+            ),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.White.copy(alpha = 0.08f),
+        ),
         onClick = { onClick?.invoke() },
         enabled = onClick != null,
     ) {
