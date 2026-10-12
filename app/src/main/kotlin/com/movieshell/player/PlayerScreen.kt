@@ -1,7 +1,6 @@
 package com.movieshell.player
 
 import android.app.Activity
-import android.app.OnPictureInPictureModeChangedListener
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.media.AudioManager
@@ -69,6 +68,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.util.Consumer
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -160,11 +160,13 @@ fun PlayerScreen(
     }
 
     // v0.19.0：画中画模式监听，小窗时隐藏自绘 UI（只留播放画面）
+    // 注意：androidx.activity 1.9.x 的监听器是 Consumer<Boolean>，
+    // 不存在 OnPictureInPictureModeChangedListener 这个类（别凭记忆写）
     DisposableEffect(Unit) {
         val activity = context as? ComponentActivity
         if (activity == null) return@DisposableEffect onDispose {}
         pipMode = activity.isInPictureInPictureMode
-        val listener = OnPictureInPictureModeChangedListener { inPip -> pipMode = inPip }
+        val listener = Consumer<Boolean> { inPip -> pipMode = inPip }
         activity.addOnPictureInPictureModeChangedListener(listener)
         onDispose { activity.removeOnPictureInPictureModeChangedListener(listener) }
     }
