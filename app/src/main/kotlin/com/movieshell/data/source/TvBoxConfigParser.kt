@@ -28,7 +28,9 @@ object TvBoxConfigParser {
     /** 解析订阅 JSON，失败（非 JSON / 顶层无 sites）返回空配置，不抛异常。 */
     fun parseConfig(raw: String): TvBoxConfig {
         return try {
-            val root = json.parseToJsonElement(raw).jsonObject
+            // v0.11.6：订阅 JSON 可能是带 // 注释 / BOM 的宽松格式，先清洗
+            val clean = stripJsonComments(raw.trim().removePrefix("\uFEFF"))
+            val root = json.parseToJsonElement(clean).jsonObject
             TvBoxConfig(
                 sites = root["sites"]?.asArray().orEmpty()
                     .mapNotNull { runCatching { it.jsonObject.toSiteConfig() }.getOrNull() },
@@ -41,6 +43,41 @@ object TvBoxConfigParser {
         } catch (_: Exception) {
             TvBoxConfig()
         }
+    }
+
+    /**
+     * 去掉 JSON 中的 // 行注释和 /* 块注释 */（字符串内的不碰）。
+     * 纯函数，可单测。
+     */
+    fun stripJsonComments(src: String): String {
+        val out = StringBuilder(src.length)
+        var i = 0
+        var inStr = false
+        var esc = false
+        while (i < src.length) {
+            val c = src[i]
+            if (inStr) {
+                out.append(c)
+                if (esc) esc = false
+                else if (c == '\\') esc = true
+                else if (c == '"') inStr = false
+                i++
+            } else if (c == '"') {
+                inStr = true
+                out.append(c)
+                i++
+            } else if (c == '/' && i + 1 < src.length && src[i + 1] == '/') {
+                while (i < src.length && src[i] != '\n') i++
+            } else if (c == '/' && i + 1 < src.length && src[i + 1] == '*') {
+                i += 2
+                while (i + 1 < src.length && !(src[i] == '*' && src[i + 1] == '/')) i++
+                i += 2
+            } else {
+                out.append(c)
+                i++
+            }
+        }
+        return out.toString()
     }
 
     private fun JsonObject.toSiteConfig(): SiteConfig = SiteConfig(

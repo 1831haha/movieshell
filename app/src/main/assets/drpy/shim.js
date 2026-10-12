@@ -159,8 +159,36 @@ globalThis.CryptoJS = {
     }
 };
 
-/* v0.11.3：drpy 常用小函数。pd 是 pdfh 的别名。 */
-globalThis.pd = globalThis.pdfh;
+/* v0.11.6：最小 muban 模板（drpy 的 模板 机制）。规则用 模板:'mxpro' 时自动合并。 */
+globalThis.muban = {
+    mxpro: {
+        一级: '.module-list;.module-items .module-item;a&&title;img&&data-src;.module-item-text&&Text;a&&href',
+        二级: {
+            title: 'h1&&Text;.video-info-items&&Text',
+            img: '.content__thumb img&&data-original',
+            desc: '.video-info-items&&Text',
+            content: '.video-info-content&&Text',
+            tabs: '.nav-tabs&&li',
+            lists: '.module-play-list&&a',
+        },
+        搜索: '.module-list;.module-items .module-item;a&&title;img&&data-src;.module-item-text&&Text;a&&href',
+    },
+};
+
+/* v0.11.6：应用 rule.模板——把 muban 模板合并进 rule（rule 自身属性优先）。 */
+function applyMuban(r) {
+    try {
+        if (r && typeof r.模板 === 'string' && globalThis.muban[r.模板]) {
+            var t = globalThis.muban[r.模板];
+            Object.keys(t).forEach(function (k) {
+                if (r[k] === undefined) r[k] = t[k];
+            });
+        }
+    } catch (e) {}
+    return r;
+}
+
+/* v0.11.3：drpy 常用小函数。 */
 globalThis.urlencode = function (s) { try { return encodeURIComponent(String(s)); } catch (e) { return String(s); } };
 globalThis.stringify = function (o) { try { return JSON.stringify(o); } catch (e) { return String(o); } };
 if (typeof globalThis.print !== 'function') {
@@ -243,6 +271,14 @@ globalThis.pdfa = function (html, parse) {
         var last = parts[parts.length - 1];
         return cur.map(function (el) { return _pick(el, last); });
     } catch (e) { return []; }
+};
+
+/* v0.11.6：别名挂载（必须在 pdfh/pdfa 定义之后）。 */
+globalThis.pd = globalThis.pdfh;
+globalThis.jsp = {
+    pdfh: globalThis.pdfh,
+    pdfa: globalThis.pdfa,
+    pd: globalThis.pdfh,
 };
 
 /**
@@ -415,6 +451,11 @@ function errJson(e) {
 
 function needRule() {
     if (typeof rule === 'undefined') throw new Error('rule not loaded');
+    // v0.11.6：首次使用时应用 muban 模板合并
+    if (!rule.__mubanApplied) {
+        applyMuban(rule);
+        rule.__mubanApplied = true;
+    }
 }
 
 /* ---------- 导出：5 个入口 ---------- */
