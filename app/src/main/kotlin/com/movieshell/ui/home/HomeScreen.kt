@@ -311,9 +311,13 @@ fun HomeScreen(
     // drpy 数据就绪：用真实数据；失败/为空 -> 回退演示数据
     val drpyUiList: List<Vod>? = drpyList?.takeIf { it.isNotEmpty() }?.map { it.toUiVod() }
     val drpyReady = drpyActive && drpyUiList != null
+    // v0.11.3：只有未选任何站源时才用演示数据；选了真实站源但没拿到数据时显示空态，
+    // 绝不用假数据冒充，否则切源也看不出变化
+    val useDemo = !drpyActive
     val chipLabels: List<String> =
         if (drpyReady && drpyCats.isNotEmpty()) listOf("全部") + drpyCats.map { it.typeName }
-        else listOf("全部") + DemoData.categories
+        else if (useDemo) listOf("全部") + DemoData.categories
+        else listOf("全部")
 
     val filtered: List<Vod> = when {
         drpyReady -> remember(shuffleSeed, drpyUiList) {
@@ -321,7 +325,7 @@ fun HomeScreen(
             if (shuffleSeed == 0) base
             else base.drop(shuffleSeed % base.size) + base.take(shuffleSeed % base.size)
         }
-        else -> remember(selectedCategory, shuffleSeed) {
+        useDemo -> remember(selectedCategory, shuffleSeed) {
             val base = if (selectedCategory == 0) {
                 DemoData.vods
             } else {
@@ -330,9 +334,10 @@ fun HomeScreen(
             }
             if (shuffleSeed == 0) base else base.drop(shuffleSeed % base.size) + base.take(shuffleSeed % base.size)
         }
+        else -> emptyList() // 有源但无数据：空列表，UI 显示空态
     }
 
-    val featured: List<Vod> = (if (drpyReady) drpyUiList else DemoData.vods).orEmpty().take(3)
+    val featured: List<Vod> = (if (drpyReady) drpyUiList else if (useDemo) DemoData.vods else emptyList()).orEmpty().take(3)
 
     // 站源入口行文案：订阅当前源 > 本地 drpy > 本地 PY；都没有 -> 演示数据
     val sourceLabel: String = when {
@@ -494,6 +499,27 @@ fun HomeScreen(
             }
 
             // 网格海报墙
+            if (drpyActive && !drpyReady && !drpyLoading && filtered.isEmpty()) {
+                // v0.11.3：有源但无数据时的空态（不再用演示数据冒充）
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = "该源暂无首页数据",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "换个分类试试，或下拉刷新",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
             items(filtered, key = { it.id }) { vod ->
                 PosterCard(
                     title = vod.title,

@@ -152,6 +152,21 @@ globalThis.$js = {
     }
 };
 
+/* v0.11.3：规则常用的 CryptoJS（目前只用到 MD5）。 */
+globalThis.CryptoJS = {
+    MD5: function (s) {
+        return { toString: function () { try { return md5(String(s)); } catch (e) { return ''; } } };
+    }
+};
+
+/* v0.11.3：drpy 常用小函数。pd 是 pdfh 的别名。 */
+globalThis.pd = globalThis.pdfh;
+globalThis.urlencode = function (s) { try { return encodeURIComponent(String(s)); } catch (e) { return String(s); } };
+globalThis.stringify = function (o) { try { return JSON.stringify(o); } catch (e) { return String(o); } };
+if (typeof globalThis.print !== 'function') {
+    globalThis.print = function () { try { log.apply(null, arguments); } catch (e) {} };
+}
+
 /* drpy2 宿主全局量（规则裸变量引用）。 */
 globalThis.MOBILE_UA = MOBILE_UA;
 globalThis.IOS_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
@@ -269,6 +284,13 @@ globalThis.setResult = function (d) { _sectionResult = d; };
  * 两种都兼容；setResult 优先于返回值。
  */
 function makeJsRunner(code) {
+    var c = String(code).trim();
+    // $js.toString(fn) 转出来的是函数表达式，需要调用；普通语句直接求值
+    var isFn = /^(async\s+)?(\([^)]*\)|[\w$]+)\s*=>/.test(c) ||
+        /^async\s*function/.test(c) || /^function/.test(c);
+    if (isFn) {
+        return new Function('ctx', 'with(ctx){ return (' + c + ')(); }');
+    }
     // new Function 默认非 strict，允许 with；ctx 挂裸变量
     return new Function('ctx', 'with(ctx){\n' + code + '\n}');
 }
@@ -337,8 +359,12 @@ globalThis.md5 = function (s) {
     catch (e) { return ''; }
 };
 
+/* drpy2 全局数组 d：规则往里 push，框架收集。 */
+globalThis.d = [];
+
 async function runSection(section, ctx) {
     _sectionResult = undefined;
+    globalThis.d = [];
     var r;
     if (typeof section === 'function') {
         r = await section.call(ctx);
@@ -353,6 +379,7 @@ async function runSection(section, ctx) {
             r = runListTemplate(section, ctx); // '容器;条目;标题;图;描述;链接' 列表模板
         }
     }
+    if (r === undefined && Array.isArray(globalThis.d) && globalThis.d.length > 0) r = globalThis.d;
     return _sectionResult !== undefined ? _sectionResult : r;
 }
 
