@@ -878,7 +878,10 @@ private fun SourceSwitchSheet(
                 SourceSheetRow(
                     title = rec.name.ifBlank { rec.key },
                     subtitle = null,
-                    checked = cur != null && cur.subUrl == sub.url && cur.siteKey == rec.key,
+                    checked = run {
+                        val c = cur
+                        c != null && c.subUrl == sub.url && c.siteKey == rec.key
+                    },
                     dimmed = unsupported,
                     badge = { SourceKindBadge(rec.kind) },
                     onClick = {
