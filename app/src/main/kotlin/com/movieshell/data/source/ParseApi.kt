@@ -9,8 +9,8 @@ import android.webkit.WebViewClient
 import com.movieshell.data.model.ParseConfig
 import com.movieshell.data.repo.LogBus
 import com.movieshell.player.SniffPlayHeaders
-import com.movieshell.ui.web.isPlayableDirectUrl
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -116,7 +116,11 @@ class ParseApi(
 
     /**
      * type=0：WebView 加载 `parse.url + urlencode(videoUrl)`，
-     * shouldInterceptRequest 嗅探第一条 .m3u8/.mp4 直链；20 秒超时返回 ""。
+     * shouldInterceptRequest 嗅探直链；20 秒超时返回 ""。
+     *
+     * 判定走 [SniffEngine]：后缀直判（.m3u8/.mp4/.mpd/.aac）即命中；
+     * 可疑无后缀 URL 异步 HEAD 看 Content-Type（不阻塞原请求）；
+     * rtmp 只记日志不自动播（App 内播不了）。
      *
      * WebView 必须在主线程创建/操作，全程 withContext(Dispatchers.Main)；
      * 超时取消时在主线程销毁 WebView，避免泄漏。
@@ -129,6 +133,10 @@ class ParseApi(
         withContext(Dispatchers.Main) {
             suspendCancellableCoroutine { cont ->
                 var webView: WebView? = null
+                // 探测是异步的（HEAD 回来时拦截早已返回），resume 必须防重入
+                fun tryResume(url: String) {
+                    if (!cont.isCompleted) cont.resume(url)
+                }
                 try {
                     val wv = WebView(context.applicationContext)
                     webView = wv
@@ -141,11 +149,37 @@ class ParseApi(
                             request: WebResourceRequest?,
                         ): WebResourceResponse? {
                             val reqUrl = request?.url?.toString().orEmpty()
-                            if (reqUrl.isNotEmpty() && isPlayableDirectUrl(reqUrl)) {
-                                // 存下该直链的请求头，播放器经 SniffPlayHeaders.take 透传
-                                SniffPlayHeaders.put(reqUrl, request?.requestHeaders.orEmpty())
-                                runCatching { view?.stopLoading() }
-                                cont.resume(reqUrl)
+                            if (reqUrl.isNotEmpty()) {
+                                when (SniffEngine.sniffKind(reqUrl)) {
+                                    SniffEngine.SniffKind.DIRECT -> {
+                                        // 存下该直链的请求头，播放器经 SniffPlayHeaders.take 透传
+                                        SniffPlayHeaders.put(reqUrl, request?.requestHeaders.orEmpty())
+                                        runCatching { view?.stopLoading() }
+                                        tryResume(reqUrl)
+                                    }
+                                    SniffEngine.SniffKind.RTMP -> {
+                                        LogBus.w(TAG, "type0 抓到 rtmp，需外部播放：$reqUrl")
+                                    }
+                                    null -> if (SniffEngine.isSuspiciousMediaUrl(reqUrl)) {
+                                        // 切 IO 做 HEAD 探测，不阻塞拦截线程
+                                        val referer = request?.requestHeaders?.get("Referer")
+                                        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+                                            val kind = SniffEngine.probeContentType(reqUrl, client)
+                                            if (kind == SniffEngine.SniffKind.DIRECT) {
+                                                if (!referer.isNullOrBlank()) {
+                                                    SniffPlayHeaders.put(
+                                                        reqUrl,
+                                                        mapOf("Referer" to referer),
+                                                    )
+                                                }
+                                                withContext(Dispatchers.Main) {
+                                                    runCatching { view?.stopLoading() }
+                                                    tryResume(reqUrl)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                             return super.shouldInterceptRequest(view, request)
                         }
@@ -161,7 +195,7 @@ class ParseApi(
                 } catch (e: Exception) {
                     Log.w(TAG, "type0 嗅探异常", e)
                     runCatching { webView?.destroy() }
-                    cont.resume("")
+                    tryResume("")
                 }
             }
         }

@@ -35,20 +35,34 @@ object WebSourceManager {
         runCatching { sitesDirOrNull() }.getOrNull()
     }
 
-    /** 扫描 StoragePaths.webDir()（/storage/emulated/0/xiaying/web/) 下的 json 文件。 */
+    /**
+     * 扫描 StoragePaths.webDir()（/storage/emulated/0/xiaying/web/) 下的站源文件。
+     * - .json：{"name": "...", "url": "..."} 描述文件；
+     * - .html/.htm（v0.10 新增）：直接当网页源用，url 为 file:// 本地地址，
+     *   在嗅探页打开可抓直链。name 取文件名（去后缀）。
+     */
     fun listSites(): List<WebSite> {
         val dir = sitesDirOrNull() ?: return emptyList()
-        return dir.listFiles { f -> f.isFile && f.name.endsWith(".json") }
-            .orEmpty()
-            .sortedBy { it.name }
-            .mapNotNull { f ->
-                runCatching {
-                    val obj = JSONObject(f.readText())
-                    val name = obj.optString("name").ifBlank { f.nameWithoutExtension }
-                    val url = obj.optString("url")
-                    if (url.isBlank()) null else WebSite(f.name, name, url)
-                }.getOrNull()
-            }
+        val files = dir.listFiles { f ->
+            f.isFile && (f.name.endsWith(".json") || f.name.endsWith(".html") || f.name.endsWith(".htm"))
+        }.orEmpty().sortedBy { it.name }
+        return files.mapNotNull { f ->
+            runCatching {
+                when {
+                    f.name.endsWith(".json") -> {
+                        val obj = JSONObject(f.readText())
+                        val name = obj.optString("name").ifBlank { f.nameWithoutExtension }
+                        val url = obj.optString("url")
+                        if (url.isBlank()) null else WebSite(f.name, name, url)
+                    }
+                    else -> WebSite(
+                        f.name,
+                        f.nameWithoutExtension,
+                        "file://" + f.absolutePath,
+                    )
+                }
+            }.getOrNull()
+        }
     }
 
     /**

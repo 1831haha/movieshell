@@ -121,6 +121,7 @@ private fun targetDir(context: Context, dirName: String): File = when (dirName) 
     "drpy" -> StoragePaths.jsDir(context)
     "py" -> StoragePaths.pyDir(context)
     "php" -> StoragePaths.phpDir(context)
+    "web" -> StoragePaths.webDir(context)
     else -> File(context.filesDir, dirName)
 }
 
@@ -152,6 +153,7 @@ private data class ImportTarget(
 private val IMPORT_DPRY = ImportTarget("drpy", listOf(".js"), "JS文件夹")
 private val IMPORT_PY = ImportTarget("py", listOf(".py"), "PY文件夹")
 private val IMPORT_PHP = ImportTarget("php", listOf(".php"), "PHP文件夹")
+private val IMPORT_WEB = ImportTarget("web", listOf(".html", ".htm"), "网页源")
 
 /** 导入结果 */
 private sealed interface ImportResult {
@@ -550,6 +552,10 @@ fun SourcesScreen(
                             Toast.LENGTH_LONG,
                         ).show()
                     }
+                    "web" -> {
+                        refreshWebSites()
+                        Toast.makeText(context, "已导入 ${r.fileName}，可直接打开嗅探", Toast.LENGTH_SHORT).show()
+                    }
                     else -> {
                         refreshTab(target.dirName)
                         Toast.makeText(
@@ -724,6 +730,7 @@ fun SourcesScreen(
                     )
                     if (tab == TAB_WEB) {
                         TextButton(onClick = { showWebAddDialog = true }) { Text("添加") }
+                        TextButton(onClick = { requestImport(IMPORT_WEB) }) { Text("导入") }
                     } else {
                         val target = when (tab) {
                             TAB_JS -> IMPORT_DPRY

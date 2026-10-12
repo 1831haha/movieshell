@@ -181,6 +181,7 @@ private val MANUAL_SECTIONS = listOf(
             "v0.7.2 已实现：文件全迁到 /storage/emulated/0/xiaying/ 公开目录（见「文件存放路径」）、运行日志悬浮窗（见「运行日志」一节）。",
             "v0.8.0 已实现：Java spider（csp_ 站）运行时——按订阅自动下载 spider jar（缓存在 xiaying/jar/），DexClassLoader 动态加载执行，首页/分类/搜索/详情/播放全链路可用（见「Java spider（csp_ 站）」一节）。",
             "v0.9.0 已实现：站源页重做——顶部数据来源 Tab（接口站源/JS/PY/PHP/网页源）、双列文件网格（单击激活、长按操作菜单：预览/编辑/分享/信息/置顶/删除）、文件预览器（只读等宽+关键词高亮+200KB 保护）、FileProvider 对外分享/编辑、使用手册大完善（各类源使用指南/添加入口总览/存放路径总表）。",
+            "v0.10.0 已实现：嗅探引擎增强——无后缀流探测（HEAD 判 Content-Type）、捕获扩展（.mpd/.aac/.rtmp）、iframe 剥壳、命中停载、混合内容+第三方 Cookie、嗅探页浏览器式头部（一键嗅探测试）、网页源导入 .html；手册新增「已知限制」「版本更新」两节。",
             "下一步（规划中）：订阅云同步、播放器投屏。",
         ),
     ),
@@ -215,6 +216,26 @@ private val MANUAL_SECTIONS = listOf(
             "原理：添加订阅时自动记下配置里的 spider 字段（如 ./tvkj.jar）；第一次用某个 csp_ 站时自动下载 jar 到 /storage/emulated/0/xiaying/jar/，用 DexClassLoader 动态加载执行。",
             "站源页这类站点打「spider」徽标，可直接设为当前源，首页、分类、搜索、详情、播放全流程可用；单个站加载失败会如实 Toast，不影响其他站。",
             "jar 按订阅缓存，多站共用一份，不重复下载；云盘类 spider（如夸克/UC/迅雷盘）部分功能依赖其账号体系，能否播以实际为准。",
+        ),
+    ),
+    ManualSection(
+        title = "已知限制",
+        points = listOf(
+            "MSE/blob 直链未处理：视频走 MediaSource/Blob 播的站，嗅探抓不到直链，只能手动在页面里点播放看。",
+            "cheerio 类规则不支持：drpy 一级为 jsp:/json:/html 解析串（需 pdfa/pdfh/cheerio）的规则跑不起来。",
+            "Cloudflare 人机验证：遇到 CF 验证页需在嗅探页里手动过验证，过了之后再抓直链。",
+            "rtmp 流需外部播放：抓到 rtmp 地址会提示，不会自动播（App 内没接 rtmp 播放器）。",
+            "m3u8 去广告未做：嗅探拿到的是源站原始播放列表，片头广告（如有）不会过滤。",
+            "网页源搜索/详情不走引擎：网页源只支持打开嗅探页手动找直链，不参与聚合搜索。",
+        ),
+    ),
+    ManualSection(
+        title = "版本更新",
+        points = listOf(
+            "v0.10.0 新功能：嗅探引擎增强——无后缀流探测（HEAD 看 Content-Type 判定 m3u8/mp4/mpd/aac）、捕获扩展（.mpd/.aac/.rtmp）、iframe 剥壳（页面里的 iframe 逐个探测直链）、命中后停载省流量、混合内容放行+第三方 Cookie、嗅探页浏览器式头部（后退/前进/刷新+当前 URL+一键嗅探测试）、网页源支持导入 .html 文件。",
+            "v0.10.0 修复：嗅探判定逻辑收敛到 SniffEngine（之前散在 UI 和解析链路两处）。",
+            "v0.10.0 已知限制：见「已知限制」一节（MSE/blob、cheerio、人机验证、rtmp、m3u8 去广告）。",
+            "以后每版都会在这里写 changelog：新功能 / 修复 / 已知限制三段。",
         ),
     ),
     ManualSection(
