@@ -41,7 +41,7 @@ object PhpSourceManager {
 
     private var activeName: String? = null
 
-    /** init：主线程，幂等；仅创建 filesDir/php/ 目录。 */
+    /** init：主线程，幂等；仅创建 StoragePaths.phpDir()（/storage/emulated/0/xiaying/php/) 目录。 */
     fun init(context: Context) {
         if (initialized) return
         initialized = true
@@ -53,7 +53,7 @@ object PhpSourceManager {
         }
     }
 
-    /** 扫描 filesDir/php/ 下的 php 文件。 */
+    /** 扫描 StoragePaths.phpDir()（/storage/emulated/0/xiaying/php/) 下的 php 文件。 */
     fun listRules(): List<RuleInfo> {
         val dir = rulesDirOrNull() ?: return emptyList()
         return dir.listFiles { f -> f.isFile && f.name.endsWith(".php", ignoreCase = true) }
@@ -139,11 +139,11 @@ object PhpSourceManager {
 
     // ---------------- 内部 ----------------
 
-    private fun rulesDir(): File = File(appContext!!.filesDir, RULES_DIR)
+    private fun rulesDir(): File = StoragePaths.phpDir(appContext!!)
 
     private fun rulesDirOrNull(): File? {
         val ctx = appContext ?: return null
-        return File(ctx.filesDir, RULES_DIR).also { it.mkdirs() }
+        return StoragePaths.phpDir(ctx)
     }
 
     /** 从 PHP 源码头抠类名/注释名，抠不到返回 null。 */

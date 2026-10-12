@@ -54,6 +54,18 @@ class SiteRepository(
 
     private val sites = mutableListOf<Site>()
 
+    companion object {
+        private const val TAG = "SiteRepo"
+    }
+
+    /**
+     * v0.7.2：带日志的 runCatching。失败记 LogBus.E，返回 null。
+     */
+    private inline fun <T> logged(op: String, block: () -> T): T? =
+        runCatching(block)
+            .onFailure { LogBus.e(TAG, "$op 失败：${it.message}") }
+            .getOrNull()
+
     /**
      * 从 TVBox 订阅 JSON 载入站源。
      * 过滤掉 api/key 为空的无效条目；返回本次载入的有效站源。
@@ -74,14 +86,18 @@ class SiteRepository(
     fun findSite(key: String): Site? = sites.find { it.key == key }
 
     /** 首页推荐/最新：PHP / csp_ Java spider / 小说漫画站明确不支持，返回空。 */
-    suspend fun home(site: Site): List<Vod> =
-        if (site.isPhpSite()) emptyList() // PHP 需 PHP 解释器，手机端暂不支持执行
+    suspend fun home(site: Site): List<Vod> {
+        LogBus.i(TAG, "home site=${site.name}")
+        val r = if (site.isPhpSite()) emptyList() // PHP 需 PHP 解释器，手机端暂不支持执行
         else if (site.isJavaSpider()) emptyList() // csp_ Java spider：需 tvkj.jar，无运行环境
         else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
-        else if (site.isType4Site()) type4Api.home(site)
-        else if (site.isCmsSite()) cmsApi.home(site)
-        else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.home() }.getOrNull().orEmpty()
-        else runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.home() }.getOrNull().orEmpty()
+        else if (site.isType4Site()) logged("type4.home ${site.name}") { type4Api.home(site) }.orEmpty()
+        else if (site.isCmsSite()) logged("cms.home ${site.name}") { cmsApi.home(site) }.orEmpty()
+        else if (site.isPySite()) logged("py.home ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.home() }.orEmpty()
+        else logged("drpy.home ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.home() }.orEmpty()
+        LogBus.i(TAG, "home site=${site.name} 结果 ${r.size} 条")
+        return r
+    }
 
     /**
      * 分类：Pair(分类列表, 当前分类第 pg 页)。
@@ -93,15 +109,24 @@ class SiteRepository(
         tid: String,
         pg: Int,
         filter: Map<String, String> = emptyMap()
-    ): Pair<List<CategoryType>, List<Vod>> =
-        if (site.isPhpSite()) emptyList<CategoryType>() to emptyList() // PHP 暂不支持执行
+    ): Pair<List<CategoryType>, List<Vod>> {
+        LogBus.i(TAG, "category site=${site.name} tid=$tid pg=$pg")
+        val r = if (site.isPhpSite()) emptyList<CategoryType>() to emptyList() // PHP 暂不支持执行
         else if (site.isJavaSpider()) emptyList<CategoryType>() to emptyList()
-        else if (site.isType4Site()) type4Api.category(site, tid, pg)
-        else if (site.isCmsSite()) cmsApi.category(site, tid, pg)
-        else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.categories() }.getOrNull().orEmpty() to
-            runCatching { subOr(pyEngine) { pyEngineFor(site) }?.category(tid, pg, filter) }.getOrNull().orEmpty()
+        else if (site.isType4Site()) logged("type4.category ${site.name}") { type4Api.category(site, tid, pg) }
+            .orEmptyCategory()
+        else if (site.isCmsSite()) logged("cms.category ${site.name}") { cmsApi.category(site, tid, pg) }
+            .orEmptyCategory()
+        else if (site.isPySite()) logged("py.categories ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.categories() }.orEmpty() to
+            logged("py.category ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
         else emptyList<CategoryType>() to
-            runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.category(tid, pg, filter) }.getOrNull().orEmpty()
+            logged("drpy.category ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
+        LogBus.i(TAG, "category site=${site.name} 结果 ${r.second.size} 条")
+        return r
+    }
+
+    private fun Pair<List<CategoryType>, List<Vod>>?.orEmptyCategory(): Pair<List<CategoryType>, List<Vod>> =
+        this ?: (emptyList<CategoryType>() to emptyList())
 
     /**
      * drpy 站某分类的筛选定义（规则 filter 分组），给 UI 筛选器用。
@@ -112,26 +137,35 @@ class SiteRepository(
         else runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.filters(tid) }.getOrNull().orEmpty()
 
     /** 详情。 */
-    suspend fun detail(site: Site, vodId: String): VodDetail =
-        if (site.isPhpSite()) VodDetail(vodId = vodId) // PHP 暂不支持执行
+    suspend fun detail(site: Site, vodId: String): VodDetail {
+        LogBus.i(TAG, "detail site=${site.name} id=$vodId")
+        val r = if (site.isPhpSite()) VodDetail(vodId = vodId) // PHP 暂不支持执行
         else if (site.isJavaSpider()) VodDetail(vodId = vodId)
-        else if (site.isType4Site()) type4Api.detail(site, vodId)
-        else if (site.isCmsSite()) cmsApi.detail(site, vodId)
-        else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.detail(vodId) }.getOrNull()
+        else if (site.isType4Site()) logged("type4.detail ${site.name}") { type4Api.detail(site, vodId) }
             ?: VodDetail(vodId = vodId)
-        else runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.detail(vodId) }.getOrNull()
+        else if (site.isCmsSite()) logged("cms.detail ${site.name}") { cmsApi.detail(site, vodId) }
             ?: VodDetail(vodId = vodId)
+        else if (site.isPySite()) logged("py.detail ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.detail(vodId) }
+            ?: VodDetail(vodId = vodId)
+        else logged("drpy.detail ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.detail(vodId) }
+            ?: VodDetail(vodId = vodId)
+        LogBus.i(TAG, "detail site=${site.name} 播放源 ${if (r.vodPlayUrl.isBlank()) "空" else "有数据"}")
+        return r
+    }
 
     /** 搜索；站源声明 searchable=0 时直接返回空，不发请求。非 CMS 站走 drpy/PY 引擎。 */
     suspend fun search(site: Site, wd: String): List<Vod> {
         if (!site.searchable || wd.isBlank()) return emptyList()
-        return if (site.isPhpSite()) emptyList() // PHP 暂不支持执行
+        LogBus.i(TAG, "search site=${site.name} wd=$wd")
+        val r = if (site.isPhpSite()) emptyList() // PHP 暂不支持执行
         else if (site.isJavaSpider()) emptyList()
         else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
-        else if (site.isType4Site()) type4Api.search(site, wd)
-        else if (site.isCmsSite()) cmsApi.search(site, wd)
-        else if (site.isPySite()) runCatching { subOr(pyEngine) { pyEngineFor(site) }?.search(wd) }.getOrNull().orEmpty()
-        else runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.getOrNull().orEmpty()
+        else if (site.isType4Site()) logged("type4.search ${site.name}") { type4Api.search(site, wd) }.orEmpty()
+        else if (site.isCmsSite()) logged("cms.search ${site.name}") { cmsApi.search(site, wd) }.orEmpty()
+        else if (site.isPySite()) logged("py.search ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.search(wd) }.orEmpty()
+        else logged("drpy.search ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.orEmpty()
+        LogBus.i(TAG, "search site=${site.name} 结果 ${r.size} 条")
+        return r
     }
 
     /**

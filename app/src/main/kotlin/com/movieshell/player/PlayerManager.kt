@@ -7,6 +7,7 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.movieshell.data.repo.LogBus
 
 /**
  * ExoPlayer 单例封装。
@@ -32,6 +33,7 @@ object PlayerManager {
 
     private val listener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
+            LogBus.e("Player", "播放器错误：${error.errorCodeName} ${error.message}")
             onError?.invoke(error)
         }
     }

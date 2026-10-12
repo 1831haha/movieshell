@@ -195,11 +195,14 @@ object SubSiteStore {
     }
 
     /** 下载订阅 JSON 并展开全部站点，落盘；sites 为空视为失败。 */
-    suspend fun refresh(context: Context, subUrl: String): Result<SubCache> =
-        withContext(Dispatchers.IO) {
+    suspend fun refresh(context: Context, subUrl: String): Result<SubCache> {
+        LogBus.i(TAG, "刷新订阅：$subUrl")
+        return withContext(Dispatchers.IO) {
             runCatching {
                 val raw = downloadText(subUrl.trim())
+                LogBus.i(TAG, "订阅下载成功 ${raw.length} 字符：$subUrl")
                 val config = TvBoxConfigParser.parseConfig(raw)
+                LogBus.i(TAG, "订阅解析：${config.sites.size} 个站，${config.parses.size} 条解析线路")
                 if (config.sites.isEmpty()) {
                     throw IllegalStateException("订阅里没有 sites 数组，可能不是完整 TVBox 配置")
                 }
@@ -228,8 +231,10 @@ object SubSiteStore {
                 all[cache.subUrl] = cache
                 saveAll(context, all)
                 cache
-            }
+            }.onFailure { LogBus.e(TAG, "订阅刷新失败 $subUrl：${it.message}") }
+                .onSuccess { LogBus.i(TAG, "订阅刷新成功：${it.sites.size} 个站已展开") }
         }
+    }
 
     private fun expandSite(
         context: Context,
@@ -436,7 +441,13 @@ object SubSiteStore {
             val req = Request.Builder().url(url).header("User-Agent", UA).build()
             client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return null
-                val dir = File(File(context.filesDir, dir1), dir2).apply { mkdirs() }
+                // v0.7.2：订阅下载的规则也进公开目录（drpy→xiaying/js/subs，py→xiaying/py/subs）
+                val base = when (dir1) {
+                    "drpy" -> StoragePaths.jsDir(context)
+                    "py" -> StoragePaths.pyDir(context)
+                    else -> File(context.filesDir, dir1)
+                }
+                val dir = File(base, dir2).apply { mkdirs() }
                 val dst = File(dir, name)
                 resp.body?.byteStream()?.use { input ->
                     dst.outputStream().use { input.copyTo(it) }
@@ -445,10 +456,11 @@ object SubSiteStore {
                     dst.delete()
                     return null
                 }
+                LogBus.i(TAG, "规则下载成功：${dst.absolutePath}")
                 dst
             }
         } catch (e: Exception) {
-            Log.w(TAG, "下载失败: $url", e)
+            LogBus.e(TAG, "规则下载失败 $url：${e.message}")
             null
         }
     }

@@ -73,6 +73,7 @@ import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubCache
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.WebSourceManager
@@ -98,27 +99,35 @@ class SourceGroup(
     var expanded by mutableStateOf(true)
 }
 
-/** 在 filesDir/drpy 下按规则名删除对应的 .js 文件（兼容 name 带/不带 .js 后缀） */
+/** v0.7.2：规则目录统一走 StoragePaths（/storage/emulated/0/xiaying/ 下） */
+private fun targetDir(context: Context, dirName: String): File = when (dirName) {
+    "drpy" -> StoragePaths.jsDir(context)
+    "py" -> StoragePaths.pyDir(context)
+    "php" -> StoragePaths.phpDir(context)
+    else -> File(context.filesDir, dirName)
+}
+
+/** 在规则目录下按规则名删除对应的 .js 文件（兼容 name 带/不带 .js 后缀） */
 private fun deleteDrpyRuleFile(context: Context, name: String): Boolean {
-    val dir = File(context.filesDir, "drpy")
+    val dir = StoragePaths.jsDir(context)
     val target = dir.listFiles()?.firstOrNull {
         it.isFile && (it.name == name || it.nameWithoutExtension == name)
     } ?: return false
     return runCatching { target.delete() }.getOrDefault(false)
 }
 
-/** 在 filesDir/py 下按规则名删除对应的 .py 文件（兼容 name 带/不带 .py 后缀） */
+/** 在规则目录下按规则名删除对应的 .py 文件（兼容 name 带/不带 .py 后缀） */
 private fun deletePyRuleFile(context: Context, name: String): Boolean {
-    val dir = File(context.filesDir, "py")
+    val dir = StoragePaths.pyDir(context)
     val target = dir.listFiles()?.firstOrNull {
         it.isFile && (it.name == name || it.nameWithoutExtension == name)
     } ?: return false
     return runCatching { target.delete() }.getOrDefault(false)
 }
 
-/** 文件导入目标：filesDir 下的子目录 + 允许的后缀 */
+/** 文件导入目标：规则子目录 + 允许的后缀（目录实际位置见 targetDir，走 StoragePaths） */
 private data class ImportTarget(
-    val dirName: String,          // filesDir 下子目录：drpy / py / php
+    val dirName: String,          // 逻辑子目录：drpy / py / php
     val extensions: List<String>, // 允许的后缀，带点，如 ".js"
     val label: String,            // 分组名，用于 Toast 提示
 )
@@ -135,7 +144,7 @@ private sealed interface ImportResult {
 }
 
 /**
- * 把用户选中的文件拷贝到 filesDir/<dirName>/。
+ * 把用户选中的文件拷贝到规则目录（见 targetDir）。
  * - 文件名取原名（重名则加时间戳后缀避免覆盖）
  * - 后缀不在允许列表内 -> WrongExt
  */
@@ -149,7 +158,7 @@ private fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): Im
         return ImportResult.WrongExt
     }
     return try {
-        val dir = File(context.filesDir, target.dirName).apply { mkdirs() }
+        val dir = targetDir(context, target.dirName)
         var dst = File(dir, displayName)
         if (dst.exists()) {
             val base = displayName.substringBeforeLast('.')
@@ -164,14 +173,14 @@ private fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): Im
     }
 }
 
-/** 扫描 filesDir/<dirName>/ 下的文件，转成 SourceEntry 列表（给 PHP 分组用）；activeName 命中的条目 enabled=true（高亮为当前激活） */
+/** 扫描规则目录下的文件，转成 SourceEntry 列表（给 PHP 分组用）；activeName 命中的条目 enabled=true（高亮为当前激活） */
 private fun listLocalFolderEntries(
     context: Context,
     dirName: String,
     desc: String,
     activeName: String? = null,
 ): List<SourceEntry> {
-    val dir = File(context.filesDir, dirName).apply { mkdirs() }
+    val dir = targetDir(context, dirName)
     return dir.listFiles { f -> f.isFile }
         .orEmpty()
         .sortedBy { it.name }
@@ -185,13 +194,13 @@ fun SourcesScreen(
 ) {
     val context = LocalContext.current
 
-    // drpy 规则：从 DrpySourceManager 读真实数据（filesDir/drpy/*.js）
+    // drpy 规则：从 DrpySourceManager 读真实数据（xiaying/js/*.js）
     val drpyRules = remember { mutableStateListOf<DrpySourceManager.RuleInfo>() }
     var activeRuleName by remember { mutableStateOf<String?>(null) }
-    // PY 规则：从 PySourceManager 读真实数据（filesDir/py/*.py）
+    // PY 规则：从 PySourceManager 读真实数据（xiaying/py/*.py）
     val pyRules = remember { mutableStateListOf<PySourceManager.RuleInfo>() }
     var activePyRuleName by remember { mutableStateOf<String?>(null) }
-    // 网页站源：从 WebSourceManager 读真实数据（filesDir/web/*.json）
+    // 网页站源：从 WebSourceManager 读真实数据（xiaying/web/*.json）
     val webSites = remember { mutableStateListOf<WebSourceManager.WebSite>() }
     var activeWebSiteName by remember { mutableStateOf<String?>(null) }
 
@@ -285,7 +294,7 @@ fun SourcesScreen(
         )
     }
 
-    /** 刷新 PHP 分组：从 filesDir/php 扫描真实文件，激活中的条目高亮 */
+    /** 刷新 PHP 分组：从 xiaying/php 扫描真实文件，激活中的条目高亮 */
     fun refreshLocalFolder(groupId: String) {
         val group = tailGroups.firstOrNull { it.id == groupId } ?: return
         val (dirName, desc) = when (groupId) {
@@ -431,7 +440,7 @@ fun SourcesScreen(
             "php" -> "php"
             else -> return
         }
-        runCatching { File(File(context.filesDir, dirName), entry.name).delete() }
+        runCatching { File(targetDir(context, dirName), entry.name).delete() }
         // 删的是当前激活的规则 -> 清空激活，避免悬空引用
         if (groupId == "php" && PhpSourceManager.activeRuleName() == entry.name) {
             PhpSourceManager.setActiveRule(null)

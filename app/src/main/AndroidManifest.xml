@@ -8,6 +8,8 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <!-- v0.7.2：公开目录 /storage/emulated/0/xiaying/ 读写（API 30+） -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
     <application
         android:allowBackup="true"

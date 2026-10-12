@@ -8,7 +8,7 @@ import java.io.File
 /**
  * 网页站源管理器（单例，UI 组按此契约调用）。
  *
- * - 规则存 filesDir/web/ 下的 JSON 文件，每条 {"name": "...", "url": "..."}。
+ * - 规则存 StoragePaths.webDir()（/storage/emulated/0/xiaying/web/) 下的 JSON 文件，每条 {"name": "...", "url": "..."}。
  * - init(context)：主线程，幂等；建目录。
  * - listSites()：扫描 JSON 文件。
  * - addSite(name, url)：name 为空时自动用 url 的 host；url 必须 http(s) 开头。
@@ -21,7 +21,7 @@ object WebSourceManager {
     data class WebSite(val fileName: String, val name: String, val url: String)
 
     private const val TAG = "WebSourceManager"
-    private const val SITES_DIR = "web"
+    // v0.7.2：目录走 StoragePaths.webDir()（/storage/emulated/0/xiaying/web/）
 
     private var appContext: Context? = null
     private var initialized = false
@@ -35,7 +35,7 @@ object WebSourceManager {
         runCatching { sitesDirOrNull() }.getOrNull()
     }
 
-    /** 扫描 filesDir/web/ 下的 json 文件。 */
+    /** 扫描 StoragePaths.webDir()（/storage/emulated/0/xiaying/web/) 下的 json 文件。 */
     fun listSites(): List<WebSite> {
         val dir = sitesDirOrNull() ?: return emptyList()
         return dir.listFiles { f -> f.isFile && f.name.endsWith(".json") }
@@ -100,6 +100,6 @@ object WebSourceManager {
 
     private fun sitesDirOrNull(): File? {
         val ctx = appContext ?: return null
-        return File(ctx.filesDir, SITES_DIR).also { it.mkdirs() }
+        return StoragePaths.webDir(ctx)
     }
 }

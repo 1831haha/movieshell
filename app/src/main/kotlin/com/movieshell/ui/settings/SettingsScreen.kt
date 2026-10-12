@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandLess
@@ -31,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,7 +47,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.BackupManager
+import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.LogStore
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.ThemeStore
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -68,20 +74,20 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
     var cacheSize by remember { mutableStateOf("128 MB") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
 
-    // 备份/恢复 launcher：必须在 onClick 引用之前声明
-    val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json"),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    // v0.7.2：备份直接导出到 xiaying/backup/，不再弹系统文件选择器
+    fun exportBackup() {
         try {
-            context.contentResolver.openOutputStream(uri)?.use { out ->
-                out.write(BackupManager.exportJson(context).toByteArray(Charsets.UTF_8))
-            }
-            Toast.makeText(context, "备份已导出", Toast.LENGTH_SHORT).show()
+            val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val file = File(StoragePaths.backupDir(context), "movieshell_backup_$ts.json")
+            file.writeText(BackupManager.exportJson(context))
+            LogBus.i("Backup", "备份已导出：${file.absolutePath}")
+            Toast.makeText(context, "备份已导出：${file.absolutePath}", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
+            LogBus.e("Backup", "备份导出失败：${e.message}")
             Toast.makeText(context, "导出失败：${e.message}", Toast.LENGTH_LONG).show()
         }
     }
+    // 恢复仍需用户选文件，保留 picker
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri ->
@@ -155,11 +161,8 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
                         SettingsRow(
                             icon = Icons.Filled.Backup,
                             title = "备份到文件",
-                            subtitle = "导出订阅与规则配置为 JSON 文件",
-                            onClick = {
-                                val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                exportLauncher.launch("movieshell_backup_$ts.json")
-                            },
+                            subtitle = "导出到 /storage/emulated/0/xiaying/backup/",
+                            onClick = { exportBackup() },
                         )
                         SettingsRow(
                             icon = Icons.Filled.Restore,
@@ -169,6 +172,22 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
                         )
                     }
                 }
+            }
+            Spacer(Modifier.height(12.dp))
+            SettingsGroup(title = "调试") {
+                val logEnabled by LogStore.enabled.collectAsState()
+                SettingsRow(
+                    icon = Icons.Filled.BugReport,
+                    title = "运行日志悬浮窗",
+                    subtitle = if (logEnabled) "已开启：小泡可拖动，点开看日志" else "关闭",
+                    onClick = { LogStore.setEnabled(context, !logEnabled) },
+                    trailing = {
+                        Switch(
+                            checked = logEnabled,
+                            onCheckedChange = { LogStore.setEnabled(context, it) },
+                        )
+                    },
+                )
             }
             Spacer(Modifier.height(12.dp))
             SettingsGroup(title = "帮助") {

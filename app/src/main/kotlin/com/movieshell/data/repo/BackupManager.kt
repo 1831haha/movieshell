@@ -151,12 +151,12 @@ object BackupManager {
             PySourceManager.init(context)
             val rules = root["activeRules"]?.jsonObject
             rules?.stringOrNull("drpy")?.let { name ->
-                if (File(context.filesDir, "drpy/$name").isFile) {
+                if (File(StoragePaths.jsDir(context), name).isFile) {
                     DrpySourceManager.setActiveRule(name)
                 }
             }
             rules?.stringOrNull("py")?.let { name ->
-                if (File(context.filesDir, "py/$name").isFile) {
+                if (File(StoragePaths.pyDir(context), name).isFile) {
                     PySourceManager.setActiveRule(name)
                 }
             }

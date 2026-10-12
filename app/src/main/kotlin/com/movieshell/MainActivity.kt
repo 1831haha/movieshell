@@ -2,12 +2,20 @@ package com.movieshell
 
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -33,8 +41,11 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.ThemeStore
@@ -47,6 +58,7 @@ import com.movieshell.player.playerDestination
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.favorites.FavoritesScreen
 import com.movieshell.ui.home.HomeScreen
+import com.movieshell.ui.log.LogBubbleOverlay
 import com.movieshell.ui.manual.ManualScreen
 import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.SettingsScreen
@@ -69,13 +81,21 @@ private const val DETAIL_ROUTE = "detail/{vodId}"
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // v0.7.2：日志总线最先初始化（接住之后所有初始化的异常）
+        LogBus.init()
+        LogBus.i("App", "MovieShell 启动")
+        ThemeStore.init(this)
+        LogStore.init(this)
+        // v0.7.2：存储迁移必须在各 Manager init 之前（Manager 的目录现在走 StoragePaths）
+        if (!StoragePaths.migrateFromPrivate(this) && StoragePaths.hasAccess(this)) {
+            Toast.makeText(this, "文件迁移失败，旧文件保留在原处", Toast.LENGTH_LONG).show()
+        }
         PlayerManager.init(this)
         DrpySourceManager.init(this)
         PySourceManager.init(this)
         PhpSourceManager.init(this)
         WebSourceManager.init(this)
         SubSiteEngines.init(this)
-        ThemeStore.init(this)
         // v0.5.1 升级修复：订阅站源相对路径/丢失规则文件后台修复，不阻塞启动
         lifecycleScope.launch(Dispatchers.IO) {
             SubSiteStore.repairOnUpgrade(this@MainActivity)
@@ -88,6 +108,28 @@ class MainActivity : ComponentActivity() {
                 else -> isSystemInDarkTheme()
             }
             MovieShellTheme(darkTheme = darkTheme) {
+                // v0.7.2：存储权限引导（无权限时文件走私有回退目录，App 照常用）
+                var showPermDialog by remember { mutableStateOf(!StoragePaths.hasAccess(this@MainActivity)) }
+                if (showPermDialog) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            showPermDialog = false
+                            LogBus.w("StoragePaths", "用户跳过了存储权限申请")
+                        },
+                        title = { Text("需要存储权限") },
+                        text = { Text("规则、备份、日志要存到 /storage/emulated/0/xiaying/，请授予「所有文件访问权限」。跳过也能用，文件会存在应用私有目录。") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showPermDialog = false
+                                StoragePaths.requestAccess(this@MainActivity)
+                            }) { Text("去授权") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showPermDialog = false }) { Text("跳过") }
+                        },
+                    )
+                }
+                Box(Modifier.fillMaxSize()) {
                 val navController = rememberNavController()
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val current = backStackEntry?.destination
@@ -190,6 +232,9 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                }
+                // v0.7.2：运行日志悬浮窗（应用内悬浮）
+                LogBubbleOverlay()
                 }
             }
         }

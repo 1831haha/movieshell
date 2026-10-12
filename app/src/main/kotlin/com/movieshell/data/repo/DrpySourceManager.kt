@@ -14,8 +14,8 @@ import java.io.File
  * drpy 规则源管理器（单例，UI 组按此契约调用）。
  *
  * - init(context)：主线程，幂等；首次把 assets/drpy/ 下的规则（除垫片）
- *   拷贝到 filesDir/drpy/。
- * - listRules()：扫描 filesDir/drpy/ 下的 js 文件。
+ *   拷贝到 StoragePaths.jsDir()（/storage/emulated/0/xiaying/js/)。
+ * - listRules()：扫描 StoragePaths.jsDir()（/storage/emulated/0/xiaying/js/) 下的 js 文件。
  * - setActiveRule(name)：主线程；null=清空；切换时为该规则创建/复用
  *   WebViewDrpyEngine 并 loadRule。
  * - 无 active rule 时所有 suspend 函数返回空（不抛异常）。
@@ -35,7 +35,7 @@ object DrpySourceManager {
     private var engine: WebViewDrpyEngine? = null
     private var activeName: String? = null
 
-    /** init：主线程，幂等；首次把 assets/drpy/ 下规则拷贝到 filesDir/drpy/。 */
+    /** init：主线程，幂等；首次把 assets/drpy/ 下规则拷贝到 StoragePaths.jsDir()（/storage/emulated/0/xiaying/js/)。 */
     fun init(context: Context) {
         if (initialized) return
         initialized = true
@@ -60,7 +60,7 @@ object DrpySourceManager {
         }
     }
 
-    /** 扫描 filesDir/drpy/ 下的 js 文件。 */
+    /** 扫描 StoragePaths.jsDir()（/storage/emulated/0/xiaying/js/) 下的 js 文件。 */
     fun listRules(): List<RuleInfo> {
         val dir = rulesDirOrNull() ?: return emptyList()
         return dir.listFiles { f -> f.isFile && f.name.endsWith(".js") && f.name != SHIM_NAME }
@@ -160,11 +160,11 @@ object DrpySourceManager {
 
     // ---------------- 内部 ----------------
 
-    private fun rulesDir(): File = File(appContext!!.filesDir, RULES_DIR)
+    private fun rulesDir(): File = StoragePaths.jsDir(appContext!!)
 
     private fun rulesDirOrNull(): File? {
         val ctx = appContext ?: return null
-        return File(ctx.filesDir, RULES_DIR).also { it.mkdirs() }
+        return StoragePaths.jsDir(ctx)
     }
 
     /** 从规则源码里抠 title（@header 或 title: '...'），抠不到返回 null。 */

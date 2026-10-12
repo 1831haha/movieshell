@@ -7,6 +7,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.movieshell.data.model.ParseConfig
+import com.movieshell.data.repo.LogBus
 import com.movieshell.player.SniffPlayHeaders
 import com.movieshell.ui.web.isPlayableDirectUrl
 import kotlinx.coroutines.Dispatchers
@@ -58,16 +59,22 @@ class ParseApi(
         context: Context? = null,
     ): String {
         if (parses.isEmpty() || videoUrl.isBlank()) return ""
-        for (p in parses) {
+        LogBus.i(TAG, "开始解析：${parses.size} 条线路，url=$videoUrl")
+        for ((index, p) in parses.withIndex()) {
             val hit = runCatching {
                 when (p.type) {
                     1 -> parseType1(p, videoUrl)
                     0 -> if (context != null) sniffType0(context, p, videoUrl) else ""
                     else -> ""
                 }
-            }.getOrDefault("")
-            if (hit.isNotBlank()) return hit
+            }.onFailure { LogBus.w(TAG, "第 ${index + 1} 条线路失败：${it.message}") }
+                .getOrDefault("")
+            if (hit.isNotBlank()) {
+                LogBus.i(TAG, "第 ${index + 1} 条线路成功：${p.name}")
+                return hit
+            }
         }
+        LogBus.e(TAG, "全部 ${parses.size} 条线路解析失败")
         return ""
     }
 

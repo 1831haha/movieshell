@@ -14,8 +14,8 @@ import java.io.File
  * PY 规则源管理器（单例，UI 组按此契约调用）。
  *
  * - init(context)：主线程，幂等；首次把 assets/py/ 下的 .py 规则
- *   拷贝到 filesDir/py/。
- * - listRules()：扫描 filesDir/py/ 下的 py 文件。
+ *   拷贝到 StoragePaths.pyDir()（/storage/emulated/0/xiaying/py/)。
+ * - listRules()：扫描 StoragePaths.pyDir()（/storage/emulated/0/xiaying/py/) 下的 py 文件。
  * - setActiveRule(name)：主线程；null=清空；切换只换文件名，
  *   Python 解释器由 ChaquopyEngine 懒启动并全局复用。
  * - 无 active rule 时所有 suspend 函数返回空（不抛异常）。
@@ -33,7 +33,7 @@ object PySourceManager {
     private var activeName: String? = null
     private val api: PyApi by lazy { PyApi() }
 
-    /** init：主线程，幂等；首次把 assets/py/ 下规则拷贝到 filesDir/py/。 */
+    /** init：主线程，幂等；首次把 assets/py/ 下规则拷贝到 StoragePaths.pyDir()（/storage/emulated/0/xiaying/py/)。 */
     fun init(context: Context) {
         if (initialized) return
         initialized = true
@@ -59,7 +59,7 @@ object PySourceManager {
         }
     }
 
-    /** 扫描 filesDir/py/ 下的 py 文件。 */
+    /** 扫描 StoragePaths.pyDir()（/storage/emulated/0/xiaying/py/) 下的 py 文件。 */
     fun listRules(): List<RuleInfo> {
         val dir = rulesDirOrNull() ?: return emptyList()
         return dir.listFiles { f -> f.isFile && f.name.endsWith(".py") }
@@ -146,11 +146,11 @@ object PySourceManager {
 
     // ---------------- 内部 ----------------
 
-    private fun rulesDir(): File = File(appContext!!.filesDir, RULES_DIR)
+    private fun rulesDir(): File = StoragePaths.pyDir(appContext!!)
 
     private fun rulesDirOrNull(): File? {
         val ctx = appContext ?: return null
-        return File(ctx.filesDir, RULES_DIR).also { it.mkdirs() }
+        return StoragePaths.pyDir(ctx)
     }
 
     /** 从规则源码里抠类名/中文名（class XxxSpider / # 注释），抠不到返回 null。 */
