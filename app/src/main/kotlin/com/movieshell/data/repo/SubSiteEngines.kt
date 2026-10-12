@@ -3,6 +3,7 @@ package com.movieshell.data.repo
 import android.content.Context
 import android.util.Log
 import com.movieshell.data.model.CategoryType
+import com.movieshell.data.model.FilterGroup
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
@@ -78,7 +79,7 @@ private object EmptyDrpyEngine : DrpyEngine {
     override fun loadRule(js: String) {}
     override suspend fun home(): List<Vod> = emptyList()
     override suspend fun categories(): List<CategoryType> = emptyList()
-    override suspend fun category(tid: String, pg: Int): List<Vod> = emptyList()
+    override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod> = emptyList()
     override suspend fun detail(id: String): VodDetail = VodDetail(vodId = id)
     override suspend fun search(wd: String): List<Vod> = emptyList()
     override suspend fun play(flag: String, id: String): String = ""
@@ -103,8 +104,11 @@ private class PooledDrpyEngine(
     override suspend fun categories(): List<CategoryType> =
         SubDrpyPool.withEngine(siteKey, ruleFile) { it.categories() }
 
-    override suspend fun category(tid: String, pg: Int): List<Vod> =
-        SubDrpyPool.withEngine(siteKey, ruleFile) { it.category(tid, pg) }
+    override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod> =
+        SubDrpyPool.withEngine(siteKey, ruleFile) { it.category(tid, pg, filter) }
+
+    override suspend fun filters(tid: String): List<FilterGroup> =
+        SubDrpyPool.withEngine(siteKey, ruleFile) { it.filters(tid) }
 
     override suspend fun detail(id: String): VodDetail =
         SubDrpyPool.withEngine(siteKey, ruleFile) { it.detail(id) }
@@ -177,7 +181,7 @@ private class SubPyEngine(private val rulePath: String) : DrpyEngine {
     override suspend fun categories(): List<CategoryType> =
         runCatching { api.categories(rulePath) }.getOrNull().orEmpty()
 
-    override suspend fun category(tid: String, pg: Int): List<Vod> =
+    override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod> =
         runCatching { api.category(rulePath, tid, pg) }.getOrNull().orEmpty()
 
     override suspend fun detail(id: String): VodDetail =
