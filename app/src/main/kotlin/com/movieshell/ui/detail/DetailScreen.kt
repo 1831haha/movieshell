@@ -202,6 +202,24 @@ fun DetailScreen(
                             }
                             r.url
                         }
+                        // Java spider 站（v0.8.0）：playerContent 拿播放 JSON；header 经
+                        // SniffPlayHeaders 透传给播放器；parse=1 时走该订阅的 parses
+                        // 数组自动解析，全部失败 Toast "解析失败"。
+                        subSite.isJavaSpider() -> {
+                            val parses = SubSiteStore.findSite(context, subSite.key)
+                                ?.let { (subUrl, _) -> SubSiteStore.getParses(context, subUrl) }
+                                .orEmpty()
+                            val r = SiteRepository().spiderPlayWithParses(
+                                subSite, flag, ep.url, parses, context
+                            )
+                            if (r.parse == 1 && r.url.isBlank()) {
+                                Toast.makeText(context, "解析失败", Toast.LENGTH_LONG).show()
+                            }
+                            if (r.url.isNotBlank() && r.header.isNotEmpty()) {
+                                SniffPlayHeaders.put(r.url, r.header)
+                            }
+                            r.url
+                        }
                         else ->
                             SubSiteEngines.drpyEngineFor(subSite)?.play(flag, ep.url).orEmpty()
                     }

@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "0.7.2"
+        versionCode = 13
+        versionName = "0.8.0"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -89,6 +89,8 @@ dependencies {
     // 网络 / JSON
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    // Java spider 宿主：jar 里 SpiderApi.multiReq 签名引用 gson（dex 里无自带）
+    implementation("com.google.code.gson:gson:2.10.1")
 
     // 网页源嗅探：Service Worker 上下文拦截（androidx.webkit 1.5.0+ 引入 SW shouldInterceptRequest）
     implementation("androidx.webkit:webkit:1.10.0")

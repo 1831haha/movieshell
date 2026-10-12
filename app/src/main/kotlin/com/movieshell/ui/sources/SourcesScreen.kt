@@ -1208,7 +1208,7 @@ private fun SourceEntryRow(
     }
 }
 
-/** 类型徽标：CMS / drpy / PY / PHP / 不支持 */
+/** 类型徽标：CMS / drpy / PY / PHP / spider / 不支持 */
 @Composable
 private fun KindBadge(kind: String) {
     val (label, color) = when (kind) {
@@ -1216,6 +1216,7 @@ private fun KindBadge(kind: String) {
         SubSiteStore.KIND_DRPY -> "drpy" to MaterialTheme.colorScheme.tertiary
         SubSiteStore.KIND_PY -> "PY" to MaterialTheme.colorScheme.secondary
         SubSiteStore.KIND_TYPE4 -> "PHP" to MaterialTheme.colorScheme.tertiary
+        SubSiteStore.KIND_SPIDER -> "spider" to MaterialTheme.colorScheme.secondary
         else -> "不支持" to MaterialTheme.colorScheme.error
     }
     Surface(

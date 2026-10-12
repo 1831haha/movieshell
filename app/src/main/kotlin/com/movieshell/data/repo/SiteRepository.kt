@@ -38,8 +38,8 @@ data class SiteSearchResult(val site: Site, val vods: List<Vod>)
  * 职责：
  *  1. loadFromConfig() 解析 TVBox 订阅 JSON，沉淀可用站源列表；
  *  2. 按 site 把 home/category/detail/search 分发："php:" 走 PhpSourceManager（本地 PHP 规则，
- *     手机端无 PHP 解释器，明确不支持，返回空）、csp_ 开头的 Java spider 站（需 tvkj.jar，
- *     明确不支持，返回空）、type=0/1 走 CmsApi、type=4 走 Type4Api（api 是 PHP 脚本的
+ *     手机端无 PHP 解释器，明确不支持，返回空）、csp_ 开头的 Java spider 站走 SpiderEngine
+ *     （v0.8.0：按订阅下载 jar，DexClassLoader 动态加载执行）、type=0/1 走 CmsApi、type=4 走 Type4Api（api 是 PHP 脚本的
  *     HTTP 地址，壳子只发 HTTP 解析 JSON）、PY 站（type=3 且 api 以 .py 结尾）走 PY 引擎、
  *     drpy 站（api 以 .js 结尾）走 drpy 引擎；小说/漫画站（扩展字段"类型"）跳过 home/search；
  *     订阅展开的子站点（key 前缀 "sub:"）走 SubSiteEngines 的按站引擎；
@@ -85,11 +85,11 @@ class SiteRepository(
     /** 按 key 取站源，找不到返回 null。 */
     fun findSite(key: String): Site? = sites.find { it.key == key }
 
-    /** 首页推荐/最新：PHP / csp_ Java spider / 小说漫画站明确不支持，返回空。 */
+    /** 首页推荐/最新：PHP / 小说漫画站明确不支持，返回空；csp_ 站走 SpiderEngine。 */
     suspend fun home(site: Site): List<Vod> {
         LogBus.i(TAG, "home site=${site.name}")
         val r = if (site.isPhpSite()) emptyList() // PHP 需 PHP 解释器，手机端暂不支持执行
-        else if (site.isJavaSpider()) emptyList() // csp_ Java spider：需 tvkj.jar，无运行环境
+        else if (site.isJavaSpider()) logged("spider.home ${site.name}") { SpiderEngine.home(site) }.orEmpty()
         else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
         else if (site.isType4Site()) logged("type4.home ${site.name}") { type4Api.home(site) }.orEmpty()
         else if (site.isCmsSite()) logged("cms.home ${site.name}") { cmsApi.home(site) }.orEmpty()
@@ -112,7 +112,8 @@ class SiteRepository(
     ): Pair<List<CategoryType>, List<Vod>> {
         LogBus.i(TAG, "category site=${site.name} tid=$tid pg=$pg")
         val r = if (site.isPhpSite()) emptyList<CategoryType>() to emptyList() // PHP 暂不支持执行
-        else if (site.isJavaSpider()) emptyList<CategoryType>() to emptyList()
+        else if (site.isJavaSpider()) logged("spider.category ${site.name}") { SpiderEngine.category(site, tid, pg) }
+            .orEmptyCategory()
         else if (site.isType4Site()) logged("type4.category ${site.name}") { type4Api.category(site, tid, pg) }
             .orEmptyCategory()
         else if (site.isCmsSite()) logged("cms.category ${site.name}") { cmsApi.category(site, tid, pg) }
@@ -140,7 +141,8 @@ class SiteRepository(
     suspend fun detail(site: Site, vodId: String): VodDetail {
         LogBus.i(TAG, "detail site=${site.name} id=$vodId")
         val r = if (site.isPhpSite()) VodDetail(vodId = vodId) // PHP 暂不支持执行
-        else if (site.isJavaSpider()) VodDetail(vodId = vodId)
+        else if (site.isJavaSpider()) logged("spider.detail ${site.name}") { SpiderEngine.detail(site, vodId) }
+            ?: VodDetail(vodId = vodId)
         else if (site.isType4Site()) logged("type4.detail ${site.name}") { type4Api.detail(site, vodId) }
             ?: VodDetail(vodId = vodId)
         else if (site.isCmsSite()) logged("cms.detail ${site.name}") { cmsApi.detail(site, vodId) }
@@ -158,7 +160,7 @@ class SiteRepository(
         if (!site.searchable || wd.isBlank()) return emptyList()
         LogBus.i(TAG, "search site=${site.name} wd=$wd")
         val r = if (site.isPhpSite()) emptyList() // PHP 暂不支持执行
-        else if (site.isJavaSpider()) emptyList()
+        else if (site.isJavaSpider()) logged("spider.search ${site.name}") { SpiderEngine.search(site, wd) }.orEmpty()
         else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
         else if (site.isType4Site()) logged("type4.search ${site.name}") { type4Api.search(site, wd) }.orEmpty()
         else if (site.isCmsSite()) logged("cms.search ${site.name}") { cmsApi.search(site, wd) }.orEmpty()
@@ -238,6 +240,32 @@ class SiteRepository(
         val direct = ParseApi().parse(parses, r.url, context)
         if (direct.isBlank()) r.copy(url = "") else r.copy(url = direct)
     }.getOrDefault(Type4PlayResult())
+
+    /**
+     * spider 播放：playerContent(flag, id) 拿播放 JSON {parse,url,header}。
+     * 任何失败返回空结果，不抛异常。
+     */
+    suspend fun spiderPlay(site: Site, flag: String, id: String): SpiderPlayResult =
+        runCatching { SpiderEngine.play(site, flag, id) }.getOrDefault(SpiderPlayResult())
+
+    /**
+     * spider 的 parse=1 分流（v0.8.0）：playerContent 返回 parse=1 时，用该订阅的
+     * parses 数组走 ParseApi 按顺序自动解析拿直链；全部失败返回空结果
+     * （调用方 UI 层 Toast "解析失败"）。parse=0 时行为与 [spiderPlay] 一致。
+     * header 由调用方（DetailScreen）经 SniffPlayHeaders.put 透传给播放器。不抛异常。
+     */
+    suspend fun spiderPlayWithParses(
+        site: Site,
+        flag: String,
+        id: String,
+        parses: List<ParseConfig>,
+        context: Context,
+    ): SpiderPlayResult = runCatching {
+        val r = SpiderEngine.play(site, flag, id)
+        if (r.parse != 1 || r.url.isBlank() || parses.isEmpty()) return@runCatching r
+        val direct = ParseApi().parse(parses, r.url, context)
+        if (direct.isBlank()) r.copy(url = "") else r.copy(url = direct)
+    }.getOrDefault(SpiderPlayResult())
 
     /**
      * 订阅子站点优先用其专属引擎（SubSiteEngines 按 key 前缀 "sub:" 识别），

@@ -169,6 +169,7 @@ private val MANUAL_SECTIONS = listOf(
             "v0.7.0 已实现：parses 解析链路（parse=1 自动走订阅解析线路，type1 JSON 取直链/type0 WebView 嗅探，失败自动换下一条）、Service Worker 嗅探补齐（SW 上下文的 .m3u8/.mp4 也能抓到）、drpy 分类筛选生效（filter_url 模板渲染，cheerio 类规则仍不支持）。",
             "v0.7.1 已实现：首页搜索框上方站源切换入口（点开 BottomSheet 选源即切）、主题切换真生效（浅色配色+跟随系统）、备份/恢复并为可展开入口。",
             "v0.7.2 已实现：文件全迁到 /storage/emulated/0/xiaying/ 公开目录（见「文件存放路径」）、运行日志悬浮窗（见「运行日志」一节）。",
+            "v0.8.0 已实现：Java spider（csp_ 站）运行时——按订阅自动下载 spider jar（缓存在 xiaying/jar/），DexClassLoader 动态加载执行，首页/分类/搜索/详情/播放全链路可用（见「Java spider（csp_ 站）」一节）。",
             "下一步（规划中）：订阅云同步、播放器投屏。",
             "每个版本都会发安装包实测，版本号在设置页「关于」里看。",
         ),
@@ -198,12 +199,12 @@ private val MANUAL_SECTIONS = listOf(
         ),
     ),
     ManualSection(
-        title = "为什么 csp_ Java spider 源播不了",
+        title = "Java spider（csp_ 站）",
         points = listOf(
-            "csp_ 开头（如 csp_Douban）的站，规则不是 JS/PY 文件，而是一个跑在订阅自带 tvkj.jar 里的 Java 类（Java spider）。",
-            "TVBox 系壳子播它，靠的是把 jar 动态加载进自己进程再反射调用 spider 类——壳子得专门写一套 DexClassLoader 加载机制，还要跟着 jar 的版本修兼容。",
-            "MovieShell 现在没有这套 Java spider 运行时，所以这类站点统一标「不支持」，点它会如实告诉你原因，不会进引擎瞎试浪费时间。",
-            "想看的站如果是 csp_ 的，可以去找找同名的 drpy（.js）/ PY（.py）/ CMS 版本，功能一般是一样的。",
+            "csp_ 开头（如 csp_Mp4Mov）的站，规则不是 JS/PY 文件，而是一个跑在订阅自带 jar 包里的 Java 类（Java spider），v0.8.0 起 MovieShell 原生支持。",
+            "原理：添加订阅时自动记下配置里的 spider 字段（如 ./tvkj.jar）；第一次用某个 csp_ 站时自动下载 jar 到 /storage/emulated/0/xiaying/jar/，用 DexClassLoader 动态加载执行。",
+            "站源页这类站点打「spider」徽标，可直接设为当前源，首页、分类、搜索、详情、播放全流程可用；单个站加载失败会如实 Toast，不影响其他站。",
+            "jar 按订阅缓存，多站共用一份，不重复下载；云盘类 spider（如夸克/UC/迅雷盘）部分功能依赖其账号体系，能否播以实际为准。",
         ),
     ),
     ManualSection(

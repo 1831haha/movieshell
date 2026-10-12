@@ -627,6 +627,7 @@ private fun SourceKindBadge(kind: String) {
         SubSiteStore.KIND_DRPY -> "drpy" to MaterialTheme.colorScheme.tertiary
         SubSiteStore.KIND_PY -> "PY" to MaterialTheme.colorScheme.secondary
         SubSiteStore.KIND_TYPE4 -> "PHP" to MaterialTheme.colorScheme.tertiary
+        SubSiteStore.KIND_SPIDER -> "spider" to MaterialTheme.colorScheme.secondary
         else -> "不支持" to MaterialTheme.colorScheme.error
     }
     Surface(

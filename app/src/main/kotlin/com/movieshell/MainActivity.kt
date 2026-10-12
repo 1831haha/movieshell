@@ -45,6 +45,7 @@ import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.SpiderEngine
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteStore
@@ -96,9 +97,12 @@ class MainActivity : ComponentActivity() {
         PhpSourceManager.init(this)
         WebSourceManager.init(this)
         SubSiteEngines.init(this)
+        SpiderEngine.init(this)
         // v0.5.1 升级修复：订阅站源相对路径/丢失规则文件后台修复，不阻塞启动
         lifecycleScope.launch(Dispatchers.IO) {
             SubSiteStore.repairOnUpgrade(this@MainActivity)
+            // v0.8.0 升级修复：老缓存里 csp_ 站标的 KIND_UNSUPPORTED 转 KIND_SPIDER
+            SubSiteStore.repairSpiderKind(this@MainActivity)
         }
         setContent {
             val themeMode by ThemeStore.mode.collectAsState()

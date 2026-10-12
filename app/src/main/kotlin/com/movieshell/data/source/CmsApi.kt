@@ -175,11 +175,11 @@ class CmsApi(
     private fun parseDetail(site: Site, text: String, vodId: String): VodDetail =
         if (site.type == 1) parseDetailJson(text, vodId) else parseDetailXml(text, vodId)
 
-    private fun parseListJson(text: String): List<Vod> = runCatching {
+    internal fun parseListJson(text: String): List<Vod> = runCatching {
         jsonLenient.parseToJsonElement(text).jsonObject.listArray().map { it.jsonObject.toVod() }
     }.getOrDefault(emptyList())
 
-    private fun parseClassJson(text: String): List<CategoryType> = runCatching {
+    internal fun parseClassJson(text: String): List<CategoryType> = runCatching {
         val root = jsonLenient.parseToJsonElement(text).jsonObject
         (root["class"] as? JsonArray).orEmpty().map {
             val o = it.jsonObject
@@ -190,7 +190,7 @@ class CmsApi(
         }.filter { it.typeId.isNotBlank() }
     }.getOrDefault(emptyList())
 
-    private fun parseDetailJson(text: String, vodId: String): VodDetail = runCatching {
+    internal fun parseDetailJson(text: String, vodId: String): VodDetail = runCatching {
         val first = jsonLenient.parseToJsonElement(text).jsonObject.listArray().firstOrNull()
             ?.jsonObject ?: return VodDetail(vodId = vodId)
         first.toVodDetail()

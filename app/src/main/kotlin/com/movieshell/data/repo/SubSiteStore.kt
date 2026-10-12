@@ -71,6 +71,8 @@ data class SubCache(
     val sites: List<SubSiteRecord> = emptyList(),
     /** 订阅顶层 parses 数组（解析线路），随订阅持久化，type=4 的 parse=1 播放走它解析 */
     val parses: List<ParseConfig> = emptyList(),
+    /** 订阅顶层 spider 字段解析出的 jar 绝对地址（csp_ 站的 Java spider 运行环境） */
+    val spiderJar: String = "",
 )
 
 @Serializable
@@ -92,11 +94,76 @@ object SubSiteStore {
     const val KIND_PY = "py"
     /** type=4 PHP 站：api 是 PHP 脚本的 HTTP 地址，无需下载，直接请求 */
     const val KIND_TYPE4 = "type4"
+    /** Java spider 站（api 以 csp_ 开头）：v0.8.0 起由 SpiderEngine 动态加载 jar 执行 */
+    const val KIND_SPIDER = "spider"
     const val KIND_UNSUPPORTED = "unsupported"
 
     const val REASON_JAVA_SPIDER =
-        "Java spider 源（api 以 csp_ 开头）：需要订阅自带的 tvkj.jar 里的 Java 类才能跑，" +
-            "手机端没有 Java spider 运行环境，暂不支持。可以找找同名的 drpy / PY / CMS 源代替。"
+        "Java spider 源（api 以 csp_ 开头）：加载订阅的 spider jar 失败，" +
+            "请检查网络后重试，或刷新一次该订阅。"
+
+    // ---------------- v0.8.0：spider jar 地址 ----------------
+
+    /** 取订阅缓存里存的 spider jar 绝对地址（无则空串）。 */
+    fun getSpiderJar(context: Context, subUrl: String): String =
+        getCached(context, subUrl)?.spiderJar.orEmpty()
+
+    /**
+     * 补取 spider jar 地址：v0.8.0 之前添加的订阅缓存里没有 spiderJar 字段，
+     * 轻量拉一次配置 JSON 只取顶层 spider 字段（不重下规则文件），写回缓存。
+     * 必须在 IO 线程调用。
+     */
+    fun ensureSpiderJar(context: Context, subUrl: String): String {
+        val cached = getSpiderJar(context, subUrl)
+        if (cached.isNotBlank()) return cached
+        return runCatching {
+            val config = TvBoxConfigParser.parseConfig(downloadText(subUrl.trim()))
+            val resolved = JarSpiderStore.resolveJarUrl(subUrl.trim(), config.spider)
+            if (resolved.isNotBlank()) {
+                val all = loadAll(context).toMutableMap()
+                all[subUrl.trim()]?.let { cache ->
+                    all[subUrl.trim()] = cache.copy(spiderJar = resolved)
+                    saveAll(context, all)
+                }
+            }
+            resolved
+        }.onFailure { LogBus.e(TAG, "补取 spider 字段失败 $subUrl：${it.message}") }
+            .getOrDefault("")
+    }
+
+    // ---------------- v0.8.0 升级修复 ----------------
+
+    private const val KEY_REPAIRED_080 = "repaired_080"
+
+    /**
+     * v0.8.0 之前 csp_ 站被标成 KIND_UNSUPPORTED，转成 KIND_SPIDER
+     * （jar 改为首次使用时懒下载）。只执行一次。
+     */
+    suspend fun repairSpiderKind(context: Context) = withContext(Dispatchers.IO) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_REPAIRED_080, false)) return@withContext
+        try {
+            val all = loadAll(context)
+            var changed = false
+            val repaired = all.mapValues { (_, cache) ->
+                val sites = cache.sites.map { rec ->
+                    if (rec.kind == KIND_UNSUPPORTED &&
+                        rec.api.trim().startsWith("csp_", ignoreCase = true)
+                    ) {
+                        changed = true
+                        rec.copy(kind = KIND_SPIDER, reason = "")
+                    } else rec
+                }
+                cache.copy(sites = sites)
+            }
+            if (changed) saveAll(context, repaired)
+            Log.i(TAG, "v0.8.0 spider 站修复完成，changed=$changed")
+        } catch (e: Exception) {
+            Log.w(TAG, "spider 站修复异常", e)
+        } finally {
+            prefs.edit().putBoolean(KEY_REPAIRED_080, true).apply()
+        }
+    }
 
     const val REASON_NOVEL_COMIC =
         "小说/漫画类站点：MovieShell 只做视频点播，该类型暂不支持。"
@@ -120,6 +187,8 @@ object SubSiteStore {
         searchable = rec.searchable,
         quickSearch = false,
         typeLabel = rec.typeLabel,
+        ext = rec.ext,
+        subUrl = subUrl,
     )
 
     /** 按 "sub:<id>:<key>" 反查 (subUrl, record)，找不到返回 null。 */
@@ -226,10 +295,13 @@ object SubSiteStore {
                     fetchedAt = System.currentTimeMillis(),
                     sites = sites,
                     parses = config.parses,
+                    spiderJar = JarSpiderStore.resolveJarUrl(subUrl.trim(), config.spider),
                 )
                 val all = loadAll(context).toMutableMap()
                 all[cache.subUrl] = cache
                 saveAll(context, all)
+                // v0.8.0：订阅刷新后 spider jar 可能已更新，清掉旧缓存下次重下
+                SpiderEngine.evict(context, cache.subUrl)
                 cache
             }.onFailure { LogBus.e(TAG, "订阅刷新失败 $subUrl：${it.message}") }
                 .onSuccess { LogBus.i(TAG, "订阅刷新成功：${it.sites.size} 个站已展开") }
@@ -256,9 +328,9 @@ object SubSiteStore {
         if (isNovelOrComic) {
             return base.copy(kind = KIND_UNSUPPORTED, api = api, ext = ext, reason = REASON_NOVEL_COMIC)
         }
-        // csp_ 开头：Java spider，直接标不支持（放最前，避免被 .js/.py 误判）
+        // csp_ 开头：Java spider（v0.8.0 起由 SpiderEngine 动态加载 jar 执行，放最前，避免被 .js/.py 误判）
         if (api.startsWith("csp_", ignoreCase = true)) {
-            return base.copy(kind = KIND_UNSUPPORTED, api = api, ext = ext, reason = REASON_JAVA_SPIDER)
+            return base.copy(kind = KIND_SPIDER, api = api, ext = ext)
         }
         if (sc.type == 0 || sc.type == 1) {
             return base.copy(kind = KIND_CMS, api = api, ext = ext)

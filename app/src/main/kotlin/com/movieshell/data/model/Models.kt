@@ -64,7 +64,10 @@ data class Site(
     val searchable: Boolean = true,
     val quickSearch: Boolean = false,
     /** 扩展字段"类型"（如 "小说"/"漫画"），从 SiteConfig.typeLabel 规整化而来 */
-    val typeLabel: String = ""
+    val typeLabel: String = "",
+    /** spider 站的 ext 参数（传给 Spider.init 的 extend）；订阅站源的订阅 URL（定位 jar 包用） */
+    val ext: String = "",
+    val subUrl: String = ""
 )
 
 fun SiteConfig.toSite(): Site = Site(
@@ -74,7 +77,8 @@ fun SiteConfig.toSite(): Site = Site(
     api = api.trim(),
     searchable = searchable != 0,
     quickSearch = quickSearch != 0,
-    typeLabel = typeLabel.trim()
+    typeLabel = typeLabel.trim(),
+    ext = ext.trim()
 )
 
 /**
@@ -141,8 +145,8 @@ data class CategoryType(
 fun Site.isPhpSite(): Boolean = key.startsWith("php:", ignoreCase = true)
 
 /**
- * csp_ 开头的 Java spider 站：规则是跑在订阅自带 tvkj.jar 里的 Java 类，
- * 壳子没有 Java spider 运行时，不进任何引擎（home/category/detail/search/play 全部返回空）。
+ * csp_ 开头的 Java spider 站：规则是跑在订阅自带 jar 里的 Java 类，
+ * v0.8.0 起由 SpiderEngine 经 DexClassLoader 动态加载执行。
  */
 fun Site.isJavaSpider(): Boolean = api.trim().startsWith("csp_", ignoreCase = true)
 
