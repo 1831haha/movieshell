@@ -261,7 +261,7 @@ private fun importPluginFile(context: Context, uri: Uri): String {
         val targetDir = when {
             fileName.endsWith(".py", ignoreCase = true) -> StoragePaths.pyDir(context)
             fileName.endsWith(".js", ignoreCase = true) -> StoragePaths.jsDir(context)
-            fileName.endsWith(".jar", ignoreCase = true) -> StoragePaths.spiderDir(context)
+            fileName.endsWith(".jar", ignoreCase = true) -> StoragePaths.jarDir(context)
             else -> return "不支持的文件类型（仅 .py/.js/.jar）"
         }
         targetDir.mkdirs()
