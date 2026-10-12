@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 36
-        versionName = "0.14.5"
+        versionCode = 37
+        versionName = "0.14.6"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -64,12 +64,18 @@ chaquopy {
         // 构建机 Python：CI 里用 actions/setup-python 装 3.10，PATH 里有 python3.10
         buildPython("python3.10")
         pip {
-            // v0.14.4：PY 规则常用依赖（用户实测缺 Crypto/bs4/pyquery 导致规则全挂）
+            // v0.14.5：PY 规则全量常用依赖（一次配全，避免 ModuleNotFoundError）
             install("requests")
             install("beautifulsoup4")
             install("pyquery")
             install("pycryptodome")
             install("lxml")
+            install("Pillow")
+            install("PyExecJS")
+            install("urllib3")
+            install("chardet")
+            install("idna")
+            install("certifi")
         }
     }
 }
