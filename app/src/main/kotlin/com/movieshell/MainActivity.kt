@@ -61,6 +61,7 @@ import com.movieshell.ui.favorites.FavoritesScreen
 import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.log.LogBubbleOverlay
 import com.movieshell.ui.manual.ManualScreen
+import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.sources.SourcesScreen
@@ -181,6 +182,11 @@ class MainActivity : ComponentActivity() {
                                         "web_sniff/${Uri.encode(siteName)}/${Uri.encode(siteUrl)}"
                                     )
                                 },
+                                onPreview = { kind, fileName ->
+                                    navController.navigate(
+                                        "preview/$kind/${Uri.encode(fileName)}"
+                                    )
+                                },
                             )
                         }
                         composable("settings") {
@@ -195,6 +201,22 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("manual") {
                             ManualScreen(onBack = { navController.popBackStack() })
+                        }
+                        // v0.9.0：文件预览器（站源页长按菜单 → 文件预览）
+                        composable(
+                            route = "preview/{kind}/{fileName}",
+                            arguments = listOf(
+                                navArgument("kind") { type = NavType.StringType },
+                                navArgument("fileName") { type = NavType.StringType },
+                            ),
+                        ) { entry ->
+                            FilePreviewScreen(
+                                kind = entry.arguments?.getString("kind").orEmpty(),
+                                fileName = Uri.decode(
+                                    entry.arguments?.getString("fileName").orEmpty(),
+                                ),
+                                onBack = { navController.popBackStack() },
+                            )
                         }
                         composable(
                             route = DETAIL_ROUTE,

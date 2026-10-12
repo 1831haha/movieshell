@@ -28,5 +28,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- v0.9.0：文件预览/编辑/分享用 FileProvider 对外暴露 xiaying/ 下的文件 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.movieshell.debug.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
     </application>
 </manifest>

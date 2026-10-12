@@ -7,7 +7,9 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,19 +22,26 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -44,9 +53,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -77,7 +89,13 @@ import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubCache
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.WebSourceManager
+import com.movieshell.ui.preview.openFileWithEditor
+import com.movieshell.ui.preview.previewKindDir
+import com.movieshell.ui.preview.shareFile
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 /** 站源条目：开关状态用 mutableStateOf 包裹，保证 Switch 切换即时刷新 */
@@ -187,22 +205,77 @@ private fun listLocalFolderEntries(
         .map { f -> SourceEntry(f.name, "$desc · ${f.length() / 1024} KB", enabled = f.name == activeName) }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ---------- v0.9.0：文件网格 tab（JS / PY / PHP / 网页源） ----------
+
+/** 置顶顺序存 prefs "sources_pin"，每个 tab 一个 key，值是文件名按顺序 \n 拼接 */
+private const val PIN_PREFS = "sources_pin"
+private const val TAB_JS = "js"
+private const val TAB_PY = "py"
+private const val TAB_PHP = "php"
+private const val TAB_WEB = "web"
+
+private fun loadPins(context: Context, tab: String): MutableList<String> {
+    val raw = context.getSharedPreferences(PIN_PREFS, Context.MODE_PRIVATE)
+        .getString(tab, "").orEmpty()
+    return raw.split('\n').filter { it.isNotBlank() }.toMutableList()
+}
+
+private fun savePins(context: Context, tab: String, pins: List<String>) {
+    context.getSharedPreferences(PIN_PREFS, Context.MODE_PRIVATE)
+        .edit().putString(tab, pins.joinToString("\n")).apply()
+}
+
+/** 网格文件条目（各 tab 统一模型） */
+private data class GridFileItem(
+    val kind: String,       // js / py / php / web
+    val fileName: String,   // 文件名（定位文件用）
+    val displayName: String, // 展示名（规则 title / 站点名）
+    val detail: String,     // 副标题（大小 / url）
+    val isActive: Boolean,
+    val isPinned: Boolean,
+)
+
+/** 置顶优先（按置顶顺序），其余按展示名排序 */
+private fun sortWithPins(items: List<GridFileItem>, pins: List<String>): List<GridFileItem> {
+    val order = pins.withIndex().associate { it.value to it.index }
+    return items.sortedWith(
+        compareBy({ order[it.fileName] ?: Int.MAX_VALUE }, { it.displayName.lowercase() }),
+    )
+}
+
+private fun formatSize(bytes: Long): String = when {
+    bytes >= 1024 * 1024 -> "%.1f MB".format(bytes / 1024f / 1024f)
+    bytes >= 1024 -> "%.1f KB".format(bytes / 1024f)
+    else -> "$bytes B"
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SourcesScreen(
     onWebSniff: (name: String, url: String) -> Unit = { _, _ -> },
+    onPreview: (kind: String, fileName: String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
-    // drpy 规则：从 DrpySourceManager 读真实数据（xiaying/js/*.js）
+    var selectedTab by remember { mutableStateOf(0) }
+    val tabs = remember {
+        listOf(
+            "接口站源" to Icons.Filled.Language,
+            "JS" to Icons.Filled.Code,
+            "PY" to Icons.Filled.Terminal,
+            "PHP" to Icons.Filled.Extension,
+            "网页源" to Icons.Filled.Public,
+        )
+    }
+
+    // 各 tab 的真实数据
     val drpyRules = remember { mutableStateListOf<DrpySourceManager.RuleInfo>() }
-    var activeRuleName by remember { mutableStateOf<String?>(null) }
-    // PY 规则：从 PySourceManager 读真实数据（xiaying/py/*.py）
     val pyRules = remember { mutableStateListOf<PySourceManager.RuleInfo>() }
-    var activePyRuleName by remember { mutableStateOf<String?>(null) }
-    // 网页站源：从 WebSourceManager 读真实数据（xiaying/web/*.json）
+    val phpEntries = remember { mutableStateListOf<SourceEntry>() }
     val webSites = remember { mutableStateListOf<WebSourceManager.WebSite>() }
-    var activeWebSiteName by remember { mutableStateOf<String?>(null) }
+    // 各 tab 置顶列表
+    val pins = remember { mutableStateMapOf<String, MutableList<String>>() }
 
     val apiGroup = remember {
         SourceGroup(
@@ -222,7 +295,6 @@ fun SourcesScreen(
     }
 
     // ---- v0.5.1 订阅站点展开 ----
-    val scope = rememberCoroutineScope()
     /** subUrl -> 展开缓存 */
     val subCaches = remember { mutableStateMapOf<String, SubCache>() }
     /** subUrl -> 是否正在解析 */
@@ -285,101 +357,170 @@ fun SourcesScreen(
             }
         }
     }
-    val tailGroups = remember {
-        mutableStateListOf(
-            SourceGroup(
-                id = "php", name = "PHP文件夹", icon = Icons.Filled.Extension,
-                entries = mutableStateListOf(),
-            ),
-        )
-    }
 
-    /** 刷新 PHP 分组：从 xiaying/php 扫描真实文件，激活中的条目高亮 */
-    fun refreshLocalFolder(groupId: String) {
-        val group = tailGroups.firstOrNull { it.id == groupId } ?: return
-        val (dirName, desc) = when (groupId) {
-            "php" -> "php" to "PHP 规则"
-            else -> return
-        }
-        val activeName = when (groupId) {
-            "php" -> PhpSourceManager.activeRuleName()
-            else -> null
-        }
-        group.entries.clear()
-        group.entries.addAll(listLocalFolderEntries(context, dirName, desc, activeName))
-    }
-
+    // ---------- 各 tab 刷新 ----------
     fun refreshDrpyRules() {
         drpyRules.clear()
         drpyRules.addAll(DrpySourceManager.listRules())
-        activeRuleName = DrpySourceManager.activeRuleName()
     }
 
     fun refreshPyRules() {
         pyRules.clear()
         pyRules.addAll(PySourceManager.listRules())
-        activePyRuleName = PySourceManager.activeRuleName()
     }
 
-    fun selectDrpyRule(name: String) {
-        DrpySourceManager.setActiveRule(name)
-        activeRuleName = name
-    }
-
-    fun selectPyRule(name: String) {
-        PySourceManager.setActiveRule(name)
-        activePyRuleName = name
-    }
-
-    /** PHP 规则选中：仅做选中标记（手机端无 PHP 解释器，不可执行），如实 Toast。 */
-    fun selectPhpRule(name: String) {
-        PhpSourceManager.setActiveRule(name)
-        refreshLocalFolder("php")
-        Toast.makeText(
-            context,
-            "已选中 $name：${PhpSourceManager.UNSUPPORTED_REASON}",
-            Toast.LENGTH_LONG
-        ).show()
+    fun refreshPhpEntries() {
+        phpEntries.clear()
+        phpEntries.addAll(
+            listLocalFolderEntries(context, "php", "PHP 规则", PhpSourceManager.activeRuleName()),
+        )
     }
 
     fun refreshWebSites() {
         webSites.clear()
         webSites.addAll(WebSourceManager.listSites())
-        activeWebSiteName = WebSourceManager.activeSiteName()
     }
 
-    fun removeWebSite(fileName: String) {
-        WebSourceManager.deleteSite(fileName)
-        webSites.removeAll { it.fileName == fileName }
-        if (activeWebSiteName == fileName) activeWebSiteName = null
+    fun refreshTab(tab: String) {
+        when (tab) {
+            TAB_JS -> refreshDrpyRules()
+            TAB_PY -> refreshPyRules()
+            TAB_PHP -> refreshPhpEntries()
+            TAB_WEB -> refreshWebSites()
+        }
+    }
+
+    // ---------- 激活逻辑：照抄 HomeScreen 切源 BottomSheet ----------
+    fun activateDrpy(name: String) {
+        SubSiteStore.clearCurrent(context)
+        PySourceManager.setActiveRule(null)
+        DrpySourceManager.setActiveRule(name)
+        refreshDrpyRules()
+        Toast.makeText(context, "已切换为 $name", Toast.LENGTH_SHORT).show()
+    }
+
+    fun activatePy(name: String) {
+        SubSiteStore.clearCurrent(context)
+        DrpySourceManager.setActiveRule(null)
+        PySourceManager.setActiveRule(name)
+        refreshPyRules()
+        Toast.makeText(context, "已切换为 $name", Toast.LENGTH_SHORT).show()
+    }
+
+    /** PHP 规则选中：仅做选中标记（手机端无 PHP 解释器，不可执行），如实 Toast。 */
+    fun selectPhpRule(name: String) {
+        PhpSourceManager.setActiveRule(name)
+        refreshPhpEntries()
+        Toast.makeText(
+            context,
+            "已选中 $name：${PhpSourceManager.UNSUPPORTED_REASON}",
+            Toast.LENGTH_LONG,
+        ).show()
+    }
+
+    fun activateWeb(site: WebSourceManager.WebSite) {
+        WebSourceManager.setActiveSite(site.fileName)
+        refreshWebSites()
+        Toast.makeText(context, "已切换为 ${site.name}", Toast.LENGTH_SHORT).show()
     }
 
     fun openWebSniff(site: WebSourceManager.WebSite) {
         WebSourceManager.setActiveSite(site.fileName)
-        activeWebSiteName = site.fileName
+        refreshWebSites()
         onWebSniff(site.name, site.url)
     }
 
-    LaunchedEffect(Unit) {
-        drpyRules.clear()
-        drpyRules.addAll(DrpySourceManager.listRules())
-        activeRuleName = DrpySourceManager.activeRuleName()
-        pyRules.clear()
-        pyRules.addAll(PySourceManager.listRules())
-        activePyRuleName = PySourceManager.activeRuleName()
-        refreshLocalFolder("php")
-        refreshWebSites()
-        // v0.5.1：读订阅展开缓存 + 点播页当前源
-        apiGroup.entries.forEach { e ->
-            SubSiteStore.getCached(context, e.detail)?.let { subCaches[e.detail] = it }
+    // ---------- 网格条目组装（含激活态/置顶排序） ----------
+    fun tabItems(tab: String): List<GridFileItem> {
+        val tabPins = pins[tab].orEmpty()
+        val subActive = SubSiteStore.getCurrent(context) != null
+        val raw: List<GridFileItem> = when (tab) {
+            TAB_JS -> {
+                val active = if (subActive) null else DrpySourceManager.activeRuleName()
+                drpyRules.map {
+                    GridFileItem(
+                        TAB_JS, it.name, it.title.ifBlank { it.name },
+                        "drpy 规则 · ${it.sizeKb} KB", it.name == active, false,
+                    )
+                }
+            }
+            TAB_PY -> {
+                val active = if (subActive) null else PySourceManager.activeRuleName()
+                pyRules.map {
+                    GridFileItem(
+                        TAB_PY, it.name, it.title.ifBlank { it.name },
+                        "hipy 规则 · ${it.sizeKb} KB", it.name == active, false,
+                    )
+                }
+            }
+            TAB_PHP -> phpEntries.map {
+                GridFileItem(TAB_PHP, it.name, it.name, it.detail, it.enabled, false)
+            }
+            TAB_WEB -> {
+                val active = WebSourceManager.activeSiteName()
+                webSites.map {
+                    GridFileItem(TAB_WEB, it.fileName, it.name, it.url, it.fileName == active, false)
+                }
+            }
+            else -> emptyList()
         }
-        currentSubSiteKey = SubSiteStore.currentSiteKey(context)
+        return sortWithPins(raw, tabPins).map { it.copy(isPinned = tabPins.contains(it.fileName)) }
     }
 
-    // 文件导入：一个 launcher + 待处理目标；选错后缀 Toast 提示
+    // ---------- 删除 ----------
+    fun deleteItem(item: GridFileItem) {
+        when (item.kind) {
+            TAB_JS -> {
+                deleteDrpyRuleFile(context, item.fileName)
+                if (DrpySourceManager.activeRuleName() == item.fileName) {
+                    DrpySourceManager.setActiveRule(null)
+                }
+            }
+            TAB_PY -> {
+                deletePyRuleFile(context, item.fileName)
+                if (PySourceManager.activeRuleName() == item.fileName) {
+                    PySourceManager.setActiveRule(null)
+                }
+            }
+            TAB_PHP -> {
+                File(StoragePaths.phpDir(context), item.fileName).delete()
+                if (PhpSourceManager.activeRuleName() == item.fileName) {
+                    PhpSourceManager.setActiveRule(null)
+                }
+            }
+            TAB_WEB -> WebSourceManager.deleteSite(item.fileName)
+        }
+        // 置顶记录同步清理
+        pins[item.kind]?.let {
+            it.remove(item.fileName)
+            savePins(context, item.kind, it)
+        }
+        refreshTab(item.kind)
+        Toast.makeText(context, "已删除 ${item.fileName}", Toast.LENGTH_SHORT).show()
+    }
+
+    // ---------- 置顶 ----------
+    fun togglePin(item: GridFileItem) {
+        val tabPins = pins.getOrPut(item.kind) { mutableListOf() }
+        if (tabPins.contains(item.fileName)) {
+            tabPins.remove(item.fileName)
+            Toast.makeText(context, "已取消置顶", Toast.LENGTH_SHORT).show()
+        } else {
+            tabPins.add(item.fileName)
+            Toast.makeText(context, "已置顶到首", Toast.LENGTH_SHORT).show()
+        }
+        savePins(context, item.kind, tabPins)
+    }
+
+    // ---------- 长按菜单 / 信息 / 删除确认 ----------
+    var menuItem by remember { mutableStateOf<GridFileItem?>(null) }
+    var infoItem by remember { mutableStateOf<GridFileItem?>(null) }
+    var deleteItemState by remember { mutableStateOf<GridFileItem?>(null) }
+
+    // ---------- 文件导入 ----------
     var pendingImport by remember { mutableStateOf<ImportTarget?>(null) }
     val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
+        ActivityResultContracts.GetContent(),
     ) { uri ->
         val target = pendingImport
         pendingImport = null
@@ -390,31 +531,31 @@ fun SourcesScreen(
                     "drpy" -> {
                         refreshDrpyRules()
                         if (DrpySourceManager.activeRuleName() == null) {
-                            selectDrpyRule(r.fileName)
+                            activateDrpy(r.fileName)
                         }
                         Toast.makeText(context, "已导入 ${r.fileName}", Toast.LENGTH_SHORT).show()
                     }
                     "py" -> {
                         refreshPyRules()
                         if (PySourceManager.activeRuleName() == null) {
-                            selectPyRule(r.fileName)
+                            activatePy(r.fileName)
                         }
                         Toast.makeText(context, "已导入 ${r.fileName}", Toast.LENGTH_SHORT).show()
                     }
                     "php" -> {
-                        refreshLocalFolder("php")
+                        refreshPhpEntries()
                         Toast.makeText(
                             context,
                             "已保存到PHP文件夹，${PhpSourceManager.UNSUPPORTED_REASON}",
-                            Toast.LENGTH_LONG
+                            Toast.LENGTH_LONG,
                         ).show()
                     }
                     else -> {
-                        refreshLocalFolder(target.dirName)
+                        refreshTab(target.dirName)
                         Toast.makeText(
                             context,
                             "已保存到${target.label}，该类型执行引擎开发中",
-                            Toast.LENGTH_LONG
+                            Toast.LENGTH_LONG,
                         ).show()
                     }
                 }
@@ -423,7 +564,7 @@ fun SourcesScreen(
                 Toast.makeText(
                     context,
                     "请选择 ${target.extensions.joinToString(" / ")} 文件",
-                    Toast.LENGTH_LONG
+                    Toast.LENGTH_LONG,
                 ).show()
             is ImportResult.Failed ->
                 Toast.makeText(context, "导入失败：${r.reason}", Toast.LENGTH_LONG).show()
@@ -435,17 +576,17 @@ fun SourcesScreen(
         importLauncher.launch("*/*")
     }
 
-    fun removeLocalFolderEntry(groupId: String, entry: SourceEntry) {
-        val dirName = when (groupId) {
-            "php" -> "php"
-            else -> return
+    LaunchedEffect(Unit) {
+        refreshDrpyRules()
+        refreshPyRules()
+        refreshPhpEntries()
+        refreshWebSites()
+        listOf(TAB_JS, TAB_PY, TAB_PHP, TAB_WEB).forEach { pins[it] = loadPins(context, it) }
+        // v0.5.1：读订阅展开缓存 + 点播页当前源
+        apiGroup.entries.forEach { e ->
+            SubSiteStore.getCached(context, e.detail)?.let { subCaches[e.detail] = it }
         }
-        runCatching { File(targetDir(context, dirName), entry.name).delete() }
-        // 删的是当前激活的规则 -> 清空激活，避免悬空引用
-        if (groupId == "php" && PhpSourceManager.activeRuleName() == entry.name) {
-            PhpSourceManager.setActiveRule(null)
-        }
-        tailGroups.firstOrNull { it.id == groupId }?.entries?.remove(entry)
+        currentSubSiteKey = SubSiteStore.currentSiteKey(context)
     }
 
     var showAddDialog by remember { mutableStateOf(false) }
@@ -495,107 +636,212 @@ fun SourcesScreen(
         parseSubscription(url)
     }
 
-    fun removeDrpyRule(name: String) {
-        deleteDrpyRuleFile(context, name)
-        drpyRules.removeAll { it.name == name }
-        if (activeRuleName == name) {
-            // 删掉的是当前规则 -> 清空激活状态
-            DrpySourceManager.setActiveRule(null)
-            activeRuleName = null
-        }
-    }
-
-    fun removePyRule(name: String) {
-        deletePyRuleFile(context, name)
-        pyRules.removeAll { it.name == name }
-        if (activePyRuleName == name) {
-            // 删掉的是当前规则 -> 清空激活状态
-            PySourceManager.setActiveRule(null)
-            activePyRuleName = null
-        }
-    }
-
     Column(modifier = Modifier.fillMaxSize()) {
-        // 顶部"添加订阅"按钮
-        Button(
-            onClick = { showAddDialog = true },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            shape = RoundedCornerShape(12.dp),
+        // v0.9.0：顶部横滑 Tab——数据来源切换
+        ScrollableTabRow(
+            selectedTabIndex = selectedTab,
+            edgePadding = 8.dp,
         ) {
-            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("添加订阅")
+            tabs.forEachIndexed { index, (label, icon) ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = { Text(label) },
+                    icon = { Icon(icon, contentDescription = null) },
+                )
+            }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                SubscriptionCard(
-                    group = apiGroup,
-                    caches = subCaches,
-                    parsing = subParsing,
-                    expandedMap = subExpanded,
-                    currentSiteKey = currentSubSiteKey,
-                    onRemove = ::removeSubscription,
-                    onToggle = ::toggleSubscription,
-                    onParse = ::parseSubscription,
-                    onSetCurrent = ::setCurrentSubSite,
-                )
-            }
-            // JS 分组：真实 drpy 规则数据
-            item {
-                DrpyGroupCard(
-                    rules = drpyRules,
-                    activeRuleName = activeRuleName,
-                    onSelect = ::selectDrpyRule,
-                    onRemove = ::removeDrpyRule,
-                    onImport = { requestImport(IMPORT_DPRY) },
-                )
-            }
-            // PY 分组：真实 PY 规则数据
-            item {
-                PyGroupCard(
-                    rules = pyRules,
-                    activeRuleName = activePyRuleName,
-                    onSelect = ::selectPyRule,
-                    onRemove = ::removePyRule,
-                    onImport = { requestImport(IMPORT_PY) },
-                )
-            }
-            // 网页站源分组：点击条目进入 WebView 嗅探
-            item {
-                WebGroupCard(
-                    sites = webSites,
-                    activeSiteName = activeWebSiteName,
-                    onSelect = ::openWebSniff,
-                    onRemove = ::removeWebSite,
-                    onAdd = { showWebAddDialog = true },
-                )
-            }
-            items(tailGroups, key = { it.id }) { group ->
-                val importTarget = when (group.id) {
-                    "php" -> IMPORT_PHP
-                    else -> null
+        when (selectedTab) {
+            0 -> {
+                // 接口站源 tab：订阅卡片原样保留
+                Button(
+                    onClick = { showAddDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("添加订阅")
                 }
-                // PHP 条目点击即选中当前规则
-                val onSelect: ((SourceEntry) -> Unit)? = when (group.id) {
-                    "php" -> { entry -> selectPhpRule(entry.name) }
-                    else -> null
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item {
+                        SubscriptionCard(
+                            group = apiGroup,
+                            caches = subCaches,
+                            parsing = subParsing,
+                            expandedMap = subExpanded,
+                            currentSiteKey = currentSubSiteKey,
+                            onRemove = ::removeSubscription,
+                            onToggle = ::toggleSubscription,
+                            onParse = ::parseSubscription,
+                            onSetCurrent = ::setCurrentSubSite,
+                        )
+                    }
+                    item { Spacer(Modifier.height(8.dp)) }
                 }
-                GroupCard(
-                    group = group,
-                    onRemove = { entry -> removeLocalFolderEntry(group.id, entry) },
-                    onImport = importTarget?.let { t -> { requestImport(t) } },
-                    onSelect = onSelect,
+            }
+            else -> {
+                val tab = when (selectedTab) {
+                    1 -> TAB_JS
+                    2 -> TAB_PY
+                    3 -> TAB_PHP
+                    else -> TAB_WEB
+                }
+                val badgeLabel = when (tab) {
+                    TAB_JS -> "JS"
+                    TAB_PY -> "PY"
+                    TAB_PHP -> "PHP"
+                    else -> "网页"
+                }
+                val onItemClick: (GridFileItem) -> Unit = { item ->
+                    when (item.kind) {
+                        TAB_JS -> activateDrpy(item.fileName)
+                        TAB_PY -> activatePy(item.fileName)
+                        TAB_PHP -> selectPhpRule(item.fileName)
+                        TAB_WEB -> webSites.firstOrNull { it.fileName == item.fileName }
+                            ?.let(::activateWeb)
+                    }
+                }
+                // tab 顶部：文件数 + 导入/添加
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "共 ${tabItems(tab).size} 个文件 · 单击激活，长按更多操作",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (tab == TAB_WEB) {
+                        TextButton(onClick = { showWebAddDialog = true }) { Text("添加") }
+                    } else {
+                        val target = when (tab) {
+                            TAB_JS -> IMPORT_DPRY
+                            TAB_PY -> IMPORT_PY
+                            else -> IMPORT_PHP
+                        }
+                        TextButton(onClick = { requestImport(target) }) { Text("导入") }
+                    }
+                }
+                FileGrid(
+                    items = tabItems(tab),
+                    badgeLabel = badgeLabel,
+                    onClick = onItemClick,
+                    onLongClick = { menuItem = it },
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
-            item { Spacer(Modifier.height(8.dp)) }
         }
+    }
+
+    // ---- 长按操作菜单（ModalBottomSheet） ----
+    menuItem?.let { item ->
+        ModalBottomSheet(onDismissRequest = { menuItem = null }) {
+            Column(modifier = Modifier.padding(bottom = 24.dp)) {
+                Text(
+                    text = item.fileName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                val file = File(previewKindDir(context, item.kind), item.fileName)
+                MenuRow(Icons.Filled.Visibility, "文件预览") {
+                    menuItem = null
+                    onPreview(item.kind, item.fileName)
+                }
+                MenuRow(Icons.Filled.Edit, "文件编辑") {
+                    menuItem = null
+                    if (!openFileWithEditor(context, file)) {
+                        Toast.makeText(context, "没有可用的文本编辑器", Toast.LENGTH_LONG).show()
+                    }
+                }
+                MenuRow(Icons.Filled.Share, "分享文件") {
+                    menuItem = null
+                    if (!shareFile(context, file)) {
+                        Toast.makeText(context, "分享失败", Toast.LENGTH_LONG).show()
+                    }
+                }
+                MenuRow(Icons.Filled.Info, "文件信息") {
+                    menuItem = null
+                    infoItem = item
+                }
+                if (item.kind == TAB_WEB) {
+                    // 网页源额外入口：打开嗅探浏览器（原单击行为）
+                    MenuRow(Icons.Filled.Public, "打开嗅探浏览器") {
+                        menuItem = null
+                        webSites.firstOrNull { it.fileName == item.fileName }
+                            ?.let(::openWebSniff)
+                    }
+                }
+                MenuRow(
+                    Icons.Filled.PushPin,
+                    if (item.isPinned) "取消置顶" else "置顶到首",
+                ) {
+                    menuItem = null
+                    togglePin(item)
+                }
+                MenuRow(Icons.Filled.Delete, "删除文件", destructive = true) {
+                    menuItem = null
+                    deleteItemState = item
+                }
+            }
+        }
+    }
+
+    // ---- 文件信息 ----
+    infoItem?.let { item ->
+        val file = File(previewKindDir(context, item.kind), item.fileName)
+        val modified = remember(item) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                .format(Date(file.lastModified()))
+        }
+        AlertDialog(
+            onDismissRequest = { infoItem = null },
+            title = { Text("文件信息") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("文件名：${item.fileName}")
+                    Text("大小：${formatSize(file.length())}")
+                    Text("修改时间：$modified")
+                    Text("路径：${file.absolutePath}")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { infoItem = null }) { Text("关闭") }
+            },
+        )
+    }
+
+    // ---- 删除二次确认 ----
+    deleteItemState?.let { item ->
+        AlertDialog(
+            onDismissRequest = { deleteItemState = null },
+            title = { Text("删除文件") },
+            text = { Text("确定删除 ${item.fileName} 吗？此操作不可恢复。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteItemState = null
+                        deleteItem(item)
+                    },
+                ) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteItemState = null }) { Text("取消") }
+            },
+        )
     }
 
     if (showAddDialog) {
@@ -639,7 +885,7 @@ fun SourcesScreen(
             text = {
                 Column {
                     Text(
-                        text = "输入网站名称和地址，点击条目即在内置浏览器中打开并嗅探直链",
+                        text = "输入网站名称和地址，长按条目菜单可打开嗅探浏览器",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -677,534 +923,156 @@ fun SourcesScreen(
     }
 }
 
-/** drpy 规则分组卡：数据来自 DrpySourceManager.listRules() */
+/** 双列文件网格：单击激活，长按出操作菜单 */
 @Composable
-private fun DrpyGroupCard(
-    rules: SnapshotStateList<DrpySourceManager.RuleInfo>,
-    activeRuleName: String?,
-    onSelect: (String) -> Unit,
-    onRemove: (String) -> Unit,
-    onImport: () -> Unit,
+private fun FileGrid(
+    items: List<GridFileItem>,
+    badgeLabel: String,
+    onClick: (GridFileItem) -> Unit,
+    onLongClick: (GridFileItem) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    var expanded by remember { mutableStateOf(true) }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Code,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = "JS文件夹",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                BadgedBox(badge = { Badge { Text(rules.size.toString()) } }) {
-                    Spacer(Modifier.size(4.dp))
-                }
-                TextButton(onClick = onImport) { Text("导入") }
-                IconButton(
-                    onClick = { expanded = !expanded },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = if (expanded) "收起" else "展开",
-                    )
-                }
-            }
-
-            AnimatedVisibility(visible = expanded) {
-                Column {
-                    if (rules.isEmpty()) {
-                        Text(
-                            text = "该分组暂无文件",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        )
-                    } else {
-                        rules.forEach { rule ->
-                            DrpyRuleRow(
-                                rule = rule,
-                                isActive = rule.name == activeRuleName,
-                                onSelect = { onSelect(rule.name) },
-                                onRemove = { onRemove(rule.name) },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** drpy 规则行：点击设为当前规则；删除后若是当前规则则清空激活状态 */
-@Composable
-private fun DrpyRuleRow(
-    rule: DrpySourceManager.RuleInfo,
-    isActive: Boolean,
-    onSelect: () -> Unit,
-    onRemove: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onSelect)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = rule.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (isActive) {
-                    Spacer(Modifier.width(8.dp))
-                    Badge(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ) { Text("当前") }
-                }
-            }
-            Text(
-                text = "drpy 规则 · ${rule.sizeKb} KB",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-            Icon(
-                imageVector = Icons.Filled.Delete,
-                contentDescription = "删除",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
-}
-
-/** PY 规则分组卡：数据来自 PySourceManager.listRules() */
-@Composable
-private fun PyGroupCard(
-    rules: SnapshotStateList<PySourceManager.RuleInfo>,
-    activeRuleName: String?,
-    onSelect: (String) -> Unit,
-    onRemove: (String) -> Unit,
-    onImport: () -> Unit,
-) {
-    var expanded by remember { mutableStateOf(true) }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Terminal,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = "PY文件夹",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                BadgedBox(badge = { Badge { Text(rules.size.toString()) } }) {
-                    Spacer(Modifier.size(4.dp))
-                }
-                TextButton(onClick = onImport) { Text("导入") }
-                IconButton(
-                    onClick = { expanded = !expanded },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = if (expanded) "收起" else "展开",
-                    )
-                }
-            }
-
-            AnimatedVisibility(visible = expanded) {
-                Column {
-                    if (rules.isEmpty()) {
-                        Text(
-                            text = "该分组暂无文件",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        )
-                    } else {
-                        rules.forEach { rule ->
-                            PyRuleRow(
-                                rule = rule,
-                                isActive = rule.name == activeRuleName,
-                                onSelect = { onSelect(rule.name) },
-                                onRemove = { onRemove(rule.name) },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** PY 规则行：点击设为当前规则；删除后若是当前规则则清空激活状态 */
-@Composable
-private fun PyRuleRow(
-    rule: PySourceManager.RuleInfo,
-    isActive: Boolean,
-    onSelect: () -> Unit,
-    onRemove: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onSelect)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = rule.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (isActive) {
-                    Spacer(Modifier.width(8.dp))
-                    Badge(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ) { Text("当前") }
-                }
-            }
-            Text(
-                text = "hipy 规则 · ${rule.sizeKb} KB",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-            Icon(
-                imageVector = Icons.Filled.Delete,
-                contentDescription = "删除",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
-}
-
-/** 网页站源分组卡：数据来自 WebSourceManager.listSites() */
-@Composable
-private fun WebGroupCard(
-    sites: SnapshotStateList<WebSourceManager.WebSite>,
-    activeSiteName: String?,
-    onSelect: (WebSourceManager.WebSite) -> Unit,
-    onRemove: (String) -> Unit,
-    onAdd: () -> Unit,
-) {
-    var expanded by remember { mutableStateOf(true) }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Public,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = "网页站源",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                BadgedBox(badge = { Badge { Text(sites.size.toString()) } }) {
-                    Spacer(Modifier.size(4.dp))
-                }
-                TextButton(onClick = onAdd) { Text("添加") }
-                IconButton(
-                    onClick = { expanded = !expanded },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = if (expanded) "收起" else "展开",
-                    )
-                }
-            }
-
-            AnimatedVisibility(visible = expanded) {
-                Column {
-                    if (sites.isEmpty()) {
-                        Text(
-                            text = "点击右上角「添加」录入网页站源，点击条目进入嗅探",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        )
-                    } else {
-                        sites.forEach { site ->
-                            WebSiteRow(
-                                site = site,
-                                isActive = site.fileName == activeSiteName,
-                                onSelect = { onSelect(site) },
-                                onRemove = { onRemove(site.fileName) },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** 网页站源行：点击进入 WebView 嗅探；删除后若是当前站点则清空激活状态 */
-@Composable
-private fun WebSiteRow(
-    site: WebSourceManager.WebSite,
-    isActive: Boolean,
-    onSelect: () -> Unit,
-    onRemove: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onSelect)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = site.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (isActive) {
-                    Spacer(Modifier.width(8.dp))
-                    Badge(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ) { Text("上次打开") }
-                }
-            }
-            Text(
-                text = site.url,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-            Icon(
-                imageVector = Icons.Filled.Delete,
-                contentDescription = "删除",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun GroupCard(
-    group: SourceGroup,
-    onRemove: (SourceEntry) -> Unit,
-    onImport: (() -> Unit)? = null,
-    onToggle: (() -> Unit)? = null,
-    /** 非空时条目可点击选中（PHP 分组用）；此时隐藏 Switch，改显示激活对勾 */
-    onSelect: ((SourceEntry) -> Unit)? = null,
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            // 分组头：图标 + 名称 + 文件数徽标 + 展开/收起
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = group.icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = group.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                BadgedBox(badge = { Badge { Text(group.entries.size.toString()) } }) {
-                    Spacer(Modifier.size(4.dp))
-                }
-                if (onImport != null) {
-                    TextButton(onClick = onImport) { Text("导入") }
-                } else {
-                    Spacer(Modifier.width(12.dp))
-                }
-                IconButton(
-                    onClick = { group.expanded = !group.expanded },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        imageVector = if (group.expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = if (group.expanded) "收起" else "展开",
-                    )
-                }
-            }
-
-            AnimatedVisibility(visible = group.expanded) {
-                Column {
-                    if (group.entries.isEmpty()) {
-                        Text(
-                            text = "该分组暂无文件",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        )
-                    } else {
-                        group.entries.forEach { entry ->
-                            SourceEntryRow(
-                                entry = entry,
-                                onRemove = { onRemove(entry) },
-                                onToggle = onToggle,
-                                onSelect = onSelect?.let { sel -> { sel(entry) } },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SourceEntryRow(
-    entry: SourceEntry,
-    onRemove: () -> Unit,
-    onToggle: (() -> Unit)? = null,
-    /** 非空时整行文本区可点击选中（PHP 分组用）；此时隐藏 Switch，改用对勾显示激活态 */
-    onSelect: (() -> Unit)? = null,
-) {
-    // 选中模式下 entry.enabled 表示"当前激活"，普通模式下它是 Switch 开关态
-    val isActive = onSelect != null && entry.enabled
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    if (items.isEmpty()) {
         Column(
-            modifier = if (onSelect != null) Modifier
-                .weight(1f)
-                .clickable(onClick = onSelect)
-            else Modifier.weight(1f)
+            modifier = modifier.padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
             Text(
-                text = entry.name,
+                text = "该分组暂无文件",
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-                color = if (isActive) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(Modifier.height(8.dp))
             Text(
-                text = entry.detail,
+                text = "点右上角「导入/添加」，或把文件拷到手机 xiaying 目录对应文件夹",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        items(items, key = { it.kind + "/" + it.fileName }) { item ->
+            FileCard(
+                item = item,
+                badgeLabel = badgeLabel,
+                onClick = { onClick(item) },
+                onLongClick = { onLongClick(item) },
+            )
+        }
+    }
+}
+
+/** 网格卡片：类型徽标 + 文件名 + 激活打勾 */
+@Composable
+private fun FileCard(
+    item: GridFileItem,
+    badgeLabel: String,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (item.isActive) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        ),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                ) {
+                    Text(
+                        text = badgeLabel,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+                if (item.isPinned) {
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Filled.PushPin,
+                        contentDescription = "已置顶",
+                        tint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                if (item.isActive) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "当前使用",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = item.displayName,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (item.isActive) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.height(40.dp),
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = item.detail,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-            Icon(
-                imageVector = Icons.Filled.Delete,
-                contentDescription = "删除",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-        if (onSelect != null) {
-            // 选中模式：激活的条目显示对勾，占位保持行高对齐
-            if (isActive) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
-                    contentDescription = "当前使用",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp),
-                )
-            } else {
-                Spacer(Modifier.size(24.dp))
-            }
-        } else {
-            Switch(
-                checked = entry.enabled,
-                onCheckedChange = {
-                    entry.enabled = it
-                    onToggle?.invoke()
-                },
-            )
-        }
+    }
+}
+
+/** 长按菜单行 */
+@Composable
+private fun MenuRow(
+    icon: ImageVector,
+    label: String,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (destructive) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.width(16.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (destructive) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
