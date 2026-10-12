@@ -3,6 +3,7 @@ package com.movieshell.player
 import android.app.Activity
 import android.content.Context
 import android.media.AudioManager
+import com.movieshell.data.repo.PlayerSettings
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -27,7 +28,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -150,7 +153,11 @@ fun PlayerScreen(
                 PlayerManager.init(context)
                 // 网页嗅探命中的直链自带 Referer/UA（SniffPlayHeaders 一次性取出）；
                 // 其他来源没有记录则为空 map，行为与之前一致。
-                PlayerManager.play(url, headers = SniffPlayHeaders.take(url), startPositionMs = resumeAt)
+                // v0.14.0：片头跳过（非续播时从 skipIntroSec 开始）
+                val skipIntro = PlayerSettings.skipIntroSec.value
+                val startPos = if (resumeAt > 0) resumeAt
+                else if (skipIntro > 0) skipIntro * 1000L else 0L
+                PlayerManager.play(url, headers = SniffPlayHeaders.take(url), startPositionMs = startPos)
                 true
             }
             showServiceMissingDialog = !started
@@ -169,6 +176,27 @@ fun PlayerScreen(
         errorMsg?.let {
             snackbarHostState.showSnackbar(it)
             errorMsg = null
+        }
+    }
+
+    // v0.14.0：片尾跳过——距离结尾 skipOutroSec 时自动下一集（无下一集则暂停）
+    LaunchedEffect(url) {
+        val skipOutro = PlayerSettings.skipOutroSec.value
+        if (skipOutro > 0) {
+            while (true) {
+                delay(1000)
+                val p = PlayerManager.player ?: break
+                val dur = p.duration
+                if (dur > 0 && p.currentPosition >= dur - skipOutro * 1000L) {
+                    val idx = episodes.indexOf(currentEpisode)
+                    if (idx >= 0 && idx + 1 < episodes.size) {
+                        onEpisodeClick(episodes[idx + 1])
+                    } else {
+                        p.pause()
+                    }
+                    break
+                }
+            }
         }
     }
 
@@ -311,6 +339,21 @@ fun PlayerScreen(
                 }
             ) {
                 Text("${SPEEDS[speedIndex]}x", color = Color.White)
+            }
+            // v0.14.0：快退/快进 ±10 秒
+            IconButton(onClick = {
+                PlayerManager.player?.let {
+                    it.seekTo((it.currentPosition - 10_000).coerceAtLeast(0))
+                }
+            }) {
+                Icon(Icons.Filled.Replay10, contentDescription = "快退10秒", tint = Color.White)
+            }
+            IconButton(onClick = {
+                PlayerManager.player?.let {
+                    it.seekTo(it.currentPosition + 10_000)
+                }
+            }) {
+                Icon(Icons.Filled.Forward10, contentDescription = "快进10秒", tint = Color.White)
             }
             TextButton(
                 onClick = {

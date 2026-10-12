@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -61,6 +62,7 @@ import com.movieshell.data.repo.BackupManager
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.StoragePaths
+import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.ThemeStore
 import java.io.File
 import java.text.SimpleDateFormat
@@ -142,6 +144,19 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
                     title = "默认播放器",
                     subtitle = player,
                     onClick = { showPlayerDialog = true },
+                )
+                // v0.14.0：片头片尾跳过
+                SkipTimeRow(
+                    title = "跳过片头",
+                    subtitle = "从正片开始处跳过 N 秒",
+                    value = PlayerSettings.skipIntroSec.collectAsState().value,
+                    onChange = { PlayerSettings.setSkipIntro(context, it) },
+                )
+                SkipTimeRow(
+                    title = "跳过片尾",
+                    subtitle = "距离结尾 N 秒时自动下一集",
+                    value = PlayerSettings.skipOutroSec.collectAsState().value,
+                    onChange = { PlayerSettings.setSkipOutro(context, it) },
                 )
             }
             Spacer(Modifier.height(12.dp))
@@ -397,5 +412,59 @@ private fun ThemeColorPickerRow() {
                 }
             }
         }
+    }
+}
+
+/**
+ * v0.14.0：跳过时间设置行。点击弹出数字选择（0-600秒）。
+ */
+@Composable
+private fun SkipTimeRow(
+    title: String,
+    subtitle: String,
+    value: Int,
+    onChange: (Int) -> Unit,
+) {
+    var showDialog by remember { mutableStateOf(false) }
+    SettingsRow(
+        icon = Icons.Filled.Timer,
+        title = title,
+        subtitle = if (value > 0) "$subtitle（当前 ${value} 秒）" else subtitle,
+        onClick = { showDialog = true },
+    )
+    if (showDialog) {
+        val options = listOf(0, 30, 60, 90, 120, 180, 300)
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text(title) },
+            text = {
+                Column {
+                    options.forEach { sec ->
+                        ListItem(
+                            headlineContent = {
+                                Text(if (sec == 0) "不跳过" else "${sec} 秒")
+                            },
+                            trailingContent = {
+                                RadioButton(
+                                    selected = sec == value,
+                                    onClick = {
+                                        onChange(sec)
+                                        showDialog = false
+                                    },
+                                )
+                            },
+                            modifier = Modifier.clickable {
+                                onChange(sec)
+                                showDialog = false
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) { Text("取消") }
+            },
+        )
     }
 }

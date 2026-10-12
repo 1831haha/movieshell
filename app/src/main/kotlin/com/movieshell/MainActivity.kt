@@ -50,6 +50,7 @@ import com.movieshell.data.repo.SpiderEngine
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteStore
+import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.ThemeStore
 import com.movieshell.data.repo.WebSourceManager
 import kotlinx.coroutines.Dispatchers
@@ -89,6 +90,7 @@ class MainActivity : ComponentActivity() {
         LogBus.i("App", "MovieShell 启动")
         ThemeStore.init(this)
         LogStore.init(this)
+        PlayerSettings.init(this)
         // v0.7.2：存储迁移必须在各 Manager init 之前（Manager 的目录现在走 StoragePaths）
         if (!StoragePaths.migrateFromPrivate(this) && StoragePaths.hasAccess(this)) {
             Toast.makeText(this, "文件迁移失败，旧文件保留在原处", Toast.LENGTH_LONG).show()
