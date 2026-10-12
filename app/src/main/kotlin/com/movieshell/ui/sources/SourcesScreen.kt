@@ -68,7 +68,6 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -256,7 +255,6 @@ fun SourcesScreen(
     onPreview: (kind: String, fileName: String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = remember {
@@ -307,7 +305,9 @@ fun SourcesScreen(
     /** 解析订阅：下载 TVBox JSON，展开站点并落盘 */
     fun parseSubscription(subUrl: String) {
         if (subParsing[subUrl] == true) return
-        scope.launch {
+        // v0.9.0：用进程级 scope，用户切走页面刷新也要跑完
+        //（composable scope 会在组合离开时取消，报 scope left the composition）
+        SubSiteStore.appScope.launch {
             subParsing[subUrl] = true
             SubSiteStore.refresh(context, subUrl)
                 .onSuccess { cache ->

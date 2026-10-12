@@ -78,6 +78,7 @@ import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod as ModelVod
 import com.movieshell.data.model.isCmsSite
+import com.movieshell.data.model.isJavaSpider
 import com.movieshell.data.model.isPySite
 import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.ApiSourceStore
@@ -152,6 +153,8 @@ fun HomeScreen(
         val s = subSite
         if (s != null) {
             if (s.isCmsSite()) return runCatching { subRepo.category(s, "", 1).first }
+                .getOrDefault(emptyList())
+            if (s.isJavaSpider()) return runCatching { subRepo.category(s, "", 1).first }
                 .getOrDefault(emptyList())
             if (s.isPySite()) return runCatching { SubSiteEngines.pyEngineFor(s)?.categories() }
                 .getOrNull().orEmpty()

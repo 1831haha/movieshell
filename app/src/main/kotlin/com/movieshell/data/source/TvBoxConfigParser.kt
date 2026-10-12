@@ -54,7 +54,9 @@ object TvBoxConfigParser {
         ext = this["ext"].asStringOrNull().orEmpty(),
         jar = this["jar"].asStringOrNull().orEmpty(),
         // 扩展字段"类型"：小说/漫画站用它标识（勿用 categories），规整化到 Site.typeLabel
-        typeLabel = this["类型"].asStringOrNull().orEmpty()
+        typeLabel = this["类型"].asStringOrNull().orEmpty(),
+        // 内部字段：聚合搜索拼装配置时写入，spider 站定位 jar 用
+        subUrl = this["subUrl"].asStringOrNull().orEmpty()
     )
 
     private fun JsonObject.toParseConfig(): ParseConfig {

@@ -32,7 +32,9 @@ data class SiteConfig(
     val ext: String = "",
     val jar: String = "",
     /** 扩展字段"类型"：如 "小说"/"漫画"（type=4 站用它标识非视频站） */
-    val typeLabel: String = ""
+    val typeLabel: String = "",
+    /** 内部字段：聚合搜索拼装的配置 JSON 里带的订阅 URL（spider 站定位 jar 用） */
+    val subUrl: String = ""
 )
 
 /**
@@ -78,7 +80,8 @@ fun SiteConfig.toSite(): Site = Site(
     searchable = searchable != 0,
     quickSearch = quickSearch != 0,
     typeLabel = typeLabel.trim(),
-    ext = ext.trim()
+    ext = ext.trim(),
+    subUrl = subUrl
 )
 
 /**

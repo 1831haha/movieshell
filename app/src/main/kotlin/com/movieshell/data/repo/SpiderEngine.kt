@@ -63,6 +63,26 @@ object SpiderEngine {
 
     private fun instanceKey(site: Site): String = "${site.subUrl}|${site.api.trim()}"
 
+    /** 私有 jar 目标文件（纯函数，可单测；会建目录）。 */
+    fun privateJarTarget(filesDir: File, jarName: String): File =
+        File(File(filesDir, "spider").apply { mkdirs() }, jarName)
+
+    /**
+     * v0.9.0 修：Android 拒绝从 world-writable 目录（xiaying/jar/ 对所有应用可写）
+     * 加载 dex（"Writable dex file ... is not allowed"），加载前 copy 到私有目录。
+     * 幂等：目标存在且大小一致则跳过；失败记日志返回 null。
+     */
+    fun privateJarFile(filesDir: File, src: File): File? {
+        return runCatching {
+            val dst = privateJarTarget(filesDir, src.name)
+            val len = src.length()
+            if (len > 0 && dst.isFile && dst.length() == len) return dst
+            src.inputStream().use { input -> dst.outputStream().use { input.copyTo(it) } }
+            dst
+        }.onFailure { LogBus.e(TAG, "jar 拷入私有目录失败 ${src.name}：${it.message}") }
+            .getOrNull()
+    }
+
     /**
      * 取（或加载）该站的 spider 实例。jar 下载/init 失败返回 null。
      * 必须在 IO 线程调用。
@@ -77,11 +97,13 @@ object SpiderEngine {
         val jarUrl = SubSiteStore.getSpiderJar(context, subUrl)
             .ifBlank { SubSiteStore.ensureSpiderJar(context, subUrl) }
         val jar = JarSpiderStore.ensureJar(context, subUrl, jarUrl) ?: return null
+        // v0.9.0：dex 必须从私有目录加载（公开目录 world-writable 会被系统拒绝）
+        val dexJar = privateJarFile(context.filesDir, jar) ?: return null
         return runCatching {
-            val loader = loaders.getOrPut(jar.absolutePath) {
-                val dexOut = File(context.codeCacheDir, "spider_dex").apply { mkdirs() }
+            val loader = loaders.getOrPut(dexJar.absolutePath) {
+                val dexOut = File(context.filesDir, "spider/opt").apply { mkdirs() }
                 DexClassLoader(
-                    jar.absolutePath,
+                    dexJar.absolutePath,
                     dexOut.absolutePath,
                     null,
                     Spider::class.java.classLoader,
@@ -144,9 +166,16 @@ object SpiderEngine {
      */
     fun evict(context: Context, subUrl: String) {
         instances.keys.removeIf { it.startsWith("$subUrl|") }
+        val prefix = SubSiteStore.subId(subUrl) + "_"
         runCatching {
-            val prefix = SubSiteStore.subId(subUrl) + "_"
+            // 公开缓存
             StoragePaths.jarDir(context).listFiles { f -> f.name.startsWith(prefix) }
+                ?.forEach { f ->
+                    loaders.remove(f.absolutePath)
+                    f.delete()
+                }
+            // v0.9.0：私有目录的 copy 一起清（loaders 以私有路径为 key）
+            File(context.filesDir, "spider").listFiles { f -> f.name.startsWith(prefix) }
                 ?.forEach { f ->
                     loaders.remove(f.absolutePath)
                     f.delete()

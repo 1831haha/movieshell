@@ -7,7 +7,9 @@ import com.movieshell.data.model.Site
 import com.movieshell.data.model.SubSiteKeyPrefix
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.TvBoxConfigParser
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -18,6 +20,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.Request
 import java.io.File
 import java.net.URI
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
 /**
@@ -101,6 +104,16 @@ object SubSiteStore {
     const val REASON_JAVA_SPIDER =
         "Java spider 源（api 以 csp_ 开头）：加载订阅的 spider jar 失败，" +
             "请检查网络后重试，或刷新一次该订阅。"
+
+    /**
+     * v0.9.0：进程级 scope。订阅刷新这类"用户切走页面也要跑完"的任务用它，
+     * 别用 composable 的 rememberCoroutineScope（组合离开会被取消，
+     * 报 "The coroutine scope left the composition"）。
+     */
+    val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** v0.9.0：同一目标文件的并发下载串行化（key = dir1/dir2/name）。 */
+    private val downloadLocks = ConcurrentHashMap<String, Any>()
 
     // ---------------- v0.8.0：spider jar 地址 ----------------
 
@@ -508,40 +521,59 @@ object SubSiteStore {
         }
     }
 
+    /**
+     * v0.9.0：同一目标文件的并发下载串行化 + 3 次尝试。
+     * 修 fstat ENOENT（多站同引 drpy2.min.js 时并发写同一文件）与
+     * "connection closed" 偶发失败。注意：不复用旧文件，刷新订阅时
+     * 规则文件照旧重下，保证拿到上游最新内容。
+     */
     private fun downloadTo(context: Context, dir1: String, dir2: String, name: String, url: String): File? {
-        return try {
-            val req = Request.Builder().url(url).header("User-Agent", UA).build()
-            client.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return null
-                // v0.7.2：订阅下载的规则也进公开目录（drpy→xiaying/js/subs，py→xiaying/py/subs）
-                val base = when (dir1) {
-                    "drpy" -> StoragePaths.jsDir(context)
-                    "py" -> StoragePaths.pyDir(context)
-                    else -> File(context.filesDir, dir1)
-                }
-                val dir = File(base, dir2).apply { mkdirs() }
-                val dst = File(dir, name)
-                resp.body?.byteStream()?.use { input ->
-                    dst.outputStream().use { input.copyTo(it) }
-                } ?: return null
-                if (dst.length() == 0L) {
-                    dst.delete()
-                    return null
-                }
-                LogBus.i(TAG, "规则下载成功：${dst.absolutePath}")
-                dst
+        val lock = downloadLocks.getOrPut("$dir1/$dir2/$name") { Any() }
+        synchronized(lock) {
+            // v0.7.2：订阅下载的规则也进公开目录（drpy→xiaying/js/subs，py→xiaying/py/subs）
+            val base = when (dir1) {
+                "drpy" -> StoragePaths.jsDir(context)
+                "py" -> StoragePaths.pyDir(context)
+                else -> File(context.filesDir, dir1)
             }
-        } catch (e: Exception) {
-            LogBus.e(TAG, "规则下载失败 $url：${e.message}")
-            null
+            val dir = File(base, dir2).apply { mkdirs() }
+            val dst = File(dir, name)
+            var lastErr: String? = null
+            repeat(3) { attempt ->
+                try {
+                    val req = Request.Builder().url(url).header("User-Agent", UA).build()
+                    client.newCall(req).execute().use { resp ->
+                        if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
+                        resp.body?.byteStream()?.use { input ->
+                            dst.outputStream().use { input.copyTo(it) }
+                        } ?: throw IllegalStateException("空响应体")
+                    }
+                    if (dst.length() == 0L) {
+                        dst.delete()
+                        throw IllegalStateException("下载为空")
+                    }
+                    LogBus.i(TAG, "规则下载成功：${dst.absolutePath}")
+                    return dst
+                } catch (e: Exception) {
+                    lastErr = e.message
+                    dst.delete()
+                    if (attempt < 2) LogBus.w(TAG, "规则下载重试 ${attempt + 2}/3 $url：${e.message}")
+                }
+            }
+            LogBus.e(TAG, "规则下载失败 $url：$lastErr")
+            return null
         }
     }
 
+    /**
+     * v0.9.0 修：URL 里已带扩展名时不再追加（修 "xxx.js.js" 双后缀）。
+     */
     private fun fileNameFor(subUrl: String, siteKey: String, url: String, suffix: String): String {
         val safeKey = siteKey.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(40)
         val base = url.substringAfterLast("/").substringBefore("?").take(40)
             .replace(Regex("[^a-zA-Z0-9._-]"), "_").ifBlank { "rule" }
-        return "${subId(subUrl)}_${safeKey}_${base}$suffix"
+        val name = if (base.endsWith(suffix, ignoreCase = true)) base else base + suffix
+        return "${subId(subUrl)}_${safeKey}_$name"
     }
 
     private fun baseOf(uri: URI): String {

@@ -3,6 +3,8 @@ package com.movieshell.data.repo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 /** Java spider 运行时纯函数测试（v0.8.0）：映射、缓存路径、播放 JSON 解析。 */
 class SpiderEngineTest {
@@ -76,5 +78,36 @@ class SpiderEngineTest {
         val r = SpiderEngine.parsePlayJson("not json {{{")
         assertEquals("", r.url)
         assertEquals(0, r.parse)
+    }
+
+    @Test
+    fun `privateJarTarget resolves under filesDir spider`() {
+        val tmp = Files.createTempDirectory("spider-test").toFile()
+        try {
+            val target = SpiderEngine.privateJarTarget(tmp, "dnct6f_tvkj.jar")
+            assertEquals("dnct6f_tvkj.jar", target.name)
+            assertEquals("spider", target.parentFile?.name)
+            assertEquals(tmp, target.parentFile?.parentFile)
+        } finally {
+            tmp.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `privateJarFile copies once then skips on same size`() {
+        val tmp = Files.createTempDirectory("spider-test").toFile()
+        try {
+            val filesDir = File(tmp, "files")
+            val src = File(tmp, "dnct6f_tvkj.jar")
+                .apply { writeBytes(ByteArray(128) { it.toByte() }) }
+            val dst1 = SpiderEngine.privateJarFile(filesDir, src)
+            assertTrue(dst1 != null && dst1!!.isFile && dst1.length() == 128L)
+            val t1 = dst1.lastModified()
+            val dst2 = SpiderEngine.privateJarFile(filesDir, src)
+            assertEquals(dst1.absolutePath, dst2?.absolutePath)
+            assertEquals(t1, dst2!!.lastModified()) // 第二次大小一致，跳过 copy
+        } finally {
+            tmp.deleteRecursively()
+        }
     }
 }

@@ -117,6 +117,7 @@ private suspend fun buildSearchConfigJson(context: Context): String {
                                 put("api", site.api)
                                 put("searchable", if (rec.searchable) 1 else 0)
                                 put("类型", site.typeLabel)
+                                put("subUrl", cache.subUrl)
                             }
                         )
                     }
@@ -128,6 +129,7 @@ private suspend fun buildSearchConfigJson(context: Context): String {
                         put("name", s.name)
                         put("type", 1)
                         put("api", s.url)
+                        put("subUrl", s.url)
                     }
                 )
             }
