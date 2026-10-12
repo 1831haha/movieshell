@@ -68,16 +68,22 @@ object SpiderEngine {
         File(File(filesDir, "spider").apply { mkdirs() }, jarName)
 
     /**
-     * v0.9.0 修：Android 拒绝从 world-writable 目录（xiaying/jar/ 对所有应用可写）
-     * 加载 dex（"Writable dex file ... is not allowed"），加载前 copy 到私有目录。
-     * 幂等：目标存在且大小一致则跳过；失败记日志返回 null。
+     * v0.10.1 修：Android 14+（targetSdk 34 起强制）DexClassLoader 拒绝加载"自身可写"的
+     * dex——AOSP 逻辑是 access(path, W_OK)==0 即拒（dalvik_system_DexFile.cc），跟目录无关。
+     * 所以 copy 到私有目录后必须 setReadOnly()；刷新覆盖前先 setWritable(true)。
+     * 幂等：目标存在且大小一致则跳过（并补 setReadOnly）；失败记日志返回 null。
      */
     fun privateJarFile(filesDir: File, src: File): File? {
         return runCatching {
             val dst = privateJarTarget(filesDir, src.name)
             val len = src.length()
-            if (len > 0 && dst.isFile && dst.length() == len) return dst
+            if (len > 0 && dst.isFile && dst.length() == len) {
+                if (!dst.setReadOnly()) LogBus.w(TAG, "jar 设只读失败 ${dst.name}")
+                return dst
+            }
+            dst.setWritable(true)
             src.inputStream().use { input -> dst.outputStream().use { input.copyTo(it) } }
+            if (!dst.setReadOnly()) LogBus.w(TAG, "jar 设只读失败 ${dst.name}")
             dst
         }.onFailure { LogBus.e(TAG, "jar 拷入私有目录失败 ${src.name}：${it.message}") }
             .getOrNull()
@@ -97,7 +103,7 @@ object SpiderEngine {
         val jarUrl = SubSiteStore.getSpiderJar(context, subUrl)
             .ifBlank { SubSiteStore.ensureSpiderJar(context, subUrl) }
         val jar = JarSpiderStore.ensureJar(context, subUrl, jarUrl) ?: return null
-        // v0.9.0：dex 必须从私有目录加载（公开目录 world-writable 会被系统拒绝）
+        // v0.10.1：jar 必须只读（privateJarFile 内已 setReadOnly），否则 Android 14+ 拒绝加载
         val dexJar = privateJarFile(context.filesDir, jar) ?: return null
         return runCatching {
             val loader = loaders.getOrPut(dexJar.absolutePath) {
