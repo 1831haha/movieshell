@@ -564,9 +564,8 @@ object SubSiteStore {
                     val msg = (e as? IllegalStateException)?.message.orEmpty()
                     // 404 且没试过小写路径：把 host 后的路径全转小写再试一次（不占 3 次重试）
                     if (msg.contains("HTTP 404") && !lowered) {
-                        val low = tryUrl.replaceFirst(Regex("^(https?://[^/]+/)(.*)$")) {
-                            it.groupValues[1] + it.groupValues[2].lowercase()
-                        }
+                        val m = Regex("^(https?://[^/]+/)(.*)$").matchEntire(tryUrl)
+                        val low = if (m != null) m.groupValues[1] + m.groupValues[2].lowercase() else tryUrl
                         if (low != tryUrl) {
                             lowered = true
                             tryUrl = low
