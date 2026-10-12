@@ -44,6 +44,7 @@ data class Type4PlayResult(
  *   搜索   GET {api}?wd={key}&pg={n}          -> {list}
  *   详情   GET {api}?ac=detail&ids={vodId}    -> {list:[vod_detail]}
  *   播放   GET {api}?ac=play&flag={f}&id={id}  -> {parse:0|1,url,header}
+ *          （无效时回退 GET {api}?play={id}，模式 B 独立文件只认后者）
  *
  * 约定：{code:500,msg} 按空结果处理；vod 字段与播放串拼装（$$$/ # / $）与苹果 CMS
  * 一致，详情的剧集切分复用 CmsApi.parsePlayUrl（经由 SiteRepository.parseEpisodes）。
@@ -102,12 +103,21 @@ class Type4Api(
         parseDetail(getText(url), vodId)
     }
 
-    /** 播放：返回 (直链, parse 标记, header)。parse=1 暂按直链播（TODO 接 parses 链路）。 */
+    /**
+     * 播放双试探：
+     *   先 GET {api}?ac=play&flag={flag}&id={id}；
+     *   若返回不是有效播放响应（含 class 落回首页、url 为空或解析失败），
+     *   再发 GET {api}?play={urlEncode(id)}。
+     * 模式 A（BaseSpider::run）两种参数都认，第一次即中；模式 B（独立文件）
+     * 只认 ?play=，第一次会落回首页、第二次命中。
+     */
     suspend fun play(site: Site, flag: String, id: String): Type4PlayResult =
         safe(Type4PlayResult()) {
-            val url = buildUrl(site, "ac" to "play", "flag" to flag, "id" to id)
-                ?: return@safe Type4PlayResult()
-            parsePlay(getText(url))
+            val first = buildUrl(site, "ac" to "play", "flag" to flag, "id" to id)
+                ?.let { parsePlay(getText(it)) }
+            if (first?.isPlayResponse() == true) return@safe first
+            val second = buildUrl(site, "play" to id) ?: return@safe Type4PlayResult()
+            parsePlay(getText(second))
         }
 
     // ---------------- 纯解析函数（输入 String 输出模型，便于测试） ----------------
@@ -160,6 +170,9 @@ class Type4Api(
             header = header
         )
     }.getOrDefault(Type4PlayResult())
+
+    /** 有效播放响应：url 非空；或显含 parse 字段（parse=1 走解析链路时 url 可为空）。 */
+    private fun Type4PlayResult.isPlayResponse(): Boolean = url.isNotBlank() || parse != 0
 
     // ---------------- 内部：请求 ----------------
 

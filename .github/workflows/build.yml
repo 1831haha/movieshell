@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   build:
@@ -37,6 +39,9 @@ jobs:
 
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon
+
+      - name: Run unit tests
+        run: gradle testDebugUnitTest --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
