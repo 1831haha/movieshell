@@ -100,8 +100,10 @@ import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** drpy 影片 -> 界面 Vod（id=vodId, title=vodName, category=typeName, year=vodYear, rating=vodRemarks） */
 private fun ModelVod.toUiVod() = Vod(
@@ -772,16 +774,28 @@ private fun SourceSwitchSheet(
     onChanged: () -> Unit,
 ) {
     val context = LocalContext.current
-    val cur = remember { SubSiteStore.getCurrent(context) }
-    val drpyRules = remember { DrpySourceManager.listRules() }
-    val pyRules = remember { PySourceManager.listRules() }
-    val drpyActiveName = DrpySourceManager.activeRuleName()
-    val pyActiveName = PySourceManager.activeRuleName()
-    // 启用的订阅 × 解析出的站点，按订阅分组
-    val subSites: List<Pair<ApiSource, SubSiteRecord>> = remember {        ApiSourceStore.load(context).filter { it.enabled }.flatMap { sub ->
-            val sites = SubSiteStore.getCached(context, sub.url)?.sites.orEmpty()
-            sites.map { sub to it }
+    // v0.17.0：异步加载，避免主线程扫文件卡顿
+    var cur by remember { mutableStateOf<String?>(null) }
+    var drpyRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
+    var pyRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
+    var drpyActiveName by remember { mutableStateOf<String?>(null) }
+    var pyActiveName by remember { mutableStateOf<String?>(null) }
+    var subSites by remember { mutableStateOf<List<Pair<ApiSource, SubSiteRecord>>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            cur = SubSiteStore.getCurrent(context)
+            drpyRules = DrpySourceManager.listRules()
+            pyRules = PySourceManager.listRules()
+            drpyActiveName = DrpySourceManager.activeRuleName()
+            pyActiveName = PySourceManager.activeRuleName()
+            subSites = ApiSourceStore.load(context).filter { it.enabled }.flatMap { sub ->
+                val sites = SubSiteStore.getCached(context, sub.url)?.sites.orEmpty()
+                sites.map { sub to it }
+            }
         }
+        loading = false
     }
 
     fun pickLocal(isDrpy: Boolean, name: String) {
@@ -808,6 +822,17 @@ private fun SourceSwitchSheet(
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
         )
+        if (loading) {
+            Spacer(Modifier.height(16.dp))
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+            Spacer(Modifier.height(16.dp))
+            return@Column
+        }
         Spacer(Modifier.height(4.dp))
 
         if (drpyRules.isNotEmpty() || pyRules.isNotEmpty()) {

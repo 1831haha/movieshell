@@ -5,6 +5,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,28 +13,35 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -108,21 +116,9 @@ fun LabScreen(
                 )
                 Spacer(Modifier.height(16.dp))
             }
-            // TODO: 插件列表
+            // v0.17.0：插件列表（PY/drpy/JAR）
             item {
-                Column {
-                    Icon(
-                        Icons.Filled.Extension,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "暂无插件",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                PluginListSection(context = context)
                 Spacer(Modifier.height(24.dp))
             }
             // v0.16.1：嗅探自定义正则
@@ -274,4 +270,188 @@ private fun importPluginFile(context: Context, uri: Uri): String {
     }.onFailure {
         LogBus.e("Lab", "插件导入失败: ${it.message}")
     }.getOrDefault("导入失败")
+}
+
+/**
+ * v0.17.0：插件列表（PY/drpy/JAR）。
+ * 显示已安装插件，支持删除。
+ */
+@Composable
+private fun PluginListSection(context: Context) {
+    var plugins by remember { mutableStateOf<List<PluginInfo>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+
+    fun refresh() {
+        loading = true
+        plugins = scanPlugins(context)
+        loading = false
+    }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            plugins = scanPlugins(context)
+        }
+        loading = false
+    }
+
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "已安装插件 (${plugins.size})",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { refresh() }) {
+                Text("刷新")
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (loading) {
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+            }
+        } else if (plugins.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    Icons.Filled.Extension,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "暂无插件，点右下角 + 导入",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            plugins.forEach { plugin ->
+                PluginRow(
+                    plugin = plugin,
+                    onDelete = {
+                        if (deletePlugin(plugin)) {
+                            LogBus.i("Lab", "删除插件: ${plugin.fileName}")
+                            refresh()
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+private data class PluginInfo(
+    val fileName: String,
+    val type: String, // "PY", "drpy", "JAR"
+    val sizeKb: Long,
+    val file: File,
+)
+
+private fun scanPlugins(context: Context): List<PluginInfo> {
+    val out = mutableListOf<PluginInfo>()
+    // PY
+    StoragePaths.pyDir(context).listFiles { f -> f.isFile && f.name.endsWith(".py") }
+        ?.forEach { f ->
+            out += PluginInfo(f.name, "PY", f.length() / 1024, f)
+        }
+    // drpy
+    StoragePaths.jsDir(context).listFiles { f -> f.isFile && f.name.endsWith(".js") }
+        ?.forEach { f ->
+            if (f.name != "shim.js") {
+                out += PluginInfo(f.name, "drpy", f.length() / 1024, f)
+            }
+        }
+    // JAR
+    StoragePaths.jarDir(context).listFiles { f -> f.isFile && f.name.endsWith(".jar") }
+        ?.forEach { f ->
+            out += PluginInfo(f.name, "JAR", f.length() / 1024, f)
+        }
+    return out.sortedBy { it.fileName }
+}
+
+private fun deletePlugin(plugin: PluginInfo): Boolean {
+    return runCatching { plugin.file.delete() }.getOrDefault(false)
+}
+
+@Composable
+private fun PluginRow(
+    plugin: PluginInfo,
+    onDelete: () -> Unit,
+) {
+    var showConfirm by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 类型徽标
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = when (plugin.type) {
+                "PY" -> MaterialTheme.colorScheme.primaryContainer
+                "drpy" -> MaterialTheme.colorScheme.secondaryContainer
+                else -> MaterialTheme.colorScheme.tertiaryContainer
+            },
+            modifier = Modifier.padding(end = 12.dp),
+        ) {
+            Text(
+                text = plugin.type,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = plugin.fileName,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+            )
+            Text(
+                text = "${plugin.sizeKb} KB",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = { showConfirm = true }) {
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = "删除",
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+
+    if (showConfirm) {
+        AlertDialog(
+            onDismissRequest = { showConfirm = false },
+            title = { Text("删除插件") },
+            text = { Text("确定删除 ${plugin.fileName}？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showConfirm = false
+                        onDelete()
+                    }
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirm = false }) {
+                    Text("取消")
+                }
+            },
+        )
+    }
 }
