@@ -343,7 +343,21 @@ object SubSiteStore {
         }
         // csp_ 开头：Java spider（v0.8.0 起由 SpiderEngine 动态加载 jar 执行，放最前，避免被 .js/.py 误判）
         if (api.startsWith("csp_", ignoreCase = true)) {
-            return base.copy(kind = KIND_SPIDER, api = api, ext = ext)
+            // v0.11.2：spider 的 ext 若是相对路径（如 ./json/xx.json），下载后把文件内容
+            // 传给 spider.init；传相对路径 spider 拿不到配置，首页一直空
+            val localExt = if (ext.isNotBlank() && !ext.startsWith("http", ignoreCase = true)
+                && !ext.trimStart().startsWith("{")
+            ) {
+                val url = resolveUrl(baseUri, ext)
+                val rawName = url.substringAfterLast("/").substringBefore("?").take(40)
+                    .replace(Regex("[^a-zA-Z0-9._-]"), "_").ifBlank { "ext.json" }
+                val safeKey = sc.key.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(30)
+                val f = downloadTo(context, "spider", "ext", "${safeKey}_$rawName", url)
+                // 读出内容传给 spider（Hiker 类 spider 要的是规则 JSON 本身）；
+                // 读不到就回退原 ext，不比原来更差
+                runCatching { f?.readText()?.takeIf { it.isNotBlank() } }.getOrNull() ?: ext
+            } else ext
+            return base.copy(kind = KIND_SPIDER, api = api, ext = localExt)
         }
         if (sc.type == 0 || sc.type == 1) {
             return base.copy(kind = KIND_CMS, api = api, ext = ext)
