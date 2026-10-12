@@ -557,6 +557,10 @@ object SubSiteStore {
                 } catch (e: Exception) {
                     lastErr = e.message
                     dst.delete()
+                    // v0.10.2：4xx 是服务端明确拒绝，重试没用，直接停（省时间、少刷屏）。
+                    val noRetry = (e as? IllegalStateException)?.message
+                        ?.let { Regex("HTTP (4\\d\\d)").containsMatchIn(it) } == true
+                    if (noRetry) break
                     if (attempt < 2) LogBus.w(TAG, "规则下载重试 ${attempt + 2}/3 $url：${e.message}")
                 }
             }
