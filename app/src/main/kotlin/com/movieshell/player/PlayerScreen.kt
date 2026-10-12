@@ -3,6 +3,7 @@ package com.movieshell.player
 import android.app.Activity
 import android.content.Context
 import android.media.AudioManager
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PlayerSettings
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
@@ -31,10 +32,12 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -111,6 +114,7 @@ fun PlayerScreen(
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var showServiceMissingDialog by remember { mutableStateOf(false) }
     var gestureHint by remember { mutableStateOf<String?>(null) } // 手势临时指示
+    var showSkipSettings by remember { mutableStateOf(false) } // v0.16.3：按剧片头片尾设置
     val snackbarHostState = remember { SnackbarHostState() }
 
     BackHandler(onBack = onBack)
@@ -371,6 +375,10 @@ fun PlayerScreen(
                     Icon(Icons.Filled.PlaylistPlay, contentDescription = "选集", tint = Color.White)
                 }
             }
+            // v0.16.3：按剧片头片尾设置
+            IconButton(onClick = { showSkipSettings = true }) {
+                Icon(Icons.Filled.Settings, contentDescription = "本剧跳过设置", tint = Color.White)
+            }
         }
 
         SnackbarHost(
@@ -387,6 +395,14 @@ fun PlayerScreen(
                     showEpisodes = false
                     onEpisodeClick(it)
                 },
+            )
+        }
+
+        // v0.16.3：按剧片头片尾设置
+        if (showSkipSettings && vodId != null) {
+            SkipSettingsDialog(
+                vodId = vodId,
+                onDismiss = { showSkipSettings = false },
             )
         }
 
@@ -523,3 +539,58 @@ private fun EpisodeSheet(
  * 每部剧单独记开头/结束跳过秒数。
  */
 @Composable
+private fun SkipSettingsDialog(
+    vodId: String,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var intro by remember { mutableStateOf(PlayerSettings.getSkipIntroFor(context, vodId).toString()) }
+    var outro by remember { mutableStateOf(PlayerSettings.getSkipOutroFor(context, vodId).toString()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("本剧跳过设置") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "每部剧单独设置，互不影响",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = intro,
+                    onValueChange = { intro = it.filter { c -> c.isDigit() } },
+                    label = { Text("跳过片头（秒）") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = outro,
+                    onValueChange = { outro = it.filter { c -> c.isDigit() } },
+                    label = { Text("跳过片尾（秒）") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val introSec = intro.toIntOrNull()?.coerceIn(0, 600) ?: 0
+                    val outroSec = outro.toIntOrNull()?.coerceIn(0, 600) ?: 0
+                    PlayerSettings.setSkipIntroFor(context, vodId, introSec)
+                    PlayerSettings.setSkipOutroFor(context, vodId, outroSec)
+                    LogBus.i("UI", "设置本剧跳过: 片头${introSec}s 片尾${outroSec}s")
+                    onDismiss()
+                }
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+    )
+}
