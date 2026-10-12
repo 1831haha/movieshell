@@ -64,14 +64,14 @@ chaquopy {
         // 构建机 Python：CI 里用 actions/setup-python 装 3.10，PATH 里有 python3.10
         buildPython("python3.10")
         pip {
-            // v0.14.5：PY 规则全量常用依赖（一次配全，避免 ModuleNotFoundError）
+            // v0.14.6：PY 规则全量常用依赖（一次配全，避免 ModuleNotFoundError）
+            // 注意：PyExecJS 无 Android arm64 版本，已剔除
             install("requests")
             install("beautifulsoup4")
             install("pyquery")
             install("pycryptodome")
             install("lxml")
             install("Pillow")
-            install("PyExecJS")
             install("urllib3")
             install("chardet")
             install("idna")
