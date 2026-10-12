@@ -72,6 +72,7 @@ object TvBoxConfigParser {
                 }
                 is JsonPrimitive -> flagEl.contentOrNull?.takeIf { it.isNotBlank() }
                     ?.let { flags += it }
+                else -> { /* JsonObject/JsonNull 等非常规形态忽略 */ }
             }
             (extEl["header"] as? JsonObject)?.entries?.forEach { (k, v) ->
                 val value = (v as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()

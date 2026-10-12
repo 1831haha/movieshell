@@ -18,6 +18,7 @@ import com.movieshell.data.model.isType4Site
 import com.movieshell.data.model.toSite
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DrpyEngine
+import com.movieshell.data.source.ParseApi
 import com.movieshell.data.source.TvBoxConfigParser
 import com.movieshell.data.source.Type4Api
 import com.movieshell.data.source.Type4PlayResult

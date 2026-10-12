@@ -33,8 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.ServiceWorkerClientCompat
 import androidx.webkit.ServiceWorkerControllerCompat
-import androidx.webkit.WebResourceRequestCompat
-import androidx.webkit.WebResourceResponseCompat
+import androidx.webkit.WebViewFeature
 import com.movieshell.player.SniffPlayHeaders
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicBoolean
@@ -175,15 +174,15 @@ fun WebSniffScreen(
                         // 不支持该特性的 WebView 静默跳过（不崩）；命中时走与上面完全相同的 onHit 命中处理，
                         // 共用 hitDone 去重；未命中返回 null 不拦截。
                         runCatching {
-                            if (ServiceWorkerControllerCompat.isFeatureSupported(
-                                    ServiceWorkerControllerCompat.FEATURE_SERVICE_WORKER_SHOULD_INTERCEPT_REQUEST
+                            if (WebViewFeature.isFeatureSupported(
+                                    WebViewFeature.SERVICE_WORKER_SHOULD_INTERCEPT_REQUEST
                                 )
                             ) {
                                 ServiceWorkerControllerCompat.getInstance().setServiceWorkerClient(
                                     object : ServiceWorkerClientCompat() {
                                         override fun shouldInterceptRequest(
-                                            request: WebResourceRequestCompat
-                                        ): WebResourceResponseCompat? {
+                                            request: WebResourceRequest
+                                        ): WebResourceResponse? {
                                             val reqUrl = request.url.toString()
                                             if (isPlayableDirectUrl(reqUrl)) {
                                                 // SW 回调在后台线程：Referer 在这里读好，onHit 内部切回 UI 线程
