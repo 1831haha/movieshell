@@ -7,16 +7,16 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * 播放器设置持久化（v0.14.0）。
  *
- * v0.16.2：片头/片尾跳过改为按源单独设置（用户反馈：每个源片头片尾不一样，不能统一设）。
- * - 全局默认值：skipIntroSec / skipOutroSec（新源的初始值）
- * - 按源覆盖：siteKey → intro/outro 秒数，存在则用源的，不存在用全局
+ * v0.16.2：片头/片尾跳过改为按剧单独设置（用户纠正：每部剧的开头/结束时间都不一样）。
+ * - 全局默认值：skipIntroSec / skipOutroSec（新剧的初始值）
+ * - 按剧覆盖：vodId → intro/outro 秒数，存在则用剧的，不存在用全局
  */
 object PlayerSettings {
     private const val PREFS = "movieshell_prefs"
     private const val KEY_SKIP_INTRO = "skip_intro_sec"
     private const val KEY_SKIP_OUTRO = "skip_outro_sec"
-    private const val PREFIX_INTRO = "skip_intro_"
-    private const val PREFIX_OUTRO = "skip_outro_"
+    private const val PREFIX_INTRO = "skip_intro_vod_"
+    private const val PREFIX_OUTRO = "skip_outro_vod_"
 
     private val _skipIntroSec = MutableStateFlow(0)
     val skipIntroSec: StateFlow<Int> = _skipIntroSec
@@ -47,42 +47,42 @@ object PlayerSettings {
     }
 
     /**
-     * 取某源的片头跳过秒数：有按源设置用源的，否则用全局默认。
-     * siteKey 为空时直接返回全局。
+     * 取某部剧的片头跳过秒数：有按剧设置用剧的，否则用全局默认。
+     * vodId 为空时直接返回全局。
      */
-    fun getSkipIntroFor(context: Context, siteKey: String?): Int {
-        if (siteKey.isNullOrBlank()) return _skipIntroSec.value
+    fun getSkipIntroFor(context: Context, vodId: String?): Int {
+        if (vodId.isNullOrBlank()) return _skipIntroSec.value
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val key = PREFIX_INTRO + siteKey.hashCode()
+        val key = PREFIX_INTRO + vodId.hashCode()
         return if (prefs.contains(key)) prefs.getInt(key, 0).coerceIn(0, 600)
         else _skipIntroSec.value
     }
 
     /**
-     * 取某源的片尾跳过秒数：有按源设置用源的，否则用全局默认。
-     * siteKey 为空时直接返回全局。
+     * 取某部剧的片尾跳过秒数：有按剧设置用剧的，否则用全局默认。
+     * vodId 为空时直接返回全局。
      */
-    fun getSkipOutroFor(context: Context, siteKey: String?): Int {
-        if (siteKey.isNullOrBlank()) return _skipOutroSec.value
+    fun getSkipOutroFor(context: Context, vodId: String?): Int {
+        if (vodId.isNullOrBlank()) return _skipOutroSec.value
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val key = PREFIX_OUTRO + siteKey.hashCode()
+        val key = PREFIX_OUTRO + vodId.hashCode()
         return if (prefs.contains(key)) prefs.getInt(key, 0).coerceIn(0, 600)
         else _skipOutroSec.value
     }
 
-    /** 设置某源的片头跳过秒数。 */
-    fun setSkipIntroFor(context: Context, siteKey: String, sec: Int) {
+    /** 设置某部剧的片头跳过秒数。 */
+    fun setSkipIntroFor(context: Context, vodId: String, sec: Int) {
         val v = sec.coerceIn(0, 600)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putInt(PREFIX_INTRO + siteKey.hashCode(), v).apply()
-        LogBus.i("PlayerSettings", "源 $siteKey 片头跳过设为 ${v}s")
+            .edit().putInt(PREFIX_INTRO + vodId.hashCode(), v).apply()
+        LogBus.i("PlayerSettings", "剧 $vodId 片头跳过设为 ${v}s")
     }
 
-    /** 设置某源的片尾跳过秒数。 */
-    fun setSkipOutroFor(context: Context, siteKey: String, sec: Int) {
+    /** 设置某部剧的片尾跳过秒数。 */
+    fun setSkipOutroFor(context: Context, vodId: String, sec: Int) {
         val v = sec.coerceIn(0, 600)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putInt(PREFIX_OUTRO + siteKey.hashCode(), v).apply()
-        LogBus.i("PlayerSettings", "源 $siteKey 片尾跳过设为 ${v}s")
+            .edit().putInt(PREFIX_OUTRO + vodId.hashCode(), v).apply()
+        LogBus.i("PlayerSettings", "剧 $vodId 片尾跳过设为 ${v}s")
     }
 }

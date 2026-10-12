@@ -8,37 +8,37 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 
 /**
- * 播放器路由：player?url={url}&title={title}&site={site}
+ * 播放器路由：player?url={url}&title={title}&vod={vodId}
  *
  * url/title 在构造路由时必须经过 [Uri.encode]，
  * 否则地址中的 & ? # 等字符会破坏参数解析。
- * v0.16.2：加 site 参数（按源取片头片尾跳过）。
+ * v0.16.2：加 vod 参数（按剧取片头片尾跳过）。
  */
 const val PLAYER_ROUTE_BASE = "player"
 
 /** 构造播放器路由（自动做 Uri.encode） */
-fun playerRoute(url: String, title: String, siteKey: String? = null): String =
-    "$PLAYER_ROUTE_BASE?url=${Uri.encode(url)}&title=${Uri.encode(title)}&site=${Uri.encode(siteKey.orEmpty())}"
+fun playerRoute(url: String, title: String, vodId: String? = null): String =
+    "$PLAYER_ROUTE_BASE?url=${Uri.encode(url)}&title=${Uri.encode(title)}&vod=${Uri.encode(vodId.orEmpty())}"
 
 /** 跳转到播放器页 */
-fun NavController.navigateToPlayer(url: String, title: String, siteKey: String? = null) {
-    navigate(playerRoute(url, title, siteKey))
+fun NavController.navigateToPlayer(url: String, title: String, vodId: String? = null) {
+    navigate(playerRoute(url, title, vodId))
 }
 
 /** 在 NavHost DSL 中注册播放器目的地 */
 fun NavGraphBuilder.playerDestination(onBack: () -> Unit) {
     composable(
-        route = "$PLAYER_ROUTE_BASE?url={url}&title={title}&site={site}",
+        route = "$PLAYER_ROUTE_BASE?url={url}&title={title}&vod={vod}",
         arguments = listOf(
             navArgument("url") { type = NavType.StringType; defaultValue = "" },
             navArgument("title") { type = NavType.StringType; defaultValue = "" },
-            navArgument("site") { type = NavType.StringType; defaultValue = "" },
+            navArgument("vod") { type = NavType.StringType; defaultValue = "" },
         ),
     ) { entry ->
         PlayerScreen(
             url = entry.arguments?.getString("url").orEmpty(),
             title = entry.arguments?.getString("title").orEmpty(),
-            siteKey = entry.arguments?.getString("site")?.ifBlank { null },
+            vodId = entry.arguments?.getString("vod")?.ifBlank { null },
             onBack = onBack,
         )
     }
