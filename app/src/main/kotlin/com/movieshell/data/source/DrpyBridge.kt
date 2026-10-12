@@ -371,6 +371,13 @@ class WebViewDrpyEngine(context: Context) : DrpyEngine {
                 ""
             }
         }
+
+        /** v0.11.1：规则 lazy 里的 md5()，同步计算。 */
+        @JavascriptInterface
+        fun md5(s: String): String = runCatching {
+            val d = java.security.MessageDigest.getInstance("MD5")
+            d.digest(s.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        }.getOrDefault("")
     }
 
     companion object {
