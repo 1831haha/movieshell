@@ -99,20 +99,39 @@ object PySourceManager {
     }
 
     suspend fun home(): List<Vod> =
-        activeRulePath()?.let { runCatching { api.home(it) }.getOrNull() }.orEmpty()
+        activeRulePath()?.let {
+            runCatching { api.home(it) }
+                .onFailure { e -> LogBus.e(TAG, "本地 PY home 失败: ${e.message}") }
+                .getOrNull()
+        }.orEmpty()
 
     suspend fun categories(): List<CategoryType> =
-        activeRulePath()?.let { runCatching { api.categories(it) }.getOrNull() }.orEmpty()
+        activeRulePath()?.let {
+            runCatching { api.categories(it) }
+                .onFailure { e -> LogBus.e(TAG, "本地 PY categories 失败: ${e.message}") }
+                .getOrNull()
+        }.orEmpty()
 
     suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod> =
-        activeRulePath()?.let { runCatching { api.category(it, tid, pg) }.getOrNull() }.orEmpty()
+        activeRulePath()?.let {
+            runCatching { api.category(it, tid, pg) }
+                .onFailure { e -> LogBus.e(TAG, "本地 PY category 失败: ${e.message}") }
+                .getOrNull()
+        }.orEmpty()
 
     suspend fun detail(vodId: String): VodDetail =
-        activeRulePath()?.let { runCatching { api.detail(it, vodId) }.getOrNull() }
-            ?: VodDetail(vodId = vodId)
+        activeRulePath()?.let {
+            runCatching { api.detail(it, vodId) }
+                .onFailure { e -> LogBus.e(TAG, "本地 PY detail 失败: ${e.message}") }
+                .getOrNull()
+        } ?: VodDetail(vodId = vodId)
 
     suspend fun search(wd: String): List<Vod> =
-        activeRulePath()?.let { runCatching { api.search(it, wd) }.getOrNull() }.orEmpty()
+        activeRulePath()?.let {
+            runCatching { api.search(it, wd) }
+                .onFailure { e -> LogBus.e(TAG, "本地 PY search 失败: ${e.message}") }
+                .getOrNull()
+        }.orEmpty()
 
     suspend fun playUrl(flag: String, id: String): String =
         activeRulePath()?.let { runCatching { api.play(it, flag, id).first }.getOrNull() }
