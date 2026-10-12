@@ -97,6 +97,7 @@ private const val BRIGHTNESS_STEP = 0.05f
 fun PlayerScreen(
     url: String,
     title: String,
+    siteKey: String? = null,
     episodes: List<String> = emptyList(),
     currentEpisode: String? = null,
     onEpisodeClick: (String) -> Unit = {},
@@ -154,7 +155,8 @@ fun PlayerScreen(
                 // 网页嗅探命中的直链自带 Referer/UA（SniffPlayHeaders 一次性取出）；
                 // 其他来源没有记录则为空 map，行为与之前一致。
                 // v0.14.0：片头跳过（非续播时从 skipIntroSec 开始）
-                val skipIntro = PlayerSettings.skipIntroSec.value
+                // v0.16.2：按源取片头（siteKey 区分源）
+                val skipIntro = PlayerSettings.getSkipIntroFor(context, siteKey)
                 val startPos = if (resumeAt > 0) resumeAt
                 else if (skipIntro > 0) skipIntro * 1000L else 0L
                 PlayerManager.play(url, headers = SniffPlayHeaders.take(url), startPositionMs = startPos)
@@ -180,8 +182,9 @@ fun PlayerScreen(
     }
 
     // v0.14.0：片尾跳过——距离结尾 skipOutroSec 时自动下一集（无下一集则暂停）
+    // v0.16.2：按源取片尾
     LaunchedEffect(url) {
-        val skipOutro = PlayerSettings.skipOutroSec.value
+        val skipOutro = PlayerSettings.getSkipOutroFor(context, siteKey)
         if (skipOutro > 0) {
             while (true) {
                 delay(1000)

@@ -1,5 +1,10 @@
 package com.movieshell.ui.lab
 
+import android.content.Context
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,9 +36,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.SniffPatternStore
+import com.movieshell.data.repo.StoragePaths
+import java.io.File
 
 /**
  * v0.15.0：实验室页面。
@@ -47,11 +55,21 @@ import com.movieshell.data.repo.SniffPatternStore
 fun LabScreen(
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
     var showAddPattern by remember { mutableStateOf(false) }
     var patterns by remember { mutableStateOf(SniffPatternStore.list()) }
 
     fun refreshPatterns() {
         patterns = SniffPatternStore.list()
+    }
+
+    // v0.16.2：插件文件导入（.py/.js/.jar）
+    val pluginLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val result = importPluginFile(context, uri)
+        Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
     }
 
     Scaffold(
@@ -64,7 +82,7 @@ fun LabScreen(
             FloatingActionButton(
                 onClick = {
                     LogBus.i("UI", "点击实验室添加插件")
-                    // TODO: 插件添加入口（文件选择/URL 输入）
+                    pluginLauncher.launch("*/*")
                 }
             ) {
                 Icon(Icons.Filled.Add, contentDescription = "添加插件")
@@ -222,4 +240,38 @@ fun LabScreen(
             },
         )
     }
+}
+
+/**
+ * v0.16.2：导入插件文件到对应目录。
+ * - .py → py 目录
+ * - .js → js 目录
+ * - .jar → spider 目录
+ * 返回提示文本。
+ */
+private fun importPluginFile(context: Context, uri: Uri): String {
+    return runCatching {
+        val fileName = runCatching {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
+            }
+        }.getOrNull() ?: "plugin_${System.currentTimeMillis()}"
+
+        val targetDir = when {
+            fileName.endsWith(".py", ignoreCase = true) -> StoragePaths.pyDir(context)
+            fileName.endsWith(".js", ignoreCase = true) -> StoragePaths.jsDir(context)
+            fileName.endsWith(".jar", ignoreCase = true) -> StoragePaths.spiderDir(context)
+            else -> return "不支持的文件类型（仅 .py/.js/.jar）"
+        }
+        targetDir.mkdirs()
+        val dst = File(targetDir, fileName)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            dst.outputStream().use { input.copyTo(it) }
+        }
+        LogBus.i("Lab", "插件已导入: $fileName -> ${targetDir.name}")
+        "已导入 $fileName"
+    }.onFailure {
+        LogBus.e("Lab", "插件导入失败: ${it.message}")
+    }.getOrDefault("导入失败")
 }

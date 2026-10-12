@@ -41,6 +41,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.PhpSourceManager
@@ -174,12 +175,12 @@ class MainActivity : ComponentActivity() {
                         composable("home") {
                             HomeScreen(
                                 onSearchClick = { navController.navigateTab("search") },
-                                onVodClick = { vodId -> navController.navigate("detail/$vodId") },
+                                onVodClick = { vodId -> navController.navigate("detail/${Uri.encode(vodId)}") },
                             )
                         }
                         composable("search") {
                             SearchScreen(
-                                onVodClick = { vodId -> navController.navigate("detail/$vodId") },
+                                onVodClick = { vodId -> navController.navigate("detail/${Uri.encode(vodId)}") },
                             )
                         }
                         composable("sources") {
@@ -235,9 +236,11 @@ class MainActivity : ComponentActivity() {
                                 onPlay = { playUrl, title ->
                                     // DetailScreen 已做完播放决策（磁力/直链解析）：
                                     // playUrl 为空 -> 播放页显示"暂无可播放地址"
+                                    // v0.16.2：带 siteKey，按源取片头片尾
                                     navController.navigateToPlayer(
                                         url = playUrl,
                                         title = title,
+                                        siteKey = DetailSiteHolder.site?.key,
                                     )
                                 },
                             )
