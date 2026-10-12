@@ -47,8 +47,12 @@ object SniffEngine {
      * - DIRECT：.m3u8/.mp4/.mpd/.aac
      * - RTMP：rtmp:// 开头或 .rtmp 后缀
      * - null：都不是
+     *
+     * v0.16.1：先查用户自定义正则（SniffPatternStore），命中即 DIRECT。
      */
     fun sniffKind(url: String): SniffKind? {
+        // 自定义正则优先
+        if (matchesCustomPattern(url)) return SniffKind.DIRECT
         val lower = url.lowercase()
         if (lower.startsWith("rtmp://")) return SniffKind.RTMP
         val path = lower.substringBefore('#').substringBefore('?')
@@ -58,6 +62,17 @@ object SniffEngine {
             path.endsWith(".rtmp") -> SniffKind.RTMP
             else -> null
         }
+    }
+
+    /**
+     * 自定义正则匹配（v0.16.1）：
+     * 用户在实验室页添加的正则，任一匹配即视为可播直链。
+     */
+    fun matchesCustomPattern(url: String): Boolean {
+        if (url.isBlank()) return false
+        return runCatching {
+            com.movieshell.data.repo.SniffPatternStore.compiled().any { it.containsMatchIn(url) }
+        }.getOrDefault(false)
     }
 
     /** 明确不是媒体的静态资源后缀：这类 URL 连探测都不做 */

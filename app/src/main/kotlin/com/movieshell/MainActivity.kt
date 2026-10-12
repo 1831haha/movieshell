@@ -50,6 +50,7 @@ import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.data.repo.SniffPatternStore
 import com.movieshell.data.repo.ThemeStore
 import com.movieshell.data.repo.WebSourceManager
 import kotlinx.coroutines.Dispatchers
@@ -98,6 +99,7 @@ class MainActivity : ComponentActivity() {
         PySourceManager.init(this)
         PhpSourceManager.init(this)
         WebSourceManager.init(this)
+        SniffPatternStore.init(this)
         SubSiteEngines.init(this)
         SpiderEngine.init(this)
         // v0.5.1 升级修复：订阅站源相对路径/丢失规则文件后台修复，不阻塞启动
