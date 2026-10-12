@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 38
-        versionName = "0.15.0"
+        versionCode = 39
+        versionName = "0.16.0"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -120,4 +120,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
+
+    // v0.16.0：QuickJS 替代 WebView 跑 drpy（对标 DsPlayer，更快更兼容）
+    implementation("app.cash.quickjs:quickjs-android:0.9.2")
 }
