@@ -4,8 +4,11 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.lifecycle.lifecycleScope
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
@@ -34,6 +37,7 @@ import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteStore
+import com.movieshell.data.repo.ThemeStore
 import com.movieshell.data.repo.WebSourceManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -71,12 +75,19 @@ class MainActivity : ComponentActivity() {
         PhpSourceManager.init(this)
         WebSourceManager.init(this)
         SubSiteEngines.init(this)
+        ThemeStore.init(this)
         // v0.5.1 升级修复：订阅站源相对路径/丢失规则文件后台修复，不阻塞启动
         lifecycleScope.launch(Dispatchers.IO) {
             SubSiteStore.repairOnUpgrade(this@MainActivity)
         }
         setContent {
-            MovieShellTheme {
+            val themeMode by ThemeStore.mode.collectAsState()
+            val darkTheme = when (themeMode) {
+                ThemeStore.MODE_LIGHT -> false
+                ThemeStore.MODE_DARK -> true
+                else -> isSystemInDarkTheme()
+            }
+            MovieShellTheme(darkTheme = darkTheme) {
                 val navController = rememberNavController()
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val current = backStackEntry?.destination

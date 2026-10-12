@@ -3,6 +3,7 @@ package com.movieshell.ui.settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Palette
@@ -31,6 +34,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.BackupManager
+import com.movieshell.data.repo.ThemeStore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -49,8 +54,15 @@ import java.util.Locale
 @Composable
 fun SettingsScreen(onManualClick: () -> Unit = {}) {
     val context = LocalContext.current
-    var theme by remember { mutableStateOf("深色") }
+    // v0.7.1：主题读持久化 ThemeStore，不再是本地假状态
+    val themeMode by ThemeStore.mode.collectAsState()
+    val themeLabel = when (themeMode) {
+        ThemeStore.MODE_DARK -> "深色"
+        ThemeStore.MODE_LIGHT -> "浅色"
+        else -> "跟随系统"
+    }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var backupExpanded by remember { mutableStateOf(false) }
     var player by remember { mutableStateOf("内置播放器（ExoPlayer）") }
     var showPlayerDialog by remember { mutableStateOf(false) }
     var cacheSize by remember { mutableStateOf("128 MB") }
@@ -100,7 +112,7 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
                 SettingsRow(
                     icon = Icons.Filled.Palette,
                     title = "主题",
-                    subtitle = theme,
+                    subtitle = themeLabel,
                     onClick = { showThemeDialog = true },
                 )
             }
@@ -126,19 +138,37 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
             SettingsGroup(title = "备份与恢复") {
                 SettingsRow(
                     icon = Icons.Filled.Backup,
-                    title = "备份到文件",
-                    subtitle = "导出订阅与规则配置为 JSON 文件",
-                    onClick = {
-                        val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                        exportLauncher.launch("movieshell_backup_$ts.json")
+                    title = "备份与恢复",
+                    subtitle = "导出 / 导入 JSON 备份文件",
+                    onClick = { backupExpanded = !backupExpanded },
+                    trailing = {
+                        Icon(
+                            imageVector = if (backupExpanded) Icons.Filled.ExpandLess
+                            else Icons.Filled.ExpandMore,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     },
                 )
-                SettingsRow(
-                    icon = Icons.Filled.Restore,
-                    title = "从文件恢复",
-                    subtitle = "从 JSON 备份文件恢复订阅与规则",
-                    onClick = { importLauncher.launch("application/json") },
-                )
+                AnimatedVisibility(visible = backupExpanded) {
+                    Column(modifier = Modifier.padding(start = 16.dp)) {
+                        SettingsRow(
+                            icon = Icons.Filled.Backup,
+                            title = "备份到文件",
+                            subtitle = "导出订阅与规则配置为 JSON 文件",
+                            onClick = {
+                                val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                                exportLauncher.launch("movieshell_backup_$ts.json")
+                            },
+                        )
+                        SettingsRow(
+                            icon = Icons.Filled.Restore,
+                            title = "从文件恢复",
+                            subtitle = "从 JSON 备份文件恢复订阅与规则",
+                            onClick = { importLauncher.launch("application/json") },
+                        )
+                    }
+                }
             }
             Spacer(Modifier.height(12.dp))
             SettingsGroup(title = "帮助") {
@@ -166,9 +196,17 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
         SingleChoiceDialog(
             title = "选择主题",
             options = listOf("跟随系统", "深色", "浅色"),
-            selected = theme,
+            selected = themeLabel,
             onDismiss = { showThemeDialog = false },
-            onSelect = { theme = it; showThemeDialog = false },
+            onSelect = {
+                val mode = when (it) {
+                    "深色" -> ThemeStore.MODE_DARK
+                    "浅色" -> ThemeStore.MODE_LIGHT
+                    else -> ThemeStore.MODE_SYSTEM
+                }
+                ThemeStore.setMode(context, mode)
+                showThemeDialog = false
+            },
         )
     }
     if (showPlayerDialog) {
@@ -226,6 +264,7 @@ private fun SettingsRow(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
+    trailing: @Composable (() -> Unit)? = null,
 ) {
     ListItem(
         headlineContent = { Text(title) },
@@ -237,7 +276,7 @@ private fun SettingsRow(
                 tint = MaterialTheme.colorScheme.primary,
             )
         },
-        trailingContent = {
+        trailingContent = trailing ?: {
             Icon(
                 imageVector = Icons.Filled.ChevronRight,
                 contentDescription = null,

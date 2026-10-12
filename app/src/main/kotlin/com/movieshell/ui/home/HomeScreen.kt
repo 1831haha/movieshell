@@ -1,5 +1,6 @@
 package com.movieshell.ui.home
 
+import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,9 +24,13 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -34,11 +39,14 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -48,6 +56,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -70,12 +79,14 @@ import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod as ModelVod
 import com.movieshell.data.model.isCmsSite
 import com.movieshell.data.model.isPySite
+import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SubSiteEngines
+import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.components.PosterCard
@@ -209,6 +220,10 @@ fun HomeScreen(
         }
     }
 
+    // ---- 站源切换 BottomSheet（v0.7.1） ----
+    var showSourceSheet by remember { mutableStateOf(false) }
+    val sourceSheetState = rememberModalBottomSheetState()
+
     fun refreshDrpyState() {
         val cur = currentSubSite()
         val curKey = cur?.key
@@ -221,6 +236,9 @@ fun HomeScreen(
         drpyActive = active
         if (active && (changed || siteChanged || drpyList == null)) loadDrpyHome()
     }
+
+    // 首次进入也走一遍，保证站源入口文案和数据与持久化状态一致
+    LaunchedEffect(Unit) { refreshDrpyState() }
 
     // 底部 tab 切换回来（saveState 恢复时）也要重新检查激活状态，
     // 否则在站源页设了当前规则后首页还停留在演示数据
@@ -313,6 +331,14 @@ fun HomeScreen(
 
     val featured: List<Vod> = (if (drpyReady) drpyUiList else DemoData.vods).orEmpty().take(3)
 
+    // 站源入口行文案：订阅当前源 > 本地 drpy > 本地 PY；都没有 -> 演示数据
+    val sourceLabel: String = when {
+        subSite != null -> subSite?.name?.ifBlank { "订阅源" } ?: "订阅源"
+        DrpySourceManager.hasActiveRule() -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
+        PySourceManager.hasActiveRule() -> "本地·${PySourceManager.activeRuleName().orEmpty()}"
+        else -> "演示数据"
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         // 下拉刷新指示条（占位）
         val indicatorH = with(density) { pullOffset.toDp() }.coerceAtMost(64.dp)
@@ -340,6 +366,36 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // 站源切换入口（v0.7.1）：显示当前源，点击弹 BottomSheet
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    onClick = { showSourceSheet = true },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = sourceLabel,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            imageVector = Icons.Filled.ExpandMore,
+                            contentDescription = "切换站源",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
             // 顶部搜索栏（点击跳到搜索页）
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Surface(
@@ -446,6 +502,19 @@ fun HomeScreen(
             }
         }
     }
+
+    // 站源切换 BottomSheet（v0.7.1）
+    if (showSourceSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSourceSheet = false },
+            sheetState = sourceSheetState,
+        ) {
+            SourceSwitchSheet(
+                onDismiss = { showSourceSheet = false },
+                onChanged = { refreshDrpyState() },
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -547,5 +616,215 @@ private fun HeroPager(
                 )
             }
         }
+    }
+}
+
+/** 类型徽标：照抄 SourcesScreen 的 KindBadge（私有，故在此复制一份小的）。 */
+@Composable
+private fun SourceKindBadge(kind: String) {
+    val (label, color) = when (kind) {
+        SubSiteStore.KIND_CMS -> "CMS" to MaterialTheme.colorScheme.primary
+        SubSiteStore.KIND_DRPY -> "drpy" to MaterialTheme.colorScheme.tertiary
+        SubSiteStore.KIND_PY -> "PY" to MaterialTheme.colorScheme.secondary
+        SubSiteStore.KIND_TYPE4 -> "PHP" to MaterialTheme.colorScheme.tertiary
+        else -> "不支持" to MaterialTheme.colorScheme.error
+    }
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = color.copy(alpha = 0.14f),
+    ) {
+        Text(
+            text = label,
+            color = color,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
+/** 本地规则小徽标。 */
+@Composable
+private fun LocalBadge() {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = color.copy(alpha = 0.14f),
+    ) {
+        Text(
+            text = "本地",
+            color = color,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun SourceSheetRow(
+    title: String,
+    subtitle: String?,
+    checked: Boolean,
+    dimmed: Boolean = false,
+    badge: @Composable () -> Unit,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (dimmed) 0.5f else 1f)
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.width(8.dp))
+                badge()
+            }
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (checked) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = "当前源",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        } else {
+            Spacer(Modifier.size(20.dp))
+        }
+    }
+}
+
+/**
+ * 站源切换 BottomSheet（v0.7.1）。
+ *
+ * (a) 本地规则组：DrpySourceManager / PySourceManager 的全部规则，每行标"本地"徽标；
+ * (b) 订阅站源组：ApiSourceStore 启用的订阅，按订阅名分组展开站点，带类型徽标，
+ *     kind == unsupported 的行置灰，点击 Toast 显示 rec.reason。
+ *
+ * 选中后回调 onChanged（HomeScreen 用 refreshDrpyState 立即重载）再 onDismiss 关 sheet。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SourceSwitchSheet(
+    onDismiss: () -> Unit,
+    onChanged: () -> Unit,
+) {
+    val context = LocalContext.current
+    val cur = remember { SubSiteStore.getCurrent(context) }
+    val drpyRules = remember { DrpySourceManager.listRules() }
+    val pyRules = remember { PySourceManager.listRules() }
+    val drpyActiveName = DrpySourceManager.activeRuleName()
+    val pyActiveName = PySourceManager.activeRuleName()
+    // 启用的订阅 × 解析出的站点，按订阅分组
+    val subSites: List<Pair<ApiSource, SubSiteRecord>> = remember {        ApiSourceStore.load(context).filter { it.enabled }.flatMap { sub ->
+            val sites = SubSiteStore.getCached(context, sub.url)?.sites.orEmpty()
+            sites.map { sub to it }
+        }
+    }
+
+    fun pickLocal(isDrpy: Boolean, name: String) {
+        SubSiteStore.clearCurrent(context)
+        if (isDrpy) {
+            PySourceManager.setActiveRule(null)
+            DrpySourceManager.setActiveRule(name)
+        } else {
+            DrpySourceManager.setActiveRule(null)
+            PySourceManager.setActiveRule(name)
+        }
+        onChanged()
+        onDismiss()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = "切换站源",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(4.dp))
+
+        if (drpyRules.isNotEmpty() || pyRules.isNotEmpty()) {
+            Text(
+                text = "本地规则",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            drpyRules.forEach { rule ->
+                SourceSheetRow(
+                    title = rule.title.ifBlank { rule.name },
+                    subtitle = rule.name,
+                    checked = rule.name == drpyActiveName && cur == null,
+                    badge = { LocalBadge() },
+                    onClick = { pickLocal(true, rule.name) },
+                )
+            }
+            pyRules.forEach { rule ->
+                SourceSheetRow(
+                    title = rule.title.ifBlank { rule.name },
+                    subtitle = rule.name,
+                    checked = rule.name == pyActiveName && cur == null,
+                    badge = { LocalBadge() },
+                    onClick = { pickLocal(false, rule.name) },
+                )
+            }
+        }
+
+        if (subSites.isNotEmpty()) {
+            var lastSubUrl = ""
+            subSites.forEach { (sub, rec) ->
+                if (sub.url != lastSubUrl) {
+                    Text(
+                        text = sub.name,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    lastSubUrl = sub.url
+                }
+                val unsupported = rec.kind == SubSiteStore.KIND_UNSUPPORTED
+                SourceSheetRow(
+                    title = rec.name.ifBlank { rec.key },
+                    subtitle = null,
+                    checked = cur != null && cur.subUrl == sub.url && cur.siteKey == rec.key,
+                    dimmed = unsupported,
+                    badge = { SourceKindBadge(rec.kind) },
+                    onClick = {
+                        if (unsupported) {
+                            Toast.makeText(context, rec.reason, Toast.LENGTH_SHORT).show()
+                        } else {
+                            // 订阅优先：先清空本地规则激活态，再设订阅当前源
+                            DrpySourceManager.setActiveRule(null)
+                            PySourceManager.setActiveRule(null)
+                            SubSiteStore.setCurrent(context, sub.url, rec.key)
+                            onChanged()
+                            onDismiss()
+                        }
+                    },
+                )
+            }
+        }
+        Spacer(Modifier.height(24.dp))
     }
 }

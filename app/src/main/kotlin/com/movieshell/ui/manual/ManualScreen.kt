@@ -99,6 +99,22 @@ private val MANUAL_SECTIONS = listOf(
         ),
     ),
     ManualSection(
+        title = "首页切换站源",
+        points = listOf(
+            "首页搜索框上方有一行站源入口，显示当前源名称（订阅源名 / 本地·规则名 / 演示数据）。",
+            "点它弹出底部菜单：上半是本地 JS / PY 规则（每行标「本地」徽标），下半是已解析订阅的站点（按订阅名分组）。",
+            "订阅站点带类型徽标：CMS / drpy / PY / PHP / 不支持；「不支持」的行点它会告诉你原因（如 Java spider、小/漫画站）。",
+            "选中后自动关菜单，首页立即重载该源的推荐和分类——不用再去站源页切。",
+        ),
+    ),
+    ManualSection(
+        title = "主题设置（外观）",
+        points = listOf(
+            "设置页「外观」→「主题」：跟随系统 / 深色 / 浅色三档，切换立即全 App 生效并记住。",
+            "「跟随系统」用的是手机系统的深色/浅色设置，系统切了 App 跟着切。",
+        ),
+    ),
+    ManualSection(
         title = "播放与磁力",
         points = listOf(
             "magnet: 开头的链接点播放，会自动探测本机转播服务 127.0.0.1:17890（magnet-stream 插件）。",
