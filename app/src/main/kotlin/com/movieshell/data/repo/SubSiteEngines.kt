@@ -173,6 +173,10 @@ private object SubDrpyPool {
 private class SubPyEngine(private val rulePath: String) : DrpyEngine {
     private val api: PyApi by lazy { PyApi(ChaquopyEngine) }
 
+    companion object {
+        private const val TAG = "SubPyEngine"
+    }
+
     override fun loadRule(js: String) {}
 
     override suspend fun home(): List<Vod> =
