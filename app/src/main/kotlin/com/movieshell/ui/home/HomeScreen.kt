@@ -105,6 +105,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** drpy 影片 -> 界面 Vod（id=vodId, title=vodName, category=typeName, year=vodYear, rating=vodRemarks） */
 private fun ModelVod.toUiVod() = Vod(
@@ -233,7 +234,15 @@ fun HomeScreen(
         LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId})")
         scope.launch {
             drpyLoading = true
-            val list = engineCategory(cat.typeId, 1)
+            // v0.17.3：加超时，避免 PY 卡死导致无响应
+            val list = withTimeoutOrNull(30_000) {
+                engineCategory(cat.typeId, 1)
+            } ?: emptyList()
+            if (list.isEmpty()) {
+                LogBus.w("UI", "分类 ${cat.typeName} 返回空（可能超时或规则异常）")
+            } else {
+                LogBus.i("UI", "分类 ${cat.typeName} 加载 ${list.size} 条")
+            }
             drpyList = list.ifEmpty { null }
             selectedCategory = index
             drpyLoading = false
