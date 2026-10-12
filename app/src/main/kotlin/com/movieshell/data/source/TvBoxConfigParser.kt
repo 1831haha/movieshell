@@ -51,7 +51,13 @@ object TvBoxConfigParser {
         searchable = this["searchable"].asIntOrNull() ?: 1,
         quickSearch = this["quickSearch"].asIntOrNull() ?: 0,
         filterable = this["filterable"].asIntOrNull() ?: 0,
-        ext = this["ext"].asStringOrNull().orEmpty(),
+        ext = when (val e = this["ext"]) {
+            // v0.11.3：ext 是对象时（如 csp_AppGet 的配置）序列化成 JSON 字符串保留，
+            // 否则 spider.init 拿不到配置
+            is JsonObject -> e.toString()
+            is JsonArray -> e.toString()
+            else -> e.asStringOrNull().orEmpty()
+        },
         jar = this["jar"].asStringOrNull().orEmpty(),
         // 扩展字段"类型"：小说/漫画站用它标识（勿用 categories），规整化到 Site.typeLabel
         typeLabel = this["类型"].asStringOrNull().orEmpty(),

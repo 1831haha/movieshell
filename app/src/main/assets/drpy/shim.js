@@ -422,10 +422,11 @@ globalThis.__drpyHome = async function () {
     try {
         needRule();
         var cls = [];
+        var homeInput = absUrl(rule.host, rule.homeUrl || '', {});
         if (rule.class_parse) {
             if (typeof rule.class_parse === 'string' && rule.class_parse.indexOf('js:') !== 0) {
-                // v0.11.1：class_parse 字符串模板（'选择器;标题;链接;正则'）
-                cls = parseClassTemplate(rule.class_parse, rule.host).map(normClass);
+                // v0.11.1：class_parse 字符串模板（'选择器;标题;链接;正则'），在 homeUrl 页面上解析
+                cls = parseClassTemplate(rule.class_parse, homeInput).map(normClass);
             } else {
                 var cr = await runSection(rule.class_parse, makeCtx(rule));
                 var arr = (cr && cr['class']) ? cr['class'] : (Array.isArray(cr) ? cr : []);
@@ -439,9 +440,12 @@ globalThis.__drpyHome = async function () {
             }
         }
         var list = [];
-        if (rule.推荐) {
-            var input = absUrl(rule.host, rule.homeUrl || '', {});
+        if (rule.推荐 && rule.推荐 !== '*') {
+            var input = homeInput;
             list = toList(await runSection(rule.推荐, makeCtx(rule, { input: input })));
+        } else if (rule.推荐 === '*' && rule.一级) {
+            // v0.11.3：推荐='*' 表示用默认逻辑（homeUrl 页面按一级模板解析）
+            list = toList(await runSection(rule.一级, makeCtx(rule, { input: homeInput })));
         }
         return JSON.stringify({ 'class': cls, list: list });
     } catch (e) { return errJson(e); }
