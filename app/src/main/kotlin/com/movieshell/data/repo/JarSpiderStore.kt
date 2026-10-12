@@ -22,8 +22,11 @@ object JarSpiderStore {
     fun resolveJarUrl(subUrl: String, spiderField: String): String {
         val field = spiderField.trim()
         if (field.isBlank()) return ""
-        if (field.startsWith("http", ignoreCase = true)) return field
-        return runCatching { URI(subUrl.trim()).resolve(field).toString() }
+        // v0.11.5：spider 字段可能是 "URL;md5;哈希" 形态（如 newwex 的 .jpg 伪装 jar），
+        // 分号后是校验指示，不是 URL 的一部分，先剥掉
+        val url = field.split(";").first().trim()
+        if (url.startsWith("http", ignoreCase = true)) return url
+        return runCatching { URI(subUrl.trim()).resolve(url).toString() }
             .getOrDefault("")
     }
 
