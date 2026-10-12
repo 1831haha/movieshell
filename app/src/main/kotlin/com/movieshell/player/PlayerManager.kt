@@ -69,6 +69,8 @@ object PlayerManager {
             LogBus.e("Player", "播放地址为空，已拒绝")
             return
         }
+        // v0.14.5：记录播放地址（截断防刷屏）
+        LogBus.i("Player", "播放: ${url.take(120)}${if (url.length > 120) "..." else ""}")
         val rest = headers.toMutableMap()
         val ua = rest.remove("User-Agent")?.takeIf { it.isNotBlank() } ?: USER_AGENT
         val httpFactory = DefaultHttpDataSource.Factory()

@@ -7,6 +7,7 @@ import com.movieshell.data.model.Episode
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
+import com.movieshell.data.repo.LogBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -64,6 +65,7 @@ class CmsApi(
     /** 首页：推荐 / 最新（不带 t 参数的 videolist 即最新列表）。 */
     suspend fun home(site: Site): List<Vod> = safe(emptyList()) {
         val url = buildUrl(site, "ac" to "videolist") ?: return@safe emptyList<Vod>()
+        LogBus.i(TAG, "CMS 请求: $url")
         parseList(site, getText(url))
     }
 
@@ -105,6 +107,7 @@ class CmsApi(
             // 老 XML 接口用 ac=videolist&ids= 取单条
             buildUrl(site, "ac" to "videolist", "ids" to vodId)
         } ?: return@safe VodDetail(vodId = vodId)
+        LogBus.i(TAG, "CMS 详情请求: $url")
         parseDetail(site, getText(url), vodId)
     }
 

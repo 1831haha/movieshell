@@ -152,6 +152,13 @@ class SiteRepository(
         else logged("drpy.detail ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.detail(vodId) }
             ?: VodDetail(vodId = vodId)
         LogBus.i(TAG, "detail site=${site.name} 播放源 ${if (r.vodPlayUrl.isBlank()) "空" else "有数据"}")
+        // v0.14.5：详情播放地址明细（截断）
+        if (r.vodPlayUrl.isNotBlank()) {
+            LogBus.i(TAG, "detail playUrl: ${r.vodPlayUrl.take(150)}${if (r.vodPlayUrl.length > 150) "..." else ""}")
+        }
+        if (r.vodPlayFrom.isNotBlank()) {
+            LogBus.i(TAG, "detail playFrom: ${r.vodPlayFrom.take(100)}")
+        }
         return r
     }
 

@@ -87,6 +87,7 @@ import com.movieshell.data.model.isPySite
 import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DetailSiteHolder
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
@@ -196,6 +197,7 @@ fun HomeScreen(
      * 否则传 null，详情页走本地规则旧逻辑。
      */
     fun goDetail(vodId: String) {
+        LogBus.i("UI", "点击影片卡片 id=$vodId")
         DetailSiteHolder.site = subSite
         onVodClick(vodId)
     }
@@ -225,6 +227,7 @@ fun HomeScreen(
 
     fun loadDrpyCategory(index: Int) { // index >= 1，对应 drpyCats[index-1]
         val cat = drpyCats.getOrNull(index - 1) ?: return
+        LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId})")
         scope.launch {
             drpyLoading = true
             val list = engineCategory(cat.typeId, 1)
