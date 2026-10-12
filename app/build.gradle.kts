@@ -90,6 +90,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
+    // 网页源嗅探：Service Worker 上下文拦截（androidx.webkit 1.5.0+ 引入 SW shouldInterceptRequest）
+    implementation("androidx.webkit:webkit:1.10.0")
+
     // 播放器 (Media3 / ExoPlayer)
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")

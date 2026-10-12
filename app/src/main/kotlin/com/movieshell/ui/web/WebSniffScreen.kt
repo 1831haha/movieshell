@@ -31,6 +31,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.ServiceWorkerClientCompat
+import androidx.webkit.ServiceWorkerControllerCompat
+import androidx.webkit.WebResourceRequestCompat
+import androidx.webkit.WebResourceResponseCompat
 import com.movieshell.player.SniffPlayHeaders
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicBoolean
@@ -54,6 +58,10 @@ private const val SNIFF_TIMEOUT_MS = 20_000L
  * 网页源嗅探页：可见 WebView 加载目标站，用户可自行浏览点播；
  * WebViewClient.shouldInterceptRequest 嗅探到第一条 m3u8/mp4 直链后
  * 停止加载并回调 onPlay 交给现有播放器；20 秒超时仅 Toast 提示不关页面。
+ *
+ * Service Worker 嗅探是补齐：部分站点的 fetch 走 SW 上下文，WebViewClient 拦不到；
+ * 两条嗅探链路共用同一套首条命中逻辑（[hitDone] 去重），先命中的生效。
+ * WebView 不支持该特性时静默跳过，绝不崩。
  */
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -76,28 +84,34 @@ fun WebSniffScreen(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
     /**
-     * 命中直链：先把 Referer/UA 存进 [SniffPlayHeaders]，再停止加载 -> 交给播放器
-     * （只执行一次）。
+     * 命中直链的统一处理：先把 Referer/UA 存进 [SniffPlayHeaders]，再停止加载 -> 交给播放器
+     * （全局只执行一次；WebViewClient 嗅探与 Service Worker 嗅探共用 [hitDone] 去重，
+     * 第一个命中的生效）。
      *
      * Referer 优先取本次拦截到的请求的 Referer 头（部分站点校验它），
      * 拿不到则退回当前页面 URL；UA 取 WebView 实际使用的 UA
      * （页面 JS 拿到直链时用的就是它，播放器用同一 UA 最不容易被拦）。
+     *
+     * 拦截回调（WebViewClient / SW 都可能在后台线程）可直接调用：
+     * 对 view.url/settings 的读取在 view.post 里切回 UI 线程；
+     * reqReferer 已在调用方读好传进来。
      */
-    fun onHit(view: WebView?, request: WebResourceRequest?, directUrl: String) {
+    fun onHit(view: WebView, reqReferer: String?, directUrl: String) {
         if (!hitDone.compareAndSet(false, true)) return
-        // 拦截线程可安全读 request；view.url/settings 必须在 UI 线程读
-        val reqReferer = runCatching { request?.requestHeaders?.get("Referer") }
-            .getOrNull()?.takeIf { it.isNotBlank() }
-        view?.post {
-            val referer = reqReferer ?: view.url.orEmpty()
-            val userAgent = runCatching { view.settings?.userAgentString }.getOrNull().orEmpty()
-            val headers = buildMap {
-                if (referer.isNotBlank()) put("Referer", referer)
-                if (userAgent.isNotBlank()) put("User-Agent", userAgent)
+        // SW 回调可能在后台线程，view.post 切回 UI 线程；
+        // 极端情况下 WebView 已销毁，包一层防崩
+        view.post {
+            runCatching {
+                val referer = reqReferer ?: view.url.orEmpty()
+                val userAgent = runCatching { view.settings?.userAgentString }.getOrNull().orEmpty()
+                val headers = buildMap {
+                    if (referer.isNotBlank()) put("Referer", referer)
+                    if (userAgent.isNotBlank()) put("User-Agent", userAgent)
+                }
+                SniffPlayHeaders.put(directUrl, headers)
+                view.stopLoading()
+                onPlay(directUrl, pageTitle.ifBlank { name })
             }
-            SniffPlayHeaders.put(directUrl, headers)
-            view.stopLoading()
-            onPlay(directUrl, pageTitle.ifBlank { name })
         }
     }
 
@@ -146,11 +160,41 @@ fun WebSniffScreen(
                                 view: WebView?,
                                 request: WebResourceRequest?,
                             ): WebResourceResponse? {
+                                val webView = view
                                 val reqUrl = request?.url?.toString().orEmpty()
-                                if (reqUrl.isNotEmpty() && isPlayableDirectUrl(reqUrl)) {
-                                    onHit(view, request, reqUrl)
+                                if (webView != null && reqUrl.isNotEmpty() && isPlayableDirectUrl(reqUrl)) {
+                                    // 拦截线程可安全读 request
+                                    val reqReferer = runCatching { request?.requestHeaders?.get("Referer") }
+                                        .getOrNull()?.takeIf { it.isNotBlank() }
+                                    onHit(webView, reqReferer, reqUrl)
                                 }
                                 return super.shouldInterceptRequest(view, request)
+                            }
+                        }
+                        // Service Worker 嗅探补齐：部分站点的 fetch 走 SW 上下文，WebViewClient 拦不到。
+                        // 不支持该特性的 WebView 静默跳过（不崩）；命中时走与上面完全相同的 onHit 命中处理，
+                        // 共用 hitDone 去重；未命中返回 null 不拦截。
+                        runCatching {
+                            if (ServiceWorkerControllerCompat.isFeatureSupported(
+                                    ServiceWorkerControllerCompat.FEATURE_SERVICE_WORKER_SHOULD_INTERCEPT_REQUEST
+                                )
+                            ) {
+                                ServiceWorkerControllerCompat.getInstance().setServiceWorkerClient(
+                                    object : ServiceWorkerClientCompat() {
+                                        override fun shouldInterceptRequest(
+                                            request: WebResourceRequestCompat
+                                        ): WebResourceResponseCompat? {
+                                            val reqUrl = request.url.toString()
+                                            if (isPlayableDirectUrl(reqUrl)) {
+                                                // SW 回调在后台线程：Referer 在这里读好，onHit 内部切回 UI 线程
+                                                val reqReferer = request.requestHeaders["Referer"]
+                                                    ?.takeIf { it.isNotBlank() }
+                                                onHit(this@apply, reqReferer, reqUrl)
+                                            }
+                                            return null
+                                        }
+                                    }
+                                )
                             }
                         }
                         webViewRef = this
@@ -173,7 +217,8 @@ fun WebSniffScreen(
         showTimeoutToast()
     }
 
-    // 页面销毁时销毁 WebView，防止泄漏
+    // 页面销毁时销毁 WebView，防止泄漏；同时清掉 SW 嗅探拦截器，
+    // 避免拦截器持有已销毁 WebView 的引用
     DisposableEffect(Unit) {
         onDispose {
             runCatching {
@@ -184,6 +229,9 @@ fun WebSniffScreen(
                 }
             }
             webViewRef = null
+            runCatching {
+                ServiceWorkerControllerCompat.getInstance().setServiceWorkerClient(null)
+            }
         }
     }
 }
