@@ -1,5 +1,8 @@
 package com.movieshell.ui.live
 
+import android.content.ContentResolver
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -71,6 +74,7 @@ import com.movieshell.data.repo.EpgFetcher
 import com.movieshell.data.repo.LiveChannel
 import com.movieshell.data.repo.LiveSource
 import com.movieshell.data.repo.LiveStore
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.TrashStore
 import kotlinx.coroutines.launch
 import java.io.File
@@ -432,6 +436,15 @@ private fun ChannelDetailSheet(
     }
 }
 
+/** 读 content Uri 的显示文件名，失败返回 null */
+private fun displayNameOf(resolver: ContentResolver, uri: Uri): String? {
+    resolver.query(uri, null, null, null, null)?.use { c ->
+        val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (idx >= 0 && c.moveToFirst()) return c.getString(idx)
+    }
+    return null
+}
+
 /** 直播订阅管理：M3U 订阅 URL / 本地 M3U 导入 / 手动添加频道 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -449,19 +462,20 @@ fun LiveManageScreen(onBack: () -> Unit) {
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             refreshing = true
-            val ok = runCatching {
-                val name = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
-                    val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                    if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
-                } ?: "本地M3U"
+            val ok = try {
+                val name = displayNameOf(context.contentResolver, uri)
+                    ?.substringBeforeLast('.')?.ifBlank { null } ?: "本地M3U"
                 val tmp = File(context.cacheDir, "m3u_import_${System.currentTimeMillis()}.m3u")
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    tmp.outputStream().use { input.copyTo(it) }
-                } ?: throw IllegalStateException("无法读取文件")
-                val done = LiveStore.importLocalFile(context, tmp, name.substringBeforeLast('.'))
+                val ins = context.contentResolver.openInputStream(uri)
+                    ?: throw IllegalStateException("无法读取文件")
+                ins.use { input -> tmp.outputStream().use { input.copyTo(it) } }
+                val done = LiveStore.importLocalFile(context, tmp, name)
                 tmp.delete()
                 done
-            }.getOrDefault(false)
+            } catch (e: Exception) {
+                LogBus.e("Live", "导入本地 M3U 失败: ${e.message}")
+                false
+            }
             Toast.makeText(
                 context,
                 if (ok) "已导入本地 M3U" else "导入失败",

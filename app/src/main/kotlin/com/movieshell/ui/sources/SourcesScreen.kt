@@ -91,6 +91,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SourceProbe
