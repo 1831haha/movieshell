@@ -232,6 +232,11 @@ private val MANUAL_SECTIONS = listOf(
     ManualSection(
         title = "版本更新",
         points = listOf(
+            "v0.24.0 新功能：直播——底部新增“直播”Tab；M3U 订阅解析（台名/台标/分组/列表级 EPG）、插件市场 live 插件、手动添加、本地 M3U 文件导入（TXT 兜底）；频道长按看节目单（XMLTV 尽力解析当前/后续节目）；收藏频道；复用双引擎播放，直播模式隐藏选集等点播控件、标题旁“直播”角标。",
+            "v0.24.0 新功能：批量源检测——站源页“批量检测”对已启用源调 home() 探活（8 秒超时），徽标：绿正常/黄缓慢（>3s）/红失败（原因记日志）；PHP 本地规则标灰“手机端不支持”。",
+            "v0.24.0 新功能：源级启停——每行加开关，禁用后首页推荐/聚合搜索/检测跳过该源（单点 SourceStateStore）；订阅展开站点也可单独开关；点选激活即自动启用。",
+            "v0.24.0 新功能：回收站——删除改软删除（规则文件搬 xiaying/.trash，订阅/手动频道记元数据），站源页“回收站”入口可恢复/彻底删除/清空。",
+            "v0.24.0 新功能：播放历史独立页——首页顶部时钟按钮进入；复用断点续播数据，按天分组、搜索标题、长按删单条、一键清空；点卡片续播（直播/点播自动分流，直播条目标“直播”）。",
             "v0.23.0 新功能：插件协议对齐 DsPlayer——market.json 切兼容 schema（author/size/icon/tags/changelog/platforms/category/minApp/abis 全字段）；插件详情页（图标/作者/版本/大小/标签/平台/更新说明）；分类过滤（全部/环境/应用）；不支持的 type（apk/import）默认隐藏，设置里可开“显示不兼容插件”仅查看；minApp 门槛（版本不够安装按钮置灰）；设置→插件可增删多市场源（可手动添加 DsPlayer 官方市场跨装 source/server/live）。",
             "v0.23.0 安装升级：MD5 强制校验后读包内 plugin.json 与市场条目做 id/version 一致性校验；source 插件 engine 缺省时按包内目录嗅探（兼容 DsPlayer 源包）；live 裸 JSON 存 xiaying/live/<id>.json（直播页 v0.24 做）。",
             "v0.22.0 新功能：插件体系——官方插件仓库（xiaying-plugins）+ App 内插件市场页（站源页顶部进入）：浏览/搜索/一键安装/版本更新/卸载；安装时 MD5 强制校验；source 插件（py/js/php）解压到对应规则目录即用，server 插件下载到 xiaying/plugins/<id>/（Node.js 服务需外部运行）。设置→插件可改市场地址。",

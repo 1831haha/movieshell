@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -126,6 +127,8 @@ private fun ModelVod.toUiVod() = Vod(
 fun HomeScreen(
     onSearchClick: () -> Unit,
     onVodClick: (vodId: String) -> Unit,
+    // v0.24.0：播放历史入口
+    onHistoryClick: () -> Unit = {},
 ) {
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
@@ -158,8 +161,8 @@ fun HomeScreen(
         val s = subSite
         if (s != null) return runCatching { subRepo.home(s) }.getOrDefault(emptyList())
         return runCatching {
-            if (DrpySourceManager.hasActiveRule()) DrpySourceManager.home()
-            else if (PySourceManager.hasActiveRule()) PySourceManager.home()
+            if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.home()
+            else if (SourceStateStore.activePyRule() != null) PySourceManager.home()
             else emptyList()
         }.getOrDefault(emptyList())
     }
@@ -178,8 +181,8 @@ fun HomeScreen(
                 .getOrNull().orEmpty()
         }
         return runCatching {
-            if (DrpySourceManager.hasActiveRule()) DrpySourceManager.categories()
-            else if (PySourceManager.hasActiveRule()) PySourceManager.categories()
+            if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.categories()
+            else if (SourceStateStore.activePyRule() != null) PySourceManager.categories()
             else emptyList()
         }.getOrDefault(emptyList())
     }
@@ -190,8 +193,8 @@ fun HomeScreen(
         if (s != null) return runCatching { subRepo.category(s, tid, pg).second }
             .getOrDefault(emptyList())
         return runCatching {
-            if (DrpySourceManager.hasActiveRule()) DrpySourceManager.category(tid, pg)
-            else if (PySourceManager.hasActiveRule()) PySourceManager.category(tid, pg)
+            if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.category(tid, pg)
+            else if (SourceStateStore.activePyRule() != null) PySourceManager.category(tid, pg)
             else emptyList()
         }.getOrDefault(emptyList())
     }
@@ -258,7 +261,7 @@ fun HomeScreen(
         subSite = cur
         lastSubKey = curKey
         val active = cur != null ||
-            DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule()
+            SourceStateStore.activeDrpyRule() != null || SourceStateStore.activePyRule() != null
         val changed = active != drpyActive
         drpyActive = active
         if (active && (changed || siteChanged || drpyList == null)) loadDrpyHome()
@@ -366,8 +369,8 @@ fun HomeScreen(
     // 站源入口行文案：订阅当前源 > 本地 drpy > 本地 PY；都没有 -> 演示数据
     val sourceLabel: String = when {
         subSite != null -> subSite?.name?.ifBlank { "订阅源" } ?: "订阅源"
-        DrpySourceManager.hasActiveRule() -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
-        PySourceManager.hasActiveRule() -> "本地·${PySourceManager.activeRuleName().orEmpty()}"
+        SourceStateStore.activeDrpyRule() != null -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
+        SourceStateStore.activePyRule() != null -> "本地·${PySourceManager.activeRuleName().orEmpty()}"
         else -> "演示数据"
     }
 
@@ -416,6 +419,14 @@ fun HomeScreen(
                         Icon(
                             imageVector = Icons.Filled.Search,
                             contentDescription = "搜索",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // v0.24.0：播放历史
+                    IconButton(onClick = onHistoryClick) {
+                        Icon(
+                            imageVector = Icons.Filled.History,
+                            contentDescription = "播放历史",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -813,9 +824,11 @@ private fun SourceSwitchSheet(
         if (isDrpy) {
             PySourceManager.setActiveRule(null)
             DrpySourceManager.setActiveRule(name)
+            SourceStateStore.setRuleEnabled(context, "js", name, true)
         } else {
             DrpySourceManager.setActiveRule(null)
             PySourceManager.setActiveRule(name)
+            SourceStateStore.setRuleEnabled(context, "py", name, true)
         }
         onChanged()
         onDismiss()

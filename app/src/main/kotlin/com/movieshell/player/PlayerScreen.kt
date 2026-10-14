@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -128,6 +129,7 @@ private const val LONG_PRESS_MS = 400L
  * @param url 初始播放地址（详情页已解析好的直链）
  * @param title 标题栏显示的标题
  * @param vodId 剧 ID（按剧取片头片尾/字幕）
+ * @param isLive v0.24.0：直播模式——隐藏线路/选集/按剧跳过等点播控件，标题旁加“直播”角标
  * @param onBack 返回回调
  *
  * v0.19.0：线路/选集走 PlaySession（详情页进入前写入），播放器内可切线路；
@@ -138,6 +140,7 @@ fun PlayerScreen(
     url: String,
     title: String,
     vodId: String? = null,
+    isLive: Boolean = false,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -189,7 +192,7 @@ fun PlayerScreen(
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         onDispose {
             controller?.show(WindowInsetsCompat.Type.systemBars())
-            savePlayerProgress(context, currentTitle, currentPlayUrl)
+            savePlayerProgress(context, currentTitle, currentPlayUrl, isLive)
             PlaySession.playerVisible = false
             PlaySession.clear()
         }
@@ -232,7 +235,7 @@ fun PlayerScreen(
         // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
         EngineHost.setEngineOverride(null)
         triedEngines.clear()
-        lastUrl?.let { prev -> savePlayerProgress(context, title, prev) }
+        lastUrl?.let { prev -> savePlayerProgress(context, title, prev, isLive) }
         if (playUrl.isNotBlank()) {
             val resumeAt = HistoryStore.getProgress(context, playUrl)
                 .takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
@@ -422,6 +425,8 @@ fun PlayerScreen(
     // v0.20.0：进度/时长走 EngineHost，双引擎统一
     // v0.21.0：定时关闭「播完本集」布防时，集尾暂停而非切下一集
     LaunchedEffect(playUrl, sleepArmed) {
+        // v0.24.0：直播无“集”概念，跳过片尾下一集/播完暂停逻辑
+        if (isLive) return@LaunchedEffect
         val skipOutro = PlayerSettings.getSkipOutroFor(context, vodId)
         if (skipOutro <= 0 && !sleepArmed) return@LaunchedEffect
         while (true) {
@@ -617,6 +622,21 @@ fun PlayerScreen(
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
+            // v0.24.0：直播角标
+            if (isLive) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(0xFFE53935),
+                ) {
+                    Text(
+                        text = "直播",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+            }
             TextButton(
                 onClick = {
                     speedIndex = (speedIndex + 1) % SPEEDS.size
@@ -656,15 +676,15 @@ fun PlayerScreen(
                     color = Color.White,
                 )
             }
-            // v0.19.0：播放器内线路/选集切换（多条线路才显示）
-            if (sessionLines.size > 1) {
+            // v0.19.0：播放器内线路/选集切换（多条线路才显示）；v0.24.0：直播隐藏
+            if (!isLive && sessionLines.size > 1) {
                 TextButton(onClick = { showLines = true }) {
                     Text(
                         PlaySession.currentLine()?.name?.take(4) ?: "线路",
                         color = Color.White,
                     )
                 }
-            } else if (sessionLines.size == 1 && (sessionLines[0].episodes.size > 1)) {
+            } else if (!isLive && sessionLines.size == 1 && (sessionLines[0].episodes.size > 1)) {
                 TextButton(onClick = { showLines = true }) {
                     Text("选集", color = Color.White)
                 }
@@ -677,9 +697,11 @@ fun PlayerScreen(
             IconButton(onClick = { enterPip(context) }) {
                 Icon(Icons.Filled.PictureInPictureAlt, contentDescription = "画中画", tint = Color.White)
             }
-            // v0.16.3：按剧片头片尾设置
-            IconButton(onClick = { showSkipSettings = true }) {
-                Icon(Icons.Filled.Settings, contentDescription = "本剧跳过设置", tint = Color.White)
+            // v0.16.3：按剧片头片尾设置；v0.24.0：直播隐藏
+            if (!isLive) {
+                IconButton(onClick = { showSkipSettings = true }) {
+                    Icon(Icons.Filled.Settings, contentDescription = "本剧跳过设置", tint = Color.White)
+                }
             }
             // v0.21.0：定时关闭（有定时在跑时显示剩余时间，点开可改/关）
             if (sleepRemaining > 0 || sleepArmed) {
@@ -778,8 +800,8 @@ fun PlayerScreen(
             }
         }
 
-        // v0.19.0：线路+选集抽屉
-        if (showLines) {
+        // v0.19.0：线路+选集抽屉；v0.24.0：直播不显示
+        if (showLines && !isLive) {
             LineSheet(
                 lines = sessionLines,
                 lineIndex = PlaySession.lineIndex,
@@ -896,15 +918,17 @@ private fun fmtTime(ms: Long): String {
 }
 
 /** 读取当前进度并写入历史记录（v0.20.0：走 EngineHost，双引擎统一） */
-private fun savePlayerProgress(context: Context, title: String, url: String) {
+private fun savePlayerProgress(context: Context, title: String, url: String, isLive: Boolean = false) {
     val position = EngineHost.currentPosition()
-    if (position <= 0) return
+    // v0.24.0：直播无进度概念也记一条（position 0），kind=live 供历史页分流
+    if (!isLive && position <= 0) return
     HistoryStore.saveProgress(
         context = context,
         title = title,
         url = url,
-        positionMs = position,
+        positionMs = if (isLive) 0L else position,
         durationMs = EngineHost.duration(),
+        kind = if (isLive) "live" else "vod",
     )
 }
 

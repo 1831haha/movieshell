@@ -19,6 +19,8 @@ data class HistoryEntry(
     val durationMs: Long = 0L,
     /** 记录时间（毫秒时间戳） */
     val timestamp: Long = System.currentTimeMillis(),
+    /** v0.24.0：vod=点播，live=直播（老数据缺字段时默认 vod） */
+    val kind: String = "vod",
 )
 
 /**
@@ -42,6 +44,7 @@ object HistoryStore {
         url: String,
         positionMs: Long,
         durationMs: Long = 0L,
+        kind: String = "vod",
     ) {
         if (url.isBlank()) return
         val list = getHistory(context).toMutableList()
@@ -54,6 +57,7 @@ object HistoryStore {
                 positionMs = positionMs.coerceAtLeast(0L),
                 durationMs = durationMs.coerceAtLeast(0L),
                 timestamp = System.currentTimeMillis(),
+                kind = kind,
             ),
         )
         while (list.size > MAX_SIZE) list.removeLast()
@@ -72,6 +76,14 @@ object HistoryStore {
     /** 取某 url 的上次进度，不存在返回 0 */
     fun getProgress(context: Context, url: String): Long =
         getHistory(context).firstOrNull { it.url == url }?.positionMs ?: 0L
+
+    /** v0.24.0：删单条（按 url） */
+    fun delete(context: Context, url: String) {
+        val list = getHistory(context).filterNot { it.url == url }
+        prefs(context).edit()
+            .putString(KEY_LIST, Json.encodeToString(list))
+            .apply()
+    }
 
     /** 清空全部历史 */
     fun clear(context: Context) {

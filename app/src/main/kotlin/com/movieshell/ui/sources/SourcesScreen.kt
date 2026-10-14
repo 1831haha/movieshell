@@ -8,9 +8,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -25,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -53,6 +56,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -65,6 +69,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -76,6 +81,8 @@ import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -86,9 +93,12 @@ import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.SourceProbe
+import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubCache
 import com.movieshell.data.repo.SubSiteStore
+import com.movieshell.data.repo.TrashStore
 import com.movieshell.data.repo.WebSourceManager
 import com.movieshell.ui.preview.openFileWithEditor
 import com.movieshell.ui.preview.previewKindDir
@@ -97,7 +107,11 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 /** 站源条目：开关状态用 mutableStateOf 包裹，保证 Switch 切换即时刷新 */
 class SourceEntry(
@@ -125,24 +139,6 @@ private fun targetDir(context: Context, dirName: String): File = when (dirName) 
     "php" -> StoragePaths.phpDir(context)
     "web" -> StoragePaths.webDir(context)
     else -> File(context.filesDir, dirName)
-}
-
-/** 在规则目录下按规则名删除对应的 .js 文件（兼容 name 带/不带 .js 后缀） */
-private fun deleteDrpyRuleFile(context: Context, name: String): Boolean {
-    val dir = StoragePaths.jsDir(context)
-    val target = dir.listFiles()?.firstOrNull {
-        it.isFile && (it.name == name || it.nameWithoutExtension == name)
-    } ?: return false
-    return runCatching { target.delete() }.getOrDefault(false)
-}
-
-/** 在规则目录下按规则名删除对应的 .py 文件（兼容 name 带/不带 .py 后缀） */
-private fun deletePyRuleFile(context: Context, name: String): Boolean {
-    val dir = StoragePaths.pyDir(context)
-    val target = dir.listFiles()?.firstOrNull {
-        it.isFile && (it.name == name || it.nameWithoutExtension == name)
-    } ?: return false
-    return runCatching { target.delete() }.getOrDefault(false)
 }
 
 /** 文件导入目标：规则子目录 + 允许的后缀（目录实际位置见 targetDir，走 StoragePaths） */
@@ -236,7 +232,32 @@ private data class GridFileItem(
     val detail: String,     // 副标题（大小 / url）
     val isActive: Boolean,
     val isPinned: Boolean,
+    /** v0.24.0：启停开关（禁用的源首页/搜索/检测跳过） */
+    val enabled: Boolean = true,
+    /** v0.24.0：批量检测结果徽标 */
+    val probe: SourceProbe.Result? = null,
 )
+
+/** 探活结果 key：kind:name */
+private fun probeKey(kind: String, name: String) = "$kind:$name"
+
+/** 探活徽标颜色 */
+@Composable
+private fun ProbeDot(probe: SourceProbe.Result?) {
+    val color = when (probe) {
+        is SourceProbe.Result.Ok -> Color(0xFF4CAF50)
+        is SourceProbe.Result.Slow -> Color(0xFFFFB300)
+        is SourceProbe.Result.Fail -> Color(0xFFE53935)
+        is SourceProbe.Result.Unsupported -> Color(0xFF9E9E9E)
+        null -> return
+    }
+    Box(
+        modifier = Modifier
+            .size(10.dp)
+            .background(color, CircleShape),
+    )
+    Spacer(Modifier.width(4.dp))
+}
 
 /** 置顶优先（按置顶顺序），其余按展示名排序 */
 private fun sortWithPins(items: List<GridFileItem>, pins: List<String>): List<GridFileItem> {
@@ -259,6 +280,8 @@ fun SourcesScreen(
     onPreview: (kind: String, fileName: String) -> Unit = { _, _ -> },
     // v0.22.0：插件市场入口
     onMarketClick: () -> Unit = {},
+    // v0.24.0：回收站入口
+    onTrashClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
 
@@ -345,6 +368,8 @@ fun SourcesScreen(
     }
 
     fun removeSubscription(entry: SourceEntry) {
+        // v0.24.0：软删除进回收站
+        TrashStore.trashSubscription(context, entry.name, entry.detail)
         apiGroup.entries.remove(entry)
         SubSiteStore.removeCache(context, entry.detail)
         currentSubSiteKey = SubSiteStore.currentSiteKey(context)
@@ -396,11 +421,81 @@ fun SourcesScreen(
         }
     }
 
+    // ---------- v0.24.0：批量探活 ----------
+    var probing by remember { mutableStateOf(false) }
+    var probeStatus by remember { mutableStateOf("") }
+    var probeJob by remember { mutableStateOf<Job?>(null) }
+    val probeResults = remember { mutableStateMapOf<String, SourceProbe.Result>() }
+    /** 启停状态流：toggle 后自动重组，无需手动刷新 */
+    val disabledRules by SourceStateStore.disabled.collectAsState()
+
+    /**
+     * 对各 tab 已启用条目做轻量探活（调 home()，8 秒超时），不碰全局激活状态。
+     * PHP 本地规则手机端无解释器，标"不支持"不探；订阅只探地址连通性。
+     */
+    fun runBatchProbe() {
+        if (probing) return
+        probing = true
+        probeStatus = "准备中…"
+        probeResults.clear()
+        probeJob = SubSiteStore.appScope.launch {
+            val targets = mutableListOf<Triple<String, String, suspend () -> SourceProbe.Result>>()
+            DrpySourceManager.listRules().forEach { r ->
+                if (SourceStateStore.isRuleEnabled(TAB_JS, r.name)) {
+                    val f = File(StoragePaths.jsDir(context), r.name)
+                    targets += Triple(TAB_JS, r.name, suspend { SourceProbe.probeJs(context, f) })
+                }
+            }
+            PySourceManager.listRules().forEach { r ->
+                if (SourceStateStore.isRuleEnabled(TAB_PY, r.name)) {
+                    val f = File(StoragePaths.pyDir(context), r.name)
+                    targets += Triple(TAB_PY, r.name, suspend { SourceProbe.probePy(context, f) })
+                }
+            }
+            // PHP：手机端无解释器，不探
+            phpEntries.forEach { e ->
+                probeResults[probeKey(TAB_PHP, e.name)] = SourceProbe.Result.Unsupported
+            }
+            WebSourceManager.listSites().forEach { s ->
+                if (SourceStateStore.isRuleEnabled(TAB_WEB, s.fileName)) {
+                    targets += Triple(TAB_WEB, s.fileName, suspend { SourceProbe.probeHttp(s.url) })
+                }
+            }
+            apiGroup.entries.filter { it.enabled }.forEach { e ->
+                targets += Triple("sub", e.detail, suspend { SourceProbe.probeHttp(e.detail) })
+            }
+            supervisorScope {
+                targets.map { (kind, name, fn) ->
+                    async {
+                        probeStatus = "$name"
+                        probeResults[probeKey(kind, name)] = fn()
+                    }
+                }.awaitAll()
+            }
+            probing = false
+            val ok = probeResults.count { it.value is SourceProbe.Result.Ok }
+            val slow = probeResults.count { it.value is SourceProbe.Result.Slow }
+            val fail = probeResults.count { it.value is SourceProbe.Result.Fail }
+            Toast.makeText(
+                context,
+                "检测完成：正常 $ok，缓慢 $slow，失败 $fail",
+                Toast.LENGTH_LONG,
+            ).show()
+            LogBus.i("Probe", "批量检测完成：正常 $ok / 缓慢 $slow / 失败 $fail")
+        }
+    }
+
+    /** 规则文件启停开关（单点：首页/搜索/检测统一走 SourceStateStore） */
+    fun toggleRuleEnabled(item: GridFileItem, enabled: Boolean) {
+        SourceStateStore.setRuleEnabled(context, item.kind, item.fileName, enabled)
+    }
+
     // ---------- 激活逻辑：照抄 HomeScreen 切源 BottomSheet ----------
     fun activateDrpy(name: String) {
         SubSiteStore.clearCurrent(context)
         PySourceManager.setActiveRule(null)
         DrpySourceManager.setActiveRule(name)
+        SourceStateStore.setRuleEnabled(context, TAB_JS, name, true)
         refreshDrpyRules()
         Toast.makeText(context, "已切换为 $name", Toast.LENGTH_SHORT).show()
     }
@@ -409,6 +504,7 @@ fun SourcesScreen(
         SubSiteStore.clearCurrent(context)
         DrpySourceManager.setActiveRule(null)
         PySourceManager.setActiveRule(name)
+        SourceStateStore.setRuleEnabled(context, TAB_PY, name, true)
         refreshPyRules()
         Toast.makeText(context, "已切换为 $name", Toast.LENGTH_SHORT).show()
     }
@@ -440,6 +536,8 @@ fun SourcesScreen(
     fun tabItems(tab: String): List<GridFileItem> {
         val tabPins = pins[tab].orEmpty()
         val subActive = SubSiteStore.getCurrent(context) != null
+        fun itemEnabled(kind: String, fileName: String) =
+            !disabledRules.getOrDefault(kind, emptySet()).contains(fileName)
         val raw: List<GridFileItem> = when (tab) {
             TAB_JS -> {
                 val active = if (subActive) null else DrpySourceManager.activeRuleName()
@@ -447,6 +545,8 @@ fun SourcesScreen(
                     GridFileItem(
                         TAB_JS, it.name, it.title.ifBlank { it.name },
                         "drpy 规则 · ${it.sizeKb} KB", it.name == active, false,
+                        enabled = itemEnabled(TAB_JS, it.name),
+                        probe = probeResults[probeKey(TAB_JS, it.name)],
                     )
                 }
             }
@@ -456,16 +556,26 @@ fun SourcesScreen(
                     GridFileItem(
                         TAB_PY, it.name, it.title.ifBlank { it.name },
                         "hipy 规则 · ${it.sizeKb} KB", it.name == active, false,
+                        enabled = itemEnabled(TAB_PY, it.name),
+                        probe = probeResults[probeKey(TAB_PY, it.name)],
                     )
                 }
             }
             TAB_PHP -> phpEntries.map {
-                GridFileItem(TAB_PHP, it.name, it.name, it.detail, it.enabled, false)
+                GridFileItem(
+                    TAB_PHP, it.name, it.name, it.detail, it.enabled, false,
+                    enabled = itemEnabled(TAB_PHP, it.name),
+                    probe = probeResults[probeKey(TAB_PHP, it.name)],
+                )
             }
             TAB_WEB -> {
                 val active = WebSourceManager.activeSiteName()
                 webSites.map {
-                    GridFileItem(TAB_WEB, it.fileName, it.name, it.url, it.fileName == active, false)
+                    GridFileItem(
+                        TAB_WEB, it.fileName, it.name, it.url, it.fileName == active, false,
+                        enabled = itemEnabled(TAB_WEB, it.fileName),
+                        probe = probeResults[probeKey(TAB_WEB, it.fileName)],
+                    )
                 }
             }
             else -> emptyList()
@@ -473,28 +583,28 @@ fun SourcesScreen(
         return sortWithPins(raw, tabPins).map { it.copy(isPinned = tabPins.contains(it.fileName)) }
     }
 
-    // ---------- 删除 ----------
+    // ---------- 删除（v0.24.0：软删除进回收站，可恢复） ----------
     fun deleteItem(item: GridFileItem) {
+        val dir = when (item.kind) {
+            TAB_JS -> StoragePaths.jsDir(context)
+            TAB_PY -> StoragePaths.pyDir(context)
+            TAB_PHP -> StoragePaths.phpDir(context)
+            else -> StoragePaths.webDir(context)
+        }
+        TrashStore.trashFile(context, item.kind, File(dir, item.fileName), item.displayName)
         when (item.kind) {
-            TAB_JS -> {
-                deleteDrpyRuleFile(context, item.fileName)
-                if (DrpySourceManager.activeRuleName() == item.fileName) {
-                    DrpySourceManager.setActiveRule(null)
-                }
+            TAB_JS -> if (DrpySourceManager.activeRuleName() == item.fileName) {
+                DrpySourceManager.setActiveRule(null)
             }
-            TAB_PY -> {
-                deletePyRuleFile(context, item.fileName)
-                if (PySourceManager.activeRuleName() == item.fileName) {
-                    PySourceManager.setActiveRule(null)
-                }
+            TAB_PY -> if (PySourceManager.activeRuleName() == item.fileName) {
+                PySourceManager.setActiveRule(null)
             }
-            TAB_PHP -> {
-                File(StoragePaths.phpDir(context), item.fileName).delete()
-                if (PhpSourceManager.activeRuleName() == item.fileName) {
-                    PhpSourceManager.setActiveRule(null)
-                }
+            TAB_PHP -> if (PhpSourceManager.activeRuleName() == item.fileName) {
+                PhpSourceManager.setActiveRule(null)
             }
-            TAB_WEB -> WebSourceManager.deleteSite(item.fileName)
+            TAB_WEB -> if (WebSourceManager.activeSiteName() == item.fileName) {
+                WebSourceManager.setActiveSite(null)
+            }
         }
         // 置顶记录同步清理
         pins[item.kind]?.let {
@@ -502,7 +612,7 @@ fun SourcesScreen(
             savePins(context, item.kind, it)
         }
         refreshTab(item.kind)
-        Toast.makeText(context, "已删除 ${item.fileName}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "已移入回收站", Toast.LENGTH_SHORT).show()
     }
 
     // ---------- 置顶 ----------
@@ -647,17 +757,34 @@ fun SourcesScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // v0.22.0：插件市场入口
-        OutlinedButton(
-            onClick = onMarketClick,
+        // v0.22.0：插件市场入口；v0.24.0：批量检测 + 回收站
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            shape = RoundedCornerShape(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(Icons.Filled.Store, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("插件市场")
+            OutlinedButton(
+                onClick = onMarketClick,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Icon(Icons.Filled.Store, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("插件市场")
+            }
+            OutlinedButton(
+                onClick = { runBatchProbe() },
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Text(if (probing) "检测中…" else "批量检测")
+            }
+            OutlinedButton(
+                onClick = onTrashClick,
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Text("回收站")
+            }
         }
         // v0.9.0：顶部横滑 Tab——数据来源切换
         ScrollableTabRow(
@@ -700,6 +827,7 @@ fun SourcesScreen(
                             parsing = subParsing,
                             expandedMap = subExpanded,
                             currentSiteKey = currentSubSiteKey,
+                            probeResults = probeResults,
                             onRemove = ::removeSubscription,
                             onToggle = ::toggleSubscription,
                             onParse = ::parseSubscription,
@@ -761,6 +889,7 @@ fun SourcesScreen(
                     badgeLabel = badgeLabel,
                     onClick = onItemClick,
                     onLongClick = { menuItem = it },
+                    onToggleEnabled = ::toggleRuleEnabled,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -852,7 +981,7 @@ fun SourcesScreen(
         AlertDialog(
             onDismissRequest = { deleteItemState = null },
             title = { Text("删除文件") },
-            text = { Text("确定删除 ${item.fileName} 吗？此操作不可恢复。") },
+            text = { Text("将「${item.fileName}」移入回收站，可随时恢复。") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -863,6 +992,43 @@ fun SourcesScreen(
             },
             dismissButton = {
                 TextButton(onClick = { deleteItemState = null }) { Text("取消") }
+            },
+        )
+    }
+
+    // ---- v0.24.0：批量检测进度 ----
+    if (probing) {
+        AlertDialog(
+            onDismissRequest = {
+                probeJob?.cancel()
+                probing = false
+            },
+            title = { Text("批量检测中") },
+            text = {
+                Column {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "正在检测：$probeStatus",
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "已完成 ${probeResults.size} 项",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        probeJob?.cancel()
+                        probing = false
+                    },
+                ) { Text("取消") }
             },
         )
     }
@@ -953,6 +1119,7 @@ private fun FileGrid(
     badgeLabel: String,
     onClick: (GridFileItem) -> Unit,
     onLongClick: (GridFileItem) -> Unit,
+    onToggleEnabled: (GridFileItem, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (items.isEmpty()) {
@@ -988,12 +1155,13 @@ private fun FileGrid(
                 badgeLabel = badgeLabel,
                 onClick = { onClick(item) },
                 onLongClick = { onLongClick(item) },
+                onToggleEnabled = onToggleEnabled,
             )
         }
     }
 }
 
-/** 网格卡片：类型徽标 + 文件名 + 激活打勾 */
+/** 网格卡片：类型徽标 + 文件名 + 激活打勾 + 启停开关 + 探活徽标 */
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 private fun FileCard(
@@ -1001,10 +1169,12 @@ private fun FileCard(
     badgeLabel: String,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onToggleEnabled: (GridFileItem, Boolean) -> Unit,
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .alpha(if (item.enabled) 1f else 0.45f)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
@@ -1038,6 +1208,7 @@ private fun FileCard(
                     )
                 }
                 Spacer(Modifier.weight(1f))
+                ProbeDot(item.probe)
                 if (item.isActive) {
                     Icon(
                         imageVector = Icons.Filled.Check,
@@ -1057,13 +1228,21 @@ private fun FileCard(
                 modifier = Modifier.height(40.dp),
             )
             Spacer(Modifier.height(4.dp))
-            Text(
-                text = item.detail,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = item.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                // v0.24.0：源级启停（禁用后首页/搜索/检测跳过该源）
+                Switch(
+                    checked = item.enabled,
+                    onCheckedChange = { onToggleEnabled(item, it) },
+                )
+            }
         }
     }
 }
@@ -1136,6 +1315,7 @@ private fun SubscriptionCard(
     parsing: SnapshotStateMap<String, Boolean>,
     expandedMap: SnapshotStateMap<String, Boolean>,
     currentSiteKey: String?,
+    probeResults: SnapshotStateMap<String, SourceProbe.Result>,
     onRemove: (SourceEntry) -> Unit,
     onToggle: () -> Unit,
     onParse: (String) -> Unit,
@@ -1228,6 +1408,8 @@ private fun SubscriptionCard(
                                         onToggle()
                                     },
                                 )
+                                // v0.24.0：批量检测徽标
+                                ProbeDot(probeResults[probeKey("sub", subUrl)])
                                 IconButton(onClick = { onRemove(entry) }) {
                                     Icon(
                                         imageVector = Icons.Filled.Delete,
@@ -1323,6 +1505,19 @@ private fun SubscriptionCard(
                                                     Spacer(Modifier.width(8.dp))
                                                     KindBadge(rec.kind)
                                                     Spacer(Modifier.width(8.dp))
+                                                    // v0.24.0：站点级启停（禁用后聚合搜索跳过）
+                                                    Switch(
+                                                        checked = rec.enabled,
+                                                        onCheckedChange = { enabled ->
+                                                            SubSiteStore.setSiteEnabled(
+                                                                context, subUrl, rec.key, enabled,
+                                                            )
+                                                            SubSiteStore.getCached(context, subUrl)?.let {
+                                                                caches[subUrl] = it
+                                                            }
+                                                        },
+                                                    )
+                                                    Spacer(Modifier.width(4.dp))
                                                     if (isCurrent) {
                                                         Icon(
                                                             imageVector = Icons.Filled.Check,

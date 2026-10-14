@@ -63,6 +63,7 @@ import com.movieshell.data.model.Vod as ModelVod
 import com.movieshell.data.model.isSubSite
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DetailSiteHolder
+import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
@@ -135,7 +136,8 @@ private suspend fun buildSearchConfigJson(context: Context): String {
                 )
             }
         }
-    if (DrpySourceManager.hasActiveRule()) {
+    // v0.24.0：被禁用的规则不参与聚合搜索（单点：SourceStateStore）
+    if (SourceStateStore.activeDrpyRule() != null) {
         arr.put(
             JSONObject().apply {
                 put("key", "drpy:active")
@@ -145,7 +147,7 @@ private suspend fun buildSearchConfigJson(context: Context): String {
             }
         )
     }
-    if (PySourceManager.hasActiveRule()) {
+    if (SourceStateStore.activePyRule() != null) {
         arr.put(
             JSONObject().apply {
                 put("key", "py:active")

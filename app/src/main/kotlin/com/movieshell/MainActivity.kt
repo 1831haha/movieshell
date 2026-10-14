@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -43,7 +44,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.LiveStore
 import com.movieshell.data.repo.PluginStore
+import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.PhpSourceManager
@@ -67,8 +70,11 @@ import com.movieshell.player.PlaySession
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
 import com.movieshell.ui.detail.DetailScreen
+import com.movieshell.ui.history.HistoryScreen
 import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.lab.LabScreen
+import com.movieshell.ui.live.LiveManageScreen
+import com.movieshell.ui.live.LiveScreen
 import com.movieshell.ui.log.LogBubbleOverlay
 import com.movieshell.ui.manual.ManualScreen
 import com.movieshell.ui.market.PluginDetailScreen
@@ -77,6 +83,7 @@ import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.sources.SourcesScreen
+import com.movieshell.ui.trash.TrashScreen
 import com.movieshell.ui.theme.MovieShellTheme
 import com.movieshell.ui.web.WebSniffScreen
 
@@ -85,6 +92,7 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 private val tabs = listOf(
     Tab("home", "首页", Icons.Filled.Home),
     Tab("sources", "站源", Icons.Filled.Storage),
+    Tab("live", "直播", Icons.Filled.Tv),
     Tab("lab", "实验室", Icons.Filled.Science),
     Tab("settings", "设置", Icons.Filled.Settings),
 )
@@ -111,6 +119,9 @@ class MainActivity : ComponentActivity() {
         PhpSourceManager.init(this)
         // v0.22.0：插件市场本地状态
         PluginStore.init(this)
+        // v0.24.0：直播源 + 源启停状态
+        LiveStore.init(this)
+        SourceStateStore.init(this)
         PhpSourceManager.init(this)
         WebSourceManager.init(this)
         SniffPatternStore.init(this)
@@ -189,6 +200,8 @@ class MainActivity : ComponentActivity() {
                             HomeScreen(
                                 onSearchClick = { navController.navigateTab("search") },
                                 onVodClick = { vodId -> navController.navigate("detail/${Uri.encode(vodId)}") },
+                                // v0.24.0：播放历史
+                                onHistoryClick = { navController.navigate("history") },
                             )
                         }
                         composable("search") {
@@ -210,6 +223,52 @@ class MainActivity : ComponentActivity() {
                                 },
                                 // v0.22.0：插件市场入口
                                 onMarketClick = { navController.navigate("market") },
+                                // v0.24.0：回收站入口
+                                onTrashClick = { navController.navigate("trash") },
+                            )
+                        }
+                        // v0.24.0：直播 Tab
+                        composable("live") {
+                            LiveScreen(
+                                onPlayChannel = { ch ->
+                                    navController.navigateToPlayer(
+                                        url = ch.url,
+                                        title = ch.name,
+                                        isLive = true,
+                                    )
+                                },
+                                onManageClick = { navController.navigate("live_manage") },
+                            )
+                        }
+                        composable("live_manage") {
+                            LiveManageScreen(
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
+                        // v0.24.0：播放历史独立页
+                        composable("history") {
+                            HistoryScreen(
+                                onBack = { navController.popBackStack() },
+                                onPlay = { entry ->
+                                    if (entry.kind == "live") {
+                                        navController.navigateToPlayer(
+                                            url = entry.url,
+                                            title = entry.title,
+                                            isLive = true,
+                                        )
+                                    } else {
+                                        navController.navigateToPlayer(
+                                            url = entry.url,
+                                            title = entry.title,
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                        // v0.24.0：回收站
+                        composable("trash") {
+                            TrashScreen(
+                                onBack = { navController.popBackStack() },
                             )
                         }
                         // v0.22.0：插件市场页；v0.23.0：插件详情页
