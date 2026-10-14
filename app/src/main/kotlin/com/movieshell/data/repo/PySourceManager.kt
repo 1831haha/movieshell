@@ -64,7 +64,7 @@ object PySourceManager {
      */
     private suspend fun <T> latest(slot: AtomicReference<Deferred<T>?>, block: suspend () -> T): T {
         slot.getAndSet(null)?.cancel()
-        val d = readScope.async(block = block)
+        val d = readScope.async { block() }
         slot.set(d)
         return d.await() // 被更新的请求取消时向调用方抛 CancellationException（标准语义）
     }
