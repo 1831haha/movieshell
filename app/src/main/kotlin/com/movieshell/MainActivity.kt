@@ -71,6 +71,7 @@ import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.lab.LabScreen
 import com.movieshell.ui.log.LogBubbleOverlay
 import com.movieshell.ui.manual.ManualScreen
+import com.movieshell.ui.market.PluginDetailScreen
 import com.movieshell.ui.market.PluginMarketScreen
 import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.search.SearchScreen
@@ -211,9 +212,18 @@ class MainActivity : ComponentActivity() {
                                 onMarketClick = { navController.navigate("market") },
                             )
                         }
-                        // v0.22.0：插件市场页
+                        // v0.22.0：插件市场页；v0.23.0：插件详情页
                         composable("market") {
-                            PluginMarketScreen(onBack = { navController.popBackStack() })
+                            PluginMarketScreen(
+                                onBack = { navController.popBackStack() },
+                                onDetail = { id -> navController.navigate("market_detail/$id") },
+                            )
+                        }
+                        composable("market_detail/{id}") { entry ->
+                            PluginDetailScreen(
+                                pluginId = entry.arguments?.getString("id").orEmpty(),
+                                onBack = { navController.popBackStack() },
+                            )
                         }
                         composable("settings") {
                             SettingsScreen(

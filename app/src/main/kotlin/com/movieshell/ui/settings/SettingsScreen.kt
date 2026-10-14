@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Store
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -102,9 +103,11 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
     var cacheSize by remember { mutableStateOf("128 MB") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showAddParseDialog by remember { mutableStateOf(false) } // v0.19.0：自定义解析接口
-    // v0.22.0：插件市场地址
-    val marketUrl by PluginStore.marketUrl.collectAsState()
-    var showMarketUrlDialog by remember { mutableStateOf(false) }
+    // v0.23.0：插件市场源（多源）+ 显示不兼容插件开关
+    val marketSources by PluginStore.marketSources.collectAsState()
+    val activeMarketIdx by PluginStore.activeMarketIdx.collectAsState()
+    val showIncompatible by PluginStore.showIncompatible.collectAsState()
+    var showMarketSourcesDialog by remember { mutableStateOf(false) }
 
     // v0.7.2：备份直接导出到 xiaying/backup/，不再弹系统文件选择器
     fun exportBackup() {
@@ -222,13 +225,30 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
                 }
             }
             Spacer(Modifier.height(12.dp))
-            // v0.22.0：插件市场
+            // v0.23.0：插件市场源（多源）+ 显示不兼容插件
             SettingsGroup(title = "插件") {
                 SettingsRow(
                     icon = Icons.Filled.Store,
-                    title = "插件市场地址",
-                    subtitle = marketUrl,
-                    onClick = { showMarketUrlDialog = true },
+                    title = "插件市场源",
+                    subtitle = marketSources.getOrNull(activeMarketIdx)?.name
+                        ?: PluginStore.DEFAULT_MARKET_NAME,
+                    onClick = { showMarketSourcesDialog = true },
+                )
+                SettingsRow(
+                    icon = Icons.Filled.Visibility,
+                    title = "显示不兼容插件",
+                    subtitle = "显示 apk/import 等侠影不支持的插件（仅查看，不可安装）",
+                    onClick = {
+                        PluginStore.setShowIncompatible(context, !showIncompatible)
+                    },
+                    trailing = {
+                        Switch(
+                            checked = showIncompatible,
+                            onCheckedChange = {
+                                PluginStore.setShowIncompatible(context, it)
+                            },
+                        )
+                    },
                 )
             }
             Spacer(Modifier.height(12.dp))
@@ -355,13 +375,59 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
     }
     // v0.19.0：添加自定义解析接口
     // v0.22.0：插件市场地址
-    if (showMarketUrlDialog) {
-        var urlInput by remember { mutableStateOf(marketUrl) }
+    // v0.23.0：插件市场源管理（增删 + 切换当前源）
+    if (showMarketSourcesDialog) {
+        var nameInput by remember { mutableStateOf("") }
+        var urlInput by remember { mutableStateOf("") }
         AlertDialog(
-            onDismissRequest = { showMarketUrlDialog = false },
-            title = { Text("插件市场地址") },
+            onDismissRequest = { showMarketSourcesDialog = false },
+            title = { Text("插件市场源") },
             text = {
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    marketSources.forEachIndexed { i, s ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = (if (i == activeMarketIdx) "● " else "") + s.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Text(
+                                    text = s.url,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                            if (i != activeMarketIdx) {
+                                TextButton(onClick = {
+                                    PluginStore.setActiveMarket(context, i)
+                                }) { Text("切换") }
+                            }
+                            if (marketSources.size > 1) {
+                                IconButton(onClick = {
+                                    PluginStore.removeMarketSource(context, i)
+                                }) {
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = "删除",
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = nameInput,
+                        onValueChange = { nameInput = it },
+                        label = { Text("名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(4.dp))
                     OutlinedTextField(
                         value = urlInput,
                         onValueChange = { urlInput = it },
@@ -369,9 +435,9 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "默认官方市场。改后重进插件市场页生效。",
+                        text = "可添加 DsPlayer 官方市场（实验性）：\n${PluginStore.DSPLAYER_MARKET_URL}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -380,18 +446,17 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        PluginStore.setMarketUrl(context, urlInput)
-                        showMarketUrlDialog = false
+                        if (!PluginStore.addMarketSource(context, nameInput, urlInput)) {
+                            Toast.makeText(context, "名称/地址为空或地址已存在", Toast.LENGTH_SHORT).show()
+                        } else {
+                            nameInput = ""
+                            urlInput = ""
+                        }
                     }
-                ) { Text("保存") }
+                ) { Text("添加") }
             },
             dismissButton = {
-                TextButton(
-                    onClick = {
-                        PluginStore.setMarketUrl(context, PluginStore.DEFAULT_MARKET_URL)
-                        showMarketUrlDialog = false
-                    }
-                ) { Text("恢复默认") }
+                TextButton(onClick = { showMarketSourcesDialog = false }) { Text("关闭") }
             },
         )
     }

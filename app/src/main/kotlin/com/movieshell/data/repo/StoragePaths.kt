@@ -87,6 +87,10 @@ object StoragePaths {
     fun screenshotsDir(context: Context): File =
         File(baseDir(context), "Screenshots").also { it.mkdirs() }
 
+    /** v0.23.0：live 直播源存放目录（xiaying/live/<id>.json）；直播页 v0.24 做，先存好 */
+    fun liveDir(context: Context): File =
+        File(baseDir(context), "live").also { it.mkdirs() }
+
     /** v0.22.0：server 插件安装根目录（xiaying/plugins/<id>/） */
     fun pluginsDir(context: Context): File =
         File(baseDir(context), "plugins").also { it.mkdirs() }
