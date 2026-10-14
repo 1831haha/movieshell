@@ -49,8 +49,7 @@ object TrashStore {
     fun trashFile(context: Context, kind: String, file: File, name: String): Boolean {
         if (!file.isFile) return false
         val dst = File(trashDir(context, kind), "${System.currentTimeMillis()}_${file.name}")
-        if (!runCatching { file.copyTo(dst, overwrite = true) && file.delete(); true }
-                .getOrDefault(false)) return false
+        if (!runCatching { file.copyTo(dst, overwrite = true); file.delete() }.getOrDefault(false)) return false
         add(context, TrashItem(kind = kind, name = name, trashPath = dst.absolutePath))
         return true
     }
@@ -77,7 +76,7 @@ object TrashStore {
                 val dst = File(kindDir(context, item.kind), src.name.substringAfter('_'))
                 runCatching {
                     if (dst.exists()) return false
-                    src.copyTo(dst, overwrite = false) && src.delete()
+                    src.copyTo(dst, overwrite = false); src.delete()
                 }.getOrDefault(false)
             }
             "sub" -> {

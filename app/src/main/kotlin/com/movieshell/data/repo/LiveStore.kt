@@ -60,7 +60,7 @@ private val liveJson = Json { ignoreUnknownKeys = true; isLenient = true }
  *
  * 来源：① M3U 订阅 URL（#EXTINF 解析台名/tvg-logo/group-title；#EXTM3U 的
  * x-tvg-url 做播放列表级 EPG；非 #EXTM3U 文本按 TXT“台名,地址”兜底）
- * ② 插件市场装的 live 插件：xiaying/live/*.json，顶层 lives 数组
+ * ② 插件市场装的 live 插件：xiaying/live/ 目录下的 json 文件，顶层 lives 数组
  * （DsPlayer live 规范：{name,url,ua,epg}，url 必填）
  * ③ 手动添加的单个频道 ④ 本地 M3U 文件（SAF 导入，拷进 liveDir）。
  *
