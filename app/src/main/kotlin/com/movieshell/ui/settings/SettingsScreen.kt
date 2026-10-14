@@ -275,7 +275,7 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
             SettingsGroup(title = "关于") {
                 SettingsRow(
                     icon = Icons.Filled.Info,
-                    title = "关于 MovieShell",
+                    title = "关于侠影",
                     subtitle = "版本 ${com.movieshell.BuildConfig.VERSION_NAME} · 本地影视聚合",
                     onClick = { /* 占位：可跳转关于页 */ },
                 )

@@ -38,9 +38,9 @@ private data class ManualSection(
 
 private val MANUAL_SECTIONS = listOf(
     ManualSection(
-        title = "MovieShell 是什么",
+        title = "侠影是什么",
         points = listOf(
-            "MovieShell 是一个本地影视聚合壳：把多个站源、多种规则聚到一个 App 里搜片、看片。",
+            "侠影是一个本地影视聚合壳：把多个站源、多种规则聚到一个 App 里搜片、看片。",
             "多源聚合：一次装多个站源，搜片、看推荐不用在几个 App 之间来回切。",
             "本地规则：JS / PY 规则文件存在手机本地，随身带，不依赖在线订阅也能用。",
             "磁力转播：magnet 链接自动走本机转播服务，边下边播。",
@@ -212,7 +212,7 @@ private val MANUAL_SECTIONS = listOf(
     ManualSection(
         title = "Java spider（csp_ 站）",
         points = listOf(
-            "csp_ 开头（如 csp_Mp4Mov）的站，规则不是 JS/PY 文件，而是一个跑在订阅自带 jar 包里的 Java 类（Java spider），v0.8.0 起 MovieShell 原生支持。",
+            "csp_ 开头（如 csp_Mp4Mov）的站，规则不是 JS/PY 文件，而是一个跑在订阅自带 jar 包里的 Java 类（Java spider），v0.8.0 起侠影原生支持。",
             "原理：添加订阅时自动记下配置里的 spider 字段（如 ./tvkj.jar）；第一次用某个 csp_ 站时自动下载 jar 到 /storage/emulated/0/xiaying/jar/，用 DexClassLoader 动态加载执行。",
             "站源页这类站点打「spider」徽标，可直接设为当前源，首页、分类、搜索、详情、播放全流程可用；单个站加载失败会如实 Toast，不影响其他站。",
             "jar 按订阅缓存，多站共用一份，不重复下载；云盘类 spider（如夸克/UC/迅雷盘）部分功能依赖其账号体系，能否播以实际为准。",

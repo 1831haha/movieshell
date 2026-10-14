@@ -179,7 +179,7 @@ object SubSiteStore {
     }
 
     const val REASON_NOVEL_COMIC =
-        "小说/漫画类站点：MovieShell 只做视频点播，该类型暂不支持。"
+        "小说/漫画类站点：侠影只做视频点播，该类型暂不支持。"
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
     private val client by lazy { CmsApi.defaultClient() }

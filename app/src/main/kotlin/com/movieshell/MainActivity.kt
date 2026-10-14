@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // v0.7.2：日志总线最先初始化（接住之后所有初始化的异常）
         LogBus.init(this)
-        LogBus.i("App", "MovieShell 启动")
+        LogBus.i("App", "侠影启动")
         ThemeStore.init(this)
         LogStore.init(this)
         PlayerSettings.init(this)
