@@ -232,7 +232,7 @@ private val MANUAL_SECTIONS = listOf(
     ManualSection(
         title = "版本更新",
         points = listOf(
-            "v0.23.0 新功能：插件协议对齐 DsPlayer——market.json 切兼容 schema（author/size/icon/tags/changelog/platforms/category/minApp/abis 全字段）；插件详情页（图标/作者/版本/大小/标签/平台/更新说明）；分类过滤（全部/环境/应用）；不支持的 type（apk/import）默认隐藏，设置里可开"显示不兼容插件"仅查看；minApp 门槛（版本不够安装按钮置灰）；设置→插件可增删多市场源（可手动添加 DsPlayer 官方市场跨装 source/server/live）。",
+            "v0.23.0 新功能：插件协议对齐 DsPlayer——market.json 切兼容 schema（author/size/icon/tags/changelog/platforms/category/minApp/abis 全字段）；插件详情页（图标/作者/版本/大小/标签/平台/更新说明）；分类过滤（全部/环境/应用）；不支持的 type（apk/import）默认隐藏，设置里可开“显示不兼容插件”仅查看；minApp 门槛（版本不够安装按钮置灰）；设置→插件可增删多市场源（可手动添加 DsPlayer 官方市场跨装 source/server/live）。",
             "v0.23.0 安装升级：MD5 强制校验后读包内 plugin.json 与市场条目做 id/version 一致性校验；source 插件 engine 缺省时按包内目录嗅探（兼容 DsPlayer 源包）；live 裸 JSON 存 xiaying/live/<id>.json（直播页 v0.24 做）。",
             "v0.22.0 新功能：插件体系——官方插件仓库（xiaying-plugins）+ App 内插件市场页（站源页顶部进入）：浏览/搜索/一键安装/版本更新/卸载；安装时 MD5 强制校验；source 插件（py/js/php）解压到对应规则目录即用，server 插件下载到 xiaying/plugins/<id>/（Node.js 服务需外部运行）。设置→插件可改市场地址。",
             "v0.22.0 引擎：PY 读方法（首页/分类/详情/搜索）并发执行，切源/切分类时取消旧在途请求（对标 DsPlayer 0.9.9 源忙根除；Chaquopy 进程内 Python，网络 I/O 期间释放 GIL 天然重叠）。",
