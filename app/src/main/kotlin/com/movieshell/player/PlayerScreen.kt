@@ -94,6 +94,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -230,50 +231,68 @@ fun PlayerScreen(
     // magnet: 地址不直接播，走 MagnetPlayer 探测本机转播服务后再起播；
     // 历史记录一律用原始 url（磁力链接本身）做 key，保证磁力也能断点续播
     var lastUrl by remember { mutableStateOf<String?>(null) }
+    // v0.25.0：起播链路顶层兜底——任何未预期异常转 Toast，绝不崩
     LaunchedEffect(playUrl) {
-        if (!autoSwitching) triedLines.clear() else autoSwitching = false
-        // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
-        EngineHost.setEngineOverride(null)
-        triedEngines.clear()
-        lastUrl?.let { prev -> savePlayerProgress(context, title, prev, isLive) }
-        if (playUrl.isNotBlank()) {
-            val resumeAt = HistoryStore.getProgress(context, playUrl)
-                .takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
-            val started = if (MagnetPlayer.isMagnet(playUrl)) {
-                MagnetPlayer.playIfReady(
-                    context = context,
-                    magnet = playUrl,
-                    title = title,
-                    startPositionMs = resumeAt,
-                )
-            } else {
-                // 网页嗅探命中的直链自带 Referer/UA（SniffPlayHeaders 一次性取出）；
-                // 其他来源没有记录则为空 map，行为与之前一致。
-                // v0.14.0：片头跳过（非续播时从 skipIntroSec 开始）
-                // v0.16.2：按源取片头（siteKey 区分源）
-                // v0.20.0：走 EngineHost，按当前内核（Media3/libmpv）起播
-                val headers = SniffPlayHeaders.take(playUrl)
-                lastHeaders = headers
-                val skipIntro = PlayerSettings.getSkipIntroFor(context, vodId)
-                val startPos = if (resumeAt > 0) resumeAt
-                else if (skipIntro > 0) skipIntro * 1000L else 0L
-                // v0.19.0：外挂字幕（本次覆盖优先，否则按剧记忆）
-                // v0.21.0：走 SubtitleKit（含时间偏移），双引擎统一
-                val subtitleUrl = currentSubtitleUrl()
-                EngineHost.play(
-                    context,
-                    playUrl,
-                    headers = headers,
-                    startPositionMs = startPos,
-                    subtitleUrl = subtitleUrl,
-                )
-                // v0.21.0：应用字幕样式
-                EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
-                true
+        try {
+            if (!autoSwitching) triedLines.clear() else autoSwitching = false
+            // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
+            EngineHost.setEngineOverride(null)
+            triedEngines.clear()
+            lastUrl?.let { prev -> savePlayerProgress(context, title, prev, isLive) }
+            if (playUrl.isNotBlank()) {
+                val resumeAt = HistoryStore.getProgress(context, playUrl)
+                    .takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
+                if (MagnetPlayer.isMagnet(playUrl)) {
+                    // v0.25.0：服务缺失对话框只属于磁力分支，不与普通起播失败混用
+                    showServiceMissingDialog = !MagnetPlayer.playIfReady(
+                        context = context,
+                        magnet = playUrl,
+                        title = title,
+                        startPositionMs = resumeAt,
+                    )
+                } else {
+                    // 网页嗅探命中的直链自带 Referer/UA（SniffPlayHeaders 一次性取出）；
+                    // 其他来源没有记录则为空 map，行为与之前一致。
+                    // v0.14.0：片头跳过（非续播时从 skipIntroSec 开始）
+                    // v0.16.2：按源取片头（siteKey 区分源）
+                    // v0.20.0：走 EngineHost，按当前内核（Media3/libmpv）起播
+                    val headers = SniffPlayHeaders.take(playUrl)
+                    lastHeaders = headers
+                    val skipIntro = PlayerSettings.getSkipIntroFor(context, vodId)
+                    val startPos = if (resumeAt > 0) resumeAt
+                    else if (skipIntro > 0) skipIntro * 1000L else 0L
+                    // v0.19.0：外挂字幕（本次覆盖优先，否则按剧记忆）
+                    // v0.21.0：走 SubtitleKit（含时间偏移），双引擎统一
+                    // v0.25.0：字幕是独立子系统，坏了不影响主链路（无字幕起播）
+                    val subtitleUrl = runCatching { currentSubtitleUrl() }
+                        .onFailure {
+                            LogBus.w("Player", "字幕准备失败，不挂字幕：${it.message}")
+                        }
+                        .getOrNull()
+                    val ok = EngineHost.play(
+                        context,
+                        playUrl,
+                        headers = headers,
+                        startPositionMs = startPos,
+                        subtitleUrl = subtitleUrl,
+                    )
+                    // v0.21.0：应用字幕样式
+                    if (ok) {
+                        EngineHost.applySubtitleStyle(
+                            PlayerSettings.subtitleStyle.value, playerView
+                        )
+                    } else {
+                        errorMsg = "播放启动失败，请检查地址或切换线路"
+                    }
+                }
             }
-            showServiceMissingDialog = !started
+            lastUrl = playUrl
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            LogBus.e("Player", "起播链路异常：${t::class.java.simpleName}: ${t.message}")
+            Toast.makeText(context, "播放启动失败，请重试", Toast.LENGTH_SHORT).show()
         }
-        lastUrl = playUrl
     }
 
     /**
@@ -296,43 +315,121 @@ fun PlayerScreen(
     /**
      * v0.19.0：字幕变更后按当前位置重播（字幕需要重建 MediaSource 才能生效）。
      * v0.21.0：含时间偏移处理 + 样式应用，走协程（SubtitleKit 可能下载）。
+     * v0.25.0：try/catch 兜底，失败 Toast 不崩。
      */
     fun replayWithSubtitle() {
         scope.launch {
-            val pos = EngineHost.currentPosition()
-            EngineHost.play(
-                context, playUrl, headers = lastHeaders,
-                startPositionMs = pos, subtitleUrl = currentSubtitleUrl(),
-            )
-            EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
+            try {
+                val pos = EngineHost.currentPosition()
+                val sub = runCatching { currentSubtitleUrl() }.getOrNull()
+                val ok = EngineHost.play(
+                    context, playUrl, headers = lastHeaders,
+                    startPositionMs = pos, subtitleUrl = sub,
+                )
+                if (ok) EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
+                else Toast.makeText(context, "字幕应用失败", Toast.LENGTH_SHORT).show()
+            } catch (t: Throwable) {
+                LogBus.e("Player", "重播异常：${t.message}")
+                Toast.makeText(context, "操作失败，请重试", Toast.LENGTH_SHORT).show()
+            }
         }
     }
+
+    // v0.25.0：切换中防抖（快速连点不叠请求）
+    var switchingEngine by remember { mutableStateOf(false) }
 
     /**
      * v0.20.0：播放器内一键切换内核（Media3 ↔ libmpv）。
      * 停掉旧引擎、持久化选择、按当前进度重播；AndroidView 用 key(engine) 重建对应画面。
      * v0.21.0：手动切换先清掉自动换内核覆盖；字幕走 SubtitleKit。
+     * v0.25.0：try/catch 兜底 + 防抖，切换失败 Toast 不崩。
      */
     fun switchEngine() {
+        if (switchingEngine) return
+        switchingEngine = true
         scope.launch {
-            val pos = EngineHost.currentPosition()
-            val target =
-                if (EngineHost.engine() == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV
-                else PlayerEngine.MEDIA3
-            EngineHost.stop()
-            EngineHost.setEngineOverride(null)
-            PlayerSettings.setEngine(context, target)
-            Toast.makeText(
-                context,
-                "播放内核已切换为 ${if (target == PlayerEngine.MEDIA3) "Media3" else "libmpv"}",
-                Toast.LENGTH_SHORT,
-            ).show()
-            LogBus.i("Player", "切换播放内核 → $target")
-            EngineHost.play(
-                context, playUrl, headers = lastHeaders,
-                startPositionMs = pos, subtitleUrl = currentSubtitleUrl(),
-            )
-            EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
+            try {
+                val pos = EngineHost.currentPosition()
+                val target =
+                    if (EngineHost.engine() == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV
+                    else PlayerEngine.MEDIA3
+                EngineHost.stop()
+                EngineHost.setEngineOverride(null)
+                PlayerSettings.setEngine(context, target)
+                Toast.makeText(
+                    context,
+                    "播放内核已切换为 ${if (target == PlayerEngine.MEDIA3) "Media3" else "libmpv"}",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                LogBus.i("Player", "切换播放内核 → $target")
+                val sub = runCatching { currentSubtitleUrl() }.getOrNull()
+                val ok = EngineHost.play(
+                    context, playUrl, headers = lastHeaders,
+                    startPositionMs = pos, subtitleUrl = sub,
+                )
+                if (ok) EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
+                else Toast.makeText(context, "切换后起播失败", Toast.LENGTH_SHORT).show()
+            } catch (t: Throwable) {
+                LogBus.e("Player", "手动切换内核异常：${t::class.java.simpleName}: ${t.message}")
+                Toast.makeText(context, "切换内核失败", Toast.LENGTH_SHORT).show()
+            } finally {
+                switchingEngine = false
+            }
+        }
+    }
+
+    /**
+     * v0.19.0：播放错误 → 按线路顺序自动重试（同集换线路）。
+     * v0.25.0：抽成独立函数，自动换内核失败时复用；全部试完仍失败才 Snackbar。
+     */
+    fun tryNextLine(fallbackMsg: String) {
+        val lines = PlaySession.lines
+        val resolver = PlaySession.resolver
+        val curLine = PlaySession.lineIndex
+        if (resolver != null && lines.size > 1 && curLine !in triedLines) {
+            triedLines.add(curLine)
+            scope.launch {
+                var next = (curLine + 1) % lines.size
+                var link = ""
+                var targetLine = -1
+                var targetEpIdx = 0
+                var guard = 0
+                while (guard < lines.size && link.isBlank()) {
+                    if (next !in triedLines) {
+                        triedLines.add(next)
+                        val line = lines[next]
+                        val epIdx = PlaySession.episodeIndex
+                            .coerceIn(0, (line.episodes.size - 1).coerceAtLeast(0))
+                        val ep = line.episodes.getOrNull(epIdx)
+                        // 磁力不参与自动重试（走 MagnetPlayer 分支，无播放器错误可重试）
+                        if (ep != null && !MagnetPlayer.isMagnet(ep.url)) {
+                            val resolved = resolver(context, ep)
+                            if (resolved.isNotBlank() && resolved != playUrl) {
+                                link = resolved
+                                targetLine = next
+                                targetEpIdx = epIdx
+                            }
+                        }
+                    }
+                    next = (next + 1) % lines.size
+                    guard++
+                }
+                if (link.isNotBlank()) {
+                    PlaySession.moveTo(targetLine, targetEpIdx)
+                    Toast.makeText(
+                        context,
+                        "已自动切换到「${lines[targetLine].name}」",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    LogBus.i("Player", "播放失败，自动换线路：${lines[targetLine].name}")
+                    autoSwitching = true
+                    playUrl = link
+                } else {
+                    errorMsg = "所有线路均播放失败"
+                }
+            }
+        } else {
+            errorMsg = fallbackMsg
         }
     }
 
@@ -343,73 +440,43 @@ fun PlayerScreen(
         EngineHost.setOnErrorListener { msg ->
             // v0.21.0：播放失败先自动换内核（同地址只换一次，静默不持久化）；
             // 双内核都失败才走下面的线路重试。
+            // v0.25.0：换内核本身抛异常 → Toast 降级走线路重试，绝不崩。
             val cur = EngineHost.engine()
             val other =
                 if (cur == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV else PlayerEngine.MEDIA3
             if (other !in triedEngines) {
-                val pos = EngineHost.currentPosition()
                 triedEngines.add(cur)
                 triedEngines.add(other)
-                LogBus.i("Player", "播放失败，自动换内核重试：$cur → $other")
-                EngineHost.stop()
-                EngineHost.setEngineOverride(other)
-                scope.launch {
-                    EngineHost.play(
-                        context, playUrl, headers = lastHeaders,
-                        startPositionMs = pos, subtitleUrl = currentSubtitleUrl(),
+                try {
+                    LogBus.i("Player", "播放失败，自动换内核重试：$cur → $other")
+                    EngineHost.stop()
+                    EngineHost.setEngineOverride(other)
+                    val pos = EngineHost.currentPosition()
+                    scope.launch {
+                        val sub = runCatching { currentSubtitleUrl() }.getOrNull()
+                        val ok = EngineHost.play(
+                            context, playUrl, headers = lastHeaders,
+                            startPositionMs = pos, subtitleUrl = sub,
+                        )
+                        if (ok) {
+                            EngineHost.applySubtitleStyle(
+                                PlayerSettings.subtitleStyle.value, playerView
+                            )
+                        } else {
+                            tryNextLine(msg)
+                        }
+                    }
+                } catch (t: Throwable) {
+                    LogBus.e(
+                        "Player",
+                        "自动换内核异常：${t::class.java.simpleName}: ${t.message}",
                     )
-                    EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
+                    Toast.makeText(context, "切换内核失败，尝试换线路", Toast.LENGTH_SHORT).show()
+                    tryNextLine(msg)
                 }
                 return@setOnErrorListener
             }
-            val lines = PlaySession.lines
-            val resolver = PlaySession.resolver
-            val curLine = PlaySession.lineIndex
-            if (resolver != null && lines.size > 1 && curLine !in triedLines) {
-                triedLines.add(curLine)
-                scope.launch {
-                    var next = (curLine + 1) % lines.size
-                    var link = ""
-                    var targetLine = -1
-                    var targetEpIdx = 0
-                    var guard = 0
-                    while (guard < lines.size && link.isBlank()) {
-                        if (next !in triedLines) {
-                            triedLines.add(next)
-                            val line = lines[next]
-                            val epIdx = PlaySession.episodeIndex
-                                .coerceIn(0, (line.episodes.size - 1).coerceAtLeast(0))
-                            val ep = line.episodes.getOrNull(epIdx)
-                            // 磁力不参与自动重试（走 MagnetPlayer 分支，无播放器错误可重试）
-                            if (ep != null && !MagnetPlayer.isMagnet(ep.url)) {
-                                val resolved = resolver(context, ep)
-                                if (resolved.isNotBlank() && resolved != playUrl) {
-                                    link = resolved
-                                    targetLine = next
-                                    targetEpIdx = epIdx
-                                }
-                            }
-                        }
-                        next = (next + 1) % lines.size
-                        guard++
-                    }
-                    if (link.isNotBlank()) {
-                        PlaySession.moveTo(targetLine, targetEpIdx)
-                        Toast.makeText(
-                            context,
-                            "已自动切换到「${lines[targetLine].name}」",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        LogBus.i("Player", "播放失败，自动换线路：${lines[targetLine].name}")
-                        autoSwitching = true
-                        playUrl = link
-                    } else {
-                        errorMsg = "所有线路均播放失败"
-                    }
-                }
-            } else {
-                errorMsg = msg
-            }
+            tryNextLine(msg)
         }
         onDispose { EngineHost.setOnErrorListener(null) }
     }

@@ -38,6 +38,13 @@ object MpvPlayerManager {
     private val initialized = AtomicBoolean(false)
     private val destroyed = AtomicBoolean(false)
 
+    /**
+     * v0.25.0：libmpv 初始化是否失败过（native 库缺失等）。
+     * 一旦失败，本进程内视为该引擎不可用，EngineHost.play 直接回退 Media3，不再尝试。
+     */
+    private val initFailedFlag = AtomicBoolean(false)
+    val initFailed: Boolean get() = initFailedFlag.get()
+
     @Volatile private var attachedSurface: Surface? = null
     @Volatile private var surfaceW: Int = 0
     @Volatile private var surfaceH: Int = 0
@@ -100,6 +107,7 @@ object MpvPlayerManager {
                 LogBus.i("MpvPlayer", "libmpv 初始化完成")
             } catch (t: Throwable) {
                 initialized.set(false)
+                initFailedFlag.set(true)
                 LogBus.e("MpvPlayer", "libmpv 初始化失败：${t.message}")
             }
         }

@@ -1,8 +1,12 @@
 package com.movieshell.player
 
 import android.content.Context
+import android.net.Uri
+import android.os.SystemClock
+import android.widget.Toast
 import androidx.media3.common.PlaybackException
 import androidx.media3.ui.PlayerView
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.SubtitleStyle
@@ -32,24 +36,71 @@ object EngineHost {
         _override.value = engine
     }
 
+    /**
+     * 起播（v0.25.0 加固：永不抛异常）。
+     * - 地址非法 → 记日志 + Toast，返回 false；
+     * - libmpv 初始化曾失败 → 直接禁用该引擎回退 Media3（不走自动切换），Toast 提示；
+     * - 引擎起播抛异常 → 记 e 级诊断日志，返回 false（调用方决定 Toast/重试）。
+     * 返回 true 表示已提交给引擎（不代表已出画面，播放失败走 onError 回调）。
+     */
     fun play(
         context: Context,
         url: String,
         headers: Map<String, String> = emptyMap(),
         startPositionMs: Long = 0L,
         subtitleUrl: String? = null,
-    ) {
-        route(
-            media3 = {
+    ): Boolean {
+        val t0 = SystemClock.elapsedRealtime()
+        if (!isPlayableUrl(url)) {
+            LogBus.w("Play", "播放地址非法，已拒绝：${url.take(80)}")
+            Toast.makeText(context, "播放地址无效，无法播放", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        var eng = engine()
+        if (eng == PlayerEngine.LIBMPV && MpvPlayerManager.initFailed) {
+            LogBus.w("Play", "libmpv 已禁用（初始化失败过），回退 Media3")
+            Toast.makeText(context, "libmpv 不可用，已切回 Media3", Toast.LENGTH_SHORT).show()
+            setEngineOverride(PlayerEngine.MEDIA3)
+            eng = PlayerEngine.MEDIA3
+        }
+        return try {
+            if (eng == PlayerEngine.MEDIA3) {
                 PlayerManager.init(context)
                 PlayerManager.play(url, headers, startPositionMs, subtitleUrl)
-            },
-            libmpv = {
+            } else {
                 MpvPlayerManager.init(context)
                 MpvPlayerManager.play(url, headers, startPositionMs, subtitleUrl)
-            },
-        )
+            }
+            val cost = SystemClock.elapsedRealtime() - t0
+            // v0.25.0：结构化诊断日志（URL 脱敏：只留 host + 后缀）
+            LogBus.i(
+                "Play",
+                "start engine=$eng host=${urlHost(url)} ext=${urlExt(url)} " +
+                    "cost=${cost}ms pos=${startPositionMs}ms sub=${!subtitleUrl.isNullOrBlank()}",
+            )
+            true
+        } catch (t: Throwable) {
+            LogBus.e("Play", "起播异常 engine=$eng ${t::class.java.simpleName}: ${t.message}")
+            false
+        }
     }
+
+    /** 播放地址合法性：非空 + 协议白名单（http/https/magnet/file/本地绝对路径）。 */
+    fun isPlayableUrl(url: String): Boolean {
+        val u = url.trim()
+        if (u.isBlank()) return false
+        return u.startsWith("http://", true) || u.startsWith("https://", true) ||
+            u.startsWith("magnet:", true) || u.startsWith("file://", true) ||
+            u.startsWith("/")
+    }
+
+    /** URL 脱敏：host（日志不记完整地址）。 */
+    private fun urlHost(url: String): String =
+        runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
+
+    /** URL 后缀（m3u8/mp4/flv 等，用于定位格式相关问题）。 */
+    private fun urlExt(url: String): String =
+        url.substringBefore("?").substringAfterLast(".", "").take(8)
 
     fun pause() = route({ PlayerManager.pause() }, { MpvPlayerManager.pause() })
 

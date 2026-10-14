@@ -35,7 +35,7 @@ object LogBus {
     val entries: StateFlow<List<Entry>> = _entries
 
     private var handlerInstalled = false
-    private var logFile: java.io.File? = null
+    private var readCrashDone = false
 
     /** 尽早调用（MainActivity.onCreate 最前面）。 */
     fun init(context: android.content.Context? = null) {
@@ -43,45 +43,34 @@ object LogBus {
             if (handlerInstalled) return
             handlerInstalled = true
         }
-        // v0.14.3：崩溃日志写文件，重启后不丢
-        context?.let {
-            logFile = java.io.File(it.filesDir, "crash.log")
-            // 启动时把上次的崩溃日志读回内存
-            runCatching {
-                val f = logFile!!
-                if (f.exists() && f.length() > 0) {
-                    val text = f.readText()
-                    if (text.isNotBlank()) {
-                        synchronized(lock) {
-                            deque.addLast(Entry(System.currentTimeMillis(), 'E', "CrashLog", "=== 上次崩溃日志 ==="))
-                            text.lineSequence().take(200).forEach { line ->
-                                if (line.isNotBlank()) {
-                                    deque.addLast(Entry(System.currentTimeMillis(), 'E', "CrashLog", line.take(500)))
-                                }
-                            }
-                            while (deque.size > MAX) deque.removeFirst()
-                            _entries.value = deque.toList()
-                        }
-                    }
-                    f.writeText("") // 读完清空，避免重复
-                }
-            }
+        // v0.25.0：崩溃捕获已收敛到 CrashHandler（Application 里更早安装），
+        // 这里只做"上次崩溃读回内存"，不再装第二套 handler。
+        context?.let { readLastCrash(it) }
+    }
+
+    /**
+     * v0.25.0：把最近一次崩溃文件读回内存（供日志页查看），最多 200 行。
+     * CrashHandler 写的是 xiaying/crash/ 下按时间命名的文件。幂等，重复调用不重复灌。
+     */
+    fun readLastCrash(context: android.content.Context) {
+        synchronized(lock) {
+            if (readCrashDone) return
+            readCrashDone = true
         }
-        val prev = Thread.getDefaultUncaughtExceptionHandler()
-        Thread.setDefaultUncaughtExceptionHandler { t, e ->
-            try {
-                val crashMsg = "未捕获异常 thread=${t.name}: ${Log.getStackTraceString(e)}"
-                e("AndroidRuntime", crashMsg)
-                // 同步写文件，确保崩溃前落盘
-                runCatching {
-                    logFile?.appendText(
-                        "${java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())} E/AndroidRuntime: ${crashMsg.take(2000)}\n"
-                    )
+        runCatching {
+            val f = CrashHandler.latest(context) ?: return
+            val text = f.readText()
+            if (text.isBlank()) return
+            synchronized(lock) {
+                deque.addLast(Entry(System.currentTimeMillis(), 'E', "CrashLog", "=== 上次崩溃：${f.name} ==="))
+                text.lineSequence().take(200).forEach { line ->
+                    if (line.isNotBlank()) {
+                        deque.addLast(Entry(System.currentTimeMillis(), 'E', "CrashLog", line.take(500)))
+                    }
                 }
-            } catch (_: Exception) {
-                // 记录本身不能再抛
+                while (deque.size > MAX) deque.removeFirst()
+                _entries.value = deque.toList()
             }
-            prev?.uncaughtException(t, e)
         }
     }
 

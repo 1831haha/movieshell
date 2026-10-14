@@ -1,5 +1,7 @@
 package com.movieshell.ui.settings
 
+import android.content.ClipData
+import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,6 +43,8 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Warning
+import androidx.core.content.FileProvider
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -69,11 +73,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.BackupManager
+import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.PlayerEngine
+import com.movieshell.ui.preview.FILE_PROVIDER_AUTHORITY
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.ThemeStore
@@ -119,6 +125,31 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
             Toast.makeText(context, "备份已导出：${file.absolutePath}", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             LogBus.e("Backup", "备份导出失败：${e.message}")
+            Toast.makeText(context, "导出失败：${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** v0.25.0：崩溃日志打包 zip，经系统分享（FileProvider + ACTION_SEND） */
+    fun exportCrashLog() {
+        try {
+            val zip = CrashHandler.exportZip(context)
+            if (zip == null) {
+                Toast.makeText(context, "暂无崩溃日志", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val uri = FileProvider.getUriForFile(
+                context, FILE_PROVIDER_AUTHORITY, zip
+            )
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "application/zip"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newRawUri("crash", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(send, "分享崩溃日志"))
+            LogBus.i("CrashHandler", "崩溃日志已导出分享：${zip.name}")
+        } catch (e: Exception) {
+            LogBus.e("CrashHandler", "崩溃日志导出失败：${e.message}")
             Toast.makeText(context, "导出失败：${e.message}", Toast.LENGTH_LONG).show()
         }
     }
@@ -307,6 +338,14 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
                             onCheckedChange = { LogStore.setEnabled(context, it) },
                         )
                     },
+                )
+                // v0.25.0：崩溃日志导出（xiaying/crash/ 打包 zip 经系统分享）
+                val crashCount = remember { CrashHandler.list(context).size }
+                SettingsRow(
+                    icon = Icons.Filled.Warning,
+                    title = "导出崩溃日志",
+                    subtitle = if (crashCount > 0) "共 $crashCount 份，打包分享" else "暂无崩溃记录",
+                    onClick = { exportCrashLog() },
                 )
             }
             Spacer(Modifier.height(12.dp))

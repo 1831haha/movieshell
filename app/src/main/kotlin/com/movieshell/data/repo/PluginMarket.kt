@@ -1,7 +1,6 @@
 package com.movieshell.data.repo
 
 import android.content.Context
-import android.util.Log
 import com.movieshell.BuildConfig
 import com.movieshell.data.repo.PluginStore.InstalledPlugin
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +9,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipFile
@@ -79,24 +79,35 @@ object PluginMarket {
         .callTimeout(120, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * v0.25.0：市场索引拉取专用客户端（索引小，15s 超时；下载走上面的 http 长超时）。
+     * raw.githubusercontent 在部分网络下超时，配合下面的主备重试。
+     */
+    private val marketHttp = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    /** v0.25.0：官方市场备用镜像（jsdelivr）。 */
+    private const val RAW_HOST = "https://raw.githubusercontent.com/1831haha/xiaying-plugins/"
+    private const val MIRROR_HOST = "https://cdn.jsdelivr.net/gh/1831haha/xiaying-plugins@"
+
     @Volatile
     private var lastList: List<MarketPlugin> = emptyList()
 
     /** 详情页用：从最近一次拉取结果里按 id 取。 */
     fun cached(id: String): MarketPlugin? = lastList.firstOrNull { it.id == id }
 
-    /** 拉取市场。 */
+    /** 拉取市场（v0.25.0：网络异常自动重试1次 + 官方市场备用镜像）。 */
     suspend fun fetch(url: String): MarketInfo = withContext(Dispatchers.IO) {
-        val req = Request.Builder().url(url).header("User-Agent", UA).build()
-        val body = http.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) throw IllegalStateException("市场请求失败：HTTP ${resp.code}")
-            resp.body?.string() ?: throw IllegalStateException("市场返回为空")
-        }
+        val (body, effectiveUrl) = fetchBodyWithFallback(url)
         val root = runCatching { JSONObject(body) }
             .getOrElse { throw IllegalStateException("market.json 不是合法 JSON") }
         val arr = runCatching { root.getJSONArray("plugins") }
             .getOrElse { throw IllegalStateException("market.json 格式错误：缺 plugins 数组") }
-        val base = url.substringBeforeLast("/") + "/"
+        // v0.25.0：相对 URL 按实际成功的地址拼（主备域名整套切换）
+        val base = effectiveUrl.substringBeforeLast("/") + "/"
         val plugins = (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             MarketPlugin(
@@ -122,13 +133,54 @@ object PluginMarket {
             )
         }
         lastList = plugins
-        Log.i(TAG, "市场拉取成功：${plugins.size} 个插件")
+        LogBus.i(TAG, "市场拉取成功：${plugins.size} 个插件")
         MarketInfo(
             name = root.optString("name", "插件市场"),
             logo = resolveIcon(root.optString("logo", ""), base),
             desc = root.optString("desc", ""),
             updatedAt = root.optString("updatedAt", ""),
             plugins = plugins,
+        )
+    }
+
+    /**
+     * v0.25.0：市场索引拉取（主备 + 重试）。
+     * 每个候选地址试 2 次（首次 + 重试 1 次）；主地址（raw.githubusercontent）
+     * 网络异常则切 jsdelivr 备用镜像。返回（内容，实际生效地址）。
+     * HTTP 错误码直接抛（不重试不切镜像）；最终都失败抛中文错。
+     */
+    private fun fetchBodyWithFallback(url: String): Pair<String, String> {
+        val mirror = if (url.startsWith(RAW_HOST)) url.replace(RAW_HOST, MIRROR_HOST) else null
+        val candidates = listOfNotNull(url, mirror)
+        var lastErr: Exception? = null
+        for ((idx, u) in candidates.withIndex()) {
+            repeat(2) { attempt ->
+                try {
+                    val req = Request.Builder().url(u).header("User-Agent", UA).build()
+                    marketHttp.newCall(req).execute().use { resp ->
+                        if (!resp.isSuccessful) {
+                            throw IllegalStateException("市场请求失败：HTTP ${resp.code}")
+                        }
+                        val body = resp.body?.string()
+                            ?: throw IllegalStateException("市场返回为空")
+                        if (idx > 0 || attempt > 0) {
+                            LogBus.i(TAG, "市场拉取经${if (idx > 0) "备用镜像" else "重试"}成功")
+                        }
+                        return body to u
+                    }
+                } catch (e: IllegalStateException) {
+                    throw e
+                } catch (e: IOException) {
+                    lastErr = e
+                    LogBus.w(
+                        TAG,
+                        "市场拉取失败（${if (idx == 0) "主地址" else "备用镜像"}第${attempt + 1}次）：${e.message}",
+                    )
+                }
+            }
+        }
+        throw IllegalStateException(
+            "市场拉取失败：网络超时或无法连接（${lastErr?.message}），请检查网络后重试",
         )
     }
 
@@ -142,14 +194,14 @@ object PluginMarket {
     suspend fun install(context: Context, plugin: MarketPlugin) = withContext(Dispatchers.IO) {
         if (!plugin.isSupported()) throw IllegalStateException("插件类型 ${plugin.type} 侠影暂不支持")
         if (plugin.needsNewerApp()) throw IllegalStateException("该插件需要侠影 ${plugin.minApp} 及以上")
-        Log.i(TAG, "开始安装：${plugin.id} v${plugin.version}")
+        LogBus.i(TAG, "开始安装：${plugin.id} v${plugin.version}")
         val tmp = File.createTempFile("plugin_", ".tmp", context.cacheDir)
         try {
             download(plugin.url, tmp)
             verifyMd5(tmp, plugin.md5, plugin.id)
             if (plugin.type == "live") installLive(context, plugin, tmp)
             else installZip(context, plugin, tmp)
-            Log.i(TAG, "安装成功：${plugin.id} v${plugin.version}")
+            LogBus.i(TAG, "安装成功：${plugin.id} v${plugin.version}")
         } finally {
             tmp.delete()
         }
@@ -253,7 +305,7 @@ object PluginMarket {
             }
         }
         PluginStore.removeInstalled(context, id)
-        Log.i(TAG, "卸载成功：$id")
+        LogBus.i(TAG, "卸载成功：$id")
     }
 
     /** 远程版本是否新于本地版本（语义版本比对；minApp 门槛复用）。 */
@@ -321,15 +373,15 @@ object PluginMarket {
     /** 卸载后若 active 规则文件已不存在，清空 active，避免悬空。 */
     private fun clearActiveIfGone(rec: InstalledPlugin) {
         if (rec.files.contains(PySourceManager.activeRuleName())) {
-            Log.i(TAG, "active py 规则随插件卸载：${PySourceManager.activeRuleName()}")
+            LogBus.i(TAG, "active py 规则随插件卸载：${PySourceManager.activeRuleName()}")
             PySourceManager.setActiveRule(null)
         }
         if (rec.files.contains(DrpySourceManager.activeRuleName())) {
-            Log.i(TAG, "active js 规则随插件卸载：${DrpySourceManager.activeRuleName()}")
+            LogBus.i(TAG, "active js 规则随插件卸载：${DrpySourceManager.activeRuleName()}")
             DrpySourceManager.setActiveRule(null)
         }
         if (rec.files.contains(PhpSourceManager.activeRuleName())) {
-            Log.i(TAG, "active php 规则随插件卸载：${PhpSourceManager.activeRuleName()}")
+            LogBus.i(TAG, "active php 规则随插件卸载：${PhpSourceManager.activeRuleName()}")
             PhpSourceManager.setActiveRule(null)
         }
     }

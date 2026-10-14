@@ -1,5 +1,6 @@
 package com.movieshell.ui.market
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -88,6 +89,8 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
             } catch (e: Exception) {
                 error = e.message ?: e.toString()
                 LogBus.e("PluginMarket", "市场拉取失败：${e.message}")
+                // v0.25.0：超时/失败给明确中文 Toast，不只记日志
+                Toast.makeText(context, "插件市场加载失败：${e.message}", Toast.LENGTH_LONG).show()
             } finally {
                 loading = false
             }

@@ -95,6 +95,10 @@ object StoragePaths {
     fun pluginsDir(context: Context): File =
         File(baseDir(context), "plugins").also { it.mkdirs() }
 
+    /** v0.25.0：崩溃日志目录（xiaying/crash/crash_yyyyMMdd_HHmmss_SSS.txt，只留最近 20 个） */
+    fun crashDir(context: Context): File =
+        File(baseDir(context), "crash").also { it.mkdirs() }
+
     /**
      * 申请存储权限。
      * API>=30：跳系统设置页（ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION）；

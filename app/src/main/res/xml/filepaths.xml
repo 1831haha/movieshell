@@ -2,4 +2,6 @@
 <!-- v0.9.0：FileProvider 对外暴露公开目录 xiaying/ 下的文件（文件编辑/分享用） -->
 <paths>
     <external-path name="xiaying" path="xiaying/" />
+    <!-- v0.25.0：崩溃日志 zip（cacheDir）分享用 -->
+    <cache-path name="cache" path="." />
 </paths>

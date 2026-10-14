@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 55
-        versionName = "0.24.0"
+        versionCode = 56
+        versionName = "0.25.0"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -110,6 +110,9 @@ dependencies {
 
     // 播放器 (Media3 / ExoPlayer)
     implementation("androidx.media3:media3-exoplayer:1.4.1")
+    // v0.25.0：HLS/DASH 模块——缺 hls 时播 m3u8 会 ClassNotFoundException 直接闪退（真机实锤）
+    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
+    implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
 

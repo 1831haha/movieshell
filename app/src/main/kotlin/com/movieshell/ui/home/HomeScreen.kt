@@ -1,6 +1,12 @@
 package com.movieshell.ui.home
 
 import android.widget.Toast
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -90,6 +96,7 @@ import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.HomeCache
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SourceStateStore
@@ -104,6 +111,7 @@ import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -220,16 +228,80 @@ fun HomeScreen(
     var drpyLoading by remember { mutableStateOf(false) }
     var drpyCats by remember { mutableStateOf<List<CategoryType>>(emptyList()) }
     var drpyList by remember { mutableStateOf<List<ModelVod>?>(null) } // null=未加载/失败
+    var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
 
-    fun loadDrpyHome() {
+    /** v0.25.0：当前数据源的缓存 key（订阅站 key / 本地规则名） */
+    fun homeCacheKey(): String? = when {
+        subSite != null -> "sub_${subSite?.key}"
+        SourceStateStore.activeDrpyRule() != null -> "drpy_${DrpySourceManager.activeRuleName()}"
+        SourceStateStore.activePyRule() != null -> "py_${PySourceManager.activeRuleName()}"
+        else -> null
+    }
+
+    /**
+     * v0.25.0：首页加载单入口（原 loadDrpyHome / doRefresh 的重复逻辑合并于此）。
+     * - 缓存先行：IO 读盘，主线程即时渲染，冷启动不白屏；
+     * - 并发：推荐 + 分类同时拉，哪个先回先显示，不等最慢的；
+     * - 单路 6 秒熔断（withTimeoutOrNull），超时/异常记 LogBus；
+     * - 网络与引擎调用全在 IO 线程，不阻塞主线程；
+     * - 全失败且无缓存 → 错误态（homeError），UI 给重试按钮。
+     */
+    fun loadHome(onDone: () -> Unit = {}) {
+        val key = homeCacheKey() ?: return
         scope.launch {
             drpyLoading = true
-            val home = engineHome()
-            val cats = engineCats()
-            drpyCats = cats
-            drpyList = home.ifEmpty { null }
-            selectedCategory = 0
+            homeError = null
+            var cacheShown = false
+            // 1. 缓存先行
+            withContext(Dispatchers.IO) { HomeCache.load(context, key) }?.let { (data, fresh) ->
+                if (data.vods.isNotEmpty()) {
+                    drpyCats = data.cats
+                    drpyList = data.vods
+                    cacheShown = true
+                    LogBus.i("Home", "首页缓存命中（${if (fresh) "新鲜" else "过期"}）：${data.vods.size} 条")
+                } else if (data.cats.isNotEmpty()) {
+                    drpyCats = data.cats
+                }
+            }
+            // 2. 并发刷新
+            coroutineScope {
+                launch {
+                    val home = runCatching {
+                        withTimeoutOrNull(6_000) {
+                            withContext(Dispatchers.IO) { engineHome() }
+                        }
+                    }.getOrNull()
+                    if (home == null) {
+                        LogBus.w("Home", "首页推荐加载超时/失败（6s 熔断）")
+                    } else if (home.isNotEmpty() || !cacheShown) {
+                        // 有缓存时网络返回空不覆盖，避免缓存闪一下被清空
+                        drpyList = home.ifEmpty { null }
+                        selectedCategory = 0
+                    }
+                    if (!home.isNullOrEmpty()) {
+                        withContext(Dispatchers.IO) { HomeCache.saveVods(context, key, home) }
+                    }
+                }
+                launch {
+                    val cats = runCatching {
+                        withTimeoutOrNull(6_000) {
+                            withContext(Dispatchers.IO) { engineCats() }
+                        }
+                    }.getOrNull()
+                    if (cats == null) {
+                        LogBus.w("Home", "首页分类加载超时/失败（6s 熔断）")
+                    } else if (cats.isNotEmpty()) {
+                        drpyCats = cats
+                        withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) }
+                    }
+                }
+            }
             drpyLoading = false
+            if (drpyList == null) {
+                homeError = "加载失败，点击重试"
+                LogBus.w("Home", "首页数据全失败且无缓存")
+            }
+            onDone()
         }
     }
 
@@ -265,7 +337,7 @@ fun HomeScreen(
             SourceStateStore.activeDrpyRule() != null || SourceStateStore.activePyRule() != null
         val changed = active != drpyActive
         drpyActive = active
-        if (active && (changed || siteChanged || drpyList == null)) loadDrpyHome()
+        if (active && (changed || siteChanged || drpyList == null)) loadHome()
     }
 
     // 首次进入也走一遍，保证站源入口文案和数据与持久化状态一致
@@ -286,16 +358,11 @@ fun HomeScreen(
         if (refreshing) return
         refreshing = true
         if (drpyActive) {
-            // 下拉刷新：重调 home
-            scope.launch {
-                val home = engineHome()
-                val cats = engineCats()
-                drpyCats = cats
-                drpyList = home.ifEmpty { null }
-                selectedCategory = 0
+            // v0.25.0：复用 loadHome 单入口（含缓存/并发/超时），结束收指示条
+            loadHome(onDone = {
                 refreshing = false
                 pullOffset = 0f
-            }
+            })
         } else {
             scope.launch {
                 delay(1200) // 占位：模拟刷新耗时
@@ -462,16 +529,33 @@ fun HomeScreen(
                 }
             }
 
-            // drpy 首次加载中
+            // v0.25.0：骨架屏（冷启动无缓存时的加载占位，不白屏）
             if (drpyActive && drpyLoading && drpyList == null) {
+                items(6) { HomeSkeletonCard() }
+            }
+
+            // v0.25.0：加载失败错误态 + 重试（有缓存时不出现，缓存优先显示）
+            if (drpyActive && !drpyLoading && homeError != null && drpyList == null) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 48.dp),
-                        contentAlignment = Alignment.Center,
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        CircularProgressIndicator()
+                        Text(
+                            text = "首页加载失败",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "网络超时或源无响应",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        TextButton(onClick = { loadHome() }) {
+                            Text("点击重试")
+                        }
                     }
                 }
             }
@@ -495,7 +579,7 @@ fun HomeScreen(
                             onClick = {
                                 // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
                                 if (drpyActive && drpyCats.isNotEmpty()) {
-                                    if (index == 0) loadDrpyHome() else loadDrpyCategory(index)
+                                    if (index == 0) loadHome() else loadDrpyCategory(index)
                                 } else {
                                     selectedCategory = index
                                 }
@@ -923,5 +1007,37 @@ private fun SourceSwitchSheet(
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** v0.25.0：首页骨架屏——加载中的脉冲占位卡片，不白屏 */
+@Composable
+private fun HomeSkeletonCard() {
+    val transition = rememberInfiniteTransition(label = "skeleton")
+    val alpha by transition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.65f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "skeletonAlpha",
+    )
+    Column(modifier = Modifier.alpha(alpha)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(3f / 4f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        )
+        Spacer(Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .height(14.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        )
     }
 }
