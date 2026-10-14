@@ -37,6 +37,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginStore
 import com.movieshell.ui.components.EmptyKind
@@ -57,6 +58,8 @@ fun PluginDetailScreen(pluginId: String, onBack: () -> Unit = {}) {
     val plugin = remember(pluginId) { PluginMarket.cached(pluginId) }
     var installedTick by remember { mutableStateOf(0) }
     var busy by remember { mutableStateOf(false) }
+    // v0.27.2：一键安装进度弹窗态
+    var installProgress by remember { mutableStateOf<InstallProgressUi?>(null) }
     val installedVersion = remember(installedTick) {
         PluginStore.installedOf(pluginId)?.version
     }
@@ -168,9 +171,14 @@ fun PluginDetailScreen(pluginId: String, onBack: () -> Unit = {}) {
                 onInstall = {
                     busy = true
                     scope.launch {
-                        PluginUi.toast(context, PluginUi.install(context, plugin))
+                        val (ok, msg) = PluginUi.installWithProgress(context, plugin) {
+                            installProgress = it
+                        }
+                        PluginUi.toast(context, msg)
+                        installProgress = null
                         installedTick++
                         busy = false
+                        if (!ok) LogBus.e("PluginMarket", "安装失败已 toast：${plugin.id}")
                     }
                 },
                 onUninstall = {
@@ -183,11 +191,20 @@ fun PluginDetailScreen(pluginId: String, onBack: () -> Unit = {}) {
                 },
             )
             Spacer(Modifier.height(8.dp))
-            Text(
-                text = "server 插件 App 只负责下载校验与版本管理，Node.js 服务需自行运行",
-                style = SoftType.Caption,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            val typeNote = when (plugin.type) {
+                "server" -> "server 插件 App 只负责下载校验与版本管理，Node.js 服务需自行运行"
+                "env" -> "env 环境插件：依赖包解压到私有目录，PY 规则 import 即用；卸载后需重启 App 生效"
+                else -> ""
+            }
+            if (typeNote.isNotBlank()) {
+                Text(
+                    text = typeNote,
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
+    // v0.27.2：一键安装进度弹窗
+    InstallProgressDialog(installProgress)
 }

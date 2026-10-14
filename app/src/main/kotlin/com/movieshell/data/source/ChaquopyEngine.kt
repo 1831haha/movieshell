@@ -22,6 +22,9 @@ object ChaquopyEngine : PyEngine {
     @Volatile
     private var appContext: Context? = null
 
+    @Volatile
+    private var libsPathAdded = false
+
     fun init(context: Context) {
         if (appContext == null) {
             appContext = context.applicationContext
@@ -30,6 +33,11 @@ object ChaquopyEngine : PyEngine {
 
     fun isInitialized(): Boolean = appContext != null
 
+    /**
+     * v0.27.2：加锁。之前未加锁，并发协程可能同时通过 isStarted 检查、
+     * 各调一次 Python.start()，真机报过 "Python already started"。
+     */
+    @Synchronized
     private fun python(): Python {
         val ctx = appContext
             ?: throw IllegalStateException("ChaquopyEngine.init() 尚未调用")
@@ -38,7 +46,23 @@ object ChaquopyEngine : PyEngine {
             Python.start(AndroidPlatform(ctx))
             Log.i(TAG, "Python 解释器已启动")
         }
-        return Python.getInstance()
+        val py = Python.getInstance()
+        ensureLibsPath(py, ctx)
+        return py
+    }
+
+    /**
+     * v0.27.2：把插件装的 PY 依赖包目录加入 sys.path（进程级一次即可；
+     * 目录项先占位，依赖包后装也能被 import 到）。
+     */
+    private fun ensureLibsPath(py: Python, ctx: Context) {
+        if (libsPathAdded) return
+        runCatching {
+            val dir = com.movieshell.data.repo.StoragePaths.pyLibsDir(ctx)
+            py.getModule("sys").get("path").callAttr("insert", 0, dir.absolutePath)
+            Log.i(TAG, "pylibs 已加入 sys.path：${dir.absolutePath}")
+        }.onFailure { Log.w(TAG, "pylibs 加入 sys.path 失败", it) }
+        libsPathAdded = true
     }
 
     override suspend fun invoke(rulePath: String, method: String, argsJson: String): String =

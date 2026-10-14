@@ -87,6 +87,14 @@ object StoragePaths {
     fun screenshotsDir(context: Context): File =
         File(baseDir(context), "Screenshots").also { it.mkdirs() }
 
+    /**
+     * v0.27.2：PY 依赖包（pylibs）私有目录。
+     * 必须走私有 filesDir（不能走公开目录）：native .so 只能从私有目录 dlopen，
+     * 公开目录（/sdcard）在部分 ROM 上 noexec。
+     */
+    fun pyLibsDir(context: Context): File =
+        File(context.filesDir, "pylibs").also { it.mkdirs() }
+
     /** v0.23.0：live 直播源存放目录（xiaying/live/<id>.json）；直播页 v0.24 做，先存好 */
     fun liveDir(context: Context): File =
         File(baseDir(context), "live").also { it.mkdirs() }

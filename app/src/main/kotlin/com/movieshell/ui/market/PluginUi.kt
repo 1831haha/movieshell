@@ -3,12 +3,18 @@ package com.movieshell.ui.market
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -24,13 +30,37 @@ import com.movieshell.ui.components.AppButtonVariant
  */
 object PluginUi {
 
-    /** 安装/更新：返回 toast 文案。 */
-    suspend fun install(context: Context, p: MarketPlugin): String = try {
-        PluginMarket.install(context, p)
-        "已安装 ${p.name} v${p.version}"
-    } catch (e: Exception) {
-        LogBus.e("PluginMarket", "安装失败：${e.message}（${p.id}）")
-        "安装失败：${e.message}"
+    /**
+     * v0.27.2：带三段进度（下载→校验→安装）的安装，onState 驱动 InstallProgressDialog。
+     * 返回 Pair(是否成功, toast 文案)；调用方负责 toast 并清掉进度态。
+     */
+    suspend fun installWithProgress(
+        context: Context,
+        p: MarketPlugin,
+        onState: (InstallProgressUi?) -> Unit,
+    ): Pair<Boolean, String> {
+        onState(InstallProgressUi(p.name, "准备下载…", 0, p.size, true))
+        return try {
+            PluginMarket.install(context, p) { stage, done, total ->
+                onState(
+                    InstallProgressUi(
+                        pluginName = p.name,
+                        stage = when (stage) {
+                            PluginMarket.InstallStage.Downloading -> "下载中"
+                            PluginMarket.InstallStage.Verifying -> "校验中"
+                            PluginMarket.InstallStage.Installing -> "安装中"
+                        },
+                        done = done,
+                        total = total,
+                        indeterminate = stage != PluginMarket.InstallStage.Downloading || total <= 0,
+                    )
+                )
+            }
+            true to "已安装 ${p.name} v${p.version}"
+        } catch (e: Exception) {
+            LogBus.e("PluginMarket", "安装失败：${e.message}（${p.id}）")
+            false to "安装失败：${e.message}"
+        }
     }
 
     /** 卸载：返回 toast 文案。 */
@@ -50,6 +80,60 @@ object PluginUi {
         "app" -> "应用"
         else -> category
     }
+
+    /** v0.27.2：安装进度条文案。 */
+    fun formatBytes(bytes: Long): String = when {
+        bytes < 0 -> ""
+        bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
+        bytes >= 1024 -> "%d KB".format(bytes / 1024)
+        else -> "$bytes B"
+    }
+}
+
+/** v0.27.2：一键安装进度态（下载→校验→安装），null=不显示。 */
+data class InstallProgressUi(
+    val pluginName: String,
+    val stage: String,
+    val done: Long,
+    val total: Long,
+    val indeterminate: Boolean,
+)
+
+/**
+ * v0.27.2：一键安装进度弹窗。下载阶段定量进度条（x%/MB），
+ * 校验/安装阶段不定量转圈；安装中不可取消（关了会装一半）。
+ */
+@Composable
+fun InstallProgressDialog(state: InstallProgressUi?) {
+    if (state == null) return
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("正在安装 ${state.pluginName}") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(state.stage, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (state.indeterminate) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                } else {
+                    val frac = (state.done.toFloat() / state.total.coerceAtLeast(1)).coerceIn(0f, 1f)
+                    LinearProgressIndicator(
+                        progress = frac,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        "${PluginUi.formatBytes(state.done)} / ${PluginUi.formatBytes(state.total)}" +
+                            "（${(frac * 100).toInt()}%）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+    )
 }
 
 /**

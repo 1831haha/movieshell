@@ -87,6 +87,21 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
     var info by remember { mutableStateOf<MarketInfo?>(null) }
     var installedTick by remember { mutableStateOf(0) }
     var busyId by remember { mutableStateOf<String?>(null) }
+    // v0.27.2：一键安装进度弹窗态
+    var installProgress by remember { mutableStateOf<InstallProgressUi?>(null) }
+
+    /** 带进度条的一键安装（列表页/详情页共用流程）。 */
+    fun doInstall(p: MarketPlugin) {
+        busyId = p.id
+        scope.launch {
+            val (ok, msg) = PluginUi.installWithProgress(context, p) { installProgress = it }
+            PluginUi.toast(context, msg)
+            installProgress = null
+            installedTick++
+            busyId = null
+            if (!ok) LogBus.e("PluginMarket", "安装失败已 toast：${p.id}")
+        }
+    }
 
     fun reload() {
         loading = true
@@ -211,12 +226,7 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
                                     busy = busyId == p.id,
                                     onDetail = { onDetail(p.id) },
                                     onInstall = {
-                                        busyId = p.id
-                                        scope.launch {
-                                            PluginUi.toast(context, PluginUi.install(context, p))
-                                            installedTick++
-                                            busyId = null
-                                        }
+                                        doInstall(p)
                                     },
                                     onUninstall = {
                                         busyId = p.id
@@ -234,6 +244,8 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
             }
         }
     }
+    // v0.27.2：一键安装进度弹窗（全局覆盖在页面上）
+    InstallProgressDialog(installProgress)
 }
 
 @Composable

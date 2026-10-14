@@ -23,23 +23,19 @@ data class ApiSource(val name: String, val url: String, val enabled: Boolean = t
 /**
  * 接口站源最小持久化：filesDir/api_sources.json。
  *
- * 背景：SourcesScreen 里的接口站源分组目前是纯内存 remember，
- * 本 Store 提供独立的读写工具；备份/恢复走它，待站源页接入后
- * 即成为真正的持久化（默认条目与 SourcesScreen 写死的保持一致）。
+ * v0.27.2：无预置默认源；文件不存在/解析失败一律返回空列表，由站源页空态引导添加。
  */
 object ApiSourceStore {
     private const val TAG = "ApiSourceStore"
     private const val FILE_NAME = "api_sources.json"
 
-    val defaults = listOf(
-        ApiSource("量子资源", "https://cj.lziapi.com/api.php/provide/vod/", true),
-        ApiSource("天空资源", "https://api.tiankongapi.com/api.php/provide/vod/", true),
-        ApiSource("暴风资源", "https://bfzyapi.com/api.php/provide/vod/", false),
-    )
-
+    /**
+     * v0.27.2：不再预置默认源。新安装源列表初始为空（空态引导用户添加）；
+     * 老用户已有 api_sources.json 的不受影响。
+     */
     fun load(context: Context): List<ApiSource> {
         val file = File(context.filesDir, FILE_NAME)
-        if (!file.isFile) return defaults
+        if (!file.isFile) return emptyList()
         return try {
             file.readText().let(Json::parseToJsonElement).jsonArray.mapNotNull { el ->
                 val o = el.jsonObject
@@ -48,10 +44,10 @@ object ApiSourceStore {
                 val enabled = o["enabled"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
                     ?: true
                 ApiSource(name, url, enabled)
-            }.ifEmpty { defaults }
+            }
         } catch (e: Exception) {
-            Log.w(TAG, "读取 $FILE_NAME 失败，用默认订阅", e)
-            defaults
+            Log.w(TAG, "读取 $FILE_NAME 失败，返回空列表", e)
+            emptyList()
         }
     }
 
@@ -145,7 +141,7 @@ object BackupManager {
                     ?: true
                 ApiSource(name, url, enabled)
             }.orEmpty()
-            ApiSourceStore.save(context, apiSources.ifEmpty { ApiSourceStore.defaults })
+            ApiSourceStore.save(context, apiSources)
 
             DrpySourceManager.init(context)
             PySourceManager.init(context)

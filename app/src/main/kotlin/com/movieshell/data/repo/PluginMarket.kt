@@ -33,7 +33,15 @@ object PluginMarket {
     private const val UA = "XiaYing/0.23.0"
 
     /** 侠影可安装的 type；apk/import 等默认隐藏（设置里可开"显示不兼容插件"仅查看）。 */
-    private val INSTALLABLE_TYPES = setOf("source", "server", "live")
+    private val INSTALLABLE_TYPES = setOf("source", "server", "live", "env")
+
+    /** v0.27.2：一键安装三段进度（下载→校验→安装），供安装进度条 UI 用。 */
+    enum class InstallStage { Downloading, Verifying, Installing }
+
+    fun interface InstallProgress {
+        /** stage 当前阶段；done/total 仅下载阶段有意义（字节数，total 可能为 -1）。 */
+        fun onStage(stage: InstallStage, done: Long, total: Long)
+    }
 
     data class MarketInfo(
         val name: String,
@@ -190,15 +198,22 @@ object PluginMarket {
         else -> base + icon.removePrefix("/")
     }
 
-    /** 一键安装（含更新：覆盖安装）。 */
-    suspend fun install(context: Context, plugin: MarketPlugin) = withContext(Dispatchers.IO) {
+    /** 一键安装（含更新：覆盖安装）。progress 为空则静默安装。 */
+    suspend fun install(
+        context: Context,
+        plugin: MarketPlugin,
+        progress: InstallProgress? = null,
+    ) = withContext(Dispatchers.IO) {
         if (!plugin.isSupported()) throw IllegalStateException("插件类型 ${plugin.type} 侠影暂不支持")
         if (plugin.needsNewerApp()) throw IllegalStateException("该插件需要侠影 ${plugin.minApp} 及以上")
         LogBus.i(TAG, "开始安装：${plugin.id} v${plugin.version}")
         val tmp = File.createTempFile("plugin_", ".tmp", context.cacheDir)
         try {
-            download(plugin.url, tmp)
+            progress?.onStage(InstallStage.Downloading, 0, plugin.size)
+            download(plugin.url, tmp, progress, plugin.size)
+            progress?.onStage(InstallStage.Verifying, 0, 0)
             verifyMd5(tmp, plugin.md5, plugin.id)
+            progress?.onStage(InstallStage.Installing, 0, 0)
             if (plugin.type == "live") installLive(context, plugin, tmp)
             else installZip(context, plugin, tmp)
             LogBus.i(TAG, "安装成功：${plugin.id} v${plugin.version}")
@@ -254,6 +269,23 @@ object PluginMarket {
                         installed.add(e.name)
                     }
                 }
+                /**
+                 * v0.27.2：env=环境依赖包。包内 pylibs/ 下的内容解到私有 filesDir/pylibs/
+                 * （必须私有：native .so 只能从私有目录 dlopen），ChaquopyEngine 已把该
+                 * 目录加入 sys.path，规则 import 即用。卸载时按记录删除。
+                 */
+                "env" -> {
+                    val dir = StoragePaths.pyLibsDir(context)
+                    entries.filter { it.name.startsWith("pylibs/") }.forEach { e ->
+                        val rel = e.name.removePrefix("pylibs/")
+                        if (rel.isBlank()) return@forEach
+                        val dst = safeDst(dir, rel)
+                        dst.parentFile?.mkdirs()
+                        zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
+                        installed.add(rel)
+                    }
+                    if (installed.isEmpty()) throw IllegalStateException("依赖包里没有 pylibs/ 内容：${plugin.id}")
+                }
                 else -> throw IllegalStateException("不支持的插件类型：${plugin.type}")
             }
         }
@@ -298,6 +330,14 @@ object PluginMarket {
         when (rec.type) {
             "server" -> File(StoragePaths.pluginsDir(context), id).deleteRecursively()
             "live" -> rec.files.forEach { File(StoragePaths.liveDir(context), it).delete() }
+            "env" -> {
+                val dir = StoragePaths.pyLibsDir(context)
+                rec.files.forEach { File(dir, it).delete() }
+                // 尽量清掉空目录（删不掉也无妨）
+                dir.walkTopDown().filter { it.isDirectory && it != dir }
+                    .sortedByDescending { it.absolutePath.length }
+                    .forEach { runCatching { it.delete() } }
+            }
             else -> {
                 val dir = ruleDir(context, rec.engine)
                 rec.files.forEach { File(dir, it).delete() }
@@ -329,12 +369,30 @@ object PluginMarket {
 
     // ---------------- 内部 ----------------
 
-    private fun download(url: String, dst: File) {
+    private fun download(
+        url: String,
+        dst: File,
+        progress: InstallProgress?,
+        totalHint: Long,
+    ) {
         val req = Request.Builder().url(url).header("User-Agent", UA).build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("下载失败：HTTP ${resp.code}")
             val body = resp.body ?: throw IllegalStateException("下载内容为空")
-            body.byteStream().use { input -> dst.outputStream().use { input.copyTo(it) } }
+            val total = totalHint.takeIf { it > 0 } ?: body.contentLength()
+            var done = 0L
+            body.byteStream().use { input ->
+                dst.outputStream().use { out ->
+                    val buf = ByteArray(32 * 1024)
+                    var n: Int
+                    while (input.read(buf).also { n = it } >= 0) {
+                        if (n == 0) continue
+                        out.write(buf, 0, n)
+                        done += n
+                        progress?.onStage(InstallStage.Downloading, done, total)
+                    }
+                }
+            }
         }
         if (dst.length() == 0L) throw IllegalStateException("下载内容为空")
     }

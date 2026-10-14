@@ -95,6 +95,7 @@ import com.movieshell.ui.log.LogBubbleOverlay
 import com.movieshell.ui.manual.ManualScreen
 import com.movieshell.ui.market.PluginDetailScreen
 import com.movieshell.ui.market.PluginMarketScreen
+import com.movieshell.ui.market.PyDepGuideOverlay
 import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.SettingsScreen
@@ -473,6 +474,8 @@ class MainActivity : ComponentActivity() {
                 }
                 // v0.7.2：运行日志悬浮窗（应用内悬浮）
                 LogBubbleOverlay()
+                // v0.27.2：PY 缺库一键安装引导
+                PyDepGuideOverlay()
                 }
             }
         }

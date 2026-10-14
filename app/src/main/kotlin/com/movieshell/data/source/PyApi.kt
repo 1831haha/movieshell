@@ -42,6 +42,8 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
             val err = root["error"]?.toString() ?: "未知错误"
             Log.w(TAG, "PY 规则返回失败: $err")
             LogBus.e(TAG, "PY 规则失败: $err")
+            // v0.27.2：缺库（No module named）挂起一键安装引导
+            PyDepGuide.reportError(err)
             return null
         }
         (root["data"] as? JsonObject)

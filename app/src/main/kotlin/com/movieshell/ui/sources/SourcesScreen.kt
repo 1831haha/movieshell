@@ -27,11 +27,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
@@ -43,7 +43,6 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -96,6 +95,7 @@ import com.movieshell.data.repo.WebSourceManager
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
@@ -290,13 +290,12 @@ fun SourcesScreen(
     val context = LocalContext.current
 
     var selectedTab by remember { mutableStateOf(0) }
+    // v0.27.2：插件页是插件页、站源页是站源页——tab 收敛为两类：
+    // 订阅源（接口订阅 + 网页源），插件源（JS/PY/PHP 规则文件，每条=一个可用源）
     val tabs = remember {
         listOf(
-            "接口站源" to Icons.Filled.Language,
-            "JS" to Icons.Filled.Code,
-            "PY" to Icons.Filled.Terminal,
-            "PHP" to Icons.Filled.Extension,
-            "网页源" to Icons.Filled.Public,
+            "订阅源" to Icons.Filled.Language,
+            "插件源" to Icons.Filled.Extension,
         )
     }
 
@@ -802,20 +801,21 @@ fun SourcesScreen(
 
         when (selectedTab) {
             0 -> {
-                // 接口站源 tab：订阅卡片原样保留
-                AppButton(
-                    text = "添加订阅",
-                    onClick = { showAddDialog = true },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    variant = AppButtonVariant.Primary,
-                )
+                // v0.27.2 订阅源：接口订阅 + 网页源
+                val webItems = tabItems(TAB_WEB)
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    item {
+                        AppButton(
+                            text = "添加订阅",
+                            onClick = { showAddDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            variant = AppButtonVariant.Primary,
+                        )
+                    }
                     item {
                         SubscriptionCard(
                             group = apiGroup,
@@ -830,80 +830,127 @@ fun SourcesScreen(
                             onSetCurrent = ::setCurrentSubSite,
                         )
                     }
+                    item {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Text(
+                                text = "网页源 · ${webItems.size} 个",
+                                style = SoftType.CardTitle,
+                                modifier = Modifier.weight(1f),
+                            )
+                            AppButton(
+                                text = "添加",
+                                onClick = { showWebAddDialog = true },
+                                variant = AppButtonVariant.Ghost,
+                            )
+                            AppButton(
+                                text = "导入",
+                                onClick = { requestImport(IMPORT_WEB) },
+                                variant = AppButtonVariant.Ghost,
+                            )
+                        }
+                    }
+                    if (webItems.isEmpty()) {
+                        item {
+                            EmptyState(
+                                kind = EmptyKind.Empty,
+                                icon = Icons.Filled.Public,
+                                title = "暂无网页源",
+                                hint = "点「添加」手动新增",
+                            )
+                        }
+                    } else {
+                        items(webItems, key = { it.fileName }) { item ->
+                            FileCard(
+                                item = item,
+                                badgeLabel = "网页",
+                                onClick = {
+                                    webSites.firstOrNull { it.fileName == item.fileName }
+                                        ?.let(::activateWeb)
+                                },
+                                onLongClick = { menuItem = item },
+                                onToggleEnabled = ::toggleRuleEnabled,
+                            )
+                        }
+                    }
                     item { Spacer(Modifier.height(8.dp)) }
                 }
             }
             else -> {
-                val tab = when (selectedTab) {
-                    1 -> TAB_JS
-                    2 -> TAB_PY
-                    3 -> TAB_PHP
-                    else -> TAB_WEB
+                // v0.27.2 插件源：JS / PY / PHP 规则文件，每条=一个可用源
+                var pluginEngine by remember { mutableStateOf("all") }
+                val pluginItems = when (pluginEngine) {
+                    TAB_JS -> tabItems(TAB_JS)
+                    TAB_PY -> tabItems(TAB_PY)
+                    TAB_PHP -> tabItems(TAB_PHP)
+                    else -> tabItems(TAB_JS) + tabItems(TAB_PY) + tabItems(TAB_PHP)
                 }
-                val badgeLabel = when (tab) {
-                    TAB_JS -> "JS"
-                    TAB_PY -> "PY"
-                    TAB_PHP -> "PHP"
-                    else -> "网页"
-                }
-                val onItemClick: (GridFileItem) -> Unit = { item ->
+                val onPluginClick: (GridFileItem) -> Unit = { item ->
                     when (item.kind) {
                         TAB_JS -> activateDrpy(item.fileName)
                         TAB_PY -> activatePy(item.fileName)
                         TAB_PHP -> selectPhpRule(item.fileName)
-                        TAB_WEB -> webSites.firstOrNull { it.fileName == item.fileName }
-                            ?.let(::activateWeb)
                     }
                 }
-                // tab 顶部：文件数 + 导入/添加
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "共 ${tabItems(tab).size} 个文件 · 单击激活，长按更多操作",
-                        style = SoftType.Caption,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (tab == TAB_WEB) {
-                        AppButton(
-                            text = "添加",
-                            onClick = { showWebAddDialog = true },
-                            variant = AppButtonVariant.Ghost,
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AppChip(text = "全部", selected = pluginEngine == "all", onClick = { pluginEngine = "all" })
+                        AppChip(text = "JS", selected = pluginEngine == TAB_JS, onClick = { pluginEngine = TAB_JS })
+                        AppChip(text = "PY", selected = pluginEngine == TAB_PY, onClick = { pluginEngine = TAB_PY })
+                        AppChip(text = "PHP", selected = pluginEngine == TAB_PHP, onClick = { pluginEngine = TAB_PHP })
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "共 ${pluginItems.size} 个规则 · 单击激活，长按更多操作",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
                         )
-                        AppButton(
-                            text = "导入",
-                            onClick = { requestImport(IMPORT_WEB) },
-                            variant = AppButtonVariant.Ghost,
-                        )
-                    } else {
-                        val target = when (tab) {
-                            TAB_JS -> IMPORT_DPRY
-                            TAB_PY -> IMPORT_PY
-                            else -> IMPORT_PHP
+                        when (pluginEngine) {
+                            TAB_JS -> AppButton(text = "导入", onClick = { requestImport(IMPORT_DPRY) }, variant = AppButtonVariant.Ghost)
+                            TAB_PY -> AppButton(text = "导入", onClick = { requestImport(IMPORT_PY) }, variant = AppButtonVariant.Ghost)
+                            TAB_PHP -> AppButton(text = "导入", onClick = { requestImport(IMPORT_PHP) }, variant = AppButtonVariant.Ghost)
+                            else -> {
+                                AppButton(text = "JS", onClick = { requestImport(IMPORT_DPRY) }, variant = AppButtonVariant.Ghost)
+                                AppButton(text = "PY", onClick = { requestImport(IMPORT_PY) }, variant = AppButtonVariant.Ghost)
+                                AppButton(text = "PHP", onClick = { requestImport(IMPORT_PHP) }, variant = AppButtonVariant.Ghost)
+                            }
                         }
-                        AppButton(
-                            text = "导入",
-                            onClick = { requestImport(target) },
-                            variant = AppButtonVariant.Ghost,
-                        )
                     }
+                    FileGrid(
+                        items = pluginItems,
+                        badgeLabel = "",
+                        badgeFor = { item ->
+                            when (item.kind) {
+                                TAB_JS -> "JS"
+                                TAB_PY -> "PY"
+                                TAB_PHP -> "PHP"
+                                else -> "？"
+                            }
+                        },
+                        onClick = onPluginClick,
+                        onLongClick = { menuItem = it },
+                        onToggleEnabled = ::toggleRuleEnabled,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
                 }
-                FileGrid(
-                    items = tabItems(tab),
-                    badgeLabel = badgeLabel,
-                    onClick = onItemClick,
-                    onLongClick = { menuItem = it },
-                    onToggleEnabled = ::toggleRuleEnabled,
-                    modifier = Modifier.fillMaxSize(),
-                )
             }
         }
     }
-
     // ---- 长按操作菜单（ModalBottomSheet） ----
     menuItem?.let { item ->
         ModalBottomSheet(
@@ -1189,6 +1236,8 @@ private fun FileGrid(
     onLongClick: (GridFileItem) -> Unit,
     onToggleEnabled: (GridFileItem, Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    // v0.27.2：混合列表时按条目取徽标（默认全用 badgeLabel）
+    badgeFor: (GridFileItem) -> String = { badgeLabel },
 ) {
     if (items.isEmpty()) {
         EmptyState(
@@ -1210,7 +1259,7 @@ private fun FileGrid(
         items(items, key = { it.kind + "/" + it.fileName }) { item ->
             FileCard(
                 item = item,
-                badgeLabel = badgeLabel,
+                badgeLabel = badgeFor(item),
                 onClick = { onClick(item) },
                 onLongClick = { onLongClick(item) },
                 onToggleEnabled = onToggleEnabled,
