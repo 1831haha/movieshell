@@ -207,7 +207,7 @@ private fun TaskCard(
                     }
                 }
                 if (onPreview != null && task.status != DlStatus.DONE && task.progress >= 0.3f) {
-                    TextButton(onClick = onPreview) { Text("边下边播") },
+                    TextButton(onClick = onPreview) { Text("边下边播") }
                 }
                 if (onPauseResume != null) {
                     IconButton(onClick = onPauseResume) {
