@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -24,13 +25,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,12 +46,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.StoragePaths
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
+import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.theme.LocalSoftExtra
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -118,19 +121,20 @@ fun LogBubbleOverlay() {
                     }
                 }
                 .clip(CircleShape)
+                .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, CircleShape)
                 .clickable { showSheet = true },
         ) {
-            // 虚化底层：半透明 + 模糊
+            // 虚化底层：半透明 + 模糊（v0.27.0：primaryContainer 配色 + 描边）
             Box(
                 modifier = Modifier
                     .matchParentSize()
                     .blur(14.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)),
             )
             Icon(
                 imageVector = Icons.Filled.BugReport,
                 contentDescription = "运行日志",
-                tint = MaterialTheme.colorScheme.primary,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier
                     .align(Alignment.Center)
                     .size(24.dp),
@@ -170,8 +174,8 @@ private fun LogSheetContent(onCloseSheet: () -> Unit) {
     ) {
         Text(
             text = "运行日志（${entries.size} 条）",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
+            style = SoftType.Title,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -195,41 +199,46 @@ private fun LogSheetContent(onCloseSheet: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Button(
+            AppButton(
+                text = "导出日志",
                 onClick = { exportLog(context) },
                 modifier = Modifier.weight(1f),
-            ) { Text("导出日志") }
-            OutlinedButton(
+            )
+            AppButton(
+                text = "复制日志",
                 onClick = { copyLog(context) },
+                variant = AppButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
-            ) { Text("复制日志") }
-            OutlinedButton(
+            )
+            AppButton(
+                text = "关闭悬浮窗",
                 onClick = {
                     LogStore.setEnabled(context, false)
                     onCloseSheet()
                 },
+                variant = AppButtonVariant.Ghost,
                 modifier = Modifier.weight(1f),
-            ) { Text("关闭悬浮窗") }
+            )
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LevelChip(label: String, level: Char, selected: Char, onSelect: (Char) -> Unit) {
-    FilterChip(
+    AppChip(
+        text = label,
         selected = selected == level,
         onClick = { onSelect(level) },
-        label = { Text(label) },
     )
 }
 
 @Composable
 private fun LogLine(e: LogBus.Entry) {
     val fmt = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
+    val extra = LocalSoftExtra.current
     val color = when (e.level) {
-        'E' -> MaterialTheme.colorScheme.error
-        'W' -> MaterialTheme.colorScheme.tertiary
+        'E' -> extra.errorSoft
+        'W' -> extra.warning
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Text(

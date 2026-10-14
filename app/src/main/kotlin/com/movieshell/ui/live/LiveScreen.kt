@@ -26,29 +26,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,7 +53,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -76,6 +67,15 @@ import com.movieshell.data.repo.LiveSource
 import com.movieshell.data.repo.LiveStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.TrashStore
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.EmptyKind
+import com.movieshell.ui.components.EmptyState
+import com.movieshell.ui.theme.LocalSoftExtra
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -126,13 +126,14 @@ fun LiveScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("直播") },
+                title = { Text("直播", style = SoftType.Title) },
                 actions = {
                     IconButton(onClick = { favOnly = !favOnly }) {
                         Icon(
                             if (favOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
                             contentDescription = "只看收藏",
-                            tint = if (favOnly) Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (favOnly) LocalSoftExtra.current.warning
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     IconButton(onClick = { doRefresh() }) {
@@ -150,16 +151,13 @@ fun LiveScreen(
                 .fillMaxSize()
                 .padding(inner),
         ) {
-            OutlinedTextField(
+            AppTextField(
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("搜索频道") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
+                placeholder = "搜索频道",
             )
             if (refreshing) {
                 Row(
@@ -175,25 +173,15 @@ fun LiveScreen(
                 }
             }
             if (filtered.isEmpty() && !refreshing) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        Icons.Filled.Tv, contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text("还没有直播频道", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "点右上角设置添加 M3U 订阅，或从插件市场安装 live 插件",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.Tv,
+                        title = "还没有直播频道",
+                        hint = "点右上角设置添加 M3U 订阅，或从插件市场安装 live 插件",
                     )
                 }
                 return@Column
@@ -203,7 +191,7 @@ fun LiveScreen(
                     item(key = "g:$group") {
                         Text(
                             text = "$group（${list.size}）",
-                            style = MaterialTheme.typography.labelLarge,
+                            style = SoftType.CardTitle,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -250,13 +238,12 @@ private fun ChannelRow(
     onLongClick: () -> Unit,
     onFavorite: () -> Unit,
 ) {
-    Card(
+    val soft = LocalSoftExtra.current
+    AppCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Row(
             modifier = Modifier.padding(10.dp),
@@ -288,15 +275,14 @@ private fun ChannelRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = channel.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
+                    style = SoftType.CardTitle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (channel.group.isNotBlank()) {
                     Text(
                         text = channel.group,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -306,17 +292,17 @@ private fun ChannelRow(
             // 直播角标
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFFE53935))
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(soft.errorSoft.copy(alpha = 0.18f))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             ) {
-                Text("直播", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                Text("直播", color = soft.errorSoft, style = SoftType.Caption)
             }
             IconButton(onClick = onFavorite) {
                 Icon(
                     if (channel.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
                     contentDescription = if (channel.favorite) "取消收藏" else "收藏",
-                    tint = if (channel.favorite) Color(0xFFFFB300)
+                    tint = if (channel.favorite) soft.warning
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -346,7 +332,14 @@ private fun ChannelDetailSheet(
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(
+            topStart = SoftDimens.CardCorner,
+            topEnd = SoftDimens.CardCorner,
+        ),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -369,7 +362,11 @@ private fun ChannelDetailSheet(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(channel.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        channel.name,
+                        style = SoftType.CardTitle,
+                        fontWeight = FontWeight.Bold,
+                    )
                     Text(
                         (channel.group.ifBlank { "未分组" }) + " · " +
                             when {
@@ -377,7 +374,7 @@ private fun ChannelDetailSheet(
                                 channel.sourceKey.startsWith("m3u:") -> "订阅：" + channel.sourceKey.removePrefix("m3u:")
                                 else -> "插件源"
                             },
-                        style = MaterialTheme.typography.bodySmall,
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -385,7 +382,7 @@ private fun ChannelDetailSheet(
                     Icon(
                         if (channel.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
                         contentDescription = "收藏",
-                        tint = if (channel.favorite) Color(0xFFFFB300)
+                        tint = if (channel.favorite) LocalSoftExtra.current.warning
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -393,23 +390,27 @@ private fun ChannelDetailSheet(
             Spacer(Modifier.height(12.dp))
             // EPG：当前 + 后续（尽力展示）
             if (channel.epgUrl.isNotBlank()) {
-                Text("节目单", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    "节目单",
+                    style = SoftType.CardTitle,
+                    fontWeight = FontWeight.Bold,
+                )
                 Spacer(Modifier.height(4.dp))
                 when {
-                    epgLoading -> Text("加载中…", style = MaterialTheme.typography.bodySmall)
+                    epgLoading -> Text("加载中…", style = SoftType.Caption)
                     epg == null || (epg?.first == null && epg?.second == null) ->
-                        Text("暂无节目数据", style = MaterialTheme.typography.bodySmall)
+                        Text("暂无节目数据", style = SoftType.Caption)
                     else -> {
                         epg?.first?.let { p ->
                             Text(
                                 "正在播：${p.title}（${timeFmt.format(Date(p.startMs))}–${timeFmt.format(Date(p.stopMs))}）",
-                                style = MaterialTheme.typography.bodySmall,
+                                style = SoftType.Body,
                             )
                         }
                         epg?.second?.let { p ->
                             Text(
                                 "接下来：${p.title}（${timeFmt.format(Date(p.startMs))}）",
-                                style = MaterialTheme.typography.bodySmall,
+                                style = SoftType.Body,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -418,17 +419,26 @@ private fun ChannelDetailSheet(
                 Spacer(Modifier.height(12.dp))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onPlay, modifier = Modifier.weight(1f)) { Text("播放") }
-                OutlinedButton(onClick = {
-                    clipboard.setText(AnnotatedString(channel.url))
-                    Toast.makeText(context, "播放地址已复制", Toast.LENGTH_SHORT).show()
-                }) { Text("复制地址") }
+                AppButton(
+                    text = "播放",
+                    onClick = onPlay,
+                    modifier = Modifier.weight(1f),
+                    variant = AppButtonVariant.Primary,
+                )
+                AppButton(
+                    text = "复制地址",
+                    onClick = {
+                        clipboard.setText(AnnotatedString(channel.url))
+                        Toast.makeText(context, "播放地址已复制", Toast.LENGTH_SHORT).show()
+                    },
+                    variant = AppButtonVariant.Secondary,
+                )
                 if (channel.manual) {
-                    OutlinedButton(onClick = onDelete) {
-                        Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("删除")
-                    }
+                    AppButton(
+                        text = "删除",
+                        onClick = onDelete,
+                        variant = AppButtonVariant.Ghost,
+                    )
                 }
             }
             Spacer(Modifier.height(24.dp))
@@ -488,7 +498,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("直播订阅管理") },
+                title = { Text("直播订阅管理", style = SoftType.Title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -510,19 +520,24 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         .padding(vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Button(onClick = { showAddSub = true }, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("添加订阅")
-                    }
-                    OutlinedButton(
+                    AppButton(
+                        text = "添加订阅",
+                        onClick = { showAddSub = true },
+                        modifier = Modifier.weight(1f),
+                        variant = AppButtonVariant.Primary,
+                    )
+                    AppButton(
+                        text = "导入本地 M3U",
                         onClick = { filePicker.launch("*/*") },
                         modifier = Modifier.weight(1f),
-                    ) { Text("导入本地 M3U") }
-                    OutlinedButton(
+                        variant = AppButtonVariant.Secondary,
+                    )
+                    AppButton(
+                        text = "手动加频道",
                         onClick = { showAddChannel = true },
                         modifier = Modifier.weight(1f),
-                    ) { Text("手动加频道") }
+                        variant = AppButtonVariant.Secondary,
+                    )
                 }
                 if (refreshing) {
                     Row(
@@ -533,30 +548,32 @@ fun LiveManageScreen(onBack: () -> Unit) {
             }
             if (sources.isEmpty()) {
                 item {
-                    Text(
-                        "暂无订阅，可添加 M3U 订阅地址（如公开 IPTV 源）",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 16.dp),
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.Tv,
+                        title = "暂无订阅",
+                        hint = "可添加 M3U 订阅地址（如公开 IPTV 源）",
                     )
                 }
             }
             items(sources, key = { it.url }) { s ->
-                Card(
+                AppCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp),
-                    shape = RoundedCornerShape(12.dp),
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(s.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text(
+                                s.name,
+                                style = SoftType.CardTitle,
+                            )
                             Text(
                                 if (s.type == LiveSource.LOCAL_FILE) "本地文件" else s.url,
-                                style = MaterialTheme.typography.bodySmall,
+                                style = SoftType.Caption,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -581,44 +598,69 @@ fun LiveManageScreen(onBack: () -> Unit) {
         var err by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { showAddSub = false },
-            title = { Text("添加 M3U 订阅") },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("添加 M3U 订阅", style = SoftType.CardTitle) },
             text = {
                 Column {
-                    OutlinedTextField(
+                    Text(
+                        text = "名称",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppTextField(
                         value = name, onValueChange = { name = it },
-                        label = { Text("名称") }, singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
+                    Text(
+                        text = "订阅地址",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppTextField(
                         value = url,
                         onValueChange = { url = it; err = false },
-                        label = { Text("订阅地址") },
-                        placeholder = { Text("https://…/xxx.m3u") },
-                        singleLine = true, isError = err,
                         modifier = Modifier.fillMaxWidth(),
-                        supportingText = if (err) {
-                            { Text("请输入 http(s) 开头的地址") }
-                        } else null,
+                        placeholder = "https://…/xxx.m3u",
                     )
+                    if (err) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "请输入 http(s) 开头的地址",
+                            style = SoftType.Caption,
+                            color = LocalSoftExtra.current.errorSoft,
+                        )
+                    }
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    val u = url.trim()
-                    if (!(u.startsWith("http://") || u.startsWith("https://"))) {
-                        err = true
-                        return@Button
-                    }
-                    if (LiveStore.addSource(context, name.ifBlank { "M3U订阅" }, LiveSource.M3U_URL, u)) {
-                        showAddSub = false
-                        scope.launch { LiveStore.refresh(context) }
-                    } else {
-                        Toast.makeText(context, "该订阅已存在", Toast.LENGTH_SHORT).show()
-                    }
-                }) { Text("确定") }
+                AppButton(
+                    text = "确定",
+                    onClick = {
+                        val u = url.trim()
+                        if (!(u.startsWith("http://") || u.startsWith("https://"))) {
+                            err = true
+                            return@AppButton
+                        }
+                        if (LiveStore.addSource(context, name.ifBlank { "M3U订阅" }, LiveSource.M3U_URL, u)) {
+                            showAddSub = false
+                            scope.launch { LiveStore.refresh(context) }
+                        } else {
+                            Toast.makeText(context, "该订阅已存在", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    variant = AppButtonVariant.Primary,
+                )
             },
-            dismissButton = { TextButton(onClick = { showAddSub = false }) { Text("取消") } },
+            dismissButton = {
+                AppButton(
+                    text = "取消",
+                    onClick = { showAddSub = false },
+                    variant = AppButtonVariant.Ghost,
+                )
+            },
         )
     }
 
@@ -629,50 +671,80 @@ fun LiveManageScreen(onBack: () -> Unit) {
         var err by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { showAddChannel = false },
-            title = { Text("手动添加频道") },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("手动添加频道", style = SoftType.CardTitle) },
             text = {
                 Column {
-                    OutlinedTextField(
+                    Text(
+                        text = "频道名",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppTextField(
                         value = name, onValueChange = { name = it },
-                        label = { Text("频道名") }, singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
+                    Text(
+                        text = "播放地址",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppTextField(
                         value = url,
                         onValueChange = { url = it; err = false },
-                        label = { Text("播放地址") },
-                        placeholder = { Text("https://…/xxx.m3u8") },
-                        singleLine = true, isError = err,
                         modifier = Modifier.fillMaxWidth(),
-                        supportingText = if (err) {
-                            { Text("请输入 http(s) 开头的地址") }
-                        } else null,
+                        placeholder = "https://…/xxx.m3u8",
                     )
+                    if (err) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "请输入 http(s) 开头的地址",
+                            style = SoftType.Caption,
+                            color = LocalSoftExtra.current.errorSoft,
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
+                    Text(
+                        text = "台标地址（可选）",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppTextField(
                         value = logo, onValueChange = { logo = it },
-                        label = { Text("台标地址（可选）") }, singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    val u = url.trim()
-                    if (!(u.startsWith("http://") || u.startsWith("https://"))) {
-                        err = true
-                        return@Button
-                    }
-                    if (LiveStore.addManual(context, name.ifBlank { "未命名频道" }, u, logo)) {
-                        showAddChannel = false
-                        scope.launch { LiveStore.refresh(context) }
-                    } else {
-                        Toast.makeText(context, "该频道已存在", Toast.LENGTH_SHORT).show()
-                    }
-                }) { Text("确定") }
+                AppButton(
+                    text = "确定",
+                    onClick = {
+                        val u = url.trim()
+                        if (!(u.startsWith("http://") || u.startsWith("https://"))) {
+                            err = true
+                            return@AppButton
+                        }
+                        if (LiveStore.addManual(context, name.ifBlank { "未命名频道" }, u, logo)) {
+                            showAddChannel = false
+                            scope.launch { LiveStore.refresh(context) }
+                        } else {
+                            Toast.makeText(context, "该频道已存在", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    variant = AppButtonVariant.Primary,
+                )
             },
-            dismissButton = { TextButton(onClick = { showAddChannel = false }) { Text("取消") } },
+            dismissButton = {
+                AppButton(
+                    text = "取消",
+                    onClick = { showAddChannel = false },
+                    variant = AppButtonVariant.Ghost,
+                )
+            },
         )
     }
 }

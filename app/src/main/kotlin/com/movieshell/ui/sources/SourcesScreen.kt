@@ -30,7 +30,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
@@ -38,35 +37,29 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -82,7 +75,6 @@ import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -101,9 +93,18 @@ import com.movieshell.data.repo.SubCache
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.TrashStore
 import com.movieshell.data.repo.WebSourceManager
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.EmptyKind
+import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.preview.openFileWithEditor
 import com.movieshell.ui.preview.previewKindDir
 import com.movieshell.ui.preview.shareFile
+import com.movieshell.ui.theme.LocalSoftExtra
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -242,14 +243,16 @@ private data class GridFileItem(
 /** 探活结果 key：kind:name */
 private fun probeKey(kind: String, name: String) = "$kind:$name"
 
-/** 探活徽标颜色 */
+/** 探活徽标颜色（Soft Tech 柔和版） */
 @Composable
 private fun ProbeDot(probe: SourceProbe.Result?) {
+    val soft = LocalSoftExtra.current
     val color = when (probe) {
-        is SourceProbe.Result.Ok -> Color(0xFF4CAF50)
-        is SourceProbe.Result.Slow -> Color(0xFFFFB300)
-        is SourceProbe.Result.Fail -> Color(0xFFE53935)
-        is SourceProbe.Result.Unsupported -> Color(0xFF9E9E9E)
+        is SourceProbe.Result.Ok -> soft.success
+        is SourceProbe.Result.Slow -> soft.warning
+        is SourceProbe.Result.Fail -> soft.errorSoft
+        is SourceProbe.Result.Unsupported ->
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
         null -> return
     }
     Box(
@@ -765,27 +768,22 @@ fun SourcesScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            OutlinedButton(
+            AppButton(
+                text = "插件市场",
                 onClick = onMarketClick,
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Icon(Icons.Filled.Store, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("插件市场")
-            }
-            OutlinedButton(
+                variant = AppButtonVariant.Secondary,
+            )
+            AppButton(
+                text = if (probing) "检测中…" else "批量检测",
                 onClick = { runBatchProbe() },
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Text(if (probing) "检测中…" else "批量检测")
-            }
-            OutlinedButton(
+                variant = AppButtonVariant.Secondary,
+            )
+            AppButton(
+                text = "回收站",
                 onClick = onTrashClick,
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                Text("回收站")
-            }
+                variant = AppButtonVariant.Secondary,
+            )
         }
         // v0.9.0：顶部横滑 Tab——数据来源切换
         ScrollableTabRow(
@@ -805,17 +803,14 @@ fun SourcesScreen(
         when (selectedTab) {
             0 -> {
                 // 接口站源 tab：订阅卡片原样保留
-                Button(
+                AppButton(
+                    text = "添加订阅",
                     onClick = { showAddDialog = true },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
-                    shape = RoundedCornerShape(12.dp),
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("添加订阅")
-                }
+                    variant = AppButtonVariant.Primary,
+                )
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
@@ -869,20 +864,32 @@ fun SourcesScreen(
                 ) {
                     Text(
                         text = "共 ${tabItems(tab).size} 个文件 · 单击激活，长按更多操作",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
                     if (tab == TAB_WEB) {
-                        TextButton(onClick = { showWebAddDialog = true }) { Text("添加") }
-                        TextButton(onClick = { requestImport(IMPORT_WEB) }) { Text("导入") }
+                        AppButton(
+                            text = "添加",
+                            onClick = { showWebAddDialog = true },
+                            variant = AppButtonVariant.Ghost,
+                        )
+                        AppButton(
+                            text = "导入",
+                            onClick = { requestImport(IMPORT_WEB) },
+                            variant = AppButtonVariant.Ghost,
+                        )
                     } else {
                         val target = when (tab) {
                             TAB_JS -> IMPORT_DPRY
                             TAB_PY -> IMPORT_PY
                             else -> IMPORT_PHP
                         }
-                        TextButton(onClick = { requestImport(target) }) { Text("导入") }
+                        AppButton(
+                            text = "导入",
+                            onClick = { requestImport(target) },
+                            variant = AppButtonVariant.Ghost,
+                        )
                     }
                 }
                 FileGrid(
@@ -899,11 +906,18 @@ fun SourcesScreen(
 
     // ---- 长按操作菜单（ModalBottomSheet） ----
     menuItem?.let { item ->
-        ModalBottomSheet(onDismissRequest = { menuItem = null }) {
+        ModalBottomSheet(
+            onDismissRequest = { menuItem = null },
+            shape = RoundedCornerShape(
+                topStart = SoftDimens.CardCorner,
+                topEnd = SoftDimens.CardCorner,
+            ),
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
             Column(modifier = Modifier.padding(bottom = 24.dp)) {
                 Text(
                     text = item.fileName,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = SoftType.CardTitle,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -962,17 +976,22 @@ fun SourcesScreen(
         }
         AlertDialog(
             onDismissRequest = { infoItem = null },
-            title = { Text("文件信息") },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("文件信息", style = SoftType.CardTitle) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("文件名：${item.fileName}")
-                    Text("大小：${formatSize(file.length())}")
-                    Text("修改时间：$modified")
-                    Text("路径：${file.absolutePath}")
+                    Text("文件名：${item.fileName}", style = SoftType.Body)
+                    Text("大小：${formatSize(file.length())}", style = SoftType.Body)
+                    Text("修改时间：$modified", style = SoftType.Body)
+                    Text("路径：${file.absolutePath}", style = SoftType.Body)
                 }
             },
             confirmButton = {
-                TextButton(onClick = { infoItem = null }) { Text("关闭") }
+                AppButton(
+                    text = "关闭",
+                    onClick = { infoItem = null },
+                    variant = AppButtonVariant.Ghost,
+                )
             },
         )
     }
@@ -981,18 +1000,30 @@ fun SourcesScreen(
     deleteItemState?.let { item ->
         AlertDialog(
             onDismissRequest = { deleteItemState = null },
-            title = { Text("删除文件") },
-            text = { Text("将「${item.fileName}」移入回收站，可随时恢复。") },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("删除文件", style = SoftType.CardTitle) },
+            text = {
+                Text(
+                    "将「${item.fileName}」移入回收站，可随时恢复。",
+                    style = SoftType.Body,
+                )
+            },
             confirmButton = {
-                TextButton(
+                AppButton(
+                    text = "删除",
                     onClick = {
                         deleteItemState = null
                         deleteItem(item)
                     },
-                ) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                    variant = AppButtonVariant.Secondary,
+                )
             },
             dismissButton = {
-                TextButton(onClick = { deleteItemState = null }) { Text("取消") }
+                AppButton(
+                    text = "取消",
+                    onClick = { deleteItemState = null },
+                    variant = AppButtonVariant.Ghost,
+                )
             },
         )
     }
@@ -1004,32 +1035,35 @@ fun SourcesScreen(
                 probeJob?.cancel()
                 probing = false
             },
-            title = { Text("批量检测中") },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("批量检测中", style = SoftType.CardTitle) },
             text = {
                 Column {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(12.dp))
                     Text(
                         text = "正在检测：$probeStatus",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = SoftType.Body,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         text = "已完成 ${probeResults.size} 项",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             },
             confirmButton = {
-                TextButton(
+                AppButton(
+                    text = "取消",
                     onClick = {
                         probeJob?.cancel()
                         probing = false
                     },
-                ) { Text("取消") }
+                    variant = AppButtonVariant.Ghost,
+                )
             },
         )
     }
@@ -1037,33 +1071,45 @@ fun SourcesScreen(
     if (showAddDialog) {
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
-            title = { Text("添加订阅") },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("添加订阅", style = SoftType.CardTitle) },
             text = {
                 Column {
                     Text(
                         text = "输入站源订阅地址（CMS 接口 JSON）",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
+                    AppTextField(
                         value = urlInput,
                         onValueChange = { urlInput = it; urlError = false },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("https://…/api.php/provide/vod/") },
-                        singleLine = true,
-                        isError = urlError,
-                        supportingText = if (urlError) {
-                            { Text("请输入以 http:// 或 https:// 开头的有效地址") }
-                        } else null,
+                        placeholder = "https://…/api.php/provide/vod/",
                     )
+                    if (urlError) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "请输入以 http:// 或 https:// 开头的有效地址",
+                            style = SoftType.Caption,
+                            color = LocalSoftExtra.current.errorSoft,
+                        )
+                    }
                 }
             },
             confirmButton = {
-                Button(onClick = ::addSubscription) { Text("确定") }
+                AppButton(
+                    text = "确定",
+                    onClick = ::addSubscription,
+                    variant = AppButtonVariant.Primary,
+                )
             },
             dismissButton = {
-                TextButton(onClick = { showAddDialog = false }) { Text("取消") }
+                AppButton(
+                    text = "取消",
+                    onClick = { showAddDialog = false },
+                    variant = AppButtonVariant.Ghost,
+                )
             },
         )
     }
@@ -1071,43 +1117,64 @@ fun SourcesScreen(
     if (showWebAddDialog) {
         AlertDialog(
             onDismissRequest = { showWebAddDialog = false },
-            title = { Text("添加网页站源") },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("添加网页站源", style = SoftType.CardTitle) },
             text = {
                 Column {
                     Text(
                         text = "输入网站名称和地址，长按条目菜单可打开嗅探浏览器",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
+                    Text(
+                        text = "名称",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppTextField(
                         value = webNameInput,
                         onValueChange = { webNameInput = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("名称") },
-                        placeholder = { Text("如：示例影视站") },
-                        singleLine = true,
+                        placeholder = "如：示例影视站",
                     )
                     Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
+                    Text(
+                        text = "网址",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppTextField(
                         value = webUrlInput,
                         onValueChange = { webUrlInput = it; webUrlError = false },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("网址") },
-                        placeholder = { Text("https://…") },
-                        singleLine = true,
-                        isError = webUrlError,
-                        supportingText = if (webUrlError) {
-                            { Text("请输入以 http:// 或 https:// 开头的有效地址") }
-                        } else null,
+                        placeholder = "https://…",
                     )
+                    if (webUrlError) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "请输入以 http:// 或 https:// 开头的有效地址",
+                            style = SoftType.Caption,
+                            color = LocalSoftExtra.current.errorSoft,
+                        )
+                    }
                 }
             },
             confirmButton = {
-                Button(onClick = ::addWebSite) { Text("确定") }
+                AppButton(
+                    text = "确定",
+                    onClick = ::addWebSite,
+                    variant = AppButtonVariant.Primary,
+                )
             },
             dismissButton = {
-                TextButton(onClick = { showWebAddDialog = false }) { Text("取消") }
+                AppButton(
+                    text = "取消",
+                    onClick = { showWebAddDialog = false },
+                    variant = AppButtonVariant.Ghost,
+                )
             },
         )
     }
@@ -1124,23 +1191,13 @@ private fun FileGrid(
     modifier: Modifier = Modifier,
 ) {
     if (items.isEmpty()) {
-        Column(
-            modifier = modifier.padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text(
-                text = "该分组暂无文件",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "点右上角「导入/添加」，或把文件拷到手机 xiaying 目录对应文件夹",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        EmptyState(
+            kind = EmptyKind.Empty,
+            icon = Icons.Filled.FolderOpen,
+            title = "该分组暂无文件",
+            hint = "点右上角「导入/添加」，或把文件拷到手机 xiaying 目录对应文件夹",
+            modifier = modifier,
+        )
         return
     }
     LazyVerticalGrid(
@@ -1172,19 +1229,11 @@ private fun FileCard(
     onLongClick: () -> Unit,
     onToggleEnabled: (GridFileItem, Boolean) -> Unit,
 ) {
-    Card(
+    AppCard(
         modifier = Modifier
             .fillMaxWidth()
             .alpha(if (item.enabled) 1f else 0.45f)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (item.isActive) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
-        ),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1195,7 +1244,7 @@ private fun FileCard(
                     Text(
                         text = badgeLabel,
                         color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = SoftType.Caption,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }
@@ -1222,7 +1271,7 @@ private fun FileCard(
             Spacer(Modifier.height(8.dp))
             Text(
                 text = item.displayName,
-                style = MaterialTheme.typography.bodyMedium,
+                style = SoftType.CardTitle,
                 fontWeight = if (item.isActive) FontWeight.Bold else FontWeight.Medium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -1232,7 +1281,7 @@ private fun FileCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = item.detail,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = SoftType.Caption,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1256,6 +1305,8 @@ private fun MenuRow(
     destructive: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val tint = if (destructive) LocalSoftExtra.current.errorSoft
+    else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1266,16 +1317,14 @@ private fun MenuRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (destructive) MaterialTheme.colorScheme.error
-            else MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = tint,
             modifier = Modifier.size(22.dp),
         )
         Spacer(Modifier.width(16.dp))
         Text(
             text = label,
-            style = MaterialTheme.typography.bodyLarge,
-            color = if (destructive) MaterialTheme.colorScheme.error
-            else MaterialTheme.colorScheme.onSurface,
+            style = SoftType.Body,
+            color = if (destructive) tint else MaterialTheme.colorScheme.onSurface,
         )
     }
 }
@@ -1298,7 +1347,7 @@ private fun KindBadge(kind: String) {
         Text(
             text = label,
             color = color,
-            style = MaterialTheme.typography.labelSmall,
+            style = SoftType.Caption,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
         )
     }
@@ -1323,11 +1372,7 @@ private fun SubscriptionCard(
     onSetCurrent: (subUrl: String, siteKey: String, siteName: String) -> Unit,
 ) {
     val context = LocalContext.current
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(8.dp)) {
             // 分组头
             Row(
@@ -1345,7 +1390,7 @@ private fun SubscriptionCard(
                 Spacer(Modifier.width(10.dp))
                 Text(
                     text = group.name,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = SoftType.CardTitle,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
                 )
@@ -1367,11 +1412,11 @@ private fun SubscriptionCard(
             AnimatedVisibility(visible = group.expanded) {
                 Column {
                     if (group.entries.isEmpty()) {
-                        Text(
-                            text = "暂无订阅，点上方「添加订阅」",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        EmptyState(
+                            kind = EmptyKind.Empty,
+                            icon = Icons.Filled.Language,
+                            title = "暂无订阅",
+                            hint = "点「添加订阅」新增",
                         )
                     }
                     group.entries.forEach { entry ->
@@ -1389,14 +1434,14 @@ private fun SubscriptionCard(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = entry.name,
-                                        style = MaterialTheme.typography.titleSmall,
+                                        style = SoftType.CardTitle,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
                                         text = subUrl,
-                                        style = MaterialTheme.typography.bodySmall,
+                                        style = SoftType.Caption,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
@@ -1449,15 +1494,17 @@ private fun SubscriptionCard(
                                                 Spacer(Modifier.width(8.dp))
                                                 Text(
                                                     text = "正在解析订阅…",
-                                                    style = MaterialTheme.typography.bodySmall,
+                                                    style = SoftType.Caption,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 )
                                             }
                                         }
                                         cache == null -> {
-                                            TextButton(onClick = { onParse(subUrl) }) {
-                                                Text("解析站点")
-                                            }
+                                            AppButton(
+                                                text = "解析站点",
+                                                onClick = { onParse(subUrl) },
+                                                variant = AppButtonVariant.Ghost,
+                                            )
                                         }
                                         else -> {
                                             Row(
@@ -1466,13 +1513,15 @@ private fun SubscriptionCard(
                                             ) {
                                                 Text(
                                                     text = "站点（${cache.sites.size}）· 点站点设为点播页当前源",
-                                                    style = MaterialTheme.typography.labelMedium,
+                                                    style = SoftType.Caption,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     modifier = Modifier.weight(1f),
                                                 )
-                                                TextButton(onClick = { onParse(subUrl) }) {
-                                                    Text("刷新")
-                                                }
+                                                AppButton(
+                                                    text = "刷新",
+                                                    onClick = { onParse(subUrl) },
+                                                    variant = AppButtonVariant.Ghost,
+                                                )
                                             }
                                             cache.sites.forEach { rec ->
                                                 val key = SubSiteStore.siteKey(subUrl, rec)
@@ -1498,7 +1547,7 @@ private fun SubscriptionCard(
                                                 ) {
                                                     Text(
                                                         text = rec.name,
-                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        style = SoftType.Body,
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis,
                                                         modifier = Modifier.weight(1f),

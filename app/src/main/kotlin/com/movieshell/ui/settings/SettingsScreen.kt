@@ -49,18 +49,14 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.core.content.FileProvider
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -73,7 +69,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.download.FollowCheckWorker
@@ -90,10 +85,21 @@ import com.movieshell.ui.preview.FILE_PROVIDER_AUTHORITY
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.ThemeStore
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.theme.LocalSoftExtra
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// v0.27.0 Soft Tech 换皮：分组卡片走 AppCard，分组标题走 SectionTitle，
+// 对话框 20dp 圆角 + 输入框走 AppTextField，按钮走 AppButton。逻辑与文案零变更。
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -189,10 +195,10 @@ fun SettingsScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = SoftDimens.PagePadding),
     ) {
         item {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(SoftDimens.CardSpacing))
             SettingsGroup(title = "外观") {
                 SettingsRow(
                     icon = Icons.Filled.Palette,
@@ -203,7 +209,7 @@ fun SettingsScreen(
                 // v0.12.0：主题色换色器（DsPlayer 式色圈）
                 ThemeColorPickerRow()
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(SoftDimens.CardSpacing))
             SettingsGroup(title = "播放") {
                 SettingsRow(
                     icon = Icons.Filled.PlayCircle,
@@ -232,7 +238,7 @@ fun SettingsScreen(
                     onChange = { PlayerSettings.setSkipOutro(context, it) },
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(SoftDimens.CardSpacing))
             // v0.19.0：自定义解析接口（优先于订阅自带 parses）
             SettingsGroup(title = "解析接口") {
                 val customParses by ParseStore.custom.collectAsState()
@@ -262,13 +268,13 @@ fun SettingsScreen(
                 if (customParses.isEmpty()) {
                     Text(
                         text = "暂无自定义解析，播放时只用订阅自带的解析线路",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(SoftDimens.CardSpacing))
             // v0.23.0：插件市场源（多源）+ 显示不兼容插件
             SettingsGroup(title = "插件") {
                 SettingsRow(
@@ -295,7 +301,7 @@ fun SettingsScreen(
                     },
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(SoftDimens.CardSpacing))
             SettingsGroup(title = "追剧与下载") {
                 SettingsRow(
                     icon = Icons.Filled.PlaylistAddCheck,
@@ -336,7 +342,7 @@ fun SettingsScreen(
                     },
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(SoftDimens.CardSpacing))
             SettingsGroup(title = "存储") {
                 SettingsRow(
                     icon = Icons.Filled.Cached,
@@ -345,7 +351,7 @@ fun SettingsScreen(
                     onClick = { showClearCacheDialog = true },
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(SoftDimens.CardSpacing))
             SettingsGroup(title = "备份与恢复") {
                 SettingsRow(
                     icon = Icons.Filled.Backup,
@@ -378,7 +384,7 @@ fun SettingsScreen(
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(SoftDimens.CardSpacing))
             SettingsGroup(title = "调试") {
                 val logEnabled by LogStore.enabled.collectAsState()
                 SettingsRow(
@@ -402,7 +408,7 @@ fun SettingsScreen(
                     onClick = { exportCrashLog() },
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(SoftDimens.CardSpacing))
             SettingsGroup(title = "帮助") {
                 SettingsRow(
                     icon = Icons.Filled.MenuBook,
@@ -411,7 +417,7 @@ fun SettingsScreen(
                     onClick = onManualClick,
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(SoftDimens.CardSpacing))
             SettingsGroup(title = "关于") {
                 SettingsRow(
                     icon = Icons.Filled.Info,
@@ -466,15 +472,14 @@ fun SettingsScreen(
             },
         )
     }
-    // v0.19.0：添加自定义解析接口
-    // v0.22.0：插件市场地址
     // v0.23.0：插件市场源管理（增删 + 切换当前源）
     if (showMarketSourcesDialog) {
         var nameInput by remember { mutableStateOf("") }
         var urlInput by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showMarketSourcesDialog = false },
-            title = { Text("插件市场源") },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("插件市场源", style = SoftType.CardTitle) },
             text = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     marketSources.forEachIndexed { i, s ->
@@ -485,19 +490,21 @@ fun SettingsScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = (if (i == activeMarketIdx) "● " else "") + s.name,
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = SoftType.Body,
                                 )
                                 Text(
                                     text = s.url,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = SoftType.Caption,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                 )
                             }
                             if (i != activeMarketIdx) {
-                                TextButton(onClick = {
-                                    PluginStore.setActiveMarket(context, i)
-                                }) { Text("切换") }
+                                AppButton(
+                                    text = "切换",
+                                    onClick = { PluginStore.setActiveMarket(context, i) },
+                                    variant = AppButtonVariant.Ghost,
+                                )
                             }
                             if (marketSources.size > 1) {
                                 IconButton(onClick = {
@@ -513,31 +520,30 @@ fun SettingsScreen(
                         }
                     }
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
+                    AppTextField(
                         value = nameInput,
                         onValueChange = { nameInput = it },
-                        label = { Text("名称") },
-                        singleLine = true,
+                        placeholder = "名称",
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Spacer(Modifier.height(4.dp))
-                    OutlinedTextField(
+                    Spacer(Modifier.height(8.dp))
+                    AppTextField(
                         value = urlInput,
                         onValueChange = { urlInput = it },
-                        label = { Text("market.json 地址") },
-                        singleLine = true,
+                        placeholder = "market.json 地址",
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         text = "可添加 DsPlayer 官方市场（实验性）：\n${PluginStore.DSPLAYER_MARKET_URL}",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             },
             confirmButton = {
-                TextButton(
+                AppButton(
+                    text = "添加",
                     onClick = {
                         if (!PluginStore.addMarketSource(context, nameInput, urlInput)) {
                             Toast.makeText(context, "名称/地址为空或地址已存在", Toast.LENGTH_SHORT).show()
@@ -545,78 +551,109 @@ fun SettingsScreen(
                             nameInput = ""
                             urlInput = ""
                         }
-                    }
-                ) { Text("添加") }
+                    },
+                )
             },
             dismissButton = {
-                TextButton(onClick = { showMarketSourcesDialog = false }) { Text("关闭") }
+                AppButton(
+                    text = "关闭",
+                    onClick = { showMarketSourcesDialog = false },
+                    variant = AppButtonVariant.Ghost,
+                )
             },
         )
     }
+    // v0.19.0：添加自定义解析接口
     if (showAddParseDialog) {
         var parseName by remember { mutableStateOf("") }
         var parseUrl by remember { mutableStateOf("") }
         var parseType by remember { mutableStateOf(1) }
         AlertDialog(
             onDismissRequest = { showAddParseDialog = false },
-            title = { Text("添加解析接口") },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("添加解析接口", style = SoftType.CardTitle) },
             text = {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
+                    AppTextField(
                         value = parseName,
                         onValueChange = { parseName = it },
-                        label = { Text("名称") },
-                        singleLine = true,
+                        placeholder = "名称",
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
+                    AppTextField(
                         value = parseUrl,
                         onValueChange = { parseUrl = it },
-                        label = { Text("接口地址（视频地址拼在后面）") },
-                        singleLine = true,
+                        placeholder = "接口地址（视频地址拼在后面）",
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = parseType == 1, onClick = { parseType = 1 })
-                        Text("JSON 接口", modifier = Modifier.clickable { parseType = 1 })
+                        Text(
+                            "JSON 接口",
+                            style = SoftType.Body,
+                            modifier = Modifier.clickable { parseType = 1 },
+                        )
                         Spacer(modifier = Modifier.width(16.dp))
                         RadioButton(selected = parseType == 0, onClick = { parseType = 0 })
-                        Text("网页嗅探", modifier = Modifier.clickable { parseType = 0 })
+                        Text(
+                            "网页嗅探",
+                            style = SoftType.Body,
+                            modifier = Modifier.clickable { parseType = 0 },
+                        )
                     }
                     Text(
                         text = "JSON：GET 地址+视频地址，取返回 JSON 的 url 字段；嗅探：用 WebView 打开抓直链",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             },
             confirmButton = {
-                TextButton(
+                AppButton(
+                    text = "添加",
                     onClick = {
                         ParseStore.add(context, parseName, parseUrl, parseType)
                         showAddParseDialog = false
-                    }
-                ) { Text("添加") }
+                    },
+                )
             },
             dismissButton = {
-                TextButton(onClick = { showAddParseDialog = false }) { Text("取消") }
+                AppButton(
+                    text = "取消",
+                    onClick = { showAddParseDialog = false },
+                    variant = AppButtonVariant.Ghost,
+                )
             },
         )
     }
-    if (showClearCacheDialog) {        AlertDialog(
+    if (showClearCacheDialog) {
+        AlertDialog(
             onDismissRequest = { showClearCacheDialog = false },
-            title = { Text("清理缓存") },
-            text = { Text("确定要清理 $cacheSize 缓存吗？播放记录与站源配置不会被删除。") },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("清理缓存", style = SoftType.CardTitle) },
+            text = {
+                Text(
+                    "确定要清理 $cacheSize 缓存吗？播放记录与站源配置不会被删除。",
+                    style = SoftType.Body,
+                )
+            },
             confirmButton = {
-                TextButton(onClick = {
-                    cacheSize = "0 MB" // 占位：实际接入 CacheManager 后执行真实清理
-                    showClearCacheDialog = false
-                }) { Text("确定") }
+                AppButton(
+                    text = "确定",
+                    onClick = {
+                        cacheSize = "0 MB" // 占位：实际接入 CacheManager 后执行真实清理
+                        showClearCacheDialog = false
+                    },
+                )
             },
             dismissButton = {
-                TextButton(onClick = { showClearCacheDialog = false }) { Text("取消") }
+                AppButton(
+                    text = "取消",
+                    onClick = { showClearCacheDialog = false },
+                    variant = AppButtonVariant.Ghost,
+                )
             },
         )
     }
@@ -628,17 +665,11 @@ private fun SettingsGroup(
     content: @Composable () -> Unit,
 ) {
     Column {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Bold,
+        SectionTitle(
+            title = title,
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
         )
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        ) {
+        AppCard(modifier = Modifier.fillMaxWidth()) {
             content()
         }
     }
@@ -653,8 +684,14 @@ private fun SettingsRow(
     trailing: @Composable (() -> Unit)? = null,
 ) {
     ListItem(
-        headlineContent = { Text(title) },
-        supportingContent = { Text(subtitle) },
+        headlineContent = { Text(title, style = SoftType.Body) },
+        supportingContent = {
+            Text(
+                subtitle,
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
         leadingContent = {
             Icon(
                 imageVector = icon,
@@ -683,12 +720,13 @@ private fun SingleChoiceDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        shape = RoundedCornerShape(SoftDimens.CardCorner),
+        title = { Text(title, style = SoftType.CardTitle) },
         text = {
             Column {
                 options.forEach { option ->
                     ListItem(
-                        headlineContent = { Text(option) },
+                        headlineContent = { Text(option, style = SoftType.Body) },
                         trailingContent = {
                             RadioButton(
                                 selected = option == selected,
@@ -702,7 +740,11 @@ private fun SingleChoiceDialog(
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            AppButton(
+                text = "取消",
+                onClick = onDismiss,
+                variant = AppButtonVariant.Ghost,
+            )
         },
     )
 }
@@ -717,7 +759,7 @@ private fun ThemeColorPickerRow() {
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
         Text(
             text = "主题色",
-            style = MaterialTheme.typography.bodyLarge,
+            style = SoftType.Body,
         )
         Spacer(Modifier.height(10.dp))
         Row(
@@ -732,9 +774,9 @@ private fun ThemeColorPickerRow() {
                         .clip(CircleShape)
                         .background(Color(argb))
                         .border(
-                            width = if (isSelected) 3.dp else 1.dp,
+                            width = if (isSelected) 3.dp else SoftDimens.BorderWidth,
                             color = if (isSelected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.outlineVariant,
+                            else LocalSoftExtra.current.border,
                             shape = CircleShape,
                         )
                         .clickable { ThemeStore.setColor(context, argb) },
@@ -775,13 +817,17 @@ private fun SkipTimeRow(
         val options = listOf(0, 30, 60, 90, 120, 180, 300)
         AlertDialog(
             onDismissRequest = { showDialog = false },
-            title = { Text(title) },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text(title, style = SoftType.CardTitle) },
             text = {
                 Column {
                     options.forEach { sec ->
                         ListItem(
                             headlineContent = {
-                                Text(if (sec == 0) "不跳过" else "${sec} 秒")
+                                Text(
+                                    if (sec == 0) "不跳过" else "${sec} 秒",
+                                    style = SoftType.Body,
+                                )
                             },
                             trailingContent = {
                                 RadioButton(
@@ -802,7 +848,11 @@ private fun SkipTimeRow(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showDialog = false }) { Text("取消") }
+                AppButton(
+                    text = "取消",
+                    onClick = { showDialog = false },
+                    variant = AppButtonVariant.Ghost,
+                )
             },
         )
     }

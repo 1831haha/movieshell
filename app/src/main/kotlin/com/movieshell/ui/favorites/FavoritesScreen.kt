@@ -1,6 +1,7 @@
 package com.movieshell.ui.favorites
 
 import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,8 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -47,14 +46,20 @@ import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.FavoriteItem
 import com.movieshell.data.repo.FavoriteStore
 import com.movieshell.data.repo.SubSiteStore
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.EmptyKind
+import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.GradientBlock
+import com.movieshell.ui.components.LoadingSkeleton
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * 追剧收藏列表：海报（渐变占位）+ 标题 + 来源，点击进详情，右下角按钮删除。
+ * 追剧收藏列表（v0.27.0 Soft Tech 换皮）：海报占位 + 标题 + 来源，点击进详情，右下角按钮删除。
  *
  * 每次 ON_RESUME 都重读一次，保证从详情页收藏后切回来列表是最新的
  * （底栏 tab 用 saveState/restoreState，LaunchedEffect(Unit) 只跑一次不够）。
@@ -88,7 +93,7 @@ fun FavoritesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("收藏") },
+                title = { Text("收藏", style = SoftType.Title) },
                 navigationIcon = {
                     if (onBack != null) {
                         IconButton(onClick = onBack) {
@@ -104,13 +109,20 @@ fun FavoritesScreen(
     ) { inner ->
         when {
             loading -> {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(inner),
-                    contentAlignment = Alignment.Center,
+                        .padding(inner)
+                        .padding(SoftDimens.PagePadding),
+                    verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
                 ) {
-                    CircularProgressIndicator()
+                    repeat(3) {
+                        LoadingSkeleton(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(100.dp),
+                        )
+                    }
                 }
             }
             items.isEmpty() -> {
@@ -120,9 +132,11 @@ fun FavoritesScreen(
                         .padding(inner),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = "还没有收藏\n在详情页点右上角 ♥ 即可追剧",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.Favorite,
+                        title = "还没有收藏",
+                        hint = "在详情页点右上角 ♥ 即可追剧",
                     )
                 }
             }
@@ -134,7 +148,7 @@ fun FavoritesScreen(
                         .padding(vertical = 8.dp),
                 ) {
                     items(items, key = { "${it.sourceName}\u001f${it.vodId}" }) { item ->
-                        Card(
+                        AppCard(
                             onClick = {
                                 // v0.5.1：订阅站收藏回跳详情时恢复站点上下文
                                 DetailSiteHolder.site = item.subSiteKey
@@ -147,30 +161,31 @@ fun FavoritesScreen(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                                .padding(horizontal = SoftDimens.PagePadding, vertical = 6.dp),
                         ) {
                             Row(
-                                modifier = Modifier.padding(12.dp),
+                                modifier = Modifier.padding(SoftDimens.CardSpacing),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 GradientBlock(
                                     key = item.vodId.ifBlank { item.name },
                                     modifier = Modifier
                                         .size(56.dp, 76.dp)
-                                        .clip(RoundedCornerShape(8.dp)),
+                                        .clip(RoundedCornerShape(SoftDimens.PosterCorner)),
                                 )
-                                Spacer(Modifier.width(12.dp))
+                                Spacer(Modifier.width(SoftDimens.CardSpacing))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = item.name.ifBlank { item.vodId },
-                                        fontWeight = FontWeight.SemiBold,
+                                        style = SoftType.CardTitle,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Spacer(Modifier.height(4.dp))
                                     Text(
                                         text = "来源：${item.sourceName.ifBlank { "未知" }}",
-                                        style = MaterialTheme.typography.bodySmall,
+                                        style = SoftType.Caption,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
@@ -179,7 +194,7 @@ fun FavoritesScreen(
                                     if (date.isNotBlank()) {
                                         Text(
                                             text = "收藏于 $date",
-                                            style = MaterialTheme.typography.bodySmall,
+                                            style = SoftType.Caption,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }

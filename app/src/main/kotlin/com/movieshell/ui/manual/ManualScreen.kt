@@ -12,11 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,8 +24,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 
 /** 手册章节：标题 + 3~5 条口语化要点。内容是代码常量，不读 assets。 */
 private data class ManualSection(
@@ -232,6 +231,7 @@ private val MANUAL_SECTIONS = listOf(
     ManualSection(
         title = "版本更新",
         points = listOf(
+            "v0.27.0 视觉：整体 UI 重构为 Soft Tech 深色柔和科技风——深空灰底（#101318）+ 雾蓝主色（#7DD3FC），去流动光斑/霓虹渐变/重度毛玻璃；卡片 20dp 圆角 + 1dp 低对比描边；字阶统一（标题 20sp/卡片 15sp/正文 14sp/辅助 12sp）；页面切换淡入 + 8dp 位移（300ms）；主题换色器保留（9 色只换主色）。",
             "v0.26.0 新功能：追剧——详情页右上角“追剧”按钮一键跟更；首页顶部“我的追剧”海报墙（按最近更新排序，显示“更新至 X 集”/“看到第 Y 集”，有未读更新挂 NEW 角标）；每天自动检测 2 次，有新集发通知，点通知直达详情页；设置里可开关。",
             "v0.26.0 新功能：离线下载——详情页下载按钮多选剧集入队；m3u8 按分片下载（去广告后）写本地 index.m3u8、直链断点续传（Range）；下载管理页看进度/暂停/继续/删除；通知栏常驻进度；支持 1-3 个任务并行（设置可调）；m3u8 下到 30% 可“边下边播”。",
             "v0.25.0 稳定性：修闪退真因——补 media3-exoplayer-hls/dash 依赖（之前播 m3u8 因缺 HlsMediaSource 直接崩）；播放链路全加固（EngineHost.play 永不抛异常、自动换内核失败 Toast 降级、libmpv 初始化失败自动禁用回退 Media3、字幕/截图/定时器各子系统独立兜底）；全局崩溃捕获落盘（xiaying/crash/，只留最近 20 个），设置→调试可一键导出分享。",
@@ -281,7 +281,7 @@ fun ManualScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("使用手册", fontWeight = FontWeight.Bold) },
+                title = { Text("使用手册", style = SoftType.Title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -297,8 +297,11 @@ fun ManualScreen(onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(
+                horizontal = SoftDimens.PagePadding,
+                vertical = SoftDimens.CardSpacing,
+            ),
+            verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
         ) {
             itemsIndexed(MANUAL_SECTIONS) { index, section ->
                 ManualSectionCard(index = index + 1, section = section)
@@ -310,24 +313,19 @@ fun ManualScreen(onBack: () -> Unit) {
 
 @Composable
 private fun ManualSectionCard(index: Int, section: ManualSection) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "$index",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
+                    style = SoftType.Title,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = section.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
+                    style = SoftType.Title,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -338,13 +336,13 @@ private fun ManualSectionCard(index: Int, section: ManualSection) {
                 ) {
                     Text(
                         text = "•",
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = SoftType.Body,
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = point,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = SoftType.Body,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )

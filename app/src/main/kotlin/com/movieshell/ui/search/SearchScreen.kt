@@ -1,11 +1,14 @@
 package com.movieshell.ui.search
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
@@ -24,14 +26,9 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,16 +41,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -70,9 +63,17 @@ import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SearchHistoryStore
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SiteSearchResult
-import com.movieshell.ui.components.GradientBlock
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.EmptyKind
+import com.movieshell.ui.components.EmptyState
+import com.movieshell.ui.components.LoadingSkeleton
+import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -160,7 +161,6 @@ private suspend fun buildSearchConfigJson(context: Context): String {
     return JSONObject().put("sites", arr).toString()
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
     val context = LocalContext.current
@@ -225,32 +225,39 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // 搜索框
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
+        // 搜索框（v0.27.0：AppTextField；左右配搜索/清空按钮，点放大镜即搜）
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            placeholder = { Text("搜索影片、剧集、演员…") },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = "搜索") },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = { query = "" }) {
-                        Icon(Icons.Filled.Clear, contentDescription = "清空")
-                    }
+                .padding(horizontal = SoftDimens.PagePadding, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = { doSearch(query) }) {
+                Icon(
+                    Icons.Filled.Search,
+                    contentDescription = "搜索",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            AppTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = "搜索影片、剧集、演员…",
+                modifier = Modifier.weight(1f),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { doSearch(query) }),
+            )
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { query = "" }) {
+                    Icon(Icons.Filled.Clear, contentDescription = "清空")
                 }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(24.dp),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { doSearch(query) }),
-        )
+            }
+        }
 
         if (submitted.isBlank()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = SoftDimens.PagePadding),
             ) {
                 // 热搜词
                 item {
@@ -281,7 +288,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                     item {
                         Text(
                             text = "暂无搜索历史",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = SoftType.Body,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 8.dp),
                         )
@@ -306,7 +313,8 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                 modifier = Modifier
                                     .weight(1f)
                                     .padding(vertical = 10.dp),
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = SoftType.Body,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                             IconButton(onClick = {
                                 history.remove(h)
@@ -328,38 +336,48 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
             // 聚合搜索结果：按源分组
             if (searching || groupedResults == null) {
                 Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(SoftDimens.PagePadding),
+                    verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
                 ) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(12.dp))
                     Text(
                         text = "聚合搜索中…",
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    repeat(4) {
+                        LoadingSkeleton(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(112.dp),
+                        )
+                    }
                 }
             } else if (groupedResults.isNullOrEmpty()) {
-                Column(
+                Box(
                     modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = "没有找到「$submitted」相关结果",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.Search,
+                        title = "没有找到「$submitted」相关结果",
+                        actionText = "返回",
+                        onAction = { submitted = ""; query = "" },
                     )
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = { submitted = ""; query = "" }) { Text("返回") }
                 }
             } else {
                 val groups = groupedResults.orEmpty()
                 val total = groups.sumOf { it.vods.size }
                 Text(
                     text = "共 $total 个结果 · ${groups.size} 个源",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = SoftType.Caption,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(
+                        horizontal = SoftDimens.PagePadding,
+                        vertical = 4.dp,
+                    ),
                 )
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     groups.forEach { group ->
@@ -368,47 +386,65 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    .padding(
+                                        horizontal = SoftDimens.PagePadding,
+                                        vertical = 10.dp,
+                                    ),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text(
                                     text = group.site.name,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
+                                    style = SoftType.CardTitle,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
                                 Text(
                                     text = "${group.vods.size} 条",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = SoftType.Caption,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
                         val uiVods = group.vods.map { it.toUiVod() }
                         items(uiVods, key = { "vod:${group.site.key}:${it.id}" }) { vod ->
-                            ListItem(
-                                headlineContent = {
-                                    Text(vod.title, fontWeight = FontWeight.SemiBold)
-                                },
-                                supportingContent = {
-                                    Text("${vod.category} · ${vod.year} · ${vod.rating}分 · ${vod.actors}")
-                                },
-                                leadingContent = {
-                                    GradientBlock(
-                                        key = vod.id,
+                            AppCard(
+                                onClick = { goDetail(group.site, vod.id) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        horizontal = SoftDimens.PagePadding,
+                                        vertical = 4.dp,
+                                    ),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(SoftDimens.CardSpacing),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    PosterCard(
+                                        title = vod.title,
+                                        posterUrl = vod.poster,
                                         modifier = Modifier
-                                            .size(width = 48.dp, height = 68.dp)
-                                            .clip(RoundedCornerShape(8.dp)),
-                                    ) {
+                                            .width(72.dp)
+                                            .height(104.dp),
+                                    )
+                                    Spacer(Modifier.width(SoftDimens.CardSpacing))
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = vod.title.first().toString(),
-                                            color = Color.White.copy(alpha = 0.7f),
-                                            fontWeight = FontWeight.Bold,
+                                            text = "${vod.category} · ${vod.year}",
+                                            style = SoftType.Body,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            text = "${vod.rating}分 · ${vod.actors}",
+                                            style = SoftType.Caption,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                     }
-                                },
-                                trailingContent = {
                                     IconButton(onClick = { goDetail(group.site, vod.id) }) {
                                         Icon(
                                             imageVector = Icons.Filled.PlayArrow,
@@ -416,9 +452,8 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                             tint = MaterialTheme.colorScheme.primary,
                                         )
                                     }
-                                },
-                                modifier = Modifier.clickable { goDetail(group.site, vod.id) },
-                            )
+                                }
+                            }
                         }
                     }
                 }
@@ -442,14 +477,14 @@ private fun SectionHeader(
         Spacer(Modifier.width(6.dp))
         Text(
             text = title,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
+            style = SoftType.CardTitle,
+            color = MaterialTheme.colorScheme.onSurface,
         )
     }
     Spacer(Modifier.height(10.dp))
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HotSearchFlow(
     words: List<String>,
@@ -461,15 +496,10 @@ private fun HotSearchFlow(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         words.forEachIndexed { index, word ->
-            SuggestionChip(
+            AppChip(
+                text = "${index + 1}. $word",
+                selected = index < 3,
                 onClick = { onPick(word) },
-                label = {
-                    Text(
-                        text = "${index + 1}. $word",
-                        color = if (index < 3) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
             )
         }
     }

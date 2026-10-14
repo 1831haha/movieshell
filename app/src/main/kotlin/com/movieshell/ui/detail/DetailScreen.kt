@@ -37,12 +37,9 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -66,7 +63,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -90,9 +86,18 @@ import com.movieshell.data.repo.SiteRepository
 import com.movieshell.player.MagnetPlayer
 import com.movieshell.player.PlaySession
 import com.movieshell.player.resolvePlayUrl
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.GradientBlock
+import com.movieshell.ui.components.LoadingSkeleton
+import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
+import com.movieshell.ui.theme.LocalSoftExtra
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -333,7 +338,8 @@ fun DetailScreen(
                             else MaterialTheme.colorScheme.onSurface,
                         )
                     }
-                    IconButton(onClick = { /* 占位：分享 */ }) {
+                    // 占位：分享
+                    IconButton(onClick = { }) {
                         Icon(Icons.Filled.Share, contentDescription = "分享")
                     }
                 },
@@ -341,21 +347,31 @@ fun DetailScreen(
         },
     ) { inner ->
         if (drpyActive && detailLoading && detail == null) {
-            // drpy 详情加载中
-            Box(
+            // drpy 详情加载中：骨架屏占位，不转菊花
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(inner),
-                contentAlignment = Alignment.Center,
+                    .padding(inner)
+                    .padding(SoftDimens.PagePadding),
+                verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = "加载中…",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                LoadingSkeleton(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                LoadingSkeleton(
+                    modifier = Modifier.fillMaxWidth(0.55f).height(22.dp),
+                    shape = RoundedCornerShape(6.dp),
+                )
+                LoadingSkeleton(
+                    modifier = Modifier.fillMaxWidth().height(14.dp),
+                    shape = RoundedCornerShape(6.dp),
+                )
+                LoadingSkeleton(
+                    modifier = Modifier.fillMaxWidth(0.85f).height(14.dp),
+                    shape = RoundedCornerShape(6.dp),
+                )
+                LoadingSkeleton(
+                    modifier = Modifier.fillMaxWidth(0.7f).height(14.dp),
+                    shape = RoundedCornerShape(6.dp),
+                )
             }
         } else {
             LazyColumn(
@@ -385,6 +401,7 @@ fun DetailScreen(
                                     contentScale = ContentScale.Crop,
                                 )
                             }
+                            // 文案区压暗（文字可读性，非页面底渐变）
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -401,13 +418,13 @@ fun DetailScreen(
                                     .align(Alignment.Center)
                                     .size(64.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xCC000000)),
+                                    .background(MaterialTheme.colorScheme.primary),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.PlayArrow,
                                     contentDescription = "播放",
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(40.dp),
                                 )
                             }
@@ -415,10 +432,9 @@ fun DetailScreen(
                                 text = vod.title,
                                 modifier = Modifier
                                     .align(Alignment.BottomStart)
-                                    .padding(16.dp),
+                                    .padding(SoftDimens.PagePadding),
                                 color = Color.White,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold,
+                                style = SoftType.Title,
                             )
                         }
                     }
@@ -426,19 +442,19 @@ fun DetailScreen(
 
                 // 标题与元信息
                 item {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Filled.Star,
                                 contentDescription = null,
-                                tint = Color(0xFFFFB300),
+                                tint = LocalSoftExtra.current.warning,
                                 modifier = Modifier.size(18.dp),
                             )
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 text = vod.rating,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFFFB300),
+                                style = SoftType.Body,
+                                color = LocalSoftExtra.current.warning,
                             )
                             Spacer(Modifier.width(12.dp))
                             MetaChip(vod.year)
@@ -448,31 +464,28 @@ fun DetailScreen(
                         Spacer(Modifier.height(8.dp))
                         Text(
                             text = "主演：${vod.actors}",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = SoftType.Body,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(12.dp))
                         // v0.21.0：简介标题 + 一键复制影片信息
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "简介",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f),
-                            )
-                            IconButton(onClick = { copyVodInfo() }) {
-                                Icon(
-                                    Icons.Filled.ContentCopy,
-                                    contentDescription = "复制影片信息",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
-                        }
+                        SectionTitle(
+                            title = "简介",
+                            action = {
+                                IconButton(onClick = { copyVodInfo() }) {
+                                    Icon(
+                                        Icons.Filled.ContentCopy,
+                                        contentDescription = "复制影片信息",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            },
+                        )
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = vod.desc,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = SoftType.Body,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 22.sp,
                         )
@@ -485,11 +498,13 @@ fun DetailScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
+                            .padding(horizontal = SoftDimens.PagePadding),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Button(
+                        AppButton(
+                            text = if (lineEpisodes.isNotEmpty()) playLabel
+                            else "暂无可播地址",
                             onClick = {
                                 if (lineEpisodes.isNotEmpty()) {
                                     playEpisode(lineEpisodes[safeSelected], safeLine, safeSelected)
@@ -497,15 +512,7 @@ fun DetailScreen(
                             },
                             enabled = lineEpisodes.isNotEmpty(),
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = if (lineEpisodes.isNotEmpty()) playLabel
-                                else "暂无可播地址"
-                            )
-                        }
+                        )
                         IconButton(
                             onClick = { showDownloadDialog = true },
                             enabled = lineEpisodes.isNotEmpty(),
@@ -523,7 +530,7 @@ fun DetailScreen(
                             item {
                                 ScrollableTabRow(
                                     selectedTabIndex = safeLine,
-                                    edgePadding = 16.dp,
+                                    edgePadding = SoftDimens.PagePadding,
                                 ) {
                                     playLines.forEachIndexed { i, line ->
                                         Tab(
@@ -539,28 +546,27 @@ fun DetailScreen(
                             }
                         }
                         item {
-                            Text(
-                                text = "选集（共 ${lineEpisodes.size} 集）",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            SectionTitle(
+                                title = "选集（共 ${lineEpisodes.size} 集）",
+                                modifier = Modifier.padding(
+                                    horizontal = SoftDimens.PagePadding,
+                                    vertical = 8.dp,
+                                ),
                             )
                         }
                         item {
                             FlowRow(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 16.dp),
+                                    .padding(horizontal = SoftDimens.PagePadding),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 lineEpisodes.forEachIndexed { i, ep ->
-                                    FilterChip(
+                                    AppChip(
+                                        text = ep.name.ifBlank { "第${i + 1}集" },
                                         selected = safeSelected == i,
                                         onClick = { selectedEpisode = i },
-                                        label = {
-                                            Text(ep.name.ifBlank { "第${i + 1}集" })
-                                        },
                                     )
                                 }
                             }
@@ -569,26 +575,27 @@ fun DetailScreen(
                     }
                     vod.episodes > 1 -> {
                         item {
-                            Text(
-                                text = "选集（共 ${vod.episodes} 集）",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            SectionTitle(
+                                title = "选集（共 ${vod.episodes} 集）",
+                                modifier = Modifier.padding(
+                                    horizontal = SoftDimens.PagePadding,
+                                    vertical = 8.dp,
+                                ),
                             )
                         }
                         item {
                             FlowRow(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 16.dp),
+                                    .padding(horizontal = SoftDimens.PagePadding),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 repeat(vod.episodes) { i ->
-                                    FilterChip(
+                                    AppChip(
+                                        text = "第${i + 1}集",
                                         selected = selectedEpisode == i,
                                         onClick = { selectedEpisode = i },
-                                        label = { Text("第${i + 1}集") },
                                     )
                                 }
                             }
@@ -622,9 +629,13 @@ fun DetailScreen(
         var selected by remember { mutableStateOf(lineEpisodes.indices.toSet()) }
         var resolving by remember { mutableStateOf(false) }
         Dialog(onDismissRequest = { if (!resolving) showDownloadDialog = false }) {
-            Card(shape = RoundedCornerShape(16.dp)) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("选择要下载的剧集", style = MaterialTheme.typography.titleMedium)
+            AppCard {
+                Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
+                    Text(
+                        text = "选择要下载的剧集",
+                        style = SoftType.CardTitle,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                     Spacer(Modifier.height(8.dp))
                     LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
                         items(lineEpisodes.size) { i ->
@@ -662,13 +673,25 @@ fun DetailScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        TextButton(
+                        // 解析中指示：AppButton 无内容插槽，指示条放按钮左侧（功能不变）
+                        if (resolving) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        AppButton(
+                            text = "取消",
                             onClick = { showDownloadDialog = false },
+                            variant = AppButtonVariant.Ghost,
                             enabled = !resolving,
-                        ) { Text("取消") }
+                        )
                         Spacer(Modifier.width(8.dp))
-                        Button(
+                        AppButton(
+                            text = "下载选中（${selected.size}）",
                             onClick = {
                                 resolving = true
                                 scope.launch {
@@ -702,16 +725,7 @@ fun DetailScreen(
                                 }
                             },
                             enabled = !resolving && selected.isNotEmpty(),
-                        ) {
-                            if (resolving) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            } else {
-                                Text("下载选中（${selected.size}）")
-                            }
-                        }
+                        )
                     }
                 }
             }
@@ -748,10 +762,10 @@ private fun MetaChip(text: String) {
         text = text,
         modifier = Modifier
             .padding(end = 8.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(SoftDimens.ChipCorner))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(horizontal = 8.dp, vertical = 4.dp),
-        style = MaterialTheme.typography.bodySmall,
+        style = SoftType.Caption,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }

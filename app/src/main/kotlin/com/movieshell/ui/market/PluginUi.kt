@@ -2,28 +2,25 @@ package com.movieshell.ui.market
 
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginMarket.MarketPlugin
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
 
 /**
  * 插件市场共享 UI（v0.23.0）：安装/卸载动作单入口 + 按钮状态机，列表页与详情页共用。
+ * v0.27.0 Soft Tech 换皮：按钮走 AppButton，状态机逻辑零变更。
  */
 object PluginUi {
 
@@ -72,52 +69,62 @@ fun PluginActionButtons(
         PluginMarket.isNewer(plugin.version, installedVersion)
     val blocked = !plugin.isSupported()
     val needApp = plugin.needsNewerApp()
-    Row {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (busy) {
             CircularProgressIndicator(modifier = Modifier.size(28.dp))
             return@Row
         }
         when {
             blocked -> {
-                OutlinedButton(onClick = {}, enabled = false) {
-                    Text("侠影暂不支持（${plugin.type}）")
-                }
+                AppButton(
+                    text = "侠影暂不支持（${plugin.type}）",
+                    onClick = {},
+                    enabled = false,
+                    variant = AppButtonVariant.Secondary,
+                )
             }
             needApp -> {
-                OutlinedButton(onClick = {}, enabled = false) {
-                    Text("需侠影 ${plugin.minApp} 及以上")
-                }
+                AppButton(
+                    text = "需侠影 ${plugin.minApp} 及以上",
+                    onClick = {},
+                    enabled = false,
+                    variant = AppButtonVariant.Secondary,
+                )
                 if (installedVersion != null) {
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = onUninstall) {
-                        Icon(Icons.Filled.Delete, contentDescription = null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("卸载")
-                    }
+                    AppButton(
+                        text = "卸载",
+                        onClick = onUninstall,
+                        variant = AppButtonVariant.Ghost,
+                        icon = Icons.Filled.Delete,
+                    )
                 }
             }
             installedVersion == null -> {
-                Button(onClick = onInstall) {
-                    Icon(Icons.Filled.CloudDownload, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("安装")
-                }
+                AppButton(
+                    text = "安装",
+                    onClick = onInstall,
+                    icon = Icons.Filled.CloudDownload,
+                )
             }
             hasUpdate -> {
-                Button(onClick = onInstall) { Text("更新到 v${plugin.version}") }
-                Spacer(Modifier.width(8.dp))
-                TextButton(onClick = onUninstall) {
-                    Icon(Icons.Filled.Delete, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("卸载")
-                }
+                AppButton(
+                    text = "更新到 v${plugin.version}",
+                    onClick = onInstall,
+                )
+                AppButton(
+                    text = "卸载",
+                    onClick = onUninstall,
+                    variant = AppButtonVariant.Ghost,
+                    icon = Icons.Filled.Delete,
+                )
             }
             else -> {
-                OutlinedButton(onClick = onUninstall) {
-                    Icon(Icons.Filled.Delete, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("卸载")
-                }
+                AppButton(
+                    text = "卸载",
+                    onClick = onUninstall,
+                    variant = AppButtonVariant.Secondary,
+                    icon = Icons.Filled.Delete,
+                )
             }
         }
     }

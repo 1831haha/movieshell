@@ -11,6 +11,13 @@ import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.SubtitleStyle
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
+import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.theme.LocalSoftExtra
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -25,15 +32,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -52,13 +63,13 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -534,8 +545,8 @@ fun PlayerScreen(
         if (playUrl.isBlank()) {
             Text(
                 text = "暂无可播放地址",
-                color = Color.White.copy(alpha = 0.6f),
-                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = SoftType.Body,
                 modifier = Modifier.align(Alignment.Center),
             )
         } else {
@@ -658,15 +669,18 @@ fun PlayerScreen(
                 },
         )
 
-        // 手势指示条：中央临时提示
+        // 手势指示条：中央临时小胶囊（半透明黑底 + 12sp 白字）
         gestureHint?.let { hint ->
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                    .background(
+                        Color.Black.copy(alpha = 0.7f),
+                        RoundedCornerShape(SoftDimens.PosterCorner),
+                    )
                     .padding(horizontal = 20.dp, vertical = 12.dp),
             ) {
-                Text(hint, color = Color.White, style = MaterialTheme.typography.titleMedium)
+                Text(hint, color = Color.White, style = SoftType.Caption)
             }
         }
 
@@ -685,21 +699,21 @@ fun PlayerScreen(
             Text(
                 text = title,
                 color = Color.White,
-                style = MaterialTheme.typography.titleSmall,
+                style = SoftType.CardTitle,
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
-            // v0.24.0：直播角标
+            // v0.24.0：直播角标（v0.27.0：柔和错误色胶囊）
             if (isLive) {
                 Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = Color(0xFFE53935),
+                    shape = RoundedCornerShape(SoftDimens.ChipCorner),
+                    color = LocalSoftExtra.current.errorSoft,
                 ) {
                     Text(
                         text = "直播",
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        color = Color.Black,
+                        style = SoftType.Caption,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                     )
                 }
                 Spacer(Modifier.width(4.dp))
@@ -708,9 +722,10 @@ fun PlayerScreen(
                 onClick = {
                     speedIndex = (speedIndex + 1) % SPEEDS.size
                     EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
-                }
+                },
+                modifier = Modifier.height(SoftDimens.TouchTarget),
             ) {
-                Text("${SPEEDS[speedIndex]}x", color = Color.White)
+                Text("${SPEEDS[speedIndex]}x", color = Color.White, style = SoftType.Body)
             }
             // v0.14.0：快退/快进 ±10 秒（v0.20.0 走 EngineHost，双引擎统一）
             IconButton(onClick = {
@@ -732,28 +747,40 @@ fun PlayerScreen(
                     } else {
                         MpvPlayerManager.setAspectMode(resizeIndex)
                     }
-                }
+                },
+                modifier = Modifier.height(SoftDimens.TouchTarget),
             ) {
-                Text(RESIZE_MODES[resizeIndex].second, color = Color.White)
+                Text(RESIZE_MODES[resizeIndex].second, color = Color.White, style = SoftType.Body)
             }
             // v0.20.0：播放器内一键切换内核（Media3 ↔ libmpv），选择会被记住
-            TextButton(onClick = { switchEngine() }) {
+            TextButton(
+                onClick = { switchEngine() },
+                modifier = Modifier.height(SoftDimens.TouchTarget),
+            ) {
                 Text(
                     if (engine == PlayerEngine.MEDIA3) "Media3" else "libmpv",
                     color = Color.White,
+                    style = SoftType.Body,
                 )
             }
             // v0.19.0：播放器内线路/选集切换（多条线路才显示）；v0.24.0：直播隐藏
             if (!isLive && sessionLines.size > 1) {
-                TextButton(onClick = { showLines = true }) {
+                TextButton(
+                    onClick = { showLines = true },
+                    modifier = Modifier.height(SoftDimens.TouchTarget),
+                ) {
                     Text(
                         PlaySession.currentLine()?.name?.take(4) ?: "线路",
                         color = Color.White,
+                        style = SoftType.Body,
                     )
                 }
             } else if (!isLive && sessionLines.size == 1 && (sessionLines[0].episodes.size > 1)) {
-                TextButton(onClick = { showLines = true }) {
-                    Text("选集", color = Color.White)
+                TextButton(
+                    onClick = { showLines = true },
+                    modifier = Modifier.height(SoftDimens.TouchTarget),
+                ) {
+                    Text("选集", color = Color.White, style = SoftType.Body)
                 }
             }
             // v0.19.0：外挂字幕
@@ -772,10 +799,14 @@ fun PlayerScreen(
             }
             // v0.21.0：定时关闭（有定时在跑时显示剩余时间，点开可改/关）
             if (sleepRemaining > 0 || sleepArmed) {
-                TextButton(onClick = { showSleepDialog = true }) {
+                TextButton(
+                    onClick = { showSleepDialog = true },
+                    modifier = Modifier.height(SoftDimens.TouchTarget),
+                ) {
                     Text(
                         text = if (sleepArmed) "播完停" else fmtSleep(sleepRemaining),
                         color = Color.White,
+                        style = SoftType.Body,
                     )
                 }
             } else {
@@ -803,9 +834,19 @@ fun PlayerScreen(
             }
         }
 
+        // v0.27.0：播放错误提示走柔和错误色，不用刺眼红
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp),
+            snackbar = { data ->
+                Snackbar(
+                    snackbarData = data,
+                    shape = RoundedCornerShape(SoftDimens.ButtonCorner),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = LocalSoftExtra.current.errorSoft,
+                    actionColor = MaterialTheme.colorScheme.primary,
+                )
+            },
         )
 
         // v0.20.0：libmpv 模式没有 PlayerView 自带控制器，补一个极简底部条（播放/暂停+进度拖动）；
@@ -828,6 +869,8 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(SoftDimens.ButtonCorner))
                     .background(Color.Black.copy(alpha = 0.45f))
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -844,7 +887,7 @@ fun PlayerScreen(
                 Text(
                     text = fmtTime(if (scrubbing) scrubPos else mpvPos),
                     color = Color.White,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = SoftType.Caption,
                 )
                 Slider(
                     value = (if (scrubbing) scrubPos else mpvPos).toFloat(),
@@ -858,11 +901,15 @@ fun PlayerScreen(
                     },
                     valueRange = 0f..mpvDur.coerceAtLeast(1L).toFloat(),
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                    ),
                 )
                 Text(
                     text = fmtTime(mpvDur),
                     color = Color.White,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = SoftType.Caption,
                 )
             }
         }
@@ -936,20 +983,26 @@ fun PlayerScreen(
 
         } // if (!pipMode)：画中画时只留播放画面
 
-        // 磁力转播服务未启动提示
+        // 磁力转播服务未启动提示（v0.27.0：统一卡片容器，标题柔和错误色）
         if (showServiceMissingDialog) {
-            AlertDialog(
-                onDismissRequest = { showServiceMissingDialog = false },
-                title = { Text("磁力转播服务未启动") },
-                text = {
-                    Text("未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream 后再试")
+            PlayerDialogCard(
+                title = "磁力转播服务未启动",
+                titleColor = LocalSoftExtra.current.errorSoft,
+                onDismiss = { showServiceMissingDialog = false },
+                buttons = {
+                    AppButton(
+                        text = "知道了",
+                        onClick = { showServiceMissingDialog = false },
+                        variant = AppButtonVariant.Ghost,
+                    )
                 },
-                confirmButton = {
-                    TextButton(onClick = { showServiceMissingDialog = false }) {
-                        Text("知道了")
-                    }
-                },
-            )
+            ) {
+                Text(
+                    "未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream 后再试",
+                    style = SoftType.Body,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
         }
     }
 }
@@ -1039,15 +1092,27 @@ private fun LineSheet(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .fillMaxHeight(0.6f),
-            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+                .fillMaxHeight(0.6f)
+                .border(
+                    SoftDimens.BorderWidth,
+                    LocalSoftExtra.current.border,
+                    RoundedCornerShape(
+                        topStart = SoftDimens.CardCorner,
+                        topEnd = SoftDimens.CardCorner,
+                    ),
+                ),
+            shape = RoundedCornerShape(
+                topStart = SoftDimens.CardCorner,
+                topEnd = SoftDimens.CardCorner,
+            ),
             color = MaterialTheme.colorScheme.surface,
         ) {
-            Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Column(Modifier.fillMaxSize().padding(SoftDimens.PagePadding)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "线路 / 选集",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = SoftType.CardTitle,
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
                     IconButton(onClick = onDismiss) {
@@ -1057,10 +1122,10 @@ private fun LineSheet(
                 Spacer(Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     itemsIndexed(lines) { i, line ->
-                        FilterChip(
+                        AppChip(
+                            text = line.name,
                             selected = i == tab,
                             onClick = { tab = i },
-                            label = { Text(line.name) },
                         )
                     }
                 }
@@ -1075,7 +1140,7 @@ private fun LineSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onPick(tab, i) },
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(SoftDimens.PosterCorner),
                             color = if (selected) {
                                 MaterialTheme.colorScheme.primaryContainer
                             } else {
@@ -1085,7 +1150,7 @@ private fun LineSheet(
                             Text(
                                 text = ep.name.ifBlank { "第${i + 1}集" },
                                 maxLines = 1,
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = SoftType.Body,
                                 color = if (selected) {
                                     MaterialTheme.colorScheme.onPrimaryContainer
                                 } else {
@@ -1095,6 +1160,63 @@ private fun LineSheet(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * v0.27.0：播放器内对话框统一容器（Soft Tech）——遮罩 + 居中卡片
+ *（surface 底 + 1dp 描边 + 20dp 圆角，标题 15sp CardTitle）。
+ * 字幕设置 / 定时关闭 / 本剧跳过 / 磁力服务提示四个面板共用。
+ */
+@Composable
+private fun PlayerDialogCard(
+    title: String,
+    onDismiss: () -> Unit,
+    buttons: @Composable RowScope.() -> Unit,
+    titleColor: Color = MaterialTheme.colorScheme.onSurface,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val cardShape = RoundedCornerShape(SoftDimens.CardCorner)
+    // AlertDialog 时代按返回先关面板：内联卡片后补回同样的返回拦截
+    BackHandler(onBack = onDismiss)
+    Box(Modifier.fillMaxSize()) {
+        // 半透明遮罩，点击关闭
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.55f))
+                .clickable(onClick = onDismiss)
+        )
+        Surface(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(0.88f)
+                .widthIn(max = 480.dp)
+                .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, cardShape),
+            shape = cardShape,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+        ) {
+            Column(Modifier.padding(SoftDimens.PagePadding)) {
+                Text(title, style = SoftType.CardTitle, color = titleColor)
+                Spacer(Modifier.height(12.dp))
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    content()
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    buttons()
                 }
             }
         }
@@ -1128,128 +1250,134 @@ private fun SubtitleDialog(
     var edge by remember { mutableIntStateOf(initialStyle.edge) }
     var position by remember { mutableIntStateOf(initialStyle.position) }
     var offsetSec by remember { mutableIntStateOf((initialStyle.offsetMs / 1000).toInt()) }
-    val scroll = rememberScrollState()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("字幕设置") },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(scroll),
-            ) {
-                Text(
-                    text = "支持 .srt / .vtt / .ass 地址，保存后立即生效",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("字幕地址") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(12.dp))
-                Text("大小 ${size}sp", style = MaterialTheme.typography.bodyMedium)
-                Slider(
-                    value = size.toFloat(),
-                    onValueChange = { size = it.toInt() },
-                    valueRange = 12f..32f,
-                )
-                Text("颜色", style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SUB_COLORS.forEach { c ->
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(Color(c))
-                                .border(
-                                    width = if (c == color) 3.dp else 1.dp,
-                                    color = if (c == color) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        Color.Gray.copy(alpha = 0.4f)
-                                    },
-                                    shape = CircleShape,
-                                )
-                                .clickable { color = c },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                Text("描边", style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        SubtitleStyle.EDGE_NONE to "无",
-                        SubtitleStyle.EDGE_OUTLINE to "描边",
-                        SubtitleStyle.EDGE_SHADOW to "阴影",
-                    ).forEach { (v, label) ->
-                        FilterChip(
-                            selected = edge == v,
-                            onClick = { edge = v },
-                            label = { Text(label) },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text("位置", style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = position == SubtitleStyle.POS_BOTTOM,
-                        onClick = { position = SubtitleStyle.POS_BOTTOM },
-                        label = { Text("底部") },
-                    )
-                    FilterChip(
-                        selected = position == SubtitleStyle.POS_TOP,
-                        onClick = { position = SubtitleStyle.POS_TOP },
-                        label = { Text("顶部") },
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                val offsetLabel = when {
-                    offsetSec > 0 -> "+${offsetSec}s（字幕延后）"
-                    offsetSec < 0 -> "${offsetSec}s（字幕提前）"
-                    else -> "0s（关闭偏移）"
-                }
-                Text(
-                    "时间偏移 $offsetLabel",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Slider(
-                    value = offsetSec.toFloat(),
-                    onValueChange = { offsetSec = it.toInt() },
-                    valueRange = -10f..10f,
-                    steps = 19,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
+    // v0.27.0：统一卡片容器 + AppChip 多选 + AppTextField
+    PlayerDialogCard(
+        title = "字幕设置",
+        onDismiss = onDismiss,
+        buttons = {
+            AppButton(
+                text = "清除",
+                onClick = { onSave("", initialStyle) },
+                variant = AppButtonVariant.Ghost,
+            )
+            AppButton(text = "取消", onClick = onDismiss, variant = AppButtonVariant.Ghost)
+            AppButton(
+                text = "保存并应用",
                 onClick = {
                     onSave(
                         url,
                         SubtitleStyle(size, color, edge, position, offsetSec * 1000L),
                     )
-                }
-            ) {
-                Text("保存并应用")
-            }
+                },
+            )
         },
-        dismissButton = {
-            TextButton(onClick = { onSave("", initialStyle) }) {
-                Text("清除")
+    ) {
+        Text(
+            text = "支持 .srt / .vtt / .ass 地址，保存后立即生效",
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        AppTextField(
+            value = url,
+            onValueChange = { url = it },
+            placeholder = "字幕地址",
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "大小 ${size}sp",
+            style = SoftType.Body,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Slider(
+            value = size.toFloat(),
+            onValueChange = { size = it.toInt() },
+            valueRange = 12f..32f,
+        )
+        Text(
+            "颜色",
+            style = SoftType.Body,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            SUB_COLORS.forEach { c ->
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(c))
+                        .border(
+                            width = if (c == color) 3.dp else 1.dp,
+                            color = if (c == color) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                LocalSoftExtra.current.border
+                            },
+                            shape = CircleShape,
+                        )
+                        .clickable { color = c },
+                )
             }
-            TextButton(onClick = onDismiss) {
-                Text("取消")
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "描边",
+            style = SoftType.Body,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                SubtitleStyle.EDGE_NONE to "无",
+                SubtitleStyle.EDGE_OUTLINE to "描边",
+                SubtitleStyle.EDGE_SHADOW to "阴影",
+            ).forEach { (v, label) ->
+                AppChip(
+                    text = label,
+                    selected = edge == v,
+                    onClick = { edge = v },
+                )
             }
-        },
-    )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "位置",
+            style = SoftType.Body,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppChip(
+                text = "底部",
+                selected = position == SubtitleStyle.POS_BOTTOM,
+                onClick = { position = SubtitleStyle.POS_BOTTOM },
+            )
+            AppChip(
+                text = "顶部",
+                selected = position == SubtitleStyle.POS_TOP,
+                onClick = { position = SubtitleStyle.POS_TOP },
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        val offsetLabel = when {
+            offsetSec > 0 -> "+${offsetSec}s（字幕延后）"
+            offsetSec < 0 -> "${offsetSec}s（字幕提前）"
+            else -> "0s（关闭偏移）"
+        }
+        Text(
+            "时间偏移 $offsetLabel",
+            style = SoftType.Body,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Slider(
+            value = offsetSec.toFloat(),
+            onValueChange = { offsetSec = it.toInt() },
+            valueRange = -10f..10f,
+            steps = 19,
+        )
+    }
 }
 
 /** v0.21.0：定时关闭选项（15/30/60/90 分钟 / 播完本集 / 关闭定时）。 */
@@ -1260,40 +1388,47 @@ private fun SleepTimerDialog(
     onPickAfterEpisode: () -> Unit,
     onCancelTimer: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("定时关闭") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                listOf(15, 30, 60, 90).forEach { m ->
-                    TextButton(
-                        onClick = { onPickMinutes(m) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("$m 分钟后停止")
-                    }
-                }
-                TextButton(
-                    onClick = onPickAfterEpisode,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("播完本集停止")
-                }
-                TextButton(
-                    onClick = onCancelTimer,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("关闭定时")
-                }
-            }
+    // v0.27.0：统一卡片容器
+    PlayerDialogCard(
+        title = "定时关闭",
+        onDismiss = onDismiss,
+        buttons = {
+            AppButton(text = "取消", onClick = onDismiss, variant = AppButtonVariant.Ghost)
         },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
+    ) {
+        listOf(15, 30, 60, 90).forEach { m ->
+            TextButton(
+                onClick = { onPickMinutes(m) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "$m 分钟后停止",
+                    style = SoftType.Body,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
             }
-        },
-    )
+        }
+        TextButton(
+            onClick = onPickAfterEpisode,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                "播完本集停止",
+                style = SoftType.Body,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        TextButton(
+            onClick = onCancelTimer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                "关闭定时",
+                style = SoftType.Body,
+                color = LocalSoftExtra.current.errorSoft,
+            )
+        }
+    }
 }
 
 /** v0.21.0：定时关闭剩余时间 → m:ss */
@@ -1315,34 +1450,14 @@ private fun SkipSettingsDialog(
     var intro by remember { mutableStateOf(PlayerSettings.getSkipIntroFor(context, vodId).toString()) }
     var outro by remember { mutableStateOf(PlayerSettings.getSkipOutroFor(context, vodId).toString()) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("本剧跳过设置") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "每部剧单独设置，互不影响",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = intro,
-                    onValueChange = { intro = it.filter { c -> c.isDigit() } },
-                    label = { Text("跳过片头（秒）") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = outro,
-                    onValueChange = { outro = it.filter { c -> c.isDigit() } },
-                    label = { Text("跳过片尾（秒）") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
+    // v0.27.0：统一卡片容器 + AppTextField
+    PlayerDialogCard(
+        title = "本剧跳过设置",
+        onDismiss = onDismiss,
+        buttons = {
+            AppButton(text = "取消", onClick = onDismiss, variant = AppButtonVariant.Ghost)
+            AppButton(
+                text = "保存",
                 onClick = {
                     val introSec = intro.toIntOrNull()?.coerceIn(0, 600) ?: 0
                     val outroSec = outro.toIntOrNull()?.coerceIn(0, 600) ?: 0
@@ -1350,15 +1465,28 @@ private fun SkipSettingsDialog(
                     PlayerSettings.setSkipOutroFor(context, vodId, outroSec)
                     LogBus.i("UI", "设置本剧跳过: 片头${introSec}s 片尾${outroSec}s")
                     onDismiss()
-                }
-            ) {
-                Text("保存")
-            }
+                },
+            )
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        },
-    )
+    ) {
+        Text(
+            text = "每部剧单独设置，互不影响",
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        AppTextField(
+            value = intro,
+            onValueChange = { intro = it.filter { c -> c.isDigit() } },
+            placeholder = "跳过片头（秒）",
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        AppTextField(
+            value = outro,
+            onValueChange = { outro = it.filter { c -> c.isDigit() } },
+            placeholder = "跳过片尾（秒）",
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }

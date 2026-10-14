@@ -11,9 +11,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,15 +22,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,11 +43,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.SniffPatternStore
 import com.movieshell.data.repo.StoragePaths
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.EmptyKind
+import com.movieshell.ui.components.EmptyState
+import com.movieshell.ui.components.LoadingSkeleton
+import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import java.io.File
 
 /**
@@ -83,7 +92,7 @@ fun LabScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("实验室") },
+                title = { Text("实验室", style = SoftType.Title) },
             )
         },
         floatingActionButton = {
@@ -91,7 +100,10 @@ fun LabScreen(
                 onClick = {
                     LogBus.i("UI", "点击实验室添加插件")
                     pluginLauncher.launch("*/*")
-                }
+                },
+                shape = RoundedCornerShape(SoftDimens.CardCorner),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ) {
                 Icon(Icons.Filled.Add, contentDescription = "添加插件")
             }
@@ -104,17 +116,14 @@ fun LabScreen(
                 .padding(16.dp)
         ) {
             item {
-                Text(
-                    text = "插件管理",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Spacer(Modifier.height(8.dp))
+                SectionTitle(title = "插件管理")
+                Spacer(Modifier.height(4.dp))
                 Text(
                     text = "已安装的 PY / drpy / spider 插件将显示在这里",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = SoftType.Body,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(SoftDimens.CardSpacing))
             }
             // v0.17.0：插件列表（PY/drpy/JAR）
             item {
@@ -123,60 +132,64 @@ fun LabScreen(
             }
             // v0.16.1：嗅探自定义正则
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "嗅探正则",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = { showAddPattern = true }) {
-                        Text("添加")
-                    }
-                }
+                SectionTitle(
+                    title = "嗅探正则",
+                    action = {
+                        TextButton(onClick = { showAddPattern = true }) {
+                            Text("添加")
+                        }
+                    },
+                )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = "匹配到的 URL 直接视为可播直链（如：\\.m3u8\\?.*token=）",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = SoftType.Caption,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
             }
             if (patterns.isEmpty()) {
                 item {
-                    Text(
-                        text = "暂无自定义正则",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.Tune,
+                        title = "暂无自定义正则",
+                        hint = "添加后，匹配到的 URL 直接视为可播直链",
                     )
                 }
             } else {
                 items(patterns) { pattern ->
-                    Row(
+                    AppCard(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = pattern,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        IconButton(
-                            onClick = {
-                                LogBus.i("UI", "删除嗅探正则: $pattern")
-                                SniffPatternStore.remove(pattern)
-                                refreshPatterns()
-                            }
+                        Row(
+                            modifier = Modifier.padding(
+                                horizontal = SoftDimens.CardSpacing,
+                                vertical = 4.dp,
+                            ),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                Icons.Filled.Delete,
-                                contentDescription = "删除",
-                                tint = MaterialTheme.colorScheme.error,
+                            Text(
+                                text = pattern,
+                                style = SoftType.Body,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
                             )
+                            IconButton(
+                                onClick = {
+                                    LogBus.i("UI", "删除嗅探正则: $pattern")
+                                    SniffPatternStore.remove(pattern)
+                                    refreshPatterns()
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Filled.Delete,
+                                    contentDescription = "删除",
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            }
                         }
                     }
                 }
@@ -190,18 +203,22 @@ fun LabScreen(
         var error by remember { mutableStateOf<String?>(null) }
         AlertDialog(
             onDismissRequest = { showAddPattern = false },
-            title = { Text("添加嗅探正则") },
+            title = { Text("添加嗅探正则", style = SoftType.Title) },
             text = {
                 Column {
-                    OutlinedTextField(
+                    Text(
+                        text = "正则表达式",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppTextField(
                         value = input,
                         onValueChange = {
                             input = it
                             error = null
                         },
-                        label = { Text("正则表达式") },
-                        placeholder = { Text("\\.m3u8\\?.*") },
-                        isError = error != null,
+                        placeholder = "\\.m3u8\\?.*",
                         modifier = Modifier.fillMaxWidth(),
                     )
                     if (error != null) {
@@ -209,7 +226,7 @@ fun LabScreen(
                         Text(
                             text = error!!,
                             color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
+                            style = SoftType.Caption,
                         )
                     }
                 }
@@ -295,44 +312,28 @@ private fun PluginListSection(context: Context) {
     }
 
     Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "已安装插件 (${plugins.size})",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = { refresh() }) {
-                Text("刷新")
-            }
-        }
+        SectionTitle(
+            title = "已安装插件 (${plugins.size})",
+            action = {
+                TextButton(onClick = { refresh() }) {
+                    Text("刷新")
+                }
+            },
+        )
         Spacer(Modifier.height(8.dp))
         if (loading) {
-            Box(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp))
-            }
+            LoadingSkeleton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp),
+            )
         } else if (plugins.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    Icons.Filled.Extension,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "暂无插件，点右下角 + 导入",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            EmptyState(
+                kind = EmptyKind.Empty,
+                icon = Icons.Filled.Extension,
+                title = "暂无插件",
+                hint = "点右下角 + 导入",
+            )
         } else {
             plugins.forEach { plugin ->
                 PluginRow(
@@ -389,53 +390,67 @@ private fun PluginRow(
 ) {
     var showConfirm by remember { mutableStateOf(false) }
 
-    Row(
+    AppCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(vertical = 4.dp),
     ) {
-        // 类型徽标
-        Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = when (plugin.type) {
+        Row(
+            modifier = Modifier.padding(SoftDimens.CardSpacing),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 类型徽标：静态胶囊，按类型区分容器色
+            val badgeBg = when (plugin.type) {
                 "PY" -> MaterialTheme.colorScheme.primaryContainer
                 "drpy" -> MaterialTheme.colorScheme.secondaryContainer
                 else -> MaterialTheme.colorScheme.tertiaryContainer
-            },
-            modifier = Modifier.padding(end = 12.dp),
-        ) {
-            Text(
-                text = plugin.type,
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            )
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = plugin.fileName,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-            )
-            Text(
-                text = "${plugin.sizeKb} KB",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        IconButton(onClick = { showConfirm = true }) {
-            Icon(
-                Icons.Filled.Delete,
-                contentDescription = "删除",
-                tint = MaterialTheme.colorScheme.error,
-            )
+            }
+            val badgeFg = when (plugin.type) {
+                "PY" -> MaterialTheme.colorScheme.onPrimaryContainer
+                "drpy" -> MaterialTheme.colorScheme.onSecondaryContainer
+                else -> MaterialTheme.colorScheme.onTertiaryContainer
+            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(SoftDimens.ChipCorner))
+                    .background(badgeBg)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    text = plugin.type,
+                    style = SoftType.Caption,
+                    color = badgeFg,
+                )
+            }
+            Spacer(Modifier.width(SoftDimens.CardSpacing))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = plugin.fileName,
+                    style = SoftType.Body,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${plugin.sizeKb} KB",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = { showConfirm = true }) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = "删除",
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 
     if (showConfirm) {
         AlertDialog(
             onDismissRequest = { showConfirm = false },
-            title = { Text("删除插件") },
+            title = { Text("删除插件", style = SoftType.Title) },
             text = { Text("确定删除 ${plugin.fileName}？") },
             confirmButton = {
                 TextButton(

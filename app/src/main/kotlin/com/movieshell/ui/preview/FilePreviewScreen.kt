@@ -5,20 +5,20 @@ import android.content.Context
 import android.content.Intent
 import android.content.ClipboardManager
 import android.widget.Toast
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -42,6 +43,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.movieshell.data.repo.StoragePaths
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.EmptyKind
+import com.movieshell.ui.components.EmptyState
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import java.io.File
 
 /** FileProvider authority：与 AndroidManifest 里的 provider 声明一致 */
@@ -117,8 +123,13 @@ private fun commentMarkFor(kind: String): String? = when (kind) {
     else -> null
 }
 
-/** 拼 AnnotatedString：关键字→primary 色，行注释→灰色，其余默认。 */
-private fun highlightCode(text: String, kind: String, keywordColor: Color): AnnotatedString {
+/** 拼 AnnotatedString：关键字→primary 色，行注释→次级色，其余默认。 */
+private fun highlightCode(
+    text: String,
+    kind: String,
+    keywordColor: Color,
+    commentColor: Color,
+): AnnotatedString {
     val keywords = keywordsFor(kind)
     val commentMark = commentMarkFor(kind)
     val kwRegex = if (keywords.isNotEmpty()) {
@@ -129,7 +140,7 @@ private fun highlightCode(text: String, kind: String, keywordColor: Color): Anno
         lines.forEachIndexed { index, line ->
             val trimmed = line.trimStart()
             if (commentMark != null && trimmed.startsWith(commentMark)) {
-                withStyle(SpanStyle(color = Color.Gray)) {
+                withStyle(SpanStyle(color = commentColor)) {
                     append(line)
                 }
             } else if (kwRegex != null) {
@@ -178,7 +189,7 @@ fun FilePreviewScreen(
                         text = fileName,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        fontWeight = FontWeight.Bold,
+                        style = SoftType.Title,
                     )
                 },
                 navigationIcon = {
@@ -226,50 +237,55 @@ fun FilePreviewScreen(
                 .padding(inner),
         ) {
             if (!exists) {
-                Text(
-                    text = "文件不存在或已被删除",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(16.dp),
-                )
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EmptyState(
+                        kind = EmptyKind.Error,
+                        icon = Icons.Filled.ErrorOutline,
+                        title = "文件不存在或已被删除",
+                    )
+                }
                 return@Column
             }
             if (truncated) {
-                Card(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                AppCard(
+                    modifier = Modifier.padding(
+                        horizontal = SoftDimens.PagePadding,
+                        vertical = 8.dp,
                     ),
                 ) {
                     Text(
                         text = "文件超过 200KB，仅显示前 200KB（只读预览不影响原文件）",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.padding(12.dp),
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(SoftDimens.CardSpacing),
                     )
                 }
             }
-            CodeText(
-                text = highlightCode(shownText, kind, MaterialTheme.colorScheme.primary),
+            AppCard(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            )
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = SoftDimens.PagePadding),
+            ) {
+                Text(
+                    text = highlightCode(
+                        shownText,
+                        kind,
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    ),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(SoftDimens.CardSpacing),
+                )
+            }
             Spacer(Modifier.height(8.dp))
         }
     }
-}
-
-/** 等宽只读文本 */
-@Composable
-private fun CodeText(text: AnnotatedString, modifier: Modifier = Modifier) {
-    Text(
-        text = text,
-        fontFamily = FontFamily.Monospace,
-        fontSize = 13.sp,
-        lineHeight = 19.sp,
-        modifier = modifier,
-    )
 }

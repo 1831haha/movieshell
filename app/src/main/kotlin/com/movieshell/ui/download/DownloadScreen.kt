@@ -7,16 +7,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,7 +27,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -43,6 +45,14 @@ import com.movieshell.data.download.Notify
 import com.movieshell.data.repo.DlStatus
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.DownloadTask
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.EmptyKind
+import com.movieshell.ui.components.EmptyState
+import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -51,6 +61,9 @@ import java.io.File
  *
  * 进行中：进度条 + 暂停/继续/删除；已完成：点播本地文件/删除。
  * m3u8 下载到 30% 后可"边下边播"（播本地 index.m3u8）。
+ *
+ * v0.27.0 Soft Tech 换皮：任务卡走 AppCard，分区标题走 SectionTitle，
+ * 空态走 EmptyState，按钮走 AppButton，进度条走主色。逻辑与文案零变更。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,23 +80,32 @@ fun DownloadScreen(
     if (confirmDelete != null) {
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            title = { Text("删除任务") },
-            text = { Text("同时删除已下载的文件？") },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("删除任务", style = SoftType.CardTitle) },
+            text = { Text("同时删除已下载的文件？", style = SoftType.Body) },
             confirmButton = {
-                TextButton(onClick = {
-                    val t = confirmDelete!!
-                    confirmDelete = null
-                    scope.launch { DownloadManager.delete(context, t.id) }
-                }) { Text("删除文件") }
+                AppButton(
+                    text = "删除文件",
+                    onClick = {
+                        val t = confirmDelete!!
+                        confirmDelete = null
+                        scope.launch { DownloadManager.delete(context, t.id) }
+                    },
+                    variant = AppButtonVariant.Secondary,
+                )
             },
             dismissButton = {
-                TextButton(onClick = {
-                    val t = confirmDelete!!
-                    confirmDelete = null
-                    scope.launch {
-                        DownloadStore.remove(context, t.id, deleteFiles = false)
-                    }
-                }) { Text("仅移除记录") }
+                AppButton(
+                    text = "仅移除记录",
+                    onClick = {
+                        val t = confirmDelete!!
+                        confirmDelete = null
+                        scope.launch {
+                            DownloadStore.remove(context, t.id, deleteFiles = false)
+                        }
+                    },
+                    variant = AppButtonVariant.Ghost,
+                )
             },
         )
     }
@@ -94,7 +116,7 @@ fun DownloadScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("下载管理") },
+                title = { Text("下载管理", style = SoftType.Title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -102,9 +124,13 @@ fun DownloadScreen(
                 },
                 actions = {
                     if (done.isNotEmpty()) {
-                        TextButton(onClick = {
-                            scope.launch { DownloadStore.clearDone(context) }
-                        }) { Text("清空已完成") }
+                        AppButton(
+                            text = "清空已完成",
+                            onClick = {
+                                scope.launch { DownloadStore.clearDone(context) }
+                            },
+                            variant = AppButtonVariant.Ghost,
+                        )
                     }
                 },
             )
@@ -115,15 +141,25 @@ fun DownloadScreen(
                 modifier = Modifier.fillMaxSize().padding(inner),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("暂无下载任务\n在详情页选集下载", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                EmptyState(
+                    kind = EmptyKind.Empty,
+                    icon = Icons.Filled.Download,
+                    title = "暂无下载任务",
+                    hint = "在详情页选集下载",
+                )
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(inner).padding(12.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(inner)
+                    .padding(SoftDimens.CardSpacing),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (active.isNotEmpty()) {
-                    item { Text("下载中（${active.size}）", style = MaterialTheme.typography.titleSmall) }
+                    item {
+                        SectionTitle(title = "下载中（${active.size}）")
+                    }
                     items(active, key = { it.id }) { task ->
                         TaskCard(
                             task = task,
@@ -145,7 +181,9 @@ fun DownloadScreen(
                     }
                 }
                 if (done.isNotEmpty()) {
-                    item { Text("已完成（${done.size}）", style = MaterialTheme.typography.titleSmall) }
+                    item {
+                        SectionTitle(title = "已完成（${done.size}）")
+                    }
                     items(done, key = { it.id }) { task ->
                         TaskCard(
                             task = task,
@@ -185,32 +223,42 @@ private fun TaskCard(
     onPreview: (() -> Unit)?,
     onPlay: (() -> Unit)? = null,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = task.title,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = SoftType.CardTitle,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = statusText(task),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 if (onPlay != null) {
-                    IconButton(onClick = onPlay) {
+                    IconButton(
+                        onClick = onPlay,
+                        modifier = Modifier.size(SoftDimens.TouchTarget),
+                    ) {
                         Icon(Icons.Filled.PlayArrow, contentDescription = "播放")
                     }
                 }
                 if (onPreview != null && task.status != DlStatus.DONE && task.progress >= 0.3f) {
-                    TextButton(onClick = onPreview) { Text("边下边播") }
+                    AppButton(
+                        text = "边下边播",
+                        onClick = onPreview,
+                        variant = AppButtonVariant.Ghost,
+                    )
                 }
                 if (onPauseResume != null) {
-                    IconButton(onClick = onPauseResume) {
+                    IconButton(
+                        onClick = onPauseResume,
+                        modifier = Modifier.size(SoftDimens.TouchTarget),
+                    ) {
                         Icon(
                             if (task.status == DlStatus.DOWNLOADING || task.status == DlStatus.QUEUED)
                                 Icons.Filled.Pause else Icons.Filled.PlayArrow,
@@ -218,14 +266,26 @@ private fun TaskCard(
                         )
                     }
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, contentDescription = "删除")
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(SoftDimens.TouchTarget),
+                ) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "删除",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
             if (task.status != DlStatus.DONE) {
                 LinearProgressIndicator(
                     progress = task.progress.coerceIn(0f, 1f),
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .height(6.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )
             }
         }

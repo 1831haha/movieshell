@@ -53,6 +53,7 @@ import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.SniffEngine
 import com.movieshell.data.source.SniffEngine.SniffKind
 import com.movieshell.player.SniffPlayHeaders
+import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -259,7 +260,7 @@ fun WebSniffScreen(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text(pageTitle, maxLines = 1) },
+                    title = { Text(pageTitle, maxLines = 1, style = SoftType.Title) },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -290,7 +291,7 @@ fun WebSniffScreen(
                     }
                     Text(
                         text = currentUrl,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -409,10 +410,13 @@ fun WebSniffScreen(
     if (results != null) {
         AlertDialog(
             onDismissRequest = { testResults = null },
-            title = { Text("嗅探测试（${results.size} 条）") },
+            title = { Text("嗅探测试（${results.size} 条）", style = SoftType.Title) },
             text = {
                 if (results.isEmpty()) {
-                    Text("没抓到可播直链，可以换个页面再试一次。")
+                    Text(
+                        "没抓到可播直链，可以换个页面再试一次。",
+                        style = SoftType.Body,
+                    )
                 } else {
                     LazyColumn {
                         items(results, key = { it.first }) { (u, kind) ->
@@ -439,12 +443,12 @@ fun WebSniffScreen(
                                 ) {
                                     Text(
                                         text = "[$label]",
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = SoftType.Caption,
                                         color = MaterialTheme.colorScheme.primary,
                                     )
                                     Text(
                                         text = u,
-                                        style = MaterialTheme.typography.bodySmall,
+                                        style = SoftType.Body,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                     )

@@ -8,7 +8,13 @@ import android.app.PictureInPictureParams
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -95,6 +101,7 @@ import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.sources.SourcesScreen
 import com.movieshell.ui.trash.TrashScreen
 import com.movieshell.ui.theme.MovieShellTheme
+import com.movieshell.ui.theme.SoftMotion
 import com.movieshell.ui.web.WebSniffScreen
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
@@ -238,7 +245,22 @@ class MainActivity : ComponentActivity() {
                     NavHost(
                         navController = navController,
                         startDestination = "home",
-                        modifier = Modifier.padding(inner)
+                        modifier = Modifier.padding(inner),
+                        // v0.27.0 Soft Tech：页面切换统一淡入 + 8dp 位移，300ms ease-out
+                        enterTransition = {
+                            fadeIn(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) +
+                                slideInVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { 8.dp.roundToPx() }
+                        },
+                        exitTransition = {
+                            fadeOut(tween(SoftMotion.Fast, easing = SoftMotion.Ease))
+                        },
+                        popEnterTransition = {
+                            fadeIn(tween(SoftMotion.Fast, easing = SoftMotion.Ease))
+                        },
+                        popExitTransition = {
+                            fadeOut(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) +
+                                slideOutVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { 8.dp.roundToPx() }
+                        },
                     ) {
                         composable("home") {
                             HomeScreen(

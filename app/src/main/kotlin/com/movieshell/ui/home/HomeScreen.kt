@@ -1,12 +1,6 @@
 package com.movieshell.ui.home
 
 import android.widget.Toast
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,13 +34,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -56,7 +50,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -71,7 +64,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -82,7 +74,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -102,15 +93,21 @@ import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.SubSiteEngines
-import com.movieshell.data.repo.ThemeStore
-import com.movieshell.ui.theme.themeGradientColors
 import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.SubCurrent
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.EmptyKind
+import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.GradientBlock
+import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.PosterCard
+import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -146,10 +143,6 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val context = LocalContext.current
-    // v0.12.0：主题色（渐变底、胶囊高亮用）
-    val themeColorInt by ThemeStore.color.collectAsState()
-    val themeColor = Color(themeColorInt)
-    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
     // ---- 订阅当前源（v0.5.1）：站源页"设为点播页当前源"指定的订阅子站点 ----
     val subRepo = remember { SiteRepository() }
@@ -448,10 +441,7 @@ fun HomeScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            // v0.12.0：影图式流动渐变底（主题色 → 背景色）
-            .background(
-                Brush.verticalGradient(themeGradientColors(themeColor, darkTheme))
-            ),
+            .background(MaterialTheme.colorScheme.background),
     ) {
         // 下拉刷新指示条（占位）
         val indicatorH = with(density) { pullOffset.toDp() }.coerceAtMost(64.dp)
@@ -475,9 +465,9 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(refreshConnection),
-            contentPadding = PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(SoftDimens.PagePadding),
+            verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+            horizontalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
         ) {
             // v0.11.8：顶部改成一行——左侧小放大镜（搜索），右侧换源胶囊
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -512,7 +502,7 @@ fun HomeScreen(
                     Spacer(Modifier.weight(1f))
                     // 右侧：换源胶囊（v0.7.1 入口，收窄为右侧胶囊）
                     Surface(
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(SoftDimens.ChipCorner),
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         onClick = { showSourceSheet = true },
                     ) {
@@ -523,8 +513,7 @@ fun HomeScreen(
                             Text(
                                 text = sourceLabel,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
+                                style = SoftType.CardTitle,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.widthIn(max = 160.dp),
@@ -540,34 +529,37 @@ fun HomeScreen(
                 }
             }
 
-            // v0.25.0：骨架屏（冷启动无缓存时的加载占位，不白屏）
+            // v0.27.0：骨架屏（冷启动无缓存时的加载占位，不白屏）
             if (drpyActive && drpyLoading && drpyList == null) {
-                items(6) { HomeSkeletonCard() }
+                items(6) {
+                    Column {
+                        LoadingSkeleton(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(3f / 4f),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        LoadingSkeleton(
+                            modifier = Modifier
+                                .fillMaxWidth(0.7f)
+                                .height(14.dp),
+                            shape = RoundedCornerShape(4.dp),
+                        )
+                    }
+                }
             }
 
             // v0.25.0：加载失败错误态 + 重试（有缓存时不出现，缓存优先显示）
             if (drpyActive && !drpyLoading && homeError != null && drpyList == null) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            text = "首页加载失败",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "网络超时或源无响应",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        TextButton(onClick = { loadHome() }) {
-                            Text("点击重试")
-                        }
-                    }
+                    EmptyState(
+                        kind = EmptyKind.Error,
+                        icon = Icons.Filled.Refresh,
+                        title = "首页加载失败",
+                        hint = "网络超时或源无响应",
+                        actionText = "点击重试",
+                        onAction = { loadHome() },
+                    )
                 }
             }
 
@@ -585,7 +577,8 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     chipLabels.forEachIndexed { index, label ->
-                        FilterChip(
+                        AppChip(
+                            text = label,
                             selected = selectedCategory == index,
                             onClick = {
                                 // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
@@ -595,7 +588,6 @@ fun HomeScreen(
                                     selectedCategory = index
                                 }
                             },
-                            label = { Text(label) },
                         )
                     }
                 }
@@ -603,48 +595,32 @@ fun HomeScreen(
 
             // 分区标题 + 换一换
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "热门推荐",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    TextButton(onClick = { shuffleSeed++ }) {
-                        Icon(
-                            imageVector = Icons.Filled.Refresh,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text("换一换")
-                    }
-                }
+                SectionTitle(
+                    title = "热门推荐",
+                    action = {
+                        TextButton(onClick = { shuffleSeed++ }) {
+                            Icon(
+                                imageVector = Icons.Filled.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("换一换")
+                        }
+                    },
+                )
             }
 
             // 网格海报墙
             if (drpyActive && !drpyReady && !drpyLoading && filtered.isEmpty()) {
                 // v0.11.3：有源但无数据时的空态（不再用演示数据冒充）
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            text = "该源暂无首页数据",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "换个分类试试，或下拉刷新",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.Movie,
+                        title = "该源暂无首页数据",
+                        hint = "换个分类试试，或下拉刷新",
+                    )
                 }
             }
             items(filtered, key = { it.id }) { vod ->
@@ -660,13 +636,11 @@ fun HomeScreen(
         }
     }
 
-    // 站源切换 BottomSheet（v0.7.1）
+    // 站源切换（v0.7.1）
     // v0.11.8：选源弹窗改成居中悬浮 Dialog（原来是底部 BottomSheet）
     if (showSourceSheet) {
         Dialog(onDismissRequest = { showSourceSheet = false }) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surface,
+            AppCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 480.dp),
@@ -692,7 +666,7 @@ private fun HeroPager(
             state = pagerState,
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 4.dp),
-            pageSpacing = 12.dp,
+            pageSpacing = SoftDimens.CardSpacing,
         ) { page ->
             val vod = featured[page]
             GradientBlock(
@@ -700,10 +674,11 @@ private fun HeroPager(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(180.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(SoftDimens.ButtonCorner))
                     .clickable { onVodClick(vod.id) },
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
+                    // 文案区压暗（文字可读性，非页面底渐变）
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -717,27 +692,25 @@ private fun HeroPager(
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .padding(16.dp),
+                            .padding(SoftDimens.PagePadding),
                     ) {
                         Text(
                             text = "本周推荐",
                             color = MaterialTheme.colorScheme.primary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
+                            style = SoftType.Caption.copy(fontWeight = FontWeight.Bold),
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = vod.title,
                             color = Color.White,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
+                            style = SoftType.Title,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             text = "${vod.category} · ${vod.year} · ${vod.rating}分",
                             color = Color.White.copy(alpha = 0.8f),
-                            fontSize = 13.sp,
+                            style = SoftType.Caption,
                         )
                     }
                     Box(
@@ -746,14 +719,14 @@ private fun HeroPager(
                             .padding(end = 20.dp)
                             .size(52.dp)
                             .clip(CircleShape)
-                            .background(Color(0xCC000000))
+                            .background(MaterialTheme.colorScheme.primary)
                             .clickable { onVodClick(vod.id) },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
                             imageVector = Icons.Filled.PlayArrow,
                             contentDescription = "播放",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(32.dp),
                         )
                     }
@@ -800,7 +773,7 @@ private fun SourceKindBadge(kind: String) {
         Text(
             text = label,
             color = color,
-            style = MaterialTheme.typography.labelSmall,
+            style = SoftType.Caption,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
         )
     }
@@ -817,7 +790,7 @@ private fun LocalBadge() {
         Text(
             text = "本地",
             color = color,
-            style = MaterialTheme.typography.labelSmall,
+            style = SoftType.Caption,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
         )
     }
@@ -844,7 +817,8 @@ private fun SourceSheetRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = SoftType.Body,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
@@ -855,7 +829,7 @@ private fun SourceSheetRow(
             if (subtitle != null) {
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = SoftType.Caption,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -876,7 +850,7 @@ private fun SourceSheetRow(
 }
 
 /**
- * 站源切换 BottomSheet（v0.7.1）。
+ * 站源切换（v0.7.1）。
  *
  * (a) 本地规则组：DrpySourceManager / PySourceManager 的全部规则，每行标"本地"徽标；
  * (b) 订阅站源组：ApiSourceStore 启用的订阅，按订阅名分组展开站点，带类型徽标，
@@ -934,12 +908,12 @@ private fun SourceSwitchSheet(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = SoftDimens.PagePadding, vertical = 8.dp),
     ) {
         Text(
             text = "切换站源",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
+            style = SoftType.Title,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         if (loading) {
             Spacer(Modifier.height(16.dp))
@@ -957,7 +931,7 @@ private fun SourceSwitchSheet(
         if (drpyRules.isNotEmpty() || pyRules.isNotEmpty()) {
             Text(
                 text = "本地规则",
-                style = MaterialTheme.typography.labelLarge,
+                style = SoftType.Caption,
                 color = MaterialTheme.colorScheme.primary,
             )
             drpyRules.forEach { rule ->
@@ -986,7 +960,7 @@ private fun SourceSwitchSheet(
                 if (sub.url != lastSubUrl) {
                     Text(
                         text = sub.name,
-                        style = MaterialTheme.typography.labelLarge,
+                        style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(top = 8.dp),
                     )
@@ -1018,37 +992,5 @@ private fun SourceSwitchSheet(
             }
         }
         Spacer(Modifier.height(24.dp))
-    }
-}
-
-/** v0.25.0：首页骨架屏——加载中的脉冲占位卡片，不白屏 */
-@Composable
-private fun HomeSkeletonCard() {
-    val transition = rememberInfiniteTransition(label = "skeleton")
-    val alpha by transition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.65f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "skeletonAlpha",
-    )
-    Column(modifier = Modifier.alpha(alpha)) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(3f / 4f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-        )
-        Spacer(Modifier.height(8.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.7f)
-                .height(14.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-        )
     }
 }

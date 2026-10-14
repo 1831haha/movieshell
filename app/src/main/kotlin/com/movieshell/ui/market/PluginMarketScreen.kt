@@ -2,7 +2,6 @@ package com.movieshell.ui.market
 
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -19,16 +18,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -53,6 +51,14 @@ import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginMarket.MarketInfo
 import com.movieshell.data.repo.PluginMarket.MarketPlugin
 import com.movieshell.data.repo.PluginStore
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.EmptyKind
+import com.movieshell.ui.components.EmptyState
+import com.movieshell.ui.components.LoadingSkeleton
+import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
 
 /**
@@ -61,6 +67,9 @@ import kotlinx.coroutines.launch
  * - 分类过滤：全部 / 环境 / 应用
  * - 搜索过滤；不支持的 type 默认隐藏（设置里可开"显示不兼容插件"，置灰禁装）
  * - 卡片点击进详情页；卡片上可直接安装/更新/卸载
+ *
+ * v0.27.0 Soft Tech 换皮：卡片走 AppCard，筛选走 AppChip，搜索走 AppTextField，
+ * 三态走 EmptyState / LoadingSkeleton。过滤与按钮状态机逻辑零变更。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -104,7 +113,7 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(info?.name ?: "插件市场") },
+                title = { Text(info?.name ?: "插件市场", style = SoftType.Title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -122,57 +131,54 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = SoftDimens.PagePadding),
         ) {
             if (sources.size > 1) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(sources.size) { i ->
-                        FilterChip(
+                        AppChip(
+                            text = sources[i].name,
                             selected = i == activeIdx,
                             onClick = { PluginStore.setActiveMarket(context, i) },
-                            label = { Text(sources[i].name) },
                         )
                     }
                 }
                 Spacer(Modifier.height(4.dp))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = category.isEmpty(),
-                    onClick = { category = "" },
-                    label = { Text("全部") },
-                )
-                FilterChip(
-                    selected = category == "env",
-                    onClick = { category = "env" },
-                    label = { Text("环境") },
-                )
-                FilterChip(
-                    selected = category == "app",
-                    onClick = { category = "app" },
-                    label = { Text("应用") },
-                )
+                AppChip(text = "全部", selected = category.isEmpty(), onClick = { category = "" })
+                AppChip(text = "环境", selected = category == "env", onClick = { category = "env" })
+                AppChip(text = "应用", selected = category == "app", onClick = { category = "app" })
             }
-            Spacer(Modifier.height(4.dp))
-            OutlinedTextField(
+            Spacer(Modifier.height(8.dp))
+            AppTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("搜索插件") },
-                singleLine = true,
+                placeholder = "搜索插件",
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
             when {
                 loading -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(32.dp),
-                        horizontalArrangement = Arrangement.Center,
-                    ) { CircularProgressIndicator() }
+                    Column(verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing)) {
+                        repeat(3) {
+                            LoadingSkeleton(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(148.dp),
+                                shape = RoundedCornerShape(SoftDimens.CardCorner),
+                            )
+                        }
+                    }
                 }
                 error != null -> {
-                    Text(
-                        text = "加载失败：$error\n检查网络或设置页的市场源。",
-                        color = MaterialTheme.colorScheme.error,
+                    EmptyState(
+                        kind = EmptyKind.Error,
+                        icon = Icons.Filled.CloudOff,
+                        title = "插件市场加载失败",
+                        hint = error ?: "检查网络或设置页的市场源",
+                        actionText = "重试",
+                        onAction = { reload() },
                     )
                 }
                 else -> {
@@ -185,34 +191,43 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
                                 it.id.contains(query, true) ||
                                 it.desc.contains(query, true)
                         }
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        items(shown, key = { it.id }) { p ->
-                            PluginCard(
-                                plugin = p,
-                                installedVersion = installedMap[p.id]?.version,
-                                busy = busyId == p.id,
-                                onDetail = { onDetail(p.id) },
-                                onInstall = {
-                                    busyId = p.id
-                                    scope.launch {
-                                        PluginUi.toast(context, PluginUi.install(context, p))
-                                        installedTick++
-                                        busyId = null
-                                    }
-                                },
-                                onUninstall = {
-                                    busyId = p.id
-                                    scope.launch {
-                                        PluginUi.toast(context, PluginUi.uninstall(context, p))
-                                        installedTick++
-                                        busyId = null
-                                    }
-                                },
-                            )
+                    if (shown.isEmpty()) {
+                        EmptyState(
+                            kind = EmptyKind.Empty,
+                            icon = Icons.Filled.Search,
+                            title = "没有找到插件",
+                            hint = "换个关键词或分类试试",
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                        ) {
+                            items(shown, key = { it.id }) { p ->
+                                PluginCard(
+                                    plugin = p,
+                                    installedVersion = installedMap[p.id]?.version,
+                                    busy = busyId == p.id,
+                                    onDetail = { onDetail(p.id) },
+                                    onInstall = {
+                                        busyId = p.id
+                                        scope.launch {
+                                            PluginUi.toast(context, PluginUi.install(context, p))
+                                            installedTick++
+                                            busyId = null
+                                        }
+                                    },
+                                    onUninstall = {
+                                        busyId = p.id
+                                        scope.launch {
+                                            PluginUi.toast(context, PluginUi.uninstall(context, p))
+                                            installedTick++
+                                            busyId = null
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -232,11 +247,11 @@ private fun PluginCard(
 ) {
     val hasUpdate = installedVersion != null &&
         PluginMarket.isNewer(plugin.version, installedVersion)
-    Card(
+    AppCard(
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (plugin.isSupported()) 1f else 0.55f)
-            .clickable(onClick = onDetail),
+            .alpha(if (plugin.isSupported()) 1f else 0.55f),
+        onClick = onDetail,
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -253,11 +268,11 @@ private fun PluginCard(
                     Spacer(Modifier.size(10.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = plugin.name, style = MaterialTheme.typography.titleMedium)
+                    Text(text = plugin.name, style = SoftType.CardTitle)
                     if (plugin.author.isNotBlank()) {
                         Text(
                             text = plugin.author,
-                            style = MaterialTheme.typography.bodySmall,
+                            style = SoftType.Caption,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -285,7 +300,7 @@ private fun PluginCard(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = plugin.desc,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = SoftType.Caption,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                 )
