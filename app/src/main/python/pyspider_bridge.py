@@ -12,10 +12,37 @@
 
 import importlib.util
 import json
+import re
 import sys
 import traceback
 
 _spiders = {}
+
+# v0.27.5 根治详情 XMLSyntaxError（USC4）：
+# 黄果_v18.py 第 392 行 `_fetch_html` 用 `resp.apparent_encoding`（chardet/charset_normalizer
+# 检测）解码。真机实锤：服务器 HTTP 头明确声明 `text/html; charset=utf-8`，
+# 但页面有混淆 JS + 垃圾 `<meta charset="%U4%8-2">`，检测器把 UTF-8 误判成 UTF-32，
+# `resp.text` 解成乱码，`pq()` 喂给 lxml 就报 `encoding not supported USC4 little endian`。
+# 规则文件在用户手机上不让改，这里按浏览器同策略 patch：HTTP header 声明优先，
+# 检测只做 fallback。
+try:
+    from requests.models import Response as _ReqResponse
+
+    _orig_apparent_fget = _ReqResponse.apparent_encoding.fget
+
+    def _safe_apparent_encoding(self):
+        m = re.search(
+            r"charset\s*=\s*([\w-]+)",
+            self.headers.get("content-type", ""),
+            re.I,
+        )
+        if m:
+            return m.group(1)
+        return _orig_apparent_fget(self)
+
+    _ReqResponse.apparent_encoding = property(_safe_apparent_encoding)
+except Exception:
+    pass
 
 # v0.27.4 诊断：记录规则最近一次 HTTP 响应的元信息（URL/状态/编码/前 200 字节 hex）。
 # 真机实锤：依赖包已装但详情仍报 XMLSyntaxError（USC4），先拿数据不猜——

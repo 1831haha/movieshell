@@ -231,6 +231,7 @@ private val MANUAL_SECTIONS = listOf(
     ManualSection(
         title = "版本更新",
         points = listOf(
+            "v0.27.5 修复：详情编码根治——黄果类规则的 _fetch_html 用 apparent_encoding 检测编码，页面混淆 JS + 垃圾 meta 会把 UTF-8 误判成 UTF-32，lxml 报 USC4 错误；本版在 Python 桥里 patch requests：HTTP header 声明的 charset 优先，检测只做 fallback（浏览器同策略，不改规则文件）。首页去掉“本周推荐”轮播模块（backdrop 一直是灰渐变空图），只保留热门推荐海报流。",
             "v0.27.4 源与插件分类重做：站源页不再分 tab，单页两 section——订阅源（接口订阅/网页源）在上，本地源（PY/JS/drpy/JAR 规则文件，单击设为当前源）在下，规则导入按钮放本地源区；实验室=插件市场入口+已安装插件（环境包与服务插件，支持卸载）。首页不再自动加载推荐流（手动下拉刷新才加载），无数据时干净空态。修插件市场 scope left the composition（拉取走 LaunchedEffect 跟随生命周期，安装/卸载走进程级 scope）。加 PY 环境自检日志（brotli/charset_normalizer/pylibs 路径与文件列表）+ 失败时附带最近 HTTP 响应 hex 供诊断。",
             "v0.27.3 瘦身：切 release 构建 + R8 混淆 + 资源压缩，安装包大幅瘦身（注意：本版起包名为 com.movieshell，必须先卸载旧版再装）。老用户升级一次性清理残留的内置默认源（量子/天空/暴风精确配对才删，自己加的订阅不动）。",
             "v0.27.2 插件化第一步：新路线——壳子尽量小，功能放给插件。本版：①官方市场新增「PY 引擎依赖包」（py-deps 1.0.0：brotli arm64 原生轮子 + charset-normalizer 纯 Python，解决 PY 规则缺库问题）；②插件安装带三段进度条（下载 x%/MB→校验→安装），失败给明确原因；③PY 规则报缺库（No module named）时弹一次引导，一键安装依赖包，装过/忽略后不再打扰；④新安装不再预置默认源（量子/天空/暴风），站源列表初始为空，老用户不受影响；⑤站源页 tab 收敛为「订阅源 / 插件源」两类（插件文件只在实验室管理，站源页只列可用源）；⑥修 Python 重复启动（加锁，之前真机报过 Python already started）。",

@@ -24,8 +24,6 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -36,7 +34,6 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlaylistAddCheck
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -100,7 +97,6 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.data.Vod
@@ -421,8 +417,6 @@ fun HomeScreen(
         else -> emptyList() // 无数据：空列表，UI 显示空态
     }
 
-    val featured: List<Vod> = drpyUiList.orEmpty().take(3)
-
     // 站源入口行文案：订阅当前源 > 本地 drpy > 本地 PY；都没有 -> 演示数据
     val sourceLabel: String = when {
         subSite != null -> subSite?.name?.ifBlank { "订阅源" } ?: "订阅源"
@@ -533,13 +527,6 @@ fun HomeScreen(
                     )
                 }
             } else {
-                // 推荐位横滑大卡片
-                if (featured.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        HeroPager(featured = featured, onVodClick = ::goDetail)
-                    }
-                }
-
                 // 分类行：只在有真实分类时显示
                 if (drpyCats.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -611,108 +598,6 @@ fun HomeScreen(
         }
     }
 }
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun HeroPager(
-    featured: List<Vod>,
-    onVodClick: (vodId: String) -> Unit,
-) {
-    val pagerState = rememberPagerState(pageCount = { featured.size })
-    Column {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 4.dp),
-            pageSpacing = SoftDimens.CardSpacing,
-        ) { page ->
-            val vod = featured[page]
-            GradientBlock(
-                key = vod.id,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(180.dp)
-                    .clip(RoundedCornerShape(SoftDimens.ButtonCorner))
-                    .clickable { onVodClick(vod.id) },
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    // 文案区压暗（文字可读性，非页面底渐变）
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.horizontalGradient(
-                                    0f to Color(0xB3000000),
-                                    0.6f to Color.Transparent,
-                                )
-                            )
-                    )
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(SoftDimens.PagePadding),
-                    ) {
-                        Text(
-                            text = "本周推荐",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = SoftType.Caption.copy(fontWeight = FontWeight.Bold),
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = vod.title,
-                            color = Color.White,
-                            style = SoftType.Title,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = "${vod.category} · ${vod.year} · ${vod.rating}分",
-                            color = Color.White.copy(alpha = 0.8f),
-                            style = SoftType.Caption,
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(end = 20.dp)
-                            .size(52.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
-                            .clickable { onVodClick(vod.id) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = "播放",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(32.dp),
-                        )
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            repeat(featured.size) { i ->
-                val selected = pagerState.currentPage == i
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 3.dp)
-                        .size(width = if (selected) 20.dp else 6.dp, height = 6.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (selected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
-                        )
-                )
-            }
-        }
-    }
-}
-
 /** 类型徽标：照抄 SourcesScreen 的 KindBadge（私有，故在此复制一份小的）。 */
 @Composable
 private fun SourceKindBadge(kind: String) {
