@@ -8,6 +8,28 @@ import kotlinx.coroutines.flow.StateFlow
 enum class PlayerEngine { MEDIA3, LIBMPV }
 
 /**
+ * v0.21.0：外挂字幕样式（双引擎共用，存在 movieshell_prefs）。
+ * - edge: 0=无 1=描边 2=阴影
+ * - position: 0=底部 1=顶部
+ * - offsetMs: 字幕时间偏移，±10000ms
+ */
+data class SubtitleStyle(
+    val sizeSp: Int = 16,
+    val color: Int = 0xFFFFFFFF.toInt(),
+    val edge: Int = EDGE_OUTLINE,
+    val position: Int = POS_BOTTOM,
+    val offsetMs: Long = 0L,
+) {
+    companion object {
+        const val EDGE_NONE = 0
+        const val EDGE_OUTLINE = 1
+        const val EDGE_SHADOW = 2
+        const val POS_BOTTOM = 0
+        const val POS_TOP = 1
+    }
+}
+
+/**
  * 播放器设置持久化（v0.14.0）。
  *
  * v0.16.2：片头/片尾跳过改为按剧单独设置（用户纠正：每部剧的开头/结束时间都不一样）。
@@ -24,6 +46,12 @@ object PlayerSettings {
     private const val PREFIX_SUBTITLE = "subtitle_vod_"
     /** v0.20.0：播放器内核 */
     private const val KEY_ENGINE = "player_engine"
+    /** v0.21.0：字幕样式 */
+    private const val KEY_SUB_SIZE = "subtitle_style_size"
+    private const val KEY_SUB_COLOR = "subtitle_style_color"
+    private const val KEY_SUB_EDGE = "subtitle_style_edge"
+    private const val KEY_SUB_POS = "subtitle_style_pos"
+    private const val KEY_SUB_OFFSET = "subtitle_style_offset"
 
     private val _skipIntroSec = MutableStateFlow(0)
     val skipIntroSec: StateFlow<Int> = _skipIntroSec
@@ -34,6 +62,9 @@ object PlayerSettings {
     private val _engine = MutableStateFlow(PlayerEngine.MEDIA3)
     val engine: StateFlow<PlayerEngine> = _engine
 
+    private val _subtitleStyle = MutableStateFlow(SubtitleStyle())
+    val subtitleStyle: StateFlow<SubtitleStyle> = _subtitleStyle
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         _skipIntroSec.value = prefs.getInt(KEY_SKIP_INTRO, 0).coerceIn(0, 600)
@@ -41,6 +72,13 @@ object PlayerSettings {
         _engine.value = runCatching {
             PlayerEngine.valueOf(prefs.getString(KEY_ENGINE, PlayerEngine.MEDIA3.name)!!)
         }.getOrDefault(PlayerEngine.MEDIA3)
+        _subtitleStyle.value = SubtitleStyle(
+            sizeSp = prefs.getInt(KEY_SUB_SIZE, 16).coerceIn(12, 32),
+            color = prefs.getInt(KEY_SUB_COLOR, 0xFFFFFFFF.toInt()),
+            edge = prefs.getInt(KEY_SUB_EDGE, SubtitleStyle.EDGE_OUTLINE).coerceIn(0, 2),
+            position = prefs.getInt(KEY_SUB_POS, SubtitleStyle.POS_BOTTOM).coerceIn(0, 1),
+            offsetMs = prefs.getLong(KEY_SUB_OFFSET, 0L).coerceIn(-10_000L, 10_000L),
+        )
     }
 
     /** 全局默认片头（新源初始值）。 */
@@ -122,5 +160,22 @@ object PlayerSettings {
             .edit().putString(KEY_ENGINE, engine.name).apply()
         _engine.value = engine
         LogBus.i("PlayerSettings", "播放器内核设为 $engine")
+    }
+
+    /** v0.21.0：保存字幕样式（双引擎共用）。 */
+    fun setSubtitleStyle(context: Context, style: SubtitleStyle) {
+        val s = style.copy(
+            sizeSp = style.sizeSp.coerceIn(12, 32),
+            offsetMs = style.offsetMs.coerceIn(-10_000L, 10_000L),
+        )
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_SUB_SIZE, s.sizeSp)
+            .putInt(KEY_SUB_COLOR, s.color)
+            .putInt(KEY_SUB_EDGE, s.edge.coerceIn(0, 2))
+            .putInt(KEY_SUB_POS, s.position.coerceIn(0, 1))
+            .putLong(KEY_SUB_OFFSET, s.offsetMs)
+            .apply()
+        _subtitleStyle.value = s
+        LogBus.i("PlayerSettings", "字幕样式已保存：${s.sizeSp}sp 偏移${s.offsetMs}ms")
     }
 }

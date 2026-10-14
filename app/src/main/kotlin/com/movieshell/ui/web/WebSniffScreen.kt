@@ -126,8 +126,9 @@ fun WebSniffScreen(
     }
 
     /**
-     * 命中直链的统一处理：先把 Referer/UA 存进 [SniffPlayHeaders]，
+     * 命中直链的统一处理：先把 Referer/UA/Cookie 存进 [SniffPlayHeaders]，
      * 再 stopLoading（省流量）-> 交给播放器。全局只执行一次。
+     * v0.21.0：补传 Cookie（WebView 的 CookieManager 里取，防盗链站点常要它）。
      */
     fun onHit(view: WebView, reqReferer: String?, directUrl: String) {
         if (!hitDone.compareAndSet(false, true)) return
@@ -135,9 +136,13 @@ fun WebSniffScreen(
             runCatching {
                 val referer = reqReferer ?: view.url.orEmpty()
                 val userAgent = runCatching { view.settings?.userAgentString }.getOrNull().orEmpty()
+                val cookie = runCatching {
+                    CookieManager.getInstance().getCookie(directUrl)
+                }.getOrNull().orEmpty()
                 val headers = buildMap {
                     if (referer.isNotBlank()) put("Referer", referer)
                     if (userAgent.isNotBlank()) put("User-Agent", userAgent)
+                    if (cookie.isNotBlank()) put("Cookie", cookie)
                 }
                 SniffPlayHeaders.put(directUrl, headers)
                 view.stopLoading()

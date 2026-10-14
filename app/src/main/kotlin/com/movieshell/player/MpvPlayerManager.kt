@@ -5,7 +5,10 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Surface
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.StoragePaths
+import com.movieshell.data.repo.SubtitleStyle
 import dev.jdtech.mpv.MPVLib
+import java.io.File
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -239,6 +242,76 @@ object MpvPlayerManager {
     fun setOnErrorListener(listener: ((String) -> Unit)?) {
         errorListener = listener
     }
+
+    /**
+     * v0.21.0：字幕样式（选项名以 mpv stable 手册为准，行为以源码 sd_ass.c 核对）。
+     * 大小按 16sp=基准线性映射；颜色 #AARRGGBB；描边/阴影二选一；
+     * 位置 = sub-align-y（top/bottom 对齐）+ sub-pos=100（mpv 源码里 100-sub_pos 传给
+     * libass，100=该对齐方式的默认位置）。
+     * 注：原生 ASS 字幕的位置/对齐只在 --sub-ass-override=force 时被覆盖，
+     * 默认跟字幕脚本自带排版（srt/vtt 转 ASS 的则全量生效）。
+     */
+    fun applySubtitleStyle(style: SubtitleStyle) {
+        executor.execute {
+            if (!initialized.get() || destroyed.get()) return@execute
+            runCatching {
+                MPVLib.setPropertyDouble("sub-font-size", style.sizeSp * 3.0)
+                MPVLib.setPropertyString("sub-color", mpvColor(style.color))
+                when (style.edge) {
+                    SubtitleStyle.EDGE_OUTLINE -> {
+                        MPVLib.setPropertyDouble("sub-border-size", 3.0)
+                        MPVLib.setPropertyDouble("sub-shadow-offset", 0.0)
+                        MPVLib.setPropertyString("sub-border-color", "#FF000000")
+                    }
+                    SubtitleStyle.EDGE_SHADOW -> {
+                        MPVLib.setPropertyDouble("sub-border-size", 0.0)
+                        MPVLib.setPropertyDouble("sub-shadow-offset", 3.0)
+                    }
+                    else -> {
+                        MPVLib.setPropertyDouble("sub-border-size", 0.0)
+                        MPVLib.setPropertyDouble("sub-shadow-offset", 0.0)
+                    }
+                }
+                MPVLib.setPropertyString(
+                    "sub-align-y",
+                    if (style.position == SubtitleStyle.POS_TOP) "top" else "bottom",
+                )
+                MPVLib.setPropertyDouble("sub-pos", 100.0)
+                // 注：时间偏移不在这里设——SubtitleKit.prepare 已把偏移 bake 进字幕文件，双引擎统一
+            }.onFailure { LogBus.w("MpvPlayer", "字幕样式设置失败：${it.message}") }
+        }
+    }
+
+    /**
+     * v0.21.0：截图到 xiaying/Screenshots（mpv screenshot-to-file 命令，同步落盘）。
+     * 返回保存的文件，失败返回 null。调用方在 IO 线程调（命令本身线程安全）。
+     */
+    fun screenshot(context: Context, title: String): File? {
+        if (!initialized.get() || destroyed.get()) return null
+        return runCatching {
+            val safe = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(40).ifBlank { "截图" }
+            val file = File(
+                StoragePaths.screenshotsDir(context),
+                "侠影_${safe}_${System.currentTimeMillis()}.png",
+            )
+            MPVLib.command(arrayOf("screenshot-to-file", file.absolutePath))
+            if (file.exists() && file.length() > 0) {
+                LogBus.i("MpvPlayer", "截图已保存：${file.absolutePath}")
+                file
+            } else null
+        }.getOrElse {
+            LogBus.w("MpvPlayer", "截图失败：${it.message}")
+            null
+        }
+    }
+
+    private fun mpvColor(argb: Int): String =
+        "#%02X%02X%02X%02X".format(
+            (argb ushr 24) and 0xFF,
+            (argb ushr 16) and 0xFF,
+            (argb ushr 8) and 0xFF,
+            argb and 0xFF,
+        )
 
     /** 释放；只执行一次，应用真正退出时调用 */
     @Synchronized

@@ -1,12 +1,17 @@
 package com.movieshell.player
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.util.TypedValue
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -14,7 +19,13 @@ import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.Extractor
 import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.flv.FlvExtractor
+import androidx.media3.ui.CaptionStyleCompat
+import androidx.media3.ui.PlayerView
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.StoragePaths
+import com.movieshell.data.repo.SubtitleStyle
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * ExoPlayer 单例封装。
@@ -67,7 +78,7 @@ object PlayerManager {
      * 不受 [DefaultHttpDataSource.Factory] 内置 UA 覆盖）。
      *
      * @param startPositionMs 起播位置（毫秒），用于断点续播，<=0 表示从头播。
-     * @param subtitleUrl 外挂字幕地址（.srt/.vtt），为空则不挂字幕。
+     * @param subtitleUrl 外挂字幕地址（.srt/.vtt/.ass，http(s) 或 file:// 本地），为空则不挂字幕。
      */
     fun play(
         url: String,
@@ -95,7 +106,10 @@ object PlayerManager {
             httpFactory.setDefaultRequestProperties(rest)
         }
         // v0.18.0：m3u8 去广告——包装 DataSource，过滤播放列表中的广告分片
-        val adFilterFactory = AdFilteringDataSource.Factory(httpFactory)
+        // v0.21.0：外层包 DefaultDataSource，字幕时间偏移后的 file:// 本地字幕也能读
+        val adFilterFactory = AdFilteringDataSource.Factory(
+            DefaultDataSource.Factory(app, httpFactory)
+        )
         // v0.19.0：显式声明 FLV 提取器（HTTP-FLV 直播/点播），不依赖默认工厂的隐含行为
         val extractorsFactory = ExtractorsFactory {
             arrayOf<Extractor>(FlvExtractor()) + DefaultExtractorsFactory().createExtractors()
@@ -156,12 +170,79 @@ object PlayerManager {
         onError = null
     }
 
-    /** 外挂字幕地址 -> MIME：只认 .srt / .vtt，其他返回 null（不挂）。 */
+    /**
+     * v0.21.0：字幕样式应用到 PlayerView 的内嵌字幕视图。
+     * 位置用底部内边距比例实现：底部=贴底，顶部=顶到 0.85。
+     */
+    fun applySubtitleStyle(playerView: PlayerView, style: SubtitleStyle) {
+        val sv = playerView.subtitleView ?: return
+        val edgeType = when (style.edge) {
+            SubtitleStyle.EDGE_OUTLINE -> CaptionStyleCompat.EDGE_TYPE_OUTLINE
+            SubtitleStyle.EDGE_SHADOW -> CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW
+            else -> CaptionStyleCompat.EDGE_TYPE_NONE
+        }
+        sv.setStyle(
+            CaptionStyleCompat(
+                style.color, Color.TRANSPARENT, Color.TRANSPARENT,
+                edgeType, Color.BLACK, null,
+            )
+        )
+        sv.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, style.sizeSp.toFloat())
+        sv.setBottomPaddingFraction(
+            if (style.position == SubtitleStyle.POS_TOP) 0.85f else 0.08f
+        )
+    }
+
+    /**
+     * v0.21.0：当前画面截图（系统 MediaMetadataRetriever 抽帧）。
+     * 必须在 IO 线程调用；返回保存的文件，失败返回 null。
+     * 只支持 http(s) 直链（磁力/m3u8 可能抽帧失败，走 runCatching 兜底）。
+     */
+    fun screenshotToFile(
+        context: Context,
+        url: String,
+        headers: Map<String, String>,
+        positionMs: Long,
+        title: String,
+    ): File? {
+        if (!url.startsWith("http", ignoreCase = true)) return null
+        return runCatching {
+            val mmr = MediaMetadataRetriever()
+            try {
+                if (headers.isEmpty()) mmr.setDataSource(url) else mmr.setDataSource(url, headers)
+                val frame: Bitmap =
+                    mmr.getFrameAtTime(positionMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST)
+                        ?: return@runCatching null
+                val safe = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(40).ifBlank { "截图" }
+                val file = File(
+                    StoragePaths.screenshotsDir(context),
+                    "侠影_${safe}_${System.currentTimeMillis()}.png",
+                )
+                FileOutputStream(file).use { out ->
+                    frame.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                frame.recycle()
+                LogBus.i("Player", "截图已保存：${file.absolutePath}")
+                file
+            } finally {
+                runCatching { mmr.release() }
+            }
+        }.getOrElse {
+            LogBus.w("Player", "截图失败：${it.message}")
+            null
+        }
+    }
+
+    /**
+     * 外挂字幕地址 -> MIME：.srt / .vtt / .ass，其他返回 null（不挂）。
+     * v0.21.0：.ass 走 MimeTypes.TEXT_SSA（Media3 1.4.1 内建 SsaParser，已实查源码）。
+     */
     private fun subtitleMimeType(url: String): String? {
         val lower = url.substringBefore("?").lowercase()
         return when {
             lower.endsWith(".srt") -> MimeTypes.APPLICATION_SUBRIP
             lower.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+            lower.endsWith(".ass") || lower.endsWith(".ssa") -> MimeTypes.TEXT_SSA
             else -> null
         }
     }

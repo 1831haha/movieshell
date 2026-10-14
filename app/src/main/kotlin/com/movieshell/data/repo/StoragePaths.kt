@@ -83,6 +83,10 @@ object StoragePaths {
     fun backupDir(context: Context): File = File(baseDir(context), "backup").also { it.mkdirs() }
     fun logDir(context: Context): File = File(baseDir(context), "log").also { it.mkdirs() }
 
+    /** v0.21.0：播放器截图保存位置 */
+    fun screenshotsDir(context: Context): File =
+        File(baseDir(context), "Screenshots").also { it.mkdirs() }
+
     /**
      * 申请存储权限。
      * API>=30：跳系统设置页（ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION）；

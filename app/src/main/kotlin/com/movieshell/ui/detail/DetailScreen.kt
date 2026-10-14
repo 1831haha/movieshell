@@ -1,7 +1,11 @@
 package com.movieshell.ui.detail
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
@@ -57,13 +62,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import com.movieshell.data.model.Episode
 import com.movieshell.data.model.PlayLine
 import com.movieshell.data.model.VodDetail
-import com.movieshell.data.model.isCmsSite
-import com.movieshell.data.model.isJavaSpider
-import com.movieshell.data.model.isPySite
-import com.movieshell.data.model.isType4Site
 import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.FavoriteItem
@@ -73,7 +78,6 @@ import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.player.MagnetPlayer
 import com.movieshell.player.PlaySession
-import com.movieshell.player.SniffPlayHeaders
 import com.movieshell.player.resolvePlayUrl
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.data.DemoData
@@ -145,6 +149,26 @@ fun DetailScreen(
 
     var selectedEpisode by remember { mutableIntStateOf(0) }
     var showMagnetDialog by remember { mutableStateOf(false) }
+    // v0.21.0：封面点开放大
+    var showCoverDialog by remember { mutableStateOf(false) }
+    val coverUrl = detail?.vodPic.orEmpty()
+
+    /** v0.21.0：影片信息一键复制 */
+    fun copyVodInfo() {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        if (cm == null) return
+        val text = buildString {
+            appendLine(vod.title)
+            appendLine(
+                listOf(vod.year, vod.category, vod.area)
+                    .filter { it.isNotBlank() }.joinToString(" · ")
+            )
+            appendLine("主演：${vod.actors}")
+            append("简介：${vod.desc}")
+        }
+        cm.setPrimaryClip(ClipData.newPlainText("影片信息", text))
+        Toast.makeText(context, "影片信息已复制", Toast.LENGTH_SHORT).show()
+    }
 
     // 当前来源名：收藏时记下来，收藏列表里展示；订阅站同时记 site key 以便回跳
     val sourceName = remember {
@@ -267,15 +291,28 @@ fun DetailScreen(
                     .fillMaxSize()
                     .padding(inner),
             ) {
-                // 海报头图
+                // 海报头图（v0.21.0：有真实封面时展示，点击放大）
                 item {
                     GradientBlock(
                         key = vod.id,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .aspectRatio(16f / 9f),
+                            .aspectRatio(16f / 9f)
+                            .clickable(
+                                enabled = coverUrl.isNotBlank(),
+                                onClick = { showCoverDialog = true },
+                            ),
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
+                            // 真实封面（Coil，无封面时保留渐变占位）
+                            if (coverUrl.isNotBlank()) {
+                                AsyncImage(
+                                    model = coverUrl,
+                                    contentDescription = "封面",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            }
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -343,11 +380,23 @@ fun DetailScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = "简介",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                        )
+                        // v0.21.0：简介标题 + 一键复制影片信息
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "简介",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f),
+                            )
+                            IconButton(onClick = { copyVodInfo() }) {
+                                Icon(
+                                    Icons.Filled.ContentCopy,
+                                    contentDescription = "复制影片信息",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = vod.desc,
@@ -481,6 +530,29 @@ fun DetailScreen(
                 TextButton(onClick = { showMagnetDialog = false }) { Text("知道了") }
             },
         )
+    }
+
+    // v0.21.0：封面点开放大（全屏看图，点任意处关闭）
+    if (showCoverDialog && coverUrl.isNotBlank()) {
+        Dialog(
+            onDismissRequest = { showCoverDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .clickable { showCoverDialog = false },
+                contentAlignment = Alignment.Center,
+            ) {
+                AsyncImage(
+                    model = coverUrl,
+                    contentDescription = "封面大图",
+                    modifier = Modifier.fillMaxWidth(),
+                    contentScale = ContentScale.Fit,
+                )
+            }
+        }
     }
 }
 

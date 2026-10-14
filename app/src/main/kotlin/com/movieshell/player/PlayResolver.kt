@@ -38,7 +38,15 @@ suspend fun resolvePlayUrl(
                 else if (PySourceManager.hasActiveRule()) PySourceManager.playUrl(flag, epUrl)
                 else ""
             // CMS 站：vod_play_url 里就是直链，直接播
-            subSite.isCmsSite() -> epUrl
+            // v0.21.0：防盗链兜底——CMS 直链默认带站点 Referer（经 SniffPlayHeaders 透传）
+            subSite.isCmsSite() -> {
+                if (epUrl.isNotBlank()) {
+                    apiRoot(subSite.api).takeIf { it.isNotBlank() }?.let { referer ->
+                        SniffPlayHeaders.put(epUrl, mapOf("Referer" to referer))
+                    }
+                }
+                epUrl
+            }
             subSite.isPySite() ->
                 SubSiteEngines.pyEngineFor(subSite)?.play(flag, epUrl).orEmpty()
             // type=4 站：GET {api}?ac=play&flag=&id= 拿直链；header 经
@@ -87,4 +95,17 @@ suspend fun effectiveParses(
         ?.let { (subUrl, _) -> SubSiteStore.getParses(context, subUrl) }
         .orEmpty()
     return ParseStore.merged(context, subParses)
+}
+
+/**
+ * v0.21.0：站点 API 地址取根（如 https://example.com/api.php/provide/vod → https://example.com/），
+ * 做 CMS 直链的默认 Referer（防盗链兜底）。解析不出返回 ""。
+ */
+private fun apiRoot(api: String): String {
+    val noQuery = api.substringBefore("?").trim()
+    if (!noQuery.contains("://")) return ""
+    val scheme = noQuery.substringBefore("://")
+    val host = noQuery.substringAfter("://").substringBefore("/")
+    if (host.isBlank()) return ""
+    return "$scheme://$host/"
 }

@@ -10,14 +10,18 @@ import com.movieshell.data.model.PlayLine
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.data.repo.SubtitleStyle
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +36,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -43,6 +48,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -83,8 +90,12 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlin.math.abs
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
@@ -105,6 +116,9 @@ private const val ADJUST_STEP_PX = 50f
 
 /** 手势：亮度每步调节量（0~1） */
 private const val BRIGHTNESS_STEP = 0.05f
+
+/** v0.21.0：手势——按住超过此时长且未滑动视为长按，进 2x 快放 */
+private const val LONG_PRESS_MS = 400L
 
 /**
  * 全屏播放器界面。
@@ -141,11 +155,20 @@ fun PlayerScreen(
     var pipMode by remember { mutableStateOf(false) } // 画中画
     var autoSwitching by remember { mutableStateOf(false) } // playUrl 变化来自自动重试
     val triedLines = remember { mutableSetOf<Int>() } // 已试过的线路下标
+    // v0.21.0：同地址已试过的内核（防 Media3↔libmpv 乒乓）
+    val triedEngines = remember { mutableSetOf<PlayerEngine>() }
     var lastHeaders by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var showSleepDialog by remember { mutableStateOf(false) } // v0.21.0：定时关闭
     val sessionLines = remember { PlaySession.lines } // 进入前详情页已写入
     val snackbarHostState = remember { SnackbarHostState() }
     // v0.20.0：双引擎——Media3（默认）/ libmpv，记忆选择
-    val engine by PlayerSettings.engine.collectAsState()
+    // v0.21.0：engineOverride 为自动换内核的临时覆盖（静默，不持久化），优先于用户设置
+    val engineSetting by PlayerSettings.engine.collectAsState()
+    val engineOverride by EngineHost.engineOverride.collectAsState()
+    val engine = engineOverride ?: engineSetting
+    // v0.21.0：定时关闭状态
+    val sleepRemaining by SleepTimer.remainingMs.collectAsState()
+    val sleepArmed by SleepTimer.afterEpisodeArmed.collectAsState()
 
     BackHandler(onBack = onBack)
 
@@ -183,6 +206,20 @@ fun PlayerScreen(
         onDispose { activity.removeOnPictureInPictureModeChangedListener(listener) }
     }
 
+    /**
+     * v0.21.0：当前字幕地址（含时间偏移处理）。双引擎统一走 SubtitleKit 单入口：
+     * 偏移为 0 直接返回原地址；非 0 则下载移位后返回 file:// 本地地址。
+     * 含网络 IO，必须在协程里调用。
+     */
+    suspend fun currentSubtitleUrl(): String? {
+        val raw = (sessionSubtitle
+            ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty())
+            .ifBlank { null }
+        return SubtitleKit.prepare(
+            context, raw, lastHeaders, PlayerSettings.subtitleStyle.value.offsetMs
+        )
+    }
+
     // 播放 / 切集：先保存上一集进度，再播新地址（带断点续播）
     // playUrl 为空表示暂无可播放地址，不启动播放器
     // magnet: 地址不直接播，走 MagnetPlayer 探测本机转播服务后再起播；
@@ -190,6 +227,9 @@ fun PlayerScreen(
     var lastUrl by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(playUrl) {
         if (!autoSwitching) triedLines.clear() else autoSwitching = false
+        // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
+        EngineHost.setEngineOverride(null)
+        triedEngines.clear()
         lastUrl?.let { prev -> savePlayerProgress(context, title, prev) }
         if (playUrl.isNotBlank()) {
             val resumeAt = HistoryStore.getProgress(context, playUrl)
@@ -213,9 +253,8 @@ fun PlayerScreen(
                 val startPos = if (resumeAt > 0) resumeAt
                 else if (skipIntro > 0) skipIntro * 1000L else 0L
                 // v0.19.0：外挂字幕（本次覆盖优先，否则按剧记忆）
-                val subtitleUrl = (sessionSubtitle
-                    ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty())
-                    .ifBlank { null }
+                // v0.21.0：走 SubtitleKit（含时间偏移），双引擎统一
+                val subtitleUrl = currentSubtitleUrl()
                 EngineHost.play(
                     context,
                     playUrl,
@@ -223,6 +262,8 @@ fun PlayerScreen(
                     startPositionMs = startPos,
                     subtitleUrl = subtitleUrl,
                 )
+                // v0.21.0：应用字幕样式
+                EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
                 true
             }
             showServiceMissingDialog = !started
@@ -247,34 +288,47 @@ fun PlayerScreen(
         }
     }
 
-    /** v0.19.0：字幕变更后按当前位置重播（字幕需要重建 MediaSource 才能生效）。 */
+    /**
+     * v0.19.0：字幕变更后按当前位置重播（字幕需要重建 MediaSource 才能生效）。
+     * v0.21.0：含时间偏移处理 + 样式应用，走协程（SubtitleKit 可能下载）。
+     */
     fun replayWithSubtitle() {
-        val pos = EngineHost.currentPosition()
-        val subtitleUrl = (sessionSubtitle
-            ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty())
-            .ifBlank { null }
-        EngineHost.play(context, playUrl, headers = lastHeaders, startPositionMs = pos, subtitleUrl = subtitleUrl)
+        scope.launch {
+            val pos = EngineHost.currentPosition()
+            EngineHost.play(
+                context, playUrl, headers = lastHeaders,
+                startPositionMs = pos, subtitleUrl = currentSubtitleUrl(),
+            )
+            EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
+        }
     }
 
     /**
      * v0.20.0：播放器内一键切换内核（Media3 ↔ libmpv）。
      * 停掉旧引擎、持久化选择、按当前进度重播；AndroidView 用 key(engine) 重建对应画面。
+     * v0.21.0：手动切换先清掉自动换内核覆盖；字幕走 SubtitleKit。
      */
     fun switchEngine() {
-        val pos = EngineHost.currentPosition()
-        val target = if (engine == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV else PlayerEngine.MEDIA3
-        EngineHost.stop()
-        PlayerSettings.setEngine(context, target)
-        val subtitleUrl = (sessionSubtitle
-            ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty())
-            .ifBlank { null }
-        Toast.makeText(
-            context,
-            "播放内核已切换为 ${if (target == PlayerEngine.MEDIA3) "Media3" else "libmpv"}",
-            Toast.LENGTH_SHORT,
-        ).show()
-        LogBus.i("Player", "切换播放内核 → $target")
-        EngineHost.play(context, playUrl, headers = lastHeaders, startPositionMs = pos, subtitleUrl = subtitleUrl)
+        scope.launch {
+            val pos = EngineHost.currentPosition()
+            val target =
+                if (EngineHost.engine() == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV
+                else PlayerEngine.MEDIA3
+            EngineHost.stop()
+            EngineHost.setEngineOverride(null)
+            PlayerSettings.setEngine(context, target)
+            Toast.makeText(
+                context,
+                "播放内核已切换为 ${if (target == PlayerEngine.MEDIA3) "Media3" else "libmpv"}",
+                Toast.LENGTH_SHORT,
+            ).show()
+            LogBus.i("Player", "切换播放内核 → $target")
+            EngineHost.play(
+                context, playUrl, headers = lastHeaders,
+                startPositionMs = pos, subtitleUrl = currentSubtitleUrl(),
+            )
+            EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
+        }
     }
 
     // v0.19.0：播放错误 -> 按线路顺序自动重试（同集换线路）；
@@ -282,6 +336,27 @@ fun PlayerScreen(
     // v0.20.0：错误回调走 EngineHost，Media3/libmpv 双引擎统一消息字符串。
     DisposableEffect(Unit) {
         EngineHost.setOnErrorListener { msg ->
+            // v0.21.0：播放失败先自动换内核（同地址只换一次，静默不持久化）；
+            // 双内核都失败才走下面的线路重试。
+            val cur = EngineHost.engine()
+            val other =
+                if (cur == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV else PlayerEngine.MEDIA3
+            if (other !in triedEngines) {
+                val pos = EngineHost.currentPosition()
+                triedEngines.add(cur)
+                triedEngines.add(other)
+                LogBus.i("Player", "播放失败，自动换内核重试：$cur → $other")
+                EngineHost.stop()
+                EngineHost.setEngineOverride(other)
+                scope.launch {
+                    EngineHost.play(
+                        context, playUrl, headers = lastHeaders,
+                        startPositionMs = pos, subtitleUrl = currentSubtitleUrl(),
+                    )
+                    EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
+                }
+                return@setOnErrorListener
+            }
             val lines = PlaySession.lines
             val resolver = PlaySession.resolver
             val curLine = PlaySession.lineIndex
@@ -343,22 +418,32 @@ fun PlayerScreen(
     // v0.14.0：片尾跳过——距离结尾 skipOutroSec 时自动下一集（无下一集则暂停）
     // v0.16.2：按源取片尾；v0.19.0：下一集走 PlaySession（播放器内线路/选集）
     // v0.20.0：进度/时长走 EngineHost，双引擎统一
-    LaunchedEffect(playUrl) {
+    // v0.21.0：定时关闭「播完本集」布防时，集尾暂停而非切下一集
+    LaunchedEffect(playUrl, sleepArmed) {
         val skipOutro = PlayerSettings.getSkipOutroFor(context, vodId)
-        if (skipOutro > 0) {
-            while (true) {
-                delay(1000)
-                val dur = EngineHost.duration()
-                if (dur > 0 && EngineHost.currentPosition() >= dur - skipOutro * 1000L) {
-                    val nextIdx = PlaySession.episodeIndex + 1
-                    val hasNext = PlaySession.currentLine()?.episodes?.getOrNull(nextIdx) != null
-                    if (hasNext) {
-                        switchEpisode(PlaySession.lineIndex, nextIdx)
-                    } else {
-                        EngineHost.pause()
-                    }
-                    break
+        if (skipOutro <= 0 && !sleepArmed) return@LaunchedEffect
+        while (true) {
+            delay(1000)
+            val dur = EngineHost.duration()
+            if (dur <= 0) continue
+            val pos = EngineHost.currentPosition()
+            if (sleepArmed && pos >= dur - 2000) {
+                if (SleepTimer.consumeAfterEpisode()) {
+                    EngineHost.pause()
+                    Toast.makeText(context, "定时关闭：本集播完已暂停", Toast.LENGTH_SHORT).show()
+                    LogBus.i("Player", "定时关闭触发：播完本集暂停")
                 }
+                break
+            }
+            if (skipOutro > 0 && pos >= dur - skipOutro * 1000L) {
+                val nextIdx = PlaySession.episodeIndex + 1
+                val hasNext = PlaySession.currentLine()?.episodes?.getOrNull(nextIdx) != null
+                if (hasNext) {
+                    switchEpisode(PlaySession.lineIndex, nextIdx)
+                } else {
+                    EngineHost.pause()
+                }
+                break
             }
         }
     }
@@ -420,10 +505,35 @@ fun PlayerScreen(
                     awaitEachGesture {
                         val down = awaitFirstDown()
                         var mode = 0 // 0=未定 1=水平 2=垂直
-                        val slopChange = awaitTouchSlopOrCancellation(down.id) { change, _ ->
-                            val dx = change.position.x - down.position.x
-                            val dy = change.position.y - down.position.y
-                            mode = if (abs(dx) > abs(dy)) 1 else 2
+                        // v0.21.0：400ms 内无滑动视为长按 → 2x 快放，松手恢复原倍速
+                        var longPressed = false
+                        val slopChange = try {
+                            withTimeout(LONG_PRESS_MS) {
+                                awaitTouchSlopOrCancellation(down.id) { change, _ ->
+                                    val dx = change.position.x - down.position.x
+                                    val dy = change.position.y - down.position.y
+                                    mode = if (abs(dx) > abs(dy)) 1 else 2
+                                }
+                            }
+                        } catch (e: TimeoutCancellationException) {
+                            longPressed = true
+                            null
+                        }
+                        if (longPressed) {
+                            if (playUrl.isNotBlank()) {
+                                EngineHost.setPlaybackSpeed(2.0f)
+                                gestureHint = "2x 快放中…"
+                                // 等待松手（消费事件，避免透传点中控制器）
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val c = event.changes.firstOrNull { it.id == down.id }
+                                    c?.consume()
+                                    if (c == null || !c.pressed) break
+                                }
+                                EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
+                                gestureHint = null
+                            }
+                            return@awaitEachGesture
                         }
                         if (slopChange == null || mode == 0) return@awaitEachGesture // 轻点：不消费
                         var last = slopChange.position
@@ -569,6 +679,37 @@ fun PlayerScreen(
             IconButton(onClick = { showSkipSettings = true }) {
                 Icon(Icons.Filled.Settings, contentDescription = "本剧跳过设置", tint = Color.White)
             }
+            // v0.21.0：定时关闭（有定时在跑时显示剩余时间，点开可改/关）
+            if (sleepRemaining > 0 || sleepArmed) {
+                TextButton(onClick = { showSleepDialog = true }) {
+                    Text(
+                        text = if (sleepArmed) "播完停" else fmtSleep(sleepRemaining),
+                        color = Color.White,
+                    )
+                }
+            } else {
+                IconButton(onClick = { showSleepDialog = true }) {
+                    Icon(Icons.Filled.Timer, contentDescription = "定时关闭", tint = Color.White)
+                }
+            }
+            // v0.21.0：截图（存 xiaying/Screenshots）
+            IconButton(onClick = {
+                scope.launch {
+                    val file = withContext(Dispatchers.IO) {
+                        EngineHost.screenshot(
+                            context, title, playUrl, lastHeaders,
+                            EngineHost.currentPosition(),
+                        )
+                    }
+                    Toast.makeText(
+                        context,
+                        if (file != null) "截图已保存：${file.name}" else "截图失败",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }) {
+                Icon(Icons.Filled.Videocam, contentDescription = "截图", tint = Color.White)
+            }
         }
 
         SnackbarHost(
@@ -650,17 +791,46 @@ fun PlayerScreen(
         }
 
         // v0.19.0：外挂字幕设置
+        // v0.21.0：升级为样式面板（大小/颜色/描边/位置）+ 时间偏移 ±10s
         if (showSubtitleDialog) {
             SubtitleDialog(
                 initial = sessionSubtitle
                     ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty(),
+                initialStyle = PlayerSettings.subtitleStyle.value,
                 onDismiss = { showSubtitleDialog = false },
-                onSave = { url ->
+                onSave = { url, style ->
                     val clean = url.trim()
                     sessionSubtitle = clean.ifBlank { null }
                     if (vodId != null) PlayerSettings.setSubtitleFor(context, vodId, clean)
+                    PlayerSettings.setSubtitleStyle(context, style)
                     showSubtitleDialog = false
                     replayWithSubtitle()
+                },
+            )
+        }
+
+        // v0.21.0：定时关闭
+        if (showSleepDialog) {
+            SleepTimerDialog(
+                onDismiss = { showSleepDialog = false },
+                onPickMinutes = { m ->
+                    showSleepDialog = false
+                    SleepTimer.startMinutes(m) {
+                        EngineHost.pause()
+                        Toast.makeText(context, "定时关闭：已暂停播放", Toast.LENGTH_SHORT).show()
+                        LogBus.i("Player", "定时关闭触发：${m}分钟到，暂停")
+                    }
+                    Toast.makeText(context, "将在 $m 分钟后停止播放", Toast.LENGTH_SHORT).show()
+                },
+                onPickAfterEpisode = {
+                    showSleepDialog = false
+                    SleepTimer.armAfterEpisode()
+                    Toast.makeText(context, "本集播完后将停止播放", Toast.LENGTH_SHORT).show()
+                },
+                onCancelTimer = {
+                    showSleepDialog = false
+                    SleepTimer.cancel()
+                    Toast.makeText(context, "定时关闭已取消", Toast.LENGTH_SHORT).show()
                 },
             )
         }
@@ -838,24 +1008,45 @@ private fun LineSheet(
     }
 }
 
+/** v0.21.0：字幕颜色候选 */
+private val SUB_COLORS = listOf(
+    0xFFFFFFFF.toInt(),
+    0xFFFFFF00.toInt(),
+    0xFF00E5FF.toInt(),
+    0xFF69F0AE.toInt(),
+    0xFFFF8A80.toInt(),
+)
+
 /**
- * v0.19.0：外挂字幕设置对话框。填 .srt/.vtt 地址，保存后按当前位置重播生效；
+ * v0.19.0：外挂字幕设置对话框。填字幕地址，保存后按当前位置重播生效；
  * 按剧记忆（vodId 为空时仅本次有效）。
+ * v0.21.0：升级为样式面板——大小/颜色/描边/位置 + 时间偏移 ±10s（双引擎通用，全局生效）。
  */
 @Composable
 private fun SubtitleDialog(
     initial: String,
+    initialStyle: SubtitleStyle,
     onDismiss: () -> Unit,
-    onSave: (String) -> Unit,
+    onSave: (String, SubtitleStyle) -> Unit,
 ) {
     var url by remember { mutableStateOf(initial) }
+    var size by remember { mutableIntStateOf(initialStyle.sizeSp) }
+    var color by remember { mutableIntStateOf(initialStyle.color) }
+    var edge by remember { mutableIntStateOf(initialStyle.edge) }
+    var position by remember { mutableIntStateOf(initialStyle.position) }
+    var offsetSec by remember { mutableIntStateOf((initialStyle.offsetMs / 1000).toInt()) }
+    val scroll = rememberScrollState()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("外挂字幕") },
+        title = { Text("字幕设置") },
         text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(scroll),
+            ) {
                 Text(
-                    text = "支持 .srt / .vtt 地址，保存后立即生效",
+                    text = "支持 .srt / .vtt / .ass 地址，保存后立即生效",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -867,19 +1058,155 @@ private fun SubtitleDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(Modifier.height(12.dp))
+                Text("大小 ${size}sp", style = MaterialTheme.typography.bodyMedium)
+                Slider(
+                    value = size.toFloat(),
+                    onValueChange = { size = it.toInt() },
+                    valueRange = 12f..32f,
+                )
+                Text("颜色", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SUB_COLORS.forEach { c ->
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(c))
+                                .border(
+                                    width = if (c == color) 3.dp else 1.dp,
+                                    color = if (c == color) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        Color.Gray.copy(alpha = 0.4f)
+                                    },
+                                    shape = CircleShape,
+                                )
+                                .clickable { color = c },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("描边", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        SubtitleStyle.EDGE_NONE to "无",
+                        SubtitleStyle.EDGE_OUTLINE to "描边",
+                        SubtitleStyle.EDGE_SHADOW to "阴影",
+                    ).forEach { (v, label) ->
+                        FilterChip(
+                            selected = edge == v,
+                            onClick = { edge = v },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("位置", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = position == SubtitleStyle.POS_BOTTOM,
+                        onClick = { position = SubtitleStyle.POS_BOTTOM },
+                        label = { Text("底部") },
+                    )
+                    FilterChip(
+                        selected = position == SubtitleStyle.POS_TOP,
+                        onClick = { position = SubtitleStyle.POS_TOP },
+                        label = { Text("顶部") },
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                val offsetLabel = when {
+                    offsetSec > 0 -> "+${offsetSec}s（字幕延后）"
+                    offsetSec < 0 -> "${offsetSec}s（字幕提前）"
+                    else -> "0s（关闭偏移）"
+                }
+                Text(
+                    "时间偏移 $offsetLabel",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Slider(
+                    value = offsetSec.toFloat(),
+                    onValueChange = { offsetSec = it.toInt() },
+                    valueRange = -10f..10f,
+                    steps = 19,
+                )
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(url) }) {
+            TextButton(
+                onClick = {
+                    onSave(
+                        url,
+                        SubtitleStyle(size, color, edge, position, offsetSec * 1000L),
+                    )
+                }
+            ) {
                 Text("保存并应用")
             }
         },
         dismissButton = {
-            TextButton(onClick = { onSave("") }) {
+            TextButton(onClick = { onSave("", initialStyle) }) {
                 Text("清除")
+            }
+            TextButton(onClick = onDismiss) {
+                Text("取消")
             }
         },
     )
+}
+
+/** v0.21.0：定时关闭选项（15/30/60/90 分钟 / 播完本集 / 关闭定时）。 */
+@Composable
+private fun SleepTimerDialog(
+    onDismiss: () -> Unit,
+    onPickMinutes: (Int) -> Unit,
+    onPickAfterEpisode: () -> Unit,
+    onCancelTimer: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("定时关闭") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                listOf(15, 30, 60, 90).forEach { m ->
+                    TextButton(
+                        onClick = { onPickMinutes(m) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("$m 分钟后停止")
+                    }
+                }
+                TextButton(
+                    onClick = onPickAfterEpisode,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("播完本集停止")
+                }
+                TextButton(
+                    onClick = onCancelTimer,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("关闭定时")
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+    )
+}
+
+/** v0.21.0：定时关闭剩余时间 → m:ss */
+private fun fmtSleep(ms: Long): String {
+    val s = (ms / 1000).toInt().coerceAtLeast(0)
+    return "%d:%02d".format(s / 60, s % 60)
 }
 
 /**
