@@ -24,4 +24,8 @@ object SniffPlayHeaders {
      */
     fun take(url: String): Map<String, String> =
         synchronized(lock) { map.remove(url) ?: emptyMap() }
+
+    /** 只看不取（下载等场景复用请求头，不断播放器的消费语义）。 */
+    fun peek(url: String): Map<String, String> =
+        synchronized(lock) { map[url] ?: emptyMap() }
 }

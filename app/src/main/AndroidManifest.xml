@@ -10,6 +10,10 @@
         android:maxSdkVersion="28" />
     <!-- v0.7.2：公开目录 /storage/emulated/0/xiaying/ 读写（API 30+） -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- v0.26.0：追剧更新通知（API 33+ 运行时申请）+ 下载前台服务 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:name=".XiaYingApp"
@@ -23,6 +27,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.MovieShell"
             android:supportsPictureInPicture="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation">

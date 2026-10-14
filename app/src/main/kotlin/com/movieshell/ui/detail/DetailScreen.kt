@@ -17,10 +17,12 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,11 +30,16 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -66,13 +73,17 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
+import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.model.Episode
 import com.movieshell.data.model.PlayLine
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.DetailSiteHolder
+import com.movieshell.data.repo.DownloadTask
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.FavoriteItem
 import com.movieshell.data.repo.FavoriteStore
+import com.movieshell.data.repo.FollowItem
+import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
@@ -188,9 +199,33 @@ fun DetailScreen(
         favorite = FavoriteStore.isFavorite(context, vodId, sourceName)
     }
 
+    // v0.26.0：追剧
+    val followSourceType = remember(subSite) {
+        when {
+            subSite != null -> "sub"
+            DrpySourceManager.hasActiveRule() -> "drpy"
+            PySourceManager.hasActiveRule() -> "py"
+            else -> "sub"
+        }
+    }
+    val followSourceKey = remember(subSite, sourceName) {
+        subSite?.key.orEmpty().ifBlank {
+            DrpySourceManager.activeRuleName().orEmpty()
+                .ifBlank { PySourceManager.activeRuleName().orEmpty() }
+        }.ifBlank { sourceName }
+    }
+    val followId = remember(vodId, followSourceKey) { FollowStore.idOf(followSourceKey, vodId) }
+    var following by remember { mutableStateOf(false) }
+    LaunchedEffect(followId) { following = FollowStore.isFollowing(context, followId) }
+    var showDownloadDialog by remember { mutableStateOf(false) }
+
     /** 统一播放决策（v0.19.0）：解析走公共 resolvePlayUrl；磁力直接起播不进播放器 */
     fun playEpisode(ep: Episode, lineIndex: Int, episodeIndex: Int) {
         LogBus.i("UI", "点击播放: ${ep.name.ifBlank { "未命名剧集" }} url=${ep.url.take(100)}")
+        // v0.26.0：追剧看到第几集联动
+        if (following) {
+            scope.launch { FollowStore.markWatched(context, followId, episodeIndex) }
+        }
         scope.launch {
             if (MagnetPlayer.isMagnet(ep.url)) {
                 val ok = runCatching {
@@ -258,6 +293,43 @@ fun DetailScreen(
                             else Icons.Filled.FavoriteBorder,
                             contentDescription = "收藏",
                             tint = if (favorite) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    // v0.26.0：追剧
+                    IconButton(onClick = {
+                        scope.launch {
+                            if (following) {
+                                if (FollowStore.unfollow(context, followId)) {
+                                    following = false
+                                    Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                val ok = FollowStore.follow(
+                                    context,
+                                    FollowItem(
+                                        id = followId,
+                                        vodId = vodId,
+                                        name = vod.title,
+                                        pic = detail?.vodPic.orEmpty(),
+                                        sourceType = followSourceType,
+                                        sourceKey = followSourceKey,
+                                        episodeCount = episodes.size,
+                                    ),
+                                )
+                                if (ok) {
+                                    following = true
+                                    Toast.makeText(context, "已追剧，有更新会提醒你", Toast.LENGTH_SHORT)
+                                        .show()
+                                }
+                            }
+                        }
+                    }) {
+                        Icon(
+                            imageVector = if (following) Icons.Filled.PlaylistAddCheck
+                            else Icons.Filled.PlaylistAdd,
+                            contentDescription = "追剧",
+                            tint = if (following) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurface,
                         )
                     }
@@ -408,25 +480,38 @@ fun DetailScreen(
                 }
 
                 // 播放按钮（v0.13.0：无播放源时禁用并明示，不再静默传空地址）
+                // v0.26.0：右侧加下载按钮（选集多选 → 加入下载队列）
                 item {
-                    Button(
-                        onClick = {
-                            if (lineEpisodes.isNotEmpty()) {
-                                playEpisode(lineEpisodes[safeSelected], safeLine, safeSelected)
-                            }
-                        },
-                        enabled = lineEpisodes.isNotEmpty(),
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp),
-                        shape = RoundedCornerShape(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = if (lineEpisodes.isNotEmpty()) playLabel
-                            else "暂无可播地址"
-                        )
+                        Button(
+                            onClick = {
+                                if (lineEpisodes.isNotEmpty()) {
+                                    playEpisode(lineEpisodes[safeSelected], safeLine, safeSelected)
+                                }
+                            },
+                            enabled = lineEpisodes.isNotEmpty(),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                        ) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = if (lineEpisodes.isNotEmpty()) playLabel
+                                else "暂无可播地址"
+                            )
+                        }
+                        IconButton(
+                            onClick = { showDownloadDialog = true },
+                            enabled = lineEpisodes.isNotEmpty(),
+                        ) {
+                            Icon(Icons.Filled.Download, contentDescription = "下载")
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                 }
@@ -530,6 +615,107 @@ fun DetailScreen(
                 TextButton(onClick = { showMagnetDialog = false }) { Text("知道了") }
             },
         )
+    }
+
+    // v0.26.0：下载选集（多选 → 解析地址 → 入队）
+    if (showDownloadDialog) {
+        var selected by remember { mutableStateOf(lineEpisodes.indices.toSet()) }
+        var resolving by remember { mutableStateOf(false) }
+        Dialog(onDismissRequest = { if (!resolving) showDownloadDialog = false }) {
+            Card(shape = RoundedCornerShape(16.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("选择要下载的剧集", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                        items(lineEpisodes.size) { i ->
+                            val ep = lineEpisodes[i]
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = !resolving) {
+                                        selected = if (selected.contains(i)) selected - i else selected + i
+                                    }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = selected.contains(i),
+                                    onCheckedChange = null,
+                                    enabled = !resolving,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = ep.name.ifBlank { "第${i + 1}集" },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (MagnetPlayer.isMagnet(ep.url)) {
+                                    Text(
+                                        "磁力不支持",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(
+                            onClick = { showDownloadDialog = false },
+                            enabled = !resolving,
+                        ) { Text("取消") }
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                resolving = true
+                                scope.launch {
+                                    val tasks = mutableListOf<DownloadTask>()
+                                    selected.sorted().forEach { i ->
+                                        val ep = lineEpisodes.getOrNull(i) ?: return@forEach
+                                        if (MagnetPlayer.isMagnet(ep.url)) return@forEach
+                                        val url = resolvePlayUrl(context, subSite, ep)
+                                        if (url.isBlank()) return@forEach
+                                        tasks.add(
+                                            DownloadTask(
+                                                title = "${vod.title} ${ep.name.ifBlank { "第${i + 1}集" }}",
+                                                pic = detail?.vodPic.orEmpty(),
+                                                url = url,
+                                                kind = if (DownloadManager.isM3u8(url)) "m3u8" else "file",
+                                            ),
+                                        )
+                                    }
+                                    resolving = false
+                                    showDownloadDialog = false
+                                    if (tasks.isEmpty()) {
+                                        Toast.makeText(context, "没有可下载的剧集", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        DownloadManager.enqueue(context, tasks)
+                                        Toast.makeText(
+                                            context,
+                                            "已加入下载队列（${tasks.size}）",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                }
+                            },
+                            enabled = !resolving && selected.isNotEmpty(),
+                        ) {
+                            if (resolving) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Text("下载选中（${selected.size}）")
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // v0.21.0：封面点开放大（全屏看图，点任意处关闭）

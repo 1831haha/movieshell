@@ -2,6 +2,7 @@ package com.movieshell
 
 import android.net.Uri
 import android.os.Bundle
+import android.content.Intent
 import android.util.Rational
 import android.app.PictureInPictureParams
 import android.widget.Toast
@@ -13,11 +14,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -43,7 +46,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.movieshell.data.download.FollowCheckWorker
+import com.movieshell.data.download.Notify
+import com.movieshell.data.repo.DetailSiteHolder
+import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.LiveStore
 import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.SourceStateStore
@@ -70,6 +78,8 @@ import com.movieshell.player.PlaySession
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
 import com.movieshell.ui.detail.DetailScreen
+import com.movieshell.ui.download.DownloadScreen
+import com.movieshell.ui.follow.FollowScreen
 import com.movieshell.ui.history.HistoryScreen
 import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.lab.LabScreen
@@ -100,8 +110,27 @@ private val tabs = listOf(
 private const val DETAIL_ROUTE = "detail/{vodId}"
 
 class MainActivity : ComponentActivity() {
+
+    /** 通知点进来的待跳转路由（route to subKey），消费一次。 */
+    private val pendingRoute = mutableStateOf<Pair<String, String>?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleRouteIntent(intent)
+    }
+
+    private fun handleRouteIntent(intent: Intent?) {
+        if (intent?.action != Notify.ACTION_ROUTE) return
+        val route = intent.getStringExtra(Notify.EXTRA_ROUTE).orEmpty()
+        if (route.isNotBlank()) {
+            pendingRoute.value = route to intent.getStringExtra(Notify.EXTRA_SUBKEY).orEmpty()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleRouteIntent(intent)
         // v0.7.2：日志总线最先初始化（接住之后所有初始化的异常）
         LogBus.init(this)
         LogBus.i("App", "侠影启动")
@@ -122,6 +151,10 @@ class MainActivity : ComponentActivity() {
         // v0.24.0：直播源 + 源启停状态
         LiveStore.init(this)
         SourceStateStore.init(this)
+        // v0.26.0：追剧 + 下载
+        FollowStore.init(this)
+        DownloadStore.init(this)
+        FollowCheckWorker.reschedule(this)
         PhpSourceManager.init(this)
         WebSourceManager.init(this)
         SniffPatternStore.init(this)
@@ -168,6 +201,17 @@ class MainActivity : ComponentActivity() {
                 }
                 Box(Modifier.fillMaxSize()) {
                 val navController = rememberNavController()
+                val ctx = LocalContext.current
+                // v0.26.0：通知点进来的深度跳转（消费一次）
+                LaunchedEffect(pendingRoute.value) {
+                    val (route, subKey) = pendingRoute.value ?: return@LaunchedEffect
+                    pendingRoute.value = null
+                    if (subKey.isNotBlank()) {
+                        DetailSiteHolder.site = SubSiteStore.findSite(ctx, subKey)
+                            ?.let { (u, r) -> SubSiteStore.toSite(u, r) }
+                    }
+                    runCatching { navController.navigate(route) }
+                }
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val current = backStackEntry?.destination
                 // 详情页等非 tab 页面隐藏底部导航栏
@@ -202,6 +246,8 @@ class MainActivity : ComponentActivity() {
                                 onVodClick = { vodId -> navController.navigate("detail/${Uri.encode(vodId)}") },
                                 // v0.24.0：播放历史
                                 onHistoryClick = { navController.navigate("history") },
+                                // v0.26.0：我的追剧
+                                onFollowClick = { navController.navigate("follow") },
                             )
                         }
                         composable("search") {
@@ -265,6 +311,51 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                         }
+                        // v0.26.0：我的追剧
+                        composable("follow") {
+                            FollowScreen(
+                                onBack = { navController.popBackStack() },
+                                onVodClick = { item ->
+                                    // 恢复站点上下文 / 激活对应规则，再进详情
+                                    when (item.sourceType) {
+                                        "drpy" -> {
+                                            DetailSiteHolder.site = null
+                                            DrpySourceManager.setActiveRule(item.sourceKey)
+                                        }
+                                        "py" -> {
+                                            DetailSiteHolder.site = null
+                                            PySourceManager.setActiveRule(item.sourceKey)
+                                        }
+                                        else -> {
+                                            DetailSiteHolder.site = item.sourceKey
+                                                .takeIf { it.isNotBlank() }
+                                                ?.let { key ->
+                                                    SubSiteStore.findSite(
+                                                        this@MainActivity,
+                                                        key,
+                                                    )?.let { (u, r) -> SubSiteStore.toSite(u, r) }
+                                                }
+                                        }
+                                    }
+                                    lifecycleScope.launch(Dispatchers.IO) {
+                                        FollowStore.clearNew(this@MainActivity, item.id)
+                                    }
+                                    navController.navigate("detail/${Uri.encode(item.vodId)}")
+                                },
+                            )
+                        }
+                        // v0.26.0：下载管理
+                        composable("downloads") {
+                            DownloadScreen(
+                                onBack = { navController.popBackStack() },
+                                onPlayLocal = { path, title ->
+                                    navController.navigateToPlayer(
+                                        url = "file://$path",
+                                        title = title,
+                                    )
+                                },
+                            )
+                        }
                         // v0.24.0：回收站
                         composable("trash") {
                             TrashScreen(
@@ -287,6 +378,7 @@ class MainActivity : ComponentActivity() {
                         composable("settings") {
                             SettingsScreen(
                                 onManualClick = { navController.navigate("manual") },
+                                onDownloadsClick = { navController.navigate("downloads") },
                             )
                         }
                         composable("lab") {

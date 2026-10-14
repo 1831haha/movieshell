@@ -99,6 +99,10 @@ object StoragePaths {
     fun crashDir(context: Context): File =
         File(baseDir(context), "crash").also { it.mkdirs() }
 
+    /** v0.26.0：离线下载根目录（xiaying/Download/<taskId>/） */
+    fun downloadDir(context: Context): File =
+        File(baseDir(context), "Download").also { it.mkdirs() }
+
     /**
      * 申请存储权限。
      * API>=30：跳系统设置页（ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION）；

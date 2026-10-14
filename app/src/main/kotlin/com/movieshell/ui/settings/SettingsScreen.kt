@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
@@ -38,9 +39,11 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
@@ -72,7 +75,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.movieshell.data.download.DownloadManager
+import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.repo.BackupManager
+import com.movieshell.data.repo.DownloadStore
+import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
@@ -90,7 +97,10 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onManualClick: () -> Unit = {}) {
+fun SettingsScreen(
+    onManualClick: () -> Unit = {},
+    onDownloadsClick: () -> Unit = {},
+) {
     val context = LocalContext.current
     // v0.7.1：主题读持久化 ThemeStore，不再是本地假状态
     val themeMode by ThemeStore.mode.collectAsState()
@@ -114,6 +124,9 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
     val activeMarketIdx by PluginStore.activeMarketIdx.collectAsState()
     val showIncompatible by PluginStore.showIncompatible.collectAsState()
     var showMarketSourcesDialog by remember { mutableStateOf(false) }
+    // v0.26.0：追剧更新检测开关 + 下载并行数
+    var followCheckEnabled by remember { mutableStateOf(FollowStore.isCheckEnabled(context)) }
+    var maxParallel by remember { mutableStateOf(DownloadStore.maxParallel(context)) }
 
     // v0.7.2：备份直接导出到 xiaying/backup/，不再弹系统文件选择器
     fun exportBackup() {
@@ -279,6 +292,47 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
                                 PluginStore.setShowIncompatible(context, it)
                             },
                         )
+                    },
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            SettingsGroup(title = "追剧与下载") {
+                SettingsRow(
+                    icon = Icons.Filled.PlaylistAddCheck,
+                    title = "追剧更新提醒",
+                    subtitle = "每天检测 2 次追的剧，有新集数发通知",
+                    onClick = {
+                        val next = !followCheckEnabled
+                        FollowStore.setCheckEnabled(context, next)
+                        followCheckEnabled = next
+                        FollowCheckWorker.reschedule(context)
+                    },
+                    trailing = {
+                        Switch(
+                            checked = followCheckEnabled,
+                            onCheckedChange = {
+                                FollowStore.setCheckEnabled(context, it)
+                                followCheckEnabled = it
+                                FollowCheckWorker.reschedule(context)
+                            },
+                        )
+                    },
+                )
+                SettingsRow(
+                    icon = Icons.Filled.Download,
+                    title = "下载管理",
+                    subtitle = "查看下载队列与已完成",
+                    onClick = onDownloadsClick,
+                )
+                SettingsRow(
+                    icon = Icons.Filled.Speed,
+                    title = "同时下载数",
+                    subtitle = "$maxParallel 个任务并行（1-3）",
+                    onClick = {
+                        val next = if (maxParallel >= 3) 1 else maxParallel + 1
+                        DownloadStore.setMaxParallel(context, next)
+                        maxParallel = next
+                        DownloadManager.pump(context)
                     },
                 )
             }

@@ -40,6 +40,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -138,6 +139,8 @@ fun HomeScreen(
     onVodClick: (vodId: String) -> Unit,
     // v0.24.0：播放历史入口
     onHistoryClick: () -> Unit = {},
+    // v0.26.0：我的追剧入口
+    onFollowClick: () -> Unit = {},
 ) {
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
@@ -495,6 +498,14 @@ fun HomeScreen(
                         Icon(
                             imageVector = Icons.Filled.History,
                             contentDescription = "播放历史",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // v0.26.0：我的追剧
+                    IconButton(onClick = onFollowClick) {
+                        Icon(
+                            imageVector = Icons.Filled.PlaylistAddCheck,
+                            contentDescription = "我的追剧",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
