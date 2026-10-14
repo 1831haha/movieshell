@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
@@ -54,6 +55,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
@@ -255,6 +257,8 @@ private fun formatSize(bytes: Long): String = when {
 fun SourcesScreen(
     onWebSniff: (name: String, url: String) -> Unit = { _, _ -> },
     onPreview: (kind: String, fileName: String) -> Unit = { _, _ -> },
+    // v0.22.0：插件市场入口
+    onMarketClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
 
@@ -643,6 +647,18 @@ fun SourcesScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // v0.22.0：插件市场入口
+        OutlinedButton(
+            onClick = onMarketClick,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(12.dp),
+        ) {
+            Icon(Icons.Filled.Store, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("插件市场")
+        }
         // v0.9.0：顶部横滑 Tab——数据来源切换
         ScrollableTabRow(
             selectedTabIndex = selectedTab,

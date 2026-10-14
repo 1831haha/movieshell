@@ -232,6 +232,8 @@ private val MANUAL_SECTIONS = listOf(
     ManualSection(
         title = "版本更新",
         points = listOf(
+            "v0.22.0 新功能：插件体系——官方插件仓库（xiaying-plugins）+ App 内插件市场页（站源页顶部进入）：浏览/搜索/一键安装/版本更新/卸载；安装时 MD5 强制校验；source 插件（py/js/php）解压到对应规则目录即用，server 插件下载到 xiaying/plugins/<id>/（Node.js 服务需外部运行）。设置→插件可改市场地址。",
+            "v0.22.0 引擎：PY 读方法（首页/分类/详情/搜索）并发执行，切源/切分类时取消旧在途请求（对标 DsPlayer 0.9.9 源忙根除；Chaquopy 进程内 Python，网络 I/O 期间释放 GIL 天然重叠）。",
             "v0.21.0 新功能：播放失败自动换内核——Media3 失败静默切 libmpv 重试（反之亦然），同地址只换一次，换完还不行才走线路重试。",
             "v0.21.0 新功能：字幕支持 .ass（Media3 内建解析，libmpv 原生），样式面板可调大小/颜色/描边/位置，时间偏移 ±10s（双引擎通用）。",
             "v0.21.0 新功能：定时关闭——15/30/60/90 分钟或播完本集停止，播放器顶部栏进入，倒计时显示在顶部栏。",

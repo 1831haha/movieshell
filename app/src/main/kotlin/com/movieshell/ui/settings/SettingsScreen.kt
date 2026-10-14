@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -73,6 +74,7 @@ import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.ThemeStore
 import java.io.File
 import java.text.SimpleDateFormat
@@ -100,6 +102,9 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
     var cacheSize by remember { mutableStateOf("128 MB") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showAddParseDialog by remember { mutableStateOf(false) } // v0.19.0：自定义解析接口
+    // v0.22.0：插件市场地址
+    val marketUrl by PluginStore.marketUrl.collectAsState()
+    var showMarketUrlDialog by remember { mutableStateOf(false) }
 
     // v0.7.2：备份直接导出到 xiaying/backup/，不再弹系统文件选择器
     fun exportBackup() {
@@ -215,6 +220,16 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
+            }
+            Spacer(Modifier.height(12.dp))
+            // v0.22.0：插件市场
+            SettingsGroup(title = "插件") {
+                SettingsRow(
+                    icon = Icons.Filled.Store,
+                    title = "插件市场地址",
+                    subtitle = marketUrl,
+                    onClick = { showMarketUrlDialog = true },
+                )
             }
             Spacer(Modifier.height(12.dp))
             SettingsGroup(title = "存储") {
@@ -339,6 +354,47 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
         )
     }
     // v0.19.0：添加自定义解析接口
+    // v0.22.0：插件市场地址
+    if (showMarketUrlDialog) {
+        var urlInput by remember { mutableStateOf(marketUrl) }
+        AlertDialog(
+            onDismissRequest = { showMarketUrlDialog = false },
+            title = { Text("插件市场地址") },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = urlInput,
+                        onValueChange = { urlInput = it },
+                        label = { Text("market.json 地址") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "默认官方市场。改后重进插件市场页生效。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        PluginStore.setMarketUrl(context, urlInput)
+                        showMarketUrlDialog = false
+                    }
+                ) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        PluginStore.setMarketUrl(context, PluginStore.DEFAULT_MARKET_URL)
+                        showMarketUrlDialog = false
+                    }
+                ) { Text("恢复默认") }
+            },
+        )
+    }
     if (showAddParseDialog) {
         var parseName by remember { mutableStateOf("") }
         var parseUrl by remember { mutableStateOf("") }

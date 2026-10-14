@@ -87,6 +87,10 @@ object StoragePaths {
     fun screenshotsDir(context: Context): File =
         File(baseDir(context), "Screenshots").also { it.mkdirs() }
 
+    /** v0.22.0：server 插件安装根目录（xiaying/plugins/<id>/） */
+    fun pluginsDir(context: Context): File =
+        File(baseDir(context), "plugins").also { it.mkdirs() }
+
     /**
      * 申请存储权限。
      * API>=30：跳系统设置页（ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION）；

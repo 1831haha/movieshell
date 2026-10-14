@@ -43,6 +43,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.PhpSourceManager
@@ -70,6 +71,7 @@ import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.lab.LabScreen
 import com.movieshell.ui.log.LogBubbleOverlay
 import com.movieshell.ui.manual.ManualScreen
+import com.movieshell.ui.market.PluginMarketScreen
 import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.SettingsScreen
@@ -105,6 +107,9 @@ class MainActivity : ComponentActivity() {
         PlayerManager.init(this)
         DrpySourceManager.init(this)
         PySourceManager.init(this)
+        PhpSourceManager.init(this)
+        // v0.22.0：插件市场本地状态
+        PluginStore.init(this)
         PhpSourceManager.init(this)
         WebSourceManager.init(this)
         SniffPatternStore.init(this)
@@ -202,7 +207,13 @@ class MainActivity : ComponentActivity() {
                                         "preview/$kind/${Uri.encode(fileName)}"
                                     )
                                 },
+                                // v0.22.0：插件市场入口
+                                onMarketClick = { navController.navigate("market") },
                             )
+                        }
+                        // v0.22.0：插件市场页
+                        composable("market") {
+                            PluginMarketScreen(onBack = { navController.popBackStack() })
                         }
                         composable("settings") {
                             SettingsScreen(
