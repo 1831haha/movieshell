@@ -1,4 +1,4 @@
-name: Build MovieShell debug APK
+name: Build MovieShell release APK
 
 on:
   workflow_dispatch:
@@ -37,8 +37,24 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+      # v0.27.3：release 包每轮构建现场生成 keystore（有效期 25 年）；
+      # 密码取自 run_id，不提交到仓库；用户每版卸载重装，签名每轮不同无影响。
+      - name: Generate release keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore "$RUNNER_TEMP/release.keystore" \
+            -alias movieshell -keyalg RSA -keysize 2048 -validity 9125 \
+            -storepass "release-${{ github.run_id }}-ms" \
+            -keypass "release-${{ github.run_id }}-ms" \
+            -dname "CN=MovieShell, OU=Dev, O=MovieShell, C=CN"
+
+      - name: Build release APK
+        run: |
+          gradle assembleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/release.keystore" \
+            -Pandroid.injected.signing.store.password="release-${{ github.run_id }}-ms" \
+            -Pandroid.injected.signing.key.alias=movieshell \
+            -Pandroid.injected.signing.key.password="release-${{ github.run_id }}-ms"
 
       - name: Run unit tests
         run: gradle testDebugUnitTest --no-daemon
@@ -46,5 +62,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: movieshell-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: movieshell-release-apk
+          path: app/build/outputs/apk/release/*.apk

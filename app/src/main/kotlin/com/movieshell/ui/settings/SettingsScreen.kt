@@ -81,7 +81,7 @@ import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.PlayerEngine
-import com.movieshell.ui.preview.FILE_PROVIDER_AUTHORITY
+import com.movieshell.ui.preview.fileProviderAuthority
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.ThemeStore
@@ -157,7 +157,7 @@ fun SettingsScreen(
                 return
             }
             val uri = FileProvider.getUriForFile(
-                context, FILE_PROVIDER_AUTHORITY, zip
+                context, fileProviderAuthority(context), zip
             )
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = "application/zip"

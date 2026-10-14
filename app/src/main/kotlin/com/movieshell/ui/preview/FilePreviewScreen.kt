@@ -50,8 +50,8 @@ import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import java.io.File
 
-/** FileProvider authority：与 AndroidManifest 里的 provider 声明一致 */
-const val FILE_PROVIDER_AUTHORITY = "com.movieshell.debug.fileprovider"
+/** FileProvider authority：跟随 applicationId（debug/release 包名不同） */
+fun fileProviderAuthority(context: Context) = "${context.packageName}.fileprovider"
 
 /** 预览 kind → 对应 StoragePaths 目录（与 SourcesScreen 的 tab 对齐） */
 fun previewKindDir(context: Context, kind: String): File = when (kind) {
@@ -65,7 +65,7 @@ fun previewKindDir(context: Context, kind: String): File = when (kind) {
 /** 用外部编辑器打开文件（ACTION_EDIT + FileProvider uri）；失败返回 false，由调用方 Toast */
 fun openFileWithEditor(context: Context, file: File): Boolean {
     return try {
-        val uri = FileProvider.getUriForFile(context, FILE_PROVIDER_AUTHORITY, file)
+        val uri = FileProvider.getUriForFile(context, fileProviderAuthority(context), file)
         val edit = Intent(Intent.ACTION_EDIT).apply {
             setDataAndType(uri, "text/plain")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -80,7 +80,7 @@ fun openFileWithEditor(context: Context, file: File): Boolean {
 /** 分享文件（ACTION_SEND + FileProvider uri）；失败返回 false，由调用方 Toast */
 fun shareFile(context: Context, file: File): Boolean {
     return try {
-        val uri = FileProvider.getUriForFile(context, FILE_PROVIDER_AUTHORITY, file)
+        val uri = FileProvider.getUriForFile(context, fileProviderAuthority(context), file)
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_STREAM, uri)

@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 60
-        versionName = "0.27.2"
+        versionCode = 61
+        versionName = "0.27.3"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -29,7 +29,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // v0.27.3：release 瘦身——R8 混淆 + 资源压缩，dex 65MB 压到 20MB 内
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

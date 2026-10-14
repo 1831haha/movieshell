@@ -28,6 +28,18 @@ data class ApiSource(val name: String, val url: String, val enabled: Boolean = t
 object ApiSourceStore {
     private const val TAG = "ApiSourceStore"
     private const val FILE_NAME = "api_sources.json"
+    private const val PREFS = "api_source_store"
+    private const val KEY_DEFAULTS_PURGED = "builtin_defaults_purged_v0273"
+
+    /**
+     * v0.27.2 及之前预置过的内置默认源（精确 name+url 配对才算，避免误删用户自己加的同名订阅）。
+     * v0.27.3：老用户升级时一次性清掉，只做一次。
+     */
+    private val builtinDefaults = setOf(
+        "量子资源" to "https://cj.lziapi.com/api.php/provide/vod/",
+        "天空资源" to "https://api.tiankongapi.com/api.php/provide/vod/",
+        "暴风资源" to "https://bfzyapi.com/api.php/provide/vod/",
+    )
 
     /**
      * v0.27.2：不再预置默认源。新安装源列表初始为空（空态引导用户添加）；
@@ -36,7 +48,7 @@ object ApiSourceStore {
     fun load(context: Context): List<ApiSource> {
         val file = File(context.filesDir, FILE_NAME)
         if (!file.isFile) return emptyList()
-        return try {
+        val list = try {
             file.readText().let(Json::parseToJsonElement).jsonArray.mapNotNull { el ->
                 val o = el.jsonObject
                 val name = o["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
@@ -49,6 +61,23 @@ object ApiSourceStore {
             Log.w(TAG, "读取 $FILE_NAME 失败，返回空列表", e)
             emptyList()
         }
+        return purgeBuiltinDefaultsOnce(context, list)
+    }
+
+    /**
+     * v0.27.3：老用户升级一次性迁移——清掉 v0.27.2 及之前预置的内置默认源。
+     * 只认精确的 name+url 配对，用户自己后加的订阅（哪怕同名不同 URL）不动。
+     */
+    private fun purgeBuiltinDefaultsOnce(context: Context, list: List<ApiSource>): List<ApiSource> {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_DEFAULTS_PURGED, false)) return list
+        val kept = list.filterNot { (it.name to it.url) in builtinDefaults }
+        if (kept.size != list.size) {
+            save(context, kept)
+            Log.i(TAG, "已清理内置默认源 ${list.size - kept.size} 个")
+        }
+        prefs.edit().putBoolean(KEY_DEFAULTS_PURGED, true).apply()
+        return kept
     }
 
     fun save(context: Context, list: List<ApiSource>) {
