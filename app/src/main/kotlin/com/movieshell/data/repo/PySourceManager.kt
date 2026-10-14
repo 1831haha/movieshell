@@ -140,8 +140,8 @@ object PySourceManager {
         return latest(homeSlot) {
             runCatching { api.home(path) }
                 .onFailure { e -> LogBus.e(TAG, "本地 PY home 失败: ${e.message}") }
-                .getOrNull()
-        }.orEmpty()
+                .getOrNull().orEmpty().filterNotNull()
+        }
     }
 
     suspend fun categories(): List<CategoryType> {
@@ -149,8 +149,8 @@ object PySourceManager {
         return latest(categoriesSlot) {
             runCatching { api.categories(path) }
                 .onFailure { e -> LogBus.e(TAG, "本地 PY categories 失败: ${e.message}") }
-                .getOrNull()
-        }.orEmpty()
+                .getOrNull().orEmpty().filterNotNull()
+        }
     }
 
     suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod> {
@@ -158,8 +158,8 @@ object PySourceManager {
         return latest(categorySlot) {
             runCatching { api.category(path, tid, pg) }
                 .onFailure { e -> LogBus.e(TAG, "本地 PY category 失败: ${e.message}") }
-                .getOrNull()
-        }.orEmpty()
+                .getOrNull().orEmpty().filterNotNull()
+        }
     }
 
     suspend fun detail(vodId: String): VodDetail {
@@ -167,8 +167,8 @@ object PySourceManager {
         return latest(detailSlot) {
             runCatching { api.detail(path, vodId) }
                 .onFailure { e -> LogBus.e(TAG, "本地 PY detail 失败: ${e.message}") }
-                .getOrNull()
-        } ?: VodDetail(vodId = vodId)
+                .getOrNull() ?: VodDetail(vodId = vodId)
+        }
     }
 
     suspend fun search(wd: String): List<Vod> {
@@ -176,8 +176,8 @@ object PySourceManager {
         return latest(searchSlot) {
             runCatching { api.search(path, wd) }
                 .onFailure { e -> LogBus.e(TAG, "本地 PY search 失败: ${e.message}") }
-                .getOrNull()
-        }.orEmpty()
+                .getOrNull().orEmpty().filterNotNull()
+        }
     }
 
     suspend fun playUrl(flag: String, id: String): String =
