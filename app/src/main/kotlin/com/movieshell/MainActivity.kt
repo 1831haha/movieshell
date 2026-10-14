@@ -35,9 +35,6 @@ import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
@@ -88,6 +85,8 @@ import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
 import com.movieshell.ui.follow.FollowScreen
 import com.movieshell.ui.history.HistoryScreen
+import com.movieshell.ui.components.SoftBottomDock
+import com.movieshell.ui.components.SoftDockItem
 import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.lab.LabScreen
 import com.movieshell.ui.live.LiveManageScreen
@@ -231,16 +230,15 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     bottomBar = {
                         if (showBottomBar) {
-                            NavigationBar {
-                                tabs.forEach { tab ->
-                                    NavigationBarItem(
-                                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                                        label = { Text(tab.label) },
-                                        selected = current?.hierarchy?.any { it.route == tab.route } == true,
-                                        onClick = { navController.navigateTab(tab.route) }
-                                    )
-                                }
-                            }
+                            // v0.27.1：悬浮 dock 式导航（替代 NavigationBar 脏灰药丸选中态）
+                            val selectedIdx = tabs.indexOfFirst { t ->
+                                current?.hierarchy?.any { it.route == t.route } == true
+                            }.takeIf { it >= 0 } ?: 0
+                            SoftBottomDock(
+                                items = tabs.map { SoftDockItem(it.label, it.icon) },
+                                selectedIndex = selectedIdx,
+                                onSelect = { i -> navController.navigateTab(tabs[i].route) },
+                            )
                         }
                     }
                 ) { inner ->

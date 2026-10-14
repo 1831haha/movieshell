@@ -184,6 +184,11 @@ object PySourceManager {
         activeRulePath()?.let { runCatching { api.play(it, flag, id).first }.getOrNull() }
             .orEmpty()
 
+    /** v0.27.1：本地 PY 播放原始结果（url, parse, header），供 PlayResolver 做收尾。 */
+    suspend fun playRaw(flag: String, id: String): Triple<String, Int, Map<String, String>> =
+        activeRulePath()?.let { p -> runCatching { api.play(p, flag, id) }.getOrNull() }
+            ?: Triple("", 0, emptyMap())
+
     /**
      * 给 SiteRepository 构造器用的 DrpyEngine 适配器：
      * 委托给当前 active 的 PY 规则；无 active 规则时返回空结果。

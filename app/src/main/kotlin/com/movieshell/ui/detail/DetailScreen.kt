@@ -151,7 +151,8 @@ fun DetailScreen(
         detail?.let {
             Vod(
                 id = it.vodId.ifBlank { vodId },
-                title = it.vodName.ifBlank { vodId },
+                // v0.27.1：detail 失败/回退时不展示裸 `@@` 打包串和纯 URL
+                title = it.vodName.ifBlank { displayTitle(vodId) },
                 category = it.typeName,
                 year = it.vodYear,
                 rating = it.vodRemarks,
@@ -768,4 +769,17 @@ private fun MetaChip(text: String) {
         style = SoftType.Caption,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+/**
+ * v0.27.1：详情标题回退展示。
+ * - 含 `@@` 的打包串（`tid@@标题@@图片@@作者`）只取标题段；
+ * - 纯 URL 的 id 显示"未知标题"，不把裸地址甩给用户看。
+ */
+private fun displayTitle(vodId: String): String {
+    if (vodId.contains("@@")) {
+        return vodId.split("@@").getOrNull(1)?.takeIf { it.isNotBlank() } ?: "未知标题"
+    }
+    if (vodId.startsWith("http://") || vodId.startsWith("https://")) return "未知标题"
+    return vodId.ifBlank { "未知标题" }
 }

@@ -15,6 +15,7 @@ import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteStore
+import com.movieshell.data.source.ParseApi
 
 /**
  * 播放决策公共入口（v0.19.0）：从 DetailScreen 抽取，详情页与播放器内切线路共用。
@@ -35,7 +36,8 @@ suspend fun resolvePlayUrl(
         when {
             subSite == null ->
                 if (DrpySourceManager.hasActiveRule()) DrpySourceManager.playUrl(flag, epUrl)
-                else if (PySourceManager.hasActiveRule()) PySourceManager.playUrl(flag, epUrl)
+                else if (PySourceManager.hasActiveRule())
+                    finishPyPlay(context, null, PySourceManager.playRaw(flag, epUrl))
                 else ""
             // CMS 站：vod_play_url 里就是直链，直接播
             // v0.21.0：防盗链兜底——CMS 直链默认带站点 Referer（经 SniffPlayHeaders 透传）
@@ -47,8 +49,9 @@ suspend fun resolvePlayUrl(
                 }
                 epUrl
             }
+            // PY 站：playerContent 拿直链 + header；parse=1 时走解析线路（与 Java spider 一致）
             subSite.isPySite() ->
-                SubSiteEngines.pyEngineFor(subSite)?.play(flag, epUrl).orEmpty()
+                finishPyPlay(context, subSite, SubSiteEngines.pyPlayRaw(subSite, flag, epUrl))
             // type=4 站：GET {api}?ac=play&flag=&id= 拿直链；header 经
             // SniffPlayHeaders 透传给播放器（PlayerScreen 用 take 一次性取出）。
             // parse=1 时走解析线路自动解析，全部失败 Toast "解析失败"。
@@ -81,6 +84,30 @@ suspend fun resolvePlayUrl(
                 SubSiteEngines.drpyEngineFor(subSite)?.play(flag, epUrl).orEmpty()
         }
     }.getOrDefault("")
+}
+
+/**
+ * v0.27.1：PY 规则 playerContent 结果统一收尾。
+ * - header（Referer/UA）经 SniffPlayHeaders 透传给播放器，防盗链站点必需；
+ * - parse=1 时用解析线路拿直链，全部失败 Toast"解析失败"。
+ */
+private suspend fun finishPyPlay(
+    context: Context,
+    subSite: Site?,
+    r: Triple<String, Int, Map<String, String>>,
+): String {
+    val (url, parse, header) = r
+    if (url.isBlank()) return ""
+    if (header.isNotEmpty()) SniffPlayHeaders.put(url, header)
+    if (parse != 1) return url
+    val parses = if (subSite != null) effectiveParses(context, subSite)
+    else ParseStore.merged(context, emptyList())
+    val direct = ParseApi().parse(parses, url, context)
+    if (direct.isBlank()) {
+        Toast.makeText(context, "解析失败", Toast.LENGTH_LONG).show()
+        return ""
+    }
+    return direct
 }
 
 /**

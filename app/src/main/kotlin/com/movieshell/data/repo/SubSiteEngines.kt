@@ -67,6 +67,15 @@ object SubSiteEngines {
         }
         return SubPyEngine(f.absolutePath)
     }
+
+    /** v0.27.1：订阅 PY 站播放原始结果（url, parse, header），供 PlayResolver 做收尾。 */
+    suspend fun pyPlayRaw(site: Site, flag: String, id: String): Triple<String, Int, Map<String, String>> {
+        if (!site.isSubSite() || !site.isPySite()) return Triple("", 0, emptyMap())
+        val f = File(site.api)
+        if (!f.isFile) return Triple("", 0, emptyMap())
+        return runCatching { PyApi(ChaquopyEngine).play(f.absolutePath, flag, id) }
+            .getOrDefault(Triple("", 0, emptyMap()))
+    }
 }
 
 /** 详情页站点上下文：从订阅站源点进详情时由 Home/Search/Favorites 写入，DetailScreen 读取。 */

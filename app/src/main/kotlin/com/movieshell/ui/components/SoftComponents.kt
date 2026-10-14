@@ -37,6 +37,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -64,8 +66,11 @@ fun AppCard(
         shape = shape,
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
-        content = content,
-    )
+    ) {
+        // v0.27.1：内容纵向排。Surface 默认是 Box，多 children 会叠在一起
+        //（曾导致设置页"运行日志悬浮窗"行被下一行盖住、主题色行与色圈重叠）。
+        Column { content() }
+    }
 }
 
 enum class AppButtonVariant { Primary, Secondary, Ghost }
@@ -261,4 +266,69 @@ fun AppTextField(
             inner()
         },
     )
+}
+
+/** 悬浮 dock 导航项。 */
+data class SoftDockItem(val label: String, val icon: ImageVector)
+
+/**
+ * v0.27.1 悬浮 dock 式底部导航（替代 Material3 NavigationBar 的脏灰药丸选中态）。
+ * 左右 16dp、底部 12dp 边距，24dp 圆角，#1E242F 微抬升底 + 柔光阴影；
+ * 选中项 primary 18% 胶囊底、图标文字 primary 色；未选中 #9AA4B2。
+ */
+@Composable
+fun SoftBottomDock(
+    items: List<SoftDockItem>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(24.dp)
+    val unselected = Color(0xFF9AA4B2)
+    Surface(
+        modifier = modifier
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 12.dp)
+            .shadow(
+                elevation = 16.dp,
+                shape = shape,
+                ambientColor = Color(0xFF7DD3FC).copy(alpha = 0.10f),
+                spotColor = Color.Black.copy(alpha = 0.35f),
+            ),
+        shape = shape,
+        color = Color(0xFF1E242F),
+        tonalElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            items.forEachIndexed { i, item ->
+                val selected = i == selectedIndex
+                val fg = if (selected) MaterialTheme.colorScheme.primary else unselected
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                            else Color.Transparent
+                        )
+                        .clickable { onSelect(i) }
+                        .padding(vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        imageVector = item.icon,
+                        contentDescription = item.label,
+                        tint = fg,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(item.label, style = SoftType.Caption, color = fg)
+                }
+            }
+        }
+    }
 }

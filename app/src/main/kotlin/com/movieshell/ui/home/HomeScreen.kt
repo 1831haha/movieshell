@@ -263,12 +263,13 @@ fun HomeScreen(
             coroutineScope {
                 launch {
                     val home = runCatching {
-                        withTimeoutOrNull(6_000) {
+                        // v0.27.1：推荐抓取给 12s（PY 规则内部 5s×2 次抓取，慢速网络 6s 不够）
+                        withTimeoutOrNull(12_000) {
                             withContext(Dispatchers.IO) { engineHome() }
                         }
                     }.getOrNull()
                     if (home == null) {
-                        LogBus.w("Home", "首页推荐加载超时/失败（6s 熔断）")
+                        LogBus.w("Home", "首页推荐加载超时/失败（12s 熔断）")
                     } else if (home.isNotEmpty() || !cacheShown) {
                         // 有缓存时网络返回空不覆盖，避免缓存闪一下被清空
                         drpyList = home.ifEmpty { null }
