@@ -59,7 +59,7 @@ object ChaquopyEngine : PyEngine {
         if (libsPathAdded) return
         runCatching {
             val dir = com.movieshell.data.repo.StoragePaths.pyLibsDir(ctx)
-            py.getModule("sys").get("path").callAttr("insert", 0, dir.absolutePath)
+            py.getModule("sys")?.get("path")?.callAttr("insert", 0, dir.absolutePath)
             Log.i(TAG, "pylibs 已加入 sys.path：${dir.absolutePath}")
         }.onFailure { Log.w(TAG, "pylibs 加入 sys.path 失败", it) }
         libsPathAdded = true
