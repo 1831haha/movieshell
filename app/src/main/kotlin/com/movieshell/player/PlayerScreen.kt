@@ -8,6 +8,7 @@ import android.util.Rational
 import android.widget.Toast
 import com.movieshell.data.model.PlayLine
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.PlayerSettings
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
@@ -36,7 +37,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
@@ -46,6 +49,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -54,9 +58,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import java.util.Locale
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -136,6 +144,8 @@ fun PlayerScreen(
     var lastHeaders by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val sessionLines = remember { PlaySession.lines } // 进入前详情页已写入
     val snackbarHostState = remember { SnackbarHostState() }
+    // v0.20.0：双引擎——Media3（默认）/ libmpv，记忆选择
+    val engine by PlayerSettings.engine.collectAsState()
 
     BackHandler(onBack = onBack)
 
@@ -192,11 +202,11 @@ fun PlayerScreen(
                     startPositionMs = resumeAt,
                 )
             } else {
-                PlayerManager.init(context)
                 // 网页嗅探命中的直链自带 Referer/UA（SniffPlayHeaders 一次性取出）；
                 // 其他来源没有记录则为空 map，行为与之前一致。
                 // v0.14.0：片头跳过（非续播时从 skipIntroSec 开始）
                 // v0.16.2：按源取片头（siteKey 区分源）
+                // v0.20.0：走 EngineHost，按当前内核（Media3/libmpv）起播
                 val headers = SniffPlayHeaders.take(playUrl)
                 lastHeaders = headers
                 val skipIntro = PlayerSettings.getSkipIntroFor(context, vodId)
@@ -206,7 +216,8 @@ fun PlayerScreen(
                 val subtitleUrl = (sessionSubtitle
                     ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty())
                     .ifBlank { null }
-                PlayerManager.play(
+                EngineHost.play(
+                    context,
                     playUrl,
                     headers = headers,
                     startPositionMs = startPos,
@@ -238,18 +249,39 @@ fun PlayerScreen(
 
     /** v0.19.0：字幕变更后按当前位置重播（字幕需要重建 MediaSource 才能生效）。 */
     fun replayWithSubtitle() {
-        val p = PlayerManager.player ?: return
-        val pos = p.currentPosition
+        val pos = EngineHost.currentPosition()
         val subtitleUrl = (sessionSubtitle
             ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty())
             .ifBlank { null }
-        PlayerManager.play(playUrl, headers = lastHeaders, startPositionMs = pos, subtitleUrl = subtitleUrl)
+        EngineHost.play(context, playUrl, headers = lastHeaders, startPositionMs = pos, subtitleUrl = subtitleUrl)
+    }
+
+    /**
+     * v0.20.0：播放器内一键切换内核（Media3 ↔ libmpv）。
+     * 停掉旧引擎、持久化选择、按当前进度重播；AndroidView 用 key(engine) 重建对应画面。
+     */
+    fun switchEngine() {
+        val pos = EngineHost.currentPosition()
+        val target = if (engine == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV else PlayerEngine.MEDIA3
+        EngineHost.stop()
+        PlayerSettings.setEngine(context, target)
+        val subtitleUrl = (sessionSubtitle
+            ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty())
+            .ifBlank { null }
+        Toast.makeText(
+            context,
+            "播放内核已切换为 ${if (target == PlayerEngine.MEDIA3) "Media3" else "libmpv"}",
+            Toast.LENGTH_SHORT,
+        ).show()
+        LogBus.i("Player", "切换播放内核 → $target")
+        EngineHost.play(context, playUrl, headers = lastHeaders, startPositionMs = pos, subtitleUrl = subtitleUrl)
     }
 
     // v0.19.0：播放错误 -> 按线路顺序自动重试（同集换线路）；
     // 全部线路试完仍失败才 Snackbar 提示。无 PlaySession（嗅探页直进）时保持原行为。
+    // v0.20.0：错误回调走 EngineHost，Media3/libmpv 双引擎统一消息字符串。
     DisposableEffect(Unit) {
-        PlayerManager.setOnErrorListener { e ->
+        EngineHost.setOnErrorListener { msg ->
             val lines = PlaySession.lines
             val resolver = PlaySession.resolver
             val curLine = PlaySession.lineIndex
@@ -268,7 +300,7 @@ fun PlayerScreen(
                             val epIdx = PlaySession.episodeIndex
                                 .coerceIn(0, (line.episodes.size - 1).coerceAtLeast(0))
                             val ep = line.episodes.getOrNull(epIdx)
-                            // 磁力不参与自动重试（走 MagnetPlayer 分支，无 ExoPlayer 错误可重试）
+                            // 磁力不参与自动重试（走 MagnetPlayer 分支，无播放器错误可重试）
                             if (ep != null && !MagnetPlayer.isMagnet(ep.url)) {
                                 val resolved = resolver(context, ep)
                                 if (resolved.isNotBlank() && resolved != playUrl) {
@@ -296,10 +328,10 @@ fun PlayerScreen(
                     }
                 }
             } else {
-                errorMsg = e.message ?: "播放出错"
+                errorMsg = msg
             }
         }
-        onDispose { PlayerManager.setOnErrorListener(null) }
+        onDispose { EngineHost.setOnErrorListener(null) }
     }
     LaunchedEffect(errorMsg) {
         errorMsg?.let {
@@ -310,20 +342,20 @@ fun PlayerScreen(
 
     // v0.14.0：片尾跳过——距离结尾 skipOutroSec 时自动下一集（无下一集则暂停）
     // v0.16.2：按源取片尾；v0.19.0：下一集走 PlaySession（播放器内线路/选集）
+    // v0.20.0：进度/时长走 EngineHost，双引擎统一
     LaunchedEffect(playUrl) {
         val skipOutro = PlayerSettings.getSkipOutroFor(context, vodId)
         if (skipOutro > 0) {
             while (true) {
                 delay(1000)
-                val p = PlayerManager.player ?: break
-                val dur = p.duration
-                if (dur > 0 && p.currentPosition >= dur - skipOutro * 1000L) {
+                val dur = EngineHost.duration()
+                if (dur > 0 && EngineHost.currentPosition() >= dur - skipOutro * 1000L) {
                     val nextIdx = PlaySession.episodeIndex + 1
                     val hasNext = PlaySession.currentLine()?.episodes?.getOrNull(nextIdx) != null
                     if (hasNext) {
                         switchEpisode(PlaySession.lineIndex, nextIdx)
                     } else {
-                        p.pause()
+                        EngineHost.pause()
                     }
                     break
                 }
@@ -348,24 +380,33 @@ fun PlayerScreen(
                 modifier = Modifier.align(Alignment.Center),
             )
         } else {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        useController = true
-                        setShowNextButton(false)
-                        setShowPreviousButton(false)
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                    }.also {
-                        it.player = PlayerManager.player
-                        playerView = it
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
+            // v0.20.0：双引擎渲染二选一——Media3 用 PlayerView，libmpv 用 MpvVideoView（SurfaceView）；
+            // key(engine) 保证切换内核时重建画面
+            key(engine) {
+                AndroidView(
+                    factory = { ctx ->
+                        if (engine == PlayerEngine.LIBMPV) {
+                            MpvPlayerManager.init(ctx)
+                            MpvVideoView(ctx)
+                        } else {
+                            PlayerView(ctx).apply {
+                                useController = true
+                                setShowNextButton(false)
+                                setShowPreviousButton(false)
+                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                )
+                            }.also {
+                                it.player = PlayerManager.player
+                                playerView = it
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
 
         // v0.19.0：画中画时只留播放画面，全部自绘 UI 隐藏
@@ -402,15 +443,14 @@ fun PlayerScreen(
                                     if (abs(accX) >= SEEK_STEP_PX) {
                                         val dir = if (accX > 0) 1 else -1
                                         accX = 0f
-                                        PlayerManager.player?.let { p ->
-                                            val end = p.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
-                                            p.seekTo(
-                                                (p.currentPosition + dir * 10_000L)
-                                                    .coerceIn(0L, end)
-                                            )
-                                            gestureHint =
-                                                if (dir > 0) "快进 10 秒 »" else "« 快退 10 秒"
-                                        }
+                                        // v0.20.0：走 EngineHost，双引擎统一
+                                        val end = EngineHost.duration().takeIf { it > 0 } ?: Long.MAX_VALUE
+                                        EngineHost.seekTo(
+                                            (EngineHost.currentPosition() + dir * 10_000L)
+                                                .coerceIn(0L, end)
+                                        )
+                                        gestureHint =
+                                            if (dir > 0) "快进 10 秒 »" else "« 快退 10 秒"
                                     }
                                 }
                                 2 -> {
@@ -468,33 +508,41 @@ fun PlayerScreen(
             TextButton(
                 onClick = {
                     speedIndex = (speedIndex + 1) % SPEEDS.size
-                    PlayerManager.player?.setPlaybackSpeed(SPEEDS[speedIndex])
+                    EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
                 }
             ) {
                 Text("${SPEEDS[speedIndex]}x", color = Color.White)
             }
-            // v0.14.0：快退/快进 ±10 秒
+            // v0.14.0：快退/快进 ±10 秒（v0.20.0 走 EngineHost，双引擎统一）
             IconButton(onClick = {
-                PlayerManager.player?.let {
-                    it.seekTo((it.currentPosition - 10_000).coerceAtLeast(0))
-                }
+                EngineHost.seekTo((EngineHost.currentPosition() - 10_000).coerceAtLeast(0))
             }) {
                 Icon(Icons.Filled.Replay10, contentDescription = "快退10秒", tint = Color.White)
             }
             IconButton(onClick = {
-                PlayerManager.player?.let {
-                    it.seekTo(it.currentPosition + 10_000)
-                }
+                EngineHost.seekTo(EngineHost.currentPosition() + 10_000)
             }) {
                 Icon(Icons.Filled.Forward10, contentDescription = "快进10秒", tint = Color.White)
             }
             TextButton(
                 onClick = {
                     resizeIndex = (resizeIndex + 1) % RESIZE_MODES.size
-                    playerView?.resizeMode = RESIZE_MODES[resizeIndex].first
+                    // v0.20.0：Media3 走 PlayerView，libmpv 走 mpv 的画面比例选项
+                    if (engine == PlayerEngine.MEDIA3) {
+                        playerView?.resizeMode = RESIZE_MODES[resizeIndex].first
+                    } else {
+                        MpvPlayerManager.setAspectMode(resizeIndex)
+                    }
                 }
             ) {
                 Text(RESIZE_MODES[resizeIndex].second, color = Color.White)
+            }
+            // v0.20.0：播放器内一键切换内核（Media3 ↔ libmpv），选择会被记住
+            TextButton(onClick = { switchEngine() }) {
+                Text(
+                    if (engine == PlayerEngine.MEDIA3) "Media3" else "libmpv",
+                    color = Color.White,
+                )
             }
             // v0.19.0：播放器内线路/选集切换（多条线路才显示）
             if (sessionLines.size > 1) {
@@ -527,6 +575,65 @@ fun PlayerScreen(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp),
         )
+
+        // v0.20.0：libmpv 模式没有 PlayerView 自带控制器，补一个极简底部条（播放/暂停+进度拖动）；
+        // 手势与顶部栏功能不受影响
+        if (engine == PlayerEngine.LIBMPV && playUrl.isNotBlank()) {
+            var mpvPlaying by remember { mutableStateOf(true) }
+            var mpvPos by remember { mutableLongStateOf(0L) }
+            var mpvDur by remember { mutableLongStateOf(0L) }
+            var scrubbing by remember { mutableStateOf(false) }
+            var scrubPos by remember { mutableLongStateOf(0L) }
+            LaunchedEffect(engine, playUrl) {
+                while (true) {
+                    delay(500)
+                    mpvPlaying = MpvPlayerManager.isPlaying
+                    if (!scrubbing) mpvPos = EngineHost.currentPosition()
+                    mpvDur = EngineHost.duration()
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = {
+                    if (mpvPlaying) EngineHost.pause() else EngineHost.resume()
+                }) {
+                    Icon(
+                        if (mpvPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (mpvPlaying) "暂停" else "播放",
+                        tint = Color.White,
+                    )
+                }
+                Text(
+                    text = fmtTime(if (scrubbing) scrubPos else mpvPos),
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Slider(
+                    value = (if (scrubbing) scrubPos else mpvPos).toFloat(),
+                    onValueChange = {
+                        scrubPos = it.toLong()
+                        scrubbing = true
+                    },
+                    onValueChangeFinished = {
+                        EngineHost.seekTo(scrubPos)
+                        scrubbing = false
+                    },
+                    valueRange = 0f..mpvDur.coerceAtLeast(1L).toFloat(),
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                )
+                Text(
+                    text = fmtTime(mpvDur),
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
 
         // v0.19.0：线路+选集抽屉
         if (showLines) {
@@ -610,17 +717,22 @@ private fun adjustVolume(context: Context, up: Boolean): Int {
     return am.getStreamVolume(AudioManager.STREAM_MUSIC) * 100 / max
 }
 
-/** 读取当前进度并写入历史记录 */
+/** 毫秒 → h:mm:ss（v0.20.0：libmpv 底部条用；US locale 避免数字本地化） */
+private fun fmtTime(ms: Long): String {
+    val s = (ms / 1000).toInt().coerceAtLeast(0)
+    return String.format(Locale.US, "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+}
+
+/** 读取当前进度并写入历史记录（v0.20.0：走 EngineHost，双引擎统一） */
 private fun savePlayerProgress(context: Context, title: String, url: String) {
-    val player = PlayerManager.player ?: return
-    val position = player.currentPosition
+    val position = EngineHost.currentPosition()
     if (position <= 0) return
     HistoryStore.saveProgress(
         context = context,
         title = title,
         url = url,
         positionMs = position,
-        durationMs = player.duration.coerceAtLeast(0L),
+        durationMs = EngineHost.duration(),
     )
 }
 

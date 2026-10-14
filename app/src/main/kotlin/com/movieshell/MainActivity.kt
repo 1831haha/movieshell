@@ -58,6 +58,9 @@ import com.movieshell.data.repo.ThemeStore
 import com.movieshell.data.repo.WebSourceManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.movieshell.data.repo.PlayerEngine
+import com.movieshell.player.EngineHost
+import com.movieshell.player.MpvPlayerManager
 import com.movieshell.player.PlayerManager
 import com.movieshell.player.PlaySession
 import com.movieshell.player.navigateToPlayer
@@ -283,16 +286,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         // 真正退出应用时释放播放器；旋转等配置变更时不释放
-        if (isFinishing) PlayerManager.release()
+        if (isFinishing) {
+            PlayerManager.release()
+            MpvPlayerManager.release() // v0.20.0：libmpv 引擎
+        }
         super.onDestroy()
     }
 
     /**
      * v0.19.0：播放中按 Home 键自动进画中画（暂停/不在播放页则不进）。
+     * v0.20.0：双引擎——Media3 看 ExoPlayer 状态，libmpv 看 MpvPlayerManager。
      */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (PlaySession.playerVisible && PlayerManager.player?.isPlaying == true) {
+        val playing = PlayerManager.player?.isPlaying == true ||
+            (EngineHost.engine() == PlayerEngine.LIBMPV && MpvPlayerManager.isPlaying)
+        if (PlaySession.playerVisible && playing) {
             runCatching {
                 enterPictureInPictureMode(
                     PictureInPictureParams.Builder()

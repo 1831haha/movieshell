@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 50
-        versionName = "0.19.0"
+        versionCode = 51
+        versionName = "0.20.0"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -112,6 +112,10 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
+
+    // v0.20.0：第二引擎 libmpv（Maven Central 预编译 AAR，内嵌 mpv v0.40.0，
+    // minSdk 26 与本项目一致；0.5.1 是最后一个支持 compileSdk<=35 的版本）
+    implementation("dev.jdtech.mpv:libmpv:0.5.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

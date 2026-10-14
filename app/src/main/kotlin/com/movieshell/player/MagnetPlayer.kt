@@ -49,10 +49,10 @@ object MagnetPlayer {
         "$SERVICE_BASE/stream?magnet=${URLEncoder.encode(magnet, "UTF-8")}"
 
     /**
-     * 服务可用 → 切主线程调 PlayerManager.play(streamUrl(magnet)) 起播并返回 true；
+     * 服务可用 → 经 EngineHost 用当前内核播放转播流并返回 true；
      * 服务不可用 → 返回 false（调用方负责弹提示）。
      *
-     * startPositionMs 透传给 PlayerManager.play，用于断点续播。
+     * startPositionMs 透传，用于断点续播。
      */
     suspend fun playIfReady(
         context: Context,
@@ -61,9 +61,10 @@ object MagnetPlayer {
         startPositionMs: Long = 0L,
     ): Boolean {
         if (!isServiceUp()) return false
-        PlayerManager.init(context)
+        // v0.20.0：走 EngineHost，磁力转播流也尊重当前内核选择；
+        // 切主线程：Media3（ExoPlayer）要求在其创建线程（主线程）上调用
         withContext(Dispatchers.Main) {
-            PlayerManager.play(streamUrl(magnet), startPositionMs = startPositionMs)
+            EngineHost.play(context, streamUrl(magnet), startPositionMs = startPositionMs)
         }
         return true
     }

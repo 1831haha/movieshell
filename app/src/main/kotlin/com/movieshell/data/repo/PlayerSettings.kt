@@ -4,6 +4,9 @@ import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
+/** v0.20.0：播放器内核（Media3 默认，libmpv 可选，记忆选择） */
+enum class PlayerEngine { MEDIA3, LIBMPV }
+
 /**
  * 播放器设置持久化（v0.14.0）。
  *
@@ -19,6 +22,8 @@ object PlayerSettings {
     private const val PREFIX_OUTRO = "skip_outro_vod_"
     /** v0.19.0：外挂字幕地址按剧记忆 */
     private const val PREFIX_SUBTITLE = "subtitle_vod_"
+    /** v0.20.0：播放器内核 */
+    private const val KEY_ENGINE = "player_engine"
 
     private val _skipIntroSec = MutableStateFlow(0)
     val skipIntroSec: StateFlow<Int> = _skipIntroSec
@@ -26,10 +31,16 @@ object PlayerSettings {
     private val _skipOutroSec = MutableStateFlow(0)
     val skipOutroSec: StateFlow<Int> = _skipOutroSec
 
+    private val _engine = MutableStateFlow(PlayerEngine.MEDIA3)
+    val engine: StateFlow<PlayerEngine> = _engine
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         _skipIntroSec.value = prefs.getInt(KEY_SKIP_INTRO, 0).coerceIn(0, 600)
         _skipOutroSec.value = prefs.getInt(KEY_SKIP_OUTRO, 0).coerceIn(0, 600)
+        _engine.value = runCatching {
+            PlayerEngine.valueOf(prefs.getString(KEY_ENGINE, PlayerEngine.MEDIA3.name)!!)
+        }.getOrDefault(PlayerEngine.MEDIA3)
     }
 
     /** 全局默认片头（新源初始值）。 */
@@ -103,5 +114,13 @@ object PlayerSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(PREFIX_SUBTITLE + vodId.hashCode(), url.trim()).apply()
         LogBus.i("PlayerSettings", "剧 $vodId 字幕设为 ${url.trim().take(80)}")
+    }
+
+    /** v0.20.0：切换播放器内核（持久化，下次打开 App 仍有效）。 */
+    fun setEngine(context: Context, engine: PlayerEngine) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_ENGINE, engine.name).apply()
+        _engine.value = engine
+        LogBus.i("PlayerSettings", "播放器内核设为 $engine")
     }
 }

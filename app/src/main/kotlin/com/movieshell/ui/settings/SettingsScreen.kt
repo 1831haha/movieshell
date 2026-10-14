@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
@@ -70,6 +71,7 @@ import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.repo.StoragePaths
+import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.ThemeStore
 import java.io.File
@@ -92,6 +94,9 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
     var backupExpanded by remember { mutableStateOf(false) }
     var player by remember { mutableStateOf("内置播放器（ExoPlayer）") }
     var showPlayerDialog by remember { mutableStateOf(false) }
+    // v0.20.0：播放器内核（Media3 默认，libmpv 可选，记忆选择）
+    val engine by PlayerSettings.engine.collectAsState()
+    var showEngineDialog by remember { mutableStateOf(false) }
     var cacheSize by remember { mutableStateOf("128 MB") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showAddParseDialog by remember { mutableStateOf(false) } // v0.19.0：自定义解析接口
@@ -153,6 +158,13 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
                     title = "默认播放器",
                     subtitle = player,
                     onClick = { showPlayerDialog = true },
+                )
+                // v0.20.0：播放器内核——Media3（默认）/ libmpv，播放器内也可一键切换
+                SettingsRow(
+                    icon = Icons.Filled.Memory,
+                    title = "播放器内核",
+                    subtitle = if (engine == PlayerEngine.MEDIA3) "Media3（默认）" else "libmpv",
+                    onClick = { showEngineDialog = true },
                 )
                 // v0.14.0：片头片尾跳过
                 SkipTimeRow(
@@ -308,6 +320,22 @@ fun SettingsScreen(onManualClick: () -> Unit = {}) {
             selected = player,
             onDismiss = { showPlayerDialog = false },
             onSelect = { player = it; showPlayerDialog = false },
+        )
+    }
+    // v0.20.0：播放器内核选择（持久化，播放器内一键切换走同一偏好）
+    if (showEngineDialog) {
+        SingleChoiceDialog(
+            title = "播放器内核",
+            options = listOf("Media3（默认）", "libmpv"),
+            selected = if (engine == PlayerEngine.MEDIA3) "Media3（默认）" else "libmpv",
+            onDismiss = { showEngineDialog = false },
+            onSelect = {
+                PlayerSettings.setEngine(
+                    context,
+                    if (it.startsWith("Media3")) PlayerEngine.MEDIA3 else PlayerEngine.LIBMPV,
+                )
+                showEngineDialog = false
+            },
         )
     }
     // v0.19.0：添加自定义解析接口
