@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -90,7 +91,7 @@ fun AppButton(
         )
     }
     val shape = RoundedCornerShape(SoftDimens.ButtonCorner)
-    val content: @Composable () -> Unit = {
+    val content: @Composable RowScope.() -> Unit = {
         if (icon != null) {
             Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
@@ -136,6 +137,8 @@ fun AppChip(
             selectedLabelColor = MaterialTheme.colorScheme.primary,
         ),
         border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
             borderColor = LocalSoftExtra.current.border,
             selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
             borderWidth = SoftDimens.BorderWidth,

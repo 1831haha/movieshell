@@ -27,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -176,6 +177,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val themeMode by ThemeStore.mode.collectAsState()
             val themeColorInt by ThemeStore.color.collectAsState()
+            val density = LocalDensity.current
             val darkTheme = when (themeMode) {
                 ThemeStore.MODE_LIGHT -> false
                 ThemeStore.MODE_DARK -> true
@@ -249,7 +251,7 @@ class MainActivity : ComponentActivity() {
                         // v0.27.0 Soft Tech：页面切换统一淡入 + 8dp 位移，300ms ease-out
                         enterTransition = {
                             fadeIn(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) +
-                                slideInVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { 8.dp.roundToPx() }
+                                slideInVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { with(density) { 8.dp.roundToPx() } }
                         },
                         exitTransition = {
                             fadeOut(tween(SoftMotion.Fast, easing = SoftMotion.Ease))
@@ -259,7 +261,7 @@ class MainActivity : ComponentActivity() {
                         },
                         popExitTransition = {
                             fadeOut(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) +
-                                slideOutVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { 8.dp.roundToPx() }
+                                slideOutVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { with(density) { 8.dp.roundToPx() } }
                         },
                     ) {
                         composable("home") {
