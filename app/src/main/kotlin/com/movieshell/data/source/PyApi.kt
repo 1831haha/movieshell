@@ -42,6 +42,8 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
             val err = root["error"]?.toString() ?: "未知错误"
             Log.w(TAG, "PY 规则返回失败: $err")
             LogBus.e(TAG, "PY 规则失败: $err")
+            // v0.27.4：失败时附带规则最近一次 HTTP 响应的元信息（URL/状态/编码/前200字节hex），供诊断
+            root["last_resp"]?.let { LogBus.i(TAG, "PY 最近响应: $it") }
             // v0.27.2：缺库（No module named）挂起一键安装引导
             PyDepGuide.reportError(err)
             return null

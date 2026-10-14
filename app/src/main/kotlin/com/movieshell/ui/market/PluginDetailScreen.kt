@@ -28,7 +28,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,6 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginStore
 import com.movieshell.ui.components.EmptyKind
@@ -54,7 +54,6 @@ import kotlinx.coroutines.launch
 @Composable
 fun PluginDetailScreen(pluginId: String, onBack: () -> Unit = {}) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val plugin = remember(pluginId) { PluginMarket.cached(pluginId) }
     var installedTick by remember { mutableStateOf(0) }
     var busy by remember { mutableStateOf(false) }
@@ -170,11 +169,12 @@ fun PluginDetailScreen(pluginId: String, onBack: () -> Unit = {}) {
                 busy = busy,
                 onInstall = {
                     busy = true
-                    scope.launch {
+                    // v0.27.4：长耗时任务走进程级 scope（根治 scope left the composition）
+                    SubSiteStore.appScope.launch {
                         val (ok, msg) = PluginUi.installWithProgress(context, plugin) {
                             installProgress = it
                         }
-                        PluginUi.toast(context, msg)
+                        PluginUi.toast(context.applicationContext, msg)
                         installProgress = null
                         installedTick++
                         busy = false
@@ -183,8 +183,11 @@ fun PluginDetailScreen(pluginId: String, onBack: () -> Unit = {}) {
                 },
                 onUninstall = {
                     busy = true
-                    scope.launch {
-                        PluginUi.toast(context, PluginUi.uninstall(context, plugin))
+                    SubSiteStore.appScope.launch {
+                        PluginUi.toast(
+                            context.applicationContext,
+                            PluginUi.uninstall(context, plugin),
+                        )
                         installedTick++
                         busy = false
                     }

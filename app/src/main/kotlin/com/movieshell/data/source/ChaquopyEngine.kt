@@ -48,7 +48,38 @@ object ChaquopyEngine : PyEngine {
         }
         val py = Python.getInstance()
         ensureLibsPath(py, ctx)
+        envSelfCheck(py, ctx)
         return py
+    }
+
+    /**
+     * v0.27.4：PY 环境自检（每次拿解释器时打一次，INFO 级）。
+     * 真机实锤：依赖包显示已安装，但详情仍报 XMLSyntaxError（USC4），
+     * 说明"brotli 缺口"的判断可能不准——先拿数据，不猜。
+     * 自检内容：brotli / charset_normalizer 能否 import、pylibs 是否在
+     * sys.path、pylibs 下实际文件列表（防 zip 解压出双层前缀导致 import 失败）。
+     */
+    private var selfChecked = false
+    private fun envSelfCheck(py: Python, ctx: Context) {
+        if (selfChecked) return
+        selfChecked = true
+        runCatching {
+            val dir = com.movieshell.data.repo.StoragePaths.pyLibsDir(ctx)
+            val sysPath = py.getModule("sys")?.get("path")?.toString().orEmpty()
+            val inPath = sysPath.contains(dir.absolutePath)
+            val brotliOk = runCatching { py.getModule("brotli"); true }.getOrDefault(false)
+            val cnOk = runCatching { py.getModule("charset_normalizer"); true }.getOrDefault(false)
+            val files = dir.walkTopDown().maxDepth(2).filter { it.isFile }
+                .map { it.relativeTo(dir).path }.sorted().toList()
+            Log.i(
+                TAG,
+                "PY 环境自检：brotli可import=$brotliOk " +
+                    "charset_normalizer可import=$cnOk " +
+                    "pylibs在sys.path=$inPath " +
+                    "pylibs文件数=${files.size} " +
+                    files.take(12).joinToString(","),
+            )
+        }.onFailure { Log.w(TAG, "PY 环境自检失败", it) }
     }
 
     /**

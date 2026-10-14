@@ -36,7 +36,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +50,7 @@ import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginMarket.MarketInfo
 import com.movieshell.data.repo.PluginMarket.MarketPlugin
 import com.movieshell.data.repo.PluginStore
+import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.AppTextField
@@ -59,6 +59,7 @@ import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -75,7 +76,6 @@ import kotlinx.coroutines.launch
 @Composable
 fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {}) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val sources by PluginStore.marketSources.collectAsState()
     val activeIdx by PluginStore.activeMarketIdx.collectAsState()
     val showIncompatible by PluginStore.showIncompatible.collectAsState()
@@ -90,37 +90,48 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
     // v0.27.2：一键安装进度弹窗态
     var installProgress by remember { mutableStateOf<InstallProgressUi?>(null) }
 
+    // v0.27.4：市场拉取走 LaunchedEffect（跟随组合生命周期，离开页面自动取消；
+    // 刷新按钮只递增 reloadTick，上一轮未完成会被自动取消——根治
+    // "The coroutine scope left the composition"（之前 reload() 里 scope.launch，
+    // 快速连点刷新/切走页面时旧协程在已离开组合的 scope 里恢复就报这个错）
+    var reloadTick by remember { mutableStateOf(0) }
+    fun reload() {
+        reloadTick++
+    }
+
+    suspend fun fetchMarket() {
+        loading = true
+        error = null
+        try {
+            PluginStore.init(context)
+            info = PluginMarket.fetch(PluginStore.marketUrl.value)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            error = e.message ?: e.toString()
+            LogBus.e("PluginMarket", "市场拉取失败：${e.message}")
+            // v0.25.0：超时/失败给明确中文 Toast，不只记日志
+            Toast.makeText(context, "插件市场加载失败：${e.message}", Toast.LENGTH_LONG).show()
+        } finally {
+            loading = false
+        }
+    }
+    LaunchedEffect(activeIdx, reloadTick) { fetchMarket() }
+
     /** 带进度条的一键安装（列表页/详情页共用流程）。 */
     fun doInstall(p: MarketPlugin) {
         busyId = p.id
-        scope.launch {
+        // v0.27.4：安装是长耗时任务，走进程级 appScope，页面切走也不中断，
+        // 不再用组合绑定的 scope（之前切走页面会报 scope left the composition）
+        SubSiteStore.appScope.launch {
             val (ok, msg) = PluginUi.installWithProgress(context, p) { installProgress = it }
-            PluginUi.toast(context, msg)
+            PluginUi.toast(context.applicationContext, msg)
             installProgress = null
             installedTick++
             busyId = null
             if (!ok) LogBus.e("PluginMarket", "安装失败已 toast：${p.id}")
         }
     }
-
-    fun reload() {
-        loading = true
-        error = null
-        scope.launch {
-            try {
-                PluginStore.init(context)
-                info = PluginMarket.fetch(PluginStore.marketUrl.value)
-            } catch (e: Exception) {
-                error = e.message ?: e.toString()
-                LogBus.e("PluginMarket", "市场拉取失败：${e.message}")
-                // v0.25.0：超时/失败给明确中文 Toast，不只记日志
-                Toast.makeText(context, "插件市场加载失败：${e.message}", Toast.LENGTH_LONG).show()
-            } finally {
-                loading = false
-            }
-        }
-    }
-    LaunchedEffect(activeIdx) { reload() }
     val installedMap = remember(installedTick) {
         PluginStore.listInstalled().associateBy { it.id }
     }
@@ -230,8 +241,12 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
                                     },
                                     onUninstall = {
                                         busyId = p.id
-                                        scope.launch {
-                                            PluginUi.toast(context, PluginUi.uninstall(context, p))
+                                        // v0.27.4：同安装，走进程级 scope，页面切走不中断
+                                        SubSiteStore.appScope.launch {
+                                            PluginUi.toast(
+                                                context.applicationContext,
+                                                PluginUi.uninstall(context, p),
+                                            )
                                             installedTick++
                                             busyId = null
                                         }

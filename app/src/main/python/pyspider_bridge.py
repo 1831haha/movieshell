@@ -17,6 +17,40 @@ import traceback
 
 _spiders = {}
 
+# v0.27.4 诊断：记录规则最近一次 HTTP 响应的元信息（URL/状态/编码/前 200 字节 hex）。
+# 真机实锤：依赖包已装但详情仍报 XMLSyntaxError（USC4），先拿数据不猜——
+# 若响应体是未解开的压缩二进制，前几个字节的 hex 能直接看出是哪种压缩。
+_last_resp_info = None
+
+
+def _install_resp_sniffer():
+    try:
+        import requests.adapters
+    except Exception:
+        return
+    orig_send = requests.adapters.HTTPAdapter.send
+
+    def send(self, request, **kwargs):
+        global _last_resp_info
+        resp = orig_send(self, request, **kwargs)
+        try:
+            raw = resp.content[:200] if resp is not None else b""
+            _last_resp_info = {
+                "url": str(getattr(request, "url", ""))[:160],
+                "status": getattr(resp, "status_code", -1),
+                "content_encoding": resp.headers.get("Content-Encoding", ""),
+                "content_type": resp.headers.get("Content-Type", "")[:80],
+                "head_hex": raw.hex(),
+            }
+        except Exception:
+            pass
+        return resp
+
+    requests.adapters.HTTPAdapter.send = send
+
+
+_install_resp_sniffer()
+
 
 def _load_spider(rule_path):
     """加载规则文件并实例化 Spider（带缓存）。"""
@@ -75,6 +109,7 @@ def call(rule_path, method, args_json):
                 "ok": False,
                 "error": "%s: %s" % (type(e).__name__, e),
                 "trace": traceback.format_exc(limit=8),
+                "last_resp": _last_resp_info,
             }
         )
 

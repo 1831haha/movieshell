@@ -290,9 +290,7 @@ class MainActivity : ComponentActivity() {
                                         "preview/$kind/${Uri.encode(fileName)}"
                                     )
                                 },
-                                // v0.22.0：插件市场入口
-                                onMarketClick = { navController.navigate("market") },
-                                // v0.24.0：回收站入口
+                                // v0.24.0：回收站入口（v0.27.4：插件市场入口移到实验室）
                                 onTrashClick = { navController.navigate("trash") },
                             )
                         }
@@ -407,6 +405,8 @@ class MainActivity : ComponentActivity() {
                         composable("lab") {
                             LabScreen(
                                 onBack = { navController.popBackStack() },
+                                // v0.27.4：插件市场入口移到实验室
+                                onMarketClick = { navController.navigate("market") },
                             )
                         }
                         composable("manual") {

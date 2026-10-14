@@ -1,31 +1,28 @@
 package com.movieshell.ui.lab
 
-import android.content.Context
-import android.net.Uri
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,9 +35,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,29 +44,32 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.PluginMarket
+import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.SniffPatternStore
-import com.movieshell.data.repo.StoragePaths
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
-import java.io.File
+import kotlinx.coroutines.launch
 
 /**
  * v0.15.0：实验室页面。
  *
- * - 插件管理：已安装插件列表（PY/drpy/spider）
- * - 插件添加入口：右下角 + 按钮
+ * - 插件市场入口：浏览/安装市场里的插件（v0.27.4 从站源页移过来）
+ * - 已安装插件：真正的插件（env 环境包、server 服务插件），支持卸载
+ *   （v0.27.4：本地规则文件 .py/.js/.jar 不再是"插件"，统一归站源页"本地源"管理）
  * - v0.16.1：嗅探自定义正则管理（对标 DsPlayer"扩展正则"）
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LabScreen(
     onBack: () -> Unit,
+    // v0.27.4：插件市场入口从站源页移过来
+    onMarketClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var showAddPattern by remember { mutableStateOf(false) }
@@ -80,34 +79,12 @@ fun LabScreen(
         patterns = SniffPatternStore.list()
     }
 
-    // v0.16.2：插件文件导入（.py/.js/.jar）
-    val pluginLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val result = importPluginFile(context, uri)
-        Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("实验室", style = SoftType.Title) },
             )
         },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    LogBus.i("UI", "点击实验室添加插件")
-                    pluginLauncher.launch("*/*")
-                },
-                shape = RoundedCornerShape(SoftDimens.CardCorner),
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "添加插件")
-            }
-        }
     ) { inner ->
         LazyColumn(
             modifier = Modifier
@@ -115,19 +92,54 @@ fun LabScreen(
                 .padding(inner)
                 .padding(16.dp)
         ) {
+            // v0.27.4：插件市场入口（从站源页移过来）
             item {
-                SectionTitle(title = "插件管理")
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "已安装的 PY / drpy / spider 插件将显示在这里",
-                    style = SoftType.Body,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(SoftDimens.CardSpacing))
+                SectionTitle(title = "插件")
+                Spacer(Modifier.height(8.dp))
+                AppCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onMarketClick),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(SoftDimens.CardSpacing),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.Extension,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(28.dp),
+                        )
+                        Spacer(Modifier.width(SoftDimens.CardSpacing))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "插件市场",
+                                style = SoftType.CardTitle,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "浏览并安装插件（环境包 / 服务 / 直播源）",
+                                style = SoftType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Icon(
+                            Icons.Filled.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
             }
-            // v0.17.0：插件列表（PY/drpy/JAR）
+            // v0.27.4：已安装插件 = 真正的插件（env 环境包 / server 服务 / live / source），支持卸载
             item {
-                PluginListSection(context = context)
+                InstalledPluginSection(
+                    onUninstalled = { id ->
+                        Toast.makeText(context, "已卸载 $id", Toast.LENGTH_SHORT).show()
+                    },
+                )
                 Spacer(Modifier.height(24.dp))
             }
             // v0.16.1：嗅探自定义正则
@@ -256,59 +268,25 @@ fun LabScreen(
 }
 
 /**
- * v0.16.2：导入插件文件到对应目录。
- * - .py → py 目录
- * - .js → js 目录
- * - .jar → spider 目录
- * 返回提示文本。
- */
-private fun importPluginFile(context: Context, uri: Uri): String {
-    return runCatching {
-        val fileName = runCatching {
-            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
-            }
-        }.getOrNull() ?: "plugin_${System.currentTimeMillis()}"
-
-        val targetDir = when {
-            fileName.endsWith(".py", ignoreCase = true) -> StoragePaths.pyDir(context)
-            fileName.endsWith(".js", ignoreCase = true) -> StoragePaths.jsDir(context)
-            fileName.endsWith(".jar", ignoreCase = true) -> StoragePaths.jarDir(context)
-            else -> return "不支持的文件类型（仅 .py/.js/.jar）"
-        }
-        targetDir.mkdirs()
-        val dst = File(targetDir, fileName)
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            dst.outputStream().use { input.copyTo(it) }
-        }
-        LogBus.i("Lab", "插件已导入: $fileName -> ${targetDir.name}")
-        "已导入 $fileName"
-    }.onFailure {
-        LogBus.e("Lab", "插件导入失败: ${it.message}")
-    }.getOrDefault("导入失败")
-}
-
-/**
- * v0.17.0：插件列表（PY/drpy/JAR）。
- * 显示已安装插件，支持删除。
+ * v0.27.4：已安装插件列表 = 真正的插件（env 环境包 / server 服务 / live / source）。
+ * 本地规则文件（.py/.js/.jar）不再是"插件"，统一归站源页"本地源"管理。
  */
 @Composable
-private fun PluginListSection(context: Context) {
-    var plugins by remember { mutableStateOf<List<PluginInfo>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+private fun InstalledPluginSection(
+    onUninstalled: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var plugins by remember { mutableStateOf(PluginStore.listInstalled()) }
+    var uninstalling by remember { mutableStateOf<String?>(null) }
 
     fun refresh() {
-        loading = true
-        plugins = scanPlugins(context)
-        loading = false
+        plugins = PluginStore.listInstalled()
     }
 
     LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            plugins = scanPlugins(context)
-        }
-        loading = false
+        PluginStore.init(context)
+        refresh()
     }
 
     Column {
@@ -320,28 +298,43 @@ private fun PluginListSection(context: Context) {
                 }
             },
         )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "环境包与服务插件",
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Spacer(Modifier.height(8.dp))
-        if (loading) {
-            LoadingSkeleton(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(72.dp),
-            )
-        } else if (plugins.isEmpty()) {
+        if (plugins.isEmpty()) {
             EmptyState(
                 kind = EmptyKind.Empty,
                 icon = Icons.Filled.Extension,
-                title = "暂无插件",
-                hint = "点右下角 + 导入",
+                title = "暂无已安装插件",
+                hint = "点「插件市场」浏览安装",
             )
         } else {
             plugins.forEach { plugin ->
-                PluginRow(
+                InstalledPluginRow(
                     plugin = plugin,
-                    onDelete = {
-                        if (deletePlugin(plugin)) {
-                            LogBus.i("Lab", "删除插件: ${plugin.fileName}")
-                            refresh()
+                    uninstalling = uninstalling == plugin.id,
+                    onUninstall = {
+                        uninstalling = plugin.id
+                        scope.launch {
+                            runCatching {
+                                PluginMarket.uninstall(context, plugin.id)
+                            }.onSuccess {
+                                LogBus.i("Lab", "卸载插件: ${plugin.id}")
+                                refresh()
+                                onUninstalled(plugin.id)
+                            }.onFailure { e ->
+                                LogBus.e("Lab", "卸载插件失败: ${plugin.id}: ${e.message}")
+                                Toast.makeText(
+                                    context,
+                                    "卸载失败：${e.message}",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                            uninstalling = null
                         }
                     },
                 )
@@ -350,43 +343,20 @@ private fun PluginListSection(context: Context) {
     }
 }
 
-private data class PluginInfo(
-    val fileName: String,
-    val type: String, // "PY", "drpy", "JAR"
-    val sizeKb: Long,
-    val file: File,
-)
-
-private fun scanPlugins(context: Context): List<PluginInfo> {
-    val out = mutableListOf<PluginInfo>()
-    // PY
-    StoragePaths.pyDir(context).listFiles { f -> f.isFile && f.name.endsWith(".py") }
-        ?.forEach { f ->
-            out += PluginInfo(f.name, "PY", f.length() / 1024, f)
-        }
-    // drpy
-    StoragePaths.jsDir(context).listFiles { f -> f.isFile && f.name.endsWith(".js") }
-        ?.forEach { f ->
-            if (f.name != "shim.js") {
-                out += PluginInfo(f.name, "drpy", f.length() / 1024, f)
-            }
-        }
-    // JAR
-    StoragePaths.jarDir(context).listFiles { f -> f.isFile && f.name.endsWith(".jar") }
-        ?.forEach { f ->
-            out += PluginInfo(f.name, "JAR", f.length() / 1024, f)
-        }
-    return out.sortedBy { it.fileName }
-}
-
-private fun deletePlugin(plugin: PluginInfo): Boolean {
-    return runCatching { plugin.file.delete() }.getOrDefault(false)
+/** 插件类型徽标文案 */
+private fun pluginTypeLabel(type: String) = when (type) {
+    "env" -> "环境包"
+    "server" -> "服务"
+    "live" -> "直播"
+    "source" -> "源规则"
+    else -> type
 }
 
 @Composable
-private fun PluginRow(
-    plugin: PluginInfo,
-    onDelete: () -> Unit,
+private fun InstalledPluginRow(
+    plugin: PluginStore.InstalledPlugin,
+    uninstalling: Boolean,
+    onUninstall: () -> Unit,
 ) {
     var showConfirm by remember { mutableStateOf(false) }
 
@@ -399,50 +369,49 @@ private fun PluginRow(
             modifier = Modifier.padding(SoftDimens.CardSpacing),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 类型徽标：静态胶囊，按类型区分容器色
-            val badgeBg = when (plugin.type) {
-                "PY" -> MaterialTheme.colorScheme.primaryContainer
-                "drpy" -> MaterialTheme.colorScheme.secondaryContainer
-                else -> MaterialTheme.colorScheme.tertiaryContainer
-            }
-            val badgeFg = when (plugin.type) {
-                "PY" -> MaterialTheme.colorScheme.onPrimaryContainer
-                "drpy" -> MaterialTheme.colorScheme.onSecondaryContainer
-                else -> MaterialTheme.colorScheme.onTertiaryContainer
-            }
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(SoftDimens.ChipCorner))
-                    .background(badgeBg)
+                    .background(MaterialTheme.colorScheme.primaryContainer)
                     .padding(horizontal = 10.dp, vertical = 6.dp),
             ) {
                 Text(
-                    text = plugin.type,
+                    text = pluginTypeLabel(plugin.type),
                     style = SoftType.Caption,
-                    color = badgeFg,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
             Spacer(Modifier.width(SoftDimens.CardSpacing))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = plugin.fileName,
+                    text = plugin.name,
                     style = SoftType.Body,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${plugin.sizeKb} KB",
+                    text = "v${plugin.version} · ${plugin.id}",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (uninstalling) {
+                Text(
+                    text = "卸载中…",
                     style = SoftType.Caption,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            IconButton(onClick = { showConfirm = true }) {
-                Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = "删除",
-                    tint = MaterialTheme.colorScheme.error,
-                )
+            } else {
+                IconButton(onClick = { showConfirm = true }) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "卸载",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
     }
@@ -450,16 +419,16 @@ private fun PluginRow(
     if (showConfirm) {
         AlertDialog(
             onDismissRequest = { showConfirm = false },
-            title = { Text("删除插件", style = SoftType.Title) },
-            text = { Text("确定删除 ${plugin.fileName}？") },
+            title = { Text("卸载插件", style = SoftType.Title) },
+            text = { Text("确定卸载 ${plugin.name}？相关文件将被删除。") },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showConfirm = false
-                        onDelete()
+                        onUninstall()
                     }
                 ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+                    Text("卸载", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {

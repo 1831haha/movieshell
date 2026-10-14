@@ -101,10 +101,8 @@ import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.GradientBlock
-import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.components.SectionTitle
-import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
@@ -334,7 +332,14 @@ fun HomeScreen(
             SourceStateStore.activeDrpyRule() != null || SourceStateStore.activePyRule() != null
         val changed = active != drpyActive
         drpyActive = active
-        if (active && (changed || siteChanged || drpyList == null)) loadHome()
+        // v0.27.4：首页不再自动加载推荐流（用户手动下拉刷新才加载）；
+        // 源变化时清掉旧数据，不再显示过期缓存
+        if (changed || siteChanged) {
+            drpyList = null
+            drpyCats = emptyList()
+            selectedCategory = 0
+            homeError = null
+        }
     }
 
     // 首次进入也走一遍，保证站源入口文案和数据与持久化状态一致
@@ -400,15 +405,11 @@ fun HomeScreen(
         }
     }
 
-    // drpy 数据就绪：用真实数据；失败/为空 -> 回退演示数据
+    // v0.27.4：首页不再自动加载，不再用演示数据冒充；无数据时显示干净空态
     val drpyUiList: List<Vod>? = drpyList?.takeIf { it.isNotEmpty() }?.map { it.toUiVod() }
-    val drpyReady = drpyActive && drpyUiList != null
-    // v0.11.3：只有未选任何站源时才用演示数据；选了真实站源但没拿到数据时显示空态，
-    // 绝不用假数据冒充，否则切源也看不出变化
-    val useDemo = !drpyActive
+    val drpyReady = drpyUiList != null
     val chipLabels: List<String> =
-        if (drpyActive && drpyCats.isNotEmpty()) listOf("全部") + drpyCats.map { it.typeName }
-        else if (useDemo) listOf("全部") + DemoData.categories
+        if (drpyCats.isNotEmpty()) listOf("全部") + drpyCats.map { it.typeName }
         else listOf("全部")
 
     val filtered: List<Vod> = when {
@@ -417,26 +418,17 @@ fun HomeScreen(
             if (shuffleSeed == 0) base
             else base.drop(shuffleSeed % base.size) + base.take(shuffleSeed % base.size)
         }
-        useDemo -> remember(selectedCategory, shuffleSeed) {
-            val base = if (selectedCategory == 0) {
-                DemoData.vods
-            } else {
-                val cat = DemoData.categories[selectedCategory - 1]
-                DemoData.vods.filter { it.category == cat }
-            }
-            if (shuffleSeed == 0) base else base.drop(shuffleSeed % base.size) + base.take(shuffleSeed % base.size)
-        }
-        else -> emptyList() // 有源但无数据：空列表，UI 显示空态
+        else -> emptyList() // 无数据：空列表，UI 显示空态
     }
 
-    val featured: List<Vod> = (if (drpyReady) drpyUiList else if (useDemo) DemoData.vods else emptyList()).orEmpty().take(3)
+    val featured: List<Vod> = drpyUiList.orEmpty().take(3)
 
     // 站源入口行文案：订阅当前源 > 本地 drpy > 本地 PY；都没有 -> 演示数据
     val sourceLabel: String = when {
         subSite != null -> subSite?.name?.ifBlank { "订阅源" } ?: "订阅源"
         SourceStateStore.activeDrpyRule() != null -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
         SourceStateStore.activePyRule() != null -> "本地·${PySourceManager.activeRuleName().orEmpty()}"
-        else -> "演示数据"
+        else -> "选择站源"
     }
 
     Column(
@@ -530,109 +522,74 @@ fun HomeScreen(
                 }
             }
 
-            // v0.27.0：骨架屏（冷启动无缓存时的加载占位，不白屏）
-            if (drpyActive && drpyLoading && drpyList == null) {
-                items(6) {
-                    Column {
-                        LoadingSkeleton(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(3f / 4f),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        LoadingSkeleton(
-                            modifier = Modifier
-                                .fillMaxWidth(0.7f)
-                                .height(14.dp),
-                            shape = RoundedCornerShape(4.dp),
-                        )
-                    }
-                }
-            }
-
-            // v0.25.0：加载失败错误态 + 重试（有缓存时不出现，缓存优先显示）
-            if (drpyActive && !drpyLoading && homeError != null && drpyList == null) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    EmptyState(
-                        kind = EmptyKind.Error,
-                        icon = Icons.Filled.Refresh,
-                        title = "首页加载失败",
-                        hint = "网络超时或源无响应",
-                        actionText = "点击重试",
-                        onAction = { loadHome() },
-                    )
-                }
-            }
-
-            // 推荐位横滑大卡片
-            if (featured.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    HeroPager(featured = featured, onVodClick = ::goDetail)
-                }
-            }
-
-            // 分类行：drpy 真实分类；失败回退演示分类
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    chipLabels.forEachIndexed { index, label ->
-                        AppChip(
-                            text = label,
-                            selected = selectedCategory == index,
-                            onClick = {
-                                // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
-                                if (drpyActive && drpyCats.isNotEmpty()) {
-                                    if (index == 0) loadHome() else loadDrpyCategory(index)
-                                } else {
-                                    selectedCategory = index
-                                }
-                            },
-                        )
-                    }
-                }
-            }
-
-            // 分区标题 + 换一换
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SectionTitle(
-                    title = "热门推荐",
-                    action = {
-                        TextButton(onClick = { shuffleSeed++ }) {
-                            Icon(
-                                imageVector = Icons.Filled.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text("换一换")
-                        }
-                    },
-                )
-            }
-
-            // 网格海报墙
-            if (drpyActive && !drpyReady && !drpyLoading && filtered.isEmpty()) {
-                // v0.11.3：有源但无数据时的空态（不再用演示数据冒充）
+            // v0.27.4：首页不再自动加载推荐流；无数据时干净空态（不再转圈/报错/演示数据）
+            if (!drpyReady) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     EmptyState(
                         kind = EmptyKind.Empty,
                         icon = Icons.Filled.Movie,
-                        title = "该源暂无首页数据",
-                        hint = "换个分类试试，或下拉刷新",
+                        title = "暂无首页内容",
+                        hint = "去站源页管理源",
                     )
                 }
-            }
-            items(filtered, key = { it.id }) { vod ->
-                PosterCard(
-                    title = vod.title,
-                    subtitle = "${vod.year} · ${vod.rating}分",
-                    badge = vod.rating,
-                    posterUrl = vod.poster,
-                    modifier = Modifier.aspectRatio(3f / 4.6f),
-                    onClick = { goDetail(vod.id) },
-                )
+            } else {
+                // 推荐位横滑大卡片
+                if (featured.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        HeroPager(featured = featured, onVodClick = ::goDetail)
+                    }
+                }
+
+                // 分类行：只在有真实分类时显示
+                if (drpyCats.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            chipLabels.forEachIndexed { index, label ->
+                                AppChip(
+                                    text = label,
+                                    selected = selectedCategory == index,
+                                    onClick = {
+                                        // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
+                                        if (index == 0) loadHome() else loadDrpyCategory(index)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 分区标题 + 换一换
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SectionTitle(
+                        title = "热门推荐",
+                        action = {
+                            TextButton(onClick = { shuffleSeed++ }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text("换一换")
+                            }
+                        },
+                    )
+                }
+
+                // 网格海报墙
+                items(filtered, key = { it.id }) { vod ->
+                    PosterCard(
+                        title = vod.title,
+                        subtitle = "${vod.year} · ${vod.rating}分",
+                        badge = vod.rating,
+                        posterUrl = vod.poster,
+                        modifier = Modifier.aspectRatio(3f / 4.6f),
+                        onClick = { goDetail(vod.id) },
+                    )
+                }
             }
         }
     }
