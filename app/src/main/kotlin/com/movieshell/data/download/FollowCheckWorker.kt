@@ -83,16 +83,18 @@ class FollowCheckWorker(
                 val f = File(StoragePaths.jsDir(context), item.sourceKey)
                 if (!f.isFile) return null
                 val js = f.readText()
-                // loadRule 必须主线程：抛到主线程执行后挂起等结果
-                val detail = suspendCancellableCoroutine { cont ->
+                // loadRule 必须主线程：抛到主线程执行后挂起等结果（失败返回 null）
+                val detail = suspendCancellableCoroutine<QuickJsDrpyEngine?> { cont ->
                     Handler(Looper.getMainLooper()).post {
-                        runCatching {
+                        try {
                             val engine = QuickJsDrpyEngine(context)
                             engine.loadRule(js)
-                            cont.resume(Result.success(engine))
-                        }.onFailure { cont.resume(Result.failure(it)) }
+                            cont.resume(engine)
+                        } catch (e: Throwable) {
+                            cont.resume(null)
+                        }
                     }
-                }.getOrNull() ?: return null
+                } ?: return null
                 SiteRepository().parseEpisodes(detail.detail(item.vodId)).size.takeIf { it > 0 }
             }
             "py" -> {

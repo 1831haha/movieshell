@@ -84,10 +84,10 @@ fun FollowScreen(
                             Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
                         }
                     }
-                }) { Text("确定") },
+                }) { Text("确定") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmUnfollow = null }) { Text("取消") },
+                TextButton(onClick = { confirmUnfollow = null }) { Text("取消") }
             },
         )
     }

@@ -74,7 +74,7 @@ fun DownloadScreen(
                     val t = confirmDelete!!
                     confirmDelete = null
                     scope.launch { DownloadManager.delete(context, t.id) }
-                }) { Text("删除文件") },
+                }) { Text("删除文件") }
             },
             dismissButton = {
                 TextButton(onClick = {
@@ -83,7 +83,7 @@ fun DownloadScreen(
                     scope.launch {
                         DownloadStore.remove(context, t.id, deleteFiles = false)
                     }
-                }) { Text("仅移除记录") },
+                }) { Text("仅移除记录") }
             },
         )
     }
@@ -104,7 +104,7 @@ fun DownloadScreen(
                     if (done.isNotEmpty()) {
                         TextButton(onClick = {
                             scope.launch { DownloadStore.clearDone(context) }
-                        }) { Text("清空已完成") },
+                        }) { Text("清空已完成") }
                     }
                 },
             )
