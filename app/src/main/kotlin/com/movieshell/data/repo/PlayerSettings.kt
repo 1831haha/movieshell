@@ -52,6 +52,8 @@ object PlayerSettings {
     private const val KEY_SUB_EDGE = "subtitle_style_edge"
     private const val KEY_SUB_POS = "subtitle_style_pos"
     private const val KEY_SUB_OFFSET = "subtitle_style_offset"
+    /** v0.27.7：重力感应自动横屏 */
+    private const val KEY_GRAVITY_ROTATE = "gravity_rotate"
 
     private val _skipIntroSec = MutableStateFlow(0)
     val skipIntroSec: StateFlow<Int> = _skipIntroSec
@@ -64,6 +66,10 @@ object PlayerSettings {
 
     private val _subtitleStyle = MutableStateFlow(SubtitleStyle())
     val subtitleStyle: StateFlow<SubtitleStyle> = _subtitleStyle
+
+    /** v0.27.7：重力感应自动横屏（默认开） */
+    private val _gravityRotate = MutableStateFlow(true)
+    val gravityRotate: StateFlow<Boolean> = _gravityRotate
 
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -79,6 +85,7 @@ object PlayerSettings {
             position = prefs.getInt(KEY_SUB_POS, SubtitleStyle.POS_BOTTOM).coerceIn(0, 1),
             offsetMs = prefs.getLong(KEY_SUB_OFFSET, 0L).coerceIn(-10_000L, 10_000L),
         )
+        _gravityRotate.value = prefs.getBoolean(KEY_GRAVITY_ROTATE, true)
     }
 
     /** 全局默认片头（新源初始值）。 */
@@ -177,5 +184,12 @@ object PlayerSettings {
             .apply()
         _subtitleStyle.value = s
         LogBus.i("PlayerSettings", "字幕样式已保存：${s.sizeSp}sp 偏移${s.offsetMs}ms")
+    }
+
+    /** v0.27.7：重力感应自动横屏开关。 */
+    fun setGravityRotate(context: Context, on: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_GRAVITY_ROTATE, on).apply()
+        _gravityRotate.value = on
     }
 }

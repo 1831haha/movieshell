@@ -220,6 +220,8 @@ fun HomeScreen(
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
     var drpyActive by remember { mutableStateOf(false) }
     var drpyLoading by remember { mutableStateOf(false) }
+    // v0.27.7：首页加载防重入（ON_RESUME/下拉可能并发触发，互 cancel 导致永远做不完）
+    var homeLoading by remember { mutableStateOf(false) }
     var drpyCats by remember { mutableStateOf<List<CategoryType>>(emptyList()) }
     var drpyList by remember { mutableStateOf<List<ModelVod>?>(null) } // null=未加载/失败
     var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
@@ -236,67 +238,83 @@ fun HomeScreen(
      * v0.25.0：首页加载单入口（原 loadDrpyHome / doRefresh 的重复逻辑合并于此）。
      * - 缓存先行：IO 读盘，主线程即时渲染，冷启动不白屏；
      * - 并发：推荐 + 分类同时拉，哪个先回先显示，不等最慢的；
-     * - 单路 6 秒熔断（withTimeoutOrNull），超时/异常记 LogBus；
+     * - 推荐/分类各走独立 slot（PySourceManager.homeSlot/categoriesSlot），互不取消；
+     * - 单路 12 秒熔断（withTimeoutOrNull），超时/异常记 LogBus；
      * - 网络与引擎调用全在 IO 线程，不阻塞主线程；
      * - 全失败且无缓存 → 错误态（homeError），UI 给重试按钮。
+     *
+     * v0.27.7：防重入——ON_RESUME/下拉刷新可能并发触发 loadHome，
+     * 新调用会经 latest(slot) 取消旧的在途 PY 请求（真机 "H was cancelled" 刷屏的根因），
+     * 请求永远做不完。进行中直接跳过。
      */
     fun loadHome(onDone: () -> Unit = {}) {
         val key = homeCacheKey() ?: return
-        scope.launch {
-            drpyLoading = true
-            homeError = null
-            var cacheShown = false
-            // 1. 缓存先行
-            withContext(Dispatchers.IO) { HomeCache.load(context, key) }?.let { (data, fresh) ->
-                if (data.vods.isNotEmpty()) {
-                    drpyCats = data.cats
-                    drpyList = data.vods
-                    cacheShown = true
-                    LogBus.i("Home", "首页缓存命中（${if (fresh) "新鲜" else "过期"}）：${data.vods.size} 条")
-                } else if (data.cats.isNotEmpty()) {
-                    drpyCats = data.cats
-                }
-            }
-            // 2. 并发刷新
-            coroutineScope {
-                launch {
-                    val home = runCatching {
-                        // v0.27.1：推荐抓取给 12s（PY 规则内部 5s×2 次抓取，慢速网络 6s 不够）
-                        withTimeoutOrNull(12_000) {
-                            withContext(Dispatchers.IO) { engineHome() }
-                        }
-                    }.getOrNull()
-                    if (home == null) {
-                        LogBus.w("Home", "首页推荐加载超时/失败（12s 熔断）")
-                    } else if (home.isNotEmpty() || !cacheShown) {
-                        // 有缓存时网络返回空不覆盖，避免缓存闪一下被清空
-                        drpyList = home.ifEmpty { null }
-                        selectedCategory = 0
-                    }
-                    if (!home.isNullOrEmpty()) {
-                        withContext(Dispatchers.IO) { HomeCache.saveVods(context, key, home) }
-                    }
-                }
-                launch {
-                    val cats = runCatching {
-                        withTimeoutOrNull(6_000) {
-                            withContext(Dispatchers.IO) { engineCats() }
-                        }
-                    }.getOrNull()
-                    if (cats == null) {
-                        LogBus.w("Home", "首页分类加载超时/失败（6s 熔断）")
-                    } else if (cats.isNotEmpty()) {
-                        drpyCats = cats
-                        withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) }
-                    }
-                }
-            }
-            drpyLoading = false
-            if (drpyList == null) {
-                homeError = "加载失败，点击重试"
-                LogBus.w("Home", "首页数据全失败且无缓存")
-            }
+        if (homeLoading) {
+            LogBus.i("Home", "首页加载进行中，跳过重复触发")
             onDone()
+            return
+        }
+        homeLoading = true
+        scope.launch {
+            try {
+                drpyLoading = true
+                homeError = null
+                var cacheShown = false
+                // 1. 缓存先行
+                withContext(Dispatchers.IO) { HomeCache.load(context, key) }?.let { (data, fresh) ->
+                    if (data.vods.isNotEmpty()) {
+                        drpyCats = data.cats
+                        drpyList = data.vods
+                        cacheShown = true
+                        LogBus.i("Home", "首页缓存命中（${if (fresh) "新鲜" else "过期"}）：${data.vods.size} 条")
+                    } else if (data.cats.isNotEmpty()) {
+                        drpyCats = data.cats
+                    }
+                }
+                // 2. 并发刷新
+                coroutineScope {
+                    launch {
+                        val home = runCatching {
+                            // v0.27.1：推荐抓取给 12s（PY 规则内部 5s×2 次抓取，慢速网络 6s 不够）
+                            withTimeoutOrNull(12_000) {
+                                withContext(Dispatchers.IO) { engineHome() }
+                            }
+                        }.getOrNull()
+                        if (home == null) {
+                            LogBus.w("Home", "首页推荐加载超时/失败（12s 熔断）")
+                        } else if (home.isNotEmpty() || !cacheShown) {
+                            // 有缓存时网络返回空不覆盖，避免缓存闪一下被清空
+                            drpyList = home.ifEmpty { null }
+                            selectedCategory = 0
+                        }
+                        if (!home.isNullOrEmpty()) {
+                            withContext(Dispatchers.IO) { HomeCache.saveVods(context, key, home) }
+                        }
+                    }
+                    launch {
+                        val cats = runCatching {
+                            // v0.27.7：分类超时 6s→12s，和推荐对齐（真机分类反复熔断）
+                            withTimeoutOrNull(12_000) {
+                                withContext(Dispatchers.IO) { engineCats() }
+                            }
+                        }.getOrNull()
+                        if (cats == null) {
+                            LogBus.w("Home", "首页分类加载超时/失败（12s 熔断）")
+                        } else if (cats.isNotEmpty()) {
+                            drpyCats = cats
+                            withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) }
+                        }
+                    }
+                }
+                drpyLoading = false
+                if (drpyList == null) {
+                    homeError = "加载失败，点击重试"
+                    LogBus.w("Home", "首页数据全失败且无缓存")
+                }
+                onDone()
+            } finally {
+                homeLoading = false
+            }
         }
     }
 
@@ -348,7 +366,7 @@ fun HomeScreen(
      * drpyList 非空（用户正在看分类列表）时什么都不做，不覆盖。
      */
     fun restoreHomeIfEmpty() {
-        if (drpyList != null || !drpyActive) return
+        if (drpyList != null || !drpyActive || homeLoading) return
         val key = homeCacheKey() ?: return
         scope.launch {
             val cached = withContext(Dispatchers.IO) { HomeCache.load(context, key) }

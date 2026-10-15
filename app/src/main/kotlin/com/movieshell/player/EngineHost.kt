@@ -106,6 +106,20 @@ object EngineHost {
 
     fun resume() = route({ PlayerManager.resume() }, { MpvPlayerManager.resume() })
 
+    /**
+     * v0.27.7：当前是否正在播放（双引擎统一）。Media3 直接读 PlayerManager 的
+     * 播放器状态，不另起一套；libmpv 走 MpvPlayerManager。
+     */
+    fun isPlayingNow(): Boolean = route(
+        { PlayerManager.player?.isPlaying == true },
+        { MpvPlayerManager.isPlaying },
+    )
+
+    /** v0.27.7：播放/暂停切换（双引擎统一）。 */
+    fun togglePlayPause() {
+        if (isPlayingNow()) pause() else resume()
+    }
+
     fun seekTo(ms: Long) = route({ PlayerManager.seekTo(ms) }, { MpvPlayerManager.seekTo(ms) })
 
     fun stop() = route({ PlayerManager.stop() }, { MpvPlayerManager.stop() })

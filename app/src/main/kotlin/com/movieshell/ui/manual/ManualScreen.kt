@@ -231,6 +231,7 @@ private val MANUAL_SECTIONS = listOf(
     ManualSection(
         title = "版本更新",
         points = listOf(
+            "v0.27.7 播放器控制补全 + 分类修复：①播放器自绘统一控制层——中央大播放键（暂停时显示）、底部条播放/暂停+进度拖动+时间，Media3 原生控制器关闭，双引擎 UI 一致；轻点画面切换控制层显隐，播放中 4 秒无操作自动隐藏。②横竖屏切换按钮（控制条右侧）+ 重力感应自动横屏（设置→播放→开关，默认开，sensor 监听收敛在 OrientationSensor 单例）。③首页分类修复：loadHome 防重入（之前并发触发会经 latest(slot) 互相取消，在途 PY 请求永远做不完，真机 “H was cancelled” 刷屏的根因）；分类超时 6s→12s；PyApi.categories 打日志（返回 class 数量）。④PY 环境自检加 lxml/pyquery/charset-normalizer 版本号（只加日志，继续查详情 USC4）。",
             "v0.27.6 修复：①详情页不再冒假数据——详情加载失败时删掉 DemoData 回退（之前失败会冒出“星海追光者”），现在显示“详情加载失败，点击重试”；搜索页假热搜词下线，无数据时隐藏热搜区。②从其他 tab 返回首页不再空白：tab 切回时静默从缓存恢复内容（不转圈不打网络），缓存没有才加载；冷启动仍保持干净空态。③编码 patch 加可观测：失败日志的“PY 最近响应”里新增 apparent_encoding 字段，下次一眼看出编码是谁定的。",
             "v0.27.5 修复：详情编码根治——黄果类规则的 _fetch_html 用 apparent_encoding 检测编码，页面混淆 JS + 垃圾 meta 会把 UTF-8 误判成 UTF-32，lxml 报 USC4 错误；本版在 Python 桥里 patch requests：HTTP header 声明的 charset 优先，检测只做 fallback（浏览器同策略，不改规则文件）。首页去掉“本周推荐”轮播模块（backdrop 一直是灰渐变空图），只保留热门推荐海报流。",
             "v0.27.4 源与插件分类重做：站源页不再分 tab，单页两 section——订阅源（接口订阅/网页源）在上，本地源（PY/JS/drpy/JAR 规则文件，单击设为当前源）在下，规则导入按钮放本地源区；实验室=插件市场入口+已安装插件（环境包与服务插件，支持卸载）。首页不再自动加载推荐流（手动下拉刷新才加载），无数据时干净空态。修插件市场 scope left the composition（拉取走 LaunchedEffect 跟随生命周期，安装/卸载走进程级 scope）。加 PY 环境自检日志（brotli/charset_normalizer/pylibs 路径与文件列表）+ 失败时附带最近 HTTP 响应 hex 供诊断。",

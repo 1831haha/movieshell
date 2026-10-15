@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Visibility
@@ -237,6 +238,24 @@ fun SettingsScreen(
                     value = PlayerSettings.skipOutroSec.collectAsState().value,
                     onChange = { PlayerSettings.setSkipOutro(context, it) },
                 )
+                // v0.27.7：重力感应自动横屏（默认开）
+                run {
+                    val gravityRotate by PlayerSettings.gravityRotate.collectAsState()
+                    SettingsRow(
+                        icon = Icons.Filled.ScreenRotation,
+                        title = "重力感应自动横屏",
+                        subtitle = "播放时随手机方向自动横竖屏",
+                        onClick = { PlayerSettings.setGravityRotate(context, !gravityRotate) },
+                        trailing = {
+                            Switch(
+                                checked = gravityRotate,
+                                onCheckedChange = {
+                                    PlayerSettings.setGravityRotate(context, it)
+                                },
+                            )
+                        },
+                    )
+                }
             }
             Spacer(Modifier.height(SoftDimens.CardSpacing))
             // v0.19.0：自定义解析接口（优先于订阅自带 parses）

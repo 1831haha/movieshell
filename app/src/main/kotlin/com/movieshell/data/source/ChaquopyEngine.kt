@@ -60,6 +60,16 @@ object ChaquopyEngine : PyEngine {
      * sys.path、pylibs 下实际文件列表（防 zip 解压出双层前缀导致 import 失败）。
      */
     private var selfChecked = false
+
+    /**
+     * v0.27.7：取 PY 包版本号（拿不到就 "unknown"，不抛）。
+     * importlib.metadata 在 Chaquopy 下可能取不到子模块，包一层 runCatching。
+     */
+    private fun pyPkgVersion(py: Python, name: String): String = runCatching {
+        py.getModule("importlib.metadata")?.callAttr("version", name)?.toString()
+            ?: "unknown"
+    }.getOrDefault("unknown")
+
     private fun envSelfCheck(py: Python, ctx: Context) {
         if (selfChecked) return
         selfChecked = true
@@ -69,6 +79,11 @@ object ChaquopyEngine : PyEngine {
             val inPath = sysPath.contains(dir.absolutePath)
             val brotliOk = runCatching { py.getModule("brotli"); true }.getOrDefault(false)
             val cnOk = runCatching { py.getModule("charset_normalizer"); true }.getOrDefault(false)
+            // v0.27.7：黄果详情 USC4 在 patch 生效后依然出现，桌面复现不了，
+            // 疑似手机 lxml 构建问题——把解析链版本号打出来，只加日志不改逻辑
+            val lxmlVer = pyPkgVersion(py, "lxml")
+            val pqVer = pyPkgVersion(py, "pyquery")
+            val cnVer = pyPkgVersion(py, "charset-normalizer")
             val files = dir.walkTopDown().maxDepth(2).filter { it.isFile }
                 .map { it.relativeTo(dir).path }.sorted().toList()
             Log.i(
@@ -77,6 +92,7 @@ object ChaquopyEngine : PyEngine {
                     "charset_normalizer可import=$cnOk " +
                     "pylibs在sys.path=$inPath " +
                     "pylibs文件数=${files.size} " +
+                    "lxml=$lxmlVer pyquery=$pqVer charset-normalizer=$cnVer " +
                     files.take(12).joinToString(","),
             )
         }.onFailure { Log.w(TAG, "PY 环境自检失败", it) }

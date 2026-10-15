@@ -69,13 +69,20 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
             .map { it.toVod() }
     }
 
-    /** 分类列表（homeContent 的 class 数组）。 */
+    /**
+     * 分类列表（homeContent 的 class 数组）。
+     * v0.27.7：打日志——规则返回 class 数量，空时 warn（真机分类反复拿不到，先拿数据）。
+     */
     suspend fun categories(rulePath: String): List<CategoryType> = runCatching {
         val data = envelope(engine.invoke(rulePath, "homeContent", """{"filter":true}"""))
             ?: return emptyList()
-        (data["class"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject) }.map {
-            CategoryType(typeId = it.optString("type_id"), typeName = it.optString("type_name"))
-        }.filter { it.typeId.isNotBlank() }
+        val list = (data["class"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonObject) }.map {
+                CategoryType(typeId = it.optString("type_id"), typeName = it.optString("type_name"))
+            }.filter { it.typeId.isNotBlank() }
+        if (list.isEmpty()) LogBus.w(TAG, "规则 categories 返回空（homeContent 无 class 数组）")
+        else LogBus.i(TAG, "规则 categories 返回 ${list.size} 个分类")
+        list
     }.getOrDefault(emptyList())
 
     /** 分类翻页。 */

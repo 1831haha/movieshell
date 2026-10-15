@@ -3,6 +3,8 @@ package com.movieshell.player
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Context
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.media.AudioManager
 import android.util.Rational
 import android.widget.Toast
@@ -55,6 +57,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
@@ -171,6 +174,9 @@ fun PlayerScreen(
     var showSubtitleDialog by remember { mutableStateOf(false) } // 外挂字幕
     var sessionSubtitle by remember { mutableStateOf<String?>(null) } // 本次字幕覆盖（未设置则按剧记忆）
     var pipMode by remember { mutableStateOf(false) } // 画中画
+    // v0.27.7：自绘控制层显隐（Media3 原生控制器已关闭，双引擎统一）；播放状态从引擎取
+    var controlsVisible by remember { mutableStateOf(true) }
+    var isPlaying by remember { mutableStateOf(true) }
     var autoSwitching by remember { mutableStateOf(false) } // playUrl 变化来自自动重试
     val triedLines = remember { mutableSetOf<Int>() } // 已试过的线路下标
     // v0.21.0：同地址已试过的内核（防 Media3↔libmpv 乒乓）
@@ -208,6 +214,13 @@ fun PlayerScreen(
             savePlayerProgress(context, currentTitle, currentPlayUrl, isLive)
             PlaySession.playerVisible = false
             PlaySession.clear()
+            // v0.27.7：退出播放器恢复系统默认方向 + 停重力感应
+            OrientationSensor.stop()
+            (context as? Activity)?.let {
+                if (it.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                    it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
+            }
         }
     }
 
@@ -222,6 +235,38 @@ fun PlayerScreen(
         }
         activity.addOnPictureInPictureModeChangedListener(listener)
         onDispose { activity.removeOnPictureInPictureModeChangedListener(listener) }
+    }
+
+    // v0.27.7：重力感应自动横屏（设置→播放→开关，默认开）。sensor 监听收敛在
+    // OrientationSensor 单例里，这里只消费方向变化。
+    val gravityRotate by PlayerSettings.gravityRotate.collectAsState()
+    val sensorLandscape by OrientationSensor.isLandscape.collectAsState()
+    LaunchedEffect(gravityRotate) {
+        if (gravityRotate) OrientationSensor.start(context) else OrientationSensor.stop()
+    }
+    LaunchedEffect(sensorLandscape, gravityRotate) {
+        if (!gravityRotate) return@LaunchedEffect
+        val activity = context as? Activity ?: return@LaunchedEffect
+        activity.requestedOrientation = if (sensorLandscape) {
+            LogBus.i("Player", "重力感应：切横屏")
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+    }
+
+    /** v0.27.7：手动横竖屏切换（控制条全屏按钮）。 */
+    fun toggleOrientation() {
+        val activity = context as? Activity ?: return
+        val landscape =
+            context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        activity.requestedOrientation = if (landscape) {
+            LogBus.i("Player", "手动：切竖屏")
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else {
+            LogBus.i("Player", "手动：切横屏")
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
     }
 
     /**
@@ -561,7 +606,9 @@ fun PlayerScreen(
                             MpvVideoView(ctx)
                         } else {
                             PlayerView(ctx).apply {
-                                useController = true
+                                // v0.27.7：关闭 Media3 原生控制器，走自绘统一控制层（中央播放键+底部条），
+                                // 双引擎 UI 一致，之前用户反馈找不到暂停/播放
+                                useController = false
                                 setShowNextButton(false)
                                 setShowPreviousButton(false)
                                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -583,7 +630,7 @@ fun PlayerScreen(
         // v0.19.0：画中画时只留播放画面，全部自绘 UI 隐藏
         if (!pipMode) {
         // 手势层：左右滑动=±10 秒快进/快退；左半屏上下=亮度；右半屏上下=音量。
-        // 轻点不消费事件，透传给 PlayerView 自带控制器，不影响现有控制 UI。
+        // v0.27.7：轻点切换自绘控制层显隐（Media3 原生控制器已关闭，不再透传）。
         Box(
             Modifier
                 .fillMaxSize()
@@ -621,7 +668,11 @@ fun PlayerScreen(
                             }
                             return@awaitEachGesture
                         }
-                        if (slopChange == null || mode == 0) return@awaitEachGesture // 轻点：不消费
+                        if (slopChange == null || mode == 0) {
+                            // v0.27.7：轻点切换自绘控制层显隐（Media3 原生控制器已关闭）
+                            controlsVisible = !controlsVisible
+                            return@awaitEachGesture
+                        }
                         var last = slopChange.position
                         var accX = 0f
                         var accY = 0f
@@ -685,7 +736,38 @@ fun PlayerScreen(
             }
         }
 
+        // v0.27.7：播放中 4 秒无操作自动隐藏控制层（暂停时保持显示）
+        LaunchedEffect(controlsVisible, isPlaying) {
+            if (controlsVisible && isPlaying) {
+                delay(4000)
+                controlsVisible = false
+            }
+        }
+
+        // v0.27.7：中央大播放键——暂停时显示；点后恢复播放并带出控制层
+        if (!isPlaying && playUrl.isNotBlank()) {
+            IconButton(
+                onClick = {
+                    EngineHost.togglePlayPause()
+                    controlsVisible = true
+                },
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(76.dp)
+                    .background(Color.Black.copy(alpha = 0.45f), CircleShape),
+            ) {
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = "播放",
+                    tint = Color.White,
+                    modifier = Modifier.size(44.dp),
+                )
+            }
+        }
+
         // 顶部栏：返回 + 标题 + 倍速 + 快进快退 + 画面比例 + 线路/选集 + 字幕 + 画中画 + 跳过设置
+        // v0.27.7：跟随控制层显隐
+        if (controlsVisible) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -834,6 +916,7 @@ fun PlayerScreen(
                 Icon(Icons.Filled.Videocam, contentDescription = "截图", tint = Color.White)
             }
         }
+        } // if (controlsVisible)：顶部栏
 
         // v0.27.0：播放错误提示走柔和错误色，不用刺眼红
         SnackbarHost(
@@ -850,22 +933,22 @@ fun PlayerScreen(
             },
         )
 
-        // v0.20.0：libmpv 模式没有 PlayerView 自带控制器，补一个极简底部条（播放/暂停+进度拖动）；
-        // 手势与顶部栏功能不受影响
-        if (engine == PlayerEngine.LIBMPV && playUrl.isNotBlank()) {
-            var mpvPlaying by remember { mutableStateOf(true) }
-            var mpvPos by remember { mutableLongStateOf(0L) }
-            var mpvDur by remember { mutableLongStateOf(0L) }
-            var scrubbing by remember { mutableStateOf(false) }
-            var scrubPos by remember { mutableLongStateOf(0L) }
-            LaunchedEffect(engine, playUrl) {
-                while (true) {
-                    delay(500)
-                    mpvPlaying = MpvPlayerManager.isPlaying
-                    if (!scrubbing) mpvPos = EngineHost.currentPosition()
-                    mpvDur = EngineHost.duration()
-                }
+        // v0.27.7：双引擎统一底部控制条（播放/暂停 + 进度拖动 + 横竖屏切换）。
+        // 之前只有 libmpv 有自绘条，Media3 靠原生控制器；用户反馈找不到暂停/播放，
+        // 现关闭原生控制器，双引擎共用这一套。轮询放条件外，显隐切换不丢进度。
+        var pos by remember { mutableLongStateOf(0L) }
+        var dur by remember { mutableLongStateOf(0L) }
+        var scrubbing by remember { mutableStateOf(false) }
+        var scrubPos by remember { mutableLongStateOf(0L) }
+        LaunchedEffect(engine, playUrl) {
+            while (true) {
+                delay(500)
+                isPlaying = EngineHost.isPlayingNow()
+                if (!scrubbing) pos = EngineHost.currentPosition()
+                dur = EngineHost.duration()
             }
+        }
+        if (playUrl.isNotBlank() && controlsVisible) {
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -876,22 +959,20 @@ fun PlayerScreen(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = {
-                    if (mpvPlaying) EngineHost.pause() else EngineHost.resume()
-                }) {
+                IconButton(onClick = { EngineHost.togglePlayPause() }) {
                     Icon(
-                        if (mpvPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (mpvPlaying) "暂停" else "播放",
+                        if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (isPlaying) "暂停" else "播放",
                         tint = Color.White,
                     )
                 }
                 Text(
-                    text = fmtTime(if (scrubbing) scrubPos else mpvPos),
+                    text = fmtTime(if (scrubbing) scrubPos else pos),
                     color = Color.White,
                     style = SoftType.Caption,
                 )
                 Slider(
-                    value = (if (scrubbing) scrubPos else mpvPos).toFloat(),
+                    value = (if (scrubbing) scrubPos else pos).toFloat(),
                     onValueChange = {
                         scrubPos = it.toLong()
                         scrubbing = true
@@ -900,7 +981,7 @@ fun PlayerScreen(
                         EngineHost.seekTo(scrubPos)
                         scrubbing = false
                     },
-                    valueRange = 0f..mpvDur.coerceAtLeast(1L).toFloat(),
+                    valueRange = 0f..dur.coerceAtLeast(1L).toFloat(),
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     colors = SliderDefaults.colors(
                         thumbColor = MaterialTheme.colorScheme.primary,
@@ -908,10 +989,18 @@ fun PlayerScreen(
                     ),
                 )
                 Text(
-                    text = fmtTime(mpvDur),
+                    text = fmtTime(dur),
                     color = Color.White,
                     style = SoftType.Caption,
                 )
+                // v0.27.7：横竖屏切换
+                IconButton(onClick = { toggleOrientation() }) {
+                    Icon(
+                        Icons.Filled.Fullscreen,
+                        contentDescription = "横竖屏切换",
+                        tint = Color.White,
+                    )
+                }
             }
         }
 
