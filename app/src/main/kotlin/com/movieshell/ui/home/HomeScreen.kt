@@ -54,6 +54,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -106,6 +108,7 @@ import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -130,6 +133,12 @@ private fun ModelVod.toUiVod() = Vod(
 // v0.27.6：进程级标记，区分冷启动和 tab 切回（切 tab 时 HomeScreen 被 dispose，重进 composition）。
 // 冷启动保持干净空态，切回才静默恢复缓存。
 private var homeEnteredOnce = false
+
+/** v0.31.2：二级筛选 Pair 的 Saveable 序列化器（tab 切回时恢复选中）。 */
+private val FilterPairSaver = listSaver<Pair<String, String>?, String>(
+    save = { p -> if (p == null) emptyList() else listOf(p.first, p.second) },
+    restore = { l -> if (l.size == 2) l[0] to l[1] else null },
+)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -222,9 +231,15 @@ fun HomeScreen(
 
     var refreshing by remember { mutableStateOf(false) }
     var pullOffset by remember { mutableFloatStateOf(0f) }
-    var selectedCategory by remember { mutableIntStateOf(0) } // 0 = 全部
+    var selectedCategory by rememberSaveable { mutableIntStateOf(0) } // 0 = 全部
     // v0.30.1：二级筛选——(filterKey, filterValue)，null=未选（用规则默认）
-    var selectedFilter by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // v0.31.2：remember → rememberSaveable，tab 切回时选中态不丢（NavController saveState 只恢复 rememberSaveable）
+    var selectedFilter by rememberSaveable(saver = FilterPairSaver) { mutableStateOf<Pair<String, String>?>(null) }
+    // v0.31.2：内容世代——每次发起内容加载（首页/分类）+1，异步完成时只应用最新世代的结果，
+    // 旧请求的迟到结果直接丢弃。快速连点/首页与分类打架时，"最后一次点击赢"是唯一不变量。
+    var contentGen by remember { mutableIntStateOf(0) }
+    // v0.31.2：分类加载单飞——快速连点时取消上一次，保证同一时间只有一个分类请求在跑
+    var categoryJob by remember { mutableStateOf<Job?>(null) }
     var shuffleSeed by remember { mutableIntStateOf(0) }
 
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
@@ -354,7 +369,11 @@ fun HomeScreen(
         payload: HomeLoadGate.HomePayload?,
         prevVods: List<ModelVod>?,
         prevCats: List<CategoryType>,
+        gen: Int = -1,
     ) {
+        // v0.31.2：迟到结果丢弃——用户已经点了别的（分类/首页/筛选），旧 payload 不再应用，
+        // 否则会出现"选中红果、内容却是首页"的错位。
+        if (gen != -1 && gen != contentGen) return
         drpyLoading = false
         if (payload == null) {
             if (prevVods == null) homeError = "加载失败，点击重试"
@@ -390,6 +409,10 @@ fun HomeScreen(
      */
     fun loadHome(force: Boolean = false, onDone: () -> Unit = {}) {
         val key = homeCacheKey() ?: return
+        // v0.31.2：世代+1——首页加载和分类加载互斥，后发起的赢；同时取消分类在途请求
+        contentGen += 1
+        val myGen = contentGen
+        categoryJob?.cancel()
         // 抓当前展示值，供"全失败且无缓存"判定（语义与旧版一致：之前展示中的也算有数据）
         val prevVods = drpyList
         val prevCats = drpyCats
@@ -401,7 +424,7 @@ fun HomeScreen(
             LogBus.i("Home", "首页加载进行中，复用在途请求")
             scope.launch {
                 // 复用方只应用结果，不写缓存、不计数
-                applyHomePayload(awaitFlight(inFlight), prevVods, prevCats)
+                applyHomePayload(awaitFlight(inFlight), prevVods, prevCats, myGen)
                 onDone()
             }
             return
@@ -421,7 +444,7 @@ fun HomeScreen(
             // 极小竞态：start 前一刻刚有人登记，转复用
             deferred.cancel()
             scope.launch {
-                applyHomePayload(HomeLoadGate.flight(key)?.let { f: Deferred<HomeLoadGate.HomePayload?> -> awaitFlight(f) }, prevVods, prevCats)
+                applyHomePayload(HomeLoadGate.flight(key)?.let { f: Deferred<HomeLoadGate.HomePayload?> -> awaitFlight(f) }, prevVods, prevCats, myGen)
                 onDone()
             }
             return
@@ -432,7 +455,7 @@ fun HomeScreen(
             val ok = payload?.vods != null || prevVods != null
             HomeLoadGate.finish(key, deferred, ok)
             if (!ok) LogBus.w("Home", "首页数据全失败且无缓存（连续 ${HomeLoadGate.streak(key)} 次）")
-            applyHomePayload(payload, prevVods, prevCats)
+            applyHomePayload(payload, prevVods, prevCats, myGen)
             onDone()
         }
     }
@@ -440,23 +463,35 @@ fun HomeScreen(
 
     fun loadDrpyCategory(index: Int, filter: Pair<String, String>? = null) { // index >= 1，对应 drpyCats[index-1]
         val cat = drpyCats.getOrNull(index - 1) ?: return
+        // v0.31.2：单飞——快速连点时取消上一次，同一时间只有一个分类请求在跑
+        // （之前每次点击都起一个协程，PY 引擎并发堆积是闪退的主因）。
+        // 世代+1：旧请求的迟到结果直接丢弃，"最后一次点击赢"。
+        categoryJob?.cancel()
+        contentGen += 1
+        val myGen = contentGen
+        // 选中态立即更新，不等网络（之前是网络回来才设，连点时选中和内容错位，看着像"换了分类内容不变"）
+        selectedCategory = index
+        selectedFilter = filter
         val extend = filter?.let { mapOf(it.first to it.second) }.orEmpty()
         LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId}) filter=$extend")
-        scope.launch {
+        categoryJob = scope.launch {
             drpyLoading = true
-            // v0.17.3：加超时，避免 PY 卡死导致无响应
-            val list = withTimeoutOrNull(30_000) {
-                engineCategory(cat.typeId, 1, extend)
-            } ?: emptyList()
-            if (list.isEmpty()) {
-                LogBus.w("UI", "分类 ${cat.typeName} 返回空（可能超时或规则异常）")
-            } else {
-                LogBus.i("UI", "分类 ${cat.typeName} 加载 ${list.size} 条")
+            try {
+                // v0.17.3：加超时，避免 PY 卡死导致无响应
+                val list = withTimeoutOrNull(30_000) {
+                    engineCategory(cat.typeId, 1, extend)
+                } ?: emptyList()
+                if (myGen != contentGen) return@launch // 已被更新的点击取代，丢弃
+                if (list.isEmpty()) {
+                    LogBus.w("UI", "分类 ${cat.typeName} 返回空（可能超时或规则异常）")
+                } else {
+                    LogBus.i("UI", "分类 ${cat.typeName} 加载 ${list.size} 条")
+                }
+                drpyList = list.ifEmpty { null }
+            } finally {
+                // 只有最新请求才清 loading，避免旧请求的 finally 把新请求的转圈灭掉
+                if (myGen == contentGen) drpyLoading = false
             }
-            drpyList = list.ifEmpty { null }
-            selectedCategory = index
-            selectedFilter = filter
-            drpyLoading = false
         }
     }
 
@@ -527,7 +562,14 @@ fun HomeScreen(
             val data = cached?.first
             if (data != null && (data.vods.isNotEmpty() || data.cats.isNotEmpty())) {
                 if (data.cats.isNotEmpty()) drpyCats = data.cats
-                if (data.vods.isNotEmpty()) drpyList = data.vods
+                // v0.31.2：selectedCategory/selectedFilter 已由 rememberSaveable 恢复。
+                // 之前停在某个分类就重载它（保证选中和内容一致），否则才恢复首页缓存。
+                if (selectedCategory >= 1 && drpyCats.getOrNull(selectedCategory - 1) != null) {
+                    LogBus.i("Home", "返回首页：恢复分类 ${drpyCats[selectedCategory - 1].typeName}")
+                    loadDrpyCategory(selectedCategory, selectedFilter)
+                } else {
+                    if (data.vods.isNotEmpty()) drpyList = data.vods
+                }
                 LogBus.i("Home", "返回首页：缓存恢复 ${data.vods.size} 条/${data.cats.size} 个分类")
             }
             // 无缓存：保持空态，等用户下拉刷新（不再自动调 loadHome，避免触发风暴）

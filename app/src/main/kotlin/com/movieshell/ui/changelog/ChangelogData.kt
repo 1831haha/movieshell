@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.31.2",
+        date = "2026-10-15",
+        title = "分类三连修：连点不闪退、切换不错位、切回不丢失",
+        details = listOf(
+            "快速连点分类之前会闪退：每次点击都起一个请求，堆在一起把引擎冲垮了。现在点新的自动取消旧的，同一时间只跑一个。",
+            "换分类后内容偶尔还是旧的：之前是网络回来才更新选中态，连点快了选中和内容错位。现在点下去选中态立刻变，旧请求的迟到结果直接丢弃，只认最后一次点击。",
+            "切到别的 tab 再回来，之前选的分类丢了（回到全部）。现在选中态会记住，回来自动回到之前的分类和筛选。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.31.1",
         date = "2026-10-15",
         title = "慢规则不再被超时掐死",
