@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -587,11 +588,13 @@ fun HomeScreen(
                     )
                 }
             } else {
-                // 分类行：只在有真实分类时显示
+                // 分类行：只在有真实分类时显示（v0.28.1：横向滚动，分类多时可左滑）
                 if (drpyCats.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             chipLabels.forEachIndexed { index, label ->

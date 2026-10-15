@@ -231,6 +231,7 @@ private val MANUAL_SECTIONS = listOf(
     ManualSection(
         title = "版本更新",
         points = listOf(
+            "v0.28.1 首页分类行横向滚动：分类多时可左滑查看全部（之前超出屏幕的被截掉）。",
             "v0.28.0 在线字幕搜索 + 分类真因修复：①在线字幕：详情页和播放器字幕面板都加了“在线搜索”（搜当前标题），结果列字幕名/语言/格式/大小/下载量，点一下下载到 filesDir/subtitles 自动应用+按剧记忆（复用 PlayerSettings 字幕记忆和 SubtitleKit 加载链）。字幕源 2026-10 实测：射手已死、字幕库云锁、assrt/SubHD下载需key或解锁码、OpenSubtitles/subscene 需key或被墙——SubHD 是唯一免登录可爬的中文字幕源，首版写死它，接口化以后可加源。搜索 10s 超时、下载 5MB 上限，失败 Toast 不卡 UI。②分类真因：PyApi 的 homeContent 原来被调两次（推荐一次、分类一次），在 Chaquopy 里串行排队，分类那次经常排过 12s 熔断——而规则其实返回了 17 个分类（超时后才到）。现在 10s 内同规则共享一次调用结果。另修触发风暴：restoreHomeIfEmpty 无缓存时不再自动调 loadHome（之前异步缓存检查的竞态导致几十个协程排队刷“跳过重复触发”，超时后又循环），首页无缓存保持空态等用户下拉。分类超时后保留缓存分类并打明确日志。",
             "v0.27.8 真根因修复：详情 XMLSyntaxError（USC4）彻底根治——v0.27.5 定错因了，特此认账。真凶是详情页简介里的 emoji（U+1F60D/U+1F924 等 astral 字符）：含这种字符的 Python 字符串按 UCS-4 存，lxml 传给手机精简版 libxml2 声明 UTF-32LE，直接 fatal；桌面 libxml2 自带该支持所以复现不了。修法：桥里包一层 lxml 解析入口，astral 字符先转数字字符引用再解析，内容一字不变（含 v0.27.7 全部内容）。",
             "v0.27.7 播放器控制补全 + 分类修复：①播放器自绘统一控制层——中央大播放键（暂停时显示）、底部条播放/暂停+进度拖动+时间，Media3 原生控制器关闭，双引擎 UI 一致；轻点画面切换控制层显隐，播放中 4 秒无操作自动隐藏。②横竖屏切换按钮（控制条右侧）+ 重力感应自动横屏（设置→播放→开关，默认开，sensor 监听收敛在 OrientationSensor 单例）。③首页分类修复：loadHome 防重入（之前并发触发会经 latest(slot) 互相取消，在途 PY 请求永远做不完，真机 “H was cancelled” 刷屏的根因）；分类超时 6s→12s；PyApi.categories 打日志（返回 class 数量）。④PY 环境自检加 lxml/pyquery/charset-normalizer 版本号（只加日志，继续查详情 USC4）。",
