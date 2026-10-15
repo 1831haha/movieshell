@@ -140,9 +140,9 @@ private var homeEnteredOnce = false
 
 // v0.32.1：分类列表的 rememberSaveable 存取器。CategoryType 是 @Serializable，用 JSON 字符串存，
 // 切 tab 时分类 chips 不丢，selectedCategory 才有意义。
-private val CategoryListSaver = Saver<List<CategoryType>, String>(
-    save = { runCatching { Json.encodeToString(it) }.getOrDefault("[]") },
-    restore = { runCatching { Json.decodeFromString<List<CategoryType>>(it) }.getOrDefault(emptyList()) },
+private val CategoryListSaver = Saver<MutableState<List<CategoryType>>, String>(
+    save = { runCatching { Json.encodeToString(it.value) }.getOrDefault("[]") },
+    restore = { saved -> mutableStateOf(runCatching { Json.decodeFromString<List<CategoryType>>(saved) }.getOrDefault(emptyList())) },
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -255,7 +255,7 @@ fun HomeScreen(
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
     var drpyActive by remember { mutableStateOf(false) }
     var drpyLoading by remember { mutableStateOf(false) }
-    var drpyCats by rememberSaveable(saver = CategoryListSaver) { emptyList<CategoryType>() }
+    var drpyCats by rememberSaveable(saver = CategoryListSaver) { mutableStateOf(emptyList<CategoryType>()) }
     var drpyList by remember { mutableStateOf<List<ModelVod>?>(null) } // null=未加载/失败
     var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
     var catsFailed by remember { mutableStateOf(false) } // v0.29.0：分类失败且为空，给重试入口
