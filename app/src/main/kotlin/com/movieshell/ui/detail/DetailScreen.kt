@@ -234,6 +234,10 @@ fun DetailScreen(
     LaunchedEffect(followId) { following = FollowStore.isFollowing(context, followId) }
     var showDownloadDialog by remember { mutableStateOf(false) }
     var showOnlineSubtitle by remember { mutableStateOf(false) } // v0.28.0：在线字幕搜索
+    // v0.30.0：字幕搜索插件化，未安装时隐藏入口
+    val onlineSubtitleAvailable = remember {
+        com.movieshell.data.source.subtitle.SubtitlePluginLoader.isInstalled(context)
+    }
 
     /** 统一播放决策（v0.19.0）：解析走公共 resolvePlayUrl；磁力直接起播不进播放器 */
     fun playEpisode(ep: Episode, lineIndex: Int, episodeIndex: Int) {
@@ -546,10 +550,13 @@ fun DetailScreen(
                                 Icon(Icons.Filled.Download, contentDescription = "下载")
                             }
                             // v0.28.0：在线字幕搜索（搜当前标题，下载后按剧记忆）
-                            IconButton(
-                                onClick = { showOnlineSubtitle = true },
-                            ) {
-                                Icon(Icons.Filled.Subtitles, contentDescription = "在线字幕")
+                            // v0.30.0：插件化，未安装时隐藏
+                            if (onlineSubtitleAvailable) {
+                                IconButton(
+                                    onClick = { showOnlineSubtitle = true },
+                                ) {
+                                    Icon(Icons.Filled.Subtitles, contentDescription = "在线字幕")
+                                }
                             }
                         }
                         Spacer(Modifier.height(8.dp))

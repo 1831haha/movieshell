@@ -54,12 +54,22 @@ fun OnlineSubtitleSearchDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val source = remember { SubtitleSources.default() }
+    // v0.30.0：字幕源由插件动态提供
+    val source = remember { SubtitleSources.default(context) }
     var query by remember { mutableStateOf(keyword) }
     var searching by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<OnlineSubtitle>>(emptyList()) }
     var searched by remember { mutableStateOf(false) }
+
+    // 插件未安装时不应该打开此对话框，防御性关闭
+    if (source == null) {
+        LaunchedEffect(Unit) {
+            Toast.makeText(context, "字幕搜索插件未安装", Toast.LENGTH_SHORT).show()
+            onDismiss()
+        }
+        return
+    }
 
     fun doSearch(q: String) {
         val k = q.trim()

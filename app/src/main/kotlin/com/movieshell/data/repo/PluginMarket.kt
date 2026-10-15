@@ -34,7 +34,8 @@ object PluginMarket {
 
     /** 侠影可安装的 type；apk/import 等默认隐藏（设置里可开"显示不兼容插件"仅查看）。 */
     // v0.29.0：player=播放器引擎插件（libmpv 的 .so ZIP 包）
-    private val INSTALLABLE_TYPES = setOf("source", "server", "live", "env", "player")
+    // v0.30.0：subtitle=字幕搜索插件（DEX，经 DexClassLoader 动态加载）
+    private val INSTALLABLE_TYPES = setOf("source", "server", "live", "env", "player", "subtitle")
 
     /** v0.27.2：一键安装三段进度（下载→校验→安装），供安装进度条 UI 用。 */
     enum class InstallStage { Downloading, Verifying, Installing }
@@ -303,6 +304,22 @@ object PluginMarket {
                     }
                     if (installed.isEmpty()) throw IllegalStateException("播放器插件包里没有 libs 目录的 so 文件：${plugin.id}")
                 }
+                /**
+                 * v0.30.0：subtitle=字幕搜索插件。包内 subtitle-plugin.dex 解到私有
+                 * filesDir/subtitle-plugin/，SubtitlePluginLoader 经 DexClassLoader 加载。
+                 */
+                "subtitle" -> {
+                    val dir = File(context.filesDir, "subtitle-plugin").also { it.mkdirs() }
+                    entries.filter { it.name.endsWith(".dex") }.forEach { e ->
+                        val name = "subtitle-plugin.dex"
+                        zf.getInputStream(e).use { input ->
+                            safeDst(dir, name).outputStream().use { input.copyTo(it) }
+                        }
+                        installed.add(name)
+                    }
+                    if (installed.isEmpty()) throw IllegalStateException("字幕插件包里没有 dex 文件：${plugin.id}")
+                    com.movieshell.data.source.subtitle.SubtitlePluginLoader.reset()
+                }
                 else -> throw IllegalStateException("不支持的插件类型：${plugin.type}")
             }
         }
@@ -359,6 +376,12 @@ object PluginMarket {
             "player" -> {
                 val dir = File(context.filesDir, "mpv-libs")
                 rec.files.forEach { File(dir, it).delete() }
+            }
+            // v0.30.0：subtitle 插件卸载删 DEX
+            "subtitle" -> {
+                val dir = File(context.filesDir, "subtitle-plugin")
+                rec.files.forEach { File(dir, it).delete() }
+                com.movieshell.data.source.subtitle.SubtitlePluginLoader.reset()
             }
             else -> {
                 val dir = ruleDir(context, rec.engine)

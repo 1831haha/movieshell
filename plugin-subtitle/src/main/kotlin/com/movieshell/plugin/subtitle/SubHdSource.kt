@@ -1,6 +1,7 @@
-package com.movieshell.data.source.subtitle
+package com.movieshell.plugin.subtitle
 
-import com.movieshell.data.repo.LogBus
+import com.movieshell.data.source.subtitle.OnlineSubtitle
+import com.movieshell.data.source.subtitle.SubtitleSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -92,8 +93,7 @@ object SubHdSource : SubtitleSource {
                 size = metas.getOrNull(0).orEmpty(),
                 downloads = metas.getOrNull(1).orEmpty(),
             )
-        }.distinctBy { it.sid }.take(30).also {
-            LogBus.i("Subtitle", "SubHD 搜到 ${it.size} 条")
+        }.distinctBy { it.sid }.take(30)
         }
     }
 

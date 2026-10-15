@@ -64,3 +64,21 @@ jobs:
         with:
           name: movieshell-release-apk
           path: app/build/outputs/apk/release/*.apk
+
+      # v0.30.0：构建字幕搜索插件 DEX（SubHdSource 实现，DEX 动态加载）
+      - name: Build subtitle plugin DEX
+        run: |
+          gradle :plugin-subtitle:jar --no-daemon
+          mkdir -p "$RUNNER_TEMP/subtitle-dex"
+          "$ANDROID_HOME/build-tools/34.0.0/d8" \
+            --min-api 26 \
+            --lib "$ANDROID_HOME/platforms/android-34/android.jar" \
+            --output "$RUNNER_TEMP/subtitle-dex" \
+            plugin-subtitle/build/libs/plugin-subtitle.jar
+          ls -la "$RUNNER_TEMP/subtitle-dex"
+
+      - name: Upload subtitle plugin DEX
+        uses: actions/upload-artifact@v4
+        with:
+          name: subtitle-plugin-dex
+          path: ${{ runner.temp }}/subtitle-dex/*.dex

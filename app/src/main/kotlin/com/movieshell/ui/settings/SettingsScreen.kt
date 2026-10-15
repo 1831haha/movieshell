@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
@@ -108,6 +109,7 @@ import java.util.Locale
 fun SettingsScreen(
     onManualClick: () -> Unit = {},
     onDownloadsClick: () -> Unit = {},
+    onChangelogClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     // v0.7.1：主题读持久化 ThemeStore，不再是本地假状态
@@ -449,6 +451,13 @@ fun SettingsScreen(
                     title = "关于侠影",
                     subtitle = "版本 ${com.movieshell.BuildConfig.VERSION_NAME} · 本地影视聚合",
                     onClick = { /* 占位：可跳转关于页 */ },
+                )
+                // v0.30.0：更新日志独立入口
+                SettingsRow(
+                    icon = Icons.Filled.History,
+                    title = "更新日志",
+                    subtitle = "每一版的更新内容",
+                    onClick = onChangelogClick,
                 )
             }
             Spacer(Modifier.height(16.dp))

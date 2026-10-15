@@ -1,6 +1,6 @@
 package com.movieshell.data.source.subtitle
 
-/** 在线字幕搜索结果（v0.28.0）。 */
+/** 在线字幕搜索结果。 */
 data class OnlineSubtitle(
     val sourceId: String,
     val sid: String,

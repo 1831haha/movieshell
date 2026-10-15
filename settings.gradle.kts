@@ -14,3 +14,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "MovieShell"
 include(":app")
+include(":subtitle-api")
+include(":plugin-subtitle")

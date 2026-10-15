@@ -92,6 +92,7 @@ import com.movieshell.ui.lab.LabScreen
 import com.movieshell.ui.live.LiveManageScreen
 import com.movieshell.ui.live.LiveScreen
 import com.movieshell.ui.log.LogBubbleOverlay
+import com.movieshell.ui.changelog.ChangelogScreen
 import com.movieshell.ui.manual.ManualScreen
 import com.movieshell.ui.market.PluginDetailScreen
 import com.movieshell.ui.market.PluginMarketScreen
@@ -400,7 +401,12 @@ class MainActivity : ComponentActivity() {
                             SettingsScreen(
                                 onManualClick = { navController.navigate("manual") },
                                 onDownloadsClick = { navController.navigate("downloads") },
+                                onChangelogClick = { navController.navigate("changelog") },
                             )
+                        }
+                        // v0.30.0：更新日志独立页
+                        composable("changelog") {
+                            ChangelogScreen(onBack = { navController.popBackStack() })
                         }
                         composable("lab") {
                             LabScreen(

@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 69
-        versionName = "0.29.0"
+        versionCode = 70
+        versionName = "0.30.0"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -100,6 +100,8 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
+    // v0.30.0：字幕搜索插件接口（实现由插件提供，DexClassLoader 动态加载）
+    implementation(project(":subtitle-api"))
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
