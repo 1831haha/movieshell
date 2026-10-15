@@ -84,6 +84,6 @@ object TxtImporter {
 
     private fun readTextSmart(file: File): String? {
         runCatching { return file.readText(Charsets.UTF_8).takeIf { it.isNotBlank() } }
-        return runCatching { file.readText(Charsets.forName("GBK")) }.getOrNull()
+        return runCatching { file.readText(charset("GBK")) }.getOrNull()
     }
 }
