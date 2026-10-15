@@ -2,6 +2,8 @@ package com.movieshell.data.source
 
 import android.util.Log
 import com.movieshell.data.model.CategoryType
+import com.movieshell.data.model.FilterGroup
+import com.movieshell.data.model.FilterValue
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
@@ -97,27 +99,55 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
     /**
      * 分类列表（homeContent 的 class 数组）。
      * v0.27.7：打日志——规则返回 class 数量，空时 warn（真机分类反复拿不到，先拿数据）。
+     * v0.30.1：同时解析顶层 filters 字典，按 tid 切出每个分类的二级筛选组。
      */
     suspend fun categories(rulePath: String): List<CategoryType> = runCatching {
         val data = sharedHomeContent(rulePath)
             ?: return emptyList()
+        // filters: {tid: [{key,name,value:[{n,v}]}]}
+        val filtersMap = (data["filters"] as? JsonObject)?.entries.orEmpty()
+            .associate { (tid, v) ->
+                tid to (v as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+                    .map { g ->
+                        FilterGroup(
+                            key = g.optString("key"),
+                            name = g.optString("name"),
+                            values = (g["value"] as? JsonArray).orEmpty()
+                                .mapNotNull { it as? JsonObject }
+                                .map { FilterValue(n = it.optString("n"), v = it.optString("v")) }
+                                .filter { it.n.isNotBlank() },
+                        )
+                    }.filter { it.values.isNotEmpty() }
+            }
         val list = (data["class"] as? JsonArray).orEmpty()
             .mapNotNull { (it as? JsonObject) }.map {
-                CategoryType(typeId = it.optString("type_id"), typeName = it.optString("type_name"))
+                val tid = it.optString("type_id")
+                CategoryType(
+                    typeId = tid,
+                    typeName = it.optString("type_name"),
+                    filters = filtersMap[tid].orEmpty(),
+                )
             }.filter { it.typeId.isNotBlank() }
         if (list.isEmpty()) LogBus.w(TAG, "规则 categories 返回空（homeContent 无 class 数组）")
         else LogBus.i(TAG, "规则 categories 返回 ${list.size} 个分类")
         list
     }.getOrDefault(emptyList())
 
-    /** 分类翻页。 */
-    suspend fun category(rulePath: String, tid: String, pg: Int): List<Vod> =
-        dataList(
+    /** 分类翻页。extend 透传给规则（如 {"cat": 子分类 id}）。 */
+    suspend fun category(
+        rulePath: String,
+        tid: String,
+        pg: Int,
+        extend: Map<String, String> = emptyMap()
+    ): List<Vod> {
+        val extendJson = extend.entries.joinToString(",", "{", "}") { (k, v) -> "${k.q()}:${v.q()}" }
+        return dataList(
             engine.invoke(
                 rulePath, "categoryContent",
-                """{"tid":${tid.q()},"pg":$pg,"filter":true,"extend":{}}"""
+                """{"tid":${tid.q()},"pg":$pg,"filter":true,"extend":$extendJson}"""
             )
         ).map { it.toVod() }
+    }
 
     /** 详情。 */
     suspend fun detail(rulePath: String, vodId: String): VodDetail = runCatching {

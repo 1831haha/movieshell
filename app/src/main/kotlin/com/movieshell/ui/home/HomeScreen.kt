@@ -192,13 +192,17 @@ fun HomeScreen(
     }
 
     /** 当前数据源的分类列表 */
-    suspend fun engineCategory(tid: String, pg: Int): List<ModelVod> {
+    suspend fun engineCategory(
+        tid: String,
+        pg: Int,
+        filter: Map<String, String> = emptyMap()
+    ): List<ModelVod> {
         val s = subSite
         if (s != null) return runCatching { subRepo.category(s, tid, pg).second }
             .getOrDefault(emptyList())
         return runCatching {
             if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.category(tid, pg)
-            else if (SourceStateStore.activePyRule() != null) PySourceManager.category(tid, pg)
+            else if (SourceStateStore.activePyRule() != null) PySourceManager.category(tid, pg, filter)
             else emptyList()
         }.getOrDefault(emptyList())
     }
@@ -216,6 +220,8 @@ fun HomeScreen(
     var refreshing by remember { mutableStateOf(false) }
     var pullOffset by remember { mutableFloatStateOf(0f) }
     var selectedCategory by remember { mutableIntStateOf(0) } // 0 = 全部
+    // v0.30.1：二级筛选——(filterKey, filterValue)，null=未选（用规则默认）
+    var selectedFilter by remember { mutableStateOf<Pair<String, String>?>(null) }
     var shuffleSeed by remember { mutableIntStateOf(0) }
 
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
@@ -298,6 +304,7 @@ fun HomeScreen(
                             // 有缓存时网络返回空不覆盖，避免缓存闪一下被清空
                             drpyList = home.ifEmpty { null }
                             selectedCategory = 0
+                            selectedFilter = null
                         }
                         if (!home.isNullOrEmpty()) {
                             withContext(Dispatchers.IO) { HomeCache.saveVods(context, key, home) }
@@ -343,14 +350,15 @@ fun HomeScreen(
         }
     }
 
-    fun loadDrpyCategory(index: Int) { // index >= 1，对应 drpyCats[index-1]
+    fun loadDrpyCategory(index: Int, filter: Pair<String, String>? = null) { // index >= 1，对应 drpyCats[index-1]
         val cat = drpyCats.getOrNull(index - 1) ?: return
-        LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId})")
+        val extend = filter?.let { mapOf(it.first to it.second) }.orEmpty()
+        LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId}) filter=$extend")
         scope.launch {
             drpyLoading = true
             // v0.17.3：加超时，避免 PY 卡死导致无响应
             val list = withTimeoutOrNull(30_000) {
-                engineCategory(cat.typeId, 1)
+                engineCategory(cat.typeId, 1, extend)
             } ?: emptyList()
             if (list.isEmpty()) {
                 LogBus.w("UI", "分类 ${cat.typeName} 返回空（可能超时或规则异常）")
@@ -359,6 +367,7 @@ fun HomeScreen(
             }
             drpyList = list.ifEmpty { null }
             selectedCategory = index
+            selectedFilter = filter
             drpyLoading = false
         }
     }
@@ -404,6 +413,7 @@ fun HomeScreen(
             drpyList = null
             drpyCats = emptyList()
             selectedCategory = 0
+            selectedFilter = null
             homeError = null
             homeFailStreak = 0 // v0.29.0：换源后退避清零
             catsFailed = false
@@ -651,6 +661,33 @@ fun HomeScreen(
                                         if (index == 0) loadHome() else loadDrpyCategory(index)
                                     },
                                 )
+                            }
+                        }
+                    }
+                    // v0.30.1：二级筛选行——选中分类有 filters 时显示，取第一组
+                    val activeCat = drpyCats.getOrNull(selectedCategory - 1)
+                    val filterGroup = activeCat?.filters?.firstOrNull()
+                    if (selectedCategory >= 1 && filterGroup != null) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                filterGroup.values.forEach { fv ->
+                                    val isSel = selectedFilter?.let { it.first == filterGroup.key && it.second == fv.v } == true
+                                    AppChip(
+                                        text = fv.n,
+                                        selected = isSel,
+                                        small = true,
+                                        onClick = {
+                                            // 点已选中的则取消筛选，回到默认
+                                            val next = if (isSel) null else (filterGroup.key to fv.v)
+                                            loadDrpyCategory(selectedCategory, next)
+                                        },
+                                    )
+                                }
                             }
                         }
                     }

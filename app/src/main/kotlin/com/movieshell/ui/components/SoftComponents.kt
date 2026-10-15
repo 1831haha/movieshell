@@ -130,12 +130,13 @@ fun AppChip(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    small: Boolean = false, // v0.30.1：二级筛选行用小一号
 ) {
     FilterChip(
         selected = selected,
         onClick = onClick,
         label = { Text(text, style = SoftType.Caption) },
-        modifier = modifier.height(36.dp),
+        modifier = modifier.height(if (small) 30.dp else 36.dp),
         shape = RoundedCornerShape(SoftDimens.ChipCorner),
         colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),

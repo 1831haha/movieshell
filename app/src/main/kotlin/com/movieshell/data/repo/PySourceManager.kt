@@ -156,7 +156,7 @@ object PySourceManager {
     suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod> {
         val path = activeRulePath() ?: return emptyList()
         return latest(categorySlot) {
-            runCatching { api.category(path, tid, pg) }
+            runCatching { api.category(path, tid, pg, filter) }
                 .onFailure { e -> LogBus.e(TAG, "本地 PY category 失败: ${e.message}") }
                 .getOrNull().orEmpty().filterNotNull()
         }

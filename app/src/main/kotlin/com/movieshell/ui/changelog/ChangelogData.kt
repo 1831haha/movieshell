@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.30.1",
+        date = "2026-10-15",
+        title = "分类二级筛选",
+        details = listOf(
+            "真果鉴这类两级分类的规则：点进红果/饭果后，下面多出一排小筛选（热门/最新/完结等），选哪个就按哪个加载。",
+            "筛选数据直接从规则返回的 filters 里取，不额外请求；没有二级筛选的分类保持原样。",
+            "点已选中的筛选可取消，回到默认。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.30.0",
         date = "2026-10-15",
         title = "更新日志独立菜单 + 字幕搜索插件化",

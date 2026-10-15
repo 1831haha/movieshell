@@ -137,10 +137,27 @@ data class PlayLine(
 )
 
 /** 分类：对应 CMS 的 class 数组项 {type_id, type_name}。 */
+/** 二级筛选值：n=显示名，v=传给 extend 的值。 */
+@Serializable
+data class FilterValue(
+    val n: String = "",
+    val v: String = ""
+)
+
+/** 二级筛选组：key=extend 键名（如 "cat"），name=组显示名。 */
+@Serializable
+data class FilterGroup(
+    val key: String = "",
+    val name: String = "",
+    val values: List<FilterValue> = emptyList()
+)
+
 @Serializable
 data class CategoryType(
     val typeId: String = "",
-    val typeName: String = ""
+    val typeName: String = "",
+    /** v0.30.1：PY 规则 homeContent 的 filters 字典按 tid 切出来的二级筛选组。 */
+    val filters: List<FilterGroup> = emptyList()
 )
 
 // ---------------- 站源类型判定（Repository / UI 共用，v0.5.1 统一口径） ----------------
