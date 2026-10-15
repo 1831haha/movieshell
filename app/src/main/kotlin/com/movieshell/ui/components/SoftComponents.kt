@@ -282,12 +282,17 @@ fun AppTextField(
 }
 
 /** 悬浮 dock 导航项。 */
-data class SoftDockItem(val label: String, val icon: ImageVector)
+data class SoftDockItem(
+    val label: String,
+    val icon: ImageVector,
+    val selectedIcon: ImageVector = icon,
+)
 
 /**
  * v0.27.1 悬浮 dock 式底部导航（替代 Material3 NavigationBar 的脏灰药丸选中态）。
  * 左右 16dp、底部 12dp 边距，24dp 圆角，#1E242F 微抬升底 + 柔光阴影；
  * v0.32.0：选中色固定雾蓝 #7DD3FC，不跟随主题主色，避免冲突；
+ * v0.36.0：选中色改青色 #4DD0E1（mockup 风格）；未选中用 Outlined 图标，选中用 Filled 图标；
  * 未选中 #9AA4B2。
  */
 @Composable
@@ -299,7 +304,7 @@ fun SoftBottomDock(
 ) {
     val shape = RoundedCornerShape(24.dp)
     val unselected = Color(0xFF9AA4B2)
-    val accent = Color(0xFF7DD3FC) // v0.32.0：雾蓝强调色，固定
+    val accent = Color(0xFF4DD0E1) // v0.36.0：青色强调色（mockup 风格），固定
     Surface(
         modifier = modifier
             .padding(horizontal = 16.dp)
@@ -335,7 +340,7 @@ fun SoftBottomDock(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Icon(
-                        imageVector = item.icon,
+                        imageVector = if (selected) item.selectedIcon else item.icon,
                         contentDescription = item.label,
                         tint = fg,
                         modifier = Modifier.size(24.dp),

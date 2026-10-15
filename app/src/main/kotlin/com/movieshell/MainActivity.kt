@@ -30,11 +30,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.outlined.Book
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.OndemandVideo
+import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
@@ -108,14 +113,21 @@ import com.movieshell.ui.theme.MovieShellTheme
 import com.movieshell.ui.theme.SoftMotion
 import com.movieshell.ui.web.WebSniffScreen
 
-private data class Tab(val route: String, val label: String, val icon: ImageVector)
+private data class Tab(
+    val route: String,
+    val label: String,
+    val icon: ImageVector,
+    val selectedIcon: ImageVector,
+)
 
+// v0.36.0：5 tab 按 mockup 重排——首页/直播/书架/实验室/设置；站源 tab 删除，管理入口搬进设置页。
+// 未选中用 Outlined，选中用 Filled＋青色（SoftBottomDock 里处理）。
 private val tabs = listOf(
-    Tab("home", "首页", Icons.Filled.Home),
-    Tab("sources", "站源", Icons.Filled.Storage),
-    Tab("live", "直播", Icons.Filled.Tv),
-    Tab("lab", "实验室", Icons.Filled.Science),
-    Tab("settings", "设置", Icons.Filled.Settings),
+    Tab("home", "首页", Icons.Outlined.Home, Icons.Filled.Home),
+    Tab("live", "直播", Icons.Outlined.OndemandVideo, Icons.Filled.OndemandVideo),
+    Tab("bookshelf", "书架", Icons.Outlined.Book, Icons.Filled.Book),
+    Tab("lab", "实验室", Icons.Outlined.Science, Icons.Filled.Science),
+    Tab("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings),
 )
 
 private const val DETAIL_ROUTE = "detail/{vodId}"
@@ -239,7 +251,7 @@ class MainActivity : ComponentActivity() {
                                 current?.hierarchy?.any { it.route == t.route } == true
                             }.takeIf { it >= 0 } ?: 0
                             SoftBottomDock(
-                                items = tabs.map { SoftDockItem(it.label, it.icon) },
+                                items = tabs.map { SoftDockItem(it.label, it.icon, it.selectedIcon) },
                                 selectedIndex = selectedIdx,
                                 onSelect = { i -> navController.navigateTab(tabs[i].route) },
                             )
@@ -424,6 +436,7 @@ class MainActivity : ComponentActivity() {
                                 onManualClick = { navController.navigate("manual") },
                                 onDownloadsClick = { navController.navigate("downloads") },
                                 onChangelogClick = { navController.navigate("changelog") },
+                                onSourcesClick = { navController.navigate("sources") },
                             )
                         }
                         // v0.30.0：更新日志独立页

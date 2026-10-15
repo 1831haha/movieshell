@@ -15,6 +15,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.36.0",
+        date = "2026-10-16",
+        title = "书架进底栏 + 阅读器更好用了",
+        details = listOf(
+            "底栏换成首页 / 直播 / 书架 / 实验室 / 设置，图标是新的线条风，选中变青色实心。",
+            "站源 tab 没了，站源管理搬进了设置页的“源管理”。",
+            "阅读器多了：屏幕亮度调节、衬线/无衬线字体、三档行距。",
+            "书架长按书可以删除，每本书显示上次读到什么时候。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.35.0",
         date = "2026-10-16",
         title = "小说功能第一版：TXT 导入 + 阅读器 + 书架",

@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
@@ -108,6 +109,7 @@ fun SettingsScreen(
     onManualClick: () -> Unit = {},
     onDownloadsClick: () -> Unit = {},
     onChangelogClick: () -> Unit = {},
+    onSourcesClick: () -> Unit = {}, // v0.36.0：站源管理入口（tab 删除后搬进设置）
 ) {
     val context = LocalContext.current
     // v0.7.1：主题读持久化 ThemeStore，不再是本地假状态
@@ -303,6 +305,16 @@ fun SettingsScreen(
                             },
                         )
                     },
+                )
+            }
+            Spacer(Modifier.height(SoftDimens.CardSpacing))
+            // v0.36.0：源管理（站源 tab 删除，入口搬进设置；复用 sources 路由的完整逻辑）
+            SettingsGroup(title = "源管理") {
+                SettingsRow(
+                    icon = Icons.Filled.Storage,
+                    title = "站源管理",
+                    subtitle = "订阅源 / 本地源 / 规则管理",
+                    onClick = onSourcesClick,
                 )
             }
             Spacer(Modifier.height(SoftDimens.CardSpacing))

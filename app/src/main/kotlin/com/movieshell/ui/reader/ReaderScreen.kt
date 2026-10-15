@@ -1,13 +1,16 @@
 package com.movieshell.ui.reader
 
+import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.model.Chapter
@@ -76,8 +80,32 @@ fun ReaderScreen(
     var showToc by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var restoreOffset by remember { mutableIntStateOf(0) }
+    // v0.36.0：衬线/无衬线、行距三档、亮度（-1=跟随系统）
+    var serifFont by remember { mutableStateOf(false) }
+    var lineHeightRatio by remember { mutableStateOf(1.8f) }
+    var brightness by remember { mutableStateOf(-1f) }
 
     val scrollState = rememberScrollState()
+
+    // v0.36.0：亮度 Slider 直接写 Activity 的 Window
+    val activity = context as? Activity
+    LaunchedEffect(brightness) {
+        activity?.let {
+            val lp = it.window.attributes
+            lp.screenBrightness = brightness
+            it.window.attributes = lp
+        }
+    }
+    // 退出阅读器时恢复系统亮度
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.let {
+                val lp = it.window.attributes
+                lp.screenBrightness = -1f
+                it.window.attributes = lp
+            }
+        }
+    }
 
     // 载入书 + 章节 + 进度
     LaunchedEffect(novelId) {
@@ -203,7 +231,8 @@ fun ReaderScreen(
                     text = chapter.content,
                     color = fg,
                     fontSize = fontSize.sp,
-                    lineHeight = (fontSize * 1.8f).sp,
+                    lineHeight = (fontSize * lineHeightRatio).sp,
+                    fontFamily = if (serifFont) FontFamily.Serif else FontFamily.SansSerif,
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(scrollState)
@@ -268,28 +297,78 @@ fun ReaderScreen(
         )
     }
 
-    // 字号设置弹窗
+    // 设置弹窗：字号 / 字体 / 行距 / 亮度
     if (showSettings) {
         AlertDialog(
             onDismissRequest = { showSettings = false },
-            title = { Text("字号：${fontSize}sp") },
+            title = { Text("阅读设置") },
             text = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    IconButton(onClick = { if (fontSize > 14) fontSize-- }) {
-                        Icon(Icons.Filled.Remove, "减小")
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text("字号：${fontSize}sp", fontSize = 14.sp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        IconButton(onClick = { if (fontSize > 14) fontSize-- }) {
+                            Icon(Icons.Filled.Remove, "减小")
+                        }
+                        Slider(
+                            value = fontSize.toFloat(),
+                            onValueChange = { fontSize = it.toInt() },
+                            valueRange = 14f..24f,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { if (fontSize < 24) fontSize++ }) {
+                            Icon(Icons.Filled.Add, "增大")
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    // v0.36.0：衬线/无衬线
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("字体", fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { serifFont = false }) {
+                            Text(
+                                "无衬线",
+                                color = if (!serifFont) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = { serifFont = true }) {
+                            Text(
+                                "衬线",
+                                color = if (serifFont) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    // v0.36.0：行距三档
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("行距", fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        listOf(1.2f to "紧凑", 1.8f to "适中", 2.4f to "疏朗").forEach { (ratio, label) ->
+                            TextButton(onClick = { lineHeightRatio = ratio }) {
+                                Text(
+                                    label,
+                                    color = if (lineHeightRatio == ratio) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                    // v0.36.0：亮度（-1=跟随系统）
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (brightness < 0) "亮度：跟随系统" else "亮度：${(brightness * 100).toInt()}%",
+                            fontSize = 14.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { brightness = -1f }) { Text("自动") }
                     }
                     Slider(
-                        value = fontSize.toFloat(),
-                        onValueChange = { fontSize = it.toInt() },
-                        valueRange = 14f..24f,
-                        modifier = Modifier.weight(1f),
+                        value = if (brightness < 0) 0.5f else brightness,
+                        onValueChange = { brightness = it.coerceIn(0.05f, 1f) },
+                        valueRange = 0.05f..1f,
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                    IconButton(onClick = { if (fontSize < 24) fontSize++ }) {
-                        Icon(Icons.Filled.Add, "增大")
-                    }
                 }
             },
             confirmButton = {

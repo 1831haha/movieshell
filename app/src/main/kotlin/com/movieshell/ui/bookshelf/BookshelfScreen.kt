@@ -4,7 +4,8 @@ import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -28,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,9 +45,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.model.Novel
+import com.movieshell.data.model.ReadingProgress
 import com.movieshell.data.model.ShelfTab
 import com.movieshell.data.novel.TxtImporter
 import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.repo.ReadingProgressStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -53,10 +57,12 @@ import java.io.File
 
 /**
  * v0.35.0 小说书架。
+ * v0.36.0：长按删除（确认弹窗）；卡片显示上次阅读时间。
  *
  * - 在追 / 想看 / 已看完 三个分组（收藏片单下版再说）；
- * - 右上角 + 导入 TXT；点击书进阅读器；长按…暂时只做删除按钮。
+ * - 右上角 + 导入 TXT；点击书进阅读器。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BookshelfScreen(
     onNovelClick: (String) -> Unit = {},
@@ -66,11 +72,22 @@ fun BookshelfScreen(
 
     var tab by remember { mutableStateOf(ShelfTab.READING) }
     var shelves by remember { mutableStateOf<Map<ShelfTab, List<Novel>>>(emptyMap()) }
+    var progressMap by remember { mutableStateOf<Map<String, ReadingProgress>>(emptyMap()) }
     var importing by remember { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<Novel?>(null) }
 
     fun reload() {
         scope.launch {
-            shelves = withContext(Dispatchers.IO) { NovelStore.listShelves(context) }
+            val s = withContext(Dispatchers.IO) { NovelStore.listShelves(context) }
+            shelves = s
+            // v0.36.0：顺手把每本书的上次阅读时间也拉出来
+            val pm = withContext(Dispatchers.IO) {
+                s.values.flatten().distinctBy { it.id }.associate { novel ->
+                    novel.id to (ReadingProgressStore.load(context, novel.id)
+                        ?: ReadingProgress(novelId = novel.id))
+                }
+            }
+            progressMap = pm
         }
     }
     LaunchedEffect(Unit) { reload() }
@@ -160,17 +177,39 @@ fun BookshelfScreen(
                 items(books, key = { it.id }) { novel ->
                     NovelCard(
                         novel = novel,
+                        lastReadAt = progressMap[novel.id]?.updatedAt ?: 0L,
                         onClick = { onNovelClick(novel.id) },
-                        onDelete = {
-                            scope.launch {
-                                withContext(Dispatchers.IO) { NovelStore.removeNovel(context, novel.id) }
-                                reload()
-                            }
-                        },
+                        onLongClick = { deleteTarget = novel },
                     )
                 }
             }
         }
+    }
+
+    // v0.36.0：长按删除确认
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除《${target.title}》？") },
+            text = { Text("将从书架移除，阅读进度也会清除。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteTarget = null
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                NovelStore.removeNovel(context, target.id)
+                                ReadingProgressStore.clear(context, target.id)
+                            }
+                            reload()
+                        }
+                    },
+                ) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
+            },
+        )
     }
 }
 
@@ -183,52 +222,78 @@ private fun ShelfTabChip(label: String, selected: Boolean, count: Int, onClick: 
     )
 }
 
+/** v0.36.0：上次阅读时间格式化。 */
+private fun formatLastRead(ts: Long): String {
+    if (ts <= 0) return "还没读过"
+    val now = System.currentTimeMillis()
+    val diffMin = (now - ts) / 60000
+    return when {
+        diffMin < 1 -> "刚刚读过"
+        diffMin < 60 -> "$diffMin 分钟前"
+        diffMin < 60 * 24 -> "${diffMin / 60} 小时前"
+        diffMin < 60 * 48 -> "昨天"
+        else -> {
+            val c = java.util.Calendar.getInstance().apply { timeInMillis = ts }
+            "${c.get(java.util.Calendar.MONTH) + 1}-${c.get(java.util.Calendar.DAY_OF_MONTH)}"
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun NovelCard(novel: Novel, onClick: () -> Unit, onDelete: () -> Unit) {
+private fun NovelCard(
+    novel: Novel,
+    lastReadAt: Long,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     val total = novel.totalChapters.coerceAtLeast(1)
     val read = novel.lastReadChapter.coerceIn(0, total - 1)
     val progress = if (novel.lastReadChapter == 0) 0f else (read + 1).toFloat() / total
     val percent = (progress * 100).toInt()
 
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().combinedClickable(
+            onClick = onClick,
+            onLongClick = onLongClick,
+        ),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
         ),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        novel.title,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                    )
-                    if (!novel.author.isNullOrBlank()) {
-                        Text(
-                            novel.author!!,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
-                    }
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Filled.Delete,
-                        "删除",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            Text(
+                novel.title,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+            if (!novel.author.isNullOrBlank()) {
+                Text(
+                    novel.author!!,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
             }
             Spacer(Modifier.height(8.dp))
-            Text(
-                "读到第 ${read + 1} 章 / 共 $total 章",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "读到第 ${read + 1} 章 / 共 $total 章",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    formatLastRead(lastReadAt),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 LinearProgressIndicator(
