@@ -727,7 +727,7 @@ fun DetailScreen(
                                             if (url.isBlank()) return@forEach
                                             tasks.add(
                                                 DownloadTask(
-                                                    title = "${vod.title} ${ep.name.ifBlank { "第${i + 1}集" }}",
+                                                    title = "${vod?.title.orEmpty()} ${ep.name.ifBlank { "第${i + 1}集" }}",
                                                     pic = detail?.vodPic.orEmpty(),
                                                     url = url,
                                                     kind = if (DownloadManager.isM3u8(url)) "m3u8" else "file",
