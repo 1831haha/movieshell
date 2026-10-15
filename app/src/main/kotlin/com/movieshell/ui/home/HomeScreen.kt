@@ -338,19 +338,20 @@ fun HomeScreen(
                 LogBus.i("Home", "首页缓存命中（${if (fresh) "新鲜" else "过期"}）：${data.vods.size} 条")
             }
         }
-        // 2. 并发刷新（推荐/分类各 12s 熔断，互不取消）
+        // 2. 并发刷新（推荐/分类各 25s 熔断，互不取消）
         var netVods: List<ModelVod>? = null
         var netCats: List<CategoryType>? = null
         coroutineScope {
             launch {
                 netVods = runCatching {
                     // v0.27.1：推荐抓取给 12s（PY 规则内部 5s×2 次抓取，慢速网络 6s 不够）
-                    withTimeoutOrNull(12_000) {
+                    // v0.31.1：12s→25s，真果鉴这类慢规则要 21 秒才能回来，12s 直接掐死
+                    withTimeoutOrNull(25_000) {
                         withContext(Dispatchers.IO) { engineHome() }
                     }
                 }.getOrNull()
                 if (netVods == null) {
-                    LogBus.w("Home", "首页推荐加载超时/失败（12s 熔断）")
+                    LogBus.w("Home", "首页推荐加载超时/失败（25s 熔断）")
                 } else if (!netVods.isNullOrEmpty()) {
                     withContext(Dispatchers.IO) { HomeCache.saveVods(context, key, netVods!!) }
                 }
@@ -359,13 +360,14 @@ fun HomeScreen(
                 netCats = runCatching {
                     // v0.27.7：分类超时 6s→12s，和推荐对齐（真机分类反复熔断）
                     // v0.28.0：PyApi 内 homeContent 一次调用共享，推荐/分类不再排队
-                    withTimeoutOrNull(12_000) {
+                    // v0.31.1：12s→25s，和推荐对齐（真果鉴 21 秒才回来）
+                    withTimeoutOrNull(25_000) {
                         withContext(Dispatchers.IO) { engineCats() }
                     }
                 }.getOrNull()
                 if (netCats == null) {
                     // v0.28.0：超时不清空——缓存里的 cats 继续用，打明确日志
-                    LogBus.w("Home", "首页分类加载超时/失败（12s 熔断），保留缓存分类 ${cacheCats.size} 个")
+                    LogBus.w("Home", "首页分类加载超时/失败（25s 熔断），保留缓存分类 ${cacheCats.size} 个")
                 } else if (netCats!!.isNotEmpty()) {
                     withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, netCats!!) }
                 }
@@ -464,7 +466,7 @@ fun HomeScreen(
         scope.launch {
             drpyLoading = true
             val cats = runCatching {
-                withTimeoutOrNull(12_000) {
+                withTimeoutOrNull(25_000) {
                     withContext(Dispatchers.IO) { engineCats() }
                 }
             }.getOrNull()

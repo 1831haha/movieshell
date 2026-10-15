@@ -15,6 +15,15 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.31.1",
+        date = "2026-10-15",
+        title = "慢规则不再被超时掐死",
+        details = listOf(
+            "之前答应过的：首页加载超时从 12 秒放宽到 25 秒。真果鉴这种要 21 秒才能回来的慢规则，现在能正常加载出来，不再被 12 秒熔断掐死。",
+            "分类重试的超时同步放宽到 25 秒。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.31.0",
         date = "2026-10-15",
         title = "失败源不再刷屏",
