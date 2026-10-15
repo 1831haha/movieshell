@@ -51,8 +51,8 @@ class QuickJsDrpyEngine(
     private fun ensureEngine(): QuickJs {
         quickJs?.let { return it }
         val qjs = QuickJs.create()
-        // 绑定同步 request 桥
-        qjs.set("__bridge", JsBridge::class.java, JsBridge())
+        // 绑定同步 request 桥：QuickJS set() 只接受接口，传 JsBridgeInterface
+        qjs.set("__bridge", JsBridgeInterface::class.java, JsBridge())
         // 先跑 shim，建立 request/setResult 等全局函数
         val shim = appContext.assets.open("drpy/shim.js").bufferedReader().readText()
         qjs.evaluate(shim, "shim.js")
@@ -136,11 +136,19 @@ class QuickJsDrpyEngine(
         }
 
     /**
-     * JS 桥：提供同步 request(url, options) 给 drpy 规则。
-     * QuickJS 通过 set() 绑定的 Java 对象方法可直接被 JS 调用。
+     * JS 桥接口：QuickJS 的 set() 只接受接口绑定，实现类在下面。
+     * JS 侧通过 __bridge.request(url, options) / __bridge.log(msg) 调用。
      */
-    inner class JsBridge {
-        fun request(url: String, options: String?): String {
+    interface JsBridgeInterface {
+        fun request(url: String, options: String?): String
+        fun log(msg: String)
+    }
+
+    /**
+     * JS 桥：提供同步 request(url, options) 给 drpy 规则。
+     */
+    inner class JsBridge : JsBridgeInterface {
+        override fun request(url: String, options: String?): String {
             return runCatching {
                 val opt = if (options.isNullOrBlank()) JSONObject() else JSONObject(options)
                 val method = opt.optString("method", "GET").uppercase()
@@ -165,7 +173,7 @@ class QuickJsDrpyEngine(
             }.getOrDefault("")
         }
 
-        fun log(msg: String) {
+        override fun log(msg: String) {
             LogBus.d(TAG, "JS: $msg")
         }
     }

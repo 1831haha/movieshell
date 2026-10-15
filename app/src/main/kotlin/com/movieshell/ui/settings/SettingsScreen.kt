@@ -82,6 +82,7 @@ import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.PlayerEngine
+import com.movieshell.player.MpvPluginLoader
 import com.movieshell.ui.preview.fileProviderAuthority
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.PluginStore
@@ -219,10 +220,15 @@ fun SettingsScreen(
                     onClick = { showPlayerDialog = true },
                 )
                 // v0.20.0：播放器内核——Media3（默认）/ libmpv，播放器内也可一键切换
+                // v0.29.0：libmpv 已插件化，未安装时标注
                 SettingsRow(
                     icon = Icons.Filled.Memory,
                     title = "播放器内核",
-                    subtitle = if (engine == PlayerEngine.MEDIA3) "Media3（默认）" else "libmpv",
+                    subtitle = when {
+                        engine == PlayerEngine.MEDIA3 -> "Media3（默认）"
+                        MpvPluginLoader.isInstalled(context) -> "libmpv"
+                        else -> "libmpv（插件未安装）"
+                    },
                     onClick = { showEngineDialog = true },
                 )
                 // v0.14.0：片头片尾跳过
@@ -476,6 +482,7 @@ fun SettingsScreen(
         )
     }
     // v0.20.0：播放器内核选择（持久化，播放器内一键切换走同一偏好）
+    // v0.29.0：libmpv 插件化——未安装时选 libmpv 提示去插件市场，不切换
     if (showEngineDialog) {
         SingleChoiceDialog(
             title = "播放器内核",
@@ -483,11 +490,15 @@ fun SettingsScreen(
             selected = if (engine == PlayerEngine.MEDIA3) "Media3（默认）" else "libmpv",
             onDismiss = { showEngineDialog = false },
             onSelect = {
-                PlayerSettings.setEngine(
-                    context,
-                    if (it.startsWith("Media3")) PlayerEngine.MEDIA3 else PlayerEngine.LIBMPV,
-                )
-                showEngineDialog = false
+                if (it.startsWith("Media3") || MpvPluginLoader.isInstalled(context)) {
+                    PlayerSettings.setEngine(
+                        context,
+                        if (it.startsWith("Media3")) PlayerEngine.MEDIA3 else PlayerEngine.LIBMPV,
+                    )
+                    showEngineDialog = false
+                } else {
+                    Toast.makeText(context, "去 实验室-插件市场 安装 libmpv 播放器引擎", Toast.LENGTH_LONG).show()
+                }
             },
         )
     }

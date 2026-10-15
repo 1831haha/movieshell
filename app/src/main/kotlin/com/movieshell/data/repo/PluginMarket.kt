@@ -33,7 +33,8 @@ object PluginMarket {
     private const val UA = "XiaYing/0.23.0"
 
     /** 侠影可安装的 type；apk/import 等默认隐藏（设置里可开"显示不兼容插件"仅查看）。 */
-    private val INSTALLABLE_TYPES = setOf("source", "server", "live", "env")
+    // v0.29.0：player=播放器引擎插件（libmpv 的 .so ZIP 包）
+    private val INSTALLABLE_TYPES = setOf("source", "server", "live", "env", "player")
 
     /** v0.27.2：一键安装三段进度（下载→校验→安装），供安装进度条 UI 用。 */
     enum class InstallStage { Downloading, Verifying, Installing }
@@ -286,6 +287,22 @@ object PluginMarket {
                     }
                     if (installed.isEmpty()) throw IllegalStateException("依赖包里没有 pylibs/ 内容：${plugin.id}")
                 }
+                /**
+                 * v0.29.0：player=播放器引擎插件。包内 libs/ 下的 .so 解到私有
+                 * filesDir/mpv-libs/（native 库必须走私有目录 dlopen），
+                 * MpvPluginLoader.ensureLoaded 按序 System.load。
+                 */
+                "player" -> {
+                    val dir = File(context.filesDir, "mpv-libs").also { it.mkdirs() }
+                    entries.filter { it.name.startsWith("libs/") && it.name.endsWith(".so") }.forEach { e ->
+                        val name = File(e.name).name
+                        zf.getInputStream(e).use { input ->
+                            safeDst(dir, name).outputStream().use { input.copyTo(it) }
+                        }
+                        installed.add(name)
+                    }
+                    if (installed.isEmpty()) throw IllegalStateException("播放器插件包里没有 libs 目录的 so 文件：${plugin.id}")
+                }
                 else -> throw IllegalStateException("不支持的插件类型：${plugin.type}")
             }
         }
@@ -337,6 +354,11 @@ object PluginMarket {
                 dir.walkTopDown().filter { it.isDirectory && it != dir }
                     .sortedByDescending { it.absolutePath.length }
                     .forEach { runCatching { it.delete() } }
+            }
+            // v0.29.0：player 插件卸载删 .so（native 库进程内无法卸载，重启生效）
+            "player" -> {
+                val dir = File(context.filesDir, "mpv-libs")
+                rec.files.forEach { File(dir, it).delete() }
             }
             else -> {
                 val dir = ruleDir(context, rec.engine)

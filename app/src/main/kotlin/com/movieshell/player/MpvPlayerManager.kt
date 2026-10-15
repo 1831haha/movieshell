@@ -89,6 +89,11 @@ object MpvPlayerManager {
         executor.execute {
             if (!initialized.compareAndSet(false, true)) return@execute
             try {
+                // v0.29.0：libmpv 已插件化，先加载插件的 .so；未安装抛异常走下面的
+                // initFailed 兜底（EngineHost 回退 Media3）。
+                if (!MpvPluginLoader.ensureLoaded(app)) {
+                    throw IllegalStateException("libmpv 插件未安装")
+                }
                 MPVLib.create(app)
                 MPVLib.setOptionString("vo", "gpu")
                 MPVLib.setOptionString("hwdec", "mediacodec")

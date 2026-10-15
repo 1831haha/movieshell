@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 68
-        versionName = "0.28.1"
+        versionCode = 69
+        versionName = "0.29.0"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -55,6 +55,20 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        // v0.29.0：libmpv 插件化——mpv/FFmpeg 的 .so 移到"播放器引擎插件"（ZIP 包经插件市场下载），
+        // 壳子只留 AAR 的 Java 层（dev.jdtech.mpv.MPVLib），APK 瘦 21MB。运行时 MpvPluginLoader 按序 System.load。
+        jniLibs {
+            excludes += "lib/arm64-v8a/libmpv.so"
+            excludes += "lib/arm64-v8a/libavcodec.so"
+            excludes += "lib/arm64-v8a/libavformat.so"
+            excludes += "lib/arm64-v8a/libavutil.so"
+            excludes += "lib/arm64-v8a/libswscale.so"
+            excludes += "lib/arm64-v8a/libswresample.so"
+            excludes += "lib/arm64-v8a/libavfilter.so"
+            excludes += "lib/arm64-v8a/libavdevice.so"
+            excludes += "lib/arm64-v8a/libpostproc.so"
+            excludes += "lib/arm64-v8a/libplayer.so"
         }
     }
 }

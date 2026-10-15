@@ -226,6 +226,9 @@ fun HomeScreen(
     var drpyCats by remember { mutableStateOf<List<CategoryType>>(emptyList()) }
     var drpyList by remember { mutableStateOf<List<ModelVod>?>(null) } // null=未加载/失败
     var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
+    // v0.29.0：失败退避——连续全失败 3 次后，只响应用户手动下拉（挡高频空转）
+    var homeFailStreak by remember { mutableIntStateOf(0) }
+    var catsFailed by remember { mutableStateOf(false) } // v0.29.0：分类失败且为空，给重试入口
 
     /** v0.25.0：当前数据源的缓存 key（订阅站 key / 本地规则名） */
     fun homeCacheKey(): String? = when {
@@ -247,11 +250,19 @@ fun HomeScreen(
      * v0.27.7：防重入——ON_RESUME/下拉刷新可能并发触发 loadHome，
      * 新调用会经 latest(slot) 取消旧的在途 PY 请求（真机 "H was cancelled" 刷屏的根因），
      * 请求永远做不完。进行中直接跳过。
+     *
+     * v0.29.0：失败退避——force=false 的自动触发在连续 3 次全失败后直接跳过，
+     * 只保留用户手动下拉（doRefresh 传 force=true）。源切换时 streak 清零。
      */
-    fun loadHome(onDone: () -> Unit = {}) {
+    fun loadHome(force: Boolean = false, onDone: () -> Unit = {}) {
         val key = homeCacheKey() ?: return
         if (homeLoading) {
             LogBus.i("Home", "首页加载进行中，跳过重复触发")
+            onDone()
+            return
+        }
+        if (!force && homeFailStreak >= 3) {
+            LogBus.i("Home", "首页连续失败 ${homeFailStreak} 次，退避中（下拉可手动重试）")
             onDone()
             return
         }
@@ -306,16 +317,24 @@ fun HomeScreen(
                                 "Home",
                                 "首页分类加载超时/失败（12s 熔断），保留缓存分类 ${drpyCats.size} 个",
                             )
+                            // v0.29.0：分类失败且当前为空，UI 给重试入口
+                            if (drpyCats.isEmpty()) catsFailed = true
                         } else if (cats.isNotEmpty()) {
                             drpyCats = cats
+                            catsFailed = false
                             withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) }
+                        } else if (drpyCats.isEmpty()) {
+                            catsFailed = false // 规则本来就没分类，不是失败
                         }
                     }
                 }
                 drpyLoading = false
                 if (drpyList == null) {
                     homeError = "加载失败，点击重试"
-                    LogBus.w("Home", "首页数据全失败且无缓存")
+                    homeFailStreak++
+                    LogBus.w("Home", "首页数据全失败且无缓存（连续 ${homeFailStreak} 次）")
+                } else {
+                    homeFailStreak = 0
                 }
                 onDone()
             } finally {
@@ -344,6 +363,29 @@ fun HomeScreen(
         }
     }
 
+    /** v0.29.0：分类失败重试（分类行空态的"点击重试"用，只拉分类） */
+    fun loadCats() {
+        val key = homeCacheKey() ?: return
+        catsFailed = false
+        scope.launch {
+            drpyLoading = true
+            val cats = runCatching {
+                withTimeoutOrNull(12_000) {
+                    withContext(Dispatchers.IO) { engineCats() }
+                }
+            }.getOrNull()
+            if (!cats.isNullOrEmpty()) {
+                drpyCats = cats
+                runCatching { withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) } }
+                LogBus.i("Home", "分类重试成功：${cats.size} 个")
+            } else {
+                catsFailed = true
+                LogBus.w("Home", "分类重试仍失败")
+            }
+            drpyLoading = false
+        }
+    }
+
     // ---- 站源切换 BottomSheet（v0.7.1） ----
     var showSourceSheet by remember { mutableStateOf(false) }
     fun refreshDrpyState() {
@@ -363,6 +405,8 @@ fun HomeScreen(
             drpyCats = emptyList()
             selectedCategory = 0
             homeError = null
+            homeFailStreak = 0 // v0.29.0：换源后退避清零
+            catsFailed = false
         }
     }
 
@@ -418,7 +462,8 @@ fun HomeScreen(
         refreshing = true
         if (drpyActive) {
             // v0.25.0：复用 loadHome 单入口（含缓存/并发/超时），结束收指示条
-            loadHome(onDone = {
+            // v0.29.0：手动下拉 force=true，绕过失败退避
+            loadHome(force = true, onDone = {
                 refreshing = false
                 pullOffset = 0f
             })
@@ -607,6 +652,13 @@ fun HomeScreen(
                                     },
                                 )
                             }
+                        }
+                    }
+                } else if (catsFailed) {
+                    // v0.29.0：分类加载失败且为空，给重试入口（之前静默隐藏）
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        TextButton(onClick = { loadCats() }) {
+                            Text("分类加载失败，点击重试")
                         }
                     }
                 }

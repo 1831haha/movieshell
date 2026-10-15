@@ -2,6 +2,7 @@ package com.movieshell.ui.market
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -159,6 +160,9 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
                 .padding(inner)
                 .padding(horizontal = SoftDimens.PagePadding),
         ) {
+            // v0.29.0：市场顶部显示仓库链接（点文本复制，图标按钮浏览器打开）
+            RepoLinkRow()
+            Spacer(Modifier.height(8.dp))
             if (sources.size > 1) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(sources.size) { i ->
@@ -339,6 +343,52 @@ private fun PluginCard(
                 busy = busy,
                 onInstall = onInstall,
                 onUninstall = onUninstall,
+            )
+        }
+    }
+}
+
+/** v0.29.0：市场顶部仓库链接行——点文本复制，点图标浏览器打开。 */
+@Composable
+private fun RepoLinkRow() {
+    val context = LocalContext.current
+    val repoUrl = "https://github.com/1831haha/xiaying-plugins"
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = repoUrl,
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            modifier = Modifier
+                .weight(1f)
+                .clickable {
+                    val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("repo", repoUrl))
+                    Toast.makeText(context, "仓库链接已复制", Toast.LENGTH_SHORT).show()
+                },
+        )
+        IconButton(
+            onClick = {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(repoUrl),
+                        ),
+                    )
+                }
+            },
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                Icons.Filled.Search,
+                contentDescription = "浏览器打开",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
             )
         }
     }
