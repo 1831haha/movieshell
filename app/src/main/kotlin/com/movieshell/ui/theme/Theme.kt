@@ -10,21 +10,21 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 
 /**
- * v0.27.0 Soft Tech 配色：深空灰底 + 雾蓝主色。
+ * v0.32.0 影院黑配色：近黑底 #0A0A0F + 暗金主色。
  * 主题换色器只替换 primary，其余 token 固定；onPrimary 按主色明度自动取深/白保证对比度。
  */
 private fun darkScheme(primary: Color) = darkColorScheme(
     primary = primary,
-    onPrimary = if (primary.luminance() > 0.5f) Color(0xFF06202B) else Color.White,
+    onPrimary = if (primary.luminance() > 0.5f) Color(0xFF1A1408) else Color.White,
     secondary = lerp(primary, Color.White, 0.3f),
-    background = Color(0xFF101318),
-    surface = Color(0xFF181D26),
-    surfaceVariant = Color(0xFF202635),
+    background = Color(0xFF0A0A0F),
+    surface = Color(0xFF14141B),
+    surfaceVariant = Color(0xFF1E1E28),
     onBackground = Color(0xFFF2F4F8),
     onSurface = Color(0xFFF2F4F8),
     onSurfaceVariant = Color(0xFF9AA4B2),
-    outline = Color(0xFF262D3A),
-    outlineVariant = Color(0xFF262D3A),
+    outline = Color(0xFF26262F),
+    outlineVariant = Color(0xFF26262F),
     error = Color(0xFFFCA5A5),
     onError = Color(0xFF2B0A0A),
 )
@@ -47,7 +47,7 @@ private fun lightScheme(primary: Color) = lightColorScheme(
 @Composable
 fun MovieShellTheme(
     darkTheme: Boolean = true,
-    themeColor: Color = Color(0xFF7DD3FC),
+    themeColor: Color = Color(0xFFD4A24C),
     content: @Composable () -> Unit,
 ) {
     CompositionLocalProvider(

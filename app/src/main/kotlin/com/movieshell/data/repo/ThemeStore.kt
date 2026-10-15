@@ -21,8 +21,8 @@ object ThemeStore {
     private const val KEY_MODE = "theme_mode"
     private const val KEY_COLOR = "theme_color"
 
-    /** 默认主题色：雾蓝（v0.27.0 Soft Tech） */
-    const val DEFAULT_COLOR = 0xFF7DD3FC.toInt()
+    /** 默认主题色：暗金（v0.32.0 影院黑） */
+    const val DEFAULT_COLOR = 0xFFD4A24C.toInt()
 
     /** DsPlayer 式候选色 */
     val COLOR_OPTIONS = listOf(

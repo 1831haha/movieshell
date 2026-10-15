@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.32.0",
+        date = "2026-10-15",
+        title = "影院黑：流动光斑 + 毛玻璃 + 暗金主色",
+        details = listOf(
+            "整个界面换成影院黑：近黑底 + 暗金主色，影院感拉满。底栏选中态还是雾蓝，不冲突。",
+            "首页顶部加了缓慢流动的渐变光斑（暗金/靛紫/深蓝），透明度很低不晃眼，App 切后台自动停，不耗电。",
+            "影视卡片和分类标签换成毛玻璃质感：半透明底 + 低透明白描边，选中项再加一圈暗金微光。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.31.2",
         date = "2026-10-15",
         title = "分类三连修：连点不闪退、切换不错位、切回不丢失",

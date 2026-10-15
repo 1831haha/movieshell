@@ -8,10 +8,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * v0.27.0 Soft Tech 设计语言 token（单入口）。
+ * v0.32.0 影院黑设计语言 token（单入口）。
  *
- * 深色柔和科技风：深空灰底 + 雾蓝主色，大圆角 + 低对比描边 + 柔和阴影，
- * 去流动光斑/霓虹渐变/重度毛玻璃。主题换色器只替换 primary，其余 token 固定。
+ * 近黑底 #0A0A0F + 暗金主色，流动渐变光斑 + 毛玻璃卡片 + 微光描边，
+ * 影院感。主题换色器只替换 primary，其余 token 固定。
  */
 
 /** Material3 色板之外的固定扩展 token。 */
@@ -27,7 +27,7 @@ data class SoftExtraColors(
 )
 
 val SoftExtraDark = SoftExtraColors(
-    border = Color(0xFF262D3A),
+    border = Color(0xFF26262F),
     success = Color(0xFF6EE7B7),
     warning = Color(0xFFFCD34D),
     errorSoft = Color(0xFFFCA5A5),

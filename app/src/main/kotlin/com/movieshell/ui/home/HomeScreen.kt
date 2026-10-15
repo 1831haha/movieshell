@@ -103,6 +103,7 @@ import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.data.Vod
+import com.movieshell.ui.theme.FlowingGlowBackground
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
@@ -670,214 +671,218 @@ fun HomeScreen(
         else -> "选择站源"
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        // 下拉刷新指示条（占位）
-        val indicatorH = with(density) { pullOffset.toDp() }.coerceAtMost(64.dp)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(if (refreshing) 56.dp else indicatorH),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (refreshing || pullOffset > 12f) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(28.dp),
-                    strokeWidth = 3.dp,
-                )
-            }
-        }
-
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            state = gridState,
+    // v0.32.0 影院黑：流动渐变光斑垫底，内容浮上
+    Box(modifier = Modifier.fillMaxSize()) {
+        FlowingGlowBackground(modifier = Modifier.fillMaxSize())
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .nestedScroll(refreshConnection),
-            contentPadding = PaddingValues(SoftDimens.PagePadding),
-            verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
-            horizontalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.55f)),
         ) {
-            // v0.11.8：顶部改成一行——左侧小放大镜（搜索），右侧换源胶囊
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // 左侧：小放大镜搜索按钮
-                    IconButton(onClick = onSearchClick) {
-                        Icon(
-                            imageVector = Icons.Filled.Search,
-                            contentDescription = "搜索",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    // v0.24.0：播放历史
-                    IconButton(onClick = onHistoryClick) {
-                        Icon(
-                            imageVector = Icons.Filled.History,
-                            contentDescription = "播放历史",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    // v0.26.0：我的追剧
-                    IconButton(onClick = onFollowClick) {
-                        Icon(
-                            imageVector = Icons.Filled.PlaylistAddCheck,
-                            contentDescription = "我的追剧",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.weight(1f))
-                    // 右侧：换源胶囊（v0.7.1 入口，收窄为右侧胶囊）
-                    Surface(
-                        shape = RoundedCornerShape(SoftDimens.ChipCorner),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        onClick = { showSourceSheet = true },
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = sourceLabel,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                style = SoftType.CardTitle,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.widthIn(max = 160.dp),
-                            )
-                            Icon(
-                                imageVector = Icons.Filled.ExpandMore,
-                                contentDescription = "切换站源",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                    }
-                }
-            }
-
-            // v0.27.4：首页不再自动加载推荐流；无数据时干净空态（不再转圈/报错/演示数据）
-            if (!drpyReady) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    EmptyState(
-                        kind = EmptyKind.Empty,
-                        icon = Icons.Filled.Movie,
-                        title = "暂无首页内容",
-                        hint = "去站源页管理源",
+            // 下拉刷新指示条（占位）
+            val indicatorH = with(density) { pullOffset.toDp() }.coerceAtMost(64.dp)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(if (refreshing) 56.dp else indicatorH),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (refreshing || pullOffset > 12f) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp),
+                        strokeWidth = 3.dp,
                     )
                 }
-            } else {
-                // 分类行：只在有真实分类时显示（v0.28.1：横向滚动，分类多时可左滑）
-                if (drpyCats.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            }
+    
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                state = gridState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .nestedScroll(refreshConnection),
+                contentPadding = PaddingValues(SoftDimens.PagePadding),
+                verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                horizontalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+            ) {
+                // v0.11.8：顶部改成一行——左侧小放大镜（搜索），右侧换源胶囊
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 左侧：小放大镜搜索按钮
+                        IconButton(onClick = onSearchClick) {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = "搜索",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        // v0.24.0：播放历史
+                        IconButton(onClick = onHistoryClick) {
+                            Icon(
+                                imageVector = Icons.Filled.History,
+                                contentDescription = "播放历史",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        // v0.26.0：我的追剧
+                        IconButton(onClick = onFollowClick) {
+                            Icon(
+                                imageVector = Icons.Filled.PlaylistAddCheck,
+                                contentDescription = "我的追剧",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        // 右侧：换源胶囊（v0.7.1 入口，收窄为右侧胶囊）
+                        Surface(
+                            shape = RoundedCornerShape(SoftDimens.ChipCorner),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = { showSourceSheet = true },
                         ) {
-                            chipLabels.forEachIndexed { index, label ->
-                                AppChip(
-                                    text = label,
-                                    selected = selectedCategory == index,
-                                    onClick = {
-                                        // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
-                                        if (index == 0) loadHome() else loadDrpyCategory(index)
-                                    },
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = sourceLabel,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    style = SoftType.CardTitle,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 160.dp),
+                                )
+                                Icon(
+                                    imageVector = Icons.Filled.ExpandMore,
+                                    contentDescription = "切换站源",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
                                 )
                             }
                         }
                     }
-                    // v0.30.1：二级筛选行——选中分类有 filters 时显示，取第一组
-                    val activeCat = drpyCats.getOrNull(selectedCategory - 1)
-                    val filterGroup = activeCat?.filters?.firstOrNull()
-                    if (selectedCategory >= 1 && filterGroup != null) {
+                }
+    
+                // v0.27.4：首页不再自动加载推荐流；无数据时干净空态（不再转圈/报错/演示数据）
+                if (!drpyReady) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        EmptyState(
+                            kind = EmptyKind.Empty,
+                            icon = Icons.Filled.Movie,
+                            title = "暂无首页内容",
+                            hint = "去站源页管理源",
+                        )
+                    }
+                } else {
+                    // 分类行：只在有真实分类时显示（v0.28.1：横向滚动，分类多时可左滑）
+                    if (drpyCats.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                filterGroup.options.forEach { fv ->
-                                    val isSel = selectedFilter?.let { it.first == filterGroup.key && it.second == fv.value } == true
+                                chipLabels.forEachIndexed { index, label ->
                                     AppChip(
-                                        text = fv.name,
-                                        selected = isSel,
-                                        small = true,
+                                        text = label,
+                                        selected = selectedCategory == index,
                                         onClick = {
-                                            // 点已选中的则取消筛选，回到默认
-                                            val next = if (isSel) null else (filterGroup.key to fv.value)
-                                            loadDrpyCategory(selectedCategory, next)
+                                            // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
+                                            if (index == 0) loadHome() else loadDrpyCategory(index)
                                         },
                                     )
                                 }
                             }
                         }
-                    }
-                } else if (catsFailed) {
-                    // v0.29.0：分类加载失败且为空，给重试入口（之前静默隐藏）
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        TextButton(onClick = { loadCats() }) {
-                            Text("分类加载失败，点击重试")
+                        // v0.30.1：二级筛选行——选中分类有 filters 时显示，取第一组
+                        val activeCat = drpyCats.getOrNull(selectedCategory - 1)
+                        val filterGroup = activeCat?.filters?.firstOrNull()
+                        if (selectedCategory >= 1 && filterGroup != null) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    filterGroup.options.forEach { fv ->
+                                        val isSel = selectedFilter?.let { it.first == filterGroup.key && it.second == fv.value } == true
+                                        AppChip(
+                                            text = fv.name,
+                                            selected = isSel,
+                                            small = true,
+                                            onClick = {
+                                                // 点已选中的则取消筛选，回到默认
+                                                val next = if (isSel) null else (filterGroup.key to fv.value)
+                                                loadDrpyCategory(selectedCategory, next)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else if (catsFailed) {
+                        // v0.29.0：分类加载失败且为空，给重试入口（之前静默隐藏）
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            TextButton(onClick = { loadCats() }) {
+                                Text("分类加载失败，点击重试")
+                            }
                         }
                     }
+    
+                    // 分区标题 + 换一换
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        SectionTitle(
+                            title = "热门推荐",
+                            action = {
+                                TextButton(onClick = { shuffleSeed++ }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("换一换")
+                                }
+                            },
+                        )
+                    }
+    
+                    // 网格海报墙
+                    items(filtered, key = { it.id }) { vod ->
+                        PosterCard(
+                            title = vod.title,
+                            subtitle = "${vod.year} · ${vod.rating}分",
+                            badge = vod.rating,
+                            posterUrl = vod.poster,
+                            modifier = Modifier.aspectRatio(3f / 4.6f),
+                            onClick = { goDetail(vod.id) },
+                        )
+                    }
                 }
-
-                // 分区标题 + 换一换
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    SectionTitle(
-                        title = "热门推荐",
-                        action = {
-                            TextButton(onClick = { shuffleSeed++ }) {
-                                Icon(
-                                    imageVector = Icons.Filled.Refresh,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text("换一换")
-                            }
-                        },
-                    )
-                }
-
-                // 网格海报墙
-                items(filtered, key = { it.id }) { vod ->
-                    PosterCard(
-                        title = vod.title,
-                        subtitle = "${vod.year} · ${vod.rating}分",
-                        badge = vod.rating,
-                        posterUrl = vod.poster,
-                        modifier = Modifier.aspectRatio(3f / 4.6f),
-                        onClick = { goDetail(vod.id) },
+            }
+        }
+    
+        // 站源切换（v0.7.1）
+        // v0.11.8：选源弹窗改成居中悬浮 Dialog（原来是底部 BottomSheet）
+        if (showSourceSheet) {
+            Dialog(onDismissRequest = { showSourceSheet = false }) {
+                AppCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 480.dp),
+                ) {
+                    SourceSwitchSheet(
+                        onDismiss = { showSourceSheet = false },
+                        onChanged = { refreshDrpyState() },
                     )
                 }
             }
         }
-    }
-
-    // 站源切换（v0.7.1）
-    // v0.11.8：选源弹窗改成居中悬浮 Dialog（原来是底部 BottomSheet）
-    if (showSourceSheet) {
-        Dialog(onDismissRequest = { showSourceSheet = false }) {
-            AppCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 480.dp),
-            ) {
-                SourceSwitchSheet(
-                    onDismiss = { showSourceSheet = false },
-                    onChanged = { refreshDrpyState() },
-                )
-            }
-        }
-    }
+    } // v0.32.0：闭合 Box（流动光斑垫底）
 }
 /** 类型徽标：照抄 SourcesScreen 的 KindBadge（私有，故在此复制一份小的）。 */
 @Composable

@@ -132,21 +132,33 @@ fun AppChip(
     modifier: Modifier = Modifier,
     small: Boolean = false, // v0.30.1：二级筛选行用小一号
 ) {
+    // v0.32.0：选中态微光描边——暗金 1dp 边 + 柔光阴影
+    val glowColor = MaterialTheme.colorScheme.primary
     FilterChip(
         selected = selected,
         onClick = onClick,
         label = { Text(text, style = SoftType.Caption) },
-        modifier = modifier.height(if (small) 30.dp else 36.dp),
+        modifier = modifier
+            .height(if (small) 30.dp else 36.dp)
+            .then(
+                if (selected) Modifier.shadow(
+                    elevation = 8.dp,
+                    shape = RoundedCornerShape(SoftDimens.ChipCorner),
+                    ambientColor = glowColor.copy(alpha = 0.35f),
+                    spotColor = glowColor.copy(alpha = 0.35f),
+                ) else Modifier
+            ),
         shape = RoundedCornerShape(SoftDimens.ChipCorner),
         colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-            selectedLabelColor = MaterialTheme.colorScheme.primary,
+            containerColor = Color(0xFF16161F).copy(alpha = 0.72f),
+            selectedContainerColor = glowColor.copy(alpha = 0.22f),
+            selectedLabelColor = glowColor,
         ),
         border = FilterChipDefaults.filterChipBorder(
             enabled = true,
             selected = selected,
-            borderColor = LocalSoftExtra.current.border,
-            selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+            borderColor = Color.White.copy(alpha = 0.10f),
+            selectedBorderColor = glowColor.copy(alpha = 0.9f),
             borderWidth = SoftDimens.BorderWidth,
         ),
     )
@@ -275,7 +287,8 @@ data class SoftDockItem(val label: String, val icon: ImageVector)
 /**
  * v0.27.1 悬浮 dock 式底部导航（替代 Material3 NavigationBar 的脏灰药丸选中态）。
  * 左右 16dp、底部 12dp 边距，24dp 圆角，#1E242F 微抬升底 + 柔光阴影；
- * 选中项 primary 18% 胶囊底、图标文字 primary 色；未选中 #9AA4B2。
+ * v0.32.0：选中色固定雾蓝 #7DD3FC，不跟随主题主色（暗金），避免冲突；
+ * 未选中 #9AA4B2。
  */
 @Composable
 fun SoftBottomDock(
@@ -286,6 +299,7 @@ fun SoftBottomDock(
 ) {
     val shape = RoundedCornerShape(24.dp)
     val unselected = Color(0xFF9AA4B2)
+    val accent = Color(0xFF7DD3FC) // v0.32.0：雾蓝强调色，固定
     Surface(
         modifier = modifier
             .padding(horizontal = 16.dp)
@@ -293,7 +307,7 @@ fun SoftBottomDock(
             .shadow(
                 elevation = 16.dp,
                 shape = shape,
-                ambientColor = Color(0xFF7DD3FC).copy(alpha = 0.10f),
+                ambientColor = accent.copy(alpha = 0.10f),
                 spotColor = Color.Black.copy(alpha = 0.35f),
             ),
         shape = shape,
@@ -307,13 +321,13 @@ fun SoftBottomDock(
         ) {
             items.forEachIndexed { i, item ->
                 val selected = i == selectedIndex
-                val fg = if (selected) MaterialTheme.colorScheme.primary else unselected
+                val fg = if (selected) accent else unselected
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(16.dp))
                         .background(
-                            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                            if (selected) accent.copy(alpha = 0.18f)
                             else Color.Transparent
                         )
                         .clickable { onSelect(i) }

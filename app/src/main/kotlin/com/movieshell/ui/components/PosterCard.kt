@@ -23,12 +23,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 
 /**
- * 海报卡片（v0.27.0 Soft Tech：surface 底 + 1dp 描边 + 12dp 圆角；
+ * 海报卡片（v0.32.0 影院黑：毛玻璃质感——半透明底 + 低透明白描边；
  * 无海报时用中性占位 + 标题首字，不再用高饱和渐变）。
  */
 @Composable
@@ -44,8 +43,8 @@ fun PosterCard(
     Column(
         modifier = modifier
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surface)
-            .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
+            .background(Color(0xFF16161F).copy(alpha = 0.78f))
+            .border(SoftDimens.BorderWidth, Color.White.copy(alpha = 0.09f), shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         Box(
