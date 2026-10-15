@@ -1,0 +1,186 @@
+package com.movieshell.ui.subtitle
+
+import android.widget.Toast
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import com.movieshell.data.repo.LogBus
+import com.movieshell.data.source.subtitle.OnlineSubtitle
+import com.movieshell.data.source.subtitle.OnlineSubtitleKit
+import com.movieshell.data.source.subtitle.SubtitleSources
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
+import com.movieshell.ui.components.AppTextField
+import com.movieshell.player.PlayerDialogCard
+import com.movieshell.ui.theme.SoftType
+import kotlinx.coroutines.launch
+
+/**
+ * 在线字幕搜索对话框（v0.28.0，详情页/播放器共用）。
+ *
+ * @param keyword 初始关键词（影片标题）
+ * @param vodId 剧 ID（下载后按剧记忆，可空）
+ * @param onPick 选中下载后回调 file:// 地址（调用方负责应用到播放器）
+ */
+@Composable
+fun OnlineSubtitleSearchDialog(
+    keyword: String,
+    vodId: String?,
+    onPick: (fileUrl: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val source = remember { SubtitleSources.default() }
+    var query by remember { mutableStateOf(keyword) }
+    var searching by remember { mutableStateOf(false) }
+    var downloading by remember { mutableStateOf(false) }
+    var results by remember { mutableStateOf<List<OnlineSubtitle>>(emptyList()) }
+    var searched by remember { mutableStateOf(false) }
+
+    fun doSearch(q: String) {
+        val k = q.trim()
+        if (k.isEmpty() || searching) return
+        searching = true
+        searched = false
+        scope.launch {
+            results = runCatching { source.search(k) }.onFailure {
+                LogBus.w("Subtitle", "在线字幕搜索失败：${it.message}")
+                Toast.makeText(context, "搜索失败：${it.message}", Toast.LENGTH_SHORT).show()
+            }.getOrDefault(emptyList())
+            searching = false
+            searched = true
+        }
+    }
+
+    // 打开即搜一次
+    LaunchedEffect(Unit) { doSearch(query) }
+
+    PlayerDialogCard(
+        title = "在线字幕（${source.name}）",
+        onDismiss = onDismiss,
+        buttons = {
+            AppButton(text = "关闭", onClick = onDismiss, variant = AppButtonVariant.Ghost)
+        },
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AppTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = "影片标题",
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            AppButton(
+                text = "搜索",
+                onClick = { doSearch(query) },
+                enabled = !searching,
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        when {
+            searching -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) { CircularProgressIndicator() }
+            }
+            downloading -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.width(12.dp))
+                    Text("下载中…", style = SoftType.Body)
+                }
+            }
+            results.isEmpty() && searched -> {
+                Text(
+                    "没搜到，换个关键词试试",
+                    style = SoftType.Body,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(24.dp),
+                )
+            }
+            results.isNotEmpty() -> {
+                LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                    items(results, key = { it.sid }) { item ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !downloading) {
+                                    downloading = true
+                                    scope.launch {
+                                        runCatching {
+                                            OnlineSubtitleKit
+                                                .downloadAndSave(context, source, item, vodId)
+                                        }.onSuccess { url ->
+                                            onPick(url)
+                                        }.onFailure {
+                                            LogBus.w("Subtitle", "字幕下载失败：${it.message}")
+                                            Toast.makeText(
+                                                context,
+                                                "下载失败：${it.message}",
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                        downloading = false
+                                    }
+                                }
+                                .padding(vertical = 10.dp),
+                        ) {
+                            Text(
+                                text = item.title,
+                                style = SoftType.Body,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            val meta = listOf(item.language, item.format, item.size, item.downloads)
+                                .filter { it.isNotBlank() }.joinToString(" · ")
+                            if (meta.isNotBlank()) {
+                                Text(
+                                    text = meta,
+                                    style = SoftType.Caption,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "下载的字幕自动按剧记忆，下次播放直接挂载",
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}

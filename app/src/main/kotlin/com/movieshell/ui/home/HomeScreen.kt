@@ -294,12 +294,17 @@ fun HomeScreen(
                     launch {
                         val cats = runCatching {
                             // v0.27.7：分类超时 6s→12s，和推荐对齐（真机分类反复熔断）
+                            // v0.28.0：PyApi 内 homeContent 一次调用共享，推荐/分类不再排队
                             withTimeoutOrNull(12_000) {
                                 withContext(Dispatchers.IO) { engineCats() }
                             }
                         }.getOrNull()
                         if (cats == null) {
-                            LogBus.w("Home", "首页分类加载超时/失败（12s 熔断）")
+                            // v0.28.0：超时不清空——缓存里的 cats（步骤1已恢复）继续用，打明确日志
+                            LogBus.w(
+                                "Home",
+                                "首页分类加载超时/失败（12s 熔断），保留缓存分类 ${drpyCats.size} 个",
+                            )
                         } else if (cats.isNotEmpty()) {
                             drpyCats = cats
                             withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) }
@@ -362,8 +367,12 @@ fun HomeScreen(
 
     /**
      * v0.27.6：tab 切回时 HomeScreen 的 remember 状态已被 dispose（drpyList 回到 null），
-     * 静默从 HomeCache 恢复当前源的内容。不转圈、不打网络；缓存也没有才走完整 loadHome。
-     * drpyList 非空（用户正在看分类列表）时什么都不做，不覆盖。
+     * 静默从 HomeCache 恢复当前源的内容。不转圈、不打网络。
+     * v0.28.0 真因修复：之前缓存没有时会调 loadHome() 走网络，而缓存检查是异步的，
+     * ON_RESUME/LaunchedEffect 高频触发时几十个协程排队调 loadHome，
+     * 全被 homeLoading guard 挡掉（"跳过重复触发"刷屏），且每次超时后 drpyList 仍空，
+     * 下一次触发又进循环。现在无缓存就什么都不做——v0.27.4 起首页本来就是干净空态，
+     * 用户下拉刷新才会加载，符合"首页不自动加载"的设计。
      */
     fun restoreHomeIfEmpty() {
         if (drpyList != null || !drpyActive || homeLoading) return
@@ -372,13 +381,12 @@ fun HomeScreen(
             val cached = withContext(Dispatchers.IO) { HomeCache.load(context, key) }
             if (drpyList != null) return@launch // 恢复期间用户已操作，不覆盖
             val data = cached?.first
-            if (data != null && data.vods.isNotEmpty()) {
-                drpyCats = data.cats
-                drpyList = data.vods
-                LogBus.i("Home", "返回首页：缓存恢复 ${data.vods.size} 条")
-            } else {
-                loadHome()
+            if (data != null && (data.vods.isNotEmpty() || data.cats.isNotEmpty())) {
+                if (data.cats.isNotEmpty()) drpyCats = data.cats
+                if (data.vods.isNotEmpty()) drpyList = data.vods
+                LogBus.i("Home", "返回首页：缓存恢复 ${data.vods.size} 条/${data.cats.size} 个分类")
             }
+            // 无缓存：保持空态，等用户下拉刷新（不再自动调 loadHome，避免触发风暴）
         }
     }
 

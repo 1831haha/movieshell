@@ -172,6 +172,7 @@ fun PlayerScreen(
     var playUrl by remember { mutableStateOf(url) } // 实际播放地址（切线路/重试时更新）
     var showLines by remember { mutableStateOf(false) } // 线路+选集切换抽屉
     var showSubtitleDialog by remember { mutableStateOf(false) } // 外挂字幕
+    var showOnlineSubtitle by remember { mutableStateOf(false) } // v0.28.0：在线字幕搜索
     var sessionSubtitle by remember { mutableStateOf<String?>(null) } // 本次字幕覆盖（未设置则按剧记忆）
     var pipMode by remember { mutableStateOf(false) } // 画中画
     // v0.27.7：自绘控制层显隐（Media3 原生控制器已关闭，双引擎统一）；播放状态从引擎取
@@ -1034,6 +1035,22 @@ fun PlayerScreen(
                     showSubtitleDialog = false
                     replayWithSubtitle()
                 },
+                onOnlineSearch = { showOnlineSubtitle = true },
+            )
+        }
+
+        // v0.28.0：在线字幕搜索（搜当前标题，下载后自动应用+按剧记忆）
+        if (showOnlineSubtitle) {
+            com.movieshell.ui.subtitle.OnlineSubtitleSearchDialog(
+                keyword = title,
+                vodId = vodId,
+                onPick = { url ->
+                    sessionSubtitle = url
+                    showOnlineSubtitle = false
+                    showSubtitleDialog = false
+                    replayWithSubtitle()
+                },
+                onDismiss = { showOnlineSubtitle = false },
             )
         }
 
@@ -1262,7 +1279,8 @@ private fun LineSheet(
  * 字幕设置 / 定时关闭 / 本剧跳过 / 磁力服务提示四个面板共用。
  */
 @Composable
-private fun PlayerDialogCard(
+/** v0.28.0：开放给在线字幕对话框复用（原 private）。 */
+internal fun PlayerDialogCard(
     title: String,
     onDismiss: () -> Unit,
     buttons: @Composable RowScope.() -> Unit,
@@ -1333,6 +1351,7 @@ private fun SubtitleDialog(
     initialStyle: SubtitleStyle,
     onDismiss: () -> Unit,
     onSave: (String, SubtitleStyle) -> Unit,
+    onOnlineSearch: () -> Unit,
 ) {
     var url by remember { mutableStateOf(initial) }
     var size by remember { mutableIntStateOf(initialStyle.sizeSp) }
@@ -1373,6 +1392,12 @@ private fun SubtitleDialog(
             onValueChange = { url = it },
             placeholder = "字幕地址",
             modifier = Modifier.fillMaxWidth(),
+        )
+        // v0.28.0：在线搜索字幕
+        AppButton(
+            text = "在线搜索字幕",
+            onClick = onOnlineSearch,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
         Spacer(Modifier.height(12.dp))
         Text(

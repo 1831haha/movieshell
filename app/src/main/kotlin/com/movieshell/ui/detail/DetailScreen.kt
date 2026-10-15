@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.AlertDialog
@@ -232,6 +233,7 @@ fun DetailScreen(
     var following by remember { mutableStateOf(false) }
     LaunchedEffect(followId) { following = FollowStore.isFollowing(context, followId) }
     var showDownloadDialog by remember { mutableStateOf(false) }
+    var showOnlineSubtitle by remember { mutableStateOf(false) } // v0.28.0：在线字幕搜索
 
     /** 统一播放决策（v0.19.0）：解析走公共 resolvePlayUrl；磁力直接起播不进播放器 */
     fun playEpisode(ep: Episode, lineIndex: Int, episodeIndex: Int) {
@@ -543,6 +545,12 @@ fun DetailScreen(
                             ) {
                                 Icon(Icons.Filled.Download, contentDescription = "下载")
                             }
+                            // v0.28.0：在线字幕搜索（搜当前标题，下载后按剧记忆）
+                            IconButton(
+                                onClick = { showOnlineSubtitle = true },
+                            ) {
+                                Icon(Icons.Filled.Subtitles, contentDescription = "在线字幕")
+                            }
                         }
                         Spacer(Modifier.height(8.dp))
                     }
@@ -648,6 +656,23 @@ fun DetailScreen(
             )
         }
     
+        // v0.28.0：在线字幕搜索（下载后按剧记忆，播放时自动挂载）
+        if (showOnlineSubtitle) {
+            com.movieshell.ui.subtitle.OnlineSubtitleSearchDialog(
+                keyword = vod?.title.orEmpty().ifBlank { displayTitle(vodId) },
+                vodId = vodId,
+                onPick = {
+                    showOnlineSubtitle = false
+                    android.widget.Toast.makeText(
+                        context,
+                        "字幕已保存，播放时自动挂载",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                },
+                onDismiss = { showOnlineSubtitle = false },
+            )
+        }
+
         // v0.26.0：下载选集（多选 → 解析地址 → 入队）
         if (showDownloadDialog) {
             var selected by remember { mutableStateOf(lineEpisodes.indices.toSet()) }

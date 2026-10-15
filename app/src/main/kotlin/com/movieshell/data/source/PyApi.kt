@@ -56,14 +56,39 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
             .orEmpty()
 
     /**
+     * v0.28.0：homeContent 响应短时共享。
+     * 真因：HomeScreen 的推荐和分类原来各调一次 Python（home()/categories()），
+     * 两次 homeContent 在 Chaquopy 里串行排队，真机上分类那次经常排过 12s 熔断，
+     * 而规则日志里其实返回了 17 个分类（超时后才到）。
+     * 现在 10s 内同规则共享一次调用结果，推荐/分类各取所需。
+     */
+    private var sharedHomePath: String? = null
+    private var sharedHomeData: JsonObject? = null
+    private var sharedHomeAt: Long = 0L
+
+    private suspend fun sharedHomeContent(rulePath: String): JsonObject? {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (rulePath == sharedHomePath && now - sharedHomeAt < 10_000) {
+            return sharedHomeData
+        }
+        val data = envelope(engine.invoke(rulePath, "homeContent", """{"filter":true}"""))
+        sharedHomePath = rulePath
+        sharedHomeData = data
+        sharedHomeAt = now
+        return data
+    }
+
+    /**
      * 首页推荐。TVBox PY 有两种约定：
      * 1. homeContent 直接带 list；
      * 2. homeContent 只给 class，推荐列表在 homeVideoContent()（黄果 v18 等规则）。
      * 先 1 后 2，保证两类规则首页都有推荐。
      */
     suspend fun home(rulePath: String): List<Vod> {
-        val first = dataList(engine.invoke(rulePath, "homeContent", """{"filter":true}"""))
-        if (first.isNotEmpty()) return first.map { it.toVod() }
+        val data = sharedHomeContent(rulePath)
+        val first = ((data?.get("list") as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonObject) }).map { it.toVod() }
+        if (first.isNotEmpty()) return first
         LogBus.i(TAG, "homeContent 无推荐列表，改调 homeVideoContent")
         return dataList(engine.invoke(rulePath, "homeVideoContent", "{}"))
             .map { it.toVod() }
@@ -74,7 +99,7 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
      * v0.27.7：打日志——规则返回 class 数量，空时 warn（真机分类反复拿不到，先拿数据）。
      */
     suspend fun categories(rulePath: String): List<CategoryType> = runCatching {
-        val data = envelope(engine.invoke(rulePath, "homeContent", """{"filter":true}"""))
+        val data = sharedHomeContent(rulePath)
             ?: return emptyList()
         val list = (data["class"] as? JsonArray).orEmpty()
             .mapNotNull { (it as? JsonObject) }.map {
