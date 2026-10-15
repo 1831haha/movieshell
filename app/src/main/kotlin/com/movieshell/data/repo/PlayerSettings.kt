@@ -32,14 +32,12 @@ data class SubtitleStyle(
 /**
  * 播放器设置持久化（v0.14.0）。
  *
- * v0.16.2：片头/片尾跳过改为按剧单独设置（用户纠正：每部剧的开头/结束时间都不一样）。
- * - 全局默认值：skipIntroSec / skipOutroSec（新剧的初始值）
- * - 按剧覆盖：vodId → intro/outro 秒数，存在则用剧的，不存在用全局
+ * v0.32.1：删掉全局"跳过片头/片尾"秒数——每部剧片头片尾时长都不一样，
+ * 全局 N 秒对大多数剧都是错的，不再提供这个误导性设置。播放器默认不跳。
  */
 object PlayerSettings {
     private const val PREFS = "movieshell_prefs"
-    private const val KEY_SKIP_INTRO = "skip_intro_sec"
-    private const val KEY_SKIP_OUTRO = "skip_outro_sec"
+    /** v0.16.2：按剧片头片尾（SkipSettingsDialog 用） */
     private const val PREFIX_INTRO = "skip_intro_vod_"
     private const val PREFIX_OUTRO = "skip_outro_vod_"
     /** v0.19.0：外挂字幕地址按剧记忆 */
@@ -55,12 +53,6 @@ object PlayerSettings {
     /** v0.27.7：重力感应自动横屏 */
     private const val KEY_GRAVITY_ROTATE = "gravity_rotate"
 
-    private val _skipIntroSec = MutableStateFlow(0)
-    val skipIntroSec: StateFlow<Int> = _skipIntroSec
-
-    private val _skipOutroSec = MutableStateFlow(0)
-    val skipOutroSec: StateFlow<Int> = _skipOutroSec
-
     private val _engine = MutableStateFlow(PlayerEngine.MEDIA3)
     val engine: StateFlow<PlayerEngine> = _engine
 
@@ -73,8 +65,6 @@ object PlayerSettings {
 
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        _skipIntroSec.value = prefs.getInt(KEY_SKIP_INTRO, 0).coerceIn(0, 600)
-        _skipOutroSec.value = prefs.getInt(KEY_SKIP_OUTRO, 0).coerceIn(0, 600)
         _engine.value = runCatching {
             PlayerEngine.valueOf(prefs.getString(KEY_ENGINE, PlayerEngine.MEDIA3.name)!!)
         }.getOrDefault(PlayerEngine.MEDIA3)
@@ -88,44 +78,24 @@ object PlayerSettings {
         _gravityRotate.value = prefs.getBoolean(KEY_GRAVITY_ROTATE, true)
     }
 
-    /** 全局默认片头（新源初始值）。 */
-    fun setSkipIntro(context: Context, sec: Int) {
-        val v = sec.coerceIn(0, 600)
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putInt(KEY_SKIP_INTRO, v).apply()
-        _skipIntroSec.value = v
-    }
-
-    /** 全局默认片尾（新源初始值）。 */
-    fun setSkipOutro(context: Context, sec: Int) {
-        val v = sec.coerceIn(0, 600)
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putInt(KEY_SKIP_OUTRO, v).apply()
-        _skipOutroSec.value = v
-    }
-
     /**
-     * 取某部剧的片头跳过秒数：有按剧设置用剧的，否则用全局默认。
-     * vodId 为空时直接返回全局。
+     * 取某部剧的片头跳过秒数：没设置过就返回 0（不跳）。
+     * v0.32.1：删掉全局默认值 fallback——全局 N 秒对大多数剧是错的。
      */
     fun getSkipIntroFor(context: Context, vodId: String?): Int {
-        if (vodId.isNullOrBlank()) return _skipIntroSec.value
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val key = PREFIX_INTRO + vodId.hashCode()
-        return if (prefs.contains(key)) prefs.getInt(key, 0).coerceIn(0, 600)
-        else _skipIntroSec.value
+        if (vodId.isNullOrBlank()) return 0
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(PREFIX_INTRO + vodId.hashCode(), 0).coerceIn(0, 600)
     }
 
     /**
-     * 取某部剧的片尾跳过秒数：有按剧设置用剧的，否则用全局默认。
-     * vodId 为空时直接返回全局。
+     * 取某部剧的片尾跳过秒数：没设置过就返回 0（不跳）。
+     * v0.32.1：删掉全局默认值 fallback。
      */
     fun getSkipOutroFor(context: Context, vodId: String?): Int {
-        if (vodId.isNullOrBlank()) return _skipOutroSec.value
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val key = PREFIX_OUTRO + vodId.hashCode()
-        return if (prefs.contains(key)) prefs.getInt(key, 0).coerceIn(0, 600)
-        else _skipOutroSec.value
+        if (vodId.isNullOrBlank()) return 0
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(PREFIX_OUTRO + vodId.hashCode(), 0).coerceIn(0, 600)
     }
 
     /** 设置某部剧的片头跳过秒数。 */

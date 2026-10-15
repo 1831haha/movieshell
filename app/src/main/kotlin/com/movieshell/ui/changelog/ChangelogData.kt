@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.32.1",
+        date = "2026-10-15",
+        title = "设置页瘦身：删掉重复和误导项",
+        details = listOf(
+            "设置里的“默认播放器”和“播放器内核”是同一个东西，之前摆了两项让人困惑。现在只留“播放器内核”（Media3 / libmpv），删掉那个点了没效果的“默认播放器”。",
+            "删掉“跳过片头/片尾”的全局秒数设置：每部剧片头片尾时长都不一样，全局统一 N 秒对大多数剧是错的。播放器默认不跳，需要的话在播放器里按剧单独设。",
+            "修了切 tab 回来分类状态丢失：之前分类列表没记住，切设置再回来选中态对不上。现在分类列表也会记住，回来时选中和二级筛选都在。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.32.0",
         date = "2026-10-15",
         title = "影院黑：流动光斑 + 毛玻璃 + 暗金主色",

@@ -41,8 +41,6 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlaylistAddCheck
-import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Speed
@@ -121,8 +119,6 @@ fun SettingsScreen(
     }
     var showThemeDialog by remember { mutableStateOf(false) }
     var backupExpanded by remember { mutableStateOf(false) }
-    var player by remember { mutableStateOf("内置播放器（ExoPlayer）") }
-    var showPlayerDialog by remember { mutableStateOf(false) }
     // v0.20.0：播放器内核（Media3 默认，libmpv 可选，记忆选择）
     val engine by PlayerSettings.engine.collectAsState()
     var showEngineDialog by remember { mutableStateOf(false) }
@@ -215,12 +211,6 @@ fun SettingsScreen(
             }
             Spacer(Modifier.height(SoftDimens.CardSpacing))
             SettingsGroup(title = "播放") {
-                SettingsRow(
-                    icon = Icons.Filled.PlayCircle,
-                    title = "默认播放器",
-                    subtitle = player,
-                    onClick = { showPlayerDialog = true },
-                )
                 // v0.20.0：播放器内核——Media3（默认）/ libmpv，播放器内也可一键切换
                 // v0.29.0：libmpv 已插件化，未安装时标注
                 SettingsRow(
@@ -232,19 +222,6 @@ fun SettingsScreen(
                         else -> "libmpv（插件未安装）"
                     },
                     onClick = { showEngineDialog = true },
-                )
-                // v0.14.0：片头片尾跳过
-                SkipTimeRow(
-                    title = "跳过片头",
-                    subtitle = "从正片开始处跳过 N 秒",
-                    value = PlayerSettings.skipIntroSec.collectAsState().value,
-                    onChange = { PlayerSettings.setSkipIntro(context, it) },
-                )
-                SkipTimeRow(
-                    title = "跳过片尾",
-                    subtitle = "距离结尾 N 秒时自动下一集",
-                    value = PlayerSettings.skipOutroSec.collectAsState().value,
-                    onChange = { PlayerSettings.setSkipOutro(context, it) },
                 )
                 // v0.27.7：重力感应自动横屏（默认开）
                 run {
@@ -479,15 +456,6 @@ fun SettingsScreen(
                 ThemeStore.setMode(context, mode)
                 showThemeDialog = false
             },
-        )
-    }
-    if (showPlayerDialog) {
-        SingleChoiceDialog(
-            title = "默认播放器",
-            options = listOf("内置播放器（ExoPlayer）", "外部播放器"),
-            selected = player,
-            onDismiss = { showPlayerDialog = false },
-            onSelect = { player = it; showPlayerDialog = false },
         )
     }
     // v0.20.0：播放器内核选择（持久化，播放器内一键切换走同一偏好）
@@ -835,64 +803,3 @@ private fun ThemeColorPickerRow() {
     }
 }
 
-/**
- * v0.14.0：跳过时间设置行。点击弹出数字选择（0-600秒）。
- */
-@Composable
-private fun SkipTimeRow(
-    title: String,
-    subtitle: String,
-    value: Int,
-    onChange: (Int) -> Unit,
-) {
-    var showDialog by remember { mutableStateOf(false) }
-    SettingsRow(
-        icon = Icons.Filled.Timer,
-        title = title,
-        subtitle = if (value > 0) "$subtitle（当前 ${value} 秒）" else subtitle,
-        onClick = { showDialog = true },
-    )
-    if (showDialog) {
-        val options = listOf(0, 30, 60, 90, 120, 180, 300)
-        AlertDialog(
-            onDismissRequest = { showDialog = false },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text(title, style = SoftType.CardTitle) },
-            text = {
-                Column {
-                    options.forEach { sec ->
-                        ListItem(
-                            headlineContent = {
-                                Text(
-                                    if (sec == 0) "不跳过" else "${sec} 秒",
-                                    style = SoftType.Body,
-                                )
-                            },
-                            trailingContent = {
-                                RadioButton(
-                                    selected = sec == value,
-                                    onClick = {
-                                        onChange(sec)
-                                        showDialog = false
-                                    },
-                                )
-                            },
-                            modifier = Modifier.clickable {
-                                onChange(sec)
-                                showDialog = false
-                            },
-                        )
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                AppButton(
-                    text = "取消",
-                    onClick = { showDialog = false },
-                    variant = AppButtonVariant.Ghost,
-                )
-            },
-        )
-    }
-}

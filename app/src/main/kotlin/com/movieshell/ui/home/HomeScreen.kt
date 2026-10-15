@@ -54,6 +54,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -107,6 +108,9 @@ import com.movieshell.ui.theme.FlowingGlowBackground
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -133,6 +137,13 @@ private fun ModelVod.toUiVod() = Vod(
 // v0.27.6：进程级标记，区分冷启动和 tab 切回（切 tab 时 HomeScreen 被 dispose，重进 composition）。
 // 冷启动保持干净空态，切回才静默恢复缓存。
 private var homeEnteredOnce = false
+
+// v0.32.1：分类列表的 rememberSaveable 存取器。CategoryType 是 @Serializable，用 JSON 字符串存，
+// 切 tab 时分类 chips 不丢，selectedCategory 才有意义。
+private val CategoryListSaver = Saver<List<CategoryType>, String>(
+    save = { runCatching { Json.encodeToString(it) }.getOrDefault("[]") },
+    restore = { runCatching { Json.decodeFromString<List<CategoryType>>(it) }.getOrDefault(emptyList()) },
+)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -244,7 +255,7 @@ fun HomeScreen(
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
     var drpyActive by remember { mutableStateOf(false) }
     var drpyLoading by remember { mutableStateOf(false) }
-    var drpyCats by remember { mutableStateOf<List<CategoryType>>(emptyList()) }
+    var drpyCats by rememberSaveable(saver = CategoryListSaver) { mutableStateOf(emptyList<CategoryType>()) }
     var drpyList by remember { mutableStateOf<List<ModelVod>?>(null) } // null=未加载/失败
     var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
     var catsFailed by remember { mutableStateOf(false) } // v0.29.0：分类失败且为空，给重试入口
