@@ -15,17 +15,6 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
-        version = "v0.34.0",
-        date = "2026-10-15",
-        title = "UI 大改：书架页 + 新底栏 + 深海蓝风格",
-        details = listOf(
-            "新增“书架”页：在追/想看/已看完/收藏片单四个页签，追的剧、看的进度一目了然。",
-            "底栏 5 个图标全换：首页/直播/书架/实验室/设置，未选中是描线图标，选中变实心加青色辉光。",
-            "站源 tab 删掉，管理入口搬进设置页的“源管理”。",
-            "整体换成深海蓝毛玻璃风格：卡片半透明、标题香槟金、按钮青色。",
-        ),
-    ),
-    ChangelogEntry(
         version = "v0.33.0",
         date = "2026-10-15",
         title = "影院黑对齐设计稿：纯黑底 + 三色光斑",
