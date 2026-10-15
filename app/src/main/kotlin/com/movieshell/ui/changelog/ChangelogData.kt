@@ -15,6 +15,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.35.0",
+        date = "2026-10-16",
+        title = "小说功能第一版：TXT 导入 + 阅读器 + 书架",
+        details = listOf(
+            "首页顶栏多了个书本图标，点进去就是书架：可以导入手机里的 TXT 小说。",
+            "导入时自动按“第X章/节/回”切分章节，第一章前面的文字当简介，没有章节标题的整本算一章。",
+            "阅读器：上下滑动看正文，底栏有上一章/目录/下一章，支持字号 14-24 调节和夜间模式，退出自动记住看到哪。",
+            "书架分在追 / 想看 / 已看完三组，每本书显示读到第几章和百分比进度。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.33.0",
         date = "2026-10-15",
         title = "影院黑对齐设计稿：纯黑底 + 三色光斑",

@@ -81,10 +81,12 @@ import com.movieshell.player.PlayerManager
 import com.movieshell.player.PlaySession
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
+import com.movieshell.ui.bookshelf.BookshelfScreen
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
 import com.movieshell.ui.follow.FollowScreen
 import com.movieshell.ui.history.HistoryScreen
+import com.movieshell.ui.reader.ReaderScreen
 import com.movieshell.ui.components.SoftBottomDock
 import com.movieshell.ui.components.SoftDockItem
 import com.movieshell.ui.home.HomeScreen
@@ -272,6 +274,8 @@ class MainActivity : ComponentActivity() {
                                 onHistoryClick = { navController.navigate("history") },
                                 // v0.26.0：我的追剧
                                 onFollowClick = { navController.navigate("follow") },
+                                // v0.35.0：小说书架
+                                onBookshelfClick = { navController.navigate("bookshelf") },
                             )
                         }
                         composable("search") {
@@ -364,6 +368,24 @@ class MainActivity : ComponentActivity() {
                                     }
                                     navController.navigate("detail/${Uri.encode(item.vodId)}")
                                 },
+                            )
+                        }
+                        // v0.35.0：小说书架
+                        composable("bookshelf") {
+                            BookshelfScreen(
+                                onNovelClick = { id ->
+                                    navController.navigate("reader/$id")
+                                },
+                            )
+                        }
+                        composable(
+                            "reader/{novelId}",
+                            arguments = listOf(navArgument("novelId") { type = NavType.StringType }),
+                        ) { entry ->
+                            val novelId = entry.arguments?.getString("novelId").orEmpty()
+                            ReaderScreen(
+                                novelId = novelId,
+                                onBack = { navController.popBackStack() },
                             )
                         }
                         // v0.26.0：下载管理

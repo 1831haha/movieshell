@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
@@ -150,6 +151,8 @@ fun HomeScreen(
     onHistoryClick: () -> Unit = {},
     // v0.26.0：我的追剧入口
     onFollowClick: () -> Unit = {},
+    // v0.35.0：小说书架入口
+    onBookshelfClick: () -> Unit = {},
 ) {
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
@@ -741,6 +744,14 @@ fun HomeScreen(
                             Icon(
                                 imageVector = Icons.Filled.PlaylistAddCheck,
                                 contentDescription = "我的追剧",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        // v0.35.0：小说书架
+                        IconButton(onClick = onBookshelfClick) {
+                            Icon(
+                                imageVector = Icons.Filled.Book,
+                                contentDescription = "书架",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
