@@ -529,7 +529,9 @@ fun HomeScreen(
     fun refreshDrpyState() {
         val cur = currentSubSite()
         val curKey = cur?.key
-        val siteChanged = curKey != lastSubKey
+        // v0.33.1：lastSubKey 为 null（记不住上次）时不算换源，避免切 tab 回来误重置。
+        // 只有明确记得上次的 key 且变了，才是用户真的换了源。
+        val siteChanged = lastSubKey != null && curKey != lastSubKey
         subSite = cur
         lastSubKey = curKey
         val active = cur != null ||
