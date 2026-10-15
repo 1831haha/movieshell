@@ -138,12 +138,8 @@ private fun ModelVod.toUiVod() = Vod(
 // 冷启动保持干净空态，切回才静默恢复缓存。
 private var homeEnteredOnce = false
 
-// v0.32.1：分类列表的 rememberSaveable 存取器。CategoryType 是 @Serializable，用 JSON 字符串存，
-// 切 tab 时分类 chips 不丢，selectedCategory 才有意义。
-private val CategoryListSaver = Saver<MutableState<List<CategoryType>>, String>(
-    save = { runCatching { Json.encodeToString(it.value) }.getOrDefault("[]") },
-    restore = { saved -> mutableStateOf(runCatching { Json.decodeFromString<List<CategoryType>>(saved) }.getOrDefault(emptyList())) },
-)
+// v0.32.1：分类列表的 rememberSaveable 存取器已移除——restoreHomeIfEmpty 会从缓存重载，
+// 不需要自定义 Saver（之前 Saver 的 MutableState 包裹类型导致编译失败，教训）。
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -163,7 +159,7 @@ fun HomeScreen(
     // ---- 订阅当前源（v0.5.1）：站源页"设为点播页当前源"指定的订阅子站点 ----
     val subRepo = remember { SiteRepository() }
     var subSite by remember { mutableStateOf<Site?>(null) }
-    var lastSubKey by remember { mutableStateOf<String?>(null) }
+    var lastSubKey by rememberSaveable { mutableStateOf<String?>(null) }
 
     /** 读持久化的订阅当前源；记录被删/被标不支持/订阅被关时返回 null */
     fun currentSubSite(): Site? {
@@ -255,7 +251,7 @@ fun HomeScreen(
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
     var drpyActive by remember { mutableStateOf(false) }
     var drpyLoading by remember { mutableStateOf(false) }
-    var drpyCats by rememberSaveable(saver = CategoryListSaver) { mutableStateOf(emptyList<CategoryType>()) }
+    var drpyCats by remember { mutableStateOf(emptyList<CategoryType>()) }
     var drpyList by remember { mutableStateOf<List<ModelVod>?>(null) } // null=未加载/失败
     var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
     var catsFailed by remember { mutableStateOf(false) } // v0.29.0：分类失败且为空，给重试入口
