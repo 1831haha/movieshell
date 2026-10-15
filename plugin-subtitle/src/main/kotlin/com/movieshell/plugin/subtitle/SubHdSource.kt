@@ -94,7 +94,6 @@ object SubHdSource : SubtitleSource {
                 downloads = metas.getOrNull(1).orEmpty(),
             )
         }.distinctBy { it.sid }.take(30)
-        }
     }
 
     override suspend fun download(item: OnlineSubtitle): Pair<String, String> =
