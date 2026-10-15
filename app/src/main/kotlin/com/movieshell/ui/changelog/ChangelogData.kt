@@ -15,6 +15,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.33.0",
+        date = "2026-10-15",
+        title = "影院黑对齐设计稿：纯黑底 + 三色光斑",
+        details = listOf(
+            "底色换成纯黑 #050508，之前是偏灰的近黑，现在更“影院”。",
+            "首页光斑换成紫、蓝、粉三色（之前是暗金/靛紫/深蓝），还是缓慢漂移不晃眼。",
+            "卡片毛玻璃按设计稿统一：半透明底 + 淡蓝白描边，选中项的微光圈跟着主题主色走。",
+            "默认主题色从暗金换成紫，之前装过的用户不受影响（你自己选的颜色还在）。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.32.1",
         date = "2026-10-15",
         title = "设置页瘦身：删掉重复和误导项",

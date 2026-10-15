@@ -64,7 +64,7 @@ fun AppCard(
             .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         shape = shape,
-        color = MaterialTheme.colorScheme.surface,
+        color = LocalSoftExtra.current.glass,
         tonalElevation = 0.dp,
     ) {
         // v0.27.1：内容纵向排。Surface 默认是 Box，多 children 会叠在一起
@@ -132,7 +132,7 @@ fun AppChip(
     modifier: Modifier = Modifier,
     small: Boolean = false, // v0.30.1：二级筛选行用小一号
 ) {
-    // v0.32.0：选中态微光描边——暗金 1dp 边 + 柔光阴影
+    // v0.33.0：选中态微光描边——主色 1dp 边 + 柔光阴影
     val glowColor = MaterialTheme.colorScheme.primary
     FilterChip(
         selected = selected,
@@ -150,7 +150,7 @@ fun AppChip(
             ),
         shape = RoundedCornerShape(SoftDimens.ChipCorner),
         colors = FilterChipDefaults.filterChipColors(
-            containerColor = Color(0xFF16161F).copy(alpha = 0.72f),
+            containerColor = LocalSoftExtra.current.glass,
             selectedContainerColor = glowColor.copy(alpha = 0.22f),
             selectedLabelColor = glowColor,
         ),
@@ -287,7 +287,7 @@ data class SoftDockItem(val label: String, val icon: ImageVector)
 /**
  * v0.27.1 悬浮 dock 式底部导航（替代 Material3 NavigationBar 的脏灰药丸选中态）。
  * 左右 16dp、底部 12dp 边距，24dp 圆角，#1E242F 微抬升底 + 柔光阴影；
- * v0.32.0：选中色固定雾蓝 #7DD3FC，不跟随主题主色（暗金），避免冲突；
+ * v0.32.0：选中色固定雾蓝 #7DD3FC，不跟随主题主色，避免冲突；
  * 未选中 #9AA4B2。
  */
 @Composable

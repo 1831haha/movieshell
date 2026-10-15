@@ -8,15 +8,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * v0.32.0 影院黑设计语言 token（单入口）。
+ * v0.33.0 影院黑设计语言 token（单入口，按设计稿对齐）。
  *
- * 近黑底 #0A0A0F + 暗金主色，流动渐变光斑 + 毛玻璃卡片 + 微光描边，
+ * 底 #050508 + 紫主色，流动渐变光斑 + 毛玻璃卡片 + 微光描边，
  * 影院感。主题换色器只替换 primary，其余 token 固定。
+ * 低版本无 backdrop-filter，毛玻璃用半透明色降级。
  */
 
 /** Material3 色板之外的固定扩展 token。 */
 data class SoftExtraColors(
-    /** 卡片描边：#262D3A（深色） */
+    /** 毛玻璃卡片底：rgba(25,25,35,0.22)（深色） */
+    val glass: Color,
+    /** 卡片描边：rgba(210,210,255,0.12)（深色） */
     val border: Color,
     /** 柔和成功色 */
     val success: Color,
@@ -27,13 +30,15 @@ data class SoftExtraColors(
 )
 
 val SoftExtraDark = SoftExtraColors(
-    border = Color(0xFF26262F),
+    glass = Color(0x39191923),
+    border = Color(0x1FD2D2FF),
     success = Color(0xFF6EE7B7),
     warning = Color(0xFFFCD34D),
     errorSoft = Color(0xFFFCA5A5),
 )
 
 val SoftExtraLight = SoftExtraColors(
+    glass = Color(0xB3FFFFFF),
     border = Color(0xFFE2E8F0),
     success = Color(0xFF0E9F6E),
     warning = Color(0xFFC27803),

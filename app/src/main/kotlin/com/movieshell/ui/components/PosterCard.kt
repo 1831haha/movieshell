@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 
@@ -43,8 +44,8 @@ fun PosterCard(
     Column(
         modifier = modifier
             .clip(shape)
-            .background(Color(0xFF16161F).copy(alpha = 0.78f))
-            .border(SoftDimens.BorderWidth, Color.White.copy(alpha = 0.09f), shape)
+            .background(LocalSoftExtra.current.glass)
+            .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         Box(
