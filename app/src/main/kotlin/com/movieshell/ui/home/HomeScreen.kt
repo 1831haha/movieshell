@@ -123,6 +123,10 @@ private fun ModelVod.toUiVod() = Vod(
     poster = vodPic,
 )
 
+// v0.27.6：进程级标记，区分冷启动和 tab 切回（切 tab 时 HomeScreen 被 dispose，重进 composition）。
+// 冷启动保持干净空态，切回才静默恢复缓存。
+private var homeEnteredOnce = false
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
@@ -338,15 +342,45 @@ fun HomeScreen(
         }
     }
 
+    /**
+     * v0.27.6：tab 切回时 HomeScreen 的 remember 状态已被 dispose（drpyList 回到 null），
+     * 静默从 HomeCache 恢复当前源的内容。不转圈、不打网络；缓存也没有才走完整 loadHome。
+     * drpyList 非空（用户正在看分类列表）时什么都不做，不覆盖。
+     */
+    fun restoreHomeIfEmpty() {
+        if (drpyList != null || !drpyActive) return
+        val key = homeCacheKey() ?: return
+        scope.launch {
+            val cached = withContext(Dispatchers.IO) { HomeCache.load(context, key) }
+            if (drpyList != null) return@launch // 恢复期间用户已操作，不覆盖
+            val data = cached?.first
+            if (data != null && data.vods.isNotEmpty()) {
+                drpyCats = data.cats
+                drpyList = data.vods
+                LogBus.i("Home", "返回首页：缓存恢复 ${data.vods.size} 条")
+            } else {
+                loadHome()
+            }
+        }
+    }
+
     // 首次进入也走一遍，保证站源入口文案和数据与持久化状态一致
-    LaunchedEffect(Unit) { refreshDrpyState() }
+    // v0.27.6：冷启动保持 v0.27.4 的干净空态（不自动恢复）；只有 tab 切回（重进 composition）才恢复
+    LaunchedEffect(Unit) {
+        refreshDrpyState()
+        if (homeEnteredOnce) restoreHomeIfEmpty()
+        homeEnteredOnce = true
+    }
 
     // 底部 tab 切换回来（saveState 恢复时）也要重新检查激活状态，
     // 否则在站源页设了当前规则后首页还停留在演示数据
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) refreshDrpyState()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshDrpyState()
+                restoreHomeIfEmpty()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }

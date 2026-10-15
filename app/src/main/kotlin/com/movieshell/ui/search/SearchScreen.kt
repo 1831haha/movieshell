@@ -70,7 +70,6 @@ import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.PosterCard
-import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
@@ -259,14 +258,17 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = SoftDimens.PagePadding),
             ) {
-                // 热搜词
-                item {
-                    SectionHeader(icon = Icons.Filled.TrendingUp, title = "热搜")
-                    HotSearchFlow(
-                        words = DemoData.hotSearches,
-                        onPick = { query = it; doSearch(it) },
-                    )
-                    Spacer(Modifier.height(20.dp))
+                // 热搜词（v0.27.6：假热搜词下线，无数据时隐藏该区）
+                val hotWords: List<String> = emptyList()
+                if (hotWords.isNotEmpty()) {
+                    item {
+                        SectionHeader(icon = Icons.Filled.TrendingUp, title = "热搜")
+                        HotSearchFlow(
+                            words = hotWords,
+                            onPick = { query = it; doSearch(it) },
+                        )
+                        Spacer(Modifier.height(20.dp))
+                    }
                 }
                 // 搜索历史
                 item {

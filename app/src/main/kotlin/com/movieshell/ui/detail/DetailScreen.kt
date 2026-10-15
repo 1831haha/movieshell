@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
@@ -90,10 +91,11 @@ import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.EmptyKind
+import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.GradientBlock
 import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.SectionTitle
-import com.movieshell.ui.data.DemoData
 import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
@@ -119,21 +121,25 @@ fun DetailScreen(
     }
     var detailLoading by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<VodDetail?>(null) }
-    LaunchedEffect(vodId) {
-        if (subSite != null) {
-            detailLoading = true
-            detail = runCatching { SiteRepository().detail(subSite, vodId) }.getOrNull()
-            detailLoading = false
-        } else if (drpyActive) {
-            detailLoading = true
-            detail = runCatching {
-                if (DrpySourceManager.hasActiveRule()) DrpySourceManager.detail(vodId)
-                else if (PySourceManager.hasActiveRule()) PySourceManager.detail(vodId)
-                else VodDetail(vodId = vodId)
-            }.getOrNull()
-            detailLoading = false
+    // v0.27.6：抽成函数，失败态的"重试"按钮可复用
+    fun reloadDetail() {
+        scope.launch {
+            if (subSite != null) {
+                detailLoading = true
+                detail = runCatching { SiteRepository().detail(subSite, vodId) }.getOrNull()
+                detailLoading = false
+            } else if (drpyActive) {
+                detailLoading = true
+                detail = runCatching {
+                    if (DrpySourceManager.hasActiveRule()) DrpySourceManager.detail(vodId)
+                    else if (PySourceManager.hasActiveRule()) PySourceManager.detail(vodId)
+                    else VodDetail(vodId = vodId)
+                }.getOrNull()
+                detailLoading = false
+            }
         }
     }
+    LaunchedEffect(vodId) { reloadDetail() }
     // 真实选集：vodPlayFrom/vodPlayUrl 对齐
     val episodes: List<Episode> = remember(detail) {
         detail?.let { SiteRepository().parseEpisodes(it) }.orEmpty()
@@ -147,7 +153,8 @@ fun DetailScreen(
     val safeLine = if (playLines.isNotEmpty()) selectedLine.coerceIn(playLines.indices) else 0
     val lineEpisodes: List<Episode> = playLines.getOrNull(safeLine)?.episodes.orEmpty()
 
-    val vod: Vod = remember(detail) {
+    // v0.27.6：detail 失败时不再回退 DemoData 假数据（曾冒出"星海追光者"），直接为 null 走失败态
+    val vod: Vod? = remember(detail) {
         detail?.let {
             Vod(
                 id = it.vodId.ifBlank { vodId },
@@ -161,7 +168,7 @@ fun DetailScreen(
                 desc = it.vodDesc.ifBlank { "暂无简介" },
                 episodes = episodes.size,
             )
-        } ?: DemoData.find(vodId)
+        }
     }
 
     var selectedEpisode by remember { mutableIntStateOf(0) }
@@ -172,16 +179,17 @@ fun DetailScreen(
 
     /** v0.21.0：影片信息一键复制 */
     fun copyVodInfo() {
+        val v = vod ?: return
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         if (cm == null) return
         val text = buildString {
-            appendLine(vod.title)
+            appendLine(v.title)
             appendLine(
-                listOf(vod.year, vod.category, vod.area)
+                listOf(v.year, v.category, v.area)
                     .filter { it.isNotBlank() }.joinToString(" · ")
             )
-            appendLine("主演：${vod.actors}")
-            append("简介：${vod.desc}")
+            appendLine("主演：${v.actors}")
+            append("简介：${v.desc}")
         }
         cm.setPrimaryClip(ClipData.newPlainText("影片信息", text))
         Toast.makeText(context, "影片信息已复制", Toast.LENGTH_SHORT).show()
@@ -235,7 +243,7 @@ fun DetailScreen(
         scope.launch {
             if (MagnetPlayer.isMagnet(ep.url)) {
                 val ok = runCatching {
-                    MagnetPlayer.playIfReady(context, ep.url, vod.title)
+                    MagnetPlayer.playIfReady(context, ep.url, vod?.title ?: displayTitle(vodId))
                 }.getOrDefault(false)
                 // 服务通则已直接起播；不通则弹窗提示
                 if (!ok) showMagnetDialog = true
@@ -246,7 +254,7 @@ fun DetailScreen(
                     resolvePlayUrl(ctx, subSite, e)
                 }
                 // link 为空 -> 播放页保持"暂无可播地址"逻辑
-                onPlay(link, "${vod.title} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}")
+                onPlay(link, "${vod?.title ?: displayTitle(vodId)} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}")
             }
         }
     }
@@ -257,14 +265,14 @@ fun DetailScreen(
     val playLabel = when {
         lineEpisodes.isNotEmpty() ->
             "播放 ${lineEpisodes[safeSelected].name.ifBlank { "第${safeSelected + 1}集" }}"
-        vod.episodes > 1 -> "播放 第${selectedEpisode + 1}集"
+        vod?.episodes?.let { it > 1 } == true -> "播放 第${selectedEpisode + 1}集"
         else -> "立即播放"
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(vod.title) },
+                title = { Text(vod?.title ?: displayTitle(vodId)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -282,7 +290,7 @@ fun DetailScreen(
                                     context,
                                     FavoriteItem(
                                         vodId = vodId,
-                                        name = vod.title,
+                                        name = vod?.title ?: displayTitle(vodId),
                                         pic = detail?.vodPic.orEmpty(),
                                         sourceName = sourceName,
                                         savedAt = System.currentTimeMillis(),
@@ -316,7 +324,7 @@ fun DetailScreen(
                                     FollowItem(
                                         id = followId,
                                         vodId = vodId,
-                                        name = vod.title,
+                                        name = vod?.title ?: displayTitle(vodId),
                                         pic = detail?.vodPic.orEmpty(),
                                         sourceType = followSourceType,
                                         sourceKey = followSourceKey,
@@ -347,8 +355,8 @@ fun DetailScreen(
             )
         },
     ) { inner ->
-        if (drpyActive && detailLoading && detail == null) {
-            // drpy 详情加载中：骨架屏占位，不转菊花
+        if ((subSite != null || drpyActive) && detailLoading && detail == null) {
+            // 详情加载中：骨架屏占位，不转菊花
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -374,363 +382,379 @@ fun DetailScreen(
                     shape = RoundedCornerShape(6.dp),
                 )
             }
-        } else {
-            LazyColumn(
+        } else if (detail == null) {
+            // v0.27.6：详情加载失败。不再回退 DemoData 假数据（曾冒出"星海追光者"），给真失败态 + 重试
+            EmptyState(
+                kind = EmptyKind.Error,
+                icon = Icons.Filled.ErrorOutline,
+                title = "详情加载失败",
+                hint = "规则返回异常或网络超时",
+                actionText = "重试",
+                onAction = { reloadDetail() },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(inner),
-            ) {
-                // 海报头图（v0.21.0：有真实封面时展示，点击放大）
-                item {
-                    GradientBlock(
-                        key = vod.id,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(16f / 9f)
-                            .clickable(
-                                enabled = coverUrl.isNotBlank(),
-                                onClick = { showCoverDialog = true },
-                            ),
-                    ) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            // 真实封面（Coil，无封面时保留渐变占位）
-                            if (coverUrl.isNotBlank()) {
-                                AsyncImage(
-                                    model = coverUrl,
-                                    contentDescription = "封面",
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop,
-                                )
-                            }
-                            // 文案区压暗（文字可读性，非页面底渐变）
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            0.4f to Color.Transparent,
-                                            1f to Color(0xAA000000),
-                                        )
+            )
+        } else {
+            // vod 非空才进内容区；内层 vod 遮蔽外层可空引用，调用点零改动
+            vod?.let { vod ->
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(inner),
+                ) {
+                    // 海报头图（v0.21.0：有真实封面时展示，点击放大）
+                    item {
+                        GradientBlock(
+                            key = vod.id,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9f)
+                                .clickable(
+                                    enabled = coverUrl.isNotBlank(),
+                                    onClick = { showCoverDialog = true },
+                                ),
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                // 真实封面（Coil，无封面时保留渐变占位）
+                                if (coverUrl.isNotBlank()) {
+                                    AsyncImage(
+                                        model = coverUrl,
+                                        contentDescription = "封面",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop,
                                     )
-                            )
-                            // 居中播放按钮
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .size(64.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.PlayArrow,
-                                    contentDescription = "播放",
-                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(40.dp),
+                                }
+                                // 文案区压暗（文字可读性，非页面底渐变）
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.verticalGradient(
+                                                0.4f to Color.Transparent,
+                                                1f to Color(0xAA000000),
+                                            )
+                                        )
+                                )
+                                // 居中播放按钮
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .size(64.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.PlayArrow,
+                                        contentDescription = "播放",
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(40.dp),
+                                    )
+                                }
+                                Text(
+                                    text = vod.title,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(SoftDimens.PagePadding),
+                                    color = Color.White,
+                                    style = SoftType.Title,
                                 )
                             }
+                        }
+                    }
+    
+                    // 标题与元信息
+                    item {
+                        Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Filled.Star,
+                                    contentDescription = null,
+                                    tint = LocalSoftExtra.current.warning,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = vod.rating,
+                                    style = SoftType.Body,
+                                    color = LocalSoftExtra.current.warning,
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                MetaChip(vod.year)
+                                MetaChip(vod.category)
+                                MetaChip(vod.area)
+                            }
+                            Spacer(Modifier.height(8.dp))
                             Text(
-                                text = vod.title,
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(SoftDimens.PagePadding),
-                                color = Color.White,
-                                style = SoftType.Title,
+                                text = "主演：${vod.actors}",
+                                style = SoftType.Body,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            // v0.21.0：简介标题 + 一键复制影片信息
+                            SectionTitle(
+                                title = "简介",
+                                action = {
+                                    IconButton(onClick = { copyVodInfo() }) {
+                                        Icon(
+                                            Icons.Filled.ContentCopy,
+                                            contentDescription = "复制影片信息",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                },
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = vod.desc,
+                                style = SoftType.Body,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 22.sp,
                             )
                         }
                     }
-                }
-
-                // 标题与元信息
-                item {
-                    Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Filled.Star,
-                                contentDescription = null,
-                                tint = LocalSoftExtra.current.warning,
-                                modifier = Modifier.size(18.dp),
+    
+                    // 播放按钮（v0.13.0：无播放源时禁用并明示，不再静默传空地址）
+                    // v0.26.0：右侧加下载按钮（选集多选 → 加入下载队列）
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = SoftDimens.PagePadding),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AppButton(
+                                text = if (lineEpisodes.isNotEmpty()) playLabel
+                                else "暂无可播地址",
+                                onClick = {
+                                    if (lineEpisodes.isNotEmpty()) {
+                                        playEpisode(lineEpisodes[safeSelected], safeLine, safeSelected)
+                                    }
+                                },
+                                enabled = lineEpisodes.isNotEmpty(),
+                                modifier = Modifier.weight(1f),
                             )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = vod.rating,
-                                style = SoftType.Body,
-                                color = LocalSoftExtra.current.warning,
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            MetaChip(vod.year)
-                            MetaChip(vod.category)
-                            MetaChip(vod.area)
+                            IconButton(
+                                onClick = { showDownloadDialog = true },
+                                enabled = lineEpisodes.isNotEmpty(),
+                            ) {
+                                Icon(Icons.Filled.Download, contentDescription = "下载")
+                            }
                         }
                         Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "主演：${vod.actors}",
-                            style = SoftType.Body,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        // v0.21.0：简介标题 + 一键复制影片信息
-                        SectionTitle(
-                            title = "简介",
-                            action = {
-                                IconButton(onClick = { copyVodInfo() }) {
-                                    Icon(
-                                        Icons.Filled.ContentCopy,
-                                        contentDescription = "复制影片信息",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
-                            },
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = vod.desc,
-                            style = SoftType.Body,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 22.sp,
-                        )
                     }
-                }
-
-                // 播放按钮（v0.13.0：无播放源时禁用并明示，不再静默传空地址）
-                // v0.26.0：右侧加下载按钮（选集多选 → 加入下载队列）
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = SoftDimens.PagePadding),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        AppButton(
-                            text = if (lineEpisodes.isNotEmpty()) playLabel
-                            else "暂无可播地址",
-                            onClick = {
-                                if (lineEpisodes.isNotEmpty()) {
-                                    playEpisode(lineEpisodes[safeSelected], safeLine, safeSelected)
+    
+                    // 选集：drpy 真实选集优先；多条线路时上方显示线路 TabRow
+                    when {
+                        lineEpisodes.isNotEmpty() -> {
+                            if (playLines.size > 1) {
+                                item {
+                                    ScrollableTabRow(
+                                        selectedTabIndex = safeLine,
+                                        edgePadding = SoftDimens.PagePadding,
+                                    ) {
+                                        playLines.forEachIndexed { i, line ->
+                                            Tab(
+                                                selected = safeLine == i,
+                                                onClick = {
+                                                    selectedLine = i
+                                                    selectedEpisode = 0
+                                                },
+                                                text = { Text(line.name) },
+                                            )
+                                        }
+                                    }
                                 }
-                            },
-                            enabled = lineEpisodes.isNotEmpty(),
-                            modifier = Modifier.weight(1f),
-                        )
-                        IconButton(
-                            onClick = { showDownloadDialog = true },
-                            enabled = lineEpisodes.isNotEmpty(),
-                        ) {
-                            Icon(Icons.Filled.Download, contentDescription = "下载")
+                            }
+                            item {
+                                SectionTitle(
+                                    title = "选集（共 ${lineEpisodes.size} 集）",
+                                    modifier = Modifier.padding(
+                                        horizontal = SoftDimens.PagePadding,
+                                        vertical = 8.dp,
+                                    ),
+                                )
+                            }
+                            item {
+                                FlowRow(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = SoftDimens.PagePadding),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    lineEpisodes.forEachIndexed { i, ep ->
+                                        AppChip(
+                                            text = ep.name.ifBlank { "第${i + 1}集" },
+                                            selected = safeSelected == i,
+                                            onClick = { selectedEpisode = i },
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(24.dp))
+                            }
+                        }
+                        vod.episodes > 1 -> {
+                            item {
+                                SectionTitle(
+                                    title = "选集（共 ${vod.episodes} 集）",
+                                    modifier = Modifier.padding(
+                                        horizontal = SoftDimens.PagePadding,
+                                        vertical = 8.dp,
+                                    ),
+                                )
+                            }
+                            item {
+                                FlowRow(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = SoftDimens.PagePadding),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    repeat(vod.episodes) { i ->
+                                        AppChip(
+                                            text = "第${i + 1}集",
+                                            selected = selectedEpisode == i,
+                                            onClick = { selectedEpisode = i },
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(24.dp))
+                            }
+                        }
+                        else -> {
+                            item { Spacer(Modifier.height(16.dp)) }
                         }
                     }
-                    Spacer(Modifier.height(8.dp))
                 }
-
-                // 选集：drpy 真实选集优先；多条线路时上方显示线路 TabRow
-                when {
-                    lineEpisodes.isNotEmpty() -> {
-                        if (playLines.size > 1) {
-                            item {
-                                ScrollableTabRow(
-                                    selectedTabIndex = safeLine,
-                                    edgePadding = SoftDimens.PagePadding,
+            }
+        }
+    
+        // 磁力转播服务未启动提示
+        if (showMagnetDialog) {
+            AlertDialog(
+                onDismissRequest = { showMagnetDialog = false },
+                title = { Text("磁力转播服务未启动") },
+                text = {
+                    Text("未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream 后再试")
+                },
+                confirmButton = {
+                    TextButton(onClick = { showMagnetDialog = false }) { Text("知道了") }
+                },
+            )
+        }
+    
+        // v0.26.0：下载选集（多选 → 解析地址 → 入队）
+        if (showDownloadDialog) {
+            var selected by remember { mutableStateOf(lineEpisodes.indices.toSet()) }
+            var resolving by remember { mutableStateOf(false) }
+            Dialog(onDismissRequest = { if (!resolving) showDownloadDialog = false }) {
+                AppCard {
+                    Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
+                        Text(
+                            text = "选择要下载的剧集",
+                            style = SoftType.CardTitle,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                            items(lineEpisodes.size) { i ->
+                                val ep = lineEpisodes[i]
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(enabled = !resolving) {
+                                            selected = if (selected.contains(i)) selected - i else selected + i
+                                        }
+                                        .padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    playLines.forEachIndexed { i, line ->
-                                        Tab(
-                                            selected = safeLine == i,
-                                            onClick = {
-                                                selectedLine = i
-                                                selectedEpisode = 0
-                                            },
-                                            text = { Text(line.name) },
+                                    Checkbox(
+                                        checked = selected.contains(i),
+                                        onCheckedChange = null,
+                                        enabled = !resolving,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = ep.name.ifBlank { "第${i + 1}集" },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (MagnetPlayer.isMagnet(ep.url)) {
+                                        Text(
+                                            "磁力不支持",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
                                 }
                             }
                         }
-                        item {
-                            SectionTitle(
-                                title = "选集（共 ${lineEpisodes.size} 集）",
-                                modifier = Modifier.padding(
-                                    horizontal = SoftDimens.PagePadding,
-                                    vertical = 8.dp,
-                                ),
-                            )
-                        }
-                        item {
-                            FlowRow(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = SoftDimens.PagePadding),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                lineEpisodes.forEachIndexed { i, ep ->
-                                    AppChip(
-                                        text = ep.name.ifBlank { "第${i + 1}集" },
-                                        selected = safeSelected == i,
-                                        onClick = { selectedEpisode = i },
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(24.dp))
-                        }
-                    }
-                    vod.episodes > 1 -> {
-                        item {
-                            SectionTitle(
-                                title = "选集（共 ${vod.episodes} 集）",
-                                modifier = Modifier.padding(
-                                    horizontal = SoftDimens.PagePadding,
-                                    vertical = 8.dp,
-                                ),
-                            )
-                        }
-                        item {
-                            FlowRow(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = SoftDimens.PagePadding),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                repeat(vod.episodes) { i ->
-                                    AppChip(
-                                        text = "第${i + 1}集",
-                                        selected = selectedEpisode == i,
-                                        onClick = { selectedEpisode = i },
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(24.dp))
-                        }
-                    }
-                    else -> {
-                        item { Spacer(Modifier.height(16.dp)) }
-                    }
-                }
-            }
-        }
-    }
-
-    // 磁力转播服务未启动提示
-    if (showMagnetDialog) {
-        AlertDialog(
-            onDismissRequest = { showMagnetDialog = false },
-            title = { Text("磁力转播服务未启动") },
-            text = {
-                Text("未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream 后再试")
-            },
-            confirmButton = {
-                TextButton(onClick = { showMagnetDialog = false }) { Text("知道了") }
-            },
-        )
-    }
-
-    // v0.26.0：下载选集（多选 → 解析地址 → 入队）
-    if (showDownloadDialog) {
-        var selected by remember { mutableStateOf(lineEpisodes.indices.toSet()) }
-        var resolving by remember { mutableStateOf(false) }
-        Dialog(onDismissRequest = { if (!resolving) showDownloadDialog = false }) {
-            AppCard {
-                Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
-                    Text(
-                        text = "选择要下载的剧集",
-                        style = SoftType.CardTitle,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
-                        items(lineEpisodes.size) { i ->
-                            val ep = lineEpisodes[i]
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable(enabled = !resolving) {
-                                        selected = if (selected.contains(i)) selected - i else selected + i
-                                    }
-                                    .padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Checkbox(
-                                    checked = selected.contains(i),
-                                    onCheckedChange = null,
-                                    enabled = !resolving,
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // 解析中指示：AppButton 无内容插槽，指示条放按钮左侧（功能不变）
+                            if (resolving) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp,
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = ep.name.ifBlank { "第${i + 1}集" },
-                                    modifier = Modifier.weight(1f),
-                                )
-                                if (MagnetPlayer.isMagnet(ep.url)) {
-                                    Text(
-                                        "磁力不支持",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
                             }
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        // 解析中指示：AppButton 无内容插槽，指示条放按钮左侧（功能不变）
-                        if (resolving) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp,
+                            AppButton(
+                                text = "取消",
+                                onClick = { showDownloadDialog = false },
+                                variant = AppButtonVariant.Ghost,
+                                enabled = !resolving,
                             )
                             Spacer(Modifier.width(8.dp))
+                            AppButton(
+                                text = "下载选中（${selected.size}）",
+                                onClick = {
+                                    resolving = true
+                                    scope.launch {
+                                        val tasks = mutableListOf<DownloadTask>()
+                                        selected.sorted().forEach { i ->
+                                            val ep = lineEpisodes.getOrNull(i) ?: return@forEach
+                                            if (MagnetPlayer.isMagnet(ep.url)) return@forEach
+                                            val url = resolvePlayUrl(context, subSite, ep)
+                                            if (url.isBlank()) return@forEach
+                                            tasks.add(
+                                                DownloadTask(
+                                                    title = "${vod.title} ${ep.name.ifBlank { "第${i + 1}集" }}",
+                                                    pic = detail?.vodPic.orEmpty(),
+                                                    url = url,
+                                                    kind = if (DownloadManager.isM3u8(url)) "m3u8" else "file",
+                                                ),
+                                            )
+                                        }
+                                        resolving = false
+                                        showDownloadDialog = false
+                                        if (tasks.isEmpty()) {
+                                            Toast.makeText(context, "没有可下载的剧集", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            DownloadManager.enqueue(context, tasks)
+                                            Toast.makeText(
+                                                context,
+                                                "已加入下载队列（${tasks.size}）",
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                    }
+                                },
+                                enabled = !resolving && selected.isNotEmpty(),
+                            )
                         }
-                        AppButton(
-                            text = "取消",
-                            onClick = { showDownloadDialog = false },
-                            variant = AppButtonVariant.Ghost,
-                            enabled = !resolving,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        AppButton(
-                            text = "下载选中（${selected.size}）",
-                            onClick = {
-                                resolving = true
-                                scope.launch {
-                                    val tasks = mutableListOf<DownloadTask>()
-                                    selected.sorted().forEach { i ->
-                                        val ep = lineEpisodes.getOrNull(i) ?: return@forEach
-                                        if (MagnetPlayer.isMagnet(ep.url)) return@forEach
-                                        val url = resolvePlayUrl(context, subSite, ep)
-                                        if (url.isBlank()) return@forEach
-                                        tasks.add(
-                                            DownloadTask(
-                                                title = "${vod.title} ${ep.name.ifBlank { "第${i + 1}集" }}",
-                                                pic = detail?.vodPic.orEmpty(),
-                                                url = url,
-                                                kind = if (DownloadManager.isM3u8(url)) "m3u8" else "file",
-                                            ),
-                                        )
-                                    }
-                                    resolving = false
-                                    showDownloadDialog = false
-                                    if (tasks.isEmpty()) {
-                                        Toast.makeText(context, "没有可下载的剧集", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        DownloadManager.enqueue(context, tasks)
-                                        Toast.makeText(
-                                            context,
-                                            "已加入下载队列（${tasks.size}）",
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
-                                }
-                            },
-                            enabled = !resolving && selected.isNotEmpty(),
-                        )
                     }
                 }
             }
-        }
+        } // vod?.let
     }
 
     // v0.21.0：封面点开放大（全屏看图，点任意处关闭）

@@ -41,6 +41,8 @@ try:
         return _orig_apparent_fget(self)
 
     _ReqResponse.apparent_encoding = property(_safe_apparent_encoding)
+    # v0.27.6 可观测：patch 成功打上就走 logcat，下次看日志能确认手机上是否生效
+    print("[pybridge] apparent_encoding patch 已生效：header 优先")
 except Exception:
     pass
 
@@ -62,11 +64,22 @@ def _install_resp_sniffer():
         resp = orig_send(self, request, **kwargs)
         try:
             raw = resp.content[:200] if resp is not None else b""
+            ct = resp.headers.get("Content-Type", "")
+            # v0.27.6 可观测：text 类响应记录 patch 后的 apparent_encoding。
+            # 下次"PY 最近响应"里直接看到编码是谁定的："utf-8"（header）= patch 生效，
+            # "Windows-1254"/"UTF-32"之类 = patch 没生效、还是检测值。
+            apparent = ""
+            if ct.lower().startswith("text/"):
+                try:
+                    apparent = resp.apparent_encoding or ""
+                except Exception:
+                    apparent = ""
             _last_resp_info = {
                 "url": str(getattr(request, "url", ""))[:160],
                 "status": getattr(resp, "status_code", -1),
                 "content_encoding": resp.headers.get("Content-Encoding", ""),
-                "content_type": resp.headers.get("Content-Type", "")[:80],
+                "content_type": ct[:80],
+                "apparent_encoding": apparent,
                 "head_hex": raw.hex(),
             }
         except Exception:
