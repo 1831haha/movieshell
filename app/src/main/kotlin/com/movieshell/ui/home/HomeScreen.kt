@@ -54,7 +54,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -133,12 +132,6 @@ private fun ModelVod.toUiVod() = Vod(
 // v0.27.6：进程级标记，区分冷启动和 tab 切回（切 tab 时 HomeScreen 被 dispose，重进 composition）。
 // 冷启动保持干净空态，切回才静默恢复缓存。
 private var homeEnteredOnce = false
-
-/** v0.31.2：二级筛选 Pair 的 Saveable 序列化器（tab 切回时恢复选中）。 */
-private val FilterPairSaver = listSaver<Pair<String, String>?, String>(
-    save = { p -> if (p == null) emptyList() else listOf(p.first, p.second) },
-    restore = { l -> if (l.size == 2) l[0] to l[1] else null },
-)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -234,7 +227,12 @@ fun HomeScreen(
     var selectedCategory by rememberSaveable { mutableIntStateOf(0) } // 0 = 全部
     // v0.30.1：二级筛选——(filterKey, filterValue)，null=未选（用规则默认）
     // v0.31.2：remember → rememberSaveable，tab 切回时选中态不丢（NavController saveState 只恢复 rememberSaveable）
-    var selectedFilter by rememberSaveable(saver = FilterPairSaver) { mutableStateOf<Pair<String, String>?>(null) }
+    // 修构建注：Pair<String,String>? 的自定义 Saver 在 rememberSaveable 里类型对不上，拆成两个 String? 存，最简单不出错。
+    var filterKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var filterValue by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedFilter: Pair<String, String>?
+        get() = if (filterKey != null && filterValue != null) filterKey!! to filterValue!! else null
+    fun setFilter(f: Pair<String, String>?) { filterKey = f?.first; filterValue = f?.second }
     // v0.31.2：内容世代——每次发起内容加载（首页/分类）+1，异步完成时只应用最新世代的结果，
     // 旧请求的迟到结果直接丢弃。快速连点/首页与分类打架时，"最后一次点击赢"是唯一不变量。
     var contentGen by remember { mutableIntStateOf(0) }
@@ -381,7 +379,7 @@ fun HomeScreen(
         }
         if (payload.resetSelection) {
             selectedCategory = 0
-            selectedFilter = null
+            setFilter(null)
         }
         drpyList = payload.vods ?: prevVods
         val cats = payload.cats.ifEmpty { prevCats }
@@ -471,7 +469,7 @@ fun HomeScreen(
         val myGen = contentGen
         // 选中态立即更新，不等网络（之前是网络回来才设，连点时选中和内容错位，看着像"换了分类内容不变"）
         selectedCategory = index
-        selectedFilter = filter
+        setFilter(filter)
         val extend = filter?.let { mapOf(it.first to it.second) }.orEmpty()
         LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId}) filter=$extend")
         categoryJob = scope.launch {
@@ -536,7 +534,7 @@ fun HomeScreen(
             drpyList = null
             drpyCats = emptyList()
             selectedCategory = 0
-            selectedFilter = null
+            setFilter(null)
             homeError = null
             // v0.31.0：失败计数按数据源 key 记在 HomeLoadGate 单例里，切源自然用新 key 的计数，无需手动清零
             catsFailed = false
