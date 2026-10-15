@@ -18,13 +18,10 @@ import traceback
 
 _spiders = {}
 
-# v0.27.5 根治详情 XMLSyntaxError（USC4）：
-# 黄果_v18.py 第 392 行 `_fetch_html` 用 `resp.apparent_encoding`（chardet/charset_normalizer
-# 检测）解码。真机实锤：服务器 HTTP 头明确声明 `text/html; charset=utf-8`，
-# 但页面有混淆 JS + 垃圾 `<meta charset="%U4%8-2">`，检测器把 UTF-8 误判成 UTF-32，
-# `resp.text` 解成乱码，`pq()` 喂给 lxml 就报 `encoding not supported USC4 little endian`。
-# 规则文件在用户手机上不让改，这里按浏览器同策略 patch：HTTP header 声明优先，
-# 检测只做 fallback。
+# v0.27.5 编码识别：HTTP header 声明优先（浏览器同策略），检测只做 fallback。
+# 背景：黄果_v18.py 第 392 行 `_fetch_html` 用 `resp.apparent_encoding` 解码，
+# chardet 会把该站页面误判成 Windows-1254 导致标题乱码；header 明确声明了 utf-8。
+# 注意：这个 patch 修的是"乱码"，不是 v0.27.8 的 USC4 崩溃（见下）。
 try:
     from requests.models import Response as _ReqResponse
 
@@ -43,6 +40,42 @@ try:
     _ReqResponse.apparent_encoding = property(_safe_apparent_encoding)
     # v0.27.6 可观测：patch 成功打上就走 logcat，下次看日志能确认手机上是否生效
     print("[pybridge] apparent_encoding patch 已生效：header 优先")
+except Exception:
+    pass
+
+# v0.27.8 根治详情 XMLSyntaxError（USC4 little endian）：
+# 真根因（v0.27.5 定错了）：页面简介里有 emoji（U+1F60D/U+1F924 等 astral 字符）。
+# 含 astral 字符的 Python str 在 CPython 里按 UCS-4 存储，lxml 的 _parseUnicodeDoc
+# 会把 UCS-4 buffer 直接传给 libxml2 并声明 UTF-32LE；手机 Chaquopy 自带的 libxml2
+# 是精简构建，缺这个编码 handler，第 1 行第 1 列直接 fatal。桌面 libxml2 自带该
+# handler，所以桌面永远复现不了、真机必挂——之前所有"桌面自测全过"都不可信。
+# 修法（不动用户规则文件）：包一层 lxml.etree.fromstring / lxml.html.fromstring，
+# str 输入含 astral 字符时先转成数字字符引用（&#x1F60D;），解析器会解回原字符，
+# 规则读到的内容逐字不变；bytes 输入和纯 BMP 字符串零改动直接透传。
+try:
+    from lxml import etree as _etree
+    import lxml.html as _lxml_html
+
+    _astral_re = re.compile(r"[\U00010000-\U0010FFFF]")
+    _orig_etree_fromstring = _etree.fromstring
+    _orig_lxml_html_fromstring = _lxml_html.fromstring
+
+    def _astral_to_ncr(s):
+        return _astral_re.sub(lambda m: "&#x%X;" % ord(m.group(0)), s)
+
+    def _safe_etree_fromstring(text, *args, **kwargs):
+        if isinstance(text, str) and _astral_re.search(text):
+            text = _astral_to_ncr(text)
+        return _orig_etree_fromstring(text, *args, **kwargs)
+
+    def _safe_lxml_html_fromstring(text, *args, **kwargs):
+        if isinstance(text, str) and _astral_re.search(text):
+            text = _astral_to_ncr(text)
+        return _orig_lxml_html_fromstring(text, *args, **kwargs)
+
+    _etree.fromstring = _safe_etree_fromstring
+    _lxml_html.fromstring = _safe_lxml_html_fromstring
+    print("[pybridge] lxml fromstring patch 已生效：astral 字符转 NCR")
 except Exception:
     pass
 
