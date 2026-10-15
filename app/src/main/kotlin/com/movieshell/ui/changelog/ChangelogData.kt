@@ -15,6 +15,15 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.31.0",
+        date = "2026-10-15",
+        title = "失败源不再刷屏",
+        details = listOf(
+            "之前失败的源会一秒内连刷好几次「加载失败」，看着像抽风。根因是每个触发各自计数、各自重试，退避挡不住。",
+            "现在同一个源同时只跑一次加载，后到的直接用这次的结果；失败只记一次，连续 3 次失败后自动退避，下拉可手动重试。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.30.1",
         date = "2026-10-15",
         title = "分类二级筛选",

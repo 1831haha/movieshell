@@ -87,6 +87,7 @@ import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.HomeCache
+import com.movieshell.data.repo.HomeLoadGate
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SourceStateStore
@@ -104,6 +105,8 @@ import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -227,13 +230,9 @@ fun HomeScreen(
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
     var drpyActive by remember { mutableStateOf(false) }
     var drpyLoading by remember { mutableStateOf(false) }
-    // v0.27.7：首页加载防重入（ON_RESUME/下拉可能并发触发，互 cancel 导致永远做不完）
-    var homeLoading by remember { mutableStateOf(false) }
     var drpyCats by remember { mutableStateOf<List<CategoryType>>(emptyList()) }
     var drpyList by remember { mutableStateOf<List<ModelVod>?>(null) } // null=未加载/失败
     var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
-    // v0.29.0：失败退避——连续全失败 3 次后，只响应用户手动下拉（挡高频空转）
-    var homeFailStreak by remember { mutableIntStateOf(0) }
     var catsFailed by remember { mutableStateOf(false) } // v0.29.0：分类失败且为空，给重试入口
 
     /** v0.25.0：当前数据源的缓存 key（订阅站 key / 本地规则名） */
@@ -253,101 +252,187 @@ fun HomeScreen(
      * - 网络与引擎调用全在 IO 线程，不阻塞主线程；
      * - 全失败且无缓存 → 错误态（homeError），UI 给重试按钮。
      *
-     * v0.27.7：防重入——ON_RESUME/下拉刷新可能并发触发 loadHome，
-     * 新调用会经 latest(slot) 取消旧的在途 PY 请求（真机 "H was cancelled" 刷屏的根因），
-     * 请求永远做不完。进行中直接跳过。
-     *
-     * v0.29.0：失败退避——force=false 的自动触发在连续 3 次全失败后直接跳过，
-     * 只保留用户手动下拉（doRefresh 传 force=true）。源切换时 streak 清零。
+     * v0.31.0：单飞锁系统性修复失败风暴——
+     * - 同一数据源 key 同时只允许一次在途请求（HomeLoadGate），后到的 await 同一个
+     *   Deferred，复用执行方算好的 HomePayload，不各跑各的；
+     * - 失败计数按 key 统一记在单例里，只有真正执行的那一次才计数，复用方不重复记；
+     * - v0.29.0 退避语义保留（非手动连续 3 次全失败后跳过），挂在统一计数上。
+     * （旧的 homeLoading 布尔防重入 + remember 内 homeFailStreak 是按 composition
+     * 实例维度的，多个实例各自计数、各自触发，退避形同虚设，已删除。）
      */
     fun loadHome(force: Boolean = false, onDone: () -> Unit = {}) {
         val key = homeCacheKey() ?: return
-        if (homeLoading) {
-            LogBus.i("Home", "首页加载进行中，跳过重复触发")
-            onDone()
-            return
-        }
-        if (!force && homeFailStreak >= 3) {
-            LogBus.i("Home", "首页连续失败 ${homeFailStreak} 次，退避中（下拉可手动重试）")
-            onDone()
-            return
-        }
-        homeLoading = true
-        scope.launch {
-            try {
-                drpyLoading = true
-                homeError = null
-                var cacheShown = false
-                // 1. 缓存先行
-                withContext(Dispatchers.IO) { HomeCache.load(context, key) }?.let { (data, fresh) ->
-                    if (data.vods.isNotEmpty()) {
-                        drpyCats = data.cats
-                        drpyList = data.vods
-                        cacheShown = true
-                        LogBus.i("Home", "首页缓存命中（${if (fresh) "新鲜" else "过期"}）：${data.vods.size} 条")
-                    } else if (data.cats.isNotEmpty()) {
-                        drpyCats = data.cats
-                    }
-                }
-                // 2. 并发刷新
-                coroutineScope {
-                    launch {
-                        val home = runCatching {
-                            // v0.27.1：推荐抓取给 12s（PY 规则内部 5s×2 次抓取，慢速网络 6s 不够）
-                            withTimeoutOrNull(12_000) {
-                                withContext(Dispatchers.IO) { engineHome() }
-                            }
-                        }.getOrNull()
-                        if (home == null) {
-                            LogBus.w("Home", "首页推荐加载超时/失败（12s 熔断）")
-                        } else if (home.isNotEmpty() || !cacheShown) {
-                            // 有缓存时网络返回空不覆盖，避免缓存闪一下被清空
-                            drpyList = home.ifEmpty { null }
-                            selectedCategory = 0
-                            selectedFilter = null
-                        }
-                        if (!home.isNullOrEmpty()) {
-                            withContext(Dispatchers.IO) { HomeCache.saveVods(context, key, home) }
-                        }
-                    }
-                    launch {
-                        val cats = runCatching {
-                            // v0.27.7：分类超时 6s→12s，和推荐对齐（真机分类反复熔断）
-                            // v0.28.0：PyApi 内 homeContent 一次调用共享，推荐/分类不再排队
-                            withTimeoutOrNull(12_000) {
-                                withContext(Dispatchers.IO) { engineCats() }
-                            }
-                        }.getOrNull()
-                        if (cats == null) {
-                            // v0.28.0：超时不清空——缓存里的 cats（步骤1已恢复）继续用，打明确日志
-                            LogBus.w(
-                                "Home",
-                                "首页分类加载超时/失败（12s 熔断），保留缓存分类 ${drpyCats.size} 个",
-                            )
-                            // v0.29.0：分类失败且当前为空，UI 给重试入口
-                            if (drpyCats.isEmpty()) catsFailed = true
-                        } else if (cats.isNotEmpty()) {
-                            drpyCats = cats
-                            catsFailed = false
-                            withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) }
-                        } else if (drpyCats.isEmpty()) {
-                            catsFailed = false // 规则本来就没分类，不是失败
-                        }
-                    }
-                }
-                drpyLoading = false
-                if (drpyList == null) {
-                    homeError = "加载失败，点击重试"
-                    homeFailStreak++
-                    LogBus.w("Home", "首页数据全失败且无缓存（连续 ${homeFailStreak} 次）")
-                } else {
-                    homeFailStreak = 0
-                }
+        // 抓当前展示值，供"全失败且无缓存"判定（语义与旧版一致：之前展示中的也算有数据）
+        val prevVods = drpyList
+        val prevCats = drpyCats
+        drpyLoading = true
+        homeError = null
+
+        // v0.31.0：单飞——有在途请求直接复用结果（不重复跑网络、不重复计数）
+        HomeLoadGate.flight(key)?.let { inFlight ->
+            LogBus.i("Home", "首页加载进行中，复用在途请求")
+            scope.launch {
+                // 复用方只应用结果，不写缓存、不计数
+                applyHomePayload(awaitFlight(inFlight), prevVods, prevCats)
                 onDone()
-            } finally {
-                homeLoading = false
+            }
+            return
+        }
+
+        // v0.29.0 退避语义保留，挂在按 key 统一的计数上
+        val streak = HomeLoadGate.streak(key)
+        if (!force && streak >= 3) {
+            drpyLoading = false
+            LogBus.i("Home", "首页连续失败 $streak 次，退避中（下拉可手动重试）")
+            onDone()
+            return
+        }
+
+        val deferred = scope.async { runCatching { fetchHomePayload(key) }.getOrNull() }
+        if (!HomeLoadGate.start(key, deferred)) {
+            // 极小竞态：start 前一刻刚有人登记，转复用
+            deferred.cancel()
+            scope.launch {
+                applyHomePayload(HomeLoadGate.flight(key)?.let { awaitFlight(it) }, prevVods, prevCats)
+                onDone()
+            }
+            return
+        }
+        // 执行方收尾（仅挂一次）：统一计数 + 应用结果到自己的状态
+        scope.launch {
+            val payload = awaitFlight(deferred)
+            val ok = payload?.vods != null || prevVods != null
+            HomeLoadGate.finish(key, deferred, ok)
+            if (!ok) LogBus.w("Home", "首页数据全失败且无缓存（连续 ${HomeLoadGate.streak(key)} 次）")
+            applyHomePayload(payload, prevVods, prevCats)
+            onDone()
+        }
+    }
+
+    /**
+     * 等待单飞结果。异常（含取消）一律按 null 处理、调用方按失败态展示：
+     * 这里是 fire-and-forget 的收尾路径，宁可把清理（finish）和错误态做完，
+     * 也不让取消导致转圈卡死或登记泄漏。
+     */
+    suspend fun awaitFlight(d: Deferred<HomeLoadGate.HomePayload?>): HomeLoadGate.HomePayload? =
+        try {
+            d.await()
+        } catch (e: Exception) {
+            null
+        }
+
+    /**
+     * v0.31.0：单飞执行方的实际工作——缓存先行 + 并发拉网络，算好最终 UI 状态，
+     * 打包成 HomePayload。缓存落盘只在这里做一次，复用方不重复写。
+     */
+    suspend fun fetchHomePayload(key: String): HomeLoadGate.HomePayload {
+        // 1. 缓存先行
+        var cacheVods: List<ModelVod> = emptyList()
+        var cacheCats: List<CategoryType> = emptyList()
+        var cacheShown = false
+        withContext(Dispatchers.IO) { HomeCache.load(context, key) }?.let { (data, fresh) ->
+            cacheCats = data.cats
+            if (data.vods.isNotEmpty()) {
+                cacheVods = data.vods
+                cacheShown = true
+                LogBus.i("Home", "首页缓存命中（${if (fresh) "新鲜" else "过期"}）：${data.vods.size} 条")
             }
         }
+        // 2. 并发刷新（推荐/分类各 12s 熔断，互不取消）
+        var netVods: List<ModelVod>? = null
+        var netCats: List<CategoryType>? = null
+        coroutineScope {
+            launch {
+                netVods = runCatching {
+                    // v0.27.1：推荐抓取给 12s（PY 规则内部 5s×2 次抓取，慢速网络 6s 不够）
+                    withTimeoutOrNull(12_000) {
+                        withContext(Dispatchers.IO) { engineHome() }
+                    }
+                }.getOrNull()
+                if (netVods == null) {
+                    LogBus.w("Home", "首页推荐加载超时/失败（12s 熔断）")
+                } else if (!netVods.isNullOrEmpty()) {
+                    withContext(Dispatchers.IO) { HomeCache.saveVods(context, key, netVods!!) }
+                }
+            }
+            launch {
+                netCats = runCatching {
+                    // v0.27.7：分类超时 6s→12s，和推荐对齐（真机分类反复熔断）
+                    // v0.28.0：PyApi 内 homeContent 一次调用共享，推荐/分类不再排队
+                    withTimeoutOrNull(12_000) {
+                        withContext(Dispatchers.IO) { engineCats() }
+                    }
+                }.getOrNull()
+                if (netCats == null) {
+                    // v0.28.0：超时不清空——缓存里的 cats 继续用，打明确日志
+                    LogBus.w("Home", "首页分类加载超时/失败（12s 熔断），保留缓存分类 ${cacheCats.size} 个")
+                } else if (netCats!!.isNotEmpty()) {
+                    withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, netCats!!) }
+                }
+            }
+        }
+        // 3. 算最终 UI 状态（语义与 v0.25.0–v0.29.0 一致）
+        val netOk = netVods != null && (netVods!!.isNotEmpty() || !cacheShown)
+        val finalVods: List<ModelVod>? = when {
+            netOk -> netVods!!.ifEmpty { null }
+            cacheVods.isNotEmpty() -> cacheVods
+            else -> null
+        }
+        val finalCats: List<CategoryType>
+        val finalCatsFailed: Boolean
+        when {
+            !netCats.isNullOrEmpty() -> {
+                finalCats = netCats!!
+                finalCatsFailed = false
+            }
+            cacheCats.isNotEmpty() -> {
+                finalCats = cacheCats
+                finalCatsFailed = false
+            }
+            netCats == null -> {
+                // 分类超时且无缓存：UI 给重试入口
+                finalCats = emptyList()
+                finalCatsFailed = true
+            }
+            else -> {
+                // 规则本来就没分类，不是失败
+                finalCats = emptyList()
+                finalCatsFailed = false
+            }
+        }
+        return HomeLoadGate.HomePayload(
+            vods = finalVods,
+            cats = finalCats,
+            catsFailed = finalCatsFailed,
+            resetSelection = netOk,
+        )
+    }
+
+    /**
+     * 把单飞结果应用到当前 composition 的状态（执行方/复用方共用）。
+     * - vods 为 null：网络失败且无缓存，drpyList 保持现状（prev）；
+     * - cats 为空但之前有展示：保留之前的，下拉刷新失败不清空已展示的分类；
+     * - 错误态按"最终有无可展示数据"统一给。
+     */
+    fun applyHomePayload(
+        payload: HomeLoadGate.HomePayload?,
+        prevVods: List<ModelVod>?,
+        prevCats: List<CategoryType>,
+    ) {
+        drpyLoading = false
+        if (payload == null) {
+            if (prevVods == null) homeError = "加载失败，点击重试"
+            return
+        }
+        if (payload.resetSelection) {
+            selectedCategory = 0
+            selectedFilter = null
+        }
+        drpyList = payload.vods ?: prevVods
+        val cats = payload.cats.ifEmpty { prevCats }
+        drpyCats = cats
+        catsFailed = payload.catsFailed && cats.isEmpty()
+        homeError = if (drpyList == null) "加载失败，点击重试" else null
     }
 
     fun loadDrpyCategory(index: Int, filter: Pair<String, String>? = null) { // index >= 1，对应 drpyCats[index-1]
@@ -415,7 +500,7 @@ fun HomeScreen(
             selectedCategory = 0
             selectedFilter = null
             homeError = null
-            homeFailStreak = 0 // v0.29.0：换源后退避清零
+            // v0.31.0：失败计数按数据源 key 记在 HomeLoadGate 单例里，切源自然用新 key 的计数，无需手动清零
             catsFailed = false
         }
     }
@@ -430,7 +515,8 @@ fun HomeScreen(
      * 用户下拉刷新才会加载，符合"首页不自动加载"的设计。
      */
     fun restoreHomeIfEmpty() {
-        if (drpyList != null || !drpyActive || homeLoading) return
+        // v0.31.0：homeLoading 已并入 drpyLoading（单飞门接管防重入）
+        if (drpyList != null || !drpyActive || drpyLoading) return
         val key = homeCacheKey() ?: return
         scope.launch {
             val cached = withContext(Dispatchers.IO) { HomeCache.load(context, key) }
