@@ -244,72 +244,6 @@ fun HomeScreen(
     }
 
     /**
-     * v0.25.0：首页加载单入口（原 loadDrpyHome / doRefresh 的重复逻辑合并于此）。
-     * - 缓存先行：IO 读盘，主线程即时渲染，冷启动不白屏；
-     * - 并发：推荐 + 分类同时拉，哪个先回先显示，不等最慢的；
-     * - 推荐/分类各走独立 slot（PySourceManager.homeSlot/categoriesSlot），互不取消；
-     * - 单路 12 秒熔断（withTimeoutOrNull），超时/异常记 LogBus；
-     * - 网络与引擎调用全在 IO 线程，不阻塞主线程；
-     * - 全失败且无缓存 → 错误态（homeError），UI 给重试按钮。
-     *
-     * v0.31.0：单飞锁系统性修复失败风暴——
-     * - 同一数据源 key 同时只允许一次在途请求（HomeLoadGate），后到的 await 同一个
-     *   Deferred，复用执行方算好的 HomePayload，不各跑各的；
-     * - 失败计数按 key 统一记在单例里，只有真正执行的那一次才计数，复用方不重复记；
-     * - v0.29.0 退避语义保留（非手动连续 3 次全失败后跳过），挂在统一计数上。
-     * （旧的 homeLoading 布尔防重入 + remember 内 homeFailStreak 是按 composition
-     * 实例维度的，多个实例各自计数、各自触发，退避形同虚设，已删除。）
-     */
-    fun loadHome(force: Boolean = false, onDone: () -> Unit = {}) {
-        val key = homeCacheKey() ?: return
-        // 抓当前展示值，供"全失败且无缓存"判定（语义与旧版一致：之前展示中的也算有数据）
-        val prevVods = drpyList
-        val prevCats = drpyCats
-        drpyLoading = true
-        homeError = null
-
-        // v0.31.0：单飞——有在途请求直接复用结果（不重复跑网络、不重复计数）
-        HomeLoadGate.flight(key)?.let { inFlight ->
-            LogBus.i("Home", "首页加载进行中，复用在途请求")
-            scope.launch {
-                // 复用方只应用结果，不写缓存、不计数
-                applyHomePayload(awaitFlight(inFlight), prevVods, prevCats)
-                onDone()
-            }
-            return
-        }
-
-        // v0.29.0 退避语义保留，挂在按 key 统一的计数上
-        val streak = HomeLoadGate.streak(key)
-        if (!force && streak >= 3) {
-            drpyLoading = false
-            LogBus.i("Home", "首页连续失败 $streak 次，退避中（下拉可手动重试）")
-            onDone()
-            return
-        }
-
-        val deferred = scope.async { runCatching { fetchHomePayload(key) }.getOrNull() }
-        if (!HomeLoadGate.start(key, deferred)) {
-            // 极小竞态：start 前一刻刚有人登记，转复用
-            deferred.cancel()
-            scope.launch {
-                applyHomePayload(HomeLoadGate.flight(key)?.let { awaitFlight(it) }, prevVods, prevCats)
-                onDone()
-            }
-            return
-        }
-        // 执行方收尾（仅挂一次）：统一计数 + 应用结果到自己的状态
-        scope.launch {
-            val payload = awaitFlight(deferred)
-            val ok = payload?.vods != null || prevVods != null
-            HomeLoadGate.finish(key, deferred, ok)
-            if (!ok) LogBus.w("Home", "首页数据全失败且无缓存（连续 ${HomeLoadGate.streak(key)} 次）")
-            applyHomePayload(payload, prevVods, prevCats)
-            onDone()
-        }
-    }
-
-    /**
      * 等待单飞结果。异常（含取消）一律按 null 处理、调用方按失败态展示：
      * 这里是 fire-and-forget 的收尾路径，宁可把清理（finish）和错误态做完，
      * 也不让取消导致转圈卡死或登记泄漏。
@@ -436,6 +370,73 @@ fun HomeScreen(
         catsFailed = payload.catsFailed && cats.isEmpty()
         homeError = if (drpyList == null) "加载失败，点击重试" else null
     }
+
+    /**
+     * v0.25.0：首页加载单入口（原 loadDrpyHome / doRefresh 的重复逻辑合并于此）。
+     * - 缓存先行：IO 读盘，主线程即时渲染，冷启动不白屏；
+     * - 并发：推荐 + 分类同时拉，哪个先回先显示，不等最慢的；
+     * - 推荐/分类各走独立 slot（PySourceManager.homeSlot/categoriesSlot），互不取消；
+     * - 单路 12 秒熔断（withTimeoutOrNull），超时/异常记 LogBus；
+     * - 网络与引擎调用全在 IO 线程，不阻塞主线程；
+     * - 全失败且无缓存 → 错误态（homeError），UI 给重试按钮。
+     *
+     * v0.31.0：单飞锁系统性修复失败风暴——
+     * - 同一数据源 key 同时只允许一次在途请求（HomeLoadGate），后到的 await 同一个
+     *   Deferred，复用执行方算好的 HomePayload，不各跑各的；
+     * - 失败计数按 key 统一记在单例里，只有真正执行的那一次才计数，复用方不重复记；
+     * - v0.29.0 退避语义保留（非手动连续 3 次全失败后跳过），挂在统一计数上。
+     * （旧的 homeLoading 布尔防重入 + remember 内 homeFailStreak 是按 composition
+     * 实例维度的，多个实例各自计数、各自触发，退避形同虚设，已删除。）
+     */
+    fun loadHome(force: Boolean = false, onDone: () -> Unit = {}) {
+        val key = homeCacheKey() ?: return
+        // 抓当前展示值，供"全失败且无缓存"判定（语义与旧版一致：之前展示中的也算有数据）
+        val prevVods = drpyList
+        val prevCats = drpyCats
+        drpyLoading = true
+        homeError = null
+
+        // v0.31.0：单飞——有在途请求直接复用结果（不重复跑网络、不重复计数）
+        HomeLoadGate.flight(key)?.let { inFlight ->
+            LogBus.i("Home", "首页加载进行中，复用在途请求")
+            scope.launch {
+                // 复用方只应用结果，不写缓存、不计数
+                applyHomePayload(awaitFlight(inFlight), prevVods, prevCats)
+                onDone()
+            }
+            return
+        }
+
+        // v0.29.0 退避语义保留，挂在按 key 统一的计数上
+        val streak = HomeLoadGate.streak(key)
+        if (!force && streak >= 3) {
+            drpyLoading = false
+            LogBus.i("Home", "首页连续失败 $streak 次，退避中（下拉可手动重试）")
+            onDone()
+            return
+        }
+
+        val deferred = scope.async { runCatching { fetchHomePayload(key) }.getOrNull() }
+        if (!HomeLoadGate.start(key, deferred)) {
+            // 极小竞态：start 前一刻刚有人登记，转复用
+            deferred.cancel()
+            scope.launch {
+                applyHomePayload(HomeLoadGate.flight(key)?.let { f: Deferred<HomeLoadGate.HomePayload?> -> awaitFlight(f) }, prevVods, prevCats)
+                onDone()
+            }
+            return
+        }
+        // 执行方收尾（仅挂一次）：统一计数 + 应用结果到自己的状态
+        scope.launch {
+            val payload = awaitFlight(deferred)
+            val ok = payload?.vods != null || prevVods != null
+            HomeLoadGate.finish(key, deferred, ok)
+            if (!ok) LogBus.w("Home", "首页数据全失败且无缓存（连续 ${HomeLoadGate.streak(key)} 次）")
+            applyHomePayload(payload, prevVods, prevCats)
+            onDone()
+        }
+    }
+
 
     fun loadDrpyCategory(index: Int, filter: Pair<String, String>? = null) { // index >= 1，对应 drpyCats[index-1]
         val cat = drpyCats.getOrNull(index - 1) ?: return

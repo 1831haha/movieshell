@@ -1,7 +1,7 @@
 package com.movieshell.data.repo
 
 import com.movieshell.data.model.CategoryType
-import com.movieshell.data.model.ModelVod
+import com.movieshell.data.model.Vod as ModelVod
 import kotlinx.coroutines.Deferred
 
 /**
