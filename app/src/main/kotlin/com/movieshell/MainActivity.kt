@@ -91,6 +91,7 @@ import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
 import com.movieshell.ui.follow.FollowScreen
 import com.movieshell.ui.history.HistoryScreen
+import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.reader.ReaderScreen
 import com.movieshell.ui.components.SoftBottomDock
 import com.movieshell.ui.components.SoftDockItem
@@ -388,6 +389,12 @@ class MainActivity : ComponentActivity() {
                                 onNovelClick = { id ->
                                     navController.navigate("reader/$id")
                                 },
+                                onFindBookClick = { navController.navigate("novel_search") },
+                            )
+                        }
+                        composable("novel_search") {
+                            NovelSearchScreen(
+                                onBack = { navController.popBackStack() },
                             )
                         }
                         composable(

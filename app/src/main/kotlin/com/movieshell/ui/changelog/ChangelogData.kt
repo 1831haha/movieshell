@@ -15,6 +15,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.37.0",
+        date = "2026-10-16",
+        title = "找书页：在线小说源架构（演示数据）",
+        details = listOf(
+            "书架顶栏多了个放大镜，点进去是找书页：输入书名或作者就能搜。",
+            "这版是演示书源（3 本假书），用来打通搜索→目录→正文→加入书架整条链路。",
+            "搜到的书点“加入书架”，会自动拉下目录存到本地，之后在书架里接着看。",
+            "真实网页书源下版再接，这版先把架子搭好。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.36.0",
         date = "2026-10-16",
         title = "书架进底栏 + 阅读器更好用了",

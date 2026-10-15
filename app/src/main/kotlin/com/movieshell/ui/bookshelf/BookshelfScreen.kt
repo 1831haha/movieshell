@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -66,6 +67,7 @@ import java.io.File
 @Composable
 fun BookshelfScreen(
     onNovelClick: (String) -> Unit = {},
+    onFindBookClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -142,6 +144,9 @@ fun BookshelfScreen(
             }
             IconButton(onClick = { pickTxt.launch("text/plain") }, enabled = !importing) {
                 Icon(Icons.Filled.Add, "导入 TXT", tint = gold)
+            }
+            IconButton(onClick = onFindBookClick) {
+                Icon(Icons.Filled.Search, "找书", tint = gold)
             }
         }
 
