@@ -230,8 +230,8 @@ fun HomeScreen(
     // 修构建注：Pair<String,String>? 的自定义 Saver 在 rememberSaveable 里类型对不上，拆成两个 String? 存，最简单不出错。
     var filterKey by rememberSaveable { mutableStateOf<String?>(null) }
     var filterValue by rememberSaveable { mutableStateOf<String?>(null) }
-    val selectedFilter: Pair<String, String>?
-        get() = if (filterKey != null && filterValue != null) filterKey!! to filterValue!! else null
+    val selectedFilter: Pair<String, String>? =
+        if (filterKey != null && filterValue != null) filterKey!! to filterValue!! else null
     fun setFilter(f: Pair<String, String>?) { filterKey = f?.first; filterValue = f?.second }
     // v0.31.2：内容世代——每次发起内容加载（首页/分类）+1，异步完成时只应用最新世代的结果，
     // 旧请求的迟到结果直接丢弃。快速连点/首页与分类打架时，"最后一次点击赢"是唯一不变量。
