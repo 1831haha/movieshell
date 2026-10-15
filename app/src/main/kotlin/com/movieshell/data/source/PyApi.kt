@@ -3,7 +3,7 @@ package com.movieshell.data.source
 import android.util.Log
 import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.FilterGroup
-import com.movieshell.data.model.FilterValue
+import com.movieshell.data.model.FilterOption
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
@@ -112,12 +112,12 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
                         FilterGroup(
                             key = g.optString("key"),
                             name = g.optString("name"),
-                            values = (g["value"] as? JsonArray).orEmpty()
+                            options = (g["value"] as? JsonArray).orEmpty()
                                 .mapNotNull { it as? JsonObject }
-                                .map { FilterValue(n = it.optString("n"), v = it.optString("v")) }
-                                .filter { it.n.isNotBlank() },
+                                .map { FilterOption(it.optString("n"), it.optString("v")) }
+                                .filter { it.name.isNotBlank() },
                         )
-                    }.filter { it.values.isNotEmpty() }
+                    }.filter { it.options.isNotEmpty() }
             }
         val list = (data["class"] as? JsonArray).orEmpty()
             .mapNotNull { (it as? JsonObject) }.map {

@@ -1,5 +1,7 @@
 package com.movieshell.data.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * drpy 分类筛选（filterable 规则）的数据模型。
  *
@@ -7,6 +9,7 @@ package com.movieshell.data.model
  * filter: { "<tid>": [ { key, name, value: [ { n, v } ] } ] }
  * 渲染时 filter_url 里的 {{fl.键名}} 占位符取对应分组选中项的 v。
  */
+@Serializable
 data class FilterOption(
     /** 显示名（规则里 value 项的 n，如"全部"/"2025"）。 */
     val name: String,
@@ -14,6 +17,7 @@ data class FilterOption(
     val value: String
 )
 
+@Serializable
 data class FilterGroup(
     /** 占位符键名（{{fl.key}} 的 key，如 "year"）。 */
     val key: String,

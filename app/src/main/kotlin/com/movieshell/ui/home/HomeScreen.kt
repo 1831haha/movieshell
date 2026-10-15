@@ -675,15 +675,15 @@ fun HomeScreen(
                                     .horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
-                                filterGroup.values.forEach { fv ->
-                                    val isSel = selectedFilter?.let { it.first == filterGroup.key && it.second == fv.v } == true
+                                filterGroup.options.forEach { fv ->
+                                    val isSel = selectedFilter?.let { it.first == filterGroup.key && it.second == fv.value } == true
                                     AppChip(
-                                        text = fv.n,
+                                        text = fv.name,
                                         selected = isSel,
                                         small = true,
                                         onClick = {
                                             // 点已选中的则取消筛选，回到默认
-                                            val next = if (isSel) null else (filterGroup.key to fv.v)
+                                            val next = if (isSel) null else (filterGroup.key to fv.value)
                                             loadDrpyCategory(selectedCategory, next)
                                         },
                                     )

@@ -137,21 +137,6 @@ data class PlayLine(
 )
 
 /** 分类：对应 CMS 的 class 数组项 {type_id, type_name}。 */
-/** 二级筛选值：n=显示名，v=传给 extend 的值。 */
-@Serializable
-data class FilterValue(
-    val n: String = "",
-    val v: String = ""
-)
-
-/** 二级筛选组：key=extend 键名（如 "cat"），name=组显示名。 */
-@Serializable
-data class FilterGroup(
-    val key: String = "",
-    val name: String = "",
-    val values: List<FilterValue> = emptyList()
-)
-
 @Serializable
 data class CategoryType(
     val typeId: String = "",
