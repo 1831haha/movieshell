@@ -178,7 +178,9 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
                 .ifBlank { packed.getOrNull(2).orEmpty() },
             vodRemarks = optString("vod_remarks").ifBlank { optString("remarks") },
             vodYear = optString("vod_year").ifBlank { optString("year") },
-            typeName = optString("type_name")
+            typeName = optString("type_name"),
+            vodContent = optString("vod_content").ifBlank { optString("vod_blurb") }
+                .ifBlank { optString("desc") }
         )
     }
 

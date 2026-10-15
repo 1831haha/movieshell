@@ -86,7 +86,7 @@ private fun ModelVod.toUiVod() = Vod(
     rating = vodRemarks,
     area = "",
     actors = "",
-    desc = "",
+    desc = vodContent,
     episodes = 0,
     poster = vodPic,
 )
@@ -431,6 +431,24 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                     )
                                     Spacer(Modifier.width(SoftDimens.CardSpacing))
                                     Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = vod.title,
+                                            style = SoftType.CardTitle,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        if (vod.desc.isNotBlank()) {
+                                            Text(
+                                                text = vod.desc,
+                                                style = SoftType.Caption,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Spacer(Modifier.height(4.dp))
+                                        }
                                         Text(
                                             text = "${vod.category} · ${vod.year}",
                                             style = SoftType.Body,

@@ -95,7 +95,8 @@ open class Vod(
     open val vodPic: String = "",
     open val vodRemarks: String = "",
     open val vodYear: String = "",
-    open val typeName: String = ""
+    open val typeName: String = "",
+    open val vodContent: String = ""
 )
 
 /** 影片详情：继承 Vod 全部字段，追加介绍/演员/导演/播放来源与播放地址。
