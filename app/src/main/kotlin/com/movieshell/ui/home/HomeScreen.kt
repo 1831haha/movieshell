@@ -255,7 +255,7 @@ fun HomeScreen(
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
     var drpyActive by remember { mutableStateOf(false) }
     var drpyLoading by remember { mutableStateOf(false) }
-    var drpyCats by rememberSaveable(saver = CategoryListSaver) { mutableStateOf(emptyList<CategoryType>()) }
+    var drpyCats by rememberSaveable(saver = CategoryListSaver) { emptyList<CategoryType>() }
     var drpyList by remember { mutableStateOf<List<ModelVod>?>(null) } // null=未加载/失败
     var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
     var catsFailed by remember { mutableStateOf(false) } // v0.29.0：分类失败且为空，给重试入口
