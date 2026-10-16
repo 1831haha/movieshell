@@ -213,7 +213,9 @@ fun HomeScreen(
         if (s != null) return runCatching { subRepo.category(s, tid, pg, filter).second }
             .getOrDefault(emptyList())
         return runCatching {
-            if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.category(tid, pg)
+            // v0.44.0：订阅路径也要透传筛选（之前丢了，drpy 筛选点了没效果）
+            // v0.48.0：本地 drpy 同样漏传 filter（v0.44.0 宣称生效实际没传），补上
+            if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.category(tid, pg, filter)
             else if (SourceStateStore.activePyRule() != null) PySourceManager.category(tid, pg, filter)
             else emptyList()
         }.getOrDefault(emptyList())

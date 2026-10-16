@@ -15,6 +15,14 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.48.0",
+        date = "2026-10-16",
+        title = "补本地 drpy 筛选透传",
+        details = listOf(
+            "修：本地 drpy 源选分类筛选后点了没效果——filter 参数漏传了，补上（v0.44.0 的断链）。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.47.0",
         date = "2026-10-16",
         title = "首页精简＋详情页整理＋插件管理归位",
