@@ -55,17 +55,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay10
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Subtitles
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -178,6 +183,9 @@ fun PlayerScreen(
     // v0.27.7：自绘控制层显隐（Media3 原生控制器已关闭，双引擎统一）；播放状态从引擎取
     var controlsVisible by remember { mutableStateOf(true) }
     var isPlaying by remember { mutableStateOf(true) }
+    // v0.40.0：锁屏模式（锁定后只留解锁按钮，防误触）+ 右上角更多菜单
+    var locked by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
     var autoSwitching by remember { mutableStateOf(false) } // playUrl 变化来自自动重试
     val triedLines = remember { mutableSetOf<Int>() } // 已试过的线路下标
     // v0.21.0：同地址已试过的内核（防 Media3↔libmpv 乒乓）
@@ -671,7 +679,8 @@ fun PlayerScreen(
                         }
                         if (slopChange == null || mode == 0) {
                             // v0.27.7：轻点切换自绘控制层显隐（Media3 原生控制器已关闭）
-                            controlsVisible = !controlsVisible
+                            // v0.40.0：锁定时轻点不切换控制层（防误触，只留解锁按钮）
+                            if (!locked) controlsVisible = !controlsVisible
                             return@awaitEachGesture
                         }
                         var last = slopChange.position
@@ -738,15 +747,17 @@ fun PlayerScreen(
         }
 
         // v0.27.7：播放中 4 秒无操作自动隐藏控制层（暂停时保持显示）
-        LaunchedEffect(controlsVisible, isPlaying) {
-            if (controlsVisible && isPlaying) {
+        // v0.40.0：锁定时不自动隐藏（解锁按钮常显）
+        LaunchedEffect(controlsVisible, isPlaying, locked) {
+            if (controlsVisible && isPlaying && !locked) {
                 delay(4000)
                 controlsVisible = false
             }
         }
 
         // v0.27.7：中央大播放键——暂停时显示；点后恢复播放并带出控制层
-        if (!isPlaying && playUrl.isNotBlank()) {
+        // v0.40.0：锁定时隐藏（防误触）
+        if (!isPlaying && playUrl.isNotBlank() && !locked) {
             IconButton(
                 onClick = {
                     EngineHost.togglePlayPause()
@@ -766,158 +777,179 @@ fun PlayerScreen(
             }
         }
 
-        // 顶部栏：返回 + 标题 + 倍速 + 快进快退 + 画面比例 + 线路/选集 + 字幕 + 画中画 + 跳过设置
-        // v0.27.7：跟随控制层显隐
-        if (controlsVisible) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .background(Color.Black.copy(alpha = 0.35f))
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
-            }
-            Text(
-                text = title,
-                color = Color.White,
-                style = SoftType.CardTitle,
-                maxLines = 1,
-                modifier = Modifier.weight(1f),
-            )
-            // v0.24.0：直播角标（v0.27.0：柔和错误色胶囊）
-            if (isLive) {
-                Surface(
-                    shape = RoundedCornerShape(SoftDimens.ChipCorner),
-                    color = LocalSoftExtra.current.errorSoft,
-                ) {
-                    Text(
-                        text = "直播",
-                        color = Color.Black,
-                        style = SoftType.Caption,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
+        // v0.40.0：顶部栏按目标界面重做——返回 + 标题 + 画中画 + 投屏 + 更多菜单
+        // 锁定时隐藏顶栏（只留解锁按钮防误触）
+        if (controlsVisible && !locked) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .background(Color.Black)
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
                 }
-                Spacer(Modifier.width(4.dp))
-            }
-            TextButton(
-                onClick = {
-                    speedIndex = (speedIndex + 1) % SPEEDS.size
-                    EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
-                },
-                modifier = Modifier.height(SoftDimens.TouchTarget),
-            ) {
-                Text("${SPEEDS[speedIndex]}x", color = Color.White, style = SoftType.Body)
-            }
-            // v0.14.0：快退/快进 ±10 秒（v0.20.0 走 EngineHost，双引擎统一）
-            IconButton(onClick = {
-                EngineHost.seekTo((EngineHost.currentPosition() - 10_000).coerceAtLeast(0))
-            }) {
-                Icon(Icons.Filled.Replay10, contentDescription = "快退10秒", tint = Color.White)
-            }
-            IconButton(onClick = {
-                EngineHost.seekTo(EngineHost.currentPosition() + 10_000)
-            }) {
-                Icon(Icons.Filled.Forward10, contentDescription = "快进10秒", tint = Color.White)
-            }
-            TextButton(
-                onClick = {
-                    resizeIndex = (resizeIndex + 1) % RESIZE_MODES.size
-                    // v0.20.0：Media3 走 PlayerView，libmpv 走 mpv 的画面比例选项
-                    if (engine == PlayerEngine.MEDIA3) {
-                        playerView?.resizeMode = RESIZE_MODES[resizeIndex].first
-                    } else {
-                        MpvPlayerManager.setAspectMode(resizeIndex)
-                    }
-                },
-                modifier = Modifier.height(SoftDimens.TouchTarget),
-            ) {
-                Text(RESIZE_MODES[resizeIndex].second, color = Color.White, style = SoftType.Body)
-            }
-            // v0.20.0：播放器内一键切换内核（Media3 ↔ libmpv），选择会被记住
-            TextButton(
-                onClick = { switchEngine() },
-                modifier = Modifier.height(SoftDimens.TouchTarget),
-            ) {
                 Text(
-                    if (engine == PlayerEngine.MEDIA3) "Media3" else "libmpv",
+                    text = title,
                     color = Color.White,
-                    style = SoftType.Body,
+                    style = SoftType.CardTitle,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
                 )
-            }
-            // v0.19.0：播放器内线路/选集切换（多条线路才显示）；v0.24.0：直播隐藏
-            if (!isLive && sessionLines.size > 1) {
-                TextButton(
-                    onClick = { showLines = true },
-                    modifier = Modifier.height(SoftDimens.TouchTarget),
-                ) {
-                    Text(
-                        PlaySession.currentLine()?.name?.take(4) ?: "线路",
-                        color = Color.White,
-                        style = SoftType.Body,
-                    )
-                }
-            } else if (!isLive && sessionLines.size == 1 && (sessionLines[0].episodes.size > 1)) {
-                TextButton(
-                    onClick = { showLines = true },
-                    modifier = Modifier.height(SoftDimens.TouchTarget),
-                ) {
-                    Text("选集", color = Color.White, style = SoftType.Body)
-                }
-            }
-            // v0.19.0：外挂字幕
-            IconButton(onClick = { showSubtitleDialog = true }) {
-                Icon(Icons.Filled.Subtitles, contentDescription = "字幕", tint = Color.White)
-            }
-            // v0.19.0：画中画
-            IconButton(onClick = { enterPip(context) }) {
-                Icon(Icons.Filled.PictureInPictureAlt, contentDescription = "画中画", tint = Color.White)
-            }
-            // v0.16.3：按剧片头片尾设置；v0.24.0：直播隐藏
-            if (!isLive) {
-                IconButton(onClick = { showSkipSettings = true }) {
-                    Icon(Icons.Filled.Settings, contentDescription = "本剧跳过设置", tint = Color.White)
-                }
-            }
-            // v0.21.0：定时关闭（有定时在跑时显示剩余时间，点开可改/关）
-            if (sleepRemaining > 0 || sleepArmed) {
-                TextButton(
-                    onClick = { showSleepDialog = true },
-                    modifier = Modifier.height(SoftDimens.TouchTarget),
-                ) {
-                    Text(
-                        text = if (sleepArmed) "播完停" else fmtSleep(sleepRemaining),
-                        color = Color.White,
-                        style = SoftType.Body,
-                    )
-                }
-            } else {
-                IconButton(onClick = { showSleepDialog = true }) {
-                    Icon(Icons.Filled.Timer, contentDescription = "定时关闭", tint = Color.White)
-                }
-            }
-            // v0.21.0：截图（存 xiaying/Screenshots）
-            IconButton(onClick = {
-                scope.launch {
-                    val file = withContext(Dispatchers.IO) {
-                        EngineHost.screenshot(
-                            context, title, playUrl, lastHeaders,
-                            EngineHost.currentPosition(),
+                // v0.24.0：直播角标（v0.27.0：柔和错误色胶囊）
+                if (isLive) {
+                    Surface(
+                        shape = RoundedCornerShape(SoftDimens.ChipCorner),
+                        color = LocalSoftExtra.current.errorSoft,
+                    ) {
+                        Text(
+                            text = "直播",
+                            color = Color.Black,
+                            style = SoftType.Caption,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }
-                    Toast.makeText(
-                        context,
-                        if (file != null) "截图已保存：${file.name}" else "截图失败",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    Spacer(Modifier.width(4.dp))
                 }
-            }) {
-                Icon(Icons.Filled.Videocam, contentDescription = "截图", tint = Color.White)
+                // 画中画
+                IconButton(onClick = { enterPip(context) }) {
+                    Icon(Icons.Filled.PictureInPictureAlt, contentDescription = "画中画", tint = Color.White)
+                }
+                // 投屏（v0.40.0：占位，功能开发中）
+                IconButton(onClick = {
+                    Toast.makeText(context, "投屏功能开发中，敬请期待", Toast.LENGTH_SHORT).show()
+                    LogBus.i("Player", "投屏按钮：功能开发中")
+                }) {
+                    Icon(Icons.Filled.Cast, contentDescription = "投屏", tint = Color.White)
+                }
+                // 更多菜单：字幕/选集/定时/跳过设置/画面比例收敛到这里
+                Box {
+                    IconButton(onClick = { showMoreMenu = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "更多", tint = Color.White)
+                    }
+                    DropdownMenu(
+                        expanded = showMoreMenu,
+                        onDismissRequest = { showMoreMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("字幕设置") },
+                            onClick = { showMoreMenu = false; showSubtitleDialog = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("在线字幕") },
+                            onClick = { showMoreMenu = false; showOnlineSubtitle = true },
+                        )
+                        if (!isLive) {
+                            DropdownMenuItem(
+                                text = { Text("选集 / 线路") },
+                                onClick = { showMoreMenu = false; showLines = true },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (sleepRemaining > 0 || sleepArmed) "定时关闭（进行中）"
+                                    else "定时关闭"
+                                )
+                            },
+                            onClick = { showMoreMenu = false; showSleepDialog = true },
+                        )
+                        if (!isLive && vodId != null) {
+                            DropdownMenuItem(
+                                text = { Text("本剧跳过设置") },
+                                onClick = { showMoreMenu = false; showSkipSettings = true },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("画面比例：${RESIZE_MODES[resizeIndex].second}") },
+                            onClick = {
+                                showMoreMenu = false
+                                resizeIndex = (resizeIndex + 1) % RESIZE_MODES.size
+                                if (engine == PlayerEngine.MEDIA3) {
+                                    playerView?.resizeMode = RESIZE_MODES[resizeIndex].first
+                                } else {
+                                    MpvPlayerManager.setAspectMode(resizeIndex)
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        } // if (controlsVisible && !locked)：顶部栏
+
+        // v0.40.0：左侧悬浮按钮——锁定 + 截图（目标界面：圆形半透明黑底）
+        // 锁定时只显示解锁按钮（常显，不跟随控制层自动隐藏）
+        if (locked) {
+            IconButton(
+                onClick = {
+                    locked = false
+                    controlsVisible = true
+                },
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 16.dp)
+                    .size(56.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), CircleShape),
+            ) {
+                Icon(
+                    Icons.Filled.LockOpen,
+                    contentDescription = "解锁",
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+        } else if (controlsVisible) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = { locked = true },
+                    modifier = Modifier
+                        .size(56.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape),
+                ) {
+                    Icon(
+                        Icons.Filled.Lock,
+                        contentDescription = "锁定",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            val file = withContext(Dispatchers.IO) {
+                                EngineHost.screenshot(
+                                    context, title, playUrl, lastHeaders,
+                                    EngineHost.currentPosition(),
+                                )
+                            }
+                            Toast.makeText(
+                                context,
+                                if (file != null) "截图已保存：${file.name}" else "截图失败",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    },
+                    modifier = Modifier
+                        .size(56.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape),
+                ) {
+                    Icon(
+                        Icons.Filled.CameraAlt,
+                        contentDescription = "截图",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
             }
         }
-        } // if (controlsVisible)：顶部栏
 
         // v0.27.0：播放错误提示走柔和错误色，不用刺眼红
         SnackbarHost(
@@ -949,59 +981,158 @@ fun PlayerScreen(
                 dur = EngineHost.duration()
             }
         }
-        if (playUrl.isNotBlank() && controlsVisible) {
-            Row(
+        // v0.40.0：底部控制条按目标界面重做——两行式：进度行 + 控制行
+        // 锁定时隐藏（只留解锁按钮）
+        if (playUrl.isNotBlank() && controlsVisible && !locked) {
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(SoftDimens.ButtonCorner))
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .background(Color.Black)
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
             ) {
-                IconButton(onClick = { EngineHost.togglePlayPause() }) {
-                    Icon(
-                        if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (isPlaying) "暂停" else "播放",
-                        tint = Color.White,
+                // 第一行：当前时间 + 进度条 + 总时长
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = fmtTime(if (scrubbing) scrubPos else pos),
+                        color = Color.White,
+                        style = SoftType.Caption,
+                    )
+                    Slider(
+                        value = (if (scrubbing) scrubPos else pos).toFloat(),
+                        onValueChange = {
+                            scrubPos = it.toLong()
+                            scrubbing = true
+                        },
+                        onValueChangeFinished = {
+                            EngineHost.seekTo(scrubPos)
+                            scrubbing = false
+                        },
+                        valueRange = 0f..dur.coerceAtLeast(1L).toFloat(),
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = Color(0xFF2196F3),
+                            inactiveTrackColor = Color.White.copy(alpha = 0.3f),
+                        ),
+                    )
+                    Text(
+                        text = fmtTime(dur),
+                        color = Color.White,
+                        style = SoftType.Caption,
                     )
                 }
-                Text(
-                    text = fmtTime(if (scrubbing) scrubPos else pos),
-                    color = Color.White,
-                    style = SoftType.Caption,
-                )
-                Slider(
-                    value = (if (scrubbing) scrubPos else pos).toFloat(),
-                    onValueChange = {
-                        scrubPos = it.toLong()
-                        scrubbing = true
-                    },
-                    onValueChangeFinished = {
-                        EngineHost.seekTo(scrubPos)
-                        scrubbing = false
-                    },
-                    valueRange = 0f..dur.coerceAtLeast(1L).toFloat(),
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                    colors = SliderDefaults.colors(
-                        // v0.39.0：mockup 青色高光
-                        thumbColor = Color(0xFF4DD0E1),
-                        activeTrackColor = Color(0xFF4DD0E1),
-                    ),
-                )
-                Text(
-                    text = fmtTime(dur),
-                    color = Color.White,
-                    style = SoftType.Caption,
-                )
-                // v0.27.7：横竖屏切换
-                IconButton(onClick = { toggleOrientation() }) {
-                    Icon(
-                        Icons.Filled.Fullscreen,
-                        contentDescription = "横竖屏切换",
-                        tint = Color.White,
+                // 第二行：暂停 + 时间 + 上一集/下一集 + 倍速 + 选集 + 引擎 + 全屏
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    IconButton(onClick = { EngineHost.togglePlayPause() }) {
+                        Icon(
+                            if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = if (isPlaying) "暂停" else "播放",
+                            tint = Color.White,
+                        )
+                    }
+                    Text(
+                        text = "${fmtTime(if (scrubbing) scrubPos else pos)} / ${fmtTime(dur)}",
+                        color = Color.White,
+                        style = SoftType.Caption,
                     )
+                    if (!isLive) {
+                        val hasPrev = PlaySession.episodeIndex > 0
+                        val hasNext = PlaySession.currentLine()?.episodes
+                            ?.getOrNull(PlaySession.episodeIndex + 1) != null
+                        IconButton(
+                            onClick = {
+                                if (hasPrev) switchEpisode(
+                                    PlaySession.lineIndex,
+                                    PlaySession.episodeIndex - 1,
+                                )
+                            },
+                        ) {
+                            Icon(
+                                Icons.Filled.SkipPrevious,
+                                contentDescription = "上一集",
+                                tint = if (hasPrev) Color.White else Color.White.copy(alpha = 0.3f),
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                if (hasNext) switchEpisode(
+                                    PlaySession.lineIndex,
+                                    PlaySession.episodeIndex + 1,
+                                )
+                            },
+                        ) {
+                            Icon(
+                                Icons.Filled.SkipNext,
+                                contentDescription = "下一集",
+                                tint = if (hasNext) Color.White else Color.White.copy(alpha = 0.3f),
+                            )
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            speedIndex = (speedIndex + 1) % SPEEDS.size
+                            EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
+                        },
+                        modifier = Modifier.height(SoftDimens.TouchTarget),
+                    ) {
+                        // 目标界面样式：1.0X（大写 X）
+                        Text(
+                            "${SPEEDS[speedIndex]}X",
+                            color = Color.White,
+                            style = SoftType.Body,
+                        )
+                    }
+                    if (!isLive) {
+                        TextButton(
+                            onClick = { showLines = true },
+                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Filled.List,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(2.dp))
+                                Text("选集", color = Color.White, style = SoftType.Body)
+                            }
+                        }
+                    }
+                    // 引擎切换（目标界面显示 Exo，蓝色）
+                    TextButton(
+                        onClick = { switchEngine() },
+                        modifier = Modifier.height(SoftDimens.TouchTarget),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (engine == PlayerEngine.MEDIA3) "Exo" else "mpv",
+                                color = Color(0xFF2196F3),
+                                style = SoftType.Body,
+                            )
+                            Icon(
+                                Icons.Filled.ArrowDropDown,
+                                contentDescription = null,
+                                tint = Color(0xFF2196F3),
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = { toggleOrientation() }) {
+                        Icon(
+                            Icons.Filled.Fullscreen,
+                            contentDescription = "全屏",
+                            tint = Color.White,
+                        )
+                    }
                 }
             }
         }
