@@ -15,6 +15,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.43.0",
+        date = "2026-10-16",
+        title = "多仓订阅支持",
+        details = listOf(
+            "加：多仓地址（如小盒子多仓、拾光多仓）现在能识别了，展开后显示子仓列表。",
+            "加：每个子仓可单独展开看站点、单独解析、单独复制链接，子仓就是普通订阅，走同一套解析。",
+            "多仓两种格式都认：JSON 的 urls 数组（带 BOM、注释行也行），TXT 的纯 URL 行。",
+            "只动了订阅解析和站源页，播放、下载没动。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.42.0",
         date = "2026-10-16",
         title = "修 csp_ 站全灭 + 订阅管理补功能",

@@ -5,6 +5,7 @@ import android.util.Log
 import com.movieshell.data.model.ParseConfig
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.SubSiteKeyPrefix
+import com.movieshell.data.model.WarehouseEntry
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.TvBoxConfigParser
 import kotlinx.coroutines.CoroutineScope
@@ -76,6 +77,8 @@ data class SubCache(
     val parses: List<ParseConfig> = emptyList(),
     /** 订阅顶层 spider 字段解析出的 jar 绝对地址（csp_ 站的 Java spider 运行环境） */
     val spiderJar: String = "",
+    /** v0.43.0：多仓子仓列表；非空时本条目是多仓容器，sites 为空 */
+    val warehouses: List<WarehouseEntry> = emptyList(),
 )
 
 @Serializable
@@ -283,6 +286,20 @@ object SubSiteStore {
             runCatching {
                 val raw = downloadText(subUrl.trim())
                 LogBus.i(TAG, "订阅下载成功 ${raw.length} 字符：$subUrl")
+                // v0.43.0：多仓优先识别——命中则存子仓列表直接返回，不走站点展开
+                TvBoxConfigParser.parseWarehouse(raw)?.let { wh ->
+                    LogBus.i(TAG, "多仓解析：${wh.size} 个子仓：$subUrl")
+                    val cache = SubCache(
+                        subUrl = subUrl.trim(),
+                        baseUrl = baseOf(URI(subUrl.trim())),
+                        fetchedAt = System.currentTimeMillis(),
+                        warehouses = wh,
+                    )
+                    val all = loadAll(context).toMutableMap()
+                    all[cache.subUrl] = cache
+                    saveAll(context, all)
+                    return@runCatching cache
+                }
                 val config = TvBoxConfigParser.parseConfig(raw)
                 LogBus.i(TAG, "订阅解析：${config.sites.size} 个站，${config.parses.size} 条解析线路")
                 if (config.sites.isEmpty()) {
@@ -317,7 +334,13 @@ object SubSiteStore {
                 SpiderEngine.evict(context, cache.subUrl)
                 cache
             }.onFailure { LogBus.e(TAG, "订阅刷新失败 $subUrl：${it.message}") }
-                .onSuccess { LogBus.i(TAG, "订阅刷新成功：${it.sites.size} 个站已展开") }
+                .onSuccess {
+                    if (it.warehouses.isNotEmpty()) {
+                        LogBus.i(TAG, "多仓刷新成功：${it.warehouses.size} 个子仓")
+                    } else {
+                        LogBus.i(TAG, "订阅刷新成功：${it.sites.size} 个站已展开")
+                    }
+                }
         }
     }
 

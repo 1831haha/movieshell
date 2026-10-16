@@ -3,6 +3,17 @@ package com.movieshell.data.model
 import kotlinx.serialization.Serializable
 
 /**
+ * 多仓订阅的子仓条目。
+ * 多仓地址返回的不再是完整 TVBox 配置，而是一组子订阅地址列表，
+ * JSON 形态 {"urls":[{"name":"...","url":"..."}]} 或 TXT 纯 URL 行。
+ */
+@Serializable
+data class WarehouseEntry(
+    val name: String = "",
+    val url: String = "",
+)
+
+/**
  * TVBox 标准订阅 JSON 顶层结构。
  * 对应订阅源形如：{ "sites": [...], "parses": [...], "flags": [...], "spider": "..." }
  */

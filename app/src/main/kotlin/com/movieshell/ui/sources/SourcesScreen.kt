@@ -333,6 +333,15 @@ fun SourcesScreen(
             SubSiteStore.refresh(context, subUrl)
                 .onSuccess { cache ->
                     subCaches[subUrl] = cache
+                    // v0.43.0：多仓 Toast 单独文案
+                    if (cache.warehouses.isNotEmpty()) {
+                        Toast.makeText(
+                            context,
+                            "多仓解析完成：${cache.warehouses.size} 个子仓",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        return@onSuccess
+                    }
                     val ok = cache.sites.count { it.kind != SubSiteStore.KIND_UNSUPPORTED }
                     val bad = cache.sites.size - ok
                     Toast.makeText(
@@ -1490,8 +1499,6 @@ private fun SubscriptionCard(
                             }
 
                             AnimatedVisibility(visible = expanded) {
-                                val cache = caches[subUrl]
-                                val isParsing = parsing[subUrl] == true
                                 Column(
                                     modifier = Modifier.padding(
                                         start = 16.dp, end = 8.dp, bottom = 8.dp,
@@ -1524,112 +1531,243 @@ private fun SubscriptionCard(
                                             )
                                         }
                                     }
-                                    when {
-                                        isParsing -> {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.padding(vertical = 8.dp),
-                                            ) {
-                                                CircularProgressIndicator(
-                                                    modifier = Modifier.size(20.dp),
-                                                    strokeWidth = 2.dp,
-                                                )
-                                                Spacer(Modifier.width(8.dp))
-                                                Text(
-                                                    text = "正在解析订阅…",
-                                                    style = SoftType.Caption,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                )
-                                            }
-                                        }
-                                        cache == null -> {
-                                            AppButton(
-                                                text = "解析站点",
-                                                onClick = { onParse(subUrl) },
-                                                variant = AppButtonVariant.Ghost,
-                                            )
-                                        }
-                                        else -> {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.fillMaxWidth(),
-                                            ) {
-                                                Text(
-                                                    text = "站点（${cache.sites.size}）· 点站点设为点播页当前源",
-                                                    style = SoftType.Caption,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.weight(1f),
-                                                )
-                                                AppButton(
-                                                    text = "刷新",
-                                                    onClick = { onParse(subUrl) },
-                                                    variant = AppButtonVariant.Ghost,
-                                                )
-                                            }
-                                            cache.sites.forEach { rec ->
-                                                val key = SubSiteStore.siteKey(subUrl, rec)
-                                                val isCurrent = key == currentSiteKey
-                                                val supported =
-                                                    rec.kind != SubSiteStore.KIND_UNSUPPORTED
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .clickable {
-                                                            if (supported) {
-                                                                onSetCurrent(subUrl, rec.key, rec.name)
-                                                            } else {
-                                                                Toast.makeText(
-                                                                    context,
-                                                                    rec.reason.ifBlank { "该站点暂不支持" },
-                                                                    Toast.LENGTH_LONG,
-                                                                ).show()
-                                                            }
-                                                        }
-                                                        .padding(vertical = 6.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                ) {
-                                                    Text(
-                                                        text = rec.name,
-                                                        style = SoftType.Body,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        modifier = Modifier.weight(1f),
-                                                    )
-                                                    Spacer(Modifier.width(8.dp))
-                                                    KindBadge(rec.kind)
-                                                    Spacer(Modifier.width(8.dp))
-                                                    // v0.24.0：站点级启停（禁用后聚合搜索跳过）
-                                                    Switch(
-                                                        checked = rec.enabled,
-                                                        onCheckedChange = { enabled ->
-                                                            SubSiteStore.setSiteEnabled(
-                                                                context, subUrl, rec.key, enabled,
-                                                            )
-                                                            SubSiteStore.getCached(context, subUrl)?.let {
-                                                                caches[subUrl] = it
-                                                            }
-                                                        },
-                                                    )
-                                                    Spacer(Modifier.width(4.dp))
-                                                    if (isCurrent) {
-                                                        Icon(
-                                                            imageVector = Icons.Filled.Check,
-                                                            contentDescription = "点播页当前源",
-                                                            tint = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.size(20.dp),
-                                                        )
-                                                    } else {
-                                                        Spacer(Modifier.size(20.dp))
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+                                    SubscriptionCacheBody(
+                                        cacheUrl = subUrl,
+                                        caches = caches,
+                                        parsing = parsing,
+                                        expandedMap = expandedMap,
+                                        currentSiteKey = currentSiteKey,
+                                        onParse = onParse,
+                                        onSetCurrent = onSetCurrent,
+                                        parseButtonText = "解析站点",
+                                        depth = 0,
+                                    )
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * v0.43.0：订阅内容体（解析中 / 未解析 / 多仓 / 站点列表 四态）。
+ * 多仓的子仓展开后复用同一套逻辑；depth 限嵌套一层，子仓若仍是多仓只给提示。
+ */
+@Composable
+private fun SubscriptionCacheBody(
+    cacheUrl: String,
+    caches: SnapshotStateMap<String, SubCache>,
+    parsing: SnapshotStateMap<String, Boolean>,
+    expandedMap: SnapshotStateMap<String, Boolean>,
+    currentSiteKey: String?,
+    onParse: (String) -> Unit,
+    onSetCurrent: (subUrl: String, siteKey: String, siteName: String) -> Unit,
+    parseButtonText: String,
+    depth: Int,
+) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val cache = caches[cacheUrl]
+    val isParsing = parsing[cacheUrl] == true
+    when {
+        isParsing -> {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(vertical = 8.dp),
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "正在解析订阅…",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        cache == null -> {
+            AppButton(
+                text = parseButtonText,
+                onClick = { onParse(cacheUrl) },
+                variant = AppButtonVariant.Ghost,
+            )
+        }
+        cache.warehouses.isNotEmpty() && depth == 0 -> {
+            Text(
+                text = "子仓（${cache.warehouses.size}）· 展开子仓查看站点",
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+            cache.warehouses.forEach { wh ->
+                val whExpanded = expandedMap[wh.url] == true
+                Column(modifier = Modifier.padding(vertical = 2.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = wh.name,
+                                style = SoftType.Body,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = wh.url,
+                                style = SoftType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                clipboard.setText(AnnotatedString(wh.url))
+                                Toast.makeText(context, "子仓链接已复制", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.ContentCopy,
+                                contentDescription = "复制子仓链接",
+                            )
+                        }
+                        IconButton(
+                            onClick = { expandedMap[wh.url] = !whExpanded },
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (whExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                contentDescription = if (whExpanded) "收起子仓" else "展开子仓",
+                            )
+                        }
+                    }
+                    AnimatedVisibility(visible = whExpanded) {
+                        Column(modifier = Modifier.padding(start = 12.dp)) {
+                            SubscriptionCacheBody(
+                                cacheUrl = wh.url,
+                                caches = caches,
+                                parsing = parsing,
+                                expandedMap = expandedMap,
+                                currentSiteKey = currentSiteKey,
+                                onParse = onParse,
+                                onSetCurrent = onSetCurrent,
+                                parseButtonText = "解析子仓",
+                                depth = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        else -> {
+            if (cache.warehouses.isNotEmpty()) {
+                Text(
+                    text = "该子仓仍为多仓（${cache.warehouses.size} 个子仓），请将其链接单独添加为订阅",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+            } else {
+                SubscriptionSiteRows(
+                    cache = cache,
+                    cacheUrl = cacheUrl,
+                    caches = caches,
+                    currentSiteKey = currentSiteKey,
+                    onParse = onParse,
+                    onSetCurrent = onSetCurrent,
+                )
+            }
+        }
+    }
+}
+
+/** v0.43.0：站点列表（表头 + 行），订阅与子仓共用。 */
+@Composable
+private fun SubscriptionSiteRows(
+    cache: SubCache,
+    cacheUrl: String,
+    caches: SnapshotStateMap<String, SubCache>,
+    currentSiteKey: String?,
+    onParse: (String) -> Unit,
+    onSetCurrent: (subUrl: String, siteKey: String, siteName: String) -> Unit,
+) {
+    val context = LocalContext.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = "站点（${cache.sites.size}）· 点站点设为点播页当前源",
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        AppButton(
+            text = "刷新",
+            onClick = { onParse(cacheUrl) },
+            variant = AppButtonVariant.Ghost,
+        )
+    }
+    cache.sites.forEach { rec ->
+        val key = SubSiteStore.siteKey(cacheUrl, rec)
+        val isCurrent = key == currentSiteKey
+        val supported = rec.kind != SubSiteStore.KIND_UNSUPPORTED
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    if (supported) {
+                        onSetCurrent(cacheUrl, rec.key, rec.name)
+                    } else {
+                        Toast.makeText(
+                            context,
+                            rec.reason.ifBlank { "该站点暂不支持" },
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+                .padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = rec.name,
+                style = SoftType.Body,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            KindBadge(rec.kind)
+            Spacer(Modifier.width(8.dp))
+            // v0.24.0：站点级启停（禁用后聚合搜索跳过）
+            Switch(
+                checked = rec.enabled,
+                onCheckedChange = { enabled ->
+                    SubSiteStore.setSiteEnabled(
+                        context, cacheUrl, rec.key, enabled,
+                    )
+                    SubSiteStore.getCached(context, cacheUrl)?.let {
+                        caches[cacheUrl] = it
+                    }
+                },
+            )
+            Spacer(Modifier.width(4.dp))
+            if (isCurrent) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "点播页当前源",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            } else {
+                Spacer(Modifier.size(20.dp))
             }
         }
     }

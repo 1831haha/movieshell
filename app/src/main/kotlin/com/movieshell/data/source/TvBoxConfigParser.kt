@@ -3,6 +3,7 @@ package com.movieshell.data.source
 import com.movieshell.data.model.ParseConfig
 import com.movieshell.data.model.SiteConfig
 import com.movieshell.data.model.TvBoxConfig
+import com.movieshell.data.model.WarehouseEntry
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -46,7 +47,61 @@ object TvBoxConfigParser {
     }
 
     /**
-     * 去掉 JSON 中的 // 行注释和 /* 块注释 */（字符串内的不碰）。
+     * v0.43.0：多仓（子仓列表）解析。
+     * 两种形态：
+     * 1. JSON：{"urls":[{"name":"...","url":"..."}]}（小盒子系多仓；BOM 与行注释已清洗）。
+     * 2. TXT：每行一个子仓，支持 url、name,url、name$url 三种写法。
+     * 命中任一形态返回非空列表；否则返回 null，调用方继续走普通订阅解析。
+     */
+    fun parseWarehouse(raw: String): List<WarehouseEntry>? {
+        val clean = raw.trim().removePrefix("\uFEFF")
+        if (clean.isEmpty()) return null
+        if (clean.startsWith("{")) {
+            return runCatching {
+                val root = json.parseToJsonElement(stripJsonComments(clean)).jsonObject
+                // 带 sites 的是普通订阅，不是多仓
+                if (!root["sites"].asArray().isNullOrEmpty()) return null
+                root["urls"].asArray()
+                    ?.mapNotNull { el ->
+                        val o = el as? JsonObject ?: return@mapNotNull null
+                        val url = o["url"].asStringOrNull().orEmpty().trim()
+                        if (url.isEmpty()) return@mapNotNull null
+                        WarehouseEntry(
+                            name = o["name"].asStringOrNull().orEmpty().trim()
+                                .ifBlank { hostOf(url) },
+                            url = url,
+                        )
+                    }
+                    ?.takeIf { it.isNotEmpty() }
+            }.getOrNull()
+        }
+        val list = clean.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("//") && !it.startsWith("#") }
+            .mapNotNull { line ->
+                val sep = when {
+                    line.contains("\$") -> "\$"
+                    line.contains(",") -> ","
+                    else -> ""
+                }
+                val name = if (sep.isEmpty()) "" else line.substringBefore(sep).trim()
+                val url = if (sep.isEmpty()) line else line.substringAfter(sep).trim()
+                if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                    return@mapNotNull null
+                }
+                WarehouseEntry(name = name.ifBlank { hostOf(url) }, url = url)
+            }
+            .toList()
+        return list.takeIf { it.isNotEmpty() }
+    }
+
+    /** 子仓名称缺失时用域名兜底。 */
+    private fun hostOf(url: String): String = runCatching {
+        url.substringAfter("://").substringBefore("/").substringBefore(":")
+    }.getOrDefault("子仓").ifBlank { "子仓" }
+
+    /**
+     * 去掉 JSON 中的 // 行注释和块注释（字符串内的不碰）。
      * 纯函数，可单测。
      */
     fun stripJsonComments(src: String): String {
