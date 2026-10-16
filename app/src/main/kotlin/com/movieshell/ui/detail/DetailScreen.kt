@@ -1,7 +1,5 @@
 package com.movieshell.ui.detail
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -29,7 +27,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandLess
@@ -190,23 +187,6 @@ fun DetailScreen(
     val coverUrl = detail?.vodPic.orEmpty()
 
     /** v0.21.0：影片信息一键复制 */
-    fun copyVodInfo() {
-        val v = vod ?: return
-        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-        if (cm == null) return
-        val text = buildString {
-            appendLine(v.title)
-            appendLine(
-                listOf(v.year, v.category, v.area)
-                    .filter { it.isNotBlank() }.joinToString(" · ")
-            )
-            appendLine("主演：${v.actors}")
-            append("简介：${v.desc}")
-        }
-        cm.setPrimaryClip(ClipData.newPlainText("影片信息", text))
-        Toast.makeText(context, "影片信息已复制", Toast.LENGTH_SHORT).show()
-    }
-
     // 当前来源名：收藏时记下来，收藏列表里展示；订阅站同时记 site key 以便回跳
     val sourceName = remember {
         when {
@@ -516,7 +496,35 @@ fun DetailScreen(
                                     style = SoftType.Body,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                // v0.47.0：简介搬到选集下面的折叠区，默认收起
+                                // v0.58：简介并入主演卡片（用户要求，不再单独一卡）
+                                Spacer(Modifier.height(8.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clickable { descExpanded = !descExpanded },
+                                ) {
+                                    Text(
+                                        text = "简介",
+                                        style = SoftType.Body,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Icon(
+                                        imageVector = if (descExpanded) Icons.Filled.ExpandLess
+                                        else Icons.Filled.ExpandMore,
+                                        contentDescription = if (descExpanded) "收起" else "展开",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = vod.desc,
+                                    style = SoftType.Body,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 22.sp,
+                                    maxLines = if (descExpanded) Int.MAX_VALUE else 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
                         }
                     }
@@ -645,51 +653,9 @@ fun DetailScreen(
                         }
                     }
 
-                    // v0.47.0：简介折叠区（默认收起，点展开），放选集下面
+                    // v0.58：简介已并入主演卡片，独立简介卡删除
                     item {
-                        AppCard(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = SoftDimens.PagePadding),
-                            onClick = { descExpanded = !descExpanded },
-                        ) {
-                            Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    SectionTitle(
-                                        title = "简介",
-                                        modifier = Modifier.weight(1f),
-                                        action = {
-                                            Row {
-                                                IconButton(onClick = { copyVodInfo() }) {
-                                                    Icon(
-                                                        Icons.Filled.ContentCopy,
-                                                        contentDescription = "复制影片信息",
-                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        modifier = Modifier.size(20.dp),
-                                                    )
-                                                }
-                                                Icon(
-                                                    imageVector = if (descExpanded) Icons.Filled.ExpandLess
-                                                    else Icons.Filled.ExpandMore,
-                                                    contentDescription = if (descExpanded) "收起" else "展开",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(20.dp),
-                                                )
-                                            }
-                                        },
-                                    )
-                                }
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = vod.desc,
-                                    style = SoftType.Body,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    lineHeight = 22.sp,
-                                    maxLines = if (descExpanded) Int.MAX_VALUE else 3,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
+                        Spacer(Modifier.height(24.dp))
                         Spacer(Modifier.height(24.dp))
                     }
                 }

@@ -15,6 +15,15 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.58.0",
+        date = "2026-10-17",
+        title = "修真果鉴分类+简介并入主演卡",
+        details = listOf(
+            "修：部分 PY 规则（如真果鉴）categoryContent 不接受 tid 参数导致分类点不开——桥接层现在按函数签名只传它接受的参数。",
+            "改：详情页简介并入主演那张卡片（可折叠），不再单独一卡。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.57.0",
         date = "2026-10-17",
         title = "播放失败说人话",

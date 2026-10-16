@@ -11,6 +11,7 @@
 """
 
 import importlib.util
+import inspect
 import json
 import re
 import sys
@@ -174,7 +175,19 @@ def call(rule_path, method, args_json):
         fn = getattr(spider, method, None)
         if not callable(fn):
             raise AttributeError("Spider 没有方法: %s" % method)
-        result = fn(**args)
+        # v0.58：参数兼容——只传规则函数签名接受的参数。
+        # 部分老规则 categoryContent(self, pg) 不接受 tid，硬塞 **args 会 TypeError。
+        # 有 **kwargs 的函数则全量透传。
+        try:
+            params = inspect.signature(fn).parameters.values()
+            if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params):
+                filtered = args
+            else:
+                accepted = {p.name for p in params}
+                filtered = {k: v for k, v in args.items() if k in accepted}
+        except (ValueError, TypeError):
+            filtered = args  # 签名拿不到时回退原行为
+        result = fn(**filtered)
         return _to_json({"ok": True, "data": result})
     except Exception as e:
         return _to_json(
