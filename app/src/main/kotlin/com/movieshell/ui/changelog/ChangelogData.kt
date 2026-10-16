@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.51.0",
+        date = "2026-10-16",
+        title = "订阅云同步：WebDAV 一键备份恢复",
+        details = listOf(
+            "新：设置页新增「云同步」——配好 WebDAV 地址（坚果云/Alist/群晖都行），一键把订阅/设置/播放记录备份到云端。",
+            "新：换手机/多设备一键从云端恢复；带测试连接按钮，配错了立刻知道。",
+            "说明：云端只存一份整包备份，覆盖写；本地 JSON 备份恢复照常用。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.50.0",
         date = "2026-10-16",
         title = "首页加载大提速：分类秒出、8秒首屏、失败退避",

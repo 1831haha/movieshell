@@ -51,6 +51,9 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.core.content.FileProvider
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -76,6 +79,7 @@ import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.download.SubRefreshWorker
 import com.movieshell.data.repo.BackupManager
+import com.movieshell.data.repo.CloudSyncManager
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.SubRefreshStore
@@ -124,6 +128,11 @@ fun SettingsScreen(
     }
     var showThemeDialog by remember { mutableStateOf(false) }
     var backupExpanded by remember { mutableStateOf(false) }
+    // v0.51.0：WebDAV 云同步
+    val scope = rememberCoroutineScope()
+    var showCloudDialog by remember { mutableStateOf(false) }
+    var cloudWorking by remember { mutableStateOf(false) }
+    var lastSyncText by remember { mutableStateOf("") }
     // v0.20.0：播放器内核（Media3 默认，libmpv 可选，记忆选择）
     val engine by PlayerSettings.engine.collectAsState()
     var showEngineDialog by remember { mutableStateOf(false) }
@@ -428,6 +437,23 @@ fun SettingsScreen(
                 }
             }
             Spacer(Modifier.height(SoftDimens.CardSpacing))
+            // v0.51.0：WebDAV 云同步（订阅/设置/播放记录一键备份恢复）
+            SettingsGroup(title = "云同步") {
+                SettingsRow(
+                    icon = Icons.Filled.CloudSync,
+                    title = "WebDAV 云同步",
+                    subtitle = if (CloudSyncManager.isConfigured(context)) {
+                        CloudSyncManager.lastSyncText(context)
+                    } else {
+                        "未配置（支持坚果云/Alist/群晖等）"
+                    },
+                    onClick = {
+                        lastSyncText = CloudSyncManager.lastSyncText(context)
+                        showCloudDialog = true
+                    },
+                )
+            }
+            Spacer(Modifier.height(SoftDimens.CardSpacing))
             SettingsGroup(title = "调试") {
                 val logEnabled by LogStore.enabled.collectAsState()
                 SettingsRow(
@@ -699,6 +725,122 @@ fun SettingsScreen(
                     text = "取消",
                     onClick = { showClearCacheDialog = false },
                     variant = AppButtonVariant.Ghost,
+                )
+            },
+        )
+    }
+    // v0.51.0：WebDAV 云同步配置 + 备份/恢复
+    if (showCloudDialog) {
+        val cfg = remember { CloudSyncManager.getConfig(context) }
+        var urlInput by remember { mutableStateOf(cfg.url) }
+        var userInput by remember { mutableStateOf(cfg.user) }
+        var passInput by remember { mutableStateOf(cfg.pass) }
+        AlertDialog(
+            onDismissRequest = { if (!cloudWorking) showCloudDialog = false },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("WebDAV 云同步", style = SoftType.CardTitle) },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(lastSyncText, style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = urlInput,
+                        onValueChange = { urlInput = it },
+                        label = { Text("服务器地址") },
+                        placeholder = { Text("https://dav.jianguoyun.com/dav/") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !cloudWorking,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = userInput,
+                        onValueChange = { userInput = it },
+                        label = { Text("账号") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !cloudWorking,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = passInput,
+                        onValueChange = { passInput = it },
+                        label = { Text("密码") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !cloudWorking,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        AppButton(
+                            text = "测试连接",
+                            variant = AppButtonVariant.Ghost,
+                            enabled = !cloudWorking,
+                            onClick = {
+                                CloudSyncManager.saveConfig(context, urlInput, userInput, passInput)
+                                cloudWorking = true
+                                scope.launch {
+                                    val err = CloudSyncManager.test(context)
+                                    cloudWorking = false
+                                    Toast.makeText(
+                                        context,
+                                        err ?: "连接成功",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        AppButton(
+                            text = "备份到云端",
+                            enabled = !cloudWorking,
+                            onClick = {
+                                CloudSyncManager.saveConfig(context, urlInput, userInput, passInput)
+                                cloudWorking = true
+                                scope.launch {
+                                    val err = CloudSyncManager.backup(context)
+                                    cloudWorking = false
+                                    lastSyncText = CloudSyncManager.lastSyncText(context)
+                                    Toast.makeText(
+                                        context,
+                                        err ?: "备份已上传",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    AppButton(
+                        text = "从云端恢复",
+                        variant = AppButtonVariant.Ghost,
+                        enabled = !cloudWorking,
+                        onClick = {
+                            CloudSyncManager.saveConfig(context, urlInput, userInput, passInput)
+                            cloudWorking = true
+                            scope.launch {
+                                val err = CloudSyncManager.restore(context)
+                                cloudWorking = false
+                                lastSyncText = CloudSyncManager.lastSyncText(context)
+                                Toast.makeText(
+                                    context,
+                                    err ?: "已从云端恢复",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                AppButton(
+                    text = "关闭",
+                    onClick = { showCloudDialog = false },
+                    enabled = !cloudWorking,
                 )
             },
         )
