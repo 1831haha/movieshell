@@ -264,7 +264,7 @@ fun HomeScreen(
     var filterEntries by rememberSaveable { mutableStateOf(listOf<String>()) }
     fun decodeFilter(s: String): Pair<String, String> =
         s.substringBefore("\u0001") to s.substringAfter("\u0001")
-    val filterMap: Map<String, String> get() = filterEntries.map(::decodeFilter).toMap()
+    val filterMap: Map<String, String> = filterEntries.map(::decodeFilter).toMap()
     fun setFilters(m: Map<String, String>) {
         filterEntries = m.map { (k, v) -> "$k\u0001$v" }
     }
