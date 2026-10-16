@@ -15,6 +15,15 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.52.0",
+        date = "2026-10-16",
+        title = "修：详情页返回不再丢分类内容",
+        details = listOf(
+            "修：从详情页返回时，之前看的分类内容直接白屏（要等网络重载）——现在分类视频列表也缓存，返回秒回。",
+            "改：点分类时缓存先行，网络在后台刷新；无筛选时才用缓存，有筛选走网络保证结果准。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.51.0",
         date = "2026-10-16",
         title = "订阅云同步：WebDAV 一键备份恢复",

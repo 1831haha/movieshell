@@ -632,6 +632,17 @@ fun HomeScreen(
                 }
             }
         }
+        // v0.52.0：分类内容缓存先行——详情页返回/重进时秒回，不白屏等网络
+        val cacheKey = homeCacheKey()
+        if (cacheKey != null && filters.isEmpty()) {
+            scope.launch(Dispatchers.IO) {
+                val cached = HomeCache.loadCategoryVods(context, cacheKey, cat.typeId)
+                if (cached != null && myGen == contentGen) {
+                    drpyList = cached.first
+                    LogBus.i("UI", "分类 ${cat.typeName} 缓存先行：${cached.first.size} 条")
+                }
+            }
+        }
         categoryJob = scope.launch {
             drpyLoading = true
             try {
@@ -644,6 +655,12 @@ fun HomeScreen(
                     LogBus.w("UI", "分类 ${cat.typeName} 返回空（可能超时或规则异常）")
                 } else {
                     LogBus.i("UI", "分类 ${cat.typeName} 加载 ${list.size} 条")
+                    // v0.52.0：分类内容落盘，下次秒回
+                    if (filters.isEmpty() && cacheKey != null) {
+                        withContext(Dispatchers.IO) {
+                            HomeCache.saveCategoryVods(context, cacheKey, cat.typeId, list)
+                        }
+                    }
                 }
                 drpyList = list.ifEmpty { null }
             } finally {

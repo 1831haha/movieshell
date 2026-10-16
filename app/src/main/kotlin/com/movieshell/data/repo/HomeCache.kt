@@ -48,6 +48,39 @@ object HomeCache {
         write(context, key, cur.copy(savedAt = System.currentTimeMillis(), cats = cats))
     }
 
+    // v0.52.0：分类视频列表缓存——详情页返回时分类内容秒回，不用白屏等网络。
+    // 按 key+typeId 分文件存（一个分类一个文件，互不干扰）。
+
+    @Serializable
+    private data class CatEntry(
+        val savedAt: Long = 0L,
+        val vods: List<Vod> = emptyList(),
+    )
+
+    /** 存某分类的视频列表。 */
+    fun saveCategoryVods(context: Context, key: String, typeId: String, vods: List<Vod>) {
+        val e = CatEntry(savedAt = System.currentTimeMillis(), vods = vods)
+        runCatching {
+            catFile(context, key, typeId).writeText(json.encodeToString(CatEntry.serializer(), e))
+        }
+    }
+
+    /** 读某分类的视频列表（附带是否新鲜）；没有/损坏返回 null。 */
+    fun loadCategoryVods(context: Context, key: String, typeId: String): Pair<List<Vod>, Boolean>? {
+        val e = runCatching {
+            json.decodeFromString(CatEntry.serializer(), catFile(context, key, typeId).readText())
+        }.getOrNull() ?: return null
+        if (e.vods.isEmpty()) return null
+        return e.vods to (System.currentTimeMillis() - e.savedAt < VALID_MS)
+    }
+
+    private fun catFile(context: Context, key: String, typeId: String): File {
+        val dir = File(context.filesDir, "home_cache").also { it.mkdirs() }
+        val safe = key.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(60).ifBlank { "default" }
+        val safeTid = typeId.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(40).ifBlank { "0" }
+        return File(dir, "${safe}_cat_${safeTid}.json")
+    }
+
     /** 清某源缓存（源被删/禁用时调用，可选）。 */
     fun clear(context: Context, key: String) {
         runCatching { file(context, key).delete() }
