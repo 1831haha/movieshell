@@ -30,14 +30,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -98,11 +96,15 @@ import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.SubCurrent
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.PosterCard
+import com.movieshell.ui.components.PrivateScreeningBanner
+import com.movieshell.ui.components.SearchCapsule
 import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.FlowingGlowBackground
@@ -717,20 +719,45 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
                 horizontalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
             ) {
-                // v0.11.8：顶部改成一行——左侧小放大镜（搜索），右侧换源胶囊
+                // v0.39.0 mockup 风格：胶囊搜索框 + 右侧"随机开片"青色按钮
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        // 左侧：小放大镜搜索按钮
-                        IconButton(onClick = onSearchClick) {
-                            Icon(
-                                imageVector = Icons.Filled.Search,
-                                contentDescription = "搜索",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        SearchCapsule(
+                            placeholder = "搜索影片、剧集、源",
+                            onClick = onSearchClick,
+                            modifier = Modifier.weight(1f),
+                        )
+                        AppButton(
+                            text = "随机开片",
+                            onClick = {
+                                filtered.randomOrNull()?.let { goDetail(it.id) }
+                            },
+                            variant = AppButtonVariant.Cyan,
+                            enabled = filtered.isNotEmpty(),
+                        )
+                    }
+                }
+
+                // v0.39.0 mockup 风格："私人放映"大横幅卡（点即随机开片）
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    PrivateScreeningBanner(
+                        onClick = {
+                            filtered.randomOrNull()?.let { goDetail(it.id) }
+                        },
+                    )
+                }
+
+                // v0.39.0：站源切换入口（保留功能，mockup 风格胶囊）
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         // v0.24.0：播放历史
                         IconButton(onClick = onHistoryClick) {
                             Icon(
@@ -747,16 +774,8 @@ fun HomeScreen(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        // v0.35.0：小说书架
-                        IconButton(onClick = onBookshelfClick) {
-                            Icon(
-                                imageVector = Icons.Filled.Book,
-                                contentDescription = "书架",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
                         Spacer(Modifier.weight(1f))
-                        // 右侧：换源胶囊（v0.7.1 入口，收窄为右侧胶囊）
+                        // 换源胶囊（v0.7.1 入口）
                         Surface(
                             shape = RoundedCornerShape(SoftDimens.ChipCorner),
                             color = MaterialTheme.colorScheme.surfaceVariant,
@@ -853,10 +872,10 @@ fun HomeScreen(
                         }
                     }
     
-                    // 分区标题 + 换一换
+                    // 分区标题 + 换一换（v0.39.0：mockup 风格"今日推荐"）
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         SectionTitle(
-                            title = "热门推荐",
+                            title = "今日推荐",
                             action = {
                                 TextButton(onClick = { shuffleSeed++ }) {
                                     Icon(

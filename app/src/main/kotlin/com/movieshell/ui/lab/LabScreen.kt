@@ -38,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -82,7 +83,8 @@ fun LabScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("实验室", style = SoftType.Title) },
+                // v0.39.0：mockup 风格香槟金标题
+                title = { Text("实验室", style = SoftType.Title, color = Color(0xFFD9C39A)) },
             )
         },
     ) { inner ->

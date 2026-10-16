@@ -17,17 +17,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -152,16 +150,14 @@ fun BookshelfScreen(
 
         Spacer(Modifier.height(12.dp))
 
+        // v0.39.0 mockup 风格：胶囊 tab（青色选中）
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ShelfTabChip("在追", tab == ShelfTab.READING, shelves[ShelfTab.READING].orEmpty().size) {
-                tab = ShelfTab.READING
-            }
-            ShelfTabChip("想看", tab == ShelfTab.WANT, shelves[ShelfTab.WANT].orEmpty().size) {
-                tab = ShelfTab.WANT
-            }
-            ShelfTabChip("已看完", tab == ShelfTab.FINISHED, shelves[ShelfTab.FINISHED].orEmpty().size) {
-                tab = ShelfTab.FINISHED
-            }
+            val readingCount = shelves[ShelfTab.READING].orEmpty().size
+            val wantCount = shelves[ShelfTab.WANT].orEmpty().size
+            val finishedCount = shelves[ShelfTab.FINISHED].orEmpty().size
+            AppChip("在追 $readingCount", tab == ShelfTab.READING, onClick = { tab = ShelfTab.READING })
+            AppChip("想看 $wantCount", tab == ShelfTab.WANT, onClick = { tab = ShelfTab.WANT })
+            AppChip("已看完 $finishedCount", tab == ShelfTab.FINISHED, onClick = { tab = ShelfTab.FINISHED })
         }
 
         Spacer(Modifier.height(12.dp))
@@ -218,15 +214,6 @@ fun BookshelfScreen(
     }
 }
 
-@Composable
-private fun ShelfTabChip(label: String, selected: Boolean, count: Int, onClick: () -> Unit) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text("$label $count") },
-    )
-}
-
 /** v0.36.0：上次阅读时间格式化。 */
 private fun formatLastRead(ts: Long): String {
     if (ts <= 0) return "还没读过"
@@ -256,22 +243,22 @@ private fun NovelCard(
     val read = novel.lastReadChapter.coerceIn(0, total - 1)
     val progress = if (novel.lastReadChapter == 0) 0f else (read + 1).toFloat() / total
     val percent = (progress * 100).toInt()
+    val cyan = Color(0xFF4DD0E1) // v0.39.0：mockup 青色进度
 
-    Card(
-        modifier = Modifier.fillMaxWidth().combinedClickable(
-            onClick = onClick,
-            onLongClick = onLongClick,
-        ),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-        ),
+    // v0.39.0：毛玻璃卡片（mockup 风格）
+    AppCard(
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(
+            modifier = Modifier
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                .padding(14.dp),
+        ) {
             Text(
                 novel.title,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
+                color = Color(0xFFD9C39A), // v0.39.0：香槟金标题
                 maxLines = 1,
             )
             if (!novel.author.isNullOrBlank()) {
@@ -304,11 +291,13 @@ private fun NovelCard(
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier.weight(1f).height(6.dp),
+                    color = cyan,
+                    trackColor = cyan.copy(alpha = 0.2f),
                 )
                 Text(
                     "$percent%",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = cyan,
                     modifier = Modifier.padding(start = 8.dp),
                 )
             }

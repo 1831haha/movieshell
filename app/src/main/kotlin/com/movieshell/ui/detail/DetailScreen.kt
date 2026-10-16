@@ -470,60 +470,67 @@ fun DetailScreen(
                         }
                     }
     
-                    // 标题与元信息
+                    // 标题与元信息（v0.39.0：毛玻璃卡片化，mockup 风格）
                     item {
-                        Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Filled.Star,
-                                    contentDescription = null,
-                                    tint = LocalSoftExtra.current.warning,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(Modifier.width(4.dp))
+                        AppCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = SoftDimens.PagePadding),
+                        ) {
+                            Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Star,
+                                        contentDescription = null,
+                                        tint = LocalSoftExtra.current.warning,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = vod.rating,
+                                        style = SoftType.Body,
+                                        color = LocalSoftExtra.current.warning,
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    MetaChip(vod.year)
+                                    MetaChip(vod.category)
+                                    MetaChip(vod.area)
+                                }
+                                Spacer(Modifier.height(8.dp))
                                 Text(
-                                    text = vod.rating,
+                                    text = "主演：${vod.actors}",
                                     style = SoftType.Body,
-                                    color = LocalSoftExtra.current.warning,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                Spacer(Modifier.width(12.dp))
-                                MetaChip(vod.year)
-                                MetaChip(vod.category)
-                                MetaChip(vod.area)
+                                Spacer(Modifier.height(12.dp))
+                                // v0.21.0：简介标题 + 一键复制影片信息
+                                SectionTitle(
+                                    title = "简介",
+                                    action = {
+                                        IconButton(onClick = { copyVodInfo() }) {
+                                            Icon(
+                                                Icons.Filled.ContentCopy,
+                                                contentDescription = "复制影片信息",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                        }
+                                    },
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = vod.desc,
+                                    style = SoftType.Body,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 22.sp,
+                                )
                             }
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                text = "主演：${vod.actors}",
-                                style = SoftType.Body,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            // v0.21.0：简介标题 + 一键复制影片信息
-                            SectionTitle(
-                                title = "简介",
-                                action = {
-                                    IconButton(onClick = { copyVodInfo() }) {
-                                        Icon(
-                                            Icons.Filled.ContentCopy,
-                                            contentDescription = "复制影片信息",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    }
-                                },
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = vod.desc,
-                                style = SoftType.Body,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                lineHeight = 22.sp,
-                            )
                         }
                     }
     
                     // 播放按钮（v0.13.0：无播放源时禁用并明示，不再静默传空地址）
                     // v0.26.0：右侧加下载按钮（选集多选 → 加入下载队列）
+                    // v0.39.0：mockup 风格青色胶囊大按钮
                     item {
                         Row(
                             modifier = Modifier
@@ -541,6 +548,8 @@ fun DetailScreen(
                                     }
                                 },
                                 enabled = lineEpisodes.isNotEmpty(),
+                                variant = AppButtonVariant.Cyan,
+                                icon = Icons.Filled.PlayArrow,
                                 modifier = Modifier.weight(1f),
                             )
                             IconButton(

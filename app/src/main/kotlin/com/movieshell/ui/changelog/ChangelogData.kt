@@ -15,6 +15,26 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.39.0",
+        date = "2026-10-16",
+        title = "mockup 风格完整落地",
+        details = listOf(
+            "首页：胶囊搜索框 + “随机开片”青色按钮，“私人放映”大横幅卡，今日推荐横滑。",
+            "详情页：播放按钮改成青色胶囊大按钮，信息区毛玻璃卡片化。",
+            "播放页：进度条和选集高光改青色，选集抽屉深色毛玻璃。",
+            "书架：胶囊 tab + 毛玻璃卡片，进度条青色。",
+            "只动了外观，播放、搜索、源解析都没动。",
+        ),
+    ),
+    ChangelogEntry(
+        version = "v0.38.1",
+        date = "2026-10-16",
+        title = "根治切 tab 分类丢失",
+        details = listOf(
+            "drpyActive 也改成 rememberSaveable，切 tab 不再误判源变化清空分类。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.38.0",
         date = "2026-10-16",
         title = "视频 UI 按 mockup 统一",

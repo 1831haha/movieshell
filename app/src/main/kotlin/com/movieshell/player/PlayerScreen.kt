@@ -985,8 +985,9 @@ fun PlayerScreen(
                     valueRange = 0f..dur.coerceAtLeast(1L).toFloat(),
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        // v0.39.0：mockup 青色高光
+                        thumbColor = Color(0xFF4DD0E1),
+                        activeTrackColor = Color(0xFF4DD0E1),
                     ),
                 )
                 Text(
@@ -1212,7 +1213,8 @@ private fun LineSheet(
                 topStart = SoftDimens.CardCorner,
                 topEnd = SoftDimens.CardCorner,
             ),
-            color = MaterialTheme.colorScheme.surface,
+            // v0.39.0：深色毛玻璃风格（mockup 风格）
+            color = Color(0xF21E242F),
         ) {
             Column(Modifier.fillMaxSize().padding(SoftDimens.PagePadding)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1243,13 +1245,15 @@ private fun LineSheet(
                 ) {
                     itemsIndexed(tabEpisodes) { i, ep ->
                         val selected = tab == lineIndex && i == episodeIndex
+                        // v0.39.0：选中集青色高光（mockup 风格）
+                        val cyan = Color(0xFF4DD0E1)
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onPick(tab, i) },
                             shape = RoundedCornerShape(SoftDimens.PosterCorner),
                             color = if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer
+                                cyan.copy(alpha = 0.22f)
                             } else {
                                 MaterialTheme.colorScheme.surfaceVariant
                             },
@@ -1259,7 +1263,7 @@ private fun LineSheet(
                                 maxLines = 1,
                                 style = SoftType.Body,
                                 color = if (selected) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                    cyan
                                 } else {
                                     MaterialTheme.colorScheme.onSurfaceVariant
                                 },

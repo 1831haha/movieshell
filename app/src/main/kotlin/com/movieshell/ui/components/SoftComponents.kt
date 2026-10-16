@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftMotion
@@ -73,9 +74,9 @@ fun AppCard(
     }
 }
 
-enum class AppButtonVariant { Primary, Secondary, Ghost }
+enum class AppButtonVariant { Primary, Secondary, Ghost, Cyan }
 
-/** 通用按钮：主/次/幽灵三档，16dp 圆角，触摸目标 48dp。可选前置图标。 */
+/** 通用按钮：主/次/幽灵/青色四档，16dp 圆角，触摸目标 48dp。可选前置图标。 */
 @Composable
 fun AppButton(
     text: String,
@@ -85,6 +86,7 @@ fun AppButton(
     enabled: Boolean = true,
     icon: ImageVector? = null,
 ) {
+    val cyan = Color(0xFF4DD0E1) // v0.39.0：mockup 青色高光
     val colors = when (variant) {
         AppButtonVariant.Primary -> ButtonDefaults.buttonColors()
         AppButtonVariant.Secondary -> ButtonDefaults.buttonColors(
@@ -94,8 +96,17 @@ fun AppButton(
         AppButtonVariant.Ghost -> ButtonDefaults.textButtonColors(
             contentColor = MaterialTheme.colorScheme.primary,
         )
+        // v0.39.0：青色胶囊（mockup"随机开片"风格），深色字
+        AppButtonVariant.Cyan -> ButtonDefaults.buttonColors(
+            containerColor = cyan,
+            contentColor = Color(0xFF0B1A20),
+            disabledContainerColor = cyan.copy(alpha = 0.35f),
+            disabledContentColor = Color(0xFF0B1A20).copy(alpha = 0.5f),
+        )
     }
-    val shape = RoundedCornerShape(SoftDimens.ButtonCorner)
+    val shape = RoundedCornerShape(
+        if (variant == AppButtonVariant.Cyan) SoftDimens.ChipCorner else SoftDimens.ButtonCorner
+    )
     val content: @Composable RowScope.() -> Unit = {
         if (icon != null) {
             Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -348,6 +359,109 @@ fun SoftBottomDock(
                     Spacer(Modifier.height(2.dp))
                     Text(item.label, style = SoftType.Caption, color = fg)
                 }
+            }
+        }
+    }
+}
+
+/**
+ * v0.39.0 mockup 风格：胶囊搜索框（圆角胶囊 + 放大镜图标 + placeholder）。
+ * 点击即回调，不带输入逻辑（输入在搜索页做）。
+ */
+@Composable
+fun SearchCapsule(
+    placeholder: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(SoftDimens.ChipCorner)
+    Surface(
+        modifier = modifier
+            .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
+            .clickable(onClick = onClick),
+        shape = shape,
+        color = LocalSoftExtra.current.glass,
+        tonalElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = androidx.compose.material.icons.Icons.Filled.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = placeholder,
+                style = SoftType.Body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/**
+ * v0.39.0 mockup 风格："私人放映"大横幅卡。
+ * 香槟金标题 + 副标题 + 右侧播放图标，点击回调。
+ */
+@Composable
+fun PrivateScreeningBanner(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(SoftDimens.CardCorner)
+    val cyan = Color(0xFF4DD0E1)
+    Surface(
+        modifier = modifier
+            .border(SoftDimens.BorderWidth, cyan.copy(alpha = 0.35f), shape)
+            .clickable(onClick = onClick)
+            .shadow(
+                elevation = 12.dp,
+                shape = shape,
+                ambientColor = cyan.copy(alpha = 0.12f),
+                spotColor = cyan.copy(alpha = 0.12f),
+            ),
+        shape = shape,
+        color = LocalSoftExtra.current.glass,
+        tonalElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(SoftDimens.PagePadding),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "私人放映",
+                    style = SoftType.Title.copy(fontSize = 24.sp),
+                    color = Color(0xFFD9C39A),
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "随心放映，自在观影",
+                    style = SoftType.Body,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(cyan.copy(alpha = 0.22f))
+                    .border(SoftDimens.BorderWidth, cyan.copy(alpha = 0.4f), RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Filled.PlayArrow,
+                    contentDescription = "播放",
+                    tint = cyan,
+                    modifier = Modifier.size(32.dp),
+                )
             }
         }
     }
