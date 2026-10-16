@@ -1488,11 +1488,7 @@ private fun SubtitleDialog(
     onSave: (String, SubtitleStyle) -> Unit,
     onOnlineSearch: () -> Unit,
 ) {
-    // v0.30.0：在线搜索由插件提供，未安装时隐藏入口
-    val context = LocalContext.current
-    val onlineSearchAvailable = remember {
-        com.movieshell.data.source.subtitle.SubtitlePluginLoader.isInstalled(context)
-    }
+    // v0.49.0：SubHD 内置，在线搜索常显（v0.30.0 的插件门禁删除）
     var url by remember { mutableStateOf(initial) }
     var size by remember { mutableIntStateOf(initialStyle.sizeSp) }
     var color by remember { mutableIntStateOf(initialStyle.color) }
@@ -1533,21 +1529,12 @@ private fun SubtitleDialog(
             placeholder = "字幕地址",
             modifier = Modifier.fillMaxWidth(),
         )
-        // v0.28.0：在线搜索字幕；v0.30.0：插件化，未安装插件时提示去市场
-        if (onlineSearchAvailable) {
-            AppButton(
-                text = "在线搜索字幕",
-                onClick = onOnlineSearch,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            )
-        } else {
-            Text(
-                "在线搜索字幕需安装插件：去实验室→插件市场装「字幕搜索」",
-                style = SoftType.Caption,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            )
-        }
+        // v0.28.0：在线搜索字幕（v0.49.0：SubHD 内置，常显）
+        AppButton(
+            text = "在线搜索字幕",
+            onClick = onOnlineSearch,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
         Spacer(Modifier.height(12.dp))
         Text(
             "大小 ${size}sp",

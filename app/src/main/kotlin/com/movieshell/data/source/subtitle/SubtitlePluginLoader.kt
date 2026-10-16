@@ -82,14 +82,19 @@ object SubtitlePluginLoader {
 }
 
 /**
- * 字幕源注册表（v0.30.0：动态，插件提供）。
+ * 字幕源注册表（v0.30.0：动态，插件提供；v0.49.0：SubHD 内置开箱即用）。
  *
- * 壳子只留基础字幕功能（本地加载/样式/记忆，见 OnlineSubtitleKit），
- * 在线搜索实现由插件提供。无插件时列表为空。
+ * 内置 SubHD 永远在前；插件源按 id 去重后追加（插件市场以后有新源还能装）。
  */
 object SubtitleSources {
-    fun all(context: Context): List<SubtitleSource> =
-        listOfNotNull(SubtitlePluginLoader.getSource(context))
+    fun all(context: Context): List<SubtitleSource> {
+        val builtin = listOf(
+            com.movieshell.data.source.subtitle.builtin.BuiltinSubHdSource,
+        )
+        val plugin = listOfNotNull(SubtitlePluginLoader.getSource(context))
+            .filter { p -> builtin.none { it.id == p.id } }
+        return builtin + plugin
+    }
 
     fun default(context: Context): SubtitleSource? = all(context).firstOrNull()
 }

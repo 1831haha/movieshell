@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.49.0",
+        date = "2026-10-16",
+        title = "在线字幕开箱即用",
+        details = listOf(
+            "改：SubHD 字幕源内置进壳子，不用再去插件市场装「字幕搜索」插件。",
+            "改：播放器「更多→在线字幕」和详情页字幕按钮常显，点开搜片名就能下字幕，下载后自动应用并按剧记忆。",
+            "留：插件机制还在，以后有第二个字幕源照样能装（同名去重，内置优先）。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.48.0",
         date = "2026-10-16",
         title = "补本地 drpy 筛选透传",

@@ -62,10 +62,10 @@ fun OnlineSubtitleSearchDialog(
     var results by remember { mutableStateOf<List<OnlineSubtitle>>(emptyList()) }
     var searched by remember { mutableStateOf(false) }
 
-    // 插件未安装时不应该打开此对话框，防御性关闭
+    // v0.49.0：SubHD 内置，source 恒不为 null；保留防御分支
     if (source == null) {
         LaunchedEffect(Unit) {
-            Toast.makeText(context, "字幕搜索插件未安装", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "字幕源不可用", Toast.LENGTH_SHORT).show()
             onDismiss()
         }
         return
