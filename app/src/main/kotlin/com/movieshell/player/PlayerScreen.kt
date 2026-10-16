@@ -404,6 +404,15 @@ fun PlayerScreen(
      * v0.21.0：含时间偏移处理 + 样式应用，走协程（SubtitleKit 可能下载）。
      * v0.25.0：try/catch 兜底，失败 Toast 不崩。
      */
+    // v0.57：播放失败改走友好错误对话框（原来只 Snackbar 一闪而过，看不清也点不了）
+    // 注意：状态声明必须放在引用它的局部函数（retryCurrent）之前，Kotlin 局部函数看不到后声明的局部变量
+    var playError by remember { mutableStateOf<PlayError?>(null) }
+    LaunchedEffect(errorMsg) {
+        errorMsg?.let {
+            playError = PlayError.classify(it)
+            errorMsg = null
+        }
+    }
     // v0.57：错误对话框的"重试"——按当前进度重播当前地址
     fun retryCurrent() {
         scope.launch {
@@ -587,14 +596,6 @@ fun PlayerScreen(
         }
         onDispose { EngineHost.setOnErrorListener(null) }
     }
-    // v0.57：播放失败改走友好错误对话框（原来只 Snackbar 一闪而过，看不清也点不了）
-    var playError by remember { mutableStateOf<PlayError?>(null) }
-    LaunchedEffect(errorMsg) {
-        errorMsg?.let {
-            playError = PlayError.classify(it)
-            errorMsg = null
-        }
-    }
     playError?.let { err ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { playError = null },
@@ -603,7 +604,7 @@ fun PlayerScreen(
                 androidx.compose.foundation.layout.Column {
                     androidx.compose.material3.Text(err.reason)
                     androidx.compose.foundation.layout.Spacer(
-                        androidx.compose.foundation.layout.size(8.dp)
+                        Modifier.size(8.dp)
                     )
                     err.suggestions.forEach { s ->
                         androidx.compose.material3.Text(
