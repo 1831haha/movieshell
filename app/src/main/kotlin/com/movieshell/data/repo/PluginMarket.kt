@@ -173,7 +173,7 @@ object PluginMarket {
             )
         }
         LogBus.i(TAG, "市场解析成功：${plugins.size} 个插件")
-        MarketInfo(
+        return MarketInfo(
             name = root.optString("name", "插件市场"),
             logo = resolveIcon(root.optString("logo", ""), base),
             desc = root.optString("desc", ""),
