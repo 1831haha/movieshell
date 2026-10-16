@@ -3,6 +3,7 @@ package com.movieshell.data.repo
 import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.Vod as ModelVod
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
 
 /**
  * 首页加载单飞门（v0.31.0）。
@@ -61,4 +62,36 @@ object HomeLoadGate {
     }
 
     fun streak(key: String): Int = synchronized(lock) { streaks[key] ?: 0 }
+
+    /**
+     * v0.50.0：指数退避间隔——连续失败 2 次后 5s→15s→30s→60s（用户要求）。
+     * 之前 streak>=3 只跳过不重试，等于静默放弃；现在跳过时按此延迟自动重调度。
+     */
+    fun backoffMs(key: String): Long = when (streak(key)) {
+        2 -> 5_000L
+        3 -> 15_000L
+        4 -> 30_000L
+        else -> 60_000L // >=5
+    }
+
+    private val backoffJobs = mutableMapOf<String, Job>()
+
+    /** 登记退避重调度任务（同 key 新的取消旧的，防叠加）。 */
+    fun setBackoffJob(key: String, job: Job) = synchronized(lock) {
+        backoffJobs[key]?.cancel()
+        backoffJobs[key] = job
+    }
+
+    /** 新触发时取消该 key 的退避任务。 */
+    fun clearBackoff(key: String) = synchronized(lock) {
+        backoffJobs.remove(key)?.cancel()
+    }
+
+    /**
+     * v0.50.0：在途被取消（世代更替/切 tab）——只清理登记，不计失败。
+     * 之前取消也被 finish() 记成一次失败，"I was cancelled" 越积越多。
+     */
+    fun abort(key: String, deferred: Deferred<HomePayload?>) = synchronized(lock) {
+        if (flights[key] === deferred) flights.remove(key)
+    }
 }

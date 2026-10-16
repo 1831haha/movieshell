@@ -65,13 +65,54 @@ class QuickJsDrpyEngine(
     }
 
     override suspend fun home(): List<Vod> = withContext(Dispatchers.IO) {
-        val json = evalForJson("(function(){return __drpyHome();})()") ?: return@withContext emptyList()
+        val json = sharedHomeJson() ?: return@withContext emptyList()
         parseVodList(json)
     }
 
+    /**
+     * v0.50.0 修：shim.js 只导出了 __drpyHome/__drpyCategory，根本没有 __drpyCategories，
+     * 之前这里永远报 "'__drpyCategories' is not defined"（被 evalForJson 吞掉返回空）。
+     * 改走 __drpyHome 的 class 数组；与 home() 共享一次调用（10s 窗口，学 PyApi）。
+     */
     override suspend fun categories(): List<CategoryType> = withContext(Dispatchers.IO) {
-        val json = evalForJson("(function(){return __drpyCategories();})()") ?: return@withContext emptyList()
-        parseCategories(json)
+        val json = sharedHomeJson() ?: return@withContext emptyList()
+        parseCategoriesFromHome(json)
+    }
+
+    @Volatile
+    private var sharedHomeJson: String? = null
+    @Volatile
+    private var sharedHomeAt: Long = 0L
+
+    private suspend fun sharedHomeJson(): String? = withContext(Dispatchers.IO) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val cached = sharedHomeJson
+        if (cached != null && now - sharedHomeAt < 10_000) return@withContext cached
+        val json = evalForJson("(function(){return __drpyHome();})()")
+        if (json != null) {
+            sharedHomeJson = json
+            sharedHomeAt = now
+        }
+        json
+    }
+
+    /** 从 __drpyHome() 的 {"class":[...],"list":[...]} 里取分类数组。 */
+    private fun parseCategoriesFromHome(json: String): List<CategoryType> {
+        return runCatching {
+            val o = JSONObject(json)
+            if (o.has("error")) {
+                Log.w(TAG, "规则返回 error: ${o.optString("error")}")
+                return emptyList()
+            }
+            val arr = o.optJSONArray("class") ?: JSONArray()
+            List(arr.length()) { i ->
+                val c = arr.getJSONObject(i)
+                CategoryType(
+                    typeId = c.optString("type_id"),
+                    typeName = c.optString("type_name"),
+                )
+            }
+        }.getOrDefault(emptyList())
     }
 
     override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod> =
@@ -196,19 +237,6 @@ class QuickJsDrpyEngine(
                     vodName = v.optString("vod_name"),
                     vodPic = v.optString("vod_pic"),
                     vodRemarks = v.optString("vod_remarks"),
-                )
-            }
-        }.getOrDefault(emptyList())
-    }
-
-    private fun parseCategories(json: String): List<CategoryType> {
-        return runCatching {
-            val arr = JSONArray(json)
-            List(arr.length()) { i ->
-                val c = arr.getJSONObject(i)
-                CategoryType(
-                    typeId = c.optString("type_id"),
-                    typeName = c.optString("type_name"),
                 )
             }
         }.getOrDefault(emptyList())

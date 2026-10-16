@@ -108,6 +108,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -277,6 +278,13 @@ fun HomeScreen(
     var drpyList by remember { mutableStateOf<List<ModelVod>?>(null) } // null=未加载/失败
     var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
     var catsFailed by remember { mutableStateOf(false) } // v0.29.0：分类失败且为空，给重试入口
+    var recommendStale by remember { mutableStateOf(false) } // v0.50.0：展示的是过期缓存/8s降级，顶部小字提示
+    var recommendEmpty by remember { mutableStateOf(false) } // v0.50.0：8s 首屏无数据，推荐区空态+重试
+
+    // v0.50.0（用户补）：慢请求回来时先确认首页还在前台才刷 UI；在后台只写缓存，防推荐区跳变
+    val homeLifecycle = LocalLifecycleOwner.current.lifecycle
+    fun isHomeForeground(): Boolean =
+        homeLifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
 
     /** v0.25.0：当前数据源的缓存 key（订阅站 key / 本地规则名） */
     fun homeCacheKey(): String? = when {
@@ -301,56 +309,127 @@ fun HomeScreen(
     /**
      * v0.31.0：单飞执行方的实际工作——缓存先行 + 并发拉网络，算好最终 UI 状态，
      * 打包成 HomePayload。缓存落盘只在这里做一次，复用方不重复写。
+     *
+     * v0.50.0：三处大改——
+     * - A：分类拿到立刻渲染，不等推荐（之前 coroutineScope 等两路齐才 apply）；
+     * - B：推荐 8s 首屏降级（stale 缓存/空态），25s 硬上限保留给慢规则，后台回来继续填；
+     * - E：缓存先行即时上屏（过期也展示标 stale），返回首页永远有东西；
+     * - 用户补：慢请求回来先确认前台才刷 UI，后台只写缓存，防推荐区跳变。
      */
-    suspend fun fetchHomePayload(key: String): HomeLoadGate.HomePayload {
+    suspend fun fetchHomePayload(key: String, myGen: Int): HomeLoadGate.HomePayload {
         // 1. 缓存先行
         var cacheVods: List<ModelVod> = emptyList()
         var cacheCats: List<CategoryType> = emptyList()
+        var cacheFresh = false
         var cacheShown = false
         withContext(Dispatchers.IO) { HomeCache.load(context, key) }?.let { (data, fresh) ->
             cacheCats = data.cats
+            cacheFresh = fresh
             if (data.vods.isNotEmpty()) {
                 cacheVods = data.vods
                 cacheShown = true
-                LogBus.i("Home", "首页缓存命中（${if (fresh) "新鲜" else "过期"}）：${data.vods.size} 条")
+                LogBus.i("Home", "首页缓存先行（${if (fresh) "新鲜" else "过期stale"}）：${data.vods.size} 条")
             }
+        }
+        // v0.50.0 E：缓存立刻上屏，不等网络
+        if ((cacheShown || cacheCats.isNotEmpty()) && myGen == contentGen && isHomeForeground()) {
+            if (cacheShown && drpyList == null) {
+                drpyList = cacheVods
+                recommendStale = !cacheFresh
+            }
+            if (cacheCats.isNotEmpty() && drpyCats.isEmpty()) drpyCats = cacheCats
         }
         // 2. 并发刷新（推荐/分类各 25s 熔断，互不取消）
         var netVods: List<ModelVod>? = null
         var netCats: List<CategoryType>? = null
         coroutineScope {
             launch {
-                netVods = runCatching {
-                    // v0.27.1：推荐抓取给 12s（PY 规则内部 5s×2 次抓取，慢速网络 6s 不够）
-                    // v0.31.1：12s→25s，真果鉴这类慢规则要 21 秒才能回来，12s 直接掐死
+                // v0.50.0 B：8s 首屏计时——推荐没回来先降级，不白屏等 25s
+                launch {
+                    delay(8_000)
+                    if (netVods != null || myGen != contentGen) return@launch
+                    if (drpyList != null || !isHomeForeground()) return@launch
+                    val stale = cacheVods.takeIf { it.isNotEmpty() }
+                    if (stale != null) {
+                        drpyList = stale
+                        recommendStale = true
+                    } else {
+                        recommendEmpty = true
+                    }
+                    drpyLoading = false
+                    LogBus.i("Home", "推荐 8s 未回，首屏降级（${if (stale != null) "stale缓存" else "空态"}）")
+                }
+                netVods = try {
+                    // v0.31.1：25s 硬上限保留（真果鉴 21s）；取消单独透出不计失败
                     withTimeoutOrNull(25_000) {
                         withContext(Dispatchers.IO) { engineHome() }
                     }
-                }.getOrNull()
-                if (netVods == null) {
+                } catch (e: CancellationException) {
+                    LogBus.i("Home", "推荐请求被取消（世代更替），不计失败")
+                    throw e
+                } catch (e: Exception) {
+                    LogBus.w("Home", "推荐异常 ${e::class.simpleName}: ${e.message}")
+                    null
+                }
+                val vods = netVods
+                if (vods == null) {
                     LogBus.w("Home", "首页推荐加载超时/失败（25s 熔断）")
-                } else if (!netVods.isNullOrEmpty()) {
-                    withContext(Dispatchers.IO) { HomeCache.saveVods(context, key, netVods!!) }
+                } else {
+                    if (vods.isNotEmpty()) {
+                        withContext(Dispatchers.IO) { HomeCache.saveVods(context, key, vods) }
+                    }
+                    // v0.50.0（用户补）：慢请求回来先看前台；在后台只写缓存，不刷推荐区
+                    if (myGen == contentGen && isHomeForeground()) {
+                        drpyList = vods.ifEmpty { null }
+                        recommendStale = false
+                        recommendEmpty = false
+                        LogBus.i("Home", "推荐回来，前台刷新 ${vods.size} 条")
+                    } else {
+                        LogBus.i("Home", "推荐回来了但首页不在前台，只写缓存不刷 UI")
+                    }
                 }
             }
             launch {
-                netCats = runCatching {
-                    // v0.27.7：分类超时 6s→12s，和推荐对齐（真机分类反复熔断）
-                    // v0.28.0：PyApi 内 homeContent 一次调用共享，推荐/分类不再排队
-                    // v0.31.1：12s→25s，和推荐对齐（真果鉴 21 秒才回来）
+                // v0.50.0：打耗时+条数，区分"规则返回空"和"真超时"（之前只报超时，查不清）
+                val t0 = android.os.SystemClock.elapsedRealtime()
+                netCats = try {
+                    // v0.31.1：25s，和推荐对齐；取消单独透出不计失败
                     withTimeoutOrNull(25_000) {
                         withContext(Dispatchers.IO) { engineCats() }
                     }
-                }.getOrNull()
-                if (netCats == null) {
-                    // v0.28.0：超时不清空——缓存里的 cats 继续用，打明确日志
-                    LogBus.w("Home", "首页分类加载超时/失败（25s 熔断），保留缓存分类 ${cacheCats.size} 个")
-                } else if (netCats!!.isNotEmpty()) {
-                    withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, netCats!!) }
+                } catch (e: CancellationException) {
+                    LogBus.i("Home", "分类请求被取消（世代更替），不计失败")
+                    throw e
+                } catch (e: Exception) {
+                    LogBus.w("Home", "分类异常 ${e::class.simpleName}: ${e.message}")
+                    null
+                }
+                val ms = android.os.SystemClock.elapsedRealtime() - t0
+                LogBus.i("Home", "engineCats 回来：${netCats?.size?.let { "$it 条" } ?: "超时/异常"}（${ms}ms）")
+                val cats = netCats
+                if (cats.isNullOrEmpty()) {
+                    if (cats == null) LogBus.w("Home", "首页分类加载超时/失败（25s 熔断）")
+                    else LogBus.i("Home", "规则返回分类为空（非失败）")
+                    // 超时且有缓存：立刻顶上，不等推荐
+                    val cached = cacheCats.takeIf { it.isNotEmpty() }
+                    if (cached != null && myGen == contentGen && isHomeForeground() && drpyCats.isEmpty()) {
+                        drpyCats = cached
+                        LogBus.i("Home", "分类用缓存先行：${cached.size} 个")
+                    }
+                } else {
+                    withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) }
+                    // v0.50.0 A：分类先行渲染，不等推荐回来
+                    if (myGen == contentGen && isHomeForeground()) {
+                        drpyCats = cats
+                        catsFailed = false
+                        LogBus.i("Home", "分类先行渲染：${cats.size} 个（推荐未回）")
+                    } else if (myGen == contentGen) {
+                        LogBus.i("Home", "分类回来了但首页不在前台，只写缓存不刷 UI")
+                    }
                 }
             }
         }
-        // 3. 算最终 UI 状态（语义与 v0.25.0–v0.29.0 一致）
+        // 3. 算最终 UI 状态（语义与之前一致；early-apply 已做，这里幂等收尾）
         val netOk = netVods != null && (netVods!!.isNotEmpty() || !cacheShown)
         val finalVods: List<ModelVod>? = when {
             netOk -> netVods!!.ifEmpty { null }
@@ -411,7 +490,15 @@ fun HomeScreen(
             selectedCategory = 0
             setFilters(emptyMap())
         }
-        drpyList = payload.vods ?: prevVods
+        // v0.50.0（用户补）：最终应用时也在前台才刷推荐区；后台回来的只留缓存（上游已写），防跳变
+        drpyList = if (payload.vods != null && isHomeForeground()) {
+            recommendStale = false
+            recommendEmpty = false
+            payload.vods
+        } else {
+            if (payload.vods != null) LogBus.i("Home", "最终 payload 应用：首页不在前台，推荐不刷 UI")
+            prevVods
+        }
         val cats = payload.cats.ifEmpty { prevCats }
         drpyCats = cats
         catsFailed = payload.catsFailed && cats.isEmpty()
@@ -437,6 +524,8 @@ fun HomeScreen(
      */
     fun loadHome(force: Boolean = false, onDone: () -> Unit = {}) {
         val key = homeCacheKey() ?: return
+        // v0.50.0：新触发取消旧的退避重调度
+        HomeLoadGate.clearBackoff(key)
         // v0.31.2：世代+1——首页加载和分类加载互斥，后发起的赢；同时取消分类在途请求
         contentGen += 1
         val myGen = contentGen
@@ -446,6 +535,8 @@ fun HomeScreen(
         val prevCats = drpyCats
         drpyLoading = true
         homeError = null
+        recommendStale = false
+        recommendEmpty = false
 
         // v0.31.0：单飞——有在途请求直接复用结果（不重复跑网络、不重复计数）
         HomeLoadGate.flight(key)?.let { inFlight ->
@@ -458,16 +549,36 @@ fun HomeScreen(
             return
         }
 
-        // v0.29.0 退避语义保留，挂在按 key 统一的计数上
+        // v0.50.0：指数退避重调度——之前只跳过不重试等于静默放弃；现在延迟后自动重试
+        //（5s→15s→30s→60s，用户要求；per-key Job 防叠加）
         val streak = HomeLoadGate.streak(key)
         if (!force && streak >= 3) {
             drpyLoading = false
-            LogBus.i("Home", "首页连续失败 $streak 次，退避中（下拉可手动重试）")
-            onDone()
+            val waitMs = HomeLoadGate.backoffMs(key)
+            LogBus.i("Home", "首页连续失败 $streak 次，${waitMs / 1000}s 后自动重试（下拉可手动重试）")
+            HomeLoadGate.setBackoffJob(key, scope.launch {
+                delay(waitMs)
+                if (key == homeCacheKey()) {
+                    LogBus.i("Home", "退避结束，自动重试首页")
+                    loadHome(force = true, onDone = onDone)
+                } else {
+                    onDone()
+                }
+            })
             return
         }
 
-        val deferred = scope.async { runCatching { fetchHomePayload(key) }.getOrNull() }
+        // v0.50.0：CancellationException 必须透出（不能被 runCatching 吞掉），否则取消会被记成失败
+        val deferred = scope.async {
+            try {
+                fetchHomePayload(key, myGen)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                LogBus.w("Home", "fetchHomePayload 异常 ${e::class.simpleName}: ${e.message}")
+                null
+            }
+        }
         if (!HomeLoadGate.start(key, deferred)) {
             // 极小竞态：start 前一刻刚有人登记，转复用
             deferred.cancel()
@@ -480,6 +591,13 @@ fun HomeScreen(
         // 执行方收尾（仅挂一次）：统一计数 + 应用结果到自己的状态
         scope.launch {
             val payload = awaitFlight(deferred)
+            // v0.50.0：被取消（世代更替/切 tab）不计入失败——之前 "I was cancelled" 也被记成失败
+            if (deferred.isCancelled) {
+                HomeLoadGate.abort(key, deferred)
+                LogBus.i("Home", "首页请求被取消，不计入失败")
+                onDone()
+                return@launch
+            }
             val ok = payload?.vods != null || prevVods != null
             HomeLoadGate.finish(key, deferred, ok)
             if (!ok) LogBus.w("Home", "首页数据全失败且无缓存（连续 ${HomeLoadGate.streak(key)} 次）")
@@ -789,7 +907,19 @@ fun HomeScreen(
                 }
     
                 // v0.27.4：首页不再自动加载推荐流；无数据时干净空态（不再转圈/报错/演示数据）
-                if (!drpyReady) {
+                // v0.50.0：8s 首屏无数据时给空态+重试（推荐区局部，不整页报错）
+                if (recommendEmpty && !drpyReady) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        EmptyState(
+                            kind = EmptyKind.Error,
+                            icon = Icons.Filled.Refresh,
+                            title = "推荐加载失败",
+                            hint = "网络超时或规则异常",
+                            actionText = "重试",
+                            onAction = { loadHome(force = true) },
+                        )
+                    }
+                } else if (!drpyReady) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         EmptyState(
                             kind = EmptyKind.Empty,
@@ -860,18 +990,29 @@ fun HomeScreen(
                     }
     
                     // 分区标题 + 换一换（v0.39.0：mockup 风格"今日推荐"）
+                    // v0.50.0：stale 时标题旁小字提示"旧内容·刷新中"
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         SectionTitle(
                             title = "今日推荐",
                             action = {
-                                TextButton(onClick = { shuffleSeed++ }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Refresh,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("换一换")
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (recommendStale) {
+                                        Text(
+                                            text = "旧内容·刷新中",
+                                            style = SoftType.Caption,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                    }
+                                    TextButton(onClick = { shuffleSeed++ }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("换一换")
+                                    }
                                 }
                             },
                         )

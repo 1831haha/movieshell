@@ -68,6 +68,12 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
     private var sharedHomeData: JsonObject? = null
     private var sharedHomeAt: Long = 0L
 
+    // v0.50.0：homeContent 连续 3 次无推荐列表的规则，标记为"无首页推荐"。
+    // 命中时跳过 list 解析直调 homeVideoContent（省一次串行等待；如实说明：
+    // homeContent 那次 invoke 省不掉——categories() 吃的是同一次调用，10s 共享）。
+    private val noRecommendRules = mutableSetOf<String>()
+    private val noRecommendHits = mutableMapOf<String, Int>()
+
     private suspend fun sharedHomeContent(rulePath: String): JsonObject? {
         val now = android.os.SystemClock.elapsedRealtime()
         if (rulePath == sharedHomePath && now - sharedHomeAt < 10_000) {
@@ -90,8 +96,21 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
         val data = sharedHomeContent(rulePath)
         val first = ((data?.get("list") as? JsonArray).orEmpty()
             .mapNotNull { (it as? JsonObject) }).map { it.toVod() }
-        if (first.isNotEmpty()) return first
-        LogBus.i(TAG, "homeContent 无推荐列表，改调 homeVideoContent")
+        if (first.isNotEmpty()) {
+            noRecommendHits.remove(rulePath)
+            return first
+        }
+        // v0.50.0：连续空标记
+        val hits = (noRecommendHits[rulePath] ?: 0) + 1
+        noRecommendHits[rulePath] = hits
+        if (hits >= 3 && noRecommendRules.add(rulePath)) {
+            LogBus.i(TAG, "规则连续 $hits 次 homeContent 无推荐，已标记直调 homeVideoContent")
+        }
+        if (rulePath in noRecommendRules) {
+            LogBus.i(TAG, "规则已标记无首页推荐，直调 homeVideoContent")
+        } else {
+            LogBus.i(TAG, "homeContent 无推荐列表，改调 homeVideoContent")
+        }
         return dataList(engine.invoke(rulePath, "homeVideoContent", "{}"))
             .map { it.toVod() }
     }

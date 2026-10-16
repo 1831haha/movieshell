@@ -15,6 +15,19 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.50.0",
+        date = "2026-10-16",
+        title = "首页加载大提速：分类秒出、8秒首屏、失败退避",
+        details = listOf(
+            "改：分类和推荐解耦——分类 1-3 秒回来就立刻渲染，不再干等推荐（之前要等两路齐才出页面）。",
+            "改：推荐 8 秒没回来先出降级（旧缓存标“旧内容·刷新中”/空态+重试），25 秒上限保留给慢规则，后台回来继续填。",
+            "改：失败指数退避——连续失败后 5s→15s→30s→60s 自动重试，不再请求风暴；被取消的不计入失败。",
+            "改：缓存先行——过期缓存也先展示，返回首页永远有东西；后台回来的数据只写缓存不刷 UI，防推荐区跳变。",
+            "修：QuickJS 的 categories() 一直报 '__drpyCategories' is not defined——shim 里根本没这个函数，改走 __drpyHome 的 class 数组（与 home 共享一次调用）。",
+            "改：PY 规则连续 3 次 homeContent 无推荐就标记，直调 homeVideoContent；日志补耗时/条数/异常类名。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.49.0",
         date = "2026-10-16",
         title = "在线字幕开箱即用",

@@ -139,7 +139,7 @@ object PySourceManager {
         val path = activeRulePath() ?: return emptyList()
         return latest(homeSlot) {
             runCatching { api.home(path) }
-                .onFailure { e -> LogBus.e(TAG, "本地 PY home 失败: ${e.message}") }
+                .onFailure { e -> LogBus.e(TAG, "本地 PY home 失败: ${e::class.simpleName}: ${e.message}") }
                 .getOrNull().orEmpty().filterNotNull()
         }
     }
@@ -148,7 +148,7 @@ object PySourceManager {
         val path = activeRulePath() ?: return emptyList()
         return latest(categoriesSlot) {
             runCatching { api.categories(path) }
-                .onFailure { e -> LogBus.e(TAG, "本地 PY categories 失败: ${e.message}") }
+                .onFailure { e -> LogBus.e(TAG, "本地 PY categories 失败: ${e::class.simpleName}: ${e.message}") }
                 .getOrNull().orEmpty().filterNotNull()
         }
     }
@@ -157,7 +157,7 @@ object PySourceManager {
         val path = activeRulePath() ?: return emptyList()
         return latest(categorySlot) {
             runCatching { api.category(path, tid, pg, filter) }
-                .onFailure { e -> LogBus.e(TAG, "本地 PY category 失败: ${e.message}") }
+                .onFailure { e -> LogBus.e(TAG, "本地 PY category 失败: ${e::class.simpleName}: ${e.message}") }
                 .getOrNull().orEmpty().filterNotNull()
         }
     }
@@ -166,7 +166,7 @@ object PySourceManager {
         val path = activeRulePath() ?: return VodDetail(vodId = vodId)
         return latest(detailSlot) {
             runCatching { api.detail(path, vodId) }
-                .onFailure { e -> LogBus.e(TAG, "本地 PY detail 失败: ${e.message}") }
+                .onFailure { e -> LogBus.e(TAG, "本地 PY detail 失败: ${e::class.simpleName}: ${e.message}") }
                 .getOrNull() ?: VodDetail(vodId = vodId)
         }
     }
@@ -175,7 +175,7 @@ object PySourceManager {
         val path = activeRulePath() ?: return emptyList()
         return latest(searchSlot) {
             runCatching { api.search(path, wd) }
-                .onFailure { e -> LogBus.e(TAG, "本地 PY search 失败: ${e.message}") }
+                .onFailure { e -> LogBus.e(TAG, "本地 PY search 失败: ${e::class.simpleName}: ${e.message}") }
                 .getOrNull().orEmpty().filterNotNull()
         }
     }
