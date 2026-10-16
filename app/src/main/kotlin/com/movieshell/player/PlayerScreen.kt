@@ -1218,11 +1218,11 @@ fun PlayerScreen(
                                     selected = sizeIdx == i,
                                     onClick = { ds.setTextSize(context, i) },
                                     label = { androidx.compose.material3.Text(label) },
-                                    modifier = androidx.compose.foundation.layout.padding(end = 8.dp),
+                                    modifier = Modifier.padding(end = 8.dp),
                                 )
                             }
                         }
-                        androidx.compose.foundation.layout.Spacer(androidx.compose.foundation.layout.size(8.dp))
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
                         // 透明度
                         androidx.compose.material3.Text("透明度：$alphaV%", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
                         androidx.compose.material3.Slider(
@@ -1238,11 +1238,11 @@ fun PlayerScreen(
                                     selected = speedIdx == i,
                                     onClick = { ds.setSpeed(context, i) },
                                     label = { androidx.compose.material3.Text(label) },
-                                    modifier = androidx.compose.foundation.layout.padding(end = 8.dp),
+                                    modifier = Modifier.padding(end = 8.dp),
                                 )
                             }
                         }
-                        androidx.compose.foundation.layout.Spacer(androidx.compose.foundation.layout.size(8.dp))
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
                         // 区域
                         androidx.compose.material3.Text("显示区域", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
                         androidx.compose.foundation.layout.Row {
@@ -1251,7 +1251,7 @@ fun PlayerScreen(
                                     selected = areaIdx == i,
                                     onClick = { ds.setArea(context, i) },
                                     label = { androidx.compose.material3.Text(label) },
-                                    modifier = androidx.compose.foundation.layout.padding(end = 8.dp),
+                                    modifier = Modifier.padding(end = 8.dp),
                                 )
                             }
                         }
