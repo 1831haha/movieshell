@@ -164,6 +164,7 @@ class MainActivity : ComponentActivity() {
         ThemeStore.init(this)
         LogStore.init(this)
         PlayerSettings.init(this)
+        com.movieshell.player.danmaku.DanmakuSettings.init(this) // v0.54：弹幕开关
         ParseStore.load(this) // v0.19.0：自定义解析接口
         // v0.7.2：存储迁移必须在各 Manager init 之前（Manager 的目录现在走 StoragePaths）
         if (!StoragePaths.migrateFromPrivate(this) && StoragePaths.hasAccess(this)) {

@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.54.0",
+        date = "2026-10-17",
+        title = "弹幕来了（只看不发）",
+        details = listOf(
+            "新：播放器支持弹幕显示——按视频标题自动匹配弹幕（弹弹play 源）。",
+            "新：「更多」菜单里可开关弹幕，开关状态记住。",
+            "说明：只看不发；搜不到弹幕的视频静默无弹幕，不影响播放。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.53.0",
         date = "2026-10-16",
         title = "首页架构重构：状态进 ViewModel，返回秒回",

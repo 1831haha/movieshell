@@ -180,6 +180,9 @@ fun PlayerScreen(
     var showOnlineSubtitle by remember { mutableStateOf(false) } // v0.28.0：在线字幕搜索
     var sessionSubtitle by remember { mutableStateOf<String?>(null) } // 本次字幕覆盖（未设置则按剧记忆）
     var pipMode by remember { mutableStateOf(false) } // 画中画
+    // v0.54：弹幕（只看不发；用户明确发送功能永远不做）
+    val danmakuEnabled by com.movieshell.player.danmaku.DanmakuSettings.enabled.collectAsState()
+    var danmakuList by remember { mutableStateOf(emptyList<com.movieshell.player.danmaku.Danmaku>()) }
     // v0.27.7：自绘控制层显隐（Media3 原生控制器已关闭，双引擎统一）；播放状态从引擎取
     var controlsVisible by remember { mutableStateOf(true) }
     var isPlaying by remember { mutableStateOf(true) }
@@ -298,7 +301,24 @@ fun PlayerScreen(
     // 历史记录一律用原始 url（磁力链接本身）做 key，保证磁力也能断点续播
     var lastUrl by remember { mutableStateOf<String?>(null) }
     // v0.25.0：起播链路顶层兜底——任何未预期异常转 Toast，绝不崩
+    // v0.54：弹幕开关变化时按需加载/清空（不重进播放器也能开关）
+    LaunchedEffect(danmakuEnabled) {
+        if (danmakuEnabled && title.isNotBlank() && !isLive && danmakuList.isEmpty()) {
+            danmakuList = com.movieshell.player.danmaku.DanmakuSource.fetch(title)
+        } else if (!danmakuEnabled) {
+            danmakuList = emptyList()
+        }
+    }
+
     LaunchedEffect(playUrl) {
+        // v0.54：弹幕预加载（按标题搜，不阻塞播放；失败静默无弹幕）
+        if (danmakuEnabled && title.isNotBlank() && !isLive) {
+            launch {
+                danmakuList = com.movieshell.player.danmaku.DanmakuSource.fetch(title)
+            }
+        } else if (!danmakuEnabled) {
+            danmakuList = emptyList()
+        }
         try {
             if (!autoSwitching) triedLines.clear() else autoSwitching = false
             // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
@@ -634,6 +654,13 @@ fun PlayerScreen(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+            // v0.54：弹幕覆盖层（视频画面之上，手势层之下）
+            com.movieshell.player.danmaku.DanmakuOverlay(
+                danmakus = danmakuList,
+                positionMs = EngineHost.currentPosition(),
+                enabled = danmakuEnabled && !playUrl.isBlank(),
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         // v0.19.0：画中画时只留播放画面，全部自绘 UI 隐藏
@@ -840,6 +867,16 @@ fun PlayerScreen(
                         DropdownMenuItem(
                             text = { Text("在线字幕") },
                             onClick = { showMoreMenu = false; showOnlineSubtitle = true },
+                        )
+                        // v0.54：弹幕开关（只看不发）
+                        DropdownMenuItem(
+                            text = { Text(if (danmakuEnabled) "关闭弹幕" else "打开弹幕") },
+                            onClick = {
+                                showMoreMenu = false
+                                com.movieshell.player.danmaku.DanmakuSettings.setEnabled(
+                                    context, !danmakuEnabled
+                                )
+                            },
                         )
                         if (!isLive) {
                             DropdownMenuItem(
