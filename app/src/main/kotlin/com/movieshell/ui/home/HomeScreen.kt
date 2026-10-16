@@ -480,7 +480,6 @@ fun HomeScreen(
     fun applyHomePayload(
         payload: HomeLoadGate.HomePayload?,
         prevVods: List<ModelVod>,
-        prevCats: List<CategoryType>,
         gen: Int = -1,
     ) {
         // v0.31.2：迟到结果丢弃——用户已经点了别的（分类/首页/筛选），旧 payload 不再应用，
@@ -506,8 +505,10 @@ fun HomeScreen(
             if (payload.vods != null) LogBus.i("Home", "最终 payload 应用：首页不在前台，推荐不刷 UI")
             vm.setRecommend(prevVods)
         }
-        val cats = payload.cats.ifEmpty { prevCats }
-        vm.setCategories(cats)
+        // v0.58（用户指正）：只有 payload.cats 非空才覆盖，空就保留分类先行渲染已写入的
+        if (payload.cats.isNotEmpty()) {
+            vm.setCategories(payload.cats)
+        }
         catsFailed = payload.catsFailed && cats.isEmpty()
         homeError = if (vm.currentVideos.value.isEmpty()) "加载失败，点击重试" else null
     }
@@ -539,7 +540,6 @@ fun HomeScreen(
         categoryJob?.cancel()
         // 抓当前展示值，供"全失败且无缓存"判定（语义与旧版一致：之前展示中的也算有数据）
         val prevVods = drpyList
-        val prevCats = drpyCats
         vm.isLoading.value = true
         homeError = null
         recommendStale = false
@@ -550,7 +550,7 @@ fun HomeScreen(
             LogBus.i("Home", "首页加载进行中，复用在途请求")
             scope.launch {
                 // 复用方只应用结果，不写缓存、不计数
-                applyHomePayload(awaitFlight(inFlight), prevVods, prevCats, myGen)
+                applyHomePayload(awaitFlight(inFlight), prevVods, myGen)
                 onDone()
             }
             return
@@ -590,7 +590,7 @@ fun HomeScreen(
             // 极小竞态：start 前一刻刚有人登记，转复用
             deferred.cancel()
             scope.launch {
-                applyHomePayload(HomeLoadGate.flight(key)?.let { f: Deferred<HomeLoadGate.HomePayload?> -> awaitFlight(f) }, prevVods, prevCats, myGen)
+                applyHomePayload(HomeLoadGate.flight(key)?.let { f: Deferred<HomeLoadGate.HomePayload?> -> awaitFlight(f) }, prevVods, myGen)
                 onDone()
             }
             return
@@ -608,7 +608,7 @@ fun HomeScreen(
             val ok = payload?.vods != null || prevVods.isNotEmpty()
             HomeLoadGate.finish(key, deferred, ok)
             if (!ok) LogBus.w("Home", "首页数据全失败且无缓存（连续 ${HomeLoadGate.streak(key)} 次）")
-            applyHomePayload(payload, prevVods, prevCats, myGen)
+            applyHomePayload(payload, prevVods, myGen)
             onDone()
         }
     }
