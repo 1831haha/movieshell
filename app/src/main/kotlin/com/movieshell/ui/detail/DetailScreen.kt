@@ -278,7 +278,7 @@ fun DetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(vod?.title ?: displayTitle(vodId)) },
+                title = { Text(vod?.title ?: displayTitle(vodId), color = Color(0xFFD9C39A)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")

@@ -164,7 +164,7 @@ fun AppChip(
     )
 }
 
-/** 分区标题：15sp Medium + 可选右侧操作。 */
+/** 分区标题：15sp Medium + 可选右侧操作。v0.38.0：香槟金（mockup 风格）。 */
 @Composable
 fun SectionTitle(
     title: String,
@@ -176,7 +176,7 @@ fun SectionTitle(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(title, style = SoftType.CardTitle, color = MaterialTheme.colorScheme.onSurface)
+        Text(title, style = SoftType.CardTitle, color = Color(0xFFD9C39A))
         action?.invoke()
     }
 }

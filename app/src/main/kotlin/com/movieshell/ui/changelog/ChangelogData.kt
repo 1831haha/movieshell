@@ -15,6 +15,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.38.0",
+        date = "2026-10-16",
+        title = "视频 UI 按 mockup 统一",
+        details = listOf(
+            "标题都换成香槟金，详情页标题也一样，整体更有质感。",
+            "底栏是首页 / 直播 / 书架 / 实验室 / 设置，图标是新的线条风，选中变青色。",
+            "站源管理搬进了设置页的“源管理”，底栏更清爽。",
+            "只动了外观，播放、搜索、源解析都没动。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.37.0",
         date = "2026-10-16",
         title = "找书页：在线小说源架构（演示数据）",
