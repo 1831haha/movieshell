@@ -40,6 +40,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -261,6 +262,8 @@ fun HomeScreen(
     val drpyCats by vm.categories.collectAsState()
     val drpyList by vm.currentVideos.collectAsState()
     val drpyLoading by vm.isLoading.collectAsState()
+    // v0.58：切分类 loading 标记（null=空闲；非 null=正在加载该分类，旧列表保留不闪空）
+    val loadingCat by vm.loadingCategoryId.collectAsState()
     // v0.44.0：二级筛选升级为多组 Map（key->value），空=未选（用规则默认）。
     // v0.31.2 的教训：rememberSaveable 存 Map 有坑，用 List<String> 存 "key\u0001value" 编码。
     // tab 切回时选中态不丢；切分类时清空（不同分类的筛选组不同）。
@@ -738,6 +741,7 @@ fun HomeScreen(
             vm.setRecommend(emptyList())
             vm.setCategories(emptyList())
             vm.clearCategoryCache()
+            vm.clearDisplay() // v0.58：旧源列表不保留
             vm.selectCategory(0)
             setFilters(emptyMap())
             homeError = null
@@ -853,6 +857,8 @@ fun HomeScreen(
                 .background(MaterialTheme.colorScheme.background.copy(alpha = 0.55f)),
         ) {
             // v0.45.0：官方 Material3 下拉刷新（替换手搓版）
+            // v0.58：切分类 loading 覆盖层——Box 包一层，顶部细条/骨架屏
+            Box(modifier = Modifier.fillMaxSize()) {
             PullToRefreshBox(
                 state = pullRefreshState,
                 isRefreshing = refreshing,
@@ -1060,6 +1066,37 @@ fun HomeScreen(
                 }
             }
             } // v0.45.0：闭合 PullToRefreshBox
+            // v0.58：切分类时——有旧数据：顶部细条 loading；无旧数据：骨架屏（不闪"暂无内容"空态）
+            if (loadingCat != null) {
+                if (drpyList.isNotEmpty()) {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth(),
+                    )
+                } else {
+                    // 骨架屏：简单灰色占位块
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(SoftDimens.PagePadding),
+                        verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                    ) {
+                        repeat(6) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(120.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        RoundedCornerShape(12.dp),
+                                    ),
+                            )
+                        }
+                    }
+                }
+            }
+            } // v0.58：闭合切分类 loading Box
         } // 闭合 Column
     
         // 站源切换（v0.7.1）

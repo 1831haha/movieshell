@@ -6,10 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.Vod as ModelVod
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * v0.53.0：首页状态容器——三点核心。
@@ -46,12 +45,41 @@ class HomeViewModel(
     private val _categoryCache = MutableStateFlow<Map<Int, List<ModelVod>>>(emptyMap())
     val categoryCache: StateFlow<Map<Int, List<ModelVod>>> = _categoryCache
 
-    /** 要点2：当前展示列表——派生状态，换分类只是换数据源 */
-    val currentVideos: StateFlow<List<ModelVod>> = combine(
-        recommendCache, _categoryCache, selectedCategoryId,
-    ) { rec, catMap, catId ->
-        if (catId == 0) rec else catMap[catId].orEmpty()
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    /**
+     * v0.58（用户指正：切分类闪全屏空白）：
+     * 正在加载的分类 id，null=空闲。切到无缓存分类时不清空旧列表，
+     * UI 层据此显示顶部细条 loading（有旧数据）或骨架屏（无旧数据）。
+     */
+    val loadingCategoryId = MutableStateFlow<Int?>(null)
+
+    /**
+     * 要点2改：当前展示列表——不再是纯派生。切分类时：
+     * - 有缓存：立刻切到缓存；
+     * - 无缓存：保留旧列表（不闪空），等网络回来再替换。
+     */
+    private val _displayVideos = MutableStateFlow<List<ModelVod>>(emptyList())
+    val currentVideos: StateFlow<List<ModelVod>> = _displayVideos
+
+    init {
+        // 选中的分类/缓存变化时，决定展示什么（只在有数据时更新，不闪空）
+        viewModelScope.launch {
+            combine(
+                selectedCategoryId, recommendCache, _categoryCache,
+            ) { catId, rec, catMap ->
+                Triple(catId, rec, catMap)
+            }.collect { (catId, rec, catMap) ->
+                val target: List<ModelVod>? = if (catId == 0) rec else catMap[catId]
+                if (!target.isNullOrEmpty()) {
+                    _displayVideos.value = target
+                    if (loadingCategoryId.value == catId) loadingCategoryId.value = null
+                } else if (catId != 0) {
+                    // 无缓存：保留旧列表，标记正在加载（UI 显示顶部细条/骨架屏）
+                    loadingCategoryId.value = catId
+                }
+                // catId==0 且推荐为空：首页加载中，保持旧展示不动
+            }
+        }
+    }
 
     /** 是否正在加载（局部转圈用） */
     val isLoading = MutableStateFlow(false)
@@ -79,9 +107,20 @@ class HomeViewModel(
         _categoryCache.value = emptyMap()
     }
 
-    /** 切分类：只换 selectedCategoryId（写回 SavedStateHandle），currentVideos 自动派生，不碰列表组件 */
+    /**
+     * v0.58：换源时清空展示（旧源的列表不能留）。
+     * 调用方在 selectCategory(0) 之前调，collect 看到空数据不会自动清，需手动清。
+     */
+    fun clearDisplay() {
+        _displayVideos.value = emptyList()
+        loadingCategoryId.value = null
+    }
+
+    /** 切分类：只换 selectedCategoryId（写回 SavedStateHandle），展示层按缓存情况决定切不切 */
     fun selectCategory(catId: Int) {
         savedState["selectedCatId"] = catId
+        // v0.58：切到无缓存分类时，init 里的 collect 会置 loadingCategoryId 并保留旧列表；
+        // 网络回来调 setCategoryVideos，collect 自动刷新展示并清 loading
     }
 
     /**
