@@ -35,6 +35,12 @@ fun DanmakuOverlay(
 ) {
     if (!enabled || danmakus.isEmpty()) return
 
+    // v0.56：样式设置
+    val textSizeIdx by DanmakuSettings.textSize.collectAsState()
+    val alphaVal by DanmakuSettings.alpha.collectAsState()
+    val speedIdx by DanmakuSettings.speed.collectAsState()
+    val areaIdx by DanmakuSettings.area.collectAsState()
+
     // 帧时钟：约 30fps 重绘
     var frameMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
@@ -47,16 +53,20 @@ fun DanmakuOverlay(
     // 按轨道分配（记住分配结果，position 跳变时重算）
     val layout = remember(danmakus) { DanmakuLayout(danmakus) }
     // v0.55：Paint 复用，不每帧 new（之前每帧 new 两个 Paint，GC 压力大）
-    val paint = remember {
+    // v0.56：字号/透明度跟随设置
+    val fontPx = when (textSizeIdx) { 0 -> 34f; 2 -> 52f; else -> 42f }
+    val alphaInt = (alphaVal * 2.55f).toInt()
+    val paint = remember(fontPx, alphaInt) {
         android.graphics.Paint().apply {
-            textSize = 42f
+            textSize = fontPx
             isAntiAlias = true
             typeface = android.graphics.Typeface.DEFAULT_BOLD
+            alpha = alphaInt
         }
     }
-    val strokePaint = remember {
+    val strokePaint = remember(fontPx) {
         android.graphics.Paint().apply {
-            textSize = 42f
+            textSize = fontPx
             isAntiAlias = true
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             style = android.graphics.Paint.Style.STROKE
@@ -65,11 +75,13 @@ fun DanmakuOverlay(
             alpha = 180
         }
     }
+    // v0.56：速度档
+    val scrollMs = when (speedIdx) { 0 -> 9000L; 2 -> 4000L; else -> 6000L }
 
     Canvas(modifier = modifier.fillMaxSize()) {
         if (!enabled) return@Canvas
         val now = positionMs
-        layout.draw(this, now, frameMs, paint, strokePaint)
+        layout.draw(this, now, frameMs, paint, strokePaint, scrollMs, areaIdx)
     }
 }
 
@@ -83,10 +95,10 @@ private class DanmakuLayout(private val all: List<Danmaku>) {
     private var trackCount = 8
 
     // 二分找当前时间窗口的起始下标（按 timeMs 排序假定成立）
-    private fun windowStart(nowMs: Long): Int {
+    private fun windowStart(nowMs: Long, scrollMs: Long): Int {
         var lo = 0
         var hi = all.size
-        val from = nowMs - SCROLL_MS // 6 秒前发出的还可能在屏幕上
+        val from = nowMs - scrollMs // 之前发出的还可能在屏幕上
         while (lo < hi) {
             val mid = (lo + hi) ushr 1
             if (all[mid].timeMs < from) lo = mid + 1 else hi = mid
@@ -100,11 +112,15 @@ private class DanmakuLayout(private val all: List<Danmaku>) {
         frameMs: Long,
         paint: android.graphics.Paint,
         strokePaint: android.graphics.Paint,
+        scrollMs: Long,
+        area: Int,
     ) {
         val h = scope.size.height
-        trackCount = maxOf(4, (h / 90f).toInt()) // 每轨道约 90px
+        // v0.56：区域限制——上半屏时只用上半部分轨道
+        val usableH = if (area == 1) h * 0.5f else h
+        trackCount = maxOf(4, (usableH / 90f).toInt()) // 每轨道约 90px
 
-        val start = windowStart(nowMs)
+        val start = windowStart(nowMs, scrollMs)
         var drawn = 0
         for (i in start until all.size) {
             val d = all[i]
@@ -113,12 +129,12 @@ private class DanmakuLayout(private val all: List<Danmaku>) {
             when (d.type) {
                 Danmaku.TYPE_SCROLL -> {
                     val elapsed = nowMs - d.timeMs
-                    if (elapsed < 0 || elapsed > SCROLL_MS) continue
-                    val track = trackOf.getOrPut(i) { assignTrack(i, d.timeMs) }
+                    if (elapsed < 0 || elapsed > scrollMs) continue
+                    val track = trackOf.getOrPut(i) { assignTrack(i, d.timeMs, scrollMs) }
                     val y = (track + 1) * (h / (trackCount + 1))
                     val textW = paint.measureText(d.text)
                     val totalW = scope.size.width + textW
-                    val x = scope.size.width - totalW * (elapsed.toFloat() / SCROLL_MS)
+                    val x = scope.size.width - totalW * (elapsed.toFloat() / scrollMs)
                     drawDanmakuText(scope, d.text, x, y, d.color, paint, strokePaint)
                     drawn++
                 }
@@ -140,12 +156,12 @@ private class DanmakuLayout(private val all: List<Danmaku>) {
     }
 
     /** 简单轨道分配：找同轨道上一条已结束的（按发出时间+6秒估算） */
-    private fun assignTrack(index: Int, timeMs: Long): Int {
+    private fun assignTrack(index: Int, timeMs: Long, scrollMs: Long): Int {
         val lastEnd = LongArray(trackCount) { 0L }
         for ((idx, tr) in trackOf) {
             if (idx >= index) continue
             val t = all.getOrNull(idx)?.timeMs ?: continue
-            if (t + SCROLL_MS > lastEnd[tr]) lastEnd[tr] = t + SCROLL_MS
+            if (t + scrollMs > lastEnd[tr]) lastEnd[tr] = t + scrollMs
         }
         var best = 0
         for (t in 1 until trackCount) {
@@ -172,7 +188,6 @@ private class DanmakuLayout(private val all: List<Danmaku>) {
     }
 
     companion object {
-        const val SCROLL_MS = 6000L
         const val FIXED_MS = 4000L
     }
 }

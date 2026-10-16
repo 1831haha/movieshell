@@ -223,17 +223,37 @@ object DanmakuSource {
 
 /**
  * v0.54：弹幕开关与状态（持久化在 movieshell_prefs）。
+ * v0.56：加样式设置（大小/透明度/速度/区域），全部持久化。
  */
 object DanmakuSettings {
     private const val PREFS = "movieshell_prefs"
     private const val KEY_ENABLED = "danmaku_enabled"
+    // v0.56
+    private const val KEY_SIZE = "danmaku_size" // 0=小 1=中 2=大
+    private const val KEY_ALPHA = "danmaku_alpha" // 0-100
+    private const val KEY_SPEED = "danmaku_speed" // 0=慢 1=中 2=快
+    private const val KEY_AREA = "danmaku_area" // 0=全屏 1=上半屏
 
     private val _enabled = MutableStateFlow(false)
     val enabled: StateFlow<Boolean> = _enabled
 
+    // v0.56：样式状态流
+    private val _textSize = MutableStateFlow(1)
+    val textSize: StateFlow<Int> = _textSize
+    private val _alpha = MutableStateFlow(100)
+    val alpha: StateFlow<Int> = _alpha
+    private val _speed = MutableStateFlow(1)
+    val speed: StateFlow<Int> = _speed
+    private val _area = MutableStateFlow(0)
+    val area: StateFlow<Int> = _area
+
     fun init(context: Context) {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         _enabled.value = p.getBoolean(KEY_ENABLED, false)
+        _textSize.value = p.getInt(KEY_SIZE, 1)
+        _alpha.value = p.getInt(KEY_ALPHA, 100)
+        _speed.value = p.getInt(KEY_SPEED, 1)
+        _area.value = p.getInt(KEY_AREA, 0)
     }
 
     fun setEnabled(context: Context, on: Boolean) {
@@ -242,4 +262,41 @@ object DanmakuSettings {
             .edit().putBoolean(KEY_ENABLED, on).apply()
         LogBus.i("Danmaku", "弹幕开关：$on")
     }
+
+    // v0.56：样式设置
+    fun setTextSize(context: Context, v: Int) {
+        _textSize.value = v.coerceIn(0, 2)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_SIZE, _textSize.value).apply()
+    }
+    fun setAlpha(context: Context, v: Int) {
+        _alpha.value = v.coerceIn(30, 100)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_ALPHA, _alpha.value).apply()
+    }
+    fun setSpeed(context: Context, v: Int) {
+        _speed.value = v.coerceIn(0, 2)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_SPEED, _speed.value).apply()
+    }
+    fun setArea(context: Context, v: Int) {
+        _area.value = v.coerceIn(0, 1)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_AREA, _area.value).apply()
+    }
+
+    /** 字号 px（对应小/中/大） */
+    fun fontPx(): Float = when (_textSize.value) {
+        0 -> 34f
+        2 -> 52f
+        else -> 42f
+    }
+    /** 滚动时长 ms（对应慢/中/快） */
+    fun scrollMs(): Long = when (_speed.value) {
+        0 -> 9000L
+        2 -> 4000L
+        else -> 6000L
+    }
+    /** 透明度 0-255 */
+    fun alphaInt(): Int = (_alpha.value * 2.55f).toInt()
 }

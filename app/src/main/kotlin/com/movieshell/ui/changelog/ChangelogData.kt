@@ -15,6 +15,15 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.56.0",
+        date = "2026-10-17",
+        title = "弹幕细节：样式可调",
+        details = listOf(
+            "新：弹幕设置——字号（小/中/大）、透明度、速度（慢/中/快）、显示区域（全屏/上半屏）。",
+            "改：播放器「更多」菜单加「弹幕设置」入口，所有设置即时生效并记住。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.55.0",
         date = "2026-10-17",
         title = "弹幕更聪明：智能匹配+去重+缓存",

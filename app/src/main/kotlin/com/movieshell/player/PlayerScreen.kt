@@ -183,6 +183,7 @@ fun PlayerScreen(
     // v0.54：弹幕（只看不发；用户明确发送功能永远不做）
     val danmakuEnabled by com.movieshell.player.danmaku.DanmakuSettings.enabled.collectAsState()
     var danmakuList by remember { mutableStateOf(emptyList<com.movieshell.player.danmaku.Danmaku>()) }
+    var showDanmakuSettings by remember { mutableStateOf(false) } // v0.56
     // v0.27.7：自绘控制层显隐（Media3 原生控制器已关闭，双引擎统一）；播放状态从引擎取
     var controlsVisible by remember { mutableStateOf(true) }
     var isPlaying by remember { mutableStateOf(true) }
@@ -878,6 +879,13 @@ fun PlayerScreen(
                                 )
                             },
                         )
+                        // v0.56：弹幕设置
+                        if (danmakuEnabled) {
+                            DropdownMenuItem(
+                                text = { Text("弹幕设置") },
+                                onClick = { showMoreMenu = false; showDanmakuSettings = true },
+                            )
+                        }
                         if (!isLive) {
                             DropdownMenuItem(
                                 text = { Text("选集 / 线路") },
@@ -1190,6 +1198,73 @@ fun PlayerScreen(
 
         // v0.19.0：外挂字幕设置
         // v0.21.0：升级为样式面板（大小/颜色/描边/位置）+ 时间偏移 ±10s
+        // v0.56：弹幕设置对话框
+        if (showDanmakuSettings) {
+            val ds = com.movieshell.player.danmaku.DanmakuSettings
+            val sizeIdx by ds.textSize.collectAsState()
+            val alphaV by ds.alpha.collectAsState()
+            val speedIdx by ds.speed.collectAsState()
+            val areaIdx by ds.area.collectAsState()
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showDanmakuSettings = false },
+                title = { androidx.compose.material3.Text("弹幕设置") },
+                text = {
+                    androidx.compose.foundation.layout.Column {
+                        // 字号
+                        androidx.compose.material3.Text("字号", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                        androidx.compose.foundation.layout.Row {
+                            listOf("小", "中", "大").forEachIndexed { i, label ->
+                                androidx.compose.material3.FilterChip(
+                                    selected = sizeIdx == i,
+                                    onClick = { ds.setTextSize(context, i) },
+                                    label = { androidx.compose.material3.Text(label) },
+                                    modifier = androidx.compose.foundation.layout.padding(end = 8.dp),
+                                )
+                            }
+                        }
+                        androidx.compose.foundation.layout.Spacer(androidx.compose.foundation.layout.size(8.dp))
+                        // 透明度
+                        androidx.compose.material3.Text("透明度：$alphaV%", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                        androidx.compose.material3.Slider(
+                            value = alphaV.toFloat(),
+                            onValueChange = { ds.setAlpha(context, it.toInt()) },
+                            valueRange = 30f..100f,
+                        )
+                        // 速度
+                        androidx.compose.material3.Text("速度", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                        androidx.compose.foundation.layout.Row {
+                            listOf("慢", "中", "快").forEachIndexed { i, label ->
+                                androidx.compose.material3.FilterChip(
+                                    selected = speedIdx == i,
+                                    onClick = { ds.setSpeed(context, i) },
+                                    label = { androidx.compose.material3.Text(label) },
+                                    modifier = androidx.compose.foundation.layout.padding(end = 8.dp),
+                                )
+                            }
+                        }
+                        androidx.compose.foundation.layout.Spacer(androidx.compose.foundation.layout.size(8.dp))
+                        // 区域
+                        androidx.compose.material3.Text("显示区域", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                        androidx.compose.foundation.layout.Row {
+                            listOf("全屏", "上半屏").forEachIndexed { i, label ->
+                                androidx.compose.material3.FilterChip(
+                                    selected = areaIdx == i,
+                                    onClick = { ds.setArea(context, i) },
+                                    label = { androidx.compose.material3.Text(label) },
+                                    modifier = androidx.compose.foundation.layout.padding(end = 8.dp),
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = { showDanmakuSettings = false }) {
+                        androidx.compose.material3.Text("确定")
+                    }
+                },
+            )
+        }
+
         if (showSubtitleDialog) {
             SubtitleDialog(
                 initial = sessionSubtitle
