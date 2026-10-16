@@ -27,8 +27,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
@@ -69,7 +71,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -698,6 +702,7 @@ fun SourcesScreen(
     }
 
     var showAddDialog by remember { mutableStateOf(false) }
+    var nameInput by remember { mutableStateOf("") }
     var urlInput by remember { mutableStateOf("") }
     var urlError by remember { mutableStateOf(false) }
 
@@ -732,11 +737,14 @@ fun SourcesScreen(
             urlError = true
             return
         }
-        val name = runCatching {
+        // v0.42.0：名称选填，不填则按域名自动生成
+        val inputName = nameInput.trim()
+        val name = if (inputName.isNotBlank()) inputName else runCatching {
             url.substringAfter("://").substringBefore("/").substringBefore(":")
         }.getOrDefault("自定义订阅").ifBlank { "自定义订阅" }
         apiGroup.entries.add(0, SourceEntry(name, url))
         persistApiGroup()
+        nameInput = ""
         urlInput = ""
         urlError = false
         showAddDialog = false
@@ -1113,6 +1121,13 @@ fun SourcesScreen(
             title = { Text("添加订阅", style = SoftType.CardTitle) },
             text = {
                 Column {
+                    AppTextField(
+                        value = nameInput,
+                        onValueChange = { nameInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "名称（选填，如：东篱线路）",
+                    )
+                    Spacer(Modifier.height(12.dp))
                     Text(
                         text = "输入站源订阅地址（CMS 接口 JSON）",
                         style = SoftType.Caption,
@@ -1372,6 +1387,7 @@ private fun SubscriptionCard(
     onSetCurrent: (subUrl: String, siteKey: String, siteName: String) -> Unit,
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(8.dp)) {
             // 分组头
@@ -1481,6 +1497,33 @@ private fun SubscriptionCard(
                                         start = 16.dp, end = 8.dp, bottom = 8.dp,
                                     ),
                                 ) {
+                                    // v0.42.0：完整订阅链接展示 + 复制
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                    ) {
+                                        SelectionContainer(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = subUrl,
+                                                style = SoftType.Caption,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                clipboard.setText(AnnotatedString(subUrl))
+                                                Toast.makeText(context, "订阅链接已复制", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier.size(36.dp),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.ContentCopy,
+                                                contentDescription = "复制链接",
+                                            )
+                                        }
+                                    }
                                     when {
                                         isParsing -> {
                                             Row(

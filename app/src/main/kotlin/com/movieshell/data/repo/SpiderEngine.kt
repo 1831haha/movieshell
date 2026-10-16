@@ -145,7 +145,11 @@ object SpiderEngine {
             }
             val clazz = loader.loadClass(classNameForApi(site.api))
             val spider = clazz.getDeclaredConstructor().newInstance() as? Spider
-                ?: throw IllegalStateException("不是 Spider 子类")
+                // v0.42.0：带上实际父类名，R8 误改宿主 Spider 类名时一眼定位
+                ?: throw IllegalStateException(
+                    "不是 Spider 子类（${clazz.name} 实际父类=${clazz.superclass?.name}，" +
+                        "若父类不是 com.github.catvod.crawler.Spider，请检查 proguard keep 规则）",
+                )
             // v0.13.0：ext 相对路径（如 ./config/blys.json）按订阅 base 解析为绝对 URL
             val resolvedExt = resolveExt(site.ext, subUrl)
             spider.init(context.applicationContext, resolvedExt)

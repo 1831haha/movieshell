@@ -17,6 +17,11 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
+# ---------- Java spider 宿主基类（jar 里子类按原名链接，R8 不许改名） ----------
+# v0.42.0：漏了这条导致 release 包里宿主 Spider 被改名，
+# jar 中 csp_ 子类链接到 jar 自带副本，as? Spider 全失败（"不是 Spider 子类"）。
+-keep class com.github.catvod.crawler.** { *; }
+
 # ---------- Gson（Java spider jar 依赖） ----------
 -keep class com.google.gson.** { *; }
 -keepattributes Signature, InnerClasses, EnclosingMethod

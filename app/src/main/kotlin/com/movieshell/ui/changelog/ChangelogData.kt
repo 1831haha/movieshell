@@ -15,6 +15,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.42.0",
+        date = "2026-10-16",
+        title = "修 csp_ 站全灭 + 订阅管理补功能",
+        details = listOf(
+            "修：之前版本里订阅的 csp_ 站（荐片、哔哩等）全部加载失败。根因是发版混淆把 App 内 Spider 基类改了名，jar 里的子类认不出亲爹。现在类名锁定，csp_ 站恢复。",
+            "加：添加订阅时可以填名称，不填则按域名自动生成。",
+            "加：订阅条目展开后显示完整链接，可选中、可一键复制。",
+            "csp_XYQHiker 这类 jar 里根本没有的类，是订阅方配置和 jar 版本对不上，等订阅方更新，App 侧不会崩。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.41.0",
         date = "2026-10-16",
         title = "下载管理增强",
