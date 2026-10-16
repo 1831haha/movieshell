@@ -5,6 +5,7 @@ import android.util.Log
 import app.cash.quickjs.QuickJs
 import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.FilterGroup
+import com.movieshell.data.model.FilterOption
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
@@ -213,9 +214,36 @@ class QuickJsDrpyEngine(
         }.getOrDefault(emptyList())
     }
 
+    /**
+     * v0.44.0：实现 drpy 筛选解析。
+     * shim 的 __drpyFilters 返回 {"filterable":1,"groups":[{"key","name","value":[{"n","v"}]}]}，
+     * 对到 FilterGroup(key, name, options=[FilterOption(n->name, v->value)])。
+     * 规则返回 error 或无 groups 时返回空列表（UI 不显示筛选行）。
+     */
     private fun parseFilters(json: String): List<FilterGroup> {
-        // TODO: 按实际 filter JSON 结构解析
-        return emptyList()
+        return runCatching {
+            val o = JSONObject(json)
+            if (o.has("error")) {
+                Log.w(TAG, "规则返回 error: ${o.optString("error")}")
+                return emptyList()
+            }
+            val groups = o.optJSONArray("groups") ?: JSONArray()
+            List(groups.length()) { i ->
+                val g = groups.getJSONObject(i)
+                val opts = g.optJSONArray("value") ?: JSONArray()
+                FilterGroup(
+                    key = g.optString("key"),
+                    name = g.optString("name"),
+                    options = List(opts.length()) { j ->
+                        val item = opts.getJSONObject(j)
+                        FilterOption(
+                            name = item.optString("n"),
+                            value = item.optString("v"),
+                        )
+                    }.filter { it.name.isNotEmpty() || it.value.isNotEmpty() },
+                )
+            }.filter { it.key.isNotEmpty() && it.options.isNotEmpty() }
+        }.getOrDefault(emptyList())
     }
 
     private fun parseDetail(json: String): VodDetail {

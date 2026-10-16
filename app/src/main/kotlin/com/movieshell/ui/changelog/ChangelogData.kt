@@ -15,6 +15,18 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.44.0",
+        date = "2026-10-16",
+        title = "drpy 筛选补齐",
+        details = listOf(
+            "加：JS/drpy 源的分类筛选（类型/地区/年份等）现在能用了，之前点开分类筛选是空的。",
+            "加：筛选支持多组同时生效，每组一行 chips，点已选中的取消本组。",
+            "修：订阅源路径下筛选值之前传不下去（点了没效果），现在直达规则。",
+            "修：纠正昨日误诊——csp_AppRJ 的“不是 Spider 子类”是 App 的 R8 混淆 bug（v0.42.0 已修），不是订阅源文件损坏。",
+            "只动了筛选链路，播放、下载没动。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.43.0",
         date = "2026-10-16",
         title = "多仓订阅支持",

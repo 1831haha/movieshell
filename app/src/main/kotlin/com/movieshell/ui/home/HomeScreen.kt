@@ -77,9 +77,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.movieshell.data.model.CategoryType
+import com.movieshell.data.model.FilterGroup
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod as ModelVod
 import com.movieshell.data.model.isCmsSite
+import com.movieshell.data.model.isDrpySite
 import com.movieshell.data.model.isJavaSpider
 import com.movieshell.data.model.isPySite
 import com.movieshell.data.repo.ApiSource
@@ -216,13 +218,31 @@ fun HomeScreen(
         filter: Map<String, String> = emptyMap()
     ): List<ModelVod> {
         val s = subSite
-        if (s != null) return runCatching { subRepo.category(s, tid, pg).second }
+        // v0.44.0：订阅路径也要透传筛选（之前丢了，drpy 筛选点了没效果）
+        if (s != null) return runCatching { subRepo.category(s, tid, pg, filter).second }
             .getOrDefault(emptyList())
         return runCatching {
             if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.category(tid, pg)
             else if (SourceStateStore.activePyRule() != null) PySourceManager.category(tid, pg, filter)
             else emptyList()
         }.getOrDefault(emptyList())
+    }
+
+    /** v0.44.0：当前源是否为 drpy（订阅站或本地规则）。 */
+    fun isDrpySource(): Boolean {
+        val s = subSite
+        if (s != null) return s.isDrpySite()
+        return SourceStateStore.activeDrpyRule() != null
+    }
+
+    /** v0.44.0：拉取某 drpy 分类的筛选组（订阅走 SiteRepository，本地走 DrpySourceManager）。 */
+    suspend fun fetchDrpyFilters(tid: String): List<FilterGroup> {
+        val s = subSite
+        return if (s != null) {
+            runCatching { subRepo.filters(s, tid) }.getOrNull().orEmpty()
+        } else {
+            runCatching { DrpySourceManager.filters(tid) }.getOrNull().orEmpty()
+        }
     }
 
     /**
@@ -238,14 +258,16 @@ fun HomeScreen(
     var refreshing by remember { mutableStateOf(false) }
     var pullOffset by remember { mutableFloatStateOf(0f) }
     var selectedCategory by rememberSaveable { mutableIntStateOf(0) } // 0 = 全部
-    // v0.30.1：二级筛选——(filterKey, filterValue)，null=未选（用规则默认）
-    // v0.31.2：remember → rememberSaveable，tab 切回时选中态不丢（NavController saveState 只恢复 rememberSaveable）
-    // 修构建注：Pair<String,String>? 的自定义 Saver 在 rememberSaveable 里类型对不上，拆成两个 String? 存，最简单不出错。
-    var filterKey by rememberSaveable { mutableStateOf<String?>(null) }
-    var filterValue by rememberSaveable { mutableStateOf<String?>(null) }
-    val selectedFilter: Pair<String, String>? =
-        if (filterKey != null && filterValue != null) filterKey!! to filterValue!! else null
-    fun setFilter(f: Pair<String, String>?) { filterKey = f?.first; filterValue = f?.second }
+    // v0.44.0：二级筛选升级为多组 Map（key->value），空=未选（用规则默认）。
+    // v0.31.2 的教训：rememberSaveable 存 Map 有坑，用 List<String> 存 "key\u0001value" 编码。
+    // tab 切回时选中态不丢；切分类时清空（不同分类的筛选组不同）。
+    var filterEntries by rememberSaveable { mutableStateOf(listOf<String>()) }
+    fun decodeFilter(s: String): Pair<String, String> =
+        s.substringBefore("\u0001") to s.substringAfter("\u0001")
+    val filterMap: Map<String, String> get() = filterEntries.map(::decodeFilter).toMap()
+    fun setFilters(m: Map<String, String>) {
+        filterEntries = m.map { (k, v) -> "$k\u0001$v" }
+    }
     // v0.31.2：内容世代——每次发起内容加载（首页/分类）+1，异步完成时只应用最新世代的结果，
     // 旧请求的迟到结果直接丢弃。快速连点/首页与分类打架时，"最后一次点击赢"是唯一不变量。
     var contentGen by remember { mutableIntStateOf(0) }
@@ -392,7 +414,7 @@ fun HomeScreen(
         }
         if (payload.resetSelection) {
             selectedCategory = 0
-            setFilter(null)
+            setFilters(emptyMap())
         }
         drpyList = payload.vods ?: prevVods
         val cats = payload.cats.ifEmpty { prevCats }
@@ -472,7 +494,8 @@ fun HomeScreen(
     }
 
 
-    fun loadDrpyCategory(index: Int, filter: Pair<String, String>? = null) { // index >= 1，对应 drpyCats[index-1]
+    /** v0.44.0：筛选改为多组 Map；切分类时清空（不同分类的筛选组不同）。 */
+    fun loadDrpyCategory(index: Int, filters: Map<String, String> = emptyMap()) { // index >= 1，对应 drpyCats[index-1]
         val cat = drpyCats.getOrNull(index - 1) ?: return
         // v0.31.2：单飞——快速连点时取消上一次，同一时间只有一个分类请求在跑
         // （之前每次点击都起一个协程，PY 引擎并发堆积是闪退的主因）。
@@ -482,15 +505,26 @@ fun HomeScreen(
         val myGen = contentGen
         // 选中态立即更新，不等网络（之前是网络回来才设，连点时选中和内容错位，看着像"换了分类内容不变"）
         selectedCategory = index
-        setFilter(filter)
-        val extend = filter?.let { mapOf(it.first to it.second) }.orEmpty()
-        LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId}) filter=$extend")
+        setFilters(filters)
+        LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId}) filter=$filters")
+        // v0.44.0：drpy 分类首次选中时懒加载筛选组（PY 的筛选 homeContent 已带，不重复拉）
+        if (cat.filters.isEmpty() && isDrpySource()) {
+            scope.launch(Dispatchers.IO) {
+                val groups = runCatching { fetchDrpyFilters(cat.typeId) }.getOrNull().orEmpty()
+                if (groups.isNotEmpty()) {
+                    drpyCats = drpyCats.map { c ->
+                        if (c.typeId == cat.typeId) c.copy(filters = groups) else c
+                    }
+                    LogBus.i("UI", "分类 ${cat.typeName} 筛选加载：${groups.size} 组")
+                }
+            }
+        }
         categoryJob = scope.launch {
             drpyLoading = true
             try {
                 // v0.17.3：加超时，避免 PY 卡死导致无响应
                 val list = withTimeoutOrNull(30_000) {
-                    engineCategory(cat.typeId, 1, extend)
+                    engineCategory(cat.typeId, 1, filters)
                 } ?: emptyList()
                 if (myGen != contentGen) return@launch // 已被更新的点击取代，丢弃
                 if (list.isEmpty()) {
@@ -549,7 +583,7 @@ fun HomeScreen(
             drpyList = null
             drpyCats = emptyList()
             selectedCategory = 0
-            setFilter(null)
+            setFilters(emptyMap())
             homeError = null
             // v0.31.0：失败计数按数据源 key 记在 HomeLoadGate 单例里，切源自然用新 key 的计数，无需手动清零
             catsFailed = false
@@ -575,11 +609,11 @@ fun HomeScreen(
             val data = cached?.first
             if (data != null && (data.vods.isNotEmpty() || data.cats.isNotEmpty())) {
                 if (data.cats.isNotEmpty()) drpyCats = data.cats
-                // v0.31.2：selectedCategory/selectedFilter 已由 rememberSaveable 恢复。
+                // v0.31.2/v0.44.0：selectedCategory/filterEntries 已由 rememberSaveable 恢复。
                 // 之前停在某个分类就重载它（保证选中和内容一致），否则才恢复首页缓存。
                 if (selectedCategory >= 1 && drpyCats.getOrNull(selectedCategory - 1) != null) {
                     LogBus.i("Home", "返回首页：恢复分类 ${drpyCats[selectedCategory - 1].typeName}")
-                    loadDrpyCategory(selectedCategory, selectedFilter)
+                    loadDrpyCategory(selectedCategory, filterMap)
                 } else {
                     if (data.vods.isNotEmpty()) drpyList = data.vods
                 }
@@ -836,29 +870,32 @@ fun HomeScreen(
                                 }
                             }
                         }
-                        // v0.30.1：二级筛选行——选中分类有 filters 时显示，取第一组
+                        // v0.44.0：二级筛选行——选中分类的 filters 全组各一行（之前只取第一组）
                         val activeCat = drpyCats.getOrNull(selectedCategory - 1)
-                        val filterGroup = activeCat?.filters?.firstOrNull()
-                        if (selectedCategory >= 1 && filterGroup != null) {
-                            item(span = { GridItemSpan(maxLineSpan) }) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    filterGroup.options.forEach { fv ->
-                                        val isSel = selectedFilter?.let { it.first == filterGroup.key && it.second == fv.value } == true
-                                        AppChip(
-                                            text = fv.name,
-                                            selected = isSel,
-                                            small = true,
-                                            onClick = {
-                                                // 点已选中的则取消筛选，回到默认
-                                                val next = if (isSel) null else (filterGroup.key to fv.value)
-                                                loadDrpyCategory(selectedCategory, next)
-                                            },
-                                        )
+                        val filterGroups = activeCat?.filters.orEmpty()
+                        if (selectedCategory >= 1 && filterGroups.isNotEmpty()) {
+                            filterGroups.forEach { filterGroup ->
+                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        filterGroup.options.forEach { fv ->
+                                            val isSel = filterMap[filterGroup.key] == fv.value
+                                            AppChip(
+                                                text = fv.name,
+                                                selected = isSel,
+                                                small = true,
+                                                onClick = {
+                                                    // 点已选中的则取消本组筛选，回到默认；多组之间互不干扰
+                                                    val next = if (isSel) filterMap - filterGroup.key
+                                                    else filterMap + (filterGroup.key to fv.value)
+                                                    loadDrpyCategory(selectedCategory, next)
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             }
