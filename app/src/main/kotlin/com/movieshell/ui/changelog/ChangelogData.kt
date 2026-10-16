@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.55.0",
+        date = "2026-10-17",
+        title = "弹幕更聪明：智能匹配+去重+缓存",
+        details = listOf(
+            "改：标题智能匹配——自动去括号/集数/季数，多关键词回退搜，搜到率更高。",
+            "改：弹幕去重（同文本 3 秒内只留一条）+ 密度控制（每分钟最多 60 条），不再满屏刷。",
+            "改：弹幕磁盘缓存 7 天，同一部剧第二次打开秒出；渲染层 Paint 复用，不卡了。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.54.0",
         date = "2026-10-17",
         title = "弹幕来了（只看不发）",

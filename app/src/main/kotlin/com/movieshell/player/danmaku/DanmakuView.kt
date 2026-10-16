@@ -46,11 +46,30 @@ fun DanmakuOverlay(
 
     // 按轨道分配（记住分配结果，position 跳变时重算）
     val layout = remember(danmakus) { DanmakuLayout(danmakus) }
+    // v0.55：Paint 复用，不每帧 new（之前每帧 new 两个 Paint，GC 压力大）
+    val paint = remember {
+        android.graphics.Paint().apply {
+            textSize = 42f
+            isAntiAlias = true
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+    }
+    val strokePaint = remember {
+        android.graphics.Paint().apply {
+            textSize = 42f
+            isAntiAlias = true
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 6f
+            color = android.graphics.Color.BLACK
+            alpha = 180
+        }
+    }
 
     Canvas(modifier = modifier.fillMaxSize()) {
         if (!enabled) return@Canvas
         val now = positionMs
-        layout.draw(this, now, frameMs)
+        layout.draw(this, now, frameMs, paint, strokePaint)
     }
 }
 
@@ -75,24 +94,15 @@ private class DanmakuLayout(private val all: List<Danmaku>) {
         return lo
     }
 
-    fun draw(scope: DrawScope, nowMs: Long, frameMs: Long) {
+    fun draw(
+        scope: DrawScope,
+        nowMs: Long,
+        frameMs: Long,
+        paint: android.graphics.Paint,
+        strokePaint: android.graphics.Paint,
+    ) {
         val h = scope.size.height
         trackCount = maxOf(4, (h / 90f).toInt()) // 每轨道约 90px
-        val paint = android.graphics.Paint().apply {
-            textSize = 42f
-            isAntiAlias = true
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
-        // 描边画笔（黑边白字看得清）
-        val strokePaint = android.graphics.Paint().apply {
-            textSize = 42f
-            isAntiAlias = true
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            style = android.graphics.Paint.Style.STROKE
-            strokeWidth = 6f
-            color = android.graphics.Color.BLACK
-            alpha = 180
-        }
 
         val start = windowStart(nowMs)
         var drawn = 0
