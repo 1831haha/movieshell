@@ -41,13 +41,22 @@ class DownloadQueueWorker(
         setForeground(fg("准备下载", 0))
         while (!isStopped) {
             val task = DownloadStore.claimNext(applicationContext) ?: break
-            val ok = runCatching { downloadTask(task) }.getOrDefault(false)
+            // v0.41.0：失败时带上真实错误原因，不再是笼统的"下载失败"
+            val failReason: String? = try {
+                downloadTask(task)
+                null
+            } catch (e: Exception) {
+                e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
+            }
             if (isStopped) {
                 DownloadStore.setStatus(applicationContext, task.id, DlStatus.PAUSED)
                 break
             }
-            if (!ok && DownloadStore.get(task.id)?.status == DlStatus.DOWNLOADING) {
-                DownloadStore.setStatus(applicationContext, task.id, DlStatus.FAILED, "下载失败，已重试 3 次")
+            if (failReason != null && DownloadStore.get(task.id)?.status == DlStatus.DOWNLOADING) {
+                Log.w(TAG, "下载失败：${task.title}，原因=$failReason")
+                DownloadStore.setStatus(
+                    applicationContext, task.id, DlStatus.FAILED, failReason.take(120)
+                )
             }
         }
         return Result.success()
@@ -111,17 +120,19 @@ class DownloadQueueWorker(
         var done = countDone(dir, pl)
         renderLocalPlaylist(dir, pl, done)
         updateFg(task.title, 0)
+        val meter = SpeedMeter()
         pl.segments.forEachIndexed { i, seg ->
             if (!alive(task.id)) return
             val local = segLocal(i, seg.url)
             val f = File(dir, local)
             if (!f.isFile || f.length() == 0L) {
                 downloadTo(seg.url, f, headers, 0L)
+                meter.add(f.length())
             }
             done++
             val p = done.toFloat() / pl.segments.size
             DownloadStore.update(ctx, task.id) {
-                it.copy(doneSeg = done, progress = p)
+                it.copy(doneSeg = done, progress = p, speedBps = meter.current())
             }
             renderLocalPlaylist(dir, pl, done)
             if (done % 5 == 0 || done == pl.segments.size) {
@@ -259,6 +270,15 @@ class DownloadQueueWorker(
         headers.forEach { (k, v) -> reqB.header(k, v) }
         if (done > 0) reqB.header("Range", "bytes=$done-")
         http.newCall(reqB.build()).execute().use { resp ->
+            // v0.41.0：有些 m3u8 地址不带扩展名，按 Content-Type 识别后转分片下载，
+            // 否则会把 playlist 文本当视频存下来
+            val ct = resp.header("Content-Type").orEmpty()
+            if (ct.contains("mpegurl", ignoreCase = true)) {
+                Log.i(TAG, "Content-Type 识别为 m3u8，转分片下载：${task.title}")
+                DownloadStore.update(ctx, task.id, force = true) { it.copy(kind = "m3u8") }
+                downloadM3u8(task.copy(kind = "m3u8"))
+                return
+            }
             if (!resp.isSuccessful && resp.code != 206) throw IllegalStateException("HTTP ${resp.code}")
             val total = resp.header("Content-Length")?.toLongOrNull()?.let { it + done } ?: -1L
             val body = resp.body ?: throw IllegalStateException("空响应")
@@ -270,18 +290,23 @@ class DownloadQueueWorker(
             }
             java.io.FileOutputStream(part, append).use { out ->
                 val buf = ByteArray(64 * 1024)
+                val meter = SpeedMeter()
                 var n: Int
                 var lastTick = 0L
                 while (body.byteStream().read(buf).also { n = it } > 0) {
                     if (!alive(task.id)) return
                     out.write(buf, 0, n)
                     done += n
+                    meter.add(n.toLong())
                     val now = System.currentTimeMillis()
                     if (now - lastTick > 800) {
                         lastTick = now
                         val p = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
                         DownloadStore.update(ctx, task.id) {
-                            it.copy(doneBytes = done, totalBytes = total, progress = p)
+                            it.copy(
+                                doneBytes = done, totalBytes = total, progress = p,
+                                speedBps = meter.current(),
+                            )
                         }
                         if (total > 0) updateFg(task.title, (p * 100).toInt())
                     }
@@ -345,6 +370,31 @@ class DownloadQueueWorker(
     private fun absUrl(base: String, rel: String): String {
         if (rel.startsWith("http://") || rel.startsWith("https://")) return rel
         return runCatching { URL(URL(base), rel).toString() }.getOrDefault(rel)
+    }
+
+    /**
+     * 滑动窗口测速（v0.41.0）：按 1 秒窗口统计写入字节，任务列表实时显示用。
+     * 只活在 worker 内存里，不追求精确落盘。
+     */
+    private class SpeedMeter {
+        private var windowStart = System.currentTimeMillis()
+        private var windowBytes = 0L
+        private var lastSpeed = 0L
+
+        @Synchronized
+        fun add(n: Long) {
+            windowBytes += n
+            val now = System.currentTimeMillis()
+            val dt = now - windowStart
+            if (dt >= 1000) {
+                lastSpeed = if (dt > 0) windowBytes * 1000 / dt else 0L
+                windowBytes = 0L
+                windowStart = now
+            }
+        }
+
+        @Synchronized
+        fun current(): Long = lastSpeed
     }
 
     private fun fileNameOf(url: String): String =

@@ -37,6 +37,8 @@ data class DownloadTask(
     val doneSeg: Int = 0,
     val totalBytes: Long = 0L,
     val doneBytes: Long = 0L,
+    /** v0.41.0：瞬时速度 B/s（worker 内存态更新，落盘节流，只用于列表展示） */
+    val speedBps: Long = 0L,
     /** 完成后的可播本地路径（m3u8=本地 index.m3u8；file=本地视频文件） */
     val localPath: String = "",
     val error: String = "",

@@ -293,14 +293,25 @@ private fun TaskCard(
 }
 
 private fun statusText(task: DownloadTask): String = when (task.status) {
-    DlStatus.DOWNLOADING -> if (task.kind == "m3u8") {
-        "下载中 ${task.doneSeg}/${task.totalSeg} 分片（${(task.progress * 100).toInt()}%）"
-    } else {
-        "下载中 ${(task.progress * 100).toInt()}%"
+    DlStatus.DOWNLOADING -> {
+        // v0.41.0：带实时速度
+        val speed = if (task.speedBps > 0) " · ${fmtSpeed(task.speedBps)}" else ""
+        if (task.kind == "m3u8") {
+            "下载中 ${task.doneSeg}/${task.totalSeg} 分片（${(task.progress * 100).toInt()}%）$speed"
+        } else {
+            "下载中 ${(task.progress * 100).toInt()}%$speed"
+        }
     }
     DlStatus.QUEUED -> "排队等待"
     DlStatus.PAUSED -> "已暂停（${(task.progress * 100).toInt()}%）"
     DlStatus.FAILED -> "失败：${task.error.ifBlank { "未知错误" }}，点▶重试"
     DlStatus.DONE -> "已完成"
     else -> task.status
+}
+
+/** v0.41.0：B/s → 人话。 */
+private fun fmtSpeed(bps: Long): String = when {
+    bps < 1024 -> "$bps B/s"
+    bps < 1024 * 1024 -> "%.1f KB/s".format(bps / 1024f)
+    else -> "%.1f MB/s".format(bps / 1024f / 1024f)
 }

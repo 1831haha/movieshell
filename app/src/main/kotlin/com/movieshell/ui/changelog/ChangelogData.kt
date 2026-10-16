@@ -15,6 +15,18 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.41.0",
+        date = "2026-10-16",
+        title = "下载管理增强",
+        details = listOf(
+            "修：新任务加入后经常下载不动（worker 跑完一次占住名额，后续起不来），现在每次都查真实运行状态再起。",
+            "修：下载失败只显示一句笼统的话，现在显示真实原因（比如 HTTP 403）。",
+            "修：不带 .m3u8 后缀的流地址会被当直链下成乱码，现在按服务器返回的文件类型自动识别转分片下载。",
+            "加：任务列表实时显示下载速度。",
+            "只动了下载链路，播放、源解析没动。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.40.0",
         date = "2026-10-16",
         title = "播放器界面按目标样式重做",

@@ -4,12 +4,17 @@ import android.content.Context
 import android.util.Log
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.movieshell.data.repo.DlStatus
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.DownloadTask
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
 
 /**
  * 下载调度单入口（v0.26.0）。
@@ -23,6 +28,9 @@ object DownloadManager {
     private const val TAG = "Download"
     private const val QUEUE_NAME = "dl-queue"
 
+    /** pump 内部 IO 域：查 worker 运行状态要走 binder，不能占调用方线程（设置页 onClick 也调 pump）。 */
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     /** 入队一批任务并启动消费。 */
     suspend fun enqueue(context: Context, tasks: List<DownloadTask>) {
         if (tasks.isEmpty()) return
@@ -31,16 +39,35 @@ object DownloadManager {
         pump(context)
     }
 
-    /** 确保消费协程在跑：已在跑的不重复起。 */
+    /**
+     * 确保消费协程在跑：已在跑的不重复起。
+     *
+     * v0.41.0 修：之前用 ExistingWorkPolicy.KEEP，但 unique 名在 worker 跑完后
+     * 仍占着，KEEP 永远不再起新 worker——第一批下完后新任务就再也下不动。
+     * 现在查实际运行状态，无 ENQUEUED/RUNNING/BLOCKED 才起新 worker。
+     */
     fun pump(context: Context) {
-        val wm = WorkManager.getInstance(context)
-        val n = DownloadStore.maxParallel(context)
-        repeat(n) { i ->
-            val req = OneTimeWorkRequestBuilder<DownloadQueueWorker>()
-                .addTag(QUEUE_NAME)
-                .build()
-            // 同名 KEEP：该槽位已有未完成的 Worker 则不重复起
-            wm.enqueueUniqueWork("$QUEUE_NAME-$i", ExistingWorkPolicy.KEEP, req)
+        val app = context.applicationContext
+        ioScope.launch {
+            val wm = WorkManager.getInstance(app)
+            val n = DownloadStore.maxParallel(app)
+            repeat(n) { i ->
+                val name = "$QUEUE_NAME-$i"
+                val running = runCatching {
+                    wm.getWorkInfosForUniqueWork(name).get(10, TimeUnit.SECONDS)
+                }.getOrNull()?.any {
+                    it.state == WorkInfo.State.ENQUEUED ||
+                        it.state == WorkInfo.State.RUNNING ||
+                        it.state == WorkInfo.State.BLOCKED
+                } == true
+                if (!running) {
+                    val req = OneTimeWorkRequestBuilder<DownloadQueueWorker>()
+                        .addTag(QUEUE_NAME)
+                        .build()
+                    // 前面已确认无运行中任务，REPLACE 只清理旧的已完成记录
+                    wm.enqueueUniqueWork(name, ExistingWorkPolicy.REPLACE, req)
+                }
+            }
         }
     }
 
