@@ -404,6 +404,26 @@ fun PlayerScreen(
      * v0.21.0：含时间偏移处理 + 样式应用，走协程（SubtitleKit 可能下载）。
      * v0.25.0：try/catch 兜底，失败 Toast 不崩。
      */
+    // v0.57：错误对话框的"重试"——按当前进度重播当前地址
+    fun retryCurrent() {
+        scope.launch {
+            try {
+                val pos = EngineHost.currentPosition()
+                val sub = runCatching { currentSubtitleUrl() }.getOrNull()
+                val ok = EngineHost.play(
+                    context, playUrl, headers = lastHeaders,
+                    startPositionMs = pos, subtitleUrl = sub,
+                )
+                if (!ok) {
+                    playError = PlayError.classify("重试失败")
+                }
+            } catch (t: Throwable) {
+                LogBus.e("Player", "重试异常：${t.message}")
+                playError = PlayError.classify(t.message.orEmpty())
+            }
+        }
+    }
+
     fun replayWithSubtitle() {
         scope.launch {
             try {
@@ -567,11 +587,50 @@ fun PlayerScreen(
         }
         onDispose { EngineHost.setOnErrorListener(null) }
     }
+    // v0.57：播放失败改走友好错误对话框（原来只 Snackbar 一闪而过，看不清也点不了）
+    var playError by remember { mutableStateOf<PlayError?>(null) }
     LaunchedEffect(errorMsg) {
         errorMsg?.let {
-            snackbarHostState.showSnackbar(it)
+            playError = PlayError.classify(it)
             errorMsg = null
         }
+    }
+    playError?.let { err ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { playError = null },
+            title = { androidx.compose.material3.Text(err.title) },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    androidx.compose.material3.Text(err.reason)
+                    androidx.compose.foundation.layout.Spacer(
+                        androidx.compose.foundation.layout.size(8.dp)
+                    )
+                    err.suggestions.forEach { s ->
+                        androidx.compose.material3.Text(
+                            text = "• $s",
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        playError = null
+                        // 重试当前地址
+                        scope.launch { retryCurrent() }
+                    }
+                ) {
+                    androidx.compose.material3.Text("重试")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { playError = null }) {
+                    androidx.compose.material3.Text("关闭")
+                }
+            },
+        )
     }
 
     // v0.14.0：片尾跳过——距离结尾 skipOutroSec 时自动下一集（无下一集则暂停）

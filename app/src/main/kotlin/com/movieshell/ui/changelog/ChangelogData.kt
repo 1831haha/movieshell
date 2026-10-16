@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.57.0",
+        date = "2026-10-17",
+        title = "播放失败说人话",
+        details = listOf(
+            "改：播不起来时不再一闪而过的提示条，改成对话框：说清失败原因+给出能点的建议。",
+            "改：错误自动分类——超时、找不到服务器、被拒绝、格式不支持、404、403，各有各的说法和建议。",
+            "新：对话框里直接点「重试」，按当前进度重播，不用退出重进。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.56.0",
         date = "2026-10-17",
         title = "弹幕细节：样式可调",
