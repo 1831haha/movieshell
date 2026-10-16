@@ -142,6 +142,7 @@ object PluginMarket {
 
     /** market.json 的 JSON 解析（纯函数，缓存/远端共用）。 */
     private fun parseMarket(effectiveUrl: String, body: String): MarketInfo {
+        val root = runCatching { JSONObject(body) }
             .getOrElse { throw IllegalStateException("market.json 不是合法 JSON") }
         val arr = runCatching { root.getJSONArray("plugins") }
             .getOrElse { throw IllegalStateException("market.json 格式错误：缺 plugins 数组") }
