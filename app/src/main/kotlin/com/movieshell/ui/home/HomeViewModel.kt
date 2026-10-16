@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.stateIn
  * 这里只管状态容器，逻辑写 VM 的状态（不直接碰 Composable 的 remember）。
  */
 class HomeViewModel(
-    savedState: SavedStateHandle,
+    private val savedState: SavedStateHandle,
 ) : ViewModel() {
 
     /**
