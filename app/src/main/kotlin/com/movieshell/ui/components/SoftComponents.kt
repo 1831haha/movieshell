@@ -23,6 +23,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -388,7 +391,7 @@ fun SearchCapsule(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = androidx.compose.material.icons.Icons.Filled.Search,
+                imageVector = Icons.Filled.Search,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
@@ -457,7 +460,7 @@ fun PrivateScreeningBanner(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Filled.PlayArrow,
+                    imageVector = Icons.Filled.PlayArrow,
                     contentDescription = "播放",
                     tint = cyan,
                     modifier = Modifier.size(32.dp),
