@@ -252,7 +252,7 @@ fun HomeScreen(
     var shuffleSeed by remember { mutableIntStateOf(0) }
 
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
-    var drpyActive by remember { mutableStateOf(false) }
+    var drpyActive by rememberSaveable { mutableStateOf(false) }
     var drpyLoading by remember { mutableStateOf(false) }
     var drpyCats by remember { mutableStateOf(emptyList<CategoryType>()) }
     var drpyList by remember { mutableStateOf<List<ModelVod>?>(null) } // null=未加载/失败
