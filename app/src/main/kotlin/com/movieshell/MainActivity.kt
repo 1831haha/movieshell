@@ -132,7 +132,7 @@ private val tabs = listOf(
     Tab("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings),
 )
 
-private const val DETAIL_ROUTE = "detail/{vodId}"
+private const val DETAIL_ROUTE = "detail/{vodId}?title={title}"
 
 class MainActivity : ComponentActivity() {
 
@@ -285,7 +285,10 @@ class MainActivity : ComponentActivity() {
                         composable("home") {
                             HomeScreen(
                                 onSearchClick = { navController.navigateTab("search") },
-                                onVodClick = { vodId -> navController.navigate("detail/${Uri.encode(vodId)}") },
+                                // v0.47.0：标题透传，详情页加载中不再显示裸 vodId
+                                onVodClick = { vodId, title ->
+                                    navController.navigate("detail/${Uri.encode(vodId)}?title=${Uri.encode(title)}")
+                                },
                                 // v0.24.0：播放历史
                                 onHistoryClick = { navController.navigate("history") },
                                 // v0.26.0：我的追剧
@@ -481,11 +484,20 @@ class MainActivity : ComponentActivity() {
                         }
                         composable(
                             route = DETAIL_ROUTE,
-                            arguments = listOf(navArgument("vodId") { type = NavType.StringType }),
+                            arguments = listOf(
+                                navArgument("vodId") { type = NavType.StringType },
+                                // v0.47.0：可选标题，加载中顶栏先显示它，不再裸奔 vodId
+                                navArgument("title") {
+                                    type = NavType.StringType
+                                    defaultValue = ""
+                                },
+                            ),
                         ) { entry ->
                             val detailVodId = entry.arguments?.getString("vodId").orEmpty()
+                            val detailTitle = entry.arguments?.getString("title").orEmpty()
                             DetailScreen(
                                 vodId = detailVodId,
+                                initialTitle = detailTitle,
                                 onBack = { navController.popBackStack() },
                                 onPlay = { playUrl, title ->
                                     // DetailScreen 已做完播放决策（磁力/直链解析）：

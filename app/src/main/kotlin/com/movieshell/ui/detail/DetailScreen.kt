@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
@@ -102,11 +104,14 @@ import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun DetailScreen(
     vodId: String,
+    // v0.47.0：列表页带过来的标题，加载中顶栏先显示它，不再显示裸 vodId（如 50767）
+    initialTitle: String = "",
     onBack: () -> Unit,
     onPlay: (playUrl: String, title: String) -> Unit = { _, _ -> },
 ) {
@@ -123,21 +128,24 @@ fun DetailScreen(
     var detailLoading by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<VodDetail?>(null) }
     // v0.27.6：抽成函数，失败态的"重试"按钮可复用
+    // v0.47.0：20 秒超时——规则 hang 住时不再无限骨架屏，转失败态可重试
     fun reloadDetail() {
         scope.launch {
-            if (subSite != null) {
-                detailLoading = true
-                detail = runCatching { SiteRepository().detail(subSite, vodId) }.getOrNull()
-                detailLoading = false
-            } else if (drpyActive) {
-                detailLoading = true
-                detail = runCatching {
-                    if (DrpySourceManager.hasActiveRule()) DrpySourceManager.detail(vodId)
-                    else if (PySourceManager.hasActiveRule()) PySourceManager.detail(vodId)
-                    else VodDetail(vodId = vodId)
-                }.getOrNull()
-                detailLoading = false
-            }
+            detailLoading = true
+            detail = runCatching {
+                withTimeout(20_000) {
+                    if (subSite != null) {
+                        SiteRepository().detail(subSite, vodId)
+                    } else if (drpyActive) {
+                        if (DrpySourceManager.hasActiveRule()) DrpySourceManager.detail(vodId)
+                        else if (PySourceManager.hasActiveRule()) PySourceManager.detail(vodId)
+                        else VodDetail(vodId = vodId)
+                    } else {
+                        null
+                    }
+                }
+            }.getOrNull()
+            detailLoading = false
         }
     }
     LaunchedEffect(vodId) { reloadDetail() }
@@ -173,6 +181,8 @@ fun DetailScreen(
     }
 
     var selectedEpisode by remember { mutableIntStateOf(0) }
+    // v0.47.0：简介默认折叠
+    var descExpanded by remember { mutableStateOf(false) }
     var showMagnetDialog by remember { mutableStateOf(false) }
     // v0.21.0：封面点开放大
     var showCoverDialog by remember { mutableStateOf(false) }
@@ -278,7 +288,13 @@ fun DetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(vod?.title ?: displayTitle(vodId), color = Color(0xFFD9C39A)) },
+                // v0.47.0：加载中先显示列表带过来的标题，不再裸奔 vodId
+                title = {
+                    Text(
+                        vod?.title ?: initialTitle.ifBlank { displayTitle(vodId) },
+                        color = Color(0xFFD9C39A),
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -502,28 +518,7 @@ fun DetailScreen(
                                     style = SoftType.Body,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                Spacer(Modifier.height(12.dp))
-                                // v0.21.0：简介标题 + 一键复制影片信息
-                                SectionTitle(
-                                    title = "简介",
-                                    action = {
-                                        IconButton(onClick = { copyVodInfo() }) {
-                                            Icon(
-                                                Icons.Filled.ContentCopy,
-                                                contentDescription = "复制影片信息",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                        }
-                                    },
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = vod.desc,
-                                    style = SoftType.Body,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    lineHeight = 22.sp,
-                                )
+                                // v0.47.0：简介搬到选集下面的折叠区，默认收起
                             }
                         }
                     }
@@ -653,6 +648,54 @@ fun DetailScreen(
                         else -> {
                             item { Spacer(Modifier.height(16.dp)) }
                         }
+                    }
+
+                    // v0.47.0：简介折叠区（默认收起，点展开），放选集下面
+                    item {
+                        AppCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = SoftDimens.PagePadding),
+                            onClick = { descExpanded = !descExpanded },
+                        ) {
+                            Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    SectionTitle(
+                                        title = "简介",
+                                        modifier = Modifier.weight(1f),
+                                        action = {
+                                            Row {
+                                                IconButton(onClick = { copyVodInfo() }) {
+                                                    Icon(
+                                                        Icons.Filled.ContentCopy,
+                                                        contentDescription = "复制影片信息",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(20.dp),
+                                                    )
+                                                }
+                                                Icon(
+                                                    imageVector = if (descExpanded) Icons.Filled.ExpandLess
+                                                    else Icons.Filled.ExpandMore,
+                                                    contentDescription = if (descExpanded) "收起" else "展开",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp),
+                                                )
+                                            }
+                                        },
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = vod.desc,
+                                    style = SoftType.Body,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 22.sp,
+                                    maxLines = if (descExpanded) Int.MAX_VALUE else 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(24.dp))
                     }
                 }
             }

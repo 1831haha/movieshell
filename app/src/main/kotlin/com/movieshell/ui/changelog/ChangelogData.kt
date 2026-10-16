@@ -15,6 +15,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.47.0",
+        date = "2026-10-16",
+        title = "首页精简＋详情页整理＋插件管理归位",
+        details = listOf(
+            "改：首页删掉私人放映大卡和随机开片，换源胶囊搬到搜索框右边，一行搞定。",
+            "修：详情页标题不再显示裸 ID（如 50767），列表页的片名会带过去；详情请求 20 秒超时，卡死转失败重试，不再无限骨架屏。",
+            "改：详情页简介折叠（默认收起，点展开），选集提到简介上面。",
+            "改：实验室删掉“已安装插件”区，安装卸载统一在插件市场里做。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.46.0",
         date = "2026-10-16",
         title = "订阅自动刷新＋换源自动刷新",

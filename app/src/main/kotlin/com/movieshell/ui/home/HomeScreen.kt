@@ -93,14 +93,11 @@ import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.SubCurrent
-import com.movieshell.ui.components.AppButton
-import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.PosterCard
-import com.movieshell.ui.components.PrivateScreeningBanner
 import com.movieshell.ui.components.SearchCapsule
 import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.data.Vod
@@ -145,7 +142,7 @@ private var homeEnteredOnce = false
 @Composable
 fun HomeScreen(
     onSearchClick: () -> Unit,
-    onVodClick: (vodId: String) -> Unit,
+    onVodClick: (vodId: String, title: String) -> Unit,
     // v0.24.0：播放历史入口
     onHistoryClick: () -> Unit = {},
     // v0.26.0：我的追剧入口
@@ -243,10 +240,10 @@ fun HomeScreen(
      * 进详情：订阅当前源时把站点上下文带给详情页（详情/播放按站走引擎），
      * 否则传 null，详情页走本地规则旧逻辑。
      */
-    fun goDetail(vodId: String) {
+    fun goDetail(vodId: String, title: String = "") {
         LogBus.i("UI", "点击影片卡片 id=$vodId")
         DetailSiteHolder.site = subSite
-        onVodClick(vodId)
+        onVodClick(vodId, title)
     }
 
     var refreshing by remember { mutableStateOf(false) }
@@ -722,7 +719,7 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
                 horizontalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
             ) {
-                // v0.39.0 mockup 风格：胶囊搜索框 + 右侧"随机开片"青色按钮
+                // v0.47.0：胶囊搜索框 + 右侧换源胶囊（随机开片、私人放映已删；换源胶囊从下方行搬上来）
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -734,50 +731,6 @@ fun HomeScreen(
                             onClick = onSearchClick,
                             modifier = Modifier.weight(1f),
                         )
-                        AppButton(
-                            text = "随机开片",
-                            onClick = {
-                                filtered.randomOrNull()?.let { goDetail(it.id) }
-                            },
-                            variant = AppButtonVariant.Cyan,
-                            enabled = filtered.isNotEmpty(),
-                        )
-                    }
-                }
-
-                // v0.39.0 mockup 风格："私人放映"大横幅卡（点即随机开片）
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    PrivateScreeningBanner(
-                        onClick = {
-                            filtered.randomOrNull()?.let { goDetail(it.id) }
-                        },
-                    )
-                }
-
-                // v0.39.0：站源切换入口（保留功能，mockup 风格胶囊）
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        // v0.24.0：播放历史
-                        IconButton(onClick = onHistoryClick) {
-                            Icon(
-                                imageVector = Icons.Filled.History,
-                                contentDescription = "播放历史",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        // v0.26.0：我的追剧
-                        IconButton(onClick = onFollowClick) {
-                            Icon(
-                                imageVector = Icons.Filled.PlaylistAddCheck,
-                                contentDescription = "我的追剧",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Spacer(Modifier.weight(1f))
                         // 换源胶囊（v0.7.1 入口）
                         Surface(
                             shape = RoundedCornerShape(SoftDimens.ChipCorner),
@@ -803,6 +756,32 @@ fun HomeScreen(
                                     modifier = Modifier.size(18.dp),
                                 )
                             }
+                        }
+                    }
+                }
+
+                // v0.39.0：站源切换入口（保留功能，mockup 风格胶囊）
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // v0.24.0：播放历史
+                        IconButton(onClick = onHistoryClick) {
+                            Icon(
+                                imageVector = Icons.Filled.History,
+                                contentDescription = "播放历史",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        // v0.26.0：我的追剧
+                        IconButton(onClick = onFollowClick) {
+                            Icon(
+                                imageVector = Icons.Filled.PlaylistAddCheck,
+                                contentDescription = "我的追剧",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }
@@ -904,7 +883,7 @@ fun HomeScreen(
                             badge = vod.rating,
                             posterUrl = vod.poster,
                             modifier = Modifier.aspectRatio(3f / 4.6f),
-                            onClick = { goDetail(vod.id) },
+                            onClick = { goDetail(vod.id, vod.title) },
                         )
                     }
                 }
