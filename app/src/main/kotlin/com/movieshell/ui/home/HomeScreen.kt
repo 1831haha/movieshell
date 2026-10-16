@@ -48,7 +48,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,18 +59,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -160,7 +155,6 @@ fun HomeScreen(
 ) {
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
-    val density = LocalDensity.current
     val context = LocalContext.current
 
     // ---- 订阅当前源（v0.5.1）：站源页"设为点播页当前源"指定的订阅子站点 ----
@@ -256,7 +250,9 @@ fun HomeScreen(
     }
 
     var refreshing by remember { mutableStateOf(false) }
-    var pullOffset by remember { mutableFloatStateOf(0f) }
+    // v0.45.0：下拉刷新换官方 Material3 PullToRefreshBox（手搓的 NestedScrollConnection
+    // 要拖 360px 才触发，手感太钝，删掉）。
+    val pullRefreshState = rememberPullToRefreshState()
     var selectedCategory by rememberSaveable { mutableIntStateOf(0) } // 0 = 全部
     // v0.44.0：二级筛选升级为多组 Map（key->value），空=未选（用规则默认）。
     // v0.31.2 的教训：rememberSaveable 存 Map 有坑，用 List<String> 存 "key\u0001value" 编码。
@@ -651,46 +647,11 @@ fun HomeScreen(
         if (drpyActive) {
             // v0.25.0：复用 loadHome 单入口（含缓存/并发/超时），结束收指示条
             // v0.29.0：手动下拉 force=true，绕过失败退避
-            loadHome(force = true, onDone = {
-                refreshing = false
-                pullOffset = 0f
-            })
+            loadHome(force = true, onDone = { refreshing = false })
         } else {
             scope.launch {
                 delay(1200) // 占位：模拟刷新耗时
                 refreshing = false
-                pullOffset = 0f
-            }
-        }
-    }
-
-    // 下拉刷新占位：列表在顶部时下拉一段距离触发刷新
-    val refreshConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                if (refreshing || source != NestedScrollSource.Drag) return Offset.Zero
-                val atTop = gridState.firstVisibleItemIndex == 0 &&
-                    gridState.firstVisibleItemScrollOffset == 0
-                if (!atTop) {
-                    pullOffset = 0f
-                    return Offset.Zero
-                }
-                pullOffset = when {
-                    available.y > 0 -> (pullOffset + available.y * 0.5f).coerceAtMost(180f)
-                    available.y < 0 -> 0f
-                    else -> pullOffset
-                }
-                if (pullOffset >= 180f) doRefresh()
-                return Offset.Zero
-            }
-
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (!refreshing) pullOffset = 0f
-                return super.onPostFling(consumed, available)
             }
         }
     }
@@ -727,28 +688,17 @@ fun HomeScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background.copy(alpha = 0.55f)),
         ) {
-            // 下拉刷新指示条（占位）
-            val indicatorH = with(density) { pullOffset.toDp() }.coerceAtMost(64.dp)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(if (refreshing) 56.dp else indicatorH),
-                contentAlignment = Alignment.Center,
+            // v0.45.0：官方 Material3 下拉刷新（替换手搓版）
+            PullToRefreshBox(
+                state = pullRefreshState,
+                isRefreshing = refreshing,
+                onRefresh = { doRefresh() },
+                modifier = Modifier.fillMaxSize(),
             ) {
-                if (refreshing || pullOffset > 12f) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(28.dp),
-                        strokeWidth = 3.dp,
-                    )
-                }
-            }
-    
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 state = gridState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .nestedScroll(refreshConnection),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(SoftDimens.PagePadding),
                 verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
                 horizontalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
@@ -940,7 +890,8 @@ fun HomeScreen(
                     }
                 }
             }
-        }
+            } // v0.45.0：闭合 PullToRefreshBox
+        } // 闭合 Column
     
         // 站源切换（v0.7.1）
         // v0.11.8：选源弹窗改成居中悬浮 Dialog（原来是底部 BottomSheet）

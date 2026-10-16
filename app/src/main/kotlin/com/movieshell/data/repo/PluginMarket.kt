@@ -4,7 +4,11 @@ import android.content.Context
 import com.movieshell.BuildConfig
 import com.movieshell.data.repo.PluginStore.InstalledPlugin
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -91,7 +95,7 @@ object PluginMarket {
 
     /**
      * v0.25.0：市场索引拉取专用客户端（索引小，15s 超时；下载走上面的 http 长超时）。
-     * raw.githubusercontent 在部分网络下超时，配合下面的主备重试。
+     * v0.45.0：对冲层另有 10 秒单镜像超时，这里的 30 秒 callTimeout 只做兜底。
      */
     private val marketHttp = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -99,20 +103,45 @@ object PluginMarket {
         .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    /** v0.25.0：官方市场备用镜像（jsdelivr）。 */
-    private const val RAW_HOST = "https://raw.githubusercontent.com/1831haha/xiaying-plugins/"
-    private const val MIRROR_HOST = "https://cdn.jsdelivr.net/gh/1831haha/xiaying-plugins@"
-
     @Volatile
     private var lastList: List<MarketPlugin> = emptyList()
 
     /** 详情页用：从最近一次拉取结果里按 id 取。 */
     fun cached(id: String): MarketPlugin? = lastList.firstOrNull { it.id == id }
 
-    /** 拉取市场（v0.25.0：网络异常自动重试1次 + 官方市场备用镜像）。 */
+    /** 拉取市场（v0.45.0：多镜像对冲重写；无磁盘缓存，引导页等轻量调用方用）。 */
     suspend fun fetch(url: String): MarketInfo = withContext(Dispatchers.IO) {
-        val (body, effectiveUrl) = fetchBodyWithFallback(url)
-        val root = runCatching { JSONObject(body) }
+        val (body, effectiveUrl) = fetchBodyHedged(url)
+        parseMarket(effectiveUrl, body).also { lastList = it.plugins }
+    }
+
+    /**
+     * v0.45.0：读磁盘缓存（filesDir/market_cache/<url md5>.json），损坏/缺失返回 null。
+     * 市场页进场先调这个秒开，再后台 fetchRemote 刷新。
+     */
+    fun loadCached(context: Context, url: String): MarketInfo? = runCatching {
+        val f = cacheFile(context, url)
+        if (!f.exists()) return null
+        val text = f.readText()
+        val nl = text.indexOf('\n')
+        if (nl < 0) return null
+        parseMarket(text.substring(0, nl), text.substring(nl + 1))
+            .also { lastList = it.plugins }
+    }.getOrNull()
+
+    /** v0.45.0：拉远端（多镜像对冲）并写磁盘缓存，供市场页后台刷新用。 */
+    suspend fun fetchRemote(context: Context, url: String): MarketInfo = withContext(Dispatchers.IO) {
+        val (body, effectiveUrl) = fetchBodyHedged(url)
+        runCatching {
+            val f = cacheFile(context, url)
+            f.parentFile?.mkdirs()
+            f.writeText("$effectiveUrl\n$body")
+        }.onFailure { LogBus.w(TAG, "市场缓存写入失败：${it.message}") }
+        parseMarket(effectiveUrl, body).also { lastList = it.plugins }
+    }
+
+    /** market.json 的 JSON 解析（纯函数，缓存/远端共用）。 */
+    private fun parseMarket(effectiveUrl: String, body: String): MarketInfo {
             .getOrElse { throw IllegalStateException("market.json 不是合法 JSON") }
         val arr = runCatching { root.getJSONArray("plugins") }
             .getOrElse { throw IllegalStateException("market.json 格式错误：缺 plugins 数组") }
@@ -142,8 +171,7 @@ object PluginMarket {
                 abis = o.optJSONArray("abis")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
             )
         }
-        lastList = plugins
-        LogBus.i(TAG, "市场拉取成功：${plugins.size} 个插件")
+        LogBus.i(TAG, "市场解析成功：${plugins.size} 个插件")
         MarketInfo(
             name = root.optString("name", "插件市场"),
             logo = resolveIcon(root.optString("logo", ""), base),
@@ -154,44 +182,69 @@ object PluginMarket {
     }
 
     /**
-     * v0.25.0：市场索引拉取（主备 + 重试）。
-     * 每个候选地址试 2 次（首次 + 重试 1 次）；主地址（raw.githubusercontent）
-     * 网络异常则切 jsdelivr 备用镜像。返回（内容，实际生效地址）。
-     * HTTP 错误码直接抛（不重试不切镜像）；最终都失败抛中文错。
+     * v0.45.0：市场索引拉取重写——多镜像对冲。
+     * 4 个镜像同时请求，谁先成功用谁（单个 10 秒超时）；HTTP 错误码视为该镜像失败、
+     * 继续等其他镜像；全部失败才抛中文错。旧的"串行主备 + 每地址 30 秒"在弱网下
+     * 最长转 2 分钟才报错，是"偶尔加载不出来"的病根之一。
      */
-    private fun fetchBodyWithFallback(url: String): Pair<String, String> {
-        val mirror = if (url.startsWith(RAW_HOST)) url.replace(RAW_HOST, MIRROR_HOST) else null
-        val candidates = listOfNotNull(url, mirror)
-        var lastErr: Exception? = null
-        for ((idx, u) in candidates.withIndex()) {
-            repeat(2) { attempt ->
-                try {
-                    val req = Request.Builder().url(u).header("User-Agent", UA).build()
-                    marketHttp.newCall(req).execute().use { resp ->
-                        if (!resp.isSuccessful) {
-                            throw IllegalStateException("市场请求失败：HTTP ${resp.code}")
-                        }
-                        val body = resp.body?.string()
-                            ?: throw IllegalStateException("市场返回为空")
-                        if (idx > 0 || attempt > 0) {
-                            LogBus.i(TAG, "市场拉取经${if (idx > 0) "备用镜像" else "重试"}成功")
-                        }
-                        return body to u
-                    }
-                } catch (e: IllegalStateException) {
-                    throw e
-                } catch (e: IOException) {
-                    lastErr = e
-                    LogBus.w(
-                        TAG,
-                        "市场拉取失败（${if (idx == 0) "主地址" else "备用镜像"}第${attempt + 1}次）：${e.message}",
-                    )
-                }
+    private suspend fun fetchBodyHedged(url: String): Pair<String, String> = coroutineScope {
+        val urls = mirrorUrls(url)
+        val ch = Channel<Result<Pair<String, String>>>(Channel.UNLIMITED)
+        val jobs = urls.map { u ->
+            launch(Dispatchers.IO) {
+                ch.send(runCatching { withTimeout(10_000) { getBody(u) } to u })
             }
         }
+        var lastErr: Throwable? = null
+        repeat(urls.size) {
+            val r = ch.receive()
+            if (r.isSuccess) {
+                val (body, won) = r.getOrThrow()
+                if (won != urls[0]) LogBus.i(TAG, "市场拉取经镜像成功：$won")
+                jobs.forEach { it.cancel() }
+                return@coroutineScope body to won
+            }
+            lastErr = r.exceptionOrNull()
+            LogBus.w(TAG, "市场镜像失败：${r.exceptionOrNull()?.message}")
+        }
+        jobs.forEach { it.cancel() }
         throw IllegalStateException(
-            "市场拉取失败：网络超时或无法连接（${lastErr?.message}），请检查网络后重试",
+            "市场拉取失败：${urls.size} 个镜像都连不上（${lastErr?.message}），请检查网络后重试",
         )
+    }
+
+    private fun getBody(u: String): String {
+        val req = Request.Builder().url(u).header("User-Agent", UA).build()
+        marketHttp.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
+            return resp.body?.string()?.takeIf { it.isNotBlank() }
+                ?: throw IOException("返回为空")
+        }
+    }
+
+    /**
+     * v0.45.0：镜像展开。官方 raw 地址展开 4 镜像
+     * （raw / jsdelivr / ghfast / gh-proxy，国内镜像在后两位）；
+     * 用户自填的第三方市场地址只用它自己，不乱拼镜像。
+     */
+    private fun mirrorUrls(url: String): List<String> {
+        val m = Regex("https://raw\\.githubusercontent\\.com/([^/]+)/([^/]+)/([^/]+)/(.+)")
+            .matchEntire(url) ?: return listOf(url)
+        val (owner, repo, branch, path) = m.destructured
+        val raw = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
+        return listOf(
+            url,
+            "https://cdn.jsdelivr.net/gh/$owner/$repo@$branch/$path",
+            "https://ghfast.top/$raw",
+            "https://gh-proxy.com/$raw",
+        )
+    }
+
+    /** v0.45.0：磁盘缓存文件（首行是实际生效地址，余下是 market.json 原文）。 */
+    private fun cacheFile(context: Context, url: String): File {
+        val name = MessageDigest.getInstance("MD5")
+            .digest(url.toByteArray()).joinToString("") { "%02x".format(it) }
+        return File(context.filesDir, "market_cache/$name.json")
     }
 
     private fun resolveIcon(icon: String, base: String): String = when {

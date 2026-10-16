@@ -100,19 +100,29 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
         reloadTick++
     }
 
+    // v0.45.0：缓存秒开 + 后台对冲刷新。进场先读磁盘缓存（有则秒显、不转圈），
+    // 再后台拉新；拉新失败但有缓存时只 toast、不清空列表——"偶尔加载不出来"到此为止。
     suspend fun fetchMarket() {
-        loading = true
         error = null
+        val url = PluginStore.marketUrl.value
         try {
             PluginStore.init(context)
-            info = PluginMarket.fetch(PluginStore.marketUrl.value)
+            val cached = PluginMarket.loadCached(context, url)
+            // 切市场时先换上新缓存（或清空），旧市场的列表不串台
+            info = cached
+            loading = cached == null
+            info = PluginMarket.fetchRemote(context, url)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            error = e.message ?: e.toString()
             LogBus.e("PluginMarket", "市场拉取失败：${e.message}")
-            // v0.25.0：超时/失败给明确中文 Toast，不只记日志
-            Toast.makeText(context, "插件市场加载失败：${e.message}", Toast.LENGTH_LONG).show()
+            if (info == null) {
+                error = e.message ?: e.toString()
+                // v0.25.0：超时/失败给明确中文 Toast，不只记日志
+                Toast.makeText(context, "插件市场加载失败：${e.message}", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(context, "市场刷新失败，已显示缓存", Toast.LENGTH_SHORT).show()
+            }
         } finally {
             loading = false
         }

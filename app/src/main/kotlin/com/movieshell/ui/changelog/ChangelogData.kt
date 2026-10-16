@@ -15,6 +15,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.45.0",
+        date = "2026-10-16",
+        title = "插件市场加载重写＋首页下拉刷新重写",
+        details = listOf(
+            "重写：插件市场加载——本地缓存，进页面秒开；后台 4 个镜像同时对冲抢，谁快用谁，弱网也不白屏。",
+            "重写：首页下拉刷新——换官方标准组件，之前手搓的要拖 360px 才触发，现在手感正常。",
+            "修：失败时有缓存显示缓存、只提示刷新失败，不再整个页面变空白。",
+            "只动了市场加载和首页下拉，播放、下载、订阅没动。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.44.0",
         date = "2026-10-16",
         title = "drpy 筛选补齐",

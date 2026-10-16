@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 91
-        versionName = "0.44.0"
+        versionCode = 92
+        versionName = "0.45.0"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -112,7 +112,8 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
+    // v0.45.0：pin 1.3.1（PullToRefreshBox 下拉组件从 1.3.0 才有，不赌 BOM 带的版本）
+    implementation("androidx.compose.material3:material3:1.3.1")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
