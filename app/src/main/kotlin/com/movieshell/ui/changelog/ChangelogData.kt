@@ -15,6 +15,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.46.0",
+        date = "2026-10-16",
+        title = "订阅自动刷新＋换源自动刷新",
+        details = listOf(
+            "加：订阅每天自动刷新一次（有网时后台静默跑），刷失败的在订阅管理里标红“已失效”，成功的显示上次刷新时间。",
+            "加：换源自动刷新——切源后首页直接加载新源内容，不用再手动下拉。订阅/本地规则通吃，切 tab 回来不误触。",
+            "加：设置里可关订阅自动刷新（默认开）；手动刷新/解析也更新状态，标记及时。",
+            "冷启动还是干净空态（不自动加载），只在你真正换源时才刷。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.45.0",
         date = "2026-10-16",
         title = "插件市场加载重写＋首页下拉刷新重写",

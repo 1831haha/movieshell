@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
@@ -73,9 +74,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.download.FollowCheckWorker
+import com.movieshell.data.download.SubRefreshWorker
 import com.movieshell.data.repo.BackupManager
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.FollowStore
+import com.movieshell.data.repo.SubRefreshStore
 import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
@@ -134,6 +137,8 @@ fun SettingsScreen(
     var showMarketSourcesDialog by remember { mutableStateOf(false) }
     // v0.26.0：追剧更新检测开关 + 下载并行数
     var followCheckEnabled by remember { mutableStateOf(FollowStore.isCheckEnabled(context)) }
+    // v0.46.0：订阅自动刷新开关
+    var subRefreshEnabled by remember { mutableStateOf(SubRefreshStore.isEnabled(context)) }
     var maxParallel by remember { mutableStateOf(DownloadStore.maxParallel(context)) }
 
     // v0.7.2：备份直接导出到 xiaying/backup/，不再弹系统文件选择器
@@ -319,6 +324,28 @@ fun SettingsScreen(
             }
             Spacer(Modifier.height(SoftDimens.CardSpacing))
             SettingsGroup(title = "追剧与下载") {
+                // v0.46.0：订阅自动刷新开关
+                SettingsRow(
+                    icon = Icons.Filled.CloudSync,
+                    title = "订阅自动刷新",
+                    subtitle = "每天自动刷新一次订阅，失效的在订阅管理里标出来",
+                    onClick = {
+                        val next = !subRefreshEnabled
+                        SubRefreshStore.setEnabled(context, next)
+                        subRefreshEnabled = next
+                        SubRefreshWorker.reschedule(context)
+                    },
+                    trailing = {
+                        Switch(
+                            checked = subRefreshEnabled,
+                            onCheckedChange = {
+                                SubRefreshStore.setEnabled(context, it)
+                                subRefreshEnabled = it
+                                SubRefreshWorker.reschedule(context)
+                            },
+                        )
+                    },
+                )
                 SettingsRow(
                     icon = Icons.Filled.PlaylistAddCheck,
                     title = "追剧更新提醒",

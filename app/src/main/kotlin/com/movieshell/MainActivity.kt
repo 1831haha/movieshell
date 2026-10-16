@@ -56,6 +56,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.movieshell.data.download.FollowCheckWorker
+import com.movieshell.data.download.SubRefreshWorker
 import com.movieshell.data.download.Notify
 import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DownloadStore
@@ -179,6 +180,8 @@ class MainActivity : ComponentActivity() {
         FollowStore.init(this)
         DownloadStore.init(this)
         FollowCheckWorker.reschedule(this)
+        // v0.46.0：订阅自动刷新（每天 1 次）
+        SubRefreshWorker.reschedule(this)
         PhpSourceManager.init(this)
         WebSourceManager.init(this)
         SniffPatternStore.init(this)

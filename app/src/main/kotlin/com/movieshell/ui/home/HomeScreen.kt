@@ -561,7 +561,13 @@ fun HomeScreen(
 
     // ---- 站源切换 BottomSheet（v0.7.1） ----
     var showSourceSheet by remember { mutableStateOf(false) }
-    fun refreshDrpyState() {
+    /**
+     * v0.46.0：换源自动刷新。fromUserSwitch=true 表示用户在换源入口显式切换。
+     * 真换源 = 显式切换，或持久化源标识变了（homeCacheKey，订阅/本地规则通吃，
+     * 跨 tab/进程也准）。真换源→清旧数据→直接 loadHome(force=true)，不用再手动下拉。
+     * 首次记账（lastLoaded==null，新装/升级）只记不加载，冷启动保持 v0.27.4 干净空态。
+     */
+    fun refreshDrpyState(fromUserSwitch: Boolean = false) {
         val cur = currentSubSite()
         val curKey = cur?.key
         // v0.33.1：lastSubKey 为 null（记不住上次）时不算换源，避免切 tab 回来误重置。
@@ -573,9 +579,18 @@ fun HomeScreen(
             SourceStateStore.activeDrpyRule() != null || SourceStateStore.activePyRule() != null
         val changed = active != drpyActive
         drpyActive = active
+        val curCacheKey = homeCacheKey()
+        val lastLoaded = SubSiteStore.lastLoadedSource(context)
+        val switched = curCacheKey != null && (
+            fromUserSwitch && curCacheKey != lastLoaded ||
+                lastLoaded != null && curCacheKey != lastLoaded
+            )
+        if (lastLoaded == null && curCacheKey != null) {
+            SubSiteStore.setLastLoadedSource(context, curCacheKey)
+        }
         // v0.27.4：首页不再自动加载推荐流（用户手动下拉刷新才加载）；
         // 源变化时清掉旧数据，不再显示过期缓存
-        if (changed || siteChanged) {
+        if (changed || siteChanged || switched) {
             drpyList = null
             drpyCats = emptyList()
             selectedCategory = 0
@@ -583,6 +598,10 @@ fun HomeScreen(
             homeError = null
             // v0.31.0：失败计数按数据源 key 记在 HomeLoadGate 单例里，切源自然用新 key 的计数，无需手动清零
             catsFailed = false
+        }
+        if (switched) {
+            SubSiteStore.setLastLoadedSource(context, curCacheKey!!)
+            loadHome(force = true)
         }
     }
 
@@ -904,7 +923,7 @@ fun HomeScreen(
                 ) {
                     SourceSwitchSheet(
                         onDismiss = { showSourceSheet = false },
-                        onChanged = { refreshDrpyState() },
+                        onChanged = { refreshDrpyState(fromUserSwitch = true) },
                     )
                 }
             }

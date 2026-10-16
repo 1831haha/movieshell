@@ -87,6 +87,7 @@ import com.movieshell.data.repo.SourceProbe
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubCache
+import com.movieshell.data.repo.SubRefreshStore
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.TrashStore
 import com.movieshell.data.repo.WebSourceManager
@@ -332,6 +333,8 @@ fun SourcesScreen(
             subParsing[subUrl] = true
             SubSiteStore.refresh(context, subUrl)
                 .onSuccess { cache ->
+                    // v0.46.0：手动刷新也记状态，"已失效" badge 及时更新
+                    SubRefreshStore.recordResult(context, subUrl, true)
                     subCaches[subUrl] = cache
                     // v0.43.0：多仓 Toast 单独文案
                     if (cache.warehouses.isNotEmpty()) {
@@ -352,6 +355,8 @@ fun SourcesScreen(
                     ).show()
                 }
                 .onFailure { e ->
+                    // v0.46.0：手动刷新失败也记，"已失效" badge 及时更新
+                    SubRefreshStore.recordResult(context, subUrl, false)
                     Toast.makeText(context, "解析失败：${e.message}", Toast.LENGTH_LONG).show()
                 }
             subParsing[subUrl] = false
@@ -1354,9 +1359,19 @@ private fun MenuRow(
 }
 
 /** 类型徽标：CMS / drpy / PY / PHP / spider / 不支持 */
+/** v0.46.0：刷新时间人话（刚刚/x 分钟前/x 小时前/x 天前）。 */
+private fun timeAgo(ts: Long): String {
+    val m = (System.currentTimeMillis() - ts) / 60000
+    return when {
+        m < 1 -> "刚刚"
+        m < 60 -> "$m 分钟前"
+        m < 1440 -> "${m / 60} 小时前"
+        else -> "${m / 1440} 天前"
+    }
+}
+
 @Composable
-private fun KindBadge(kind: String) {
-    val (label, color) = when (kind) {
+private fun KindBadge(kind: String) {    val (label, color) = when (kind) {
         SubSiteStore.KIND_CMS -> "CMS" to MaterialTheme.colorScheme.primary
         SubSiteStore.KIND_DRPY -> "drpy" to MaterialTheme.colorScheme.tertiary
         SubSiteStore.KIND_PY -> "PY" to MaterialTheme.colorScheme.secondary
@@ -1471,6 +1486,20 @@ private fun SubscriptionCard(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
+                                    // v0.46.0：自动刷新状态——失败标红"已失效"，成功显示上次刷新时间
+                                    val refreshStatus =
+                                        SubRefreshStore.statusOf(context, subUrl)
+                                    if (refreshStatus != null) {
+                                        Text(
+                                            text = if (!refreshStatus.ok) "已失效（刷新失败）"
+                                            else "上次刷新：${timeAgo(refreshStatus.checkedAt)}",
+                                            style = SoftType.Caption,
+                                            color = if (!refreshStatus.ok)
+                                                MaterialTheme.colorScheme.error
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                        )
+                                    }
                                 }
                                 Switch(
                                     checked = entry.enabled,

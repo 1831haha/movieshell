@@ -94,6 +94,8 @@ object SubSiteStore {
     private const val KEY_CUR_URL = "current_sub_url"
     private const val KEY_CUR_KEY = "current_site_key"
     private const val KEY_REPAIRED_051 = "repaired_051"
+    /** v0.46.0：换源自动刷新——上次已加载内容的源标识（= HomeScreen.homeCacheKey()）。 */
+    private const val KEY_LAST_LOADED_SOURCE = "last_loaded_source"
 
     const val KIND_CMS = "cms"
     const val KIND_DRPY = "drpy"
@@ -510,6 +512,20 @@ object SubSiteStore {
     }
 
     // ---------------- 当前源 ----------------
+
+    /**
+     * v0.46.0：换源自动刷新。上次已加载内容的源标识（HomeScreen.homeCacheKey() 的值）。
+     * 持久化比对，跨 tab/进程也准；冷启动时两者一致，不触发自动加载。
+     */
+    fun lastLoadedSource(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_LAST_LOADED_SOURCE, null)
+
+    fun setLastLoadedSource(context: Context, key: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_LAST_LOADED_SOURCE, key)
+            .apply()
+    }
 
     fun getCurrent(context: Context): SubCurrent? {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
