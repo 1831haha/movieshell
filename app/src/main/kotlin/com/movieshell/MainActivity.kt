@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Home
@@ -97,6 +98,7 @@ import com.movieshell.ui.reader.ReaderScreen
 import com.movieshell.ui.components.SoftBottomDock
 import com.movieshell.ui.components.SoftDockItem
 import com.movieshell.ui.home.HomeScreen
+import com.movieshell.ui.home.HomeViewModel
 import com.movieshell.ui.lab.LabScreen
 import com.movieshell.ui.live.LiveManageScreen
 import com.movieshell.ui.live.LiveScreen
@@ -283,7 +285,11 @@ class MainActivity : ComponentActivity() {
                         },
                     ) {
                         composable("home") {
+                            // v0.53.0（三点之3）：viewModel() 按 home 的 back stack entry 作用域，
+                            // navigate("detail") 时实例保留，popBackStack 回来不重建
+                            val homeVm: HomeViewModel = viewModel()
                             HomeScreen(
+                                vm = homeVm,
                                 onSearchClick = { navController.navigateTab("search") },
                                 // v0.47.0：标题透传，详情页加载中不再显示裸 vodId
                                 onVodClick = { vodId, title ->

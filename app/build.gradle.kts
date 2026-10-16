@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 99
-        versionName = "0.52.0"
+        versionCode = 100
+        versionName = "0.53.0"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -108,6 +108,8 @@ dependencies {
     // v0.26.0：追剧更新检测（周期任务）+ 下载队列（后台 Worker）
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.3")
+    // v0.53.0：HomeViewModel（分类状态+缓存在 VM 里，SavedStateHandle 存选中，返回不重建）
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3")
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")

@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.53.0",
+        date = "2026-10-16",
+        title = "首页架构重构：状态进 ViewModel，返回秒回",
+        details = listOf(
+            "改：新建 HomeViewModel——选中分类走 SavedStateHandle，推荐/分类各有内存缓存，currentVideos 派生展示。",
+            "改：选分类只是换数据源，列表不重建；从详情页返回时 VM 在导航栈里不重建，第一帧就是缓存好的分类。",
+            "改：换源时清空 VM 的推荐/分类/内存缓存，旧数据不残留。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.52.0",
         date = "2026-10-16",
         title = "修：详情页返回不再丢分类内容",

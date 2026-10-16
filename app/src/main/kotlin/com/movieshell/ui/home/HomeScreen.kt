@@ -47,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -142,6 +143,7 @@ private var homeEnteredOnce = false
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
+    vm: HomeViewModel,
     onSearchClick: () -> Unit,
     onVodClick: (vodId: String, title: String) -> Unit,
     // v0.24.0：播放历史入口
@@ -253,7 +255,12 @@ fun HomeScreen(
     // v0.45.0：下拉刷新换官方 Material3 PullToRefreshBox（手搓的 NestedScrollConnection
     // 要拖 360px 才触发，手感太钝，删掉）。
     val pullRefreshState = rememberPullToRefreshState()
-    var selectedCategory by rememberSaveable { mutableIntStateOf(0) } // 0 = 全部
+    // v0.53.0：三点核心——选中/分类/列表/加载态全在 HomeViewModel 里。
+    // detail pop 回来时 VM 在 back stack 里不重建，第一帧直接出缓存。
+    val selectedCategory by vm.selectedCategoryId.collectAsState()
+    val drpyCats by vm.categories.collectAsState()
+    val drpyList by vm.currentVideos.collectAsState()
+    val drpyLoading by vm.isLoading.collectAsState()
     // v0.44.0：二级筛选升级为多组 Map（key->value），空=未选（用规则默认）。
     // v0.31.2 的教训：rememberSaveable 存 Map 有坑，用 List<String> 存 "key\u0001value" 编码。
     // tab 切回时选中态不丢；切分类时清空（不同分类的筛选组不同）。
@@ -272,10 +279,8 @@ fun HomeScreen(
     var shuffleSeed by remember { mutableIntStateOf(0) }
 
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
+    // v0.53.0：drpyActive/drpyLoading/drpyCats/drpyList 已搬进 HomeViewModel（见上）。
     var drpyActive by rememberSaveable { mutableStateOf(false) }
-    var drpyLoading by remember { mutableStateOf(false) }
-    var drpyCats by remember { mutableStateOf(emptyList<CategoryType>()) }
-    var drpyList by remember { mutableStateOf<List<ModelVod>?>(null) } // null=未加载/失败
     var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
     var catsFailed by remember { mutableStateOf(false) } // v0.29.0：分类失败且为空，给重试入口
     var recommendStale by remember { mutableStateOf(false) } // v0.50.0：展示的是过期缓存/8s降级，顶部小字提示
@@ -334,10 +339,10 @@ fun HomeScreen(
         // v0.50.0 E：缓存立刻上屏，不等网络
         if ((cacheShown || cacheCats.isNotEmpty()) && myGen == contentGen && isHomeForeground()) {
             if (cacheShown && drpyList == null) {
-                drpyList = cacheVods
+                vm.setRecommend(cacheVods)
                 recommendStale = !cacheFresh
             }
-            if (cacheCats.isNotEmpty() && drpyCats.isEmpty()) drpyCats = cacheCats
+            if (cacheCats.isNotEmpty() && drpyCats.isEmpty()) vm.setCategories(cacheCats)
         }
         // 2. 并发刷新（推荐/分类各 25s 熔断，互不取消）
         var netVods: List<ModelVod>? = null
@@ -351,12 +356,12 @@ fun HomeScreen(
                     if (drpyList != null || !isHomeForeground()) return@launch
                     val stale = cacheVods.takeIf { it.isNotEmpty() }
                     if (stale != null) {
-                        drpyList = stale
+                        vm.setRecommend(stale)
                         recommendStale = true
                     } else {
                         recommendEmpty = true
                     }
-                    drpyLoading = false
+                    vm.isLoading.value = false
                     LogBus.i("Home", "推荐 8s 未回，首屏降级（${if (stale != null) "stale缓存" else "空态"}）")
                 }
                 netVods = try {
@@ -380,7 +385,7 @@ fun HomeScreen(
                     }
                     // v0.50.0（用户补）：慢请求回来先看前台；在后台只写缓存，不刷推荐区
                     if (myGen == contentGen && isHomeForeground()) {
-                        drpyList = vods.ifEmpty { null }
+                        vm.setRecommend(vods)
                         recommendStale = false
                         recommendEmpty = false
                         LogBus.i("Home", "推荐回来，前台刷新 ${vods.size} 条")
@@ -413,14 +418,14 @@ fun HomeScreen(
                     // 超时且有缓存：立刻顶上，不等推荐
                     val cached = cacheCats.takeIf { it.isNotEmpty() }
                     if (cached != null && myGen == contentGen && isHomeForeground() && drpyCats.isEmpty()) {
-                        drpyCats = cached
+                        vm.setCategories(cached)
                         LogBus.i("Home", "分类用缓存先行：${cached.size} 个")
                     }
                 } else {
                     withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) }
                     // v0.50.0 A：分类先行渲染，不等推荐回来
                     if (myGen == contentGen && isHomeForeground()) {
-                        drpyCats = cats
+                        vm.setCategories(cats)
                         catsFailed = false
                         LogBus.i("Home", "分类先行渲染：${cats.size} 个（推荐未回）")
                     } else if (myGen == contentGen) {
@@ -474,35 +479,37 @@ fun HomeScreen(
      */
     fun applyHomePayload(
         payload: HomeLoadGate.HomePayload?,
-        prevVods: List<ModelVod>?,
+        prevVods: List<ModelVod>,
         prevCats: List<CategoryType>,
         gen: Int = -1,
     ) {
         // v0.31.2：迟到结果丢弃——用户已经点了别的（分类/首页/筛选），旧 payload 不再应用，
         // 否则会出现"选中红果、内容却是首页"的错位。
         if (gen != -1 && gen != contentGen) return
-        drpyLoading = false
+        vm.isLoading.value = false
         if (payload == null) {
-            if (prevVods == null) homeError = "加载失败，点击重试"
+            // v0.53.0：prevVods 非空（currentVideos 恒不为 null），空列表=无数据
+            if (prevVods.isEmpty()) homeError = "加载失败，点击重试"
             return
         }
         if (payload.resetSelection) {
-            selectedCategory = 0
+            vm.selectCategory(0)
             setFilters(emptyMap())
         }
         // v0.50.0（用户补）：最终应用时也在前台才刷推荐区；后台回来的只留缓存（上游已写），防跳变
-        drpyList = if (payload.vods != null && isHomeForeground()) {
+        // v0.53.0：写 vm.recommendCache（selectedCategory=0 时 currentVideos 自动派生）
+        if (payload.vods != null && isHomeForeground()) {
             recommendStale = false
             recommendEmpty = false
-            payload.vods
+            vm.setRecommend(payload.vods)
         } else {
             if (payload.vods != null) LogBus.i("Home", "最终 payload 应用：首页不在前台，推荐不刷 UI")
-            prevVods
+            vm.setRecommend(prevVods)
         }
         val cats = payload.cats.ifEmpty { prevCats }
-        drpyCats = cats
+        vm.setCategories(cats)
         catsFailed = payload.catsFailed && cats.isEmpty()
-        homeError = if (drpyList == null) "加载失败，点击重试" else null
+        homeError = if (vm.currentVideos.value.isEmpty()) "加载失败，点击重试" else null
     }
 
     /**
@@ -533,7 +540,7 @@ fun HomeScreen(
         // 抓当前展示值，供"全失败且无缓存"判定（语义与旧版一致：之前展示中的也算有数据）
         val prevVods = drpyList
         val prevCats = drpyCats
-        drpyLoading = true
+        vm.isLoading.value = true
         homeError = null
         recommendStale = false
         recommendEmpty = false
@@ -553,7 +560,7 @@ fun HomeScreen(
         //（5s→15s→30s→60s，用户要求；per-key Job 防叠加）
         val streak = HomeLoadGate.streak(key)
         if (!force && streak >= 3) {
-            drpyLoading = false
+            vm.isLoading.value = false
             val waitMs = HomeLoadGate.backoffMs(key)
             LogBus.i("Home", "首页连续失败 $streak 次，${waitMs / 1000}s 后自动重试（下拉可手动重试）")
             HomeLoadGate.setBackoffJob(key, scope.launch {
@@ -598,7 +605,7 @@ fun HomeScreen(
                 onDone()
                 return@launch
             }
-            val ok = payload?.vods != null || prevVods != null
+            val ok = payload?.vods != null || prevVods.isNotEmpty()
             HomeLoadGate.finish(key, deferred, ok)
             if (!ok) LogBus.w("Home", "首页数据全失败且无缓存（连续 ${HomeLoadGate.streak(key)} 次）")
             applyHomePayload(payload, prevVods, prevCats, myGen)
@@ -617,7 +624,7 @@ fun HomeScreen(
         contentGen += 1
         val myGen = contentGen
         // 选中态立即更新，不等网络（之前是网络回来才设，连点时选中和内容错位，看着像"换了分类内容不变"）
-        selectedCategory = index
+        vm.selectCategory(index)
         setFilters(filters)
         LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId}) filter=$filters")
         // v0.44.0：drpy 分类首次选中时懒加载筛选组（PY 的筛选 homeContent 已带，不重复拉）
@@ -625,26 +632,27 @@ fun HomeScreen(
             scope.launch(Dispatchers.IO) {
                 val groups = runCatching { fetchDrpyFilters(cat.typeId) }.getOrNull().orEmpty()
                 if (groups.isNotEmpty()) {
-                    drpyCats = drpyCats.map { c ->
+                    vm.setCategories(drpyCats.map { c ->
                         if (c.typeId == cat.typeId) c.copy(filters = groups) else c
-                    }
+                    })
                     LogBus.i("UI", "分类 ${cat.typeName} 筛选加载：${groups.size} 组")
                 }
             }
         }
         // v0.52.0：分类内容缓存先行——详情页返回/重进时秒回，不白屏等网络
+        // v0.53.0：写 vm.categoryCache（selectedCategory=index 时 currentVideos 自动派生）
         val cacheKey = homeCacheKey()
         if (cacheKey != null && filters.isEmpty()) {
             scope.launch(Dispatchers.IO) {
                 val cached = HomeCache.loadCategoryVods(context, cacheKey, cat.typeId)
                 if (cached != null && myGen == contentGen) {
-                    drpyList = cached.first
+                    vm.setCategoryVideos(index, cached.first)
                     LogBus.i("UI", "分类 ${cat.typeName} 缓存先行：${cached.first.size} 条")
                 }
             }
         }
         categoryJob = scope.launch {
-            drpyLoading = true
+            vm.isLoading.value = true
             try {
                 // v0.17.3：加超时，避免 PY 卡死导致无响应
                 val list = withTimeoutOrNull(30_000) {
@@ -662,10 +670,11 @@ fun HomeScreen(
                         }
                     }
                 }
-                drpyList = list.ifEmpty { null }
+                // v0.53.0：写 vm.categoryCache；空列表也写（覆盖旧缓存，避免旧内容残留）
+                vm.setCategoryVideos(index, list)
             } finally {
                 // 只有最新请求才清 loading，避免旧请求的 finally 把新请求的转圈灭掉
-                if (myGen == contentGen) drpyLoading = false
+                if (myGen == contentGen) vm.isLoading.value = false
             }
         }
     }
@@ -675,21 +684,21 @@ fun HomeScreen(
         val key = homeCacheKey() ?: return
         catsFailed = false
         scope.launch {
-            drpyLoading = true
+            vm.isLoading.value = true
             val cats = runCatching {
                 withTimeoutOrNull(25_000) {
                     withContext(Dispatchers.IO) { engineCats() }
                 }
             }.getOrNull()
             if (!cats.isNullOrEmpty()) {
-                drpyCats = cats
+                vm.setCategories(cats)
                 runCatching { withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) } }
                 LogBus.i("Home", "分类重试成功：${cats.size} 个")
             } else {
                 catsFailed = true
                 LogBus.w("Home", "分类重试仍失败")
             }
-            drpyLoading = false
+            vm.isLoading.value = false
         }
     }
 
@@ -724,10 +733,12 @@ fun HomeScreen(
         }
         // v0.27.4：首页不再自动加载推荐流（用户手动下拉刷新才加载）；
         // 源变化时清掉旧数据，不再显示过期缓存
+        // v0.53.0：清 VM 的推荐/分类/分类内存缓存（换源了旧缓存不能留）
         if (changed || siteChanged || switched) {
-            drpyList = null
-            drpyCats = emptyList()
-            selectedCategory = 0
+            vm.setRecommend(emptyList())
+            vm.setCategories(emptyList())
+            vm.clearCategoryCache()
+            vm.selectCategory(0)
             setFilters(emptyMap())
             homeError = null
             // v0.31.0：失败计数按数据源 key 记在 HomeLoadGate 单例里，切源自然用新 key 的计数，无需手动清零
@@ -740,31 +751,30 @@ fun HomeScreen(
     }
 
     /**
-     * v0.27.6：tab 切回时 HomeScreen 的 remember 状态已被 dispose（drpyList 回到 null），
-     * 静默从 HomeCache 恢复当前源的内容。不转圈、不打网络。
-     * v0.28.0 真因修复：之前缓存没有时会调 loadHome() 走网络，而缓存检查是异步的，
-     * ON_RESUME/LaunchedEffect 高频触发时几十个协程排队调 loadHome，
-     * 全被 homeLoading guard 挡掉（"跳过重复触发"刷屏），且每次超时后 drpyList 仍空，
-     * 下一次触发又进循环。现在无缓存就什么都不做——v0.27.4 起首页本来就是干净空态，
+     * v0.27.6：tab 切回时 HomeScreen 的 remember 状态已被 dispose，静默从缓存恢复。
+     * v0.53.0（三点之3）：detail pop 回来时 VM 在 back stack 里没重建，
+     * currentVideos 第一帧就是缓存好的分类列表——vm.needRefreshOnReturn() 为 false
+     * 直接返回，什么都不做；只有 VM 也空（进程被杀等）才走磁盘缓存恢复。
+     * v0.28.0 真因修复：无缓存就什么都不做——v0.27.4 起首页本来就是干净空态，
      * 用户下拉刷新才会加载，符合"首页不自动加载"的设计。
      */
     fun restoreHomeIfEmpty() {
-        // v0.31.0：homeLoading 已并入 drpyLoading（单飞门接管防重入）
-        if (drpyList != null || !drpyActive || drpyLoading) return
+        // v0.53.0：VM 里有数据（detail 返回的常见情况）直接返回，不折腾
+        if (!vm.needRefreshOnReturn() || !drpyActive || drpyLoading) return
         val key = homeCacheKey() ?: return
         scope.launch {
             val cached = withContext(Dispatchers.IO) { HomeCache.load(context, key) }
-            if (drpyList != null) return@launch // 恢复期间用户已操作，不覆盖
+            if (!vm.needRefreshOnReturn()) return@launch // 恢复期间用户已操作，不覆盖
             val data = cached?.first
             if (data != null && (data.vods.isNotEmpty() || data.cats.isNotEmpty())) {
-                if (data.cats.isNotEmpty()) drpyCats = data.cats
-                // v0.31.2/v0.44.0：selectedCategory/filterEntries 已由 rememberSaveable 恢复。
+                if (data.cats.isNotEmpty()) vm.setCategories(data.cats)
+                // v0.31.2/v0.44.0：selectedCategory/filterEntries 已由 SavedStateHandle/rememberSaveable 恢复。
                 // 之前停在某个分类就重载它（保证选中和内容一致），否则才恢复首页缓存。
                 if (selectedCategory >= 1 && drpyCats.getOrNull(selectedCategory - 1) != null) {
                     LogBus.i("Home", "返回首页：恢复分类 ${drpyCats[selectedCategory - 1].typeName}")
                     loadDrpyCategory(selectedCategory, filterMap)
                 } else {
-                    if (data.vods.isNotEmpty()) drpyList = data.vods
+                    if (data.vods.isNotEmpty()) vm.setRecommend(data.vods)
                 }
                 LogBus.i("Home", "返回首页：缓存恢复 ${data.vods.size} 条/${data.cats.size} 个分类")
             }
@@ -810,7 +820,8 @@ fun HomeScreen(
     }
 
     // v0.27.4：首页不再自动加载，不再用演示数据冒充；无数据时显示干净空态
-    val drpyUiList: List<Vod>? = drpyList?.takeIf { it.isNotEmpty() }?.map { it.toUiVod() }
+    // v0.53.0：drpyList 恒不为 null（currentVideos 派生），空列表=无数据
+    val drpyUiList: List<Vod>? = drpyList.takeIf { it.isNotEmpty() }?.map { it.toUiVod() }
     val drpyReady = drpyUiList != null
     val chipLabels: List<String> =
         if (drpyCats.isNotEmpty()) listOf("全部") + drpyCats.map { it.typeName }
