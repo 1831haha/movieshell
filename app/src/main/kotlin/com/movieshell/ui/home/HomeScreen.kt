@@ -876,11 +876,12 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
             ) {
                 // v0.60：顶栏合一——搜索收成放大镜图标，历史/追剧/换源放一行（用户要求）
+                // v0.62：历史/追剧按内容自适应（不许被挤竖排），换源胶囊弹性收窄
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         // 搜索图标（v0.60：搜索框缩小为放大镜）
                         IconButton(onClick = onSearchClick) {
@@ -895,10 +896,9 @@ fun HomeScreen(
                             shape = RoundedCornerShape(20.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             onClick = onHistoryClick,
-                            modifier = Modifier.weight(1f),
                         ) {
                             Row(
-                                modifier = Modifier.padding(vertical = 10.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -906,13 +906,15 @@ fun HomeScreen(
                                     imageVector = Icons.Filled.History,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp),
+                                    modifier = Modifier.size(16.dp),
                                 )
-                                Spacer(Modifier.width(6.dp))
+                                Spacer(Modifier.width(4.dp))
                                 Text(
                                     text = "历史",
                                     style = SoftType.CardTitle,
                                     color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    softWrap = false,
                                 )
                             }
                         }
@@ -921,10 +923,9 @@ fun HomeScreen(
                             shape = RoundedCornerShape(20.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             onClick = onFollowClick,
-                            modifier = Modifier.weight(1f),
                         ) {
                             Row(
-                                modifier = Modifier.padding(vertical = 10.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -932,33 +933,37 @@ fun HomeScreen(
                                     imageVector = Icons.Filled.PlaylistAddCheck,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp),
+                                    modifier = Modifier.size(16.dp),
                                 )
-                                Spacer(Modifier.width(6.dp))
+                                Spacer(Modifier.width(4.dp))
                                 Text(
                                     text = "追剧",
                                     style = SoftType.CardTitle,
                                     color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    softWrap = false,
                                 )
                             }
                         }
-                        // 换源胶囊（v0.7.1 入口，v0.60 搬进顶栏一行）
+                        // 换源胶囊（v0.7.1 入口，v0.60 搬进顶栏一行；v0.62：弹性宽度，源名过长省略）
                         Surface(
                             shape = RoundedCornerShape(SoftDimens.ChipCorner),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { showSourceSheet = true },
+                            modifier = Modifier.weight(1f),
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
                             ) {
                                 Text(
                                     text = sourceLabel,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     style = SoftType.CardTitle,
                                     maxLines = 1,
+                                    softWrap = false,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.widthIn(max = 160.dp),
                                 )
                                 Icon(
                                     imageVector = Icons.Filled.ExpandMore,

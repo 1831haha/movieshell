@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.62.0",
+        date = "2026-10-17",
+        title = "顶栏排版修复+详情页直播",
+        details = listOf(
+            "修：首页历史/追剧胶囊被挤成竖排——改按内容自适应宽度，换源胶囊弹性收窄。",
+            "改：详情页头图去掉播放键和标题行，片名搬进简介卡顶部。",
+            "改：进详情页自动开始播放，不需要再点播放键。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.61.0",
         date = "2026-10-17",
         title = "小说源+阅读打磨",

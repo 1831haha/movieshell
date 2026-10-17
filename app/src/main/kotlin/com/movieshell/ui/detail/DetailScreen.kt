@@ -3,7 +3,6 @@ package com.movieshell.ui.detail
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,7 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -62,7 +60,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -257,6 +254,14 @@ fun DetailScreen(
     val safeSelected = if (lineEpisodes.isNotEmpty()) {
         selectedEpisode.coerceIn(0, lineEpisodes.size - 1)
     } else selectedEpisode
+    // v0.62：进详情页自动播放（用户要求，不需要点播放键）
+    var autoPlayed by remember { mutableStateOf(false) }
+    LaunchedEffect(detail, lineEpisodes) {
+        if (!autoPlayed && detail != null && lineEpisodes.isNotEmpty()) {
+            autoPlayed = true
+            playEpisode(lineEpisodes[safeSelected], safeLine, safeSelected)
+        }
+    }
     val playLabel = when {
         lineEpisodes.isNotEmpty() ->
             "播放 ${lineEpisodes[safeSelected].name.ifBlank { "第${safeSelected + 1}集" }}"
@@ -427,43 +432,7 @@ fun DetailScreen(
                                     )
                                 }
                                 // 文案区压暗（文字可读性，非页面底渐变）
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.verticalGradient(
-                                                0.4f to Color.Transparent,
-                                                1f to Color(0xAA000000),
-                                            )
-                                        )
-                                )
-                                // 居中播放按钮
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.Center)
-                                        .size(64.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.PlayArrow,
-                                        contentDescription = "播放",
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(40.dp),
-                                    )
-                                }
-                                Text(
-                                    text = vod.title,
-                                    modifier = Modifier
-                                        .align(Alignment.BottomStart)
-                                        .padding(SoftDimens.PagePadding)
-                                        .basicMarquee(), // v0.60：标题过长时滚动显示
-                                    color = Color.White,
-                                    // v0.60：标题字体 20sp→15sp，更小更耐看
-                                    style = SoftType.CardTitle,
-                                    maxLines = 1,
-                                )
+                                // v0.62：去掉居中播放键和标题行（用户要求：进来直接播，片名放简介卡）
                             }
                         }
                     }
@@ -476,6 +445,15 @@ fun DetailScreen(
                                 .padding(horizontal = SoftDimens.PagePadding),
                         ) {
                             Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
+                                // v0.62：片名搬进简介卡（头图上的标题行已去掉）
+                                Text(
+                                    text = vod.title,
+                                    style = SoftType.CardTitle,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(8.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         imageVector = Icons.Filled.Star,
