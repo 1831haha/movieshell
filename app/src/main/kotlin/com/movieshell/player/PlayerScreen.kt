@@ -178,7 +178,11 @@ fun PlayerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
-    var speedIndex by remember { mutableIntStateOf(2) } // 默认 1.0x
+    // v0.74.0：倍速记忆——从持久化恢复上次的倍速
+    var speedIndex by remember {
+        val saved = PlayerSettings.getSpeed(context)
+        mutableIntStateOf(SPEEDS.indexOf(saved).takeIf { it >= 0 } ?: 2) // 默认 1.0x
+    }
     var playModeIndex by remember { mutableIntStateOf(0) } // v0.65：循环模式，默认顺序播放
     var resizeIndex by remember { mutableIntStateOf(0) } // 默认适应
     var errorMsg by remember { mutableStateOf<String?>(null) }
@@ -389,6 +393,8 @@ fun PlayerScreen(
                         EngineHost.applySubtitleStyle(
                             PlayerSettings.subtitleStyle.value, playerView
                         )
+                        // v0.74.0：应用记忆的倍速
+                        EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
                     } else {
                         errorMsg = "播放启动失败，请检查地址或切换线路"
                     }
@@ -1268,6 +1274,8 @@ fun PlayerScreen(
                         onClick = {
                             speedIndex = (speedIndex + 1) % SPEEDS.size
                             EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
+                            // v0.74.0：倍速记忆
+                            PlayerSettings.setSpeed(context, SPEEDS[speedIndex])
                         },
                         modifier = Modifier.height(SoftDimens.TouchTarget),
                     ) {

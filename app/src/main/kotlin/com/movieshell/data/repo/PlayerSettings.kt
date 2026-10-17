@@ -52,6 +52,8 @@ object PlayerSettings {
     private const val KEY_SUB_OFFSET = "subtitle_style_offset"
     /** v0.27.7：重力感应自动横屏 */
     private const val KEY_GRAVITY_ROTATE = "gravity_rotate"
+    /** v0.74.0：倍速记忆 */
+    private const val KEY_SPEED = "player_speed"
 
     private val _engine = MutableStateFlow(PlayerEngine.MEDIA3)
     val engine: StateFlow<PlayerEngine> = _engine
@@ -161,5 +163,16 @@ object PlayerSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_GRAVITY_ROTATE, on).apply()
         _gravityRotate.value = on
+    }
+
+    /** v0.74.0：取记忆的倍速（默认 1.0x）。 */
+    fun getSpeed(context: Context): Float =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getFloat(KEY_SPEED, 1.0f).takeIf { it > 0f } ?: 1.0f
+
+    /** v0.74.0：记忆倍速。 */
+    fun setSpeed(context: Context, speed: Float) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putFloat(KEY_SPEED, speed).apply()
     }
 }
