@@ -265,8 +265,11 @@ fun DetailScreen(
     LaunchedEffect(followId) { following = FollowStore.isFollowing(context, followId) }
     // v0.71.0：追剧已看标记——看到第几集（-1=没看过）
     var watchedEp by remember { mutableIntStateOf(-1) }
+    // v0.73.0：断点续播——已读完"看到第几集"才能决定从哪集起播，自动播放等它
+    var resumeReady by remember { mutableStateOf(false) }
     LaunchedEffect(followId, following) {
         watchedEp = if (following) FollowStore.getWatchedEpisode(context, followId) else -1
+        resumeReady = true
     }
 
     // v0.71.0：带已看角标的选集 chip（追剧且看到该集时右上角 ✓）
@@ -338,11 +341,18 @@ fun DetailScreen(
     // v0.65：剧集高亮跟随实际播放（嵌入播放器内切集时同步）
     val highlightEp = if (embeddedUrl.isNotBlank()) playingEp else selectedEpisode
     // v0.62：进详情页自动播放（用户要求，不需要点播放键）
+    // v0.73.0：断点续播——追剧的剧从"看到第几集"继续播，而不是永远第1集
     var autoPlayed by remember { mutableStateOf(false) }
-    LaunchedEffect(detail, lineEpisodes) {
-        if (!autoPlayed && detail != null && lineEpisodes.isNotEmpty()) {
+    LaunchedEffect(detail, lineEpisodes, resumeReady) {
+        if (!autoPlayed && detail != null && lineEpisodes.isNotEmpty() && resumeReady) {
             autoPlayed = true
-            playEpisode(lineEpisodes[safeSelected], safeLine, safeSelected)
+            val startEp = if (following && watchedEp >= 0) {
+                watchedEp.coerceIn(lineEpisodes.indices)
+            } else {
+                safeSelected
+            }
+            selectedEpisode = startEp
+            playEpisode(lineEpisodes[startEp], safeLine, startEp)
         }
     }
     val playLabel = when {
