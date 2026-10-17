@@ -53,7 +53,10 @@ import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.TopAppBar
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -200,6 +203,9 @@ fun DetailScreen(
     }
 
     var selectedEpisode by remember { mutableIntStateOf(0) }
+    // v0.77.0：跳集弹窗
+    var showJumpDialog by remember { mutableStateOf(false) }
+    var jumpText by remember { mutableStateOf("") }
     // v0.47.0：简介默认折叠
     var descExpanded by remember { mutableStateOf(false) }
     var showMagnetDialog by remember { mutableStateOf(false) }
@@ -791,6 +797,14 @@ fun DetailScreen(
                                         horizontal = SoftDimens.PagePadding,
                                         vertical = 8.dp,
                                     ),
+                                    // v0.77.0：集数多时给"跳集"入口，短剧 60-80 集不用手翻
+                                    action = if (lineEpisodes.size > 20) {
+                                        {
+                                            TextButton(onClick = { showJumpDialog = true }) {
+                                                Text("跳集", fontSize = 13.sp)
+                                            }
+                                        }
+                                    } else null,
                                 )
                             }
                             item {
@@ -1160,6 +1174,43 @@ fun DetailScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showPlaylistPicker = false }) { Text("取消") }
+            },
+        )
+    }
+
+    // v0.77.0：跳集弹窗（集数>20 才有入口）
+    if (showJumpDialog) {
+        AlertDialog(
+            onDismissRequest = { showJumpDialog = false; jumpText = "" },
+            title = { Text("跳到第几集") },
+            text = {
+                OutlinedTextField(
+                    value = jumpText,
+                    onValueChange = { jumpText = it.filter { c -> c.isDigit() }.take(4) },
+                    label = { Text("输入集数（1-${lineEpisodes.size}）") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val n = jumpText.toIntOrNull()
+                        if (n != null && n in 1..lineEpisodes.size) {
+                            showJumpDialog = false
+                            jumpText = ""
+                            val idx = n - 1
+                            selectedEpisode = idx
+                            playEpisode(lineEpisodes[idx], safeLine, idx)
+                        }
+                    },
+                ) { Text("播放") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showJumpDialog = false; jumpText = "" }) {
+                    Text("取消")
+                }
             },
         )
     }
