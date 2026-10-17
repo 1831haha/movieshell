@@ -129,6 +129,8 @@ fun DetailScreen(
     vodId: String,
     // v0.47.0：列表页带过来的标题，加载中顶栏先显示它，不再显示裸 vodId（如 50767）
     initialTitle: String = "",
+    // v0.75.0：继续观看带过来的起播集（-1=不指定，走断点续播/默认逻辑）
+    initialEpisode: Int = -1,
     onBack: () -> Unit,
     onPlay: (playUrl: String, title: String) -> Unit = { _, _ -> },
 ) {
@@ -342,14 +344,15 @@ fun DetailScreen(
     val highlightEp = if (embeddedUrl.isNotBlank()) playingEp else selectedEpisode
     // v0.62：进详情页自动播放（用户要求，不需要点播放键）
     // v0.73.0：断点续播——追剧的剧从"看到第几集"继续播，而不是永远第1集
+    // v0.75.0：继续观看带集数进来时优先用它
     var autoPlayed by remember { mutableStateOf(false) }
     LaunchedEffect(detail, lineEpisodes, resumeReady) {
         if (!autoPlayed && detail != null && lineEpisodes.isNotEmpty() && resumeReady) {
             autoPlayed = true
-            val startEp = if (following && watchedEp >= 0) {
-                watchedEp.coerceIn(lineEpisodes.indices)
-            } else {
-                safeSelected
+            val startEp = when {
+                initialEpisode >= 0 -> initialEpisode.coerceIn(lineEpisodes.indices)
+                following && watchedEp >= 0 -> watchedEp.coerceIn(lineEpisodes.indices)
+                else -> safeSelected
             }
             selectedEpisode = startEp
             playEpisode(lineEpisodes[startEp], safeLine, startEp)

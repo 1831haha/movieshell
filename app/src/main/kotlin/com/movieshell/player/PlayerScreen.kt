@@ -247,7 +247,10 @@ fun PlayerScreen(
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         onDispose {
             controller?.show(WindowInsetsCompat.Type.systemBars())
-            savePlayerProgress(context, currentTitle, currentPlayUrl, isLive)
+            savePlayerProgress(
+                context, currentTitle, currentPlayUrl, isLive,
+                vodId, PlaySession.episodeIndex,
+            )
             // v0.63.0：看完自动删——本地下载文件播到 95% 以上且开关开着，删文件+清任务
             maybeAutoDeleteWatched(context, currentPlayUrl, isLive)
             PlaySession.playerVisible = false
@@ -326,6 +329,8 @@ fun PlayerScreen(
     // magnet: 地址不直接播，走 MagnetPlayer 探测本机转播服务后再起播；
     // 历史记录一律用原始 url（磁力链接本身）做 key，保证磁力也能断点续播
     var lastUrl by remember { mutableStateOf<String?>(null) }
+    // v0.75.0：存 prev 进度时用旧集数（PlaySession.episodeIndex 已先更新到新集）
+    var lastEpIdx by remember { mutableIntStateOf(PlaySession.episodeIndex) }
     // v0.25.0：起播链路顶层兜底——任何未预期异常转 Toast，绝不崩
     // v0.54：弹幕开关变化时按需加载/清空（不重进播放器也能开关）
     LaunchedEffect(danmakuEnabled) {
@@ -350,7 +355,12 @@ fun PlayerScreen(
             // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
             EngineHost.setEngineOverride(null)
             triedEngines.clear()
-            lastUrl?.let { prev -> savePlayerProgress(context, title, prev, isLive) }
+            lastUrl?.let { prev ->
+                savePlayerProgress(
+                    context, title, prev, isLive,
+                    vodId, lastEpIdx,
+                )
+            }
             if (playUrl.isNotBlank()) {
                 val resumeAt = HistoryStore.getProgress(context, playUrl)
                     .takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
@@ -401,6 +411,7 @@ fun PlayerScreen(
                 }
             }
             lastUrl = playUrl
+            lastEpIdx = PlaySession.episodeIndex
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
@@ -1560,7 +1571,14 @@ private fun fmtTime(ms: Long): String {
 }
 
 /** 读取当前进度并写入历史记录（v0.20.0：走 EngineHost，双引擎统一） */
-private fun savePlayerProgress(context: Context, title: String, url: String, isLive: Boolean = false) {
+private fun savePlayerProgress(
+    context: Context,
+    title: String,
+    url: String,
+    isLive: Boolean = false,
+    vodId: String? = null,
+    episodeIndex: Int = -1,
+) {
     val position = EngineHost.currentPosition()
     // v0.24.0：直播无进度概念也记一条（position 0），kind=live 供历史页分流
     if (!isLive && position <= 0) return
@@ -1571,6 +1589,9 @@ private fun savePlayerProgress(context: Context, title: String, url: String, isL
         positionMs = if (isLive) 0L else position,
         durationMs = EngineHost.duration(),
         kind = if (isLive) "live" else "vod",
+        // v0.75.0：继续观看用——记下剧 ID 和集数
+        vodId = vodId.orEmpty(),
+        episodeIndex = episodeIndex,
     )
 }
 

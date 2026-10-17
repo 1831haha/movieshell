@@ -21,6 +21,10 @@ data class HistoryEntry(
     val timestamp: Long = System.currentTimeMillis(),
     /** v0.24.0：vod=点播，live=直播（老数据缺字段时默认 vod） */
     val kind: String = "vod",
+    /** v0.75.0：剧 ID（老数据缺字段时默认 ""，不可用于继续观看） */
+    val vodId: String = "",
+    /** v0.75.0：集数下标（老数据缺字段时默认 -1） */
+    val episodeIndex: Int = -1,
 )
 
 /**
@@ -45,6 +49,8 @@ object HistoryStore {
         positionMs: Long,
         durationMs: Long = 0L,
         kind: String = "vod",
+        vodId: String = "",
+        episodeIndex: Int = -1,
     ) {
         if (url.isBlank()) return
         val list = getHistory(context).toMutableList()
@@ -58,6 +64,8 @@ object HistoryStore {
                 durationMs = durationMs.coerceAtLeast(0L),
                 timestamp = System.currentTimeMillis(),
                 kind = kind,
+                vodId = vodId,
+                episodeIndex = episodeIndex,
             ),
         )
         while (list.size > MAX_SIZE) list.removeLast()

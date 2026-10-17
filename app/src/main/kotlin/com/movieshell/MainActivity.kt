@@ -137,7 +137,7 @@ private val tabs = listOf(
     Tab("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings),
 )
 
-private const val DETAIL_ROUTE = "detail/{vodId}?title={title}"
+private const val DETAIL_ROUTE = "detail/{vodId}?title={title}&episode={episode}"
 
 class MainActivity : ComponentActivity() {
 
@@ -306,6 +306,12 @@ class MainActivity : ComponentActivity() {
                                 onFollowClick = { navController.navigate("follow") },
                                 // v0.35.0：小说书架
                                 onBookshelfClick = { navController.navigate("bookshelf") },
+                                // v0.75.0：继续观看——带集数进详情页
+                                onContinueWatch = { vodId, title, episode ->
+                                    navController.navigate(
+                                        "detail/${Uri.encode(vodId)}?title=${Uri.encode(title)}&episode=$episode",
+                                    )
+                                },
                             )
                         }
                         composable("search") {
@@ -523,13 +529,20 @@ class MainActivity : ComponentActivity() {
                                     type = NavType.StringType
                                     defaultValue = ""
                                 },
+                                // v0.75.0：可选起播集（继续观看带过来），-1=不指定
+                                navArgument("episode") {
+                                    type = NavType.IntType
+                                    defaultValue = -1
+                                },
                             ),
                         ) { entry ->
                             val detailVodId = entry.arguments?.getString("vodId").orEmpty()
                             val detailTitle = entry.arguments?.getString("title").orEmpty()
+                            val detailEpisode = entry.arguments?.getInt("episode", -1) ?: -1
                             DetailScreen(
                                 vodId = detailVodId,
                                 initialTitle = detailTitle,
+                                initialEpisode = detailEpisode,
                                 onBack = { navController.popBackStack() },
                                 onPlay = { playUrl, title ->
                                     // DetailScreen 已做完播放决策（磁力/直链解析）：

@@ -19,10 +19,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -101,6 +103,8 @@ import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.PosterCard
+import com.movieshell.player.HistoryEntry
+import com.movieshell.player.HistoryStore
 import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.FlowingGlowBackground
@@ -153,6 +157,9 @@ fun HomeScreen(
     onFollowClick: () -> Unit = {},
     // v0.35.0：小说书架入口
     onBookshelfClick: () -> Unit = {},
+    // v0.75.0：继续观看——带集数进详情页（默认走 onVodClick）
+    onContinueWatch: (vodId: String, title: String, episodeIndex: Int) -> Unit =
+        { v, t, _ -> onVodClick(v, t) },
 ) {
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
@@ -293,6 +300,24 @@ fun HomeScreen(
     val homeLifecycle = LocalLifecycleOwner.current.lifecycle
     fun isHomeForeground(): Boolean =
         homeLifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+
+    // v0.75.0：继续观看——每次回到首页刷新（只留有点播 vodId、没看完的）
+    var watchHistory by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
+    fun reloadWatchHistory() {
+        watchHistory = HistoryStore.getHistory(context)
+            .filter { e ->
+                e.kind == "vod" && e.vodId.isNotBlank() &&
+                    !(e.durationMs > 0 && e.positionMs >= e.durationMs * 0.95)
+            }
+            .take(10)
+    }
+    DisposableEffect(homeLifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) reloadWatchHistory()
+        }
+        homeLifecycle.addObserver(observer)
+        onDispose { homeLifecycle.removeObserver(observer) }
+    }
 
     /** v0.25.0：当前数据源的缓存 key（订阅站 key / 本地规则名） */
     fun homeCacheKey(): String? = when {
@@ -971,6 +996,67 @@ fun HomeScreen(
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp),
                                 )
+                            }
+                        }
+                    }
+                }
+                // v0.75.0：继续观看——有未看完的点播记录时，顶栏下方横滑一排
+                if (watchHistory.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            SectionTitle(title = "继续观看")
+                            Spacer(Modifier.height(8.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                contentPadding = PaddingValues(end = 4.dp),
+                            ) {
+                                items(watchHistory, key = { it.url }) { h ->
+                                    val progress = if (h.durationMs > 0) {
+                                        (h.positionMs.toFloat() / h.durationMs).coerceIn(0f, 1f)
+                                    } else 0f
+                                    Surface(
+                                        shape = RoundedCornerShape(SoftDimens.CardCorner),
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        onClick = {
+                                            onContinueWatch(
+                                                h.vodId, h.title,
+                                                h.episodeIndex.coerceAtLeast(0),
+                                            )
+                                        },
+                                        modifier = Modifier.width(180.dp),
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        ) {
+                                            Text(
+                                                text = h.title,
+                                                style = SoftType.CardTitle,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Text(
+                                                text = if (h.episodeIndex >= 0) {
+                                                    "第${h.episodeIndex + 1}集 · 看到${(progress * 100).toInt()}%"
+                                                } else {
+                                                    "看到${(progress * 100).toInt()}%"
+                                                },
+                                                style = SoftType.Caption,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            LinearProgressIndicator(
+                                                progress = { progress },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(4.dp)
+                                                    .clip(RoundedCornerShape(2.dp)),
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
