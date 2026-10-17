@@ -79,6 +79,49 @@ class ParseApi(
     }
 
     /**
+     * 测活（v0.78.0）：快速判断一条解析线路是否可用，10 秒超时。
+     * - type=1（JSON）：GET `url + 测试地址`，返回合法 JSON 即算存活
+     *   （即使是报错 JSON，也说明服务本身在）。
+     * - type=0（嗅探）：GET 解析页基地址，HTTP 200 即算存活
+     *   （不做完整 WebView 嗅探，那个太慢；只验域名/服务在不在）。
+     */
+    suspend fun probe(parse: ParseConfig): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            withTimeoutOrNull(10_000L) {
+                when (parse.type) {
+                    1 -> {
+                        val base = parse.url.trim()
+                        if (base.isBlank()) return@withTimeoutOrNull false
+                        val full = base + URLEncoder.encode(
+                            "https://v.qq.com/x/cover/test.html", Charsets.UTF_8.name()
+                        )
+                        val builder = Request.Builder().url(full).get()
+                        parse.header.forEach { (k, v) ->
+                            if (k.isNotBlank() && v.isNotBlank()) {
+                                runCatching { builder.header(k, v) }
+                            }
+                        }
+                        client.newCall(builder.build()).execute().use { resp ->
+                            if (!resp.isSuccessful) return@withTimeoutOrNull false
+                            val body = resp.body?.string().orEmpty().trim()
+                            runCatching { json.parseToJsonElement(body).jsonObject }
+                                .isSuccess
+                        }
+                    }
+                    else -> {
+                        val base = parse.url.trim()
+                        if (base.isBlank()) return@withTimeoutOrNull false
+                        val builder = Request.Builder().url(base).get()
+                        client.newCall(builder.build()).execute().use { resp ->
+                            resp.isSuccessful
+                        }
+                    }
+                }
+            } ?: false
+        }.getOrDefault(false)
+    }
+
+    /**
      * type=1：GET `parse.url + urlencode(videoUrl)`，带 parse.header；
      * 返回 JSON 取 `url` / `data.url`；取不到或请求失败返回 ""。
      */

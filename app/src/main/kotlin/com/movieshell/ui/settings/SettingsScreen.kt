@@ -28,7 +28,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Cached
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
@@ -40,6 +42,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.Restore
@@ -87,6 +90,7 @@ import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.ParseStore
+import com.movieshell.data.source.ParseApi
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.player.MpvPluginLoader
@@ -139,6 +143,10 @@ fun SettingsScreen(
     var cacheSize by remember { mutableStateOf("128 MB") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showAddParseDialog by remember { mutableStateOf(false) } // v0.19.0：自定义解析接口
+    // v0.78.0：解析测活（index -> true 存活 / false 失效；testing 记录正在测的）
+    var parseProbeResults by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
+    var parseTesting by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var parseProbingAll by remember { mutableStateOf(false) }
     // v0.23.0：插件市场源（多源）+ 显示不兼容插件开关
     val marketSources by PluginStore.marketSources.collectAsState()
     val activeMarketIdx by PluginStore.activeMarketIdx.collectAsState()
@@ -260,6 +268,7 @@ fun SettingsScreen(
             }
             Spacer(Modifier.height(SoftDimens.CardSpacing))
             // v0.19.0：自定义解析接口（优先于订阅自带 parses）
+            // v0.78.0：预装 16 条 + 一键测活
             SettingsGroup(title = "解析接口") {
                 val customParses by ParseStore.custom.collectAsState()
                 SettingsRow(
@@ -268,19 +277,80 @@ fun SettingsScreen(
                     subtitle = "自定义 jx 解析，播放时优先尝试",
                     onClick = { showAddParseDialog = true },
                 )
+                if (customParses.isNotEmpty()) {
+                    SettingsRow(
+                        icon = Icons.Filled.NetworkCheck,
+                        title = "一键测活",
+                        subtitle = if (parseProbingAll) "测试中…" else "逐条检测线路是否可用",
+                        onClick = {
+                            if (parseProbingAll) return@SettingsRow
+                            parseProbingAll = true
+                            parseTesting = customParses.indices.toSet()
+                            scope.launch {
+                                val api = ParseApi()
+                                customParses.forEachIndexed { i, p ->
+                                    val ok = api.probe(p)
+                                    parseProbeResults = parseProbeResults + (i to ok)
+                                    parseTesting = parseTesting - i
+                                }
+                                parseProbingAll = false
+                            }
+                        },
+                    )
+                }
                 customParses.forEachIndexed { index, parse ->
+                    val probeState = parseProbeResults[index]
                     SettingsRow(
                         icon = Icons.Filled.Link,
                         title = parse.name,
-                        subtitle = "${if (parse.type == 1) "JSON" else "嗅探"} · ${parse.url}",
-                        onClick = { },
+                        subtitle = buildString {
+                            append(if (parse.type == 1) "JSON" else "嗅探")
+                            append(" · ${parse.url}")
+                            when (probeState) {
+                                true -> append(" · 正常")
+                                false -> append(" · 失效")
+                                null -> {}
+                            }
+                        },
+                        onClick = {
+                            // 点单条即测活这一条
+                            if (index !in parseTesting && !parseProbingAll) {
+                                parseTesting = parseTesting + index
+                                scope.launch {
+                                    val ok = ParseApi().probe(parse)
+                                    parseProbeResults = parseProbeResults + (index to ok)
+                                    parseTesting = parseTesting - index
+                                }
+                            }
+                        },
                         trailing = {
-                            IconButton(onClick = { ParseStore.remove(context, index) }) {
-                                Icon(
-                                    Icons.Filled.Delete,
-                                    contentDescription = "删除",
-                                    tint = MaterialTheme.colorScheme.error,
-                                )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                when (parseProbeResults[index]) {
+                                    true -> Icon(
+                                        Icons.Filled.CheckCircle,
+                                        contentDescription = "正常",
+                                        tint = Color(0xFF4CAF50),
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    false -> Icon(
+                                        Icons.Filled.Cancel,
+                                        contentDescription = "失效",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    null -> {}
+                                }
+                                IconButton(onClick = {
+                                    ParseStore.remove(context, index)
+                                    // 删一条后序号错位，清掉全部测活结果
+                                    parseProbeResults = emptyMap()
+                                }) {
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = "删除",
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                }
                             }
                         },
                     )
