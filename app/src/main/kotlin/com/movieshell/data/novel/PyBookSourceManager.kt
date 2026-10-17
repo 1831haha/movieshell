@@ -106,7 +106,11 @@ object PyBookSourceManager {
             } ?: return@withContext ImportResult.Failed("无法读取所选文件")
             // 校验：书源类必须有 bookSearch 方法（与桥的 _load_book_spider 判定一致）
             val head = runCatching {
-                dst.inputStream().use { it.readBytes(8192).toString(Charsets.UTF_8) }
+                dst.inputStream().use { ins ->
+                    val buf = ByteArray(8192)
+                    val n = ins.read(buf)
+                    if (n > 0) String(buf, 0, n, Charsets.UTF_8) else ""
+                }
             }.getOrDefault("")
             if (!head.contains("bookSearch")) {
                 dst.delete()

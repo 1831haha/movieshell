@@ -209,7 +209,6 @@ fun BookSourceScreen(onBack: () -> Unit = {}) {
                         }
                     }
                 }
-            }
             if (sources.isEmpty() && pyRules.isEmpty()) {
                 item(key = "empty") {
                     Box(
@@ -224,6 +223,7 @@ fun BookSourceScreen(onBack: () -> Unit = {}) {
                 }
             }
         }
+    }
 
     if (showImport) {
         AlertDialog(
