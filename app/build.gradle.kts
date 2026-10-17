@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 116
-        versionName = "0.69.0"
+        versionCode = 117
+        versionName = "0.70.0"
 
         vectorDrawables {
             useSupportLibrary = true
