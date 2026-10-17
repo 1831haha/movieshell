@@ -25,14 +25,14 @@ object HuyaApi {
 
     data class Category(val name: String, val gameId: Int?)
 
-    /** v0.79.0：gameId 均经实测验证（2026-10-17） */
+    /** v0.79.0：gameId 均经实测验证（2026-10-17，附在线房间数） */
     val CATEGORIES = listOf(
         Category("全部", null),
-        Category("英雄联盟", 1),
-        Category("王者荣耀", 2336),
-        Category("吃鸡", 2793),
-        Category("穿越火线", 4),
-        Category("一起看", 2135),
+        Category("英雄联盟", 1), // 646 间在线
+        Category("王者荣耀", 2336), // 601 间在线
+        Category("和平精英", 3203), // 258 间在线
+        Category("户外", 2165), // 271 间在线
+        Category("颜值", 2168), // 24 间在线
     )
 
     data class Room(
