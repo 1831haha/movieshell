@@ -3,6 +3,7 @@ package com.movieshell.ui.detail
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -456,9 +457,12 @@ fun DetailScreen(
                                     text = vod.title,
                                     modifier = Modifier
                                         .align(Alignment.BottomStart)
-                                        .padding(SoftDimens.PagePadding),
+                                        .padding(SoftDimens.PagePadding)
+                                        .basicMarquee(), // v0.60：标题过长时滚动显示
                                     color = Color.White,
-                                    style = SoftType.Title,
+                                    // v0.60：标题字体 20sp→15sp，更小更耐看
+                                    style = SoftType.CardTitle,
+                                    maxLines = 1,
                                 )
                             }
                         }
@@ -522,7 +526,8 @@ fun DetailScreen(
                                     style = SoftType.Body,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     lineHeight = 22.sp,
-                                    maxLines = if (descExpanded) Int.MAX_VALUE else 3,
+                                    // v0.60：折叠时只显示 2 行，更收窄
+                                    maxLines = if (descExpanded) Int.MAX_VALUE else 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }

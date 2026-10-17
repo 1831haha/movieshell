@@ -100,7 +100,6 @@ import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.PosterCard
-import com.movieshell.ui.components.SearchCapsule
 import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.FlowingGlowBackground
@@ -875,54 +874,21 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
                 horizontalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
             ) {
-                // v0.47.0：胶囊搜索框 + 右侧换源胶囊（随机开片、私人放映已删；换源胶囊从下方行搬上来）
+                // v0.60：顶栏合一——搜索收成放大镜图标，历史/追剧/换源放一行（用户要求）
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        SearchCapsule(
-                            placeholder = "搜索影片、剧集、源",
-                            onClick = onSearchClick,
-                            modifier = Modifier.weight(1f),
-                        )
-                        // 换源胶囊（v0.7.1 入口）
-                        Surface(
-                            shape = RoundedCornerShape(SoftDimens.ChipCorner),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            onClick = { showSourceSheet = true },
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = sourceLabel,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    style = SoftType.CardTitle,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.widthIn(max = 160.dp),
-                                )
-                                Icon(
-                                    imageVector = Icons.Filled.ExpandMore,
-                                    contentDescription = "切换站源",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // v0.39.0：站源切换入口（保留功能，mockup 风格胶囊）
-                // v0.59：顶部一栏——历史 + 追剧（用户要求从图标行升级为顶栏胶囊）
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        // 搜索图标（v0.60：搜索框缩小为放大镜）
+                        IconButton(onClick = onSearchClick) {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = "搜索",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         // 历史胶囊
                         Surface(
                             shape = RoundedCornerShape(20.dp),
@@ -972,6 +938,32 @@ fun HomeScreen(
                                     text = "追剧",
                                     style = SoftType.CardTitle,
                                     color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                        // 换源胶囊（v0.7.1 入口，v0.60 搬进顶栏一行）
+                        Surface(
+                            shape = RoundedCornerShape(SoftDimens.ChipCorner),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = { showSourceSheet = true },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = sourceLabel,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    style = SoftType.CardTitle,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 160.dp),
+                                )
+                                Icon(
+                                    imageVector = Icons.Filled.ExpandMore,
+                                    contentDescription = "切换站源",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
                                 )
                             }
                         }

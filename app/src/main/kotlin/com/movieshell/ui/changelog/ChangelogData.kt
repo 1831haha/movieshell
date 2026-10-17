@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.60.0",
+        date = "2026-10-17",
+        title = "详情标题缩小+顶栏合一",
+        details = listOf(
+            "改：详情页头图标题字体缩小（20sp→15sp），过长时滚动显示。",
+            "改：简介折叠时只显示 2 行，更收窄。",
+            "改：首页搜索框收成放大镜图标，历史/追剧/换源胶囊并入同一行。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.59.0",
         date = "2026-10-17",
         title = "首页顶栏+状态条+空态修复",
