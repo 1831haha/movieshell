@@ -64,6 +64,12 @@ object FollowStore {
     suspend fun isFollowing(context: Context, id: String): Boolean =
         withContext(Dispatchers.IO) { readAll(context).any { it.id == id } }
 
+    /** v0.71.0：读"看到第几集"（-1=没看过），供详情页选集已看标记。 */
+    suspend fun getWatchedEpisode(context: Context, id: String): Int =
+        withContext(Dispatchers.IO) {
+            readAll(context).find { it.id == id }?.watchedEpisode ?: -1
+        }
+
     /** 幂等追剧：已存在则刷新集数。 */
     suspend fun follow(context: Context, item: FollowItem): Boolean =
         withContext(Dispatchers.IO) {

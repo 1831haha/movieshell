@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandLess
@@ -262,6 +263,31 @@ fun DetailScreen(
     val followId = remember(vodId, followSourceKey) { FollowStore.idOf(followSourceKey, vodId) }
     var following by remember { mutableStateOf(false) }
     LaunchedEffect(followId) { following = FollowStore.isFollowing(context, followId) }
+    // v0.71.0：追剧已看标记——看到第几集（-1=没看过）
+    var watchedEp by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(followId, following) {
+        watchedEp = if (following) FollowStore.getWatchedEpisode(context, followId) else -1
+    }
+
+    // v0.71.0：带已看角标的选集 chip（追剧且看到该集时右上角 ✓）
+    @Composable
+    fun EpisodeChip(index: Int, name: String, selected: Boolean, onClick: () -> Unit) {
+        Box {
+            AppChip(text = name, selected = selected, onClick = onClick)
+            if (following && index <= watchedEp) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = "已看",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 5.dp, y = (-5).dp)
+                        .size(15.dp)
+                        .background(MaterialTheme.colorScheme.surface, CircleShape),
+                )
+            }
+        }
+    }
     var showDownloadDialog by remember { mutableStateOf(false) }
     var showOnlineSubtitle by remember { mutableStateOf(false) } // v0.28.0：在线字幕搜索
     // v0.49.0：SubHD 内置，入口常显（v0.30.0 的插件门禁删除）
@@ -278,7 +304,11 @@ fun DetailScreen(
         LogBus.i("UI", "点击播放: ${ep.name.ifBlank { "未命名剧集" }} url=${ep.url.take(100)}")
         // v0.26.0：追剧看到第几集联动
         if (following) {
-            scope.launch { FollowStore.markWatched(context, followId, episodeIndex) }
+            scope.launch {
+                FollowStore.markWatched(context, followId, episodeIndex)
+                // v0.71.0：已看角标实时跟上
+                watchedEp = maxOf(watchedEp, episodeIndex)
+            }
         }
         scope.launch {
             if (MagnetPlayer.isMagnet(ep.url)) {
@@ -772,8 +802,10 @@ fun DetailScreen(
                                 ) {
                                     items(lineEpisodes.size) { i ->
                                         val ep = lineEpisodes[i]
-                                        AppChip(
-                                            text = ep.name.ifBlank { "第${i + 1}集" },
+                                        // v0.71.0：已看角标
+                                        EpisodeChip(
+                                            index = i,
+                                            name = ep.name.ifBlank { "第${i + 1}集" },
                                             // v0.65：高亮跟随实际播放
                                             selected = highlightEp == i,
                                             // v0.65：点选集直接播（对标目标界面）
@@ -803,8 +835,10 @@ fun DetailScreen(
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
                                     repeat(vod.episodes) { i ->
-                                        AppChip(
-                                            text = "第${i + 1}集",
+                                        // v0.71.0：已看角标
+                                        EpisodeChip(
+                                            index = i,
+                                            name = "第${i + 1}集",
                                             // v0.65：高亮跟随实际播放
                                             selected = highlightEp == i,
                                             onClick = { selectedEpisode = i },
