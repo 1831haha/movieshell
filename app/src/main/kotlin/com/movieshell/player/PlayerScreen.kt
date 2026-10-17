@@ -917,7 +917,8 @@ fun PlayerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                    // v0.69.1：嵌入模式收窄上下黑边——顶栏只留一行，纵向 padding 置 0
+                    .padding(horizontal = 4.dp, vertical = if (embedded) 0.dp else 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
@@ -930,6 +931,16 @@ fun PlayerScreen(
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
+                // v0.69.1：嵌入模式分辨率并入标题行（单独的分辨率行只在全屏保留）
+                if (embedded && streamInfo.isNotBlank()) {
+                    Text(
+                        text = streamInfo,
+                        color = Color.White.copy(alpha = 0.7f),
+                        style = SoftType.Caption,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
                 // v0.24.0：直播角标（v0.27.0：柔和错误色胶囊）
                 if (isLive) {
                     Surface(
@@ -1036,7 +1047,8 @@ fun PlayerScreen(
                 }
             }
             // v0.65：分辨率行（对标目标界面 3840x1920 · 码率）
-            if (streamInfo.isNotBlank()) {
+            // v0.69.1：嵌入模式已并入标题行，这里只在全屏显示
+            if (streamInfo.isNotBlank() && !embedded) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.End,
@@ -1162,7 +1174,8 @@ fun PlayerScreen(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .background(Color.Black)
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                    // v0.69.1：嵌入模式收窄底部黑边
+                    .padding(horizontal = 12.dp, vertical = if (embedded) 0.dp else 2.dp),
             ) {
                 // 第一行：当前时间 + 进度条 + 总时长
                 Row(
@@ -1210,11 +1223,14 @@ fun PlayerScreen(
                             tint = Color.White,
                         )
                     }
-                    Text(
-                        text = "${fmtTime(if (scrubbing) scrubPos else pos)} / ${fmtTime(dur)}",
-                        color = Color.White,
-                        style = SoftType.Caption,
-                    )
+                    // v0.69.1：嵌入模式去掉重复的时间文本（进度条行已有），收窄底部黑边
+                    if (!embedded) {
+                        Text(
+                            text = "${fmtTime(if (scrubbing) scrubPos else pos)} / ${fmtTime(dur)}",
+                            color = Color.White,
+                            style = SoftType.Caption,
+                        )
+                    }
                     if (!isLive) {
                         val hasPrev = PlaySession.episodeIndex > 0
                         val hasNext = PlaySession.currentLine()?.episodes

@@ -72,8 +72,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -645,11 +647,47 @@ fun DetailScreen(
                                 )
                                 // 第四行：操作图标（复制链接 / 下载 / 刷新 / 字幕）
                                 Spacer(Modifier.height(8.dp))
+                                // v0.69.1：操作图标下方加炫彩小字
+                                val rainbowBrush = remember {
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            Color(0xFF22D3EE),
+                                            Color(0xFF818CF8),
+                                            Color(0xFFE879F9),
+                                            Color(0xFFFBBF24),
+                                        ),
+                                    )
+                                }
+
+                                @Composable
+                                fun ActionIcon(
+                                    label: String,
+                                    onClick: () -> Unit,
+                                    enabled: Boolean = true,
+                                    icon: @Composable () -> Unit,
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        IconButton(onClick = onClick, enabled = enabled) {
+                                            icon()
+                                        }
+                                        Text(
+                                            text = label,
+                                            style = TextStyle(
+                                                brush = rainbowBrush,
+                                                fontSize = 10.sp,
+                                            ),
+                                            maxLines = 1,
+                                        )
+                                    }
+                                }
+
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
-                                    IconButton(onClick = {
+                                    ActionIcon(label = "复制链接", onClick = {
                                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE)
                                             as android.content.ClipboardManager
                                         cm.setPrimaryClip(
@@ -661,16 +699,17 @@ fun DetailScreen(
                                     }) {
                                         Icon(Icons.Filled.Link, contentDescription = "复制链接")
                                     }
-                                    IconButton(
+                                    ActionIcon(
+                                        label = "下载",
                                         onClick = { showDownloadDialog = true },
                                         enabled = lineEpisodes.isNotEmpty(),
                                     ) {
                                         Icon(Icons.Filled.Download, contentDescription = "下载")
                                     }
-                                    IconButton(onClick = { reloadDetail() }) {
+                                    ActionIcon(label = "刷新", onClick = { reloadDetail() }) {
                                         Icon(Icons.Filled.Refresh, contentDescription = "刷新")
                                     }
-                                    IconButton(onClick = { showOnlineSubtitle = true }) {
+                                    ActionIcon(label = "字幕", onClick = { showOnlineSubtitle = true }) {
                                         Icon(Icons.Filled.Subtitles, contentDescription = "在线字幕")
                                     }
                                 }
