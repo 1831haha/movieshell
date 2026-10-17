@@ -4,8 +4,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.content.Intent
 import android.util.Rational
+import android.view.KeyEvent
 import android.app.PictureInPictureParams
 import android.widget.Toast
+import com.movieshell.ui.reader.VolumeKeyRouter
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.tween
@@ -572,6 +574,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    // v0.72.0：音量键翻页——阅读器注册回调后接管音量键
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_VOLUME_UP -> {
+                    if (VolumeKeyRouter.onVolumeUp?.invoke() == true) return true
+                }
+                KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    if (VolumeKeyRouter.onVolumeDown?.invoke() == true) return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onDestroy() {

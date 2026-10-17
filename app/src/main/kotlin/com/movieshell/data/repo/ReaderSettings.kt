@@ -14,6 +14,7 @@ object ReaderSettings {
     private const val KEY_SERIF = "reader_serif"
     private const val KEY_LINE_RATIO = "reader_line_ratio"
     private const val KEY_BRIGHTNESS = "reader_brightness"
+    private const val KEY_VOLUME_PAGE = "reader_volume_page"
 
     data class Settings(
         val fontSize: Int = 18,
@@ -21,6 +22,8 @@ object ReaderSettings {
         val serifFont: Boolean = false,
         val lineHeightRatio: Float = 1.8f,
         val brightness: Float = -1f, // -1=跟随系统
+        /** v0.72.0：音量键翻页（默认关） */
+        val volumePageTurn: Boolean = false,
     )
 
     fun load(context: Context): Settings {
@@ -31,6 +34,7 @@ object ReaderSettings {
             serifFont = p.getBoolean(KEY_SERIF, false),
             lineHeightRatio = p.getFloat(KEY_LINE_RATIO, 1.8f).coerceIn(1.2f, 2.4f),
             brightness = p.getFloat(KEY_BRIGHTNESS, -1f),
+            volumePageTurn = p.getBoolean(KEY_VOLUME_PAGE, false),
         )
     }
 
@@ -41,6 +45,7 @@ object ReaderSettings {
             .putBoolean(KEY_SERIF, s.serifFont)
             .putFloat(KEY_LINE_RATIO, s.lineHeightRatio)
             .putFloat(KEY_BRIGHTNESS, s.brightness)
+            .putBoolean(KEY_VOLUME_PAGE, s.volumePageTurn)
             .apply()
     }
 }

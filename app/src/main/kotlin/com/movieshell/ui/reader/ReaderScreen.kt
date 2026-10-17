@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -97,16 +98,45 @@ fun ReaderScreen(
     // v0.61.0：沉浸模式（点中央切换）、正文加载中
     var immersive by remember { mutableStateOf(false) }
     var contentLoading by remember { mutableStateOf(false) }
+    // v0.72.0：音量键翻页
+    var volumePageTurn by remember { mutableStateOf(savedSettings.volumePageTurn) }
+    var pageHeight by remember { mutableIntStateOf(0) }
 
     // v0.61.0：设置变化即存档
-    LaunchedEffect(fontSize, nightMode, serifFont, lineHeightRatio, brightness) {
+    LaunchedEffect(fontSize, nightMode, serifFont, lineHeightRatio, brightness, volumePageTurn) {
         ReaderSettings.save(
             context,
-            ReaderSettings.Settings(fontSize, nightMode, serifFont, lineHeightRatio, brightness),
+            ReaderSettings.Settings(
+                fontSize, nightMode, serifFont, lineHeightRatio, brightness, volumePageTurn,
+            ),
         )
     }
 
     val scrollState = rememberScrollState()
+
+    // v0.72.0：音量键翻页注册（开着才接管音量键，离开页面/关掉即释放）
+    DisposableEffect(volumePageTurn) {
+        if (volumePageTurn) {
+            VolumeKeyRouter.onVolumeUp = {
+                scope.launch {
+                    scrollState.animateScrollTo((scrollState.value - pageHeight).coerceAtLeast(0))
+                }
+                true
+            }
+            VolumeKeyRouter.onVolumeDown = {
+                scope.launch {
+                    scrollState.animateScrollTo(
+                        (scrollState.value + pageHeight).coerceAtMost(scrollState.maxValue),
+                    )
+                }
+                true
+            }
+        }
+        onDispose {
+            VolumeKeyRouter.onVolumeUp = null
+            VolumeKeyRouter.onVolumeDown = null
+        }
+    }
 
     // v0.36.0：亮度 Slider 直接写 Activity 的 Window
     val activity = context as? Activity
@@ -131,27 +161,38 @@ fun ReaderScreen(
     // v0.61.0：在线书源章节正文按需拉取（本地 TXT 导入的 content 本来就有，不走这里）
     // v0.64.0：本地 PY 书源的书（sourceKey 以 "pybook:" 开头）走 PY 链路
     // 注意：局部 fun 必须先声明后调用，故放在 LaunchedEffect 之前
+    /** v0.72.0：拉取章节正文并写库（纯 IO，不碰 UI 状态），返回是否拿到正文。 */
+    suspend fun fetchChapter(index: Int): Boolean {
+        val c = chapters.getOrNull(index) ?: return false
+        if (c.content.isNotBlank() || c.url.isBlank()) return true
+        val n = novel ?: return false
+        val text = runCatching {
+            if (n.sourceKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
+                NovelSourceEngine.contentPy(context, ChapterMeta(index, c.title, c.url), n.sourceKey)
+            } else {
+                val source = BookSourceManager.sources.value
+                    .firstOrNull { it.key == n.sourceKey }
+                    ?: return@runCatching ""
+                NovelSourceEngine.content(source, ChapterMeta(index, c.title, c.url))
+            }
+        }.getOrDefault("")
+        if (text.isNotBlank()) {
+            NovelStore.updateChapterContent(context, n.id, index, text)
+            chapters = chapters.map { if (it.index == index) it.copy(content = text) else it }
+            return true
+        }
+        return false
+    }
+
     fun ensureContent(index: Int) {
         val c = chapters.getOrNull(index) ?: return
         if (c.content.isNotBlank() || c.url.isBlank()) return
-        val n = novel ?: return
         scope.launch {
             contentLoading = true
-            val text = runCatching {
-                if (n.sourceKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
-                    NovelSourceEngine.contentPy(context, ChapterMeta(index, c.title, c.url), n.sourceKey)
-                } else {
-                    val source = BookSourceManager.sources.value
-                        .firstOrNull { it.key == n.sourceKey }
-                        ?: return@runCatching ""
-                    NovelSourceEngine.content(source, ChapterMeta(index, c.title, c.url))
-                }
-            }.getOrDefault("")
-            if (text.isNotBlank()) {
-                NovelStore.updateChapterContent(context, n.id, index, text)
-                chapters = chapters.map { if (it.index == index) it.copy(content = text) else it }
-            }
+            fetchChapter(index)
             contentLoading = false
+            // v0.72.0：预加载下一章（后台静默，不碰 contentLoading）
+            launch { fetchChapter(index + 1) }
         }
     }
 
@@ -282,6 +323,8 @@ fun ReaderScreen(
         Box(
             modifier = Modifier
                 .weight(1f)
+                // v0.72.0：记下可视高度，音量键按页滚
+                .onSizeChanged { pageHeight = it.height }
                 .clickable { immersive = !immersive },
         ) {
             if (!loaded) {
@@ -464,6 +507,18 @@ fun ReaderScreen(
                         valueRange = 0.05f..1f,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Spacer(Modifier.height(8.dp))
+                    // v0.72.0：音量键翻页
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("音量键翻页", fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { volumePageTurn = !volumePageTurn }) {
+                            Text(
+                                if (volumePageTurn) "开" else "关",
+                                color = if (volumePageTurn) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
