@@ -255,6 +255,8 @@ fun PlayerScreen(
             maybeAutoDeleteWatched(context, currentPlayUrl, isLive)
             PlaySession.playerVisible = false
             PlaySession.clear()
+            // v0.78.1：退出播放页必须停播放器，否则退到后台还在响
+            EngineHost.stop()
             // v0.27.7：退出播放器恢复系统默认方向 + 停重力感应
             OrientationSensor.stop()
             (context as? Activity)?.let {
