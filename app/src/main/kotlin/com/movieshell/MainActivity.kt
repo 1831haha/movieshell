@@ -93,6 +93,7 @@ import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
 import com.movieshell.ui.follow.FollowScreen
 import com.movieshell.ui.history.HistoryScreen
+import com.movieshell.ui.novel.BookSourceScreen
 import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.reader.ReaderScreen
 import com.movieshell.ui.components.SoftBottomDock
@@ -408,6 +409,13 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("novel_search") {
                             NovelSearchScreen(
+                                onBack = { navController.popBackStack() },
+                                onManageSources = { navController.navigate("book_sources") },
+                            )
+                        }
+                        // v0.61.0：书源管理
+                        composable("book_sources") {
+                            BookSourceScreen(
                                 onBack = { navController.popBackStack() },
                             )
                         }

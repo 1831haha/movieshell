@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Source
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -24,7 +26,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,59 +44,81 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.model.Chapter
 import com.movieshell.data.model.Novel
-import com.movieshell.data.novel.DemoNovelSource
+import com.movieshell.data.novel.BookSource
+import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.NovelSearchResult
+import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.repo.NovelStore
 import kotlinx.coroutines.launch
 
 /**
- * v0.37.0 找书页：演示源搜索 → 加入书架（自动拉目录）。
+ * v0.61.0 找书页：多书源并发真搜 → 加入书架（只拉目录，正文阅读时按需拉取）。
  */
 @Composable
-fun NovelSearchScreen(onBack: () -> Unit = {}) {
+fun NovelSearchScreen(
+    onBack: () -> Unit = {},
+    onManageSources: () -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val gold = Color(0xFFD9C39A)
 
+    val sources by BookSourceManager.sources.collectAsState()
     var keyword by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
-    var results by remember { mutableStateOf<List<NovelSearchResult>>(emptyList()) }
+    var results by remember { mutableStateOf<List<Pair<BookSource, List<NovelSearchResult>>>>(emptyList()) }
     var searched by remember { mutableStateOf(false) }
     var joining by remember { mutableStateOf<String?>(null) }
 
+    LaunchedEffect(Unit) { BookSourceManager.load(context) }
+
+    val enabledSources = remember(sources) { sources.filter { it.enabled } }
+
     fun doSearch() {
+        val kw = keyword.trim()
+        if (kw.isEmpty() || enabledSources.isEmpty()) {
+            if (enabledSources.isEmpty()) {
+                Toast.makeText(context, "没有启用的书源，先去书源管理添加", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
         scope.launch {
             loading = true
             searched = true
-            results = runCatching { DemoNovelSource.search(keyword) }.getOrDefault(emptyList())
+            results = NovelSourceEngine.searchAll(enabledSources, kw)
+                .filter { it.second.isNotEmpty() }
             loading = false
         }
     }
 
-    fun joinShelf(item: NovelSearchResult) {
+    fun joinShelf(source: BookSource, item: NovelSearchResult) {
         scope.launch {
             joining = item.remoteId
             val ok = runCatching {
-                val metas = DemoNovelSource.chapters(item)
+                val metas = NovelSourceEngine.chapters(source, item)
+                if (metas.isEmpty()) return@runCatching false
                 val novel = Novel(
-                    id = "demo_${item.remoteId}",
-                    sourceKey = DemoNovelSource.key,
+                    id = "bs_${source.key.hashCode()}_${item.remoteId.hashCode()}",
+                    sourceKey = source.key,
                     title = item.title,
                     author = item.author,
+                    cover = item.cover,
                     addedAt = System.currentTimeMillis(),
                 )
+                // 只存目录（带章节 URL），正文阅读时按需拉取并缓存
                 val chapters = metas.map {
                     Chapter(
                         novelId = novel.id,
                         index = it.index,
                         title = it.title,
-                        content = DemoNovelSource.content(it),
+                        content = "",
+                        url = it.url,
                     )
                 }
                 NovelStore.addNovel(context, novel, chapters)
             }.getOrDefault(false)
             joining = null
-            Toast.makeText(context, if (ok) "已加入书架" else "加入失败", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, if (ok) "已加入书架" else "加入失败（目录拉取失败）", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -102,7 +129,12 @@ fun NovelSearchScreen(onBack: () -> Unit = {}) {
             }
             Text("找书", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = gold)
             Spacer(Modifier.weight(1f))
-            Text(DemoNovelSource.name, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = onManageSources) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Source, "书源管理", tint = gold, modifier = Modifier.padding(end = 4.dp))
+                    Text("书源(${enabledSources.size})", color = gold, fontSize = 13.sp)
+                }
+            }
         }
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -120,33 +152,57 @@ fun NovelSearchScreen(onBack: () -> Unit = {}) {
         Spacer(Modifier.height(12.dp))
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(8.dp))
+                    Text("正在搜索 ${enabledSources.size} 个书源…", fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             searched && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("没找到，换个关键词试试", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("没找到，换个关键词或检查书源规则", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            !searched -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    if (enabledSources.isEmpty()) "还没有启用的书源，点右上角去添加"
+                    else "输入书名或作者开始搜索",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(results, key = { it.remoteId }) { item ->
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        ),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                results.forEach { (source, books) ->
+                    item(key = "header_${source.key}") {
+                        Text(
+                            "来自 ${source.name}（${books.size} 本）",
+                            fontSize = 13.sp,
+                            color = gold,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    items(books, key = { "${source.key}_${it.remoteId}" }) { item ->
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            ),
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(item.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                Text(
-                                    item.author ?: "佚名",
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            val busy = joining == item.remoteId
-                            Button(onClick = { joinShelf(item) }, enabled = !busy) {
-                                Text(if (busy) "加入中" else "加入书架")
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(item.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    Text(
+                                        item.author ?: "佚名",
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                val busy = joining == item.remoteId
+                                Button(onClick = { joinShelf(source, item) }, enabled = !busy) {
+                                    Text(if (busy) "加入中" else "加入书架")
+                                }
                             }
                         }
                     }

@@ -109,6 +109,18 @@ object NovelStore {
             }.onFailure { Log.w(TAG, "阅读进度更新失败", it) }
         }
 
+    /** 更新单章正文（在线书源按需拉取后缓存）。 */
+    suspend fun updateChapterContent(context: Context, novelId: String, index: Int, content: String) =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val f = chaptersFile(context, novelId)
+                if (!f.isFile) return@runCatching
+                val list = json.decodeFromString(ListSerializer(Chapter.serializer()), f.readText())
+                val updated = list.map { if (it.index == index) it.copy(content = content) else it }
+                f.writeText(json.encodeToString(ListSerializer(Chapter.serializer()), updated))
+            }.onFailure { Log.w(TAG, "章节正文缓存失败", it) }
+        }
+
     /** 书架分组：在追 / 想看 / 已看完。 */
     suspend fun listShelves(context: Context): Map<ShelfTab, List<Novel>> =
         withContext(Dispatchers.IO) {

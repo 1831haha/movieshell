@@ -25,6 +25,8 @@ data class Chapter(
     val index: Int = 0,
     val title: String = "",
     val content: String = "",
+    // v0.61.0：在线书源的章节地址；content 为空时按此地址按需拉取
+    val url: String = "",
 )
 
 /** 阅读进度：读到第几章、章内第几个字符。 */

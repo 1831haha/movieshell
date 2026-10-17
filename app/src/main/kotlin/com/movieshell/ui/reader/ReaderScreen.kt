@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,12 +47,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.model.Chapter
 import com.movieshell.data.model.Novel
 import com.movieshell.data.model.ReadingProgress
+import com.movieshell.data.novel.BookSourceManager
+import com.movieshell.data.novel.ChapterMeta
+import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.repo.ReaderSettings
 import com.movieshell.data.repo.ReadingProgressStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -75,15 +82,28 @@ fun ReaderScreen(
     var chapters by remember { mutableStateOf<List<Chapter>>(emptyList()) }
     var chapterIndex by remember { mutableIntStateOf(0) }
     var loaded by remember { mutableStateOf(false) }
-    var fontSize by remember { mutableIntStateOf(18) }
-    var nightMode by remember { mutableStateOf(false) }
+    // v0.61.0：设置持久化，打开即读档
+    val savedSettings = remember { ReaderSettings.load(context) }
+    var fontSize by remember { mutableIntStateOf(savedSettings.fontSize) }
+    var nightMode by remember { mutableStateOf(savedSettings.nightMode) }
     var showToc by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var restoreOffset by remember { mutableIntStateOf(0) }
     // v0.36.0：衬线/无衬线、行距三档、亮度（-1=跟随系统）
-    var serifFont by remember { mutableStateOf(false) }
-    var lineHeightRatio by remember { mutableStateOf(1.8f) }
-    var brightness by remember { mutableStateOf(-1f) }
+    var serifFont by remember { mutableStateOf(savedSettings.serifFont) }
+    var lineHeightRatio by remember { mutableStateOf(savedSettings.lineHeightRatio) }
+    var brightness by remember { mutableStateOf(savedSettings.brightness) }
+    // v0.61.0：沉浸模式（点中央切换）、正文加载中
+    var immersive by remember { mutableStateOf(false) }
+    var contentLoading by remember { mutableStateOf(false) }
+
+    // v0.61.0：设置变化即存档
+    LaunchedEffect(fontSize, nightMode, serifFont, lineHeightRatio, brightness) {
+        ReaderSettings.save(
+            context,
+            ReaderSettings.Settings(fontSize, nightMode, serifFont, lineHeightRatio, brightness),
+        )
+    }
 
     val scrollState = rememberScrollState()
 
@@ -112,6 +132,10 @@ fun ReaderScreen(
         val n = withContext(Dispatchers.IO) { NovelStore.get(context, novelId) }
         val cs = withContext(Dispatchers.IO) { NovelStore.chapters(context, novelId) }
         val p = withContext(Dispatchers.IO) { ReadingProgressStore.load(context, novelId) }
+        // v0.61.0：直进阅读器时书源可能还没载入，先载入再按需拉正文
+        if (BookSourceManager.sources.value.isEmpty()) {
+            BookSourceManager.load(context)
+        }
         novel = n
         chapters = cs
         if (p != null && p.chapterIndex in cs.indices) {
@@ -119,9 +143,28 @@ fun ReaderScreen(
             restoreOffset = p.charOffset
         }
         loaded = true
+        ensureContent(chapterIndex)
     }
 
     val chapter = chapters.getOrNull(chapterIndex)
+
+    // v0.61.0：在线书源章节正文按需拉取（本地 TXT 导入的 content 本来就有，不走这里）
+    fun ensureContent(index: Int) {
+        val c = chapters.getOrNull(index) ?: return
+        if (c.content.isNotBlank() || c.url.isBlank()) return
+        val n = novel ?: return
+        val source = BookSourceManager.sources.value.firstOrNull { it.key == n.sourceKey } ?: return
+        scope.launch {
+            contentLoading = true
+            val text = runCatching { NovelSourceEngine.content(source, ChapterMeta(index, c.title, c.url)) }
+                .getOrDefault("")
+            if (text.isNotBlank()) {
+                NovelStore.updateChapterContent(context, n.id, index, text)
+                chapters = chapters.map { if (it.index == index) it.copy(content = text) else it }
+            }
+            contentLoading = false
+        }
+    }
 
     // 章节切换后：回到顶部，或按保存的字符偏移估算滚动位置
     LaunchedEffect(chapterIndex, loaded, chapter?.content?.length) {
@@ -172,8 +215,14 @@ fun ReaderScreen(
             }
             chapterIndex = index
             showToc = false
+            ensureContent(index)
         }
     }
+
+    // v0.61.0：阅读进度百分比（按章节）
+    val progressPct = if (chapters.isNotEmpty()) {
+        ((chapterIndex + 1) * 100 / chapters.size).coerceIn(0, 100)
+    } else 0
 
     val bg = if (nightMode) Color(0xFF121212) else Color(0xFFF7F3E8)
     val fg = if (nightMode) Color(0xFFD8D8D8) else Color(0xFF2B2B2B)
@@ -183,41 +232,48 @@ fun ReaderScreen(
             .fillMaxSize()
             .background(bg),
     ) {
-        // 顶栏：返回 + 书名/章节名
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, "返回", tint = fg)
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    novel?.title ?: "",
-                    color = fg,
-                    fontSize = 16.sp,
-                    maxLines = 1,
-                )
-                Text(
-                    chapter?.title ?: "",
-                    color = fg.copy(alpha = 0.6f),
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                )
-            }
-            IconButton(onClick = { nightMode = !nightMode }) {
-                Icon(
-                    if (nightMode) Icons.Filled.LightMode else Icons.Filled.DarkMode,
-                    "夜间模式",
-                    tint = fg,
-                )
+        // 顶栏：返回 + 书名/章节名 + 进度（v0.61.0：沉浸模式时隐藏）
+        if (!immersive) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Filled.ArrowBack, "返回", tint = fg)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        novel?.title ?: "",
+                        color = fg,
+                        fontSize = 16.sp,
+                        maxLines = 1,
+                    )
+                    Text(
+                        // v0.61.0：章节名后跟阅读进度百分比
+                        "${chapter?.title ?: ""}  $progressPct%",
+                        color = fg.copy(alpha = 0.6f),
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                    )
+                }
+                IconButton(onClick = { nightMode = !nightMode }) {
+                    Icon(
+                        if (nightMode) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+                        "夜间模式",
+                        tint = fg,
+                    )
+                }
             }
         }
 
-        // 正文
-        Box(modifier = Modifier.weight(1f)) {
+        // 正文（v0.61.0：点中央切换沉浸模式；章节标题印在正文顶部）
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clickable { immersive = !immersive },
+        ) {
             if (!loaded) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("载入中…", color = fg.copy(alpha = 0.6f))
@@ -226,54 +282,83 @@ fun ReaderScreen(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("没有章节内容", color = fg.copy(alpha = 0.6f))
                 }
+            } else if (contentLoading && chapter.content.isBlank()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = fg.copy(alpha = 0.6f))
+                        Spacer(Modifier.height(8.dp))
+                        Text("正文加载中…", color = fg.copy(alpha = 0.6f), fontSize = 13.sp)
+                    }
+                }
             } else {
-                Text(
-                    text = chapter.content,
-                    color = fg,
-                    fontSize = fontSize.sp,
-                    lineHeight = (fontSize * lineHeightRatio).sp,
-                    fontFamily = if (serifFont) FontFamily.Serif else FontFamily.SansSerif,
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(scrollState)
                         .padding(horizontal = 20.dp, vertical = 12.dp),
-                )
+                ) {
+                    Text(
+                        text = chapter.title,
+                        color = fg,
+                        fontSize = (fontSize + 2).sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 16.dp),
+                    )
+                    Text(
+                        text = chapter.content,
+                        color = fg,
+                        fontSize = fontSize.sp,
+                        lineHeight = (fontSize * lineHeightRatio).sp,
+                        fontFamily = if (serifFont) FontFamily.Serif else FontFamily.SansSerif,
+                    )
+                }
             }
         }
 
-        // 底栏：上一章 / 目录 / 设置 / 下一章
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(
-                onClick = { jumpTo(chapterIndex - 1) },
-                enabled = chapterIndex > 0,
-            ) { Text("上一章", color = fg) }
-            TextButton(onClick = { showToc = true }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.List, "目录", tint = fg, modifier = Modifier.padding(end = 4.dp))
-                    Text("目录", color = fg)
+        // 底栏：上一章 / 目录 / 设置 / 下一章（v0.61.0：沉浸模式时隐藏）
+        if (!immersive) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = { jumpTo(chapterIndex - 1) },
+                    enabled = chapterIndex > 0,
+                ) { Text("上一章", color = fg) }
+                TextButton(onClick = { showToc = true }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.List, "目录", tint = fg, modifier = Modifier.padding(end = 4.dp))
+                        Text("目录", color = fg)
+                    }
                 }
+                TextButton(onClick = { showSettings = true }) { Text("设置", color = fg) }
+                TextButton(
+                    onClick = { jumpTo(chapterIndex + 1) },
+                    enabled = chapterIndex < chapters.size - 1,
+                ) { Text("下一章", color = fg) }
             }
-            TextButton(onClick = { showSettings = true }) { Text("设置", color = fg) }
-            TextButton(
-                onClick = { jumpTo(chapterIndex + 1) },
-                enabled = chapterIndex < chapters.size - 1,
-            ) { Text("下一章", color = fg) }
         }
     }
 
-    // 目录弹窗
+    // 目录弹窗（v0.61.0：打开自动滚到当前章节）
     if (showToc) {
+        val tocListState = rememberLazyListState()
+        LaunchedEffect(showToc) {
+            if (chapterIndex in chapters.indices) {
+                tocListState.scrollToItem(chapterIndex.coerceAtLeast(0))
+            }
+        }
         AlertDialog(
             onDismissRequest = { showToc = false },
             title = { Text("目录（${chapters.size} 章）") },
             text = {
-                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    state = tocListState,
+                ) {
                     items(chapters) { c ->
                         Text(
                             text = c.title,

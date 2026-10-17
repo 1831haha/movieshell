@@ -15,6 +15,18 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.61.0",
+        date = "2026-10-17",
+        title = "小说源+阅读打磨",
+        details = listOf(
+            "新：在线书源——兼容阅读 App 的 bookSource.json，书源管理可导入/启用/删除，多源并发搜书。",
+            "新：加入书架只拉目录，正文阅读时按需拉取并缓存。",
+            "改：阅读设置（字号/夜间/字体/行距/亮度）持久化，下次打开还在。",
+            "改：目录弹窗自动定位到当前章节；顶栏显示阅读进度百分比。",
+            "改：正文顶部显示本章标题；点屏幕中央进沉浸模式。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.60.0",
         date = "2026-10-17",
         title = "详情标题缩小+顶栏合一",
