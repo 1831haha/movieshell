@@ -148,13 +148,15 @@ private val MANUAL_SECTIONS = listOf(
     ManualSection(
         title = "文件存放路径总表",
         points = listOf(
-            "用户文件全在公开目录 /storage/emulated/0/xiaying/（不开权限则退到 App 私有 filesDir/xiaying/，App 照常用）。",
-            "js/：drpy 规则（.js）；py/：PY 规则（.py）；php/：PHP 规则（.php，只能保存不能执行）；web/：网页源配置（.json）。",
-            "jar/：订阅的 spider jar 缓存（自动下载，手别删，删了下次用会重新下）；backup/：备份文件默认导出位置；log/：运行日志导出位置。",
-            "站源页长按菜单的「置顶到首」顺序存在 App 设置里（prefs sources_pin），删文件会同步清理。",
+            "根目录：/storage/emulated/0/xiaying/（文件管理器直接进）。没开「所有文件访问权限」时退到 App 私有 filesDir/xiaying/，App 照常用。",
+            "视频源——本地规则：js/ 放 drpy 规则（.js）；py/ 放影视 PY 规则（.py）；php/ 放 PHP 规则（.php，只能存不能执行）；web/ 放网页源配置（.json）。",
+            "视频源——订阅：订阅地址列表和解析出的站点缓存存在 App 私有目录（api_sources.json / sub_sites.json），文件管理器看不到，站源页管理就行；订阅自带的 spider jar 自动下到 jar/（手别删，删了下次用会重新下）。",
+            "视频源——直播：装的直播插件在 live/（如 live/cctv-live.json），实验室里安装/更新就是在管这些文件。",
+            "小说源：PY 书源文件在 py/book/（.py），和影视 PY 规则分开存放，互不干扰；书源页右上角 + 号「导入本地PY」就是往这里加。",
+            "其他目录：plugins/ 是服务类插件（如磁力转播）；Download/ 是离线下载；Screenshots/ 是播放器截图；backup/ 是备份导出位置；log/ 是运行日志导出位置；crash/ 是崩溃日志（只留最近 20 个）。",
+            "这些是 App 运行数据，留在私有 filesDir（看不到也正常，手别改）：搜索历史、收藏、追剧、主题和开关设置、PY 依赖包（pylibs，native 库只能放私有目录）。",
+            "站源页长按菜单的「置顶到首」顺序存在 App 设置里，删文件会同步清理。",
             "从旧版升级：第一次启动自动把旧私有目录的规则搬到公开目录，搬完才删旧文件，丢不了。",
-            "这些是 App 自己的运行数据，留在私有 filesDir（看不到也正常，手别改）：api_sources.json（接口站源列表）、sub_sites.json（订阅站点缓存）、搜索历史、收藏、主题和开关设置。",
-            "Android 11 以上第一次启动会请你开「所有文件访问权限」，不开也能用，只是文件存在私有目录。",
         ),
     ),
     ManualSection(
