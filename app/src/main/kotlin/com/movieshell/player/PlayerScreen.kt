@@ -9,6 +9,8 @@ import android.media.AudioManager
 import android.util.Rational
 import android.widget.Toast
 import com.movieshell.data.model.PlayLine
+import com.movieshell.data.repo.DownloadSettings
+import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.PlayerSettings
@@ -225,6 +227,8 @@ fun PlayerScreen(
         onDispose {
             controller?.show(WindowInsetsCompat.Type.systemBars())
             savePlayerProgress(context, currentTitle, currentPlayUrl, isLive)
+            // v0.63.0：看完自动删——本地下载文件播到 95% 以上且开关开着，删文件+清任务
+            maybeAutoDeleteWatched(context, currentPlayUrl, isLive)
             PlaySession.playerVisible = false
             PlaySession.clear()
             // v0.27.7：退出播放器恢复系统默认方向 + 停重力感应
@@ -1461,6 +1465,24 @@ private fun savePlayerProgress(context: Context, title: String, url: String, isL
         durationMs = EngineHost.duration(),
         kind = if (isLive) "live" else "vod",
     )
+}
+
+/**
+ * v0.63.0：看完自动删。播放的是本地下载文件、播到 95% 以上、开关开着 → 删文件并移除任务。
+ * 跑在 IO 线程，不阻塞退出。
+ */
+private fun maybeAutoDeleteWatched(context: Context, url: String, isLive: Boolean) {
+    if (isLive || !url.startsWith("file://")) return
+    if (!DownloadSettings.autoDeleteWatched(context)) return
+    val duration = EngineHost.duration()
+    val position = EngineHost.currentPosition()
+    if (duration <= 0 || position < duration * 0.95) return
+    val localPath = url.removePrefix("file://")
+    val task = DownloadStore.findByLocalPath(localPath) ?: return
+    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+        DownloadStore.remove(context.applicationContext, task.id, deleteFiles = true)
+        android.util.Log.i("Download", "看完自动删：${task.title}")
+    }
 }
 
 /** v0.19.0：手动进画中画 */

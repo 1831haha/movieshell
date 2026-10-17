@@ -80,7 +80,38 @@ object DownloadStore {
         }
         writeAll(context, all)
         _tasks.value = all
+        // v0.63.0：启动时自动清理 N 天前的已完成任务（含文件）
+        autoClearOldDone(context)
     }
+
+    /** v0.63.0：清理 N 天前完成的任务。days=0 表示不清理。 */
+    fun autoClearOldDone(context: Context) {
+        val days = DownloadSettings.autoClearDays(context)
+        if (days <= 0) return
+        val cutoff = System.currentTimeMillis() - days * 24L * 60 * 60 * 1000
+        val old = synchronized(lock) {
+            readAll(context).filter { it.status == DlStatus.DONE && it.createdAt < cutoff }
+        }
+        if (old.isEmpty()) return
+        old.forEach { task ->
+            runCatching {
+                val dir = taskDir(context, task)
+                if (dir.isDirectory) dir.deleteRecursively()
+            }.onFailure { Log.w(TAG, "自动清理删文件失败", it) }
+        }
+        synchronized(lock) {
+            val ids = old.map { it.id }.toSet()
+            val rest = readAll(context).filterNot { it.id in ids }
+            ids.forEach { lastPersisted.remove(it) }
+            writeAll(context, rest)
+            _tasks.value = rest
+        }
+        Log.i(TAG, "自动清理了 ${old.size} 个 $days 天前的已完成任务")
+    }
+
+    /** v0.63.0：按本地路径找任务（看完自动删用）。 */
+    fun findByLocalPath(localPath: String): DownloadTask? =
+        _tasks.value.firstOrNull { it.localPath.isNotBlank() && it.localPath == localPath }
 
     fun get(id: String): DownloadTask? = _tasks.value.firstOrNull { it.id == id }
 

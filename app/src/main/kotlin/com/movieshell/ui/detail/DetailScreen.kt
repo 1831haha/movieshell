@@ -74,6 +74,7 @@ import com.movieshell.data.model.Episode
 import com.movieshell.data.model.PlayLine
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.DetailSiteHolder
+import com.movieshell.data.repo.DownloadSettings
 import com.movieshell.data.repo.DownloadTask
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.FavoriteItem
@@ -83,6 +84,7 @@ import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.player.MagnetPlayer
 import com.movieshell.player.PlaySession
 import com.movieshell.player.resolvePlayUrl
@@ -767,6 +769,17 @@ fun DetailScreen(
                                         if (tasks.isEmpty()) {
                                             Toast.makeText(context, "没有可下载的剧集", Toast.LENGTH_SHORT).show()
                                         } else {
+                                            // v0.63.0：空间不足提醒
+                                            if (DownloadSettings.lowSpaceWarn(context)) {
+                                                val free = StoragePaths.downloadDir(context).usableSpace
+                                                if (free < DownloadSettings.LOW_SPACE_BYTES) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "存储空间不足（剩余 ${free / 1024 / 1024}MB），可能下不完",
+                                                        Toast.LENGTH_LONG,
+                                                    ).show()
+                                                }
+                                            }
                                             DownloadManager.enqueue(context, tasks)
                                             Toast.makeText(
                                                 context,

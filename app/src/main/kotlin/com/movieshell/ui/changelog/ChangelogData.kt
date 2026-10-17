@@ -15,6 +15,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.63.0",
+        date = "2026-10-17",
+        title = "下载自动清理",
+        details = listOf(
+            "新：看完自动删——本地下载文件播到 95% 以上自动删文件清任务（设置开关）。",
+            "新：启动时自动清理 N 天前已完成的任务（含文件），天数可配（默认 7 天）。",
+            "新：下载前剩余空间不足 500MB 时提醒。",
+            "新：下载管理页右上角加自动清理设置入口。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.62.0",
         date = "2026-10-17",
         title = "顶栏排版修复+详情页直播",

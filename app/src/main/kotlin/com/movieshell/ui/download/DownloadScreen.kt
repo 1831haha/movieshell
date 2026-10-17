@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -26,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -43,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.download.Notify
 import com.movieshell.data.repo.DlStatus
+import com.movieshell.data.repo.DownloadSettings
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.DownloadTask
 import com.movieshell.ui.components.AppButton
@@ -76,6 +79,11 @@ fun DownloadScreen(
     Notify.RequestNotificationPermissionOnce()
     val tasks by DownloadStore.tasks.collectAsState()
     var confirmDelete by remember { mutableStateOf<DownloadTask?>(null) }
+    // v0.63.0：自动清理设置
+    var showSettings by remember { mutableStateOf(false) }
+    var autoDeleteWatched by remember { mutableStateOf(DownloadSettings.autoDeleteWatched(context)) }
+    var autoClearDays by remember { mutableStateOf(DownloadSettings.autoClearDays(context)) }
+    var lowSpaceWarn by remember { mutableStateOf(DownloadSettings.lowSpaceWarn(context)) }
 
     if (confirmDelete != null) {
         AlertDialog(
@@ -110,6 +118,96 @@ fun DownloadScreen(
         )
     }
 
+    // v0.63.0：自动清理设置弹窗
+    if (showSettings) {
+        AlertDialog(
+            onDismissRequest = { showSettings = false },
+            shape = RoundedCornerShape(SoftDimens.CardCorner),
+            title = { Text("自动清理", style = SoftType.CardTitle) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("看完自动删除", style = SoftType.Body)
+                            Text(
+                                "本地文件播到 95% 以上时自动删",
+                                style = SoftType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = autoDeleteWatched,
+                            onCheckedChange = {
+                                autoDeleteWatched = it
+                                DownloadSettings.setAutoDeleteWatched(context, it)
+                            },
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("自动清理已完成", style = SoftType.Body)
+                            Text(
+                                "启动时清理 N 天前完成的任务（含文件）",
+                                style = SoftType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(0 to "不清理", 3 to "3天", 7 to "7天", 14 to "14天", 30 to "30天").forEach { (days, label) ->
+                            AppButton(
+                                text = label,
+                                onClick = {
+                                    autoClearDays = days
+                                    DownloadSettings.setAutoClearDays(context, days)
+                                },
+                                variant = if (autoClearDays == days) AppButtonVariant.Primary
+                                else AppButtonVariant.Ghost,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("空间不足提醒", style = SoftType.Body)
+                            Text(
+                                "下载前剩余空间不足 500MB 时提醒",
+                                style = SoftType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = lowSpaceWarn,
+                            onCheckedChange = {
+                                lowSpaceWarn = it
+                                DownloadSettings.setLowSpaceWarn(context, it)
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                AppButton(
+                    text = "完成",
+                    onClick = { showSettings = false },
+                    variant = AppButtonVariant.Primary,
+                )
+            },
+        )
+    }
+
     val active = tasks.filter { it.status != DlStatus.DONE }
     val done = tasks.filter { it.status == DlStatus.DONE }
 
@@ -131,6 +229,10 @@ fun DownloadScreen(
                             },
                             variant = AppButtonVariant.Ghost,
                         )
+                    }
+                    // v0.63.0：自动清理设置
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "自动清理设置")
                     }
                 },
             )
