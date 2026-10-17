@@ -8,6 +8,7 @@ import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
+import java.nio.charset.Charset
 import java.util.concurrent.TimeUnit
 
 /**

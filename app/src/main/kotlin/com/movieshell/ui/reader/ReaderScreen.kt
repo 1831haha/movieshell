@@ -127,6 +127,25 @@ fun ReaderScreen(
         }
     }
 
+    // v0.61.0：在线书源章节正文按需拉取（本地 TXT 导入的 content 本来就有，不走这里）
+    // 注意：局部 fun 必须先声明后调用，故放在 LaunchedEffect 之前
+    fun ensureContent(index: Int) {
+        val c = chapters.getOrNull(index) ?: return
+        if (c.content.isNotBlank() || c.url.isBlank()) return
+        val n = novel ?: return
+        val source = BookSourceManager.sources.value.firstOrNull { it.key == n.sourceKey } ?: return
+        scope.launch {
+            contentLoading = true
+            val text = runCatching { NovelSourceEngine.content(source, ChapterMeta(index, c.title, c.url)) }
+                .getOrDefault("")
+            if (text.isNotBlank()) {
+                NovelStore.updateChapterContent(context, n.id, index, text)
+                chapters = chapters.map { if (it.index == index) it.copy(content = text) else it }
+            }
+            contentLoading = false
+        }
+    }
+
     // 载入书 + 章节 + 进度
     LaunchedEffect(novelId) {
         val n = withContext(Dispatchers.IO) { NovelStore.get(context, novelId) }
@@ -147,24 +166,6 @@ fun ReaderScreen(
     }
 
     val chapter = chapters.getOrNull(chapterIndex)
-
-    // v0.61.0：在线书源章节正文按需拉取（本地 TXT 导入的 content 本来就有，不走这里）
-    fun ensureContent(index: Int) {
-        val c = chapters.getOrNull(index) ?: return
-        if (c.content.isNotBlank() || c.url.isBlank()) return
-        val n = novel ?: return
-        val source = BookSourceManager.sources.value.firstOrNull { it.key == n.sourceKey } ?: return
-        scope.launch {
-            contentLoading = true
-            val text = runCatching { NovelSourceEngine.content(source, ChapterMeta(index, c.title, c.url)) }
-                .getOrDefault("")
-            if (text.isNotBlank()) {
-                NovelStore.updateChapterContent(context, n.id, index, text)
-                chapters = chapters.map { if (it.index == index) it.copy(content = text) else it }
-            }
-            contentLoading = false
-        }
-    }
 
     // 章节切换后：回到顶部，或按保存的字符偏移估算滚动位置
     LaunchedEffect(chapterIndex, loaded, chapter?.content?.length) {
