@@ -545,7 +545,7 @@ fun DetailScreen(
                                                 // v0.69.0：有片单时先选片单，否则直接收藏进未分组
                                                 pickerPlaylists = PlaylistStore.list(context)
                                                 if (pickerPlaylists.isEmpty()) {
-                                                    doFavorite(context, null)
+                                                    favoriteAddToPlaylist(context, null)
                                                 } else {
                                                     showPlaylistPicker = true
                                                 }
