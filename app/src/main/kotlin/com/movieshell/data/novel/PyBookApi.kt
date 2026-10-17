@@ -95,6 +95,26 @@ class PyBookApi(private val engine: PyEngine = ChaquopyEngine) {
         return data.opt("content")
     }
 
+    /**
+     * v0.67.0：测试搜索连通性。
+     * 成功返回书数；失败返回异常（携带桥返回的 error 信息，便于定位是文件坏了、方法缺失还是没结果）。
+     */
+    suspend fun testSearch(rulePath: String, key: String = "斗罗"): Result<Int> = runCatching {
+        val args = buildJsonObject { put("key", key) }.toString()
+        val raw = engine.bookInvoke(rulePath, "bookSearch", args)
+        val root = jsonLenient.parseToJsonElement(raw).jsonObject
+        val ok = (root["ok"] as? JsonPrimitive)?.contentOrNull == "true"
+        if (!ok) {
+            val err = (root["error"] as? JsonPrimitive)?.contentOrNull
+                ?: root["error"]?.toString()
+                ?: "未知错误"
+            throw IllegalStateException(err.take(200))
+        }
+        val data = root["data"] as? JsonObject
+            ?: throw IllegalStateException("返回格式异常：没有 data")
+        (data["list"] as? JsonArray).orEmpty().size
+    }
+
     companion object {
         private const val TAG = "PyBookApi"
     }

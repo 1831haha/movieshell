@@ -1,6 +1,7 @@
 package com.movieshell.ui.novel
 
 import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Source
 import androidx.compose.material3.Button
@@ -49,6 +52,7 @@ import com.movieshell.data.novel.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.repo.SearchHistoryStore
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -77,10 +81,14 @@ fun NovelSearchScreen(
     var results by remember { mutableStateOf<List<SourceGroup>>(emptyList()) }
     var searched by remember { mutableStateOf(false) }
     var joining by remember { mutableStateOf<String?>(null) }
+    // v0.67.0：小说搜索历史（独立作用域）
+    var history by remember { mutableStateOf<List<String>>(emptyList()) }
+    fun refreshHistory() { history = SearchHistoryStore.list(context, "novel") }
 
     LaunchedEffect(Unit) {
         BookSourceManager.load(context)
         PyBookSourceManager.load(context)
+        refreshHistory()
     }
 
     val enabledSources = remember(sources) { sources.filter { it.enabled } }
@@ -101,6 +109,9 @@ fun NovelSearchScreen(
             }
             return
         }
+        // v0.67.0：记搜索历史
+        SearchHistoryStore.add(context, kw, "novel")
+        refreshHistory()
         scope.launch {
             loading = true
             searched = true
@@ -225,12 +236,75 @@ fun NovelSearchScreen(
             searched && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("没找到，换个关键词或检查书源规则", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            !searched -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    if (totalEnabled == 0) "还没有启用的书源，点右上角去添加"
-                    else "输入书名或作者开始搜索",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            !searched -> {
+                // v0.67.0：搜索历史（一点即搜，X 单删）
+                if (history.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            if (totalEnabled == 0) "还没有启用的书源，点右上角去添加"
+                            else "输入书名或作者开始搜索",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        item(key = "history_header") {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    "搜索历史",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = gold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = {
+                                    SearchHistoryStore.clear(context, "novel")
+                                    refreshHistory()
+                                }) { Text("清空", fontSize = 13.sp) }
+                            }
+                        }
+                        items(history, key = { "h_$it" }) { h ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        keyword = h
+                                        doSearch()
+                                    }
+                                    .padding(vertical = 6.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.History,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    h,
+                                    fontSize = 15.sp,
+                                    modifier = Modifier.weight(1f),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                IconButton(onClick = {
+                                    SearchHistoryStore.remove(context, h, "novel")
+                                    refreshHistory()
+                                }) {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = "删除",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
             else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 results.forEach { group ->

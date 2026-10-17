@@ -319,10 +319,9 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             IconButton(onClick = {
-                                history.remove(h)
-                                // 同步回持久化：删掉该条后重写
-                                SearchHistoryStore.clear(context)
-                                history.forEach { SearchHistoryStore.add(context, it) }
+                                // v0.67.0：单条删除走 Store.remove
+                                SearchHistoryStore.remove(context, h)
+                                refreshHistory()
                             }) {
                                 Icon(
                                     imageVector = Icons.Filled.Close,

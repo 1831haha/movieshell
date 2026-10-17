@@ -12,15 +12,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.novel.BookSource
 import com.movieshell.data.novel.BookSourceManager
+import com.movieshell.data.novel.PyBookApi
 import com.movieshell.data.novel.PyBookSourceManager
 import kotlinx.coroutines.launch
 
@@ -70,6 +74,9 @@ fun BookSourceScreen(
     var importText by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<BookSource?>(null) }
     var deletePyTarget by remember { mutableStateOf<PyBookSourceManager.PyBookRule?>(null) }
+    // v0.67.0：PY 源连通性测试
+    var testingPy by remember { mutableStateOf<String?>(null) }
+    var testResult by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         BookSourceManager.load(context)
@@ -153,6 +160,37 @@ fun BookSourceScreen(
                                 PyBookSourceManager.setEnabled(context, r.name, it)
                             },
                         )
+                        // v0.67.0：连通性测试（跑一遍 bookSearch）
+                        if (testingPy == r.name) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            IconButton(onClick = {
+                                testingPy = r.name
+                                testResult = null
+                                scope.launch {
+                                    val path = PyBookSourceManager.rulePath(context, r.name)
+                                    val msg = if (path == null) {
+                                        "找不到源文件"
+                                    } else {
+                                        PyBookApi().testSearch(path).fold(
+                                            onSuccess = { n -> "测试通过：搜到 $n 本书" },
+                                            onFailure = { e -> "测试失败：${e.message}" },
+                                        )
+                                    }
+                                    testingPy = null
+                                    testResult = "《${r.title}》$msg"
+                                }
+                            }) {
+                                Icon(
+                                    Icons.Filled.PlayArrow,
+                                    "测试",
+                                    tint = gold,
+                                )
+                            }
+                        }
                         IconButton(onClick = { deletePyTarget = r }) {
                             Icon(
                                 Icons.Filled.Delete,
@@ -293,6 +331,18 @@ fun BookSourceScreen(
             },
             dismissButton = {
                 TextButton(onClick = { deletePyTarget = null }) { Text("取消") }
+            },
+        )
+    }
+
+    // v0.67.0：PY 源测试结果
+    testResult?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { testResult = null },
+            title = { Text("连通性测试") },
+            text = { Text(msg) },
+            confirmButton = {
+                TextButton(onClick = { testResult = null }) { Text("知道了") }
             },
         )
     }
