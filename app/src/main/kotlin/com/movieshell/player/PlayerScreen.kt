@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -125,6 +126,9 @@ import kotlinx.coroutines.withTimeout
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
+// v0.65：循环模式（对标目标界面"顺序播放"按钮）
+private val PLAY_MODES = listOf("顺序播放", "单集循环", "列表循环")
+
 private val RESIZE_MODES = listOf(
     AspectRatioFrameLayout.RESIZE_MODE_FIT to "适应",
     AspectRatioFrameLayout.RESIZE_MODE_FILL to "填充",
@@ -165,11 +169,17 @@ fun PlayerScreen(
     vodId: String? = null,
     isLive: Boolean = false,
     onBack: () -> Unit,
+    // v0.65：嵌入模式——详情页顶部 16:9 直接播；onFullscreen 供嵌入时点全屏跳独立播放页
+    embedded: Boolean = false,
+    onFullscreen: () -> Unit = {},
+    // v0.65：集数变化回调（嵌入时详情页高亮跟随）
+    onEpisodeChange: (lineIndex: Int, episodeIndex: Int) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     var speedIndex by remember { mutableIntStateOf(2) } // 默认 1.0x
+    var playModeIndex by remember { mutableIntStateOf(0) } // v0.65：循环模式，默认顺序播放
     var resizeIndex by remember { mutableIntStateOf(0) } // 默认适应
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var showServiceMissingDialog by remember { mutableStateOf(false) }
@@ -177,6 +187,13 @@ fun PlayerScreen(
     var showSkipSettings by remember { mutableStateOf(false) } // v0.16.3：按剧片头片尾设置
     // v0.19.0
     var playUrl by remember { mutableStateOf(url) } // 实际播放地址（切线路/重试时更新）
+    // v0.65：嵌入模式下外部换地址（如详情页点选集）→ 跟随切过去，走已有 LaunchedEffect(playUrl) 起播
+    LaunchedEffect(url) {
+        if (url.isNotBlank() && url != playUrl) {
+            triedLines.clear()
+            playUrl = url
+        }
+    }
     var showLines by remember { mutableStateOf(false) } // 线路+选集切换抽屉
     var showSubtitleDialog by remember { mutableStateOf(false) } // 外挂字幕
     var showOnlineSubtitle by remember { mutableStateOf(false) } // v0.28.0：在线字幕搜索
@@ -399,6 +416,8 @@ fun PlayerScreen(
                 PlaySession.moveTo(lineIdx, epIdx)
                 triedLines.clear()
                 playUrl = link
+                // v0.65：通知外部（嵌入时详情页高亮跟随）
+                onEpisodeChange(lineIdx, epIdx)
             }
         }
     }
@@ -681,7 +700,11 @@ fun PlayerScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    // v0.65：嵌入模式用 16:9 盒子（详情页顶部），独立模式全屏
+    Box(
+        modifier = (if (embedded) Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+        else Modifier.fillMaxSize()).background(Color.Black)
+    ) {
         if (playUrl.isBlank()) {
             Text(
                 text = "暂无可播放地址",
@@ -871,12 +894,29 @@ fun PlayerScreen(
 
         // v0.40.0：顶部栏按目标界面重做——返回 + 标题 + 画中画 + 投屏 + 更多菜单
         // 锁定时隐藏顶栏（只留解锁按钮防误触）
+        // v0.65：加时钟 + 分辨率行（对标目标界面）
+        var clockText by remember { mutableStateOf("") }
+        var streamInfo by remember { mutableStateOf("") }
+        LaunchedEffect(controlsVisible) {
+            if (!controlsVisible) return@LaunchedEffect
+            while (true) {
+                clockText = java.text.SimpleDateFormat("HH:mm", Locale.getDefault())
+                    .format(java.util.Date())
+                val vs = PlayerManager.player?.videoSize
+                streamInfo = if (vs != null && vs.width > 0) "${vs.width}×${vs.height}" else ""
+                kotlinx.coroutines.delay(10_000)
+            }
+        }
         if (controlsVisible && !locked) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .let { if (embedded) it else it.statusBarsPadding() }
+                    .background(Color.Black),
+            ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
-                    .background(Color.Black)
                     .padding(horizontal = 4.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -903,6 +943,15 @@ fun PlayerScreen(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }
+                    Spacer(Modifier.width(4.dp))
+                }
+                // v0.65：时钟（对标目标界面右上角时间）
+                if (clockText.isNotBlank()) {
+                    Text(
+                        text = clockText,
+                        color = Color.White,
+                        style = SoftType.Caption,
+                    )
                     Spacer(Modifier.width(4.dp))
                 }
                 // 画中画
@@ -986,9 +1035,24 @@ fun PlayerScreen(
                     }
                 }
             }
+            // v0.65：分辨率行（对标目标界面 3840x1920 · 码率）
+            if (streamInfo.isNotBlank()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    Text(
+                        text = streamInfo,
+                        color = Color.White.copy(alpha = 0.85f),
+                        style = SoftType.Caption,
+                    )
+                }
+            }
+            } // Column：顶栏区
         } // if (controlsVisible && !locked)：顶部栏
 
-        // v0.40.0：左侧悬浮按钮——锁定 + 截图（目标界面：圆形半透明黑底）
+        // v0.40.0：悬浮按钮——锁定 + 截图（目标界面：圆形半透明黑底）
+        // v0.65：移到右侧（对标目标界面）
         // 锁定时只显示解锁按钮（常显，不跟随控制层自动隐藏）
         if (locked) {
             IconButton(
@@ -997,8 +1061,8 @@ fun PlayerScreen(
                     controlsVisible = true
                 },
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 16.dp)
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 16.dp)
                     .size(56.dp)
                     .background(Color.Black.copy(alpha = 0.5f), CircleShape),
             ) {
@@ -1010,12 +1074,12 @@ fun PlayerScreen(
                 )
             }
         } else if (controlsVisible) {
-            Row(
+            Column(
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 IconButton(
                     onClick = { locked = true },
@@ -1214,6 +1278,22 @@ fun PlayerScreen(
                                 Text("选集", color = Color.White, style = SoftType.Body)
                             }
                         }
+                        // v0.65：循环模式（对标目标界面"顺序播放"）
+                        TextButton(
+                            onClick = { playModeIndex = (playModeIndex + 1) % PLAY_MODES.size },
+                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                        ) {
+                            Text(PLAY_MODES[playModeIndex], color = Color.White, style = SoftType.Body)
+                        }
+                        // v0.65：清晰度（对标目标界面"自动"；当前直链无多清晰度，展示占位）
+                        TextButton(
+                            onClick = {
+                                Toast.makeText(context, "当前为自动清晰度", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                        ) {
+                            Text("自动", color = Color.White, style = SoftType.Body)
+                        }
                     }
                     // 引擎切换（目标界面显示 Exo，蓝色）
                     TextButton(
@@ -1235,7 +1315,10 @@ fun PlayerScreen(
                         }
                     }
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = { toggleOrientation() }) {
+                    IconButton(onClick = {
+                        // v0.65：嵌入模式点全屏 → 跳独立播放页（详情页传入回调）
+                        if (embedded) onFullscreen() else toggleOrientation()
+                    }) {
                         Icon(
                             Icons.Filled.Fullscreen,
                             contentDescription = "全屏",
