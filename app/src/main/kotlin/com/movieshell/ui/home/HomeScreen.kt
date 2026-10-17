@@ -1206,7 +1206,8 @@ fun HomeScreen(
     
                     // 网格海报墙 / 列表（v0.78.3：布局切换）
                     items(filtered, key = { it.id }) { vod ->
-                        val subtitle = "${vod.year} · ${vod.rating}分"
+                        // v0.80.0：rating 已在海报底部跑马灯展示，副标题只留年份，不重复
+                        val subtitle = vod.year.takeIf { it.isNotBlank() }
                         when (homeLayout) {
                             HomeLayout.COMPACT_LIST -> HomeCompactRow(
                                 vod = vod,

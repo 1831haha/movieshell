@@ -30,7 +30,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -50,6 +49,7 @@ import androidx.webkit.ServiceWorkerClientCompat
 import androidx.webkit.ServiceWorkerControllerCompat
 import androidx.webkit.WebViewFeature
 import com.movieshell.data.source.CmsApi
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.data.source.SniffEngine
 import com.movieshell.data.source.SniffEngine.SniffKind
 import com.movieshell.player.SniffPlayHeaders
@@ -259,13 +259,9 @@ fun WebSniffScreen(
     Scaffold(
         topBar = {
             Column {
-                TopAppBar(
-                    title = { Text(pageTitle, maxLines = 1, style = SoftType.Title) },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                        }
-                    },
+                TabTopBar(
+                    title = pageTitle,
+                    onBack = onBack,
                 )
                 // v0.10：浏览器式头部——后退/前进/刷新 + 当前 URL + 嗅探测试
                 Row(

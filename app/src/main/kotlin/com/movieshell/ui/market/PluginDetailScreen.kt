@@ -23,7 +23,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +39,7 @@ import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginStore
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.theme.SoftDimens
@@ -65,13 +65,9 @@ fun PluginDetailScreen(pluginId: String, onBack: () -> Unit = {}) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("插件详情", style = SoftType.Title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            TabTopBar(
+                title = "插件详情",
+                onBack = onBack,
             )
         },
     ) { inner ->

@@ -1,6 +1,8 @@
 package com.movieshell.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -18,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -32,6 +35,7 @@ import com.movieshell.ui.theme.SoftType
  * 无海报时用中性占位 + 标题首字，不再用高饱和渐变）。
  */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun PosterCard(
     title: String,
     subtitle: String? = null,
@@ -82,18 +86,21 @@ fun PosterCard(
                     fontWeight = FontWeight.SemiBold,
                 )
             }
+            // v0.80.0：备注改海报底部一行炫彩跑马灯（不再大色块遮海报）
             if (badge != null) {
                 Text(
                     text = badge,
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.9f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .basicMarquee()
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    style = TextStyle(
+                        brush = Brush.horizontalGradient(BrandGradientColors),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    maxLines = 1,
                 )
             }
         }

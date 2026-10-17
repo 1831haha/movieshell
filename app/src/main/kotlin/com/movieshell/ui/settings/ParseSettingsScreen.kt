@@ -29,7 +29,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.source.ParseApi
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppTextField
@@ -100,13 +100,9 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("解析接口", style = SoftType.Title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            TabTopBar(
+                title = "解析接口",
+                onBack = onBack,
             )
         },
     ) { inner ->

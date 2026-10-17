@@ -25,16 +25,20 @@ object ThemeStore {
     const val DEFAULT_COLOR = 0xFF6344FF.toInt()
 
     /** DsPlayer 式候选色 */
+    // v0.80.0：12 种主题色（对标 DsPlayer 我的页主题卡）
     val COLOR_OPTIONS = listOf(
-        0xFF9E9E9E.toInt(), // 灰
-        0xFFFF6D00.toInt(), // 橙
-        0xFFAA00FF.toInt(), // 紫
         0xFF2B7DE9.toInt(), // 蓝（默认）
-        0xFF00C853.toInt(), // 绿
-        0xFFFF4081.toInt(), // 粉
-        0xFFFF3D00.toInt(), // 红
-        0xFFFFD600.toInt(), // 黄
+        0xFF3D5AFE.toInt(), // 靛蓝
+        0xFF03A9F4.toInt(), // 天蓝
         0xFF00BFA5.toInt(), // 青
+        0xFF00C853.toInt(), // 绿
+        0xFFFFD600.toInt(), // 黄
+        0xFFFF6D00.toInt(), // 橙
+        0xFFFF3D00.toInt(), // 红
+        0xFFFF4081.toInt(), // 粉
+        0xFFAA00FF.toInt(), // 紫
+        0xFF8D6E63.toInt(), // 棕
+        0xFF9E9E9E.toInt(), // 灰
     )
 
     private val _mode = MutableStateFlow(MODE_SYSTEM)

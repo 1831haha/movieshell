@@ -33,7 +33,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -52,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.movieshell.data.repo.LogBus
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.player.MusicPlayer
 import com.movieshell.ui.components.AppCard
@@ -97,9 +97,7 @@ fun MusicScreen() {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("音乐", style = SoftType.Title, color = Color(0xFFD9C39A)) },
-            )
+            TabTopBar(title = "音乐")
         },
     ) { inner ->
         Column(

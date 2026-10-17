@@ -30,7 +30,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.movieshell.data.repo.LogBus
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginMarket.MarketInfo
 import com.movieshell.data.repo.PluginMarket.MarketPlugin
@@ -156,13 +156,9 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(info?.name ?: "插件市场", style = SoftType.Title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            TabTopBar(
+                title = info?.name ?: "插件市场",
+                onBack = onBack,
                 actions = {
                     IconButton(onClick = { reload() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "刷新")

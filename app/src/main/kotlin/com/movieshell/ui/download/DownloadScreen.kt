@@ -29,7 +29,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,6 +47,7 @@ import com.movieshell.data.repo.DlStatus
 import com.movieshell.data.repo.DownloadSettings
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.DownloadTask
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
@@ -213,27 +213,24 @@ fun DownloadScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("下载管理", style = SoftType.Title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            TabTopBar(
+                title = "下载管理",
+                onBack = onBack,
                 actions = {
-                    if (done.isNotEmpty()) {
-                        AppButton(
-                            text = "清空已完成",
-                            onClick = {
-                                scope.launch { DownloadStore.clearDone(context) }
-                            },
-                            variant = AppButtonVariant.Ghost,
-                        )
-                    }
-                    // v0.63.0：自动清理设置
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "自动清理设置")
-                    }
+                                if (done.isNotEmpty()) {
+                                    AppButton(
+                                        text = "清空已完成",
+                                        onClick = {
+                                            scope.launch { DownloadStore.clearDone(context) }
+                                        },
+                                        variant = AppButtonVariant.Ghost,
+                                    )
+                                }
+                                // v0.63.0：自动清理设置
+                                IconButton(onClick = { showSettings = true }) {
+                                    Icon(Icons.Filled.Settings, contentDescription = "自动清理设置")
+                                }
+            
                 },
             )
         },

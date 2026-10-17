@@ -33,7 +33,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +50,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.movieshell.data.repo.DetailSiteHolder
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.data.repo.FavoriteItem
 import com.movieshell.data.repo.FavoriteStore
 import com.movieshell.data.repo.Playlist
@@ -133,18 +133,9 @@ fun FavoritesScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("收藏", style = SoftType.Title) },
-                navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "返回",
-                            )
-                        }
-                    }
-                },
+            TabTopBar(
+                title = "收藏",
+                onBack = onBack,
                 actions = {
                     // v0.69.0：新建片单
                     IconButton(onClick = { createName = ""; showCreate = true }) {

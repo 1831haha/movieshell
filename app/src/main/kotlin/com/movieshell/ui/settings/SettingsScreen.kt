@@ -107,6 +107,23 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
+import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.FavoriteStore
+import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.SourceStateStore
+import com.movieshell.data.repo.SubSiteStore
+import com.movieshell.player.HistoryStore
+import com.movieshell.ui.components.BrandGradientColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // v0.27.0 Soft Tech 换皮：分组卡片走 AppCard，分组标题走 SectionTitle，
 // 对话框 20dp 圆角 + 输入框走 AppTextField，按钮走 AppButton。逻辑与文案零变更。
@@ -121,16 +138,12 @@ fun SettingsScreen(
     onParseSettingsClick: () -> Unit = {}, // v0.78.2：解析接口子页面入口
     onMarketClick: () -> Unit = {}, // v0.79.0：插件市场（实验室 tab 删除，入口搬进设置）
     onSniffPatternsClick: () -> Unit = {}, // v0.79.0：嗅探正则管理（实验室 tab 删除，入口搬进设置）
+    onHistoryClick: () -> Unit = {}, // v0.80.0：快捷宫格-观看历史
 ) {
     val context = LocalContext.current
     // v0.7.1：主题读持久化 ThemeStore，不再是本地假状态
+    // v0.80.0：主题改内联三段选择，不再弹窗
     val themeMode by ThemeStore.mode.collectAsState()
-    val themeLabel = when (themeMode) {
-        ThemeStore.MODE_DARK -> "深色"
-        ThemeStore.MODE_LIGHT -> "浅色"
-        else -> "跟随系统"
-    }
-    var showThemeDialog by remember { mutableStateOf(false) }
     var backupExpanded by remember { mutableStateOf(false) }
     // v0.51.0：WebDAV 云同步
     val scope = rememberCoroutineScope()
@@ -212,25 +225,267 @@ fun SettingsScreen(
         }
     }
 
+    // v0.80.0：信息卡统计（收藏/历史/源），进设置页时拉一次
+    var favCount by remember { mutableIntStateOf(0) }
+    var histCount by remember { mutableIntStateOf(0) }
+    var subCount by remember { mutableIntStateOf(0) }
+    var localCount by remember { mutableIntStateOf(0) }
+    var currentSourceName by remember { mutableStateOf("未设置") }
+    LaunchedEffect(Unit) {
+        favCount = runCatching { FavoriteStore.list(context).size }.getOrDefault(0)
+        histCount = runCatching { withContext(Dispatchers.IO) { HistoryStore.getHistory(context).size } }
+            .getOrDefault(0)
+        subCount = runCatching { withContext(Dispatchers.IO) { ApiSourceStore.load(context).size } }
+            .getOrDefault(0)
+        localCount = runCatching {
+            withContext(Dispatchers.IO) {
+                DrpySourceManager.listRules().size + PySourceManager.listRules().size
+            }
+        }.getOrDefault(0)
+        currentSourceName = runCatching {
+            val cur = SubSiteStore.getCurrent(context)
+            if (cur != null) {
+                SubSiteStore.getCached(context, cur.subUrl)
+                    ?.sites?.firstOrNull { it.key == cur.siteKey }?.name ?: "订阅源"
+            } else if (SourceStateStore.activeDrpyRule() != null) {
+                DrpySourceManager.activeRuleName() ?: "drpy 规则"
+            } else if (SourceStateStore.activePyRule() != null) {
+                PySourceManager.activeRuleName() ?: "py 规则"
+            } else {
+                "未设置"
+            }
+        }.getOrDefault("未设置")
+    }
+
+    // v0.80.0：设置页按 DsPlayer「我的」重设计——信息卡 + 快捷宫格 + 主题卡 + 功能分组
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = SoftDimens.PagePadding),
     ) {
+        // 1. 顶部信息卡：头像 + 侠影 + 版本徽章 + 当前源 + 统计
         item {
-            Spacer(Modifier.height(SoftDimens.CardSpacing))
-            SettingsGroup(title = "外观") {
-                SettingsRow(
-                    icon = Icons.Filled.Palette,
-                    title = "主题",
-                    subtitle = themeLabel,
-                    onClick = { showThemeDialog = true },
-                )
-                // v0.12.0：主题色换色器（DsPlayer 式色圈）
-                ThemeColorPickerRow()
+            Spacer(Modifier.height(12.dp))
+            AppCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(Brush.horizontalGradient(BrandGradientColors)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "侠",
+                                color = Color.White,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "侠影",
+                                    style = SoftType.Title,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                                ) {
+                                    Text(
+                                        text = com.movieshell.BuildConfig.VERSION_NAME,
+                                        style = SoftType.Caption,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF00C853)),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = currentSourceName,
+                                    style = SoftType.Caption,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(LocalSoftExtra.current.border),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        ProfileStat(
+                            label = "收藏",
+                            value = "$favCount",
+                            modifier = Modifier.weight(1f),
+                        )
+                        ProfileStat(
+                            label = "历史",
+                            value = "$histCount",
+                            modifier = Modifier.weight(1f),
+                        )
+                        ProfileStat(
+                            label = "源",
+                            value = "${subCount + localCount}",
+                            sub = "订阅$subCount 本地$localCount",
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
             }
-            Spacer(Modifier.height(SoftDimens.CardSpacing))
-            SettingsGroup(title = "播放") {
+        }
+        // 2. 快捷宫格：最常用的 5 个入口
+        item {
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                QuickEntry(
+                    label = "观看历史",
+                    icon = Icons.Filled.History,
+                    onClick = onHistoryClick,
+                    modifier = Modifier.weight(1f),
+                )
+                QuickEntry(
+                    label = "离线下载",
+                    icon = Icons.Filled.Download,
+                    onClick = onDownloadsClick,
+                    modifier = Modifier.weight(1f),
+                )
+                QuickEntry(
+                    label = "插件市场",
+                    icon = Icons.Filled.Store,
+                    onClick = onMarketClick,
+                    modifier = Modifier.weight(1f),
+                )
+                QuickEntry(
+                    label = "站源管理",
+                    icon = Icons.Filled.Storage,
+                    onClick = onSourcesClick,
+                    modifier = Modifier.weight(1f),
+                )
+                QuickEntry(
+                    label = "使用手册",
+                    icon = Icons.Filled.MenuBook,
+                    onClick = onManualClick,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        // 3. 主题卡片：三段切换 + 12 种主题色横滑
+        item {
+            Spacer(Modifier.height(12.dp))
+            AppCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Palette,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "主题",
+                            style = SoftType.CardTitle,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    // 亮色 / 暗色 / 跟随系统
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(4.dp),
+                    ) {
+                        listOf(
+                            "亮色" to ThemeStore.MODE_LIGHT,
+                            "暗色" to ThemeStore.MODE_DARK,
+                            "跟随系统" to ThemeStore.MODE_SYSTEM,
+                        ).forEach { (label, mode) ->
+                            val sel = themeMode == mode
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(
+                                        if (sel) MaterialTheme.colorScheme.primary
+                                        else Color.Transparent,
+                                    )
+                                    .clickable { ThemeStore.setMode(context, mode) }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = SoftType.Body,
+                                    color = if (sel) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(text = "主题色", style = SoftType.Body)
+                    Spacer(Modifier.height(8.dp))
+                    val selectedColor by ThemeStore.color.collectAsState()
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(ThemeStore.COLOR_OPTIONS) { argb ->
+                            val isSelected = argb == selectedColor
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(argb))
+                                    .border(
+                                        width = if (isSelected) 3.dp else SoftDimens.BorderWidth,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                        else LocalSoftExtra.current.border,
+                                        shape = CircleShape,
+                                    )
+                                    .clickable { ThemeStore.setColor(context, argb) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Check,
+                                        contentDescription = "已选",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // 4. 播放与解析
+        item {
+            Spacer(Modifier.height(12.dp))
+            SettingsGroup(title = "播放与解析") {
                 // v0.20.0：播放器内核——Media3（默认）/ libmpv，播放器内也可一键切换
                 // v0.29.0：libmpv 已插件化，未安装时标注
                 SettingsRow(
@@ -261,29 +516,30 @@ fun SettingsScreen(
                         },
                     )
                 }
-            }
-            Spacer(Modifier.height(SoftDimens.CardSpacing))
-            // v0.78.2：解析接口收进子页面，设置页只留一个入口
-            SettingsGroup(title = "解析接口") {
-                val customParses by ParseStore.custom.collectAsState()
+                // v0.78.2：解析接口收进子页面，设置页只留一个入口
+                run {
+                    val customParses by ParseStore.custom.collectAsState()
+                    SettingsRow(
+                        icon = Icons.Filled.Link,
+                        title = "解析接口",
+                        subtitle = if (customParses.isEmpty()) "自定义 jx 解析，播放时优先尝试"
+                        else "${customParses.size} 条线路",
+                        onClick = onParseSettingsClick,
+                    )
+                }
+                // v0.79.0：嗅探自定义正则（原实验室）
                 SettingsRow(
-                    icon = Icons.Filled.Link,
-                    title = "解析接口",
-                    subtitle = if (customParses.isEmpty()) "自定义 jx 解析，播放时优先尝试"
-                    else "${customParses.size} 条线路",
-                    onClick = onParseSettingsClick,
+                    icon = Icons.Filled.Tune,
+                    title = "嗅探正则管理",
+                    subtitle = "自定义网页嗅探的 URL 匹配规则",
+                    onClick = onSniffPatternsClick,
                 )
             }
-            Spacer(Modifier.height(SoftDimens.CardSpacing))
-            // v0.23.0：插件市场源（多源）+ 显示不兼容插件
-            SettingsGroup(title = "插件") {
-                // v0.79.0：插件市场浏览/安装入口（原实验室）
-                SettingsRow(
-                    icon = Icons.Filled.Store,
-                    title = "插件市场",
-                    subtitle = "浏览、安装、更新插件",
-                    onClick = onMarketClick,
-                )
+        }
+        // 5. 插件与同步
+        item {
+            Spacer(Modifier.height(12.dp))
+            SettingsGroup(title = "插件与同步") {
                 SettingsRow(
                     icon = Icons.Filled.Store,
                     title = "插件市场源",
@@ -307,26 +563,6 @@ fun SettingsScreen(
                         )
                     },
                 )
-            }
-            Spacer(Modifier.height(SoftDimens.CardSpacing))
-            // v0.36.0：源管理（站源 tab 删除，入口搬进设置；复用 sources 路由的完整逻辑）
-            SettingsGroup(title = "源管理") {
-                SettingsRow(
-                    icon = Icons.Filled.Storage,
-                    title = "站源管理",
-                    subtitle = "订阅源 / 本地源 / 规则管理",
-                    onClick = onSourcesClick,
-                )
-                // v0.79.0：嗅探自定义正则（原实验室）
-                SettingsRow(
-                    icon = Icons.Filled.Tune,
-                    title = "嗅探正则管理",
-                    subtitle = "自定义网页嗅探的 URL 匹配规则",
-                    onClick = onSniffPatternsClick,
-                )
-            }
-            Spacer(Modifier.height(SoftDimens.CardSpacing))
-            SettingsGroup(title = "追剧与下载") {
                 // v0.46.0：订阅自动刷新开关
                 SettingsRow(
                     icon = Icons.Filled.CloudSync,
@@ -370,35 +606,20 @@ fun SettingsScreen(
                         )
                     },
                 )
+                // v0.51.0：WebDAV 云同步（订阅/设置/播放记录一键备份恢复）
                 SettingsRow(
-                    icon = Icons.Filled.Download,
-                    title = "下载管理",
-                    subtitle = "查看下载队列与已完成",
-                    onClick = onDownloadsClick,
-                )
-                SettingsRow(
-                    icon = Icons.Filled.Speed,
-                    title = "同时下载数",
-                    subtitle = "$maxParallel 个任务并行（1-3）",
+                    icon = Icons.Filled.CloudSync,
+                    title = "WebDAV 云同步",
+                    subtitle = if (CloudSyncManager.isConfigured(context)) {
+                        CloudSyncManager.lastSyncText(context)
+                    } else {
+                        "未配置（支持坚果云/Alist/群晖等）"
+                    },
                     onClick = {
-                        val next = if (maxParallel >= 3) 1 else maxParallel + 1
-                        DownloadStore.setMaxParallel(context, next)
-                        maxParallel = next
-                        DownloadManager.pump(context)
+                        lastSyncText = CloudSyncManager.lastSyncText(context)
+                        showCloudDialog = true
                     },
                 )
-            }
-            Spacer(Modifier.height(SoftDimens.CardSpacing))
-            SettingsGroup(title = "存储") {
-                SettingsRow(
-                    icon = Icons.Filled.Cached,
-                    title = "清理缓存",
-                    subtitle = "共占用 $cacheSize",
-                    onClick = { showClearCacheDialog = true },
-                )
-            }
-            Spacer(Modifier.height(SoftDimens.CardSpacing))
-            SettingsGroup(title = "备份与恢复") {
                 SettingsRow(
                     icon = Icons.Filled.Backup,
                     title = "备份与恢复",
@@ -430,58 +651,53 @@ fun SettingsScreen(
                     }
                 }
             }
-            Spacer(Modifier.height(SoftDimens.CardSpacing))
-            // v0.51.0：WebDAV 云同步（订阅/设置/播放记录一键备份恢复）
-            SettingsGroup(title = "云同步") {
+        }
+        // 6. 存储与帮助
+        item {
+            Spacer(Modifier.height(12.dp))
+            SettingsGroup(title = "存储与帮助") {
                 SettingsRow(
-                    icon = Icons.Filled.CloudSync,
-                    title = "WebDAV 云同步",
-                    subtitle = if (CloudSyncManager.isConfigured(context)) {
-                        CloudSyncManager.lastSyncText(context)
-                    } else {
-                        "未配置（支持坚果云/Alist/群晖等）"
-                    },
+                    icon = Icons.Filled.Speed,
+                    title = "同时下载数",
+                    subtitle = "$maxParallel 个任务并行（1-3）",
                     onClick = {
-                        lastSyncText = CloudSyncManager.lastSyncText(context)
-                        showCloudDialog = true
+                        val next = if (maxParallel >= 3) 1 else maxParallel + 1
+                        DownloadStore.setMaxParallel(context, next)
+                        maxParallel = next
+                        DownloadManager.pump(context)
                     },
                 )
-            }
-            Spacer(Modifier.height(SoftDimens.CardSpacing))
-            SettingsGroup(title = "调试") {
-                val logEnabled by LogStore.enabled.collectAsState()
                 SettingsRow(
-                    icon = Icons.Filled.BugReport,
-                    title = "运行日志悬浮窗",
-                    subtitle = if (logEnabled) "已开启：小泡可拖动，点开看日志" else "关闭",
-                    onClick = { LogStore.setEnabled(context, !logEnabled) },
-                    trailing = {
-                        Switch(
-                            checked = logEnabled,
-                            onCheckedChange = { LogStore.setEnabled(context, it) },
-                        )
-                    },
+                    icon = Icons.Filled.Cached,
+                    title = "清理缓存",
+                    subtitle = "共占用 $cacheSize",
+                    onClick = { showClearCacheDialog = true },
                 )
+                run {
+                    val logEnabled by LogStore.enabled.collectAsState()
+                    SettingsRow(
+                        icon = Icons.Filled.BugReport,
+                        title = "运行日志悬浮窗",
+                        subtitle = if (logEnabled) "已开启：小泡可拖动，点开看日志" else "关闭",
+                        onClick = { LogStore.setEnabled(context, !logEnabled) },
+                        trailing = {
+                            Switch(
+                                checked = logEnabled,
+                                onCheckedChange = { LogStore.setEnabled(context, it) },
+                            )
+                        },
+                    )
+                }
                 // v0.25.0：崩溃日志导出（xiaying/crash/ 打包 zip 经系统分享）
-                val crashCount = remember { CrashHandler.list(context).size }
-                SettingsRow(
-                    icon = Icons.Filled.Warning,
-                    title = "导出崩溃日志",
-                    subtitle = if (crashCount > 0) "共 $crashCount 份，打包分享" else "暂无崩溃记录",
-                    onClick = { exportCrashLog() },
-                )
-            }
-            Spacer(Modifier.height(SoftDimens.CardSpacing))
-            SettingsGroup(title = "帮助") {
-                SettingsRow(
-                    icon = Icons.Filled.MenuBook,
-                    title = "使用手册",
-                    subtitle = "加站源 / 规则 / 磁力，看这篇就够了",
-                    onClick = onManualClick,
-                )
-            }
-            Spacer(Modifier.height(SoftDimens.CardSpacing))
-            SettingsGroup(title = "关于") {
+                run {
+                    val crashCount = remember { CrashHandler.list(context).size }
+                    SettingsRow(
+                        icon = Icons.Filled.Warning,
+                        title = "导出崩溃日志",
+                        subtitle = if (crashCount > 0) "共 $crashCount 份，打包分享" else "暂无崩溃记录",
+                        onClick = { exportCrashLog() },
+                    )
+                }
                 SettingsRow(
                     icon = Icons.Filled.Info,
                     title = "关于侠影",
@@ -500,23 +716,6 @@ fun SettingsScreen(
         }
     }
 
-    if (showThemeDialog) {
-        SingleChoiceDialog(
-            title = "选择主题",
-            options = listOf("跟随系统", "深色", "浅色"),
-            selected = themeLabel,
-            onDismiss = { showThemeDialog = false },
-            onSelect = {
-                val mode = when (it) {
-                    "深色" -> ThemeStore.MODE_DARK
-                    "浅色" -> ThemeStore.MODE_LIGHT
-                    else -> ThemeStore.MODE_SYSTEM
-                }
-                ThemeStore.setMode(context, mode)
-                showThemeDialog = false
-            },
-        )
-    }
     // v0.20.0：播放器内核选择（持久化，播放器内一键切换走同一偏好）
     // v0.29.0：libmpv 插件化——未安装时选 libmpv 提示去插件市场，不切换
     if (showEngineDialog) {
@@ -867,49 +1066,83 @@ private fun SingleChoiceDialog(
 }
 
 /**
- * v0.12.0：主题色换色器。DsPlayer 式横向色圈，点选即全 App 换主色。
+ * v0.80.0：信息卡统计项（收藏 / 历史 / 源）。
  */
 @Composable
-private fun ThemeColorPickerRow() {
-    val context = LocalContext.current
-    val selectedColor by ThemeStore.color.collectAsState()
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+private fun ProfileStat(
+    label: String,
+    value: String,
+    sub: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Text(
-            text = "主题色",
-            style = SoftType.Body,
+            text = value,
+            style = SoftType.Title,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
         )
-        Spacer(Modifier.height(10.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ThemeStore.COLOR_OPTIONS.forEach { argb ->
-                val isSelected = argb == selectedColor
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color(argb))
-                        .border(
-                            width = if (isSelected) 3.dp else SoftDimens.BorderWidth,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary
-                            else LocalSoftExtra.current.border,
-                            shape = CircleShape,
-                        )
-                        .clickable { ThemeStore.setColor(context, argb) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (isSelected) {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = "已选",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-            }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = label,
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (sub != null) {
+            Text(
+                text = sub,
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                maxLines = 1,
+            )
         }
     }
 }
 
+/**
+ * v0.80.0：快捷宫格入口（对标 DsPlayer 我的页宫格）。
+ */
+@Composable
+private fun QuickEntry(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(LocalSoftExtra.current.glass)
+            .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
+            .clickable(onClick = onClick)
+            .padding(vertical = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = label,
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}

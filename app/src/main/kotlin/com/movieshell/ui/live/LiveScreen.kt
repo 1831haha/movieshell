@@ -12,9 +12,11 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -42,7 +45,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -76,6 +78,7 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
@@ -93,6 +96,9 @@ fun isHuyaPortal(ch: LiveChannel): Boolean = ch.url == "huya://portal"
 /** 直播 Tab：顶部 16:9 播放器 + 下方分组选台（v0.79.0 改版，对标 DsPlayer 直播页） */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
+/** 直播 Tab：DsPlayer 式布局（v0.80.0 重做）——顶部 16:9 播放器 + 节目信息卡 + 三列（分组/频道/源） */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
 fun LiveScreen(
     onFullscreenChannel: (LiveChannel) -> Unit,
     onManageClick: () -> Unit,
@@ -102,11 +108,14 @@ fun LiveScreen(
     val scope = rememberCoroutineScope()
     val channels by LiveStore.channels.collectAsState()
     var query by remember { mutableStateOf("") }
+    var showSearch by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var detailChannel by remember { mutableStateOf<LiveChannel?>(null) }
     var favOnly by remember { mutableStateOf(false) }
     // v0.79.0：顶部播放器当前频道；进场自动选中第一个
     var selected by remember { mutableStateOf<LiveChannel?>(null) }
+    // v0.80.0：左侧分组选中态
+    var selectedGroup by remember { mutableStateOf<String?>(null) }
 
     fun doRefresh() {
         if (refreshing) return
@@ -137,8 +146,12 @@ fun LiveScreen(
         }
     }
 
-    val filtered = remember(channels, query, favOnly) {
-        channels.filter {
+    // 虎牙总站入口单独拎出来，不进三列
+    val huyaPortal = remember(channels) { channels.firstOrNull { isHuyaPortal(it) } }
+    val normalChannels = remember(channels) { channels.filter { !isHuyaPortal(it) } }
+
+    val filtered = remember(normalChannels, query, favOnly) {
+        normalChannels.filter {
             (!favOnly || it.favorite) &&
                 (query.isBlank() || it.name.contains(query, ignoreCase = true))
         }
@@ -146,13 +159,38 @@ fun LiveScreen(
     val groups = remember(filtered) {
         filtered.groupBy { it.group.ifBlank { "未分组" } }.toSortedMap()
     }
+    val groupNames = remember(groups) { groups.keys.toList() }
+    // 分组选中态：保留旧选（若仍在），否则取首个
+    LaunchedEffect(groupNames) {
+        if (selectedGroup !in groupNames) selectedGroup = groupNames.firstOrNull()
+    }
+    val groupChannels = remember(groups, selectedGroup) { groups[selectedGroup].orEmpty() }
+    // 同名多线路 = 源1..N（对标 DsPlayer 右列）
+    val sources = remember(channels, selected) {
+        val name = selected?.name
+        if (name.isNullOrBlank()) emptyList()
+        else channels.filter { it.name == name && !isHuyaPortal(it) }
+    }
+
+    // EPG：当前节目 + 下一档（节目信息卡用）
+    var epg by remember { mutableStateOf<Pair<EpgFetcher.Program?, EpgFetcher.Program?>?>(null) }
+    LaunchedEffect(selected) {
+        val ch = selected
+        epg = if (ch != null && ch.epgUrl.isNotBlank()) {
+            EpgFetcher.nowAndNext(ch.epgUrl, ch.name)
+        } else {
+            null
+        }
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                // v0.39.0：mockup 风格香槟金标题
-                title = { Text("直播", style = SoftType.Title, color = Color(0xFFD9C39A)) },
+            TabTopBar(
+                title = "直播",
                 actions = {
+                    IconButton(onClick = { showSearch = !showSearch }) {
+                        Icon(Icons.Filled.Search, contentDescription = "搜索频道")
+                    }
                     IconButton(onClick = { favOnly = !favOnly }) {
                         Icon(
                             if (favOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
@@ -176,15 +214,15 @@ fun LiveScreen(
                 .fillMaxSize()
                 .padding(inner),
         ) {
-            // v0.79.0：顶部 16:9 播放器（对标 DsPlayer 直播页：前面播屏幕、下面选台）
+            // 顶部 16:9 播放器
             val playing = selected
-            if (playing != null && !isHuyaPortal(playing)) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
-                        .background(Color.Black),
-                ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(Color.Black),
+            ) {
+                if (playing != null && !isHuyaPortal(playing)) {
                     PlayerScreen(
                         url = playing.url,
                         title = playing.name,
@@ -193,35 +231,40 @@ fun LiveScreen(
                         embedded = true,
                         onFullscreen = { onFullscreenChannel(playing) },
                     )
-                }
-            } else {
-                // 未选中时占位（频道列表为空时）
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
-                        .background(Color.Black),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (refreshing) {
-                        CircularProgressIndicator(color = Color.White)
-                    } else {
-                        Text(
-                            "选择下方频道开始播放",
-                            color = Color.White.copy(alpha = 0.6f),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (refreshing) {
+                            CircularProgressIndicator(color = Color.White)
+                        } else {
+                            Text(
+                                "选择下方频道开始播放",
+                                color = Color.White.copy(alpha = 0.6f),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                     }
                 }
             }
-            AppTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = "搜索频道",
-            )
+            // 节目信息卡：台标 + 正在播/下一档（对标 DsPlayer）
+            ProgramInfoCard(channel = playing, epg = epg)
+            // 搜索行（默认收起，点顶栏放大镜展开）
+            if (showSearch) {
+                AppTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    placeholder = "搜索频道",
+                )
+            }
+            // 虎牙总站入口
+            if (huyaPortal != null) {
+                HuyaEntryCard(onClick = onHuyaPortalClick)
+            }
             if (refreshing) {
                 Row(
                     modifier = Modifier
@@ -249,26 +292,68 @@ fun LiveScreen(
                 }
                 return@Column
             }
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                groups.forEach { (group, list) ->
-                    item(key = "g:$group") {
-                        Text(
-                            text = "$group（${list.size}）",
-                            style = SoftType.CardTitle,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            // 三列：分组 | 频道 | 源
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) {
+                // 左列：分组
+                LazyColumn(
+                    modifier = Modifier
+                        .width(96.dp)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(groupNames, key = { it }) { g ->
+                        GroupButton(
+                            name = g,
+                            count = groups[g]?.size ?: 0,
+                            selected = g == selectedGroup,
+                            onClick = { selectedGroup = g },
                         )
                     }
-                    items(list, key = { it.id }) { ch ->
-                        ChannelRow(
+                }
+                // 中列：频道（序号 + 台标 + 名称）
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(vertical = 8.dp, horizontal = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(
+                        items = groupChannels.withIndex().toList(),
+                        key = { it.value.id },
+                    ) { (idx, ch) ->
+                        ChannelCell(
+                            index = idx + 1,
                             channel = ch,
                             isPlaying = selected?.id == ch.id,
                             onClick = { playChannel(ch) },
                             onLongClick = { detailChannel = ch },
-                            onFavorite = {
-                                LiveStore.toggleFavorite(context, ch.id)
-                            },
+                            onFavorite = { LiveStore.toggleFavorite(context, ch.id) },
+                        )
+                    }
+                }
+                // 右列：源（同名多线路）
+                LazyColumn(
+                    modifier = Modifier
+                        .width(64.dp)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    items(
+                        items = sources.withIndex().toList(),
+                        key = { it.value.id },
+                    ) { (idx, ch) ->
+                        SourceButton(
+                            label = "源${idx + 1}",
+                            selected = selected?.id == ch.id,
+                            onClick = { playChannel(ch) },
                         )
                     }
                 }
@@ -288,27 +373,26 @@ fun LiveScreen(
                 TrashStore.trashLiveManual(context, ch)
                 LiveStore.removeManual(context, ch.id)
                 scope.launch { LiveStore.refresh(context) }
-                Toast.makeText(context, "已移入回收站", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "已移入回收站", Toast.LENGTH_LONG).show()
             },
         )
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/**
+ * v0.80.0：节目信息卡（对标 DsPlayer 播放器下方那张卡）。
+ * 台标 + 正在播 {节目} {开始-结束} / 下一档 {时间} {节目}；无 EPG 时显示频道名。
+ */
 @Composable
-private fun ChannelRow(
-    channel: LiveChannel,
-    isPlaying: Boolean = false,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    onFavorite: () -> Unit,
+private fun ProgramInfoCard(
+    channel: LiveChannel?,
+    epg: Pair<EpgFetcher.Program?, EpgFetcher.Program?>?,
 ) {
-    val soft = LocalSoftExtra.current
+    val (now, next) = epg ?: (null to null)
     AppCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         Row(
             modifier = Modifier.padding(10.dp),
@@ -318,14 +402,14 @@ private fun ChannelRow(
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(CircleShape)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
-                if (channel.logo.isNotBlank()) {
+                if (!channel?.logo.isNullOrBlank()) {
                     AsyncImage(
-                        model = channel.logo,
-                        contentDescription = channel.name,
+                        model = channel?.logo,
+                        contentDescription = channel?.name,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit,
                     )
@@ -338,48 +422,255 @@ private fun ChannelRow(
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = channel.name,
-                    style = SoftType.CardTitle,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    // v0.79.0：正在播的频道名高亮
-                    color = if (isPlaying) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface,
-                )
-                if (channel.group.isNotBlank()) {
+                if (now != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "正在播",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = now.title,
+                            style = SoftType.CardTitle,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = "${timeFmt.format(Date(now.startMs))}-${timeFmt.format(Date(now.stopMs))}",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (next != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "下一档 ${timeFmt.format(Date(next.startMs))} ${next.title}",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                } else {
                     Text(
-                        text = channel.group,
-                        style = SoftType.Caption,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = channel?.name ?: "暂无频道",
+                        style = SoftType.CardTitle,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    Text(
+                        text = if (channel?.epgUrl.isNullOrBlank()) "暂无节目单" else "节目单加载中…",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-            }
-            // 直播角标
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(soft.errorSoft.copy(alpha = 0.18f))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            ) {
-                Text("直播", color = soft.errorSoft, style = SoftType.Caption)
-            }
-            IconButton(onClick = onFavorite) {
-                Icon(
-                    if (channel.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
-                    contentDescription = if (channel.favorite) "取消收藏" else "收藏",
-                    tint = if (channel.favorite) soft.warning
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** v0.80.0：左列分组按钮（选中=主题色药丸）。 */
 @Composable
+private fun GroupButton(
+    name: String,
+    count: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(18.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp)
+            .clip(shape)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = if (count > 0) "$name" else name,
+            style = SoftType.Body,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** v0.80.0：中列频道格（序号 + 台标 + 名称 + 直播角标 + 收藏星）。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ChannelCell(
+    index: Int,
+    channel: LiveChannel,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onFavorite: () -> Unit,
+) {
+    val soft = LocalSoftExtra.current
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(
+                if (isPlaying) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                else LocalSoftExtra.current.glass,
+            )
+            .border(
+                SoftDimens.BorderWidth,
+                if (isPlaying) MaterialTheme.colorScheme.primary else soft.border,
+                shape,
+            )
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "$index",
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(20.dp),
+        )
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (channel.logo.isNotBlank()) {
+                AsyncImage(
+                    model = channel.logo,
+                    contentDescription = channel.name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                )
+            } else {
+                Icon(
+                    Icons.Filled.Tv, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = channel.name,
+                style = SoftType.CardTitle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = if (isPlaying) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+            )
+            if (channel.group.isNotBlank()) {
+                Text(
+                    text = channel.group,
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(soft.errorSoft.copy(alpha = 0.18f))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        ) {
+            Text("直播", color = soft.errorSoft, style = SoftType.Caption)
+        }
+        IconButton(onClick = onFavorite, modifier = Modifier.size(32.dp)) {
+            Icon(
+                if (channel.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                contentDescription = if (channel.favorite) "取消收藏" else "收藏",
+                tint = if (channel.favorite) soft.warning
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+/** v0.80.0：右列源按钮（源1/源2…，选中=主题色）。 */
+@Composable
+private fun SourceButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = Modifier
+            .clip(shape)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = SoftType.Body,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+    }
+}
+
+/** v0.80.0：虎牙总站入口条（有 portal 频道时显示在三列上方）。 */
+@Composable
+private fun HuyaEntryCard(onClick: () -> Unit) {
+    AppCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Tv,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "虎牙直播",
+                style = SoftType.CardTitle,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "进总站选台 >",
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 private fun ChannelDetailSheet(
     channel: LiveChannel,
     onDismiss: () -> Unit,
@@ -565,13 +856,9 @@ fun LiveManageScreen(onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("直播订阅管理", style = SoftType.Title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            TabTopBar(
+                title = "直播订阅管理",
+                onBack = onBack,
             )
         },
     ) { inner ->

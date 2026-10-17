@@ -21,7 +21,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.SniffPatternStore
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
@@ -57,13 +57,9 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("嗅探正则管理", style = SoftType.Title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            TabTopBar(
+                title = "嗅探正则管理",
+                onBack = onBack,
             )
         },
     ) { inner ->

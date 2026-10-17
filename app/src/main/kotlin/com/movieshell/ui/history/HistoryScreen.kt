@@ -31,7 +31,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
@@ -115,17 +115,14 @@ fun HistoryScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("播放历史", style = SoftType.Title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            TabTopBar(
+                title = "播放历史",
+                onBack = onBack,
                 actions = {
-                    if (entries.isNotEmpty()) {
-                        TextButton(onClick = { showClearAll = true }) { Text("清空") }
-                    }
+                                if (entries.isNotEmpty()) {
+                                    TextButton(onClick = { showClearAll = true }) { Text("清空") }
+                                }
+            
                 },
             )
         },

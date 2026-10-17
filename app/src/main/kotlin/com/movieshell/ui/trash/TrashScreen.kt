@@ -22,7 +22,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.TrashItem
 import com.movieshell.data.repo.TrashStore
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
@@ -75,17 +75,14 @@ fun TrashScreen(onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("回收站", style = SoftType.Title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            TabTopBar(
+                title = "回收站",
+                onBack = onBack,
                 actions = {
-                    if (items.isNotEmpty()) {
-                        TextButton(onClick = { showClearAll = true }) { Text("清空") }
-                    }
+                                if (items.isNotEmpty()) {
+                                    TextButton(onClick = { showClearAll = true }) { Text("清空") }
+                                }
+            
                 },
             )
         },

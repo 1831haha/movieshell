@@ -21,7 +21,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.theme.SoftType
 
@@ -44,13 +44,9 @@ import com.movieshell.ui.theme.SoftType
 fun ChangelogScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("更新日志", style = SoftType.Title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            TabTopBar(
+                title = "更新日志",
+                onBack = onBack,
             )
         },
     ) { padding ->

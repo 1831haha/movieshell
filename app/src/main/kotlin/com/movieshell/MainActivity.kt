@@ -483,6 +483,8 @@ class MainActivity : ComponentActivity() {
                                 // v0.79.0：实验室功能搬进设置
                                 onMarketClick = { navController.navigate("market") },
                                 onSniffPatternsClick = { navController.navigate("sniff_patterns") },
+                                // v0.80.0：快捷宫格-观看历史
+                                onHistoryClick = { navController.navigate("history") },
                             )
                         }
                         // v0.79.0：嗅探正则管理（原实验室）

@@ -29,7 +29,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.movieshell.data.repo.HuyaApi
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.player.PlayerScreen
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.theme.SoftType
@@ -101,13 +101,9 @@ fun HuyaPortalScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("虎牙直播", style = SoftType.Title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            TabTopBar(
+                title = "虎牙直播",
+                onBack = onBack,
             )
         },
     ) { inner ->

@@ -25,7 +25,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -43,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.movieshell.data.repo.StoragePaths
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
@@ -183,50 +183,37 @@ fun FilePreviewScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = fileName,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = SoftType.Title,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回",
-                        )
-                    }
-                },
+            TabTopBar(
+                title = fileName,
+                onBack = onBack,
                 actions = {
-                    IconButton(
-                        onClick = {
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("file", fullText))
-                            Toast.makeText(context, "已复制全文", Toast.LENGTH_SHORT).show()
-                        },
-                        enabled = exists,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.ContentCopy,
-                            contentDescription = "复制全文",
-                        )
-                    }
-                    IconButton(
-                        onClick = {
-                            if (!openFileWithEditor(context, file)) {
-                                Toast.makeText(context, "没有可用的文本编辑器", Toast.LENGTH_LONG).show()
-                            }
-                        },
-                        enabled = exists,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Edit,
-                            contentDescription = "用外部编辑器打开",
-                        )
-                    }
+                                    IconButton(
+                                        onClick = {
+                                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            cm.setPrimaryClip(ClipData.newPlainText("file", fullText))
+                                            Toast.makeText(context, "已复制全文", Toast.LENGTH_SHORT).show()
+                                        },
+                                        enabled = exists,
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.ContentCopy,
+                                            contentDescription = "复制全文",
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            if (!openFileWithEditor(context, file)) {
+                                                Toast.makeText(context, "没有可用的文本编辑器", Toast.LENGTH_LONG).show()
+                                            }
+                                        },
+                                        enabled = exists,
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Edit,
+                                            contentDescription = "用外部编辑器打开",
+                                        )
+                                    }
+            
                 },
             )
         },
