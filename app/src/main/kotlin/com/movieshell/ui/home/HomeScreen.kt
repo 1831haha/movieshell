@@ -512,7 +512,9 @@ fun HomeScreen(
         if (payload.cats.isNotEmpty()) {
             vm.setCategories(payload.cats)
         }
-        catsFailed = payload.catsFailed && cats.isEmpty()
+        // v0.58 补：c9d2ad8 删掉了 val cats = payload.cats.ifEmpty { prevCats } 却漏改了这一行，
+        // 导致 CI 编译失败 Unresolved reference 'cats'。语义=分类失败且当前无任何分类可展示。
+        catsFailed = payload.catsFailed && vm.categories.value.isEmpty()
         homeError = if (vm.currentVideos.value.isEmpty()) "加载失败，点击重试" else null
     }
 
