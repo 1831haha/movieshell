@@ -20,7 +20,9 @@ data class FavoriteItem(
     val sourceName: String = "",
     val savedAt: Long = 0L,
     /** v0.5.1：订阅子站点的 key（"sub:…"），回跳详情时恢复站点上下文；本地规则收藏为空 */
-    val subSiteKey: String = ""
+    val subSiteKey: String = "",
+    /** v0.69.0：所属片单 id，null/空 = 未分组 */
+    val playlistId: String? = null,
 )
 
 /**
@@ -68,6 +70,35 @@ object FavoriteStore {
                 writeAll(context, rest)
                 true
             }.onFailure { Log.w(TAG, "取消收藏写入失败", it) }.getOrDefault(false)
+        }
+
+    /** v0.69.0：把条目移到指定片单（playlistId null = 未分组）。 */
+    suspend fun setPlaylist(
+        context: Context,
+        vodId: String,
+        sourceName: String,
+        playlistId: String?,
+    ): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val updated = readAll(context).map {
+                if (it.vodId == vodId && it.sourceName == sourceName) it.copy(playlistId = playlistId)
+                else it
+            }
+            writeAll(context, updated)
+            true
+        }.onFailure { Log.w(TAG, "移动片单失败", it) }.getOrDefault(false)
+    }
+
+    /** v0.69.0：片单被删除时，其下条目回到未分组。 */
+    suspend fun clearPlaylist(context: Context, playlistId: String): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val updated = readAll(context).map {
+                    if (it.playlistId == playlistId) it.copy(playlistId = null) else it
+                }
+                writeAll(context, updated)
+                true
+            }.onFailure { Log.w(TAG, "清空片单关联失败", it) }.getOrDefault(false)
         }
 
     private fun fileOf(context: Context): File = File(context.filesDir, FILE_NAME)

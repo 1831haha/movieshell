@@ -91,6 +91,8 @@ import com.movieshell.data.repo.DownloadTask
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.FavoriteItem
 import com.movieshell.data.repo.FavoriteStore
+import com.movieshell.data.repo.Playlist
+import com.movieshell.data.repo.PlaylistStore
 import com.movieshell.data.repo.FollowItem
 import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.LogBus
@@ -216,6 +218,27 @@ fun DetailScreen(
     var favorite by remember { mutableStateOf(false) }
     LaunchedEffect(vodId, sourceName) {
         favorite = FavoriteStore.isFavorite(context, vodId, sourceName)
+    }
+    // v0.69.0：收藏时选片单
+    var showPlaylistPicker by remember { mutableStateOf(false) }
+    var pickerPlaylists by remember { mutableStateOf<List<Playlist>>(emptyList()) }
+
+    /** v0.69.0：收藏进指定片单（playlistId null = 未分组）。 */
+    suspend fun favoriteAddToPlaylist(ctx: Context, playlistId: String?) {
+        FavoriteStore.add(
+            ctx,
+            FavoriteItem(
+                vodId = vodId,
+                name = vod?.title ?: displayTitle(vodId),
+                pic = detail?.vodPic.orEmpty(),
+                sourceName = sourceName,
+                savedAt = System.currentTimeMillis(),
+                subSiteKey = subSite?.key.orEmpty(),
+                playlistId = playlistId,
+            ),
+        )
+        Toast.makeText(ctx, "已收藏", Toast.LENGTH_SHORT).show()
+        favorite = FavoriteStore.isFavorite(ctx, vodId, sourceName)
     }
 
     // v0.26.0：追剧
@@ -517,21 +540,16 @@ fun DetailScreen(
                                             if (favorite) {
                                                 FavoriteStore.remove(context, vodId, sourceName)
                                                 Toast.makeText(context, "已取消收藏", Toast.LENGTH_SHORT).show()
+                                                favorite = FavoriteStore.isFavorite(context, vodId, sourceName)
                                             } else {
-                                                FavoriteStore.add(
-                                                    context,
-                                                    FavoriteItem(
-                                                        vodId = vodId,
-                                                        name = vod?.title ?: displayTitle(vodId),
-                                                        pic = detail?.vodPic.orEmpty(),
-                                                        sourceName = sourceName,
-                                                        savedAt = System.currentTimeMillis(),
-                                                        subSiteKey = subSite?.key.orEmpty(),
-                                                    ),
-                                                )
-                                                Toast.makeText(context, "已收藏", Toast.LENGTH_SHORT).show()
+                                                // v0.69.0：有片单时先选片单，否则直接收藏进未分组
+                                                pickerPlaylists = PlaylistStore.list(context)
+                                                if (pickerPlaylists.isEmpty()) {
+                                                    doFavorite(context, null)
+                                                } else {
+                                                    showPlaylistPicker = true
+                                                }
                                             }
-                                            favorite = FavoriteStore.isFavorite(context, vodId, sourceName)
                                         }
                                     }) {
                                         Icon(
@@ -1010,6 +1028,41 @@ fun DetailScreen(
                 )
             }
         }
+    }
+
+    // v0.69.0：收藏时选片单
+    if (showPlaylistPicker) {
+        AlertDialog(
+            onDismissRequest = { showPlaylistPicker = false },
+            title = { Text("收藏到片单") },
+            text = {
+                Column {
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                favoriteAddToPlaylist(context, null)
+                                showPlaylistPicker = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("未分组", modifier = Modifier.fillMaxWidth()) }
+                    pickerPlaylists.forEach { p ->
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    favoriteAddToPlaylist(context, p.id)
+                                    showPlaylistPicker = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(p.name, modifier = Modifier.fillMaxWidth()) }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPlaylistPicker = false }) { Text("取消") }
+            },
+        )
     }
 }
 
