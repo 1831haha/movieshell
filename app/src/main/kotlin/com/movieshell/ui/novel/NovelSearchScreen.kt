@@ -44,15 +44,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.model.Chapter
 import com.movieshell.data.model.Novel
-import com.movieshell.data.novel.BookSource
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine
+import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.NovelStore
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
  * v0.61.0 找书页：多书源并发真搜 → 加入书架（只拉目录，正文阅读时按需拉取）。
+ * v0.64.0：JSON 书源 + 本地 PY 书源一起搜。
  */
 @Composable
 fun NovelSearchScreen(
@@ -64,20 +68,27 @@ fun NovelSearchScreen(
     val gold = Color(0xFFD9C39A)
 
     val sources by BookSourceManager.sources.collectAsState()
+    val pyRules by PyBookSourceManager.rules.collectAsState()
+    val pyEnabled by PyBookSourceManager.enabled.collectAsState()
     var keyword by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
-    var results by remember { mutableStateOf<List<Pair<BookSource, List<NovelSearchResult>>>>(emptyList()) }
+    var results by remember { mutableStateOf<List<SourceGroup>>(emptyList()) }
     var searched by remember { mutableStateOf(false) }
     var joining by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) { BookSourceManager.load(context) }
+    LaunchedEffect(Unit) {
+        BookSourceManager.load(context)
+        PyBookSourceManager.load(context)
+    }
 
     val enabledSources = remember(sources) { sources.filter { it.enabled } }
+    val enabledPyRules = remember(pyRules, pyEnabled) { pyRules.filter { it.name in pyEnabled } }
+    val totalEnabled = enabledSources.size + enabledPyRules.size
 
     fun doSearch() {
         val kw = keyword.trim()
-        if (kw.isEmpty() || enabledSources.isEmpty()) {
-            if (enabledSources.isEmpty()) {
+        if (kw.isEmpty() || totalEnabled == 0) {
+            if (totalEnabled == 0) {
                 Toast.makeText(context, "没有启用的书源，先去书源管理添加", Toast.LENGTH_SHORT).show()
             }
             return
@@ -85,21 +96,44 @@ fun NovelSearchScreen(
         scope.launch {
             loading = true
             searched = true
-            results = NovelSourceEngine.searchAll(enabledSources, kw)
-                .filter { it.second.isNotEmpty() }
+            results = coroutineScope {
+                val jsonJob = async {
+                    NovelSourceEngine.searchAll(enabledSources, kw)
+                        .filter { it.second.isNotEmpty() }
+                        .map { (s, books) -> SourceGroup(s.key, s.name, books) }
+                }
+                val pyJob = async {
+                    NovelSourceEngine.searchAllPy(context, enabledPyRules, kw)
+                        .filter { it.second.isNotEmpty() }
+                        .map { (r, books) ->
+                            SourceGroup(
+                                PyBookSourceManager.SOURCE_KEY_PREFIX + r.name,
+                                "${r.title}（本地PY）",
+                                books,
+                            )
+                        }
+                }
+                jsonJob.await() + pyJob.await()
+            }
             loading = false
         }
     }
 
-    fun joinShelf(source: BookSource, item: NovelSearchResult) {
+    fun joinShelf(group: SourceGroup, item: NovelSearchResult) {
         scope.launch {
-            joining = item.remoteId
+            joining = group.key + item.remoteId
             val ok = runCatching {
-                val metas = NovelSourceEngine.chapters(source, item)
+                val metas = if (group.key.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
+                    NovelSourceEngine.chaptersPy(context, item)
+                } else {
+                    val source = enabledSources.firstOrNull { it.key == group.key }
+                        ?: return@runCatching false
+                    NovelSourceEngine.chapters(source, item)
+                }
                 if (metas.isEmpty()) return@runCatching false
                 val novel = Novel(
-                    id = "bs_${source.key.hashCode()}_${item.remoteId.hashCode()}",
-                    sourceKey = source.key,
+                    id = "bs_${group.key.hashCode()}_${item.remoteId.hashCode()}",
+                    sourceKey = group.key,
                     title = item.title,
                     author = item.author,
                     cover = item.cover,
@@ -132,7 +166,7 @@ fun NovelSearchScreen(
             TextButton(onClick = onManageSources) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Source, "书源管理", tint = gold, modifier = Modifier.padding(end = 4.dp))
-                    Text("书源(${enabledSources.size})", color = gold, fontSize = 13.sp)
+                    Text("书源($totalEnabled)", color = gold, fontSize = 13.sp)
                 }
             }
         }
@@ -155,7 +189,7 @@ fun NovelSearchScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator()
                     Spacer(Modifier.height(8.dp))
-                    Text("正在搜索 ${enabledSources.size} 个书源…", fontSize = 13.sp,
+                    Text("正在搜索 $totalEnabled 个书源…", fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -164,23 +198,23 @@ fun NovelSearchScreen(
             }
             !searched -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    if (enabledSources.isEmpty()) "还没有启用的书源，点右上角去添加"
+                    if (totalEnabled == 0) "还没有启用的书源，点右上角去添加"
                     else "输入书名或作者开始搜索",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                results.forEach { (source, books) ->
-                    item(key = "header_${source.key}") {
+                results.forEach { group ->
+                    item(key = "header_${group.key}") {
                         Text(
-                            "来自 ${source.name}（${books.size} 本）",
+                            "来自 ${group.name}（${group.books.size} 本）",
                             fontSize = 13.sp,
                             color = gold,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
-                    items(books, key = { "${source.key}_${it.remoteId}" }) { item ->
+                    items(group.books, key = { "${group.key}_${it.remoteId}" }) { item ->
                         Card(
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -199,8 +233,8 @@ fun NovelSearchScreen(
                                     )
                                 }
                                 Spacer(Modifier.width(8.dp))
-                                val busy = joining == item.remoteId
-                                Button(onClick = { joinShelf(source, item) }, enabled = !busy) {
+                                val busy = joining == group.key + item.remoteId
+                                Button(onClick = { joinShelf(group, item) }, enabled = !busy) {
                                     Text(if (busy) "加入中" else "加入书架")
                                 }
                             }
@@ -211,3 +245,10 @@ fun NovelSearchScreen(
         }
     }
 }
+
+/** v0.64.0：找书结果分组（JSON 书源 / 本地 PY 书源统一展示）。 */
+private data class SourceGroup(
+    val key: String,
+    val name: String,
+    val books: List<NovelSearchResult>,
+)

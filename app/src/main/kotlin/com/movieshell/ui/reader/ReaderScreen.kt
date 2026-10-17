@@ -56,6 +56,7 @@ import com.movieshell.data.model.ReadingProgress
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.ChapterMeta
 import com.movieshell.data.novel.NovelSourceEngine
+import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.ReaderSettings
 import com.movieshell.data.repo.ReadingProgressStore
@@ -128,16 +129,24 @@ fun ReaderScreen(
     }
 
     // v0.61.0：在线书源章节正文按需拉取（本地 TXT 导入的 content 本来就有，不走这里）
+    // v0.64.0：本地 PY 书源的书（sourceKey 以 "pybook:" 开头）走 PY 链路
     // 注意：局部 fun 必须先声明后调用，故放在 LaunchedEffect 之前
     fun ensureContent(index: Int) {
         val c = chapters.getOrNull(index) ?: return
         if (c.content.isNotBlank() || c.url.isBlank()) return
         val n = novel ?: return
-        val source = BookSourceManager.sources.value.firstOrNull { it.key == n.sourceKey } ?: return
         scope.launch {
             contentLoading = true
-            val text = runCatching { NovelSourceEngine.content(source, ChapterMeta(index, c.title, c.url)) }
-                .getOrDefault("")
+            val text = runCatching {
+                if (n.sourceKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
+                    NovelSourceEngine.contentPy(context, ChapterMeta(index, c.title, c.url), n.sourceKey)
+                } else {
+                    val source = BookSourceManager.sources.value
+                        .firstOrNull { it.key == n.sourceKey }
+                        ?: return@runCatching ""
+                    NovelSourceEngine.content(source, ChapterMeta(index, c.title, c.url))
+                }
+            }.getOrDefault("")
             if (text.isNotBlank()) {
                 NovelStore.updateChapterContent(context, n.id, index, text)
                 chapters = chapters.map { if (it.index == index) it.copy(content = text) else it }

@@ -1,5 +1,6 @@
 package com.movieshell.data.novel
 
+import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -70,5 +71,58 @@ object NovelSourceEngine {
         val html = BookRuleEngine.getHtml(chapter.url) ?: return ""
         val doc = BookRuleEngine.parseDoc(html, chapter.url)
         return BookRuleEngine.extractContent(doc, source.ruleContent)
+    }
+
+    // ---------------- v0.64.0 本地 PY 书源链路 ----------------
+    // PY 书源的 NovelSearchResult.sourceKey 为 "pybook:<文件名>"，
+    // 凭此外缀找到规则文件，走 PyBookApi 调 bookSearch/bookDetail/bookChapter。
+
+    private val pyBookApi = PyBookApi()
+
+    private fun pyRulePath(context: Context, book: NovelSearchResult): String? {
+        val name = PyBookSourceManager.fileNameOf(book.sourceKey) ?: return null
+        return PyBookSourceManager.rulePath(context, name)
+    }
+
+    /** 在单个 PY 书源里搜书。 */
+    suspend fun searchPy(
+        context: Context,
+        rule: PyBookSourceManager.PyBookRule,
+        keyword: String,
+    ): List<NovelSearchResult> {
+        val path = PyBookSourceManager.rulePath(context, rule.name) ?: return emptyList()
+        return runCatching { pyBookApi.search(path, keyword) }
+            .onFailure { Log.w(TAG, "PY 书源搜索失败 ${rule.name}", it) }
+            .getOrDefault(emptyList())
+            .map { it.copy(sourceKey = PyBookSourceManager.SOURCE_KEY_PREFIX + rule.name) }
+    }
+
+    /** 多个 PY 书源并发搜，结果按源分组返回。 */
+    suspend fun searchAllPy(
+        context: Context,
+        rules: List<PyBookSourceManager.PyBookRule>,
+        keyword: String,
+    ): List<Pair<PyBookSourceManager.PyBookRule, List<NovelSearchResult>>> = coroutineScope {
+        rules.map { r ->
+            async { r to searchPy(context, r, keyword) }
+        }.awaitAll()
+    }
+
+    /** 拉 PY 书源的目录。 */
+    suspend fun chaptersPy(context: Context, book: NovelSearchResult): List<ChapterMeta> {
+        val path = pyRulePath(context, book) ?: return emptyList()
+        return runCatching { pyBookApi.detail(path, book.remoteId)?.chapters.orEmpty() }
+            .onFailure { Log.w(TAG, "PY 书源目录失败 ${book.sourceKey}", it) }
+            .getOrDefault(emptyList())
+    }
+
+    /** 拉 PY 书源的单章正文。 */
+    suspend fun contentPy(context: Context, chapter: ChapterMeta, sourceKey: String): String {
+        val name = PyBookSourceManager.fileNameOf(sourceKey) ?: return ""
+        val path = PyBookSourceManager.rulePath(context, name) ?: return ""
+        if (chapter.url.isBlank()) return ""
+        return runCatching { pyBookApi.chapter(path, chapter.url) }
+            .onFailure { Log.w(TAG, "PY 书源正文失败 $sourceKey", it) }
+            .getOrDefault("")
     }
 }

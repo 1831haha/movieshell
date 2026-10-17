@@ -204,6 +204,84 @@ def reset(rule_path=""):
     """清掉缓存（规则文件更新后调用）。空串=清全部。"""
     if rule_path:
         _spiders.pop(rule_path, None)
+        _book_spiders.pop(rule_path, None)
     else:
         _spiders.clear()
+        _book_spiders.clear()
     return _to_json({"ok": True})
+
+
+# ---------------- v0.64.0 书源（小说）PY 规则桥 ----------------
+# 书源规则文件里的类需实现：
+#   bookSearch(self, key)            -> {"list": [{"book_id","book_name","author","cover"}]}
+#   bookDetail(self, book_id)        -> {"book_name","author","intro","cover","chapters":[{"title","url"}]}
+#   bookChapter(self, url)           -> {"content": "正文"}
+# 与视频 Spider 分开加载（判定条件是 bookSearch 方法），缓存也独立。
+
+_book_spiders = {}
+
+
+def _load_book_spider(rule_path):
+    """加载书源规则文件并实例化书源类（带缓存）。"""
+    if rule_path in _book_spiders:
+        return _book_spiders[rule_path]
+    mod_name = "ms_book_%d" % (abs(hash(rule_path)) % (10 ** 8))
+    spec = importlib.util.spec_from_file_location(mod_name, rule_path)
+    if spec is None or spec.loader is None:
+        raise ImportError("无法加载书源文件: %s" % rule_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = module
+    spec.loader.exec_module(module)
+
+    spider_cls = None
+    for name in dir(module):
+        obj = getattr(module, name, None)
+        if (
+            isinstance(obj, type)
+            and getattr(obj, "__module__", None) == module.__name__
+            and hasattr(obj, "bookSearch")
+        ):
+            spider_cls = obj
+            break
+    if spider_cls is None:
+        raise ImportError("书源文件里没有找到书源类（需要 bookSearch 方法）: %s" % rule_path)
+
+    inst = spider_cls()
+    try:
+        inst.init("")
+    except Exception:
+        pass
+    _book_spiders[rule_path] = inst
+    return inst
+
+
+def book_call(rule_path, method, args_json):
+    """书源统一入口，供 Kotlin 经 Chaquopy 调用。"""
+    try:
+        spider = _load_book_spider(rule_path)
+        args = json.loads(args_json) if args_json else {}
+        if not isinstance(args, dict):
+            raise ValueError("args_json 必须是 JSON 对象")
+        fn = getattr(spider, method, None)
+        if not callable(fn):
+            raise AttributeError("书源没有方法: %s" % method)
+        try:
+            params = inspect.signature(fn).parameters.values()
+            if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params):
+                filtered = args
+            else:
+                accepted = {p.name for p in params}
+                filtered = {k: v for k, v in args.items() if k in accepted}
+        except (ValueError, TypeError):
+            filtered = args
+        result = fn(**filtered)
+        return _to_json({"ok": True, "data": result})
+    except Exception as e:
+        return _to_json(
+            {
+                "ok": False,
+                "error": "%s: %s" % (type(e).__name__, e),
+                "trace": traceback.format_exc(limit=8),
+                "last_resp": _last_resp_info,
+            }
+        )

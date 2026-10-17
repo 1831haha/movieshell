@@ -15,6 +15,18 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.64.0",
+        date = "2026-10-17",
+        title = "书架支持本地 PY 书源",
+        details = listOf(
+            "新：书源管理页「导入本地PY」按钮，选 .py 文件导入（自动校验书源格式）。",
+            "新：本地 PY 书源独立存放、启用/禁用/删除，与视频 PY 源互不干扰。",
+            "新：找书页 JSON 书源 + PY 书源一起并发搜，结果分组展示。",
+            "新：PY 书源的书可加入书架，目录/正文走 PY 规则按需拉取。",
+            "书源规则格式：实现 bookSearch(key) / bookDetail(book_id) / bookChapter(url) 三个方法。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.63.0",
         date = "2026-10-17",
         title = "下载自动清理",

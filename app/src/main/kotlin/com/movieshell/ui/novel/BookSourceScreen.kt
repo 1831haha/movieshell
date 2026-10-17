@@ -1,6 +1,8 @@
 package com.movieshell.ui.novel
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.novel.BookSource
 import com.movieshell.data.novel.BookSourceManager
+import com.movieshell.data.novel.PyBookSourceManager
 import kotlinx.coroutines.launch
 
 /**
@@ -56,11 +59,34 @@ fun BookSourceScreen(onBack: () -> Unit = {}) {
     val gold = Color(0xFFD9C39A)
 
     val sources by BookSourceManager.sources.collectAsState()
+    // v0.64.0：本地 PY 书源
+    val pyRules by PyBookSourceManager.rules.collectAsState()
+    val pyEnabled by PyBookSourceManager.enabled.collectAsState()
     var showImport by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<BookSource?>(null) }
+    var deletePyTarget by remember { mutableStateOf<PyBookSourceManager.PyBookRule?>(null) }
 
-    LaunchedEffect(Unit) { BookSourceManager.load(context) }
+    LaunchedEffect(Unit) {
+        BookSourceManager.load(context)
+        PyBookSourceManager.load(context)
+    }
+
+    val pyImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val msg = when (val r = PyBookSourceManager.import(context, uri)) {
+                is PyBookSourceManager.ImportResult.Ok -> "已导入 ${r.fileName}"
+                PyBookSourceManager.ImportResult.WrongExt -> "请选择 .py 文件"
+                PyBookSourceManager.ImportResult.InvalidRule ->
+                    "不是有效的书源文件（需要实现 bookSearch 方法）"
+                is PyBookSourceManager.ImportResult.Failed -> "导入失败：${r.msg}"
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -69,24 +95,79 @@ fun BookSourceScreen(onBack: () -> Unit = {}) {
             }
             Text("书源管理", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = gold)
             Spacer(Modifier.weight(1f))
+            // v0.64.0：导入本地 .py 书源
+            TextButton(onClick = { pyImportLauncher.launch("*/*") }) {
+                Text("导入本地PY", color = gold, fontSize = 13.sp)
+            }
             IconButton(onClick = { importText = ""; showImport = true }) {
                 Icon(Icons.Filled.Add, "导入书源", tint = gold)
             }
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            "粘贴阅读 App 导出的 bookSource.json 导入；开关控制搜索时是否使用该源",
+            "右上角 + 粘贴阅读 App 导出的 bookSource.json 导入；「导入本地PY」选 .py 书源文件；开关控制搜索时是否使用该源",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(12.dp))
-        if (sources.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("还没有书源，点右上角 + 导入", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // v0.64.0：本地 PY 书源区
+            if (pyRules.isNotEmpty()) {
+                item(key = "py_header") {
+                    Text(
+                        "本地 PY 书源（${pyRules.count { it.name in pyEnabled }} 已启用）",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = gold,
+                    )
+                }
             }
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(sources, key = { it.key }) { s ->
+            items(pyRules, key = { "py_${it.name}" }) { r ->
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    ),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(r.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(
+                                "${r.name} · ${r.sizeKb}KB",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                        Switch(
+                            checked = r.name in pyEnabled,
+                            onCheckedChange = {
+                                PyBookSourceManager.setEnabled(context, r.name, it)
+                            },
+                        )
+                        IconButton(onClick = { deletePyTarget = r }) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                "删除",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+            }
+            if (sources.isNotEmpty()) {
+                item(key = "json_header") {
+                    Text(
+                        "JSON 书源",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = gold,
+                    )
+                }
+            }
+            items(sources, key = { "json_${it.key}" }) { s ->
                     Card(
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -129,8 +210,20 @@ fun BookSourceScreen(onBack: () -> Unit = {}) {
                     }
                 }
             }
+            if (sources.isEmpty() && pyRules.isEmpty()) {
+                item(key = "empty") {
+                    Box(
+                        Modifier.fillMaxWidth().padding(top = 48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "还没有书源，点右上角导入",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
-    }
 
     if (showImport) {
         AlertDialog(
@@ -176,6 +269,24 @@ fun BookSourceScreen(onBack: () -> Unit = {}) {
             },
             dismissButton = {
                 TextButton(onClick = { deleteTarget = null }) { Text("取消") }
+            },
+        )
+    }
+
+    // v0.64.0：删除本地 PY 书源
+    deletePyTarget?.let { r ->
+        AlertDialog(
+            onDismissRequest = { deletePyTarget = null },
+            title = { Text("删除书源") },
+            text = { Text("确定删除本地 PY 书源「${r.title}」？文件也会被删除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch { PyBookSourceManager.remove(context, r.name) }
+                    deletePyTarget = null
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletePyTarget = null }) { Text("取消") }
             },
         )
     }

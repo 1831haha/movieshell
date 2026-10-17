@@ -122,4 +122,23 @@ object ChaquopyEngine : PyEngine {
                 "{\"ok\":false,\"error\":\"" + (e.message ?: e.toString()).replace("\"", "'") + "\"}"
             }
         }
+
+    /** v0.64.0 书源入口：走 pyspider_bridge.book_call。 */
+    override suspend fun bookInvoke(rulePath: String, method: String, argsJson: String): String =
+        withContext(Dispatchers.IO) {
+            try {
+                val mod = python().getModule("pyspider_bridge")
+                mod.callAttr("book_call", rulePath, method, argsJson).toString()
+            } catch (e: Exception) {
+                Log.w(TAG, "bookInvoke 失败: $method", e)
+                "{\"ok\":false,\"error\":\"" + (e.message ?: e.toString()).replace("\"", "'") + "\"}"
+            }
+        }
+
+    /** v0.64.0：清掉指定规则文件的桥缓存。 */
+    override suspend fun resetRuleCache(rulePath: String): Unit = withContext(Dispatchers.IO) {
+        runCatching {
+            python().getModule("pyspider_bridge").callAttr("reset", rulePath)
+        }.onFailure { Log.w(TAG, "resetRuleCache 失败", it) }
+    }
 }

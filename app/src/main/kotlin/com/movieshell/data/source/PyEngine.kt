@@ -14,4 +14,16 @@ package com.movieshell.data.source
  */
 interface PyEngine {
     suspend fun invoke(rulePath: String, method: String, argsJson: String): String
+
+    /**
+     * v0.64.0 书源入口：走 pyspider_bridge.book_call，调书源文件的
+     * bookSearch / bookDetail / bookChapter 方法。
+     */
+    suspend fun bookInvoke(rulePath: String, method: String, argsJson: String): String
+
+    /**
+     * v0.64.0：清掉指定规则文件的桥缓存（书源文件更新/删除后调用，
+     * 避免复用已删除文件的旧实例）。
+     */
+    suspend fun resetRuleCache(rulePath: String)
 }
