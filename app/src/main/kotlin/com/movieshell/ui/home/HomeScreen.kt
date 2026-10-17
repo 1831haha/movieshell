@@ -110,6 +110,7 @@ import com.movieshell.ui.components.PosterCard
 import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
 import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.settings.SettingsRow
 import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.FlowingGlowBackground
 import com.movieshell.ui.theme.LocalSoftExtra
