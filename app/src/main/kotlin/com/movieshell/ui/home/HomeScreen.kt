@@ -917,28 +917,74 @@ fun HomeScreen(
                 }
 
                 // v0.39.0：站源切换入口（保留功能，mockup 风格胶囊）
+                // v0.59：顶部一栏——历史 + 追剧（用户要求从图标行升级为顶栏胶囊）
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        // v0.24.0：播放历史
-                        IconButton(onClick = onHistoryClick) {
-                            Icon(
-                                imageVector = Icons.Filled.History,
-                                contentDescription = "播放历史",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        // 历史胶囊
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = onHistoryClick,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 10.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.History,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "历史",
+                                    style = SoftType.CardTitle,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
                         }
-                        // v0.26.0：我的追剧
-                        IconButton(onClick = onFollowClick) {
-                            Icon(
-                                imageVector = Icons.Filled.PlaylistAddCheck,
-                                contentDescription = "我的追剧",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        // 追剧胶囊
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = onFollowClick,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 10.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PlaylistAddCheck,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "追剧",
+                                    style = SoftType.CardTitle,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
                         }
+                    }
+                }
+                // v0.59：流动状态条——顶部和正片之间，加载时流动动画表示状态
+                if (drpyLoading || loadingCat != null) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(3.dp),
+                        )
                     }
                 }
     
@@ -955,7 +1001,8 @@ fun HomeScreen(
                             onAction = { loadHome(force = true) },
                         )
                     }
-                } else if (!drpyReady) {
+                } else if (!drpyReady && drpyCats.isEmpty()) {
+                    // v0.59：分类和视频都没有才显示空态；有分类无视频时走 else 显示分类行
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         EmptyState(
                             kind = EmptyKind.Empty,

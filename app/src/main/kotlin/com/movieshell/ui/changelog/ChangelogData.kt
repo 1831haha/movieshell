@@ -15,6 +15,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.59.0",
+        date = "2026-10-17",
+        title = "首页顶栏+状态条+空态修复",
+        details = listOf(
+            "修：加第一个源后分类有了但推荐为 0，分类行被空态吞掉——现在有分类就显示分类行，可点分类看内容。",
+            "改：历史和追剧从图标行升级为顶部胶囊栏，更显眼。",
+            "新：顶部和正片之间加流动状态条，加载时有动画表示状态。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.58.0",
         date = "2026-10-17",
         title = "修真果鉴分类+简介并入主演卡",
