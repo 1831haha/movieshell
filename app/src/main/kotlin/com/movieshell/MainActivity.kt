@@ -407,16 +407,30 @@ class MainActivity : ComponentActivity() {
                                 onFindBookClick = { navController.navigate("novel_search") },
                             )
                         }
-                        composable("novel_search") {
+                        composable(
+                            "novel_search?pySource={pySource}",
+                            arguments = listOf(
+                                navArgument("pySource") {
+                                    type = NavType.StringType
+                                    defaultValue = ""
+                                },
+                            ),
+                        ) { entry ->
                             NovelSearchScreen(
                                 onBack = { navController.popBackStack() },
                                 onManageSources = { navController.navigate("book_sources") },
+                                // v0.66.0：书源管理点 PY 源直达（只搜该源）
+                                pySourceName = entry.arguments?.getString("pySource")?.ifBlank { null },
                             )
                         }
                         // v0.61.0：书源管理
                         composable("book_sources") {
                             BookSourceScreen(
                                 onBack = { navController.popBackStack() },
+                                // v0.66.0：点 PY 源 → 该源专属找书页
+                                onOpenPySource = { ruleName ->
+                                    navController.navigate("novel_search?pySource=$ruleName")
+                                },
                             )
                         }
                         composable(

@@ -25,7 +25,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.AppChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.model.Novel
 import com.movieshell.data.model.ReadingProgress
-import com.movieshell.data.model.ShelfTab
 import com.movieshell.data.novel.TxtImporter
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.ReadingProgressStore
@@ -57,8 +55,8 @@ import java.io.File
 /**
  * v0.35.0 小说书架。
  * v0.36.0：长按删除（确认弹窗）；卡片显示上次阅读时间。
+ * v0.66.0：去掉在追/想看/已看完分组，单列表按最后阅读时间倒序（用户要求：只留一个书架）。
  *
- * - 在追 / 想看 / 已看完 三个分组（收藏片单下版再说）；
  * - 右上角 + 导入 TXT；点击书进阅读器。
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -70,24 +68,23 @@ fun BookshelfScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var tab by remember { mutableStateOf(ShelfTab.READING) }
-    var shelves by remember { mutableStateOf<Map<ShelfTab, List<Novel>>>(emptyMap()) }
+    var books by remember { mutableStateOf<List<Novel>>(emptyList()) }
     var progressMap by remember { mutableStateOf<Map<String, ReadingProgress>>(emptyMap()) }
     var importing by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<Novel?>(null) }
 
     fun reload() {
         scope.launch {
-            val s = withContext(Dispatchers.IO) { NovelStore.listShelves(context) }
-            shelves = s
-            // v0.36.0：顺手把每本书的上次阅读时间也拉出来
+            val all = withContext(Dispatchers.IO) { NovelStore.list(context) }
+            // v0.66.0：单列表，按最后阅读时间倒序
             val pm = withContext(Dispatchers.IO) {
-                s.values.flatten().distinctBy { it.id }.associate { novel ->
+                all.associate { novel ->
                     novel.id to (ReadingProgressStore.load(context, novel.id)
                         ?: ReadingProgress(novelId = novel.id))
                 }
             }
             progressMap = pm
+            books = all.sortedByDescending { pm[it.id]?.updatedAt ?: 0L }
         }
     }
     LaunchedEffect(Unit) { reload() }
@@ -125,7 +122,6 @@ fun BookshelfScreen(
     }
 
     val gold = Color(0xFFD9C39A)
-    val books = shelves[tab].orEmpty()
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
@@ -135,7 +131,8 @@ fun BookshelfScreen(
             Column(modifier = Modifier.weight(1f)) {
                 Text("书架", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = gold)
                 Text(
-                    "管理你的藏书",
+                    // v0.66.0：单列表，显示总数
+                    if (books.isEmpty()) "管理你的藏书" else "共 ${books.size} 本",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -150,17 +147,7 @@ fun BookshelfScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        // v0.39.0 mockup 风格：胶囊 tab（青色选中）
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val readingCount = shelves[ShelfTab.READING].orEmpty().size
-            val wantCount = shelves[ShelfTab.WANT].orEmpty().size
-            val finishedCount = shelves[ShelfTab.FINISHED].orEmpty().size
-            AppChip("在追 $readingCount", tab == ShelfTab.READING, onClick = { tab = ShelfTab.READING })
-            AppChip("想看 $wantCount", tab == ShelfTab.WANT, onClick = { tab = ShelfTab.WANT })
-            AppChip("已看完 $finishedCount", tab == ShelfTab.FINISHED, onClick = { tab = ShelfTab.FINISHED })
-        }
-
-        Spacer(Modifier.height(12.dp))
+        // v0.66.0：分组 tab 已移除（用户要求只留一个书架）
 
         if (books.isEmpty()) {
             Box(

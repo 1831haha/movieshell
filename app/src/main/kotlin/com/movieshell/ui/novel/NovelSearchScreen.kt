@@ -57,11 +57,13 @@ import kotlinx.coroutines.launch
 /**
  * v0.61.0 找书页：多书源并发真搜 → 加入书架（只拉目录，正文阅读时按需拉取）。
  * v0.64.0：JSON 书源 + 本地 PY 书源一起搜。
+ * v0.66.0：支持锁定单个 PY 源（pySourceName 非空时只搜该源，用于书源管理点源直达）。
  */
 @Composable
 fun NovelSearchScreen(
     onBack: () -> Unit = {},
     onManageSources: () -> Unit = {},
+    pySourceName: String? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -83,12 +85,18 @@ fun NovelSearchScreen(
 
     val enabledSources = remember(sources) { sources.filter { it.enabled } }
     val enabledPyRules = remember(pyRules, pyEnabled) { pyRules.filter { it.name in pyEnabled } }
+    // v0.66.0：锁定单 PY 源时只搜它
+    val lockedPyRule = remember(pyRules, pySourceName) {
+        pySourceName?.let { name -> pyRules.find { it.name == name } }
+    }
     val totalEnabled = enabledSources.size + enabledPyRules.size
 
     fun doSearch() {
         val kw = keyword.trim()
-        if (kw.isEmpty() || totalEnabled == 0) {
-            if (totalEnabled == 0) {
+        // v0.66.0：锁定模式下只要该源存在即可搜
+        val canSearch = if (lockedPyRule != null) true else totalEnabled > 0
+        if (kw.isEmpty() || !canSearch) {
+            if (!canSearch) {
                 Toast.makeText(context, "没有启用的书源，先去书源管理添加", Toast.LENGTH_SHORT).show()
             }
             return
@@ -97,13 +105,9 @@ fun NovelSearchScreen(
             loading = true
             searched = true
             results = coroutineScope {
-                val jsonJob = async {
-                    NovelSourceEngine.searchAll(enabledSources, kw)
-                        .filter { it.second.isNotEmpty() }
-                        .map { (s, books) -> SourceGroup(s.key, s.name, books) }
-                }
-                val pyJob = async {
-                    NovelSourceEngine.searchAllPy(context, enabledPyRules, kw)
+                // v0.66.0：锁定单 PY 源 → 只搜它
+                if (lockedPyRule != null) {
+                    NovelSourceEngine.searchAllPy(context, listOf(lockedPyRule), kw)
                         .filter { it.second.isNotEmpty() }
                         .map { (r, books) ->
                             SourceGroup(
@@ -112,8 +116,25 @@ fun NovelSearchScreen(
                                 books,
                             )
                         }
+                } else {
+                    val jsonJob = async {
+                        NovelSourceEngine.searchAll(enabledSources, kw)
+                            .filter { it.second.isNotEmpty() }
+                            .map { (s, books) -> SourceGroup(s.key, s.name, books) }
+                    }
+                    val pyJob = async {
+                        NovelSourceEngine.searchAllPy(context, enabledPyRules, kw)
+                            .filter { it.second.isNotEmpty() }
+                            .map { (r, books) ->
+                                SourceGroup(
+                                    PyBookSourceManager.SOURCE_KEY_PREFIX + r.name,
+                                    "${r.title}（本地PY）",
+                                    books,
+                                )
+                            }
+                    }
+                    jsonJob.await() + pyJob.await()
                 }
-                jsonJob.await() + pyJob.await()
             }
             loading = false
         }
@@ -161,12 +182,20 @@ fun NovelSearchScreen(
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = gold)
             }
-            Text("找书", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = gold)
+            Text(
+                // v0.66.0：锁定单源时标题显示源名
+                if (lockedPyRule != null) lockedPyRule.title else "找书",
+                fontSize = 22.sp, fontWeight = FontWeight.Bold, color = gold,
+                maxLines = 1,
+            )
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = onManageSources) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Source, "书源管理", tint = gold, modifier = Modifier.padding(end = 4.dp))
-                    Text("书源($totalEnabled)", color = gold, fontSize = 13.sp)
+            // v0.66.0：锁定单源时不显示书源管理入口
+            if (lockedPyRule == null) {
+                TextButton(onClick = onManageSources) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Source, "书源管理", tint = gold, modifier = Modifier.padding(end = 4.dp))
+                        Text("书源($totalEnabled)", color = gold, fontSize = 13.sp)
+                    }
                 }
             }
         }

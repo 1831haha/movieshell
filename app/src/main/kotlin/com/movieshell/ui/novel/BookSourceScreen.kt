@@ -51,9 +51,13 @@ import kotlinx.coroutines.launch
 /**
  * v0.61.0 书源管理：列表 / 启用开关 / 删除 / 粘贴 JSON 导入。
  * 兼容"阅读"App 导出的 bookSource.json（单条或数组）。
+ * v0.66.0：点本地 PY 源 → 打开该源专属找书页（onOpenPySource）。
  */
 @Composable
-fun BookSourceScreen(onBack: () -> Unit = {}) {
+fun BookSourceScreen(
+    onBack: () -> Unit = {},
+    onOpenPySource: (ruleName: String) -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val gold = Color(0xFFD9C39A)
@@ -127,6 +131,8 @@ fun BookSourceScreen(onBack: () -> Unit = {}) {
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     ),
+                    // v0.66.0：点卡片直接打开该源（找书只搜它）
+                    onClick = { onOpenPySource(r.name) },
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(14.dp),
