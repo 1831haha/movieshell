@@ -187,6 +187,7 @@ fun PlayerScreen(
     var showSkipSettings by remember { mutableStateOf(false) } // v0.16.3：按剧片头片尾设置
     // v0.19.0
     var playUrl by remember { mutableStateOf(url) } // 实际播放地址（切线路/重试时更新）
+    val triedLines = remember { mutableSetOf<Int>() } // 已试过的线路下标（声明前置：LaunchedEffect(url) 里引用）
     // v0.65：嵌入模式下外部换地址（如详情页点选集）→ 跟随切过去，走已有 LaunchedEffect(playUrl) 起播
     LaunchedEffect(url) {
         if (url.isNotBlank() && url != playUrl) {
@@ -210,7 +211,6 @@ fun PlayerScreen(
     var locked by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var autoSwitching by remember { mutableStateOf(false) } // playUrl 变化来自自动重试
-    val triedLines = remember { mutableSetOf<Int>() } // 已试过的线路下标
     // v0.21.0：同地址已试过的内核（防 Media3↔libmpv 乒乓）
     val triedEngines = remember { mutableSetOf<PlayerEngine>() }
     var lastHeaders by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
