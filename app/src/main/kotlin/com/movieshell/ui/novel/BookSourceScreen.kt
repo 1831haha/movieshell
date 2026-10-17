@@ -77,6 +77,8 @@ fun BookSourceScreen(
     // v0.67.0：PY 源连通性测试
     var testingPy by remember { mutableStateOf<String?>(null) }
     var testResult by remember { mutableStateOf<String?>(null) }
+    // v0.76.0：导进来的是影视 spider——弹窗提示，可一键转去影视源导入
+    var videoSpiderUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     LaunchedEffect(Unit) {
         BookSourceManager.load(context)
@@ -88,15 +90,63 @@ fun BookSourceScreen(
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val msg = when (val r = PyBookSourceManager.import(context, uri)) {
-                is PyBookSourceManager.ImportResult.Ok -> "已导入 ${r.fileName}"
-                PyBookSourceManager.ImportResult.WrongExt -> "请选择 .py 文件"
+            when (val r = PyBookSourceManager.import(context, uri)) {
+                is PyBookSourceManager.ImportResult.Ok ->
+                    Toast.makeText(context, "已导入 ${r.fileName}", Toast.LENGTH_SHORT).show()
+                PyBookSourceManager.ImportResult.WrongExt ->
+                    Toast.makeText(context, "请选择 .py 文件", Toast.LENGTH_SHORT).show()
                 PyBookSourceManager.ImportResult.InvalidRule ->
-                    "不是有效的书源文件（需要实现 bookSearch 方法）"
-                is PyBookSourceManager.ImportResult.Failed -> "导入失败：${r.msg}"
+                    Toast.makeText(
+                        context,
+                        "不是有效的书源文件（需要实现 bookSearch 方法）",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                // v0.76.0：是影视 spider——弹窗，不再只是一句 toast 打发
+                PyBookSourceManager.ImportResult.IsVideoSpider -> videoSpiderUri = uri
+                is PyBookSourceManager.ImportResult.Failed ->
+                    Toast.makeText(context, "导入失败：${r.msg}", Toast.LENGTH_SHORT).show()
             }
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // v0.76.0：影视 spider 识别弹窗
+    videoSpiderUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { videoSpiderUri = null },
+            title = { Text("这是影视源，不是书源") },
+            text = {
+                Text(
+                    "检测到这个 .py 是影视 spider（有 homeContent/searchContent 等影视方法，" +
+                        "没有 bookSearch），放进书源管理用不了。要直接导入为影视源吗？",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        videoSpiderUri = null
+                        scope.launch {
+                            val msg = when (
+                                val r = com.movieshell.ui.sources.importRuleFile(
+                                    context, uri,
+                                    com.movieshell.ui.sources.IMPORT_PY,
+                                )
+                            ) {
+                                is com.movieshell.ui.sources.ImportResult.Ok ->
+                                    "已导入为影视源 ${r.fileName}，去站源页查看"
+                                com.movieshell.ui.sources.ImportResult.WrongExt ->
+                                    "请选择 .py 文件"
+                                is com.movieshell.ui.sources.ImportResult.Failed ->
+                                    "导入失败：${r.reason}"
+                            }
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                ) { Text("导入为影视源") }
+            },
+            dismissButton = {
+                TextButton(onClick = { videoSpiderUri = null }) { Text("取消") }
+            },
+        )
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {

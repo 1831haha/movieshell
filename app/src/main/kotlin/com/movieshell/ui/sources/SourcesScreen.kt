@@ -144,19 +144,19 @@ private fun targetDir(context: Context, dirName: String): File = when (dirName) 
 }
 
 /** 文件导入目标：规则子目录 + 允许的后缀（目录实际位置见 targetDir，走 StoragePaths） */
-private data class ImportTarget(
+internal data class ImportTarget(
     val dirName: String,          // 逻辑子目录：drpy / py / php
     val extensions: List<String>, // 允许的后缀，带点，如 ".js"
     val label: String,            // 分组名，用于 Toast 提示
 )
 
 private val IMPORT_DPRY = ImportTarget("drpy", listOf(".js"), "JS文件夹")
-private val IMPORT_PY = ImportTarget("py", listOf(".py"), "PY文件夹")
+internal val IMPORT_PY = ImportTarget("py", listOf(".py"), "PY文件夹")
 private val IMPORT_PHP = ImportTarget("php", listOf(".php"), "PHP文件夹")
 private val IMPORT_WEB = ImportTarget("web", listOf(".html", ".htm"), "网页源")
 
 /** 导入结果 */
-private sealed interface ImportResult {
+internal sealed interface ImportResult {
     data class Ok(val fileName: String) : ImportResult
     object WrongExt : ImportResult
     data class Failed(val reason: String) : ImportResult
@@ -167,7 +167,7 @@ private sealed interface ImportResult {
  * - 文件名取原名（重名则加时间戳后缀避免覆盖）
  * - 后缀不在允许列表内 -> WrongExt
  */
-private fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): ImportResult {
+internal fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): ImportResult {
     val displayName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
         val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null

@@ -36,6 +36,8 @@ object PyBookSourceManager {
         data class Ok(val fileName: String) : ImportResult
         data object WrongExt : ImportResult
         data object InvalidRule : ImportResult
+        /** v0.76.0：是影视 spider（有 vod 方法、无 bookSearch），可一键转去影视源导入 */
+        data object IsVideoSpider : ImportResult
         data class Failed(val msg: String) : ImportResult
     }
 
@@ -114,7 +116,12 @@ object PyBookSourceManager {
             }.getOrDefault("")
             if (!head.contains("bookSearch")) {
                 dst.delete()
-                return@withContext ImportResult.InvalidRule
+                // v0.76.0：智能识别——是影视 spider 就明确告诉用户，别只说"不是书源"
+                return@withContext if (looksLikeVideoSpider(head)) {
+                    ImportResult.IsVideoSpider
+                } else {
+                    ImportResult.InvalidRule
+                }
             }
             load(context)
             ImportResult.Ok(dst.name)
@@ -132,6 +139,20 @@ object PyBookSourceManager {
         runCatching { ChaquopyEngine.resetRuleCache(path) }
         setEnabled(context, name, false)
         load(context)
+    }
+
+    /**
+     * v0.76.0：像不像影视 spider——有 TVBox 影视方法（homeContent/searchContent/
+     * detailContent/playerContent/categoryContent），却没有 bookSearch。
+     * 只看文件头 8KB，混淆过的也认得出方法名。
+     */
+    private fun looksLikeVideoSpider(head: String): Boolean {
+        if (head.contains("bookSearch")) return false
+        val marks = listOf(
+            "homeContent", "searchContent", "detailContent",
+            "playerContent", "categoryContent", "vod_play",
+        )
+        return marks.count { head.contains(it) } >= 2
     }
 
     /** 从文件头抠类名做标题（class Xxx），抠不到返回 null。 */
