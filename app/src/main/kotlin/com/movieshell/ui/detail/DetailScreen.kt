@@ -21,11 +21,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandLess
@@ -52,9 +54,16 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -392,27 +401,52 @@ fun DetailScreen(
         } else {
             // vod 非空才进内容区；内层 vod 遮蔽外层可空引用，调用点零改动
             vod?.let { vod ->
-                LazyColumn(
+                // v0.68：小窗悬浮——播放器滚出屏幕后缩到右下角继续播
+                val listState = rememberLazyListState()
+                val playerOffScreen by remember {
+                    derivedStateOf { listState.firstVisibleItemIndex > 0 }
+                }
+                val showMiniPlayer = playerOffScreen && embeddedUrl.isNotBlank()
+                // v0.68：播放器内容可移动（列表顶部 ↔ 悬浮小窗），切换时不重建、不中断播放
+                val movablePlayer = remember {
+                    movableContentOf {
+                        PlayerScreen(
+                            url = embeddedUrl,
+                            title = embeddedTitle,
+                            vodId = vodId,
+                            onBack = onBack,
+                            embedded = true,
+                            onFullscreen = { onPlay(embeddedUrl, embeddedTitle) },
+                            onEpisodeChange = { lineIdx, epIdx ->
+                                playingLine = lineIdx
+                                playingEp = epIdx
+                            },
+                        )
+                    }
+                }
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(inner),
                 ) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
                     // v0.65：顶部嵌入播放器（16:9）——详情就绪自动播第一集
+                    // v0.68：滚出屏幕时切小窗，此处留同高占位防跳动
                     // 未起播前显示封面占位
                     item {
                         if (embeddedUrl.isNotBlank()) {
-                            PlayerScreen(
-                                url = embeddedUrl,
-                                title = embeddedTitle,
-                                vodId = vodId,
-                                onBack = onBack,
-                                embedded = true,
-                                onFullscreen = { onPlay(embeddedUrl, embeddedTitle) },
-                                onEpisodeChange = { lineIdx, epIdx ->
-                                    playingLine = lineIdx
-                                    playingEp = epIdx
-                                },
-                            )
+                            if (showMiniPlayer) {
+                                Spacer(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(16f / 9f),
+                                )
+                            } else {
+                                movablePlayer()
+                            }
                         } else {
                             GradientBlock(
                                 key = vod.id,
@@ -680,14 +714,27 @@ fun DetailScreen(
                                 )
                             }
                             item {
-                                FlowRow(
+                                // v0.68：选集改可滚动网格，自动定位到正在播的集
+                                val epGridState = rememberLazyGridState()
+                                LaunchedEffect(highlightEp, lineEpisodes.size) {
+                                    if (lineEpisodes.isNotEmpty()) {
+                                        runCatching {
+                                            epGridState.scrollToItem(highlightEp.coerceIn(0, lineEpisodes.size - 1))
+                                        }
+                                    }
+                                }
+                                LazyVerticalGrid(
+                                    columns = GridCells.Adaptive(minSize = 84.dp),
+                                    state = epGridState,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = SoftDimens.PagePadding),
+                                        .padding(horizontal = SoftDimens.PagePadding)
+                                        .heightIn(max = 320.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    lineEpisodes.forEachIndexed { i, ep ->
+                                    items(lineEpisodes.size) { i ->
+                                        val ep = lineEpisodes[i]
                                         AppChip(
                                             text = ep.name.ifBlank { "第${i + 1}集" },
                                             // v0.65：高亮跟随实际播放
@@ -741,6 +788,53 @@ fun DetailScreen(
                         Spacer(Modifier.height(24.dp))
                     }
                 }
+
+                // v0.68：悬浮小窗——播放器滚出屏幕后右下角继续播
+                if (showMiniPlayer) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(16.dp)
+                            .width(200.dp)
+                            .aspectRatio(16f / 9f)
+                            .clip(RoundedCornerShape(12.dp)),
+                    ) {
+                        movablePlayer()
+                        // 回到顶部
+                        IconButton(
+                            onClick = { scope.launch { listState.scrollToItem(0) } },
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(4.dp)
+                                .size(32.dp)
+                                .background(Color.Black.copy(alpha = 0.55f), CircleShape),
+                        ) {
+                            Icon(
+                                Icons.Filled.ExpandLess,
+                                contentDescription = "回到顶部",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                        // 关闭小窗（停止播放）
+                        IconButton(
+                            onClick = { embeddedUrl = "" },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(4.dp)
+                                .size(32.dp)
+                                .background(Color.Black.copy(alpha = 0.55f), CircleShape),
+                        ) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "关闭",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                }
+                } // Box：内容区 + 悬浮小窗
             }
         }
     
