@@ -106,6 +106,17 @@ object PluginMarket {
     @Volatile
     private var lastList: List<MarketPlugin> = emptyList()
 
+    /** v0.79.0：进程级最近一次完整市场信息（按请求 URL key），供市场页首帧秒开（内存→磁盘→网络三级）。 */
+    private val lastInfoMap = mutableMapOf<String, MarketInfo>()
+
+    @Synchronized
+    fun lastInfoFor(url: String): MarketInfo? = lastInfoMap[url]
+
+    @Synchronized
+    private fun rememberInfo(url: String, info: MarketInfo) {
+        lastInfoMap[url] = info
+    }
+
     /** 详情页用：从最近一次拉取结果里按 id 取。 */
     fun cached(id: String): MarketPlugin? = lastList.firstOrNull { it.id == id }
 
@@ -127,6 +138,7 @@ object PluginMarket {
         if (nl < 0) return null
         parseMarket(text.substring(0, nl), text.substring(nl + 1))
             .also { lastList = it.plugins }
+            .also { rememberInfo(url, it) }
     }.getOrNull()
 
     /** v0.45.0：拉远端（多镜像对冲）并写磁盘缓存，供市场页后台刷新用。 */
@@ -137,7 +149,9 @@ object PluginMarket {
             f.parentFile?.mkdirs()
             f.writeText("$effectiveUrl\n$body")
         }.onFailure { LogBus.w(TAG, "市场缓存写入失败：${it.message}") }
-        parseMarket(effectiveUrl, body).also { lastList = it.plugins }
+        parseMarket(effectiveUrl, body)
+            .also { lastList = it.plugins }
+            .also { rememberInfo(url, it) }
     }
 
     /** market.json 的 JSON 解析（纯函数，缓存/远端共用）。 */

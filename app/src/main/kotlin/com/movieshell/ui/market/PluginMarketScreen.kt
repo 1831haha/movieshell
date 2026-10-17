@@ -83,9 +83,16 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
 
     var query by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("") } // ""=全部 env/app
-    var loading by remember { mutableStateOf(true) }
+    // v0.79.0：三级秒开——首帧同步读内存缓存→磁盘缓存（几 KB 文件，主线程可接受），
+    // 列表第一帧就可见；LaunchedEffect 只负责后台静默刷新。用户"每次进去都看不到"到此为止。
+    var info by remember {
+        val url = PluginStore.marketUrl.value
+        mutableStateOf<MarketInfo?>(
+            PluginMarket.lastInfoFor(url) ?: PluginMarket.loadCached(context, url)
+        )
+    }
+    var loading by remember { mutableStateOf(info == null) }
     var error by remember { mutableStateOf<String?>(null) }
-    var info by remember { mutableStateOf<MarketInfo?>(null) }
     var installedTick by remember { mutableStateOf(0) }
     var busyId by remember { mutableStateOf<String?>(null) }
     // v0.27.2：一键安装进度弹窗态

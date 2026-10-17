@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Store
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.core.content.FileProvider
@@ -118,6 +119,8 @@ fun SettingsScreen(
     onChangelogClick: () -> Unit = {},
     onSourcesClick: () -> Unit = {}, // v0.36.0：站源管理入口（tab 删除后搬进设置）
     onParseSettingsClick: () -> Unit = {}, // v0.78.2：解析接口子页面入口
+    onMarketClick: () -> Unit = {}, // v0.79.0：插件市场（实验室 tab 删除，入口搬进设置）
+    onSniffPatternsClick: () -> Unit = {}, // v0.79.0：嗅探正则管理（实验室 tab 删除，入口搬进设置）
 ) {
     val context = LocalContext.current
     // v0.7.1：主题读持久化 ThemeStore，不再是本地假状态
@@ -274,6 +277,13 @@ fun SettingsScreen(
             Spacer(Modifier.height(SoftDimens.CardSpacing))
             // v0.23.0：插件市场源（多源）+ 显示不兼容插件
             SettingsGroup(title = "插件") {
+                // v0.79.0：插件市场浏览/安装入口（原实验室）
+                SettingsRow(
+                    icon = Icons.Filled.Store,
+                    title = "插件市场",
+                    subtitle = "浏览、安装、更新插件",
+                    onClick = onMarketClick,
+                )
                 SettingsRow(
                     icon = Icons.Filled.Store,
                     title = "插件市场源",
@@ -306,6 +316,13 @@ fun SettingsScreen(
                     title = "站源管理",
                     subtitle = "订阅源 / 本地源 / 规则管理",
                     onClick = onSourcesClick,
+                )
+                // v0.79.0：嗅探自定义正则（原实验室）
+                SettingsRow(
+                    icon = Icons.Filled.Tune,
+                    title = "嗅探正则管理",
+                    subtitle = "自定义网页嗅探的 URL 匹配规则",
+                    onClick = onSniffPatternsClick,
                 )
             }
             Spacer(Modifier.height(SoftDimens.CardSpacing))

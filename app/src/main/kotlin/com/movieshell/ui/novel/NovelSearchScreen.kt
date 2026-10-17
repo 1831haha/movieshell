@@ -69,6 +69,7 @@ fun NovelSearchScreen(
     onBack: () -> Unit = {},
     onManageSources: () -> Unit = {},
     pySourceName: String? = null,
+    embedded: Boolean = false, // v0.79.0：嵌入书架子 tab 时隐藏头部
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -190,6 +191,7 @@ fun NovelSearchScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        if (!embedded) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = gold)
@@ -212,6 +214,7 @@ fun NovelSearchScreen(
             }
         }
         Spacer(Modifier.height(12.dp))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = keyword,

@@ -61,6 +61,7 @@ import kotlinx.coroutines.launch
 fun BookSourceScreen(
     onBack: () -> Unit = {},
     onOpenPySource: (ruleName: String) -> Unit = {},
+    embedded: Boolean = false, // v0.79.0：嵌入书架子 tab 时隐藏头部
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -150,6 +151,7 @@ fun BookSourceScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        if (!embedded) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = gold)
@@ -165,6 +167,7 @@ fun BookSourceScreen(
             }
         }
         Spacer(Modifier.height(8.dp))
+        }
         Text(
             "右上角 + 粘贴阅读 App 导出的 bookSource.json 导入；「导入本地PY」选 .py 书源文件；开关控制搜索时是否使用该源",
             fontSize = 12.sp,

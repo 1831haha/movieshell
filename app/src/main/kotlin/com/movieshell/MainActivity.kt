@@ -36,12 +36,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.OndemandVideo
-import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.OndemandVideo
-import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -95,14 +95,14 @@ import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
 import com.movieshell.ui.follow.FollowScreen
 import com.movieshell.ui.history.HistoryScreen
-import com.movieshell.ui.novel.BookSourceScreen
-import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.reader.ReaderScreen
 import com.movieshell.ui.components.SoftBottomDock
 import com.movieshell.ui.components.SoftDockItem
 import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.home.HomeViewModel
-import com.movieshell.ui.lab.LabScreen
+import com.movieshell.ui.music.MusicScreen
+import com.movieshell.data.repo.HuyaApi
+import com.movieshell.ui.live.HuyaPortalScreen
 import com.movieshell.ui.live.LiveManageScreen
 import com.movieshell.ui.live.LiveScreen
 import com.movieshell.ui.log.LogBubbleOverlay
@@ -115,6 +115,7 @@ import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.ParseSettingsScreen
 import com.movieshell.ui.settings.SettingsScreen
+import com.movieshell.ui.settings.SniffPatternsScreen
 import com.movieshell.ui.sources.SourcesScreen
 import com.movieshell.ui.trash.TrashScreen
 import com.movieshell.ui.theme.MovieShellTheme
@@ -129,12 +130,13 @@ private data class Tab(
 )
 
 // v0.36.0：5 tab 按 mockup 重排——首页/直播/书架/实验室/设置；站源 tab 删除，管理入口搬进设置页。
+// v0.79.0：实验室 tab 改为音乐；实验室功能（插件市场/嗅探正则）搬进设置页。
 // 未选中用 Outlined，选中用 Filled＋青色（SoftBottomDock 里处理）。
 private val tabs = listOf(
     Tab("home", "首页", Icons.Outlined.Home, Icons.Filled.Home),
     Tab("live", "直播", Icons.Outlined.OndemandVideo, Icons.Filled.OndemandVideo),
     Tab("bookshelf", "书架", Icons.Outlined.Book, Icons.Filled.Book),
-    Tab("lab", "实验室", Icons.Outlined.Science, Icons.Filled.Science),
+    Tab("music", "音乐", Icons.Outlined.MusicNote, Icons.Filled.MusicNote),
     Tab("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings),
 )
 
@@ -336,10 +338,10 @@ class MainActivity : ComponentActivity() {
                                 onTrashClick = { navController.navigate("trash") },
                             )
                         }
-                        // v0.24.0：直播 Tab
+                        // v0.24.0：直播 Tab（v0.79.0：顶部嵌入播放器+下方选台；全屏跳独立播放页）
                         composable("live") {
                             LiveScreen(
-                                onPlayChannel = { ch ->
+                                onFullscreenChannel = { ch ->
                                     navController.navigateToPlayer(
                                         url = ch.url,
                                         title = ch.name,
@@ -347,6 +349,20 @@ class MainActivity : ComponentActivity() {
                                     )
                                 },
                                 onManageClick = { navController.navigate("live_manage") },
+                                onHuyaPortalClick = { navController.navigate("huya") },
+                            )
+                        }
+                        // v0.79.0：虎牙总站（分类+直播间列表）
+                        composable("huya") {
+                            HuyaPortalScreen(
+                                onBack = { navController.popBackStack() },
+                                onFullscreenRoom = { room ->
+                                    navController.navigateToPlayer(
+                                        url = HuyaApi.playUrl(room.roomId),
+                                        title = "虎牙-${room.nick}",
+                                        isLive = true,
+                                    )
+                                },
                             )
                         }
                         composable("live_manage") {
@@ -407,38 +423,11 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                         }
-                        // v0.35.0：小说书架
+                        // v0.35.0：小说书架（v0.79.0：找书/书源收进书架子 tab，不再独立路由）
                         composable("bookshelf") {
                             BookshelfScreen(
                                 onNovelClick = { id ->
                                     navController.navigate("reader/$id")
-                                },
-                                onFindBookClick = { navController.navigate("novel_search") },
-                            )
-                        }
-                        composable(
-                            "novel_search?pySource={pySource}",
-                            arguments = listOf(
-                                navArgument("pySource") {
-                                    type = NavType.StringType
-                                    defaultValue = ""
-                                },
-                            ),
-                        ) { entry ->
-                            NovelSearchScreen(
-                                onBack = { navController.popBackStack() },
-                                onManageSources = { navController.navigate("book_sources") },
-                                // v0.66.0：书源管理点 PY 源直达（只搜该源）
-                                pySourceName = entry.arguments?.getString("pySource")?.ifBlank { null },
-                            )
-                        }
-                        // v0.61.0：书源管理
-                        composable("book_sources") {
-                            BookSourceScreen(
-                                onBack = { navController.popBackStack() },
-                                // v0.66.0：点 PY 源 → 该源专属找书页
-                                onOpenPySource = { ruleName ->
-                                    navController.navigate("novel_search?pySource=$ruleName")
                                 },
                             )
                         }
@@ -491,6 +480,15 @@ class MainActivity : ComponentActivity() {
                                 onSourcesClick = { navController.navigate("sources") },
                                 // v0.78.2：解析接口子页面
                                 onParseSettingsClick = { navController.navigate("parse_settings") },
+                                // v0.79.0：实验室功能搬进设置
+                                onMarketClick = { navController.navigate("market") },
+                                onSniffPatternsClick = { navController.navigate("sniff_patterns") },
+                            )
+                        }
+                        // v0.79.0：嗅探正则管理（原实验室）
+                        composable("sniff_patterns") {
+                            SniffPatternsScreen(
+                                onBack = { navController.popBackStack() },
                             )
                         }
                         // v0.78.2：解析接口子页面（列表/测活/添加收进这里）
@@ -503,12 +501,9 @@ class MainActivity : ComponentActivity() {
                         composable("changelog") {
                             ChangelogScreen(onBack = { navController.popBackStack() })
                         }
-                        composable("lab") {
-                            LabScreen(
-                                onBack = { navController.popBackStack() },
-                                // v0.27.4：插件市场入口移到实验室
-                                onMarketClick = { navController.navigate("market") },
-                            )
+                        // v0.79.0：实验室 tab 改为音乐 tab；原实验室功能已搬进设置页
+                        composable("music") {
+                            MusicScreen()
                         }
                         composable("manual") {
                             ManualScreen(onBack = { navController.popBackStack() })

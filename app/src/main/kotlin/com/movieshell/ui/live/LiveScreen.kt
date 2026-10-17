@@ -10,6 +10,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -68,6 +69,7 @@ import com.movieshell.data.repo.LiveSource
 import com.movieshell.data.repo.LiveStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.TrashStore
+import com.movieshell.player.PlayerScreen
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
@@ -85,12 +87,16 @@ import java.util.Locale
 
 private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-/** 直播 Tab：频道列表（按分组）+ 搜索 + 收藏 + 订阅管理 */
+/** v0.79.0：虎牙总站入口频道（插件里 url 为 huya 协议 portal 地址的那单条），点它进直播间列表而非直接播放 */
+fun isHuyaPortal(ch: LiveChannel): Boolean = ch.url == "huya://portal"
+
+/** 直播 Tab：顶部 16:9 播放器 + 下方分组选台（v0.79.0 改版，对标 DsPlayer 直播页） */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun LiveScreen(
-    onPlayChannel: (LiveChannel) -> Unit,
+    onFullscreenChannel: (LiveChannel) -> Unit,
     onManageClick: () -> Unit,
+    onHuyaPortalClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -99,6 +105,8 @@ fun LiveScreen(
     var refreshing by remember { mutableStateOf(false) }
     var detailChannel by remember { mutableStateOf<LiveChannel?>(null) }
     var favOnly by remember { mutableStateOf(false) }
+    // v0.79.0：顶部播放器当前频道；进场自动选中第一个
+    var selected by remember { mutableStateOf<LiveChannel?>(null) }
 
     fun doRefresh() {
         if (refreshing) return
@@ -112,6 +120,21 @@ fun LiveScreen(
 
     LaunchedEffect(Unit) {
         if (channels.isEmpty()) doRefresh()
+    }
+    // 频道列表就绪后自动选中第一个（无选中时）
+    LaunchedEffect(channels) {
+        if (selected == null && channels.isNotEmpty()) {
+            val first = channels.firstOrNull { !isHuyaPortal(it) } ?: channels.first()
+            selected = first
+        }
+    }
+
+    fun playChannel(ch: LiveChannel) {
+        if (isHuyaPortal(ch)) {
+            onHuyaPortalClick()
+        } else {
+            selected = ch
+        }
     }
 
     val filtered = remember(channels, query, favOnly) {
@@ -153,6 +176,44 @@ fun LiveScreen(
                 .fillMaxSize()
                 .padding(inner),
         ) {
+            // v0.79.0：顶部 16:9 播放器（对标 DsPlayer 直播页：前面播屏幕、下面选台）
+            val playing = selected
+            if (playing != null && !isHuyaPortal(playing)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .background(Color.Black),
+                ) {
+                    PlayerScreen(
+                        url = playing.url,
+                        title = playing.name,
+                        isLive = true,
+                        onBack = {},
+                        embedded = true,
+                        onFullscreen = { onFullscreenChannel(playing) },
+                    )
+                }
+            } else {
+                // 未选中时占位（频道列表为空时）
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (refreshing) {
+                        CircularProgressIndicator(color = Color.White)
+                    } else {
+                        Text(
+                            "选择下方频道开始播放",
+                            color = Color.White.copy(alpha = 0.6f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
             AppTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -202,7 +263,8 @@ fun LiveScreen(
                     items(list, key = { it.id }) { ch ->
                         ChannelRow(
                             channel = ch,
-                            onClick = { onPlayChannel(ch) },
+                            isPlaying = selected?.id == ch.id,
+                            onClick = { playChannel(ch) },
                             onLongClick = { detailChannel = ch },
                             onFavorite = {
                                 LiveStore.toggleFavorite(context, ch.id)
@@ -219,7 +281,7 @@ fun LiveScreen(
         ChannelDetailSheet(
             channel = ch,
             onDismiss = { detailChannel = null },
-            onPlay = { onPlayChannel(ch); detailChannel = null },
+            onPlay = { playChannel(ch); detailChannel = null },
             onFavorite = { LiveStore.toggleFavorite(context, ch.id) },
             onDelete = {
                 detailChannel = null
@@ -236,6 +298,7 @@ fun LiveScreen(
 @Composable
 private fun ChannelRow(
     channel: LiveChannel,
+    isPlaying: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onFavorite: () -> Unit,
@@ -280,6 +343,9 @@ private fun ChannelRow(
                     style = SoftType.CardTitle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    // v0.79.0：正在播的频道名高亮
+                    color = if (isPlaying) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
                 )
                 if (channel.group.isNotBlank()) {
                     Text(

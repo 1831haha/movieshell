@@ -24,6 +24,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import com.movieshell.ui.components.AppCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -31,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,6 +50,8 @@ import com.movieshell.data.model.ReadingProgress
 import com.movieshell.data.novel.TxtImporter
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.ReadingProgressStore
+import com.movieshell.ui.novel.BookSourceScreen
+import com.movieshell.ui.novel.NovelSearchScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -56,12 +61,63 @@ import java.io.File
  * v0.35.0 小说书架。
  * v0.36.0：长按删除（确认弹窗）；卡片显示上次阅读时间。
  * v0.66.0：去掉在追/想看/已看完分组，单列表按最后阅读时间倒序（用户要求：只留一个书架）。
+ * v0.79.0：子结构重设计——顶部子 tab（书架/找书/书源），找书/书源直接嵌在本页，
+ *   不再三级跳转（书架→找书页→书源管理页）。
  *
  * - 右上角 + 导入 TXT；点击书进阅读器。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BookshelfScreen(
+    onNovelClick: (String) -> Unit = {},
+) {
+    var tabIdx by remember { mutableIntStateOf(0) }
+    // v0.66.0：书源页点本地 PY 源 → 切到找书 tab 并锁定该源
+    var lockedPySource by remember { mutableStateOf<String?>(null) }
+    val tabs = listOf("书架", "找书", "书源")
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(
+            selectedTabIndex = tabIdx,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            tabs.forEachIndexed { i, title ->
+                Tab(
+                    selected = i == tabIdx,
+                    onClick = {
+                        // 切走找书 tab 时清除单源锁定
+                        if (i != 1) lockedPySource = null
+                        tabIdx = i
+                    },
+                    text = { Text(title) },
+                )
+            }
+        }
+        when (tabIdx) {
+            0 -> BookshelfList(
+                onNovelClick = onNovelClick,
+                onFindBookClick = { tabIdx = 1 },
+            )
+            1 -> NovelSearchScreen(
+                embedded = true,
+                pySourceName = lockedPySource,
+                onManageSources = { tabIdx = 2 },
+            )
+            2 -> BookSourceScreen(
+                embedded = true,
+                onOpenPySource = { ruleName ->
+                    lockedPySource = ruleName
+                    tabIdx = 1
+                },
+            )
+        }
+    }
+}
+
+/** 书架列表（原子内容，从原 BookshelfScreen 拆出） */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun BookshelfList(
     onNovelClick: (String) -> Unit = {},
     onFindBookClick: () -> Unit = {},
 ) {
