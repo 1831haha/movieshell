@@ -63,7 +63,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.movableContentOf
+import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,6 +77,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -432,23 +433,6 @@ fun DetailScreen(
                     derivedStateOf { listState.firstVisibleItemIndex > 0 }
                 }
                 val showMiniPlayer = playerOffScreen && embeddedUrl.isNotBlank()
-                // v0.68：播放器内容可移动（列表顶部 ↔ 悬浮小窗），切换时不重建、不中断播放
-                val movablePlayer = remember {
-                    movableContentOf {
-                        PlayerScreen(
-                            url = embeddedUrl,
-                            title = embeddedTitle,
-                            vodId = vodId,
-                            onBack = onBack,
-                            embedded = true,
-                            onFullscreen = { onPlay(embeddedUrl, embeddedTitle) },
-                            onEpisodeChange = { lineIdx, epIdx ->
-                                playingLine = lineIdx
-                                playingEp = epIdx
-                            },
-                        )
-                    }
-                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -459,19 +443,15 @@ fun DetailScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     // v0.65：顶部嵌入播放器（16:9）——详情就绪自动播第一集
-                    // v0.68：滚出屏幕时切小窗，此处留同高占位防跳动
-                    // 未起播前显示封面占位
+                    // v0.70.1：此处只留占位，播放器本体常驻外层 Box（单父容器），
+                    // 跟着列表滚动偏移量同步上移，避免 movableContentOf 跨父容器搬家崩溃
                     item {
                         if (embeddedUrl.isNotBlank()) {
-                            if (showMiniPlayer) {
-                                Spacer(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(16f / 9f),
-                                )
-                            } else {
-                                movablePlayer()
-                            }
+                            Spacer(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(16f / 9f),
+                            )
                         } else {
                             GradientBlock(
                                 key = vod.id,
@@ -847,47 +827,80 @@ fun DetailScreen(
                 }
 
                 // v0.68：悬浮小窗——播放器滚出屏幕后右下角继续播
-                if (showMiniPlayer) {
+                // v0.70.1：播放器常驻外层 Box（单父容器），只切换位置/尺寸——
+                // 未小窗时盖在列表顶部占位上并跟随滚动偏移同步上移，
+                // 不再用 movableContentOf 跨父容器搬家（后者在 Lazy item 被回收时
+                // 触发 "Cannot insert ... because it already has a parent" 崩溃）
+                if (embeddedUrl.isNotBlank()) {
+                    val mini = showMiniPlayer
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(16.dp)
-                            .width(200.dp)
+                            .then(
+                                if (mini) {
+                                    Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(16.dp)
+                                        .width(200.dp)
+                                } else {
+                                    Modifier
+                                        .align(Alignment.TopStart)
+                                        .fillMaxWidth()
+                                        .offset {
+                                            IntOffset(
+                                                0,
+                                                -listState.firstVisibleItemScrollOffset,
+                                            )
+                                        }
+                                },
+                            )
                             .aspectRatio(16f / 9f)
-                            .clip(RoundedCornerShape(12.dp)),
+                            .clip(RoundedCornerShape(if (mini) 12.dp else 0.dp)),
                     ) {
-                        movablePlayer()
-                        // 回到顶部
-                        IconButton(
-                            onClick = { scope.launch { listState.scrollToItem(0) } },
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(4.dp)
-                                .size(32.dp)
-                                .background(Color.Black.copy(alpha = 0.55f), CircleShape),
-                        ) {
-                            Icon(
-                                Icons.Filled.ExpandLess,
-                                contentDescription = "回到顶部",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                        // 关闭小窗（停止播放）
-                        IconButton(
-                            onClick = { embeddedUrl = "" },
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(4.dp)
-                                .size(32.dp)
-                                .background(Color.Black.copy(alpha = 0.55f), CircleShape),
-                        ) {
-                            Icon(
-                                Icons.Filled.Close,
-                                contentDescription = "关闭",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp),
-                            )
+                        PlayerScreen(
+                            url = embeddedUrl,
+                            title = embeddedTitle,
+                            vodId = vodId,
+                            onBack = onBack,
+                            embedded = true,
+                            onFullscreen = { onPlay(embeddedUrl, embeddedTitle) },
+                            onEpisodeChange = { lineIdx, epIdx ->
+                                playingLine = lineIdx
+                                playingEp = epIdx
+                            },
+                        )
+                        if (mini) {
+                            // 回到顶部
+                            IconButton(
+                                onClick = { scope.launch { listState.scrollToItem(0) } },
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(4.dp)
+                                    .size(32.dp)
+                                    .background(Color.Black.copy(alpha = 0.55f), CircleShape),
+                            ) {
+                                Icon(
+                                    Icons.Filled.ExpandLess,
+                                    contentDescription = "回到顶部",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                            // 关闭小窗（停止播放）
+                            IconButton(
+                                onClick = { embeddedUrl = "" },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(4.dp)
+                                    .size(32.dp)
+                                    .background(Color.Black.copy(alpha = 0.55f), CircleShape),
+                            ) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "关闭",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
                         }
                     }
                 }
