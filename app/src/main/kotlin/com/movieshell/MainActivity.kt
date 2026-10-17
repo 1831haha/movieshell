@@ -113,6 +113,7 @@ import com.movieshell.ui.market.PluginMarketScreen
 import com.movieshell.ui.market.PyDepGuideOverlay
 import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.search.SearchScreen
+import com.movieshell.ui.settings.ParseSettingsScreen
 import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.sources.SourcesScreen
 import com.movieshell.ui.trash.TrashScreen
@@ -488,6 +489,14 @@ class MainActivity : ComponentActivity() {
                                 onDownloadsClick = { navController.navigate("downloads") },
                                 onChangelogClick = { navController.navigate("changelog") },
                                 onSourcesClick = { navController.navigate("sources") },
+                                // v0.78.2：解析接口子页面
+                                onParseSettingsClick = { navController.navigate("parse_settings") },
+                            )
+                        }
+                        // v0.78.2：解析接口子页面（列表/测活/添加收进这里）
+                        composable("parse_settings") {
+                            ParseSettingsScreen(
+                                onBack = { navController.popBackStack() },
                             )
                         }
                         // v0.30.0：更新日志独立页
