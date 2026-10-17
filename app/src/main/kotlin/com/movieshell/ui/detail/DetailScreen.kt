@@ -57,7 +57,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.material3.TopAppBar
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -373,64 +372,99 @@ fun DetailScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                // v0.47.0：加载中先显示列表带过来的标题，不再裸奔 vodId
-                title = {
+            // v0.78.2：顶栏瘦身——标准 TopAppBar 太粗，换成 44dp 细条 + 底部 2.5dp 炫彩渐变线
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "返回",
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                     Text(
                         vod?.title ?: initialTitle.ifBlank { displayTitle(vodId) },
                         color = Color(0xFFD9C39A),
+                        style = SoftType.Body,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    // v0.65：收藏移到信息区（对标目标界面右上角心形），顶栏只留追剧
-                    // v0.26.0：追剧
-                    IconButton(onClick = {
-                        scope.launch {
-                            if (following) {
-                                if (FollowStore.unfollow(context, followId)) {
-                                    following = false
-                                    Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
-                                }
-                            } else {
-                                val ok = FollowStore.follow(
-                                    context,
-                                    FollowItem(
-                                        id = followId,
-                                        vodId = vodId,
-                                        name = vod?.title ?: displayTitle(vodId),
-                                        pic = detail?.vodPic.orEmpty(),
-                                        sourceType = followSourceType,
-                                        sourceKey = followSourceKey,
-                                        episodeCount = episodes.size,
-                                    ),
-                                )
-                                if (ok) {
-                                    following = true
-                                    Toast.makeText(context, "已追剧，有更新会提醒你", Toast.LENGTH_SHORT)
-                                        .show()
+                    // v0.65：收藏已移到信息区，顶栏只留追剧 + 分享占位
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                if (following) {
+                                    if (FollowStore.unfollow(context, followId)) {
+                                        following = false
+                                        Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    val ok = FollowStore.follow(
+                                        context,
+                                        FollowItem(
+                                            id = followId,
+                                            vodId = vodId,
+                                            name = vod?.title ?: displayTitle(vodId),
+                                            pic = detail?.vodPic.orEmpty(),
+                                            sourceType = followSourceType,
+                                            sourceKey = followSourceKey,
+                                            episodeCount = episodes.size,
+                                        ),
+                                    )
+                                    if (ok) {
+                                        following = true
+                                        Toast.makeText(context, "已追剧，有更新会提醒你", Toast.LENGTH_SHORT)
+                                            .show()
+                                    }
                                 }
                             }
-                        }
-                    }) {
+                        },
+                        modifier = Modifier.size(40.dp),
+                    ) {
                         Icon(
                             imageVector = if (following) Icons.Filled.PlaylistAddCheck
                             else Icons.Filled.PlaylistAdd,
                             contentDescription = "追剧",
                             tint = if (following) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp),
                         )
                     }
                     // 占位：分享
-                    IconButton(onClick = { }) {
-                        Icon(Icons.Filled.Share, contentDescription = "分享")
+                    IconButton(onClick = { }, modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            Icons.Filled.Share,
+                            contentDescription = "分享",
+                            modifier = Modifier.size(20.dp),
+                        )
                     }
-                },
-            )
+                }
+                // 彩色细条：v0.70 炫彩渐变（青→靛→品红→金）
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.5.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    Color(0xFF22D3EE),
+                                    Color(0xFF818CF8),
+                                    Color(0xFFE879F9),
+                                    Color(0xFFFBBF24),
+                                ),
+                            ),
+                        ),
+                )
+            }
         },
     ) { inner ->
         if ((subSite != null || drpyActive) && detailLoading && detail == null) {
@@ -529,11 +563,11 @@ fun DetailScreen(
     
                     // 标题与元信息（v0.39.0：毛玻璃卡片化，mockup 风格）
                     // v0.65：信息区按目标界面重构——海报+标题+标签+收藏 / 源pill / 简介 / 操作行
+                    // v0.78.2：卡片与播放器同宽（去横向边距），顶部圆角 20dp 做衔接过渡
                     item {
                         AppCard(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = SoftDimens.PagePadding),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                         ) {
                             Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
                                 // 第一行：海报缩略图 + 标题 + 标签 + 收藏

@@ -60,9 +60,10 @@ import com.movieshell.ui.theme.SoftType
 fun AppCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    // v0.78.2：允许自定义形状（如详情页信息卡只要顶部圆角，与播放器衔接）
+    shape: RoundedCornerShape = RoundedCornerShape(SoftDimens.CardCorner),
     content: @Composable () -> Unit,
 ) {
-    val shape = RoundedCornerShape(SoftDimens.CardCorner)
     Surface(
         modifier = modifier
             .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
