@@ -64,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -72,6 +73,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
+import coil.compose.AsyncImage
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -90,7 +92,9 @@ import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.HomeCache
+import com.movieshell.data.repo.HomeLayout
 import com.movieshell.data.repo.HomeLoadGate
+import com.movieshell.data.repo.HomeSettings
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SourceStateStore
@@ -108,6 +112,7 @@ import com.movieshell.player.HistoryStore
 import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.FlowingGlowBackground
+import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
@@ -734,6 +739,9 @@ fun HomeScreen(
 
     // ---- 站源切换 BottomSheet（v0.7.1） ----
     var showSourceSheet by remember { mutableStateOf(false) }
+    // v0.78.3：首页布局切换
+    val homeLayout by HomeSettings.layout.collectAsState()
+    var showLayoutPicker by remember { mutableStateOf(false) }
     /**
      * v0.46.0：换源自动刷新。fromUserSwitch=true 表示用户在换源入口显式切换。
      * 真换源 = 显式切换，或持久化源标识变了（homeCacheKey，订阅/本地规则通吃，
@@ -816,6 +824,7 @@ fun HomeScreen(
     // 首次进入也走一遍，保证站源入口文案和数据与持久化状态一致
     // v0.27.6：冷启动保持 v0.27.4 的干净空态（不自动恢复）；只有 tab 切回（重进 composition）才恢复
     LaunchedEffect(Unit) {
+        HomeSettings.load(context) // v0.78.3：首页布局偏好
         refreshDrpyState()
         if (homeEnteredOnce) restoreHomeIfEmpty()
         homeEnteredOnce = true
@@ -893,7 +902,8 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize(),
             ) {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
+                // v0.78.3：列数跟布局走（海报网格 3 列/大海报 2 列/列表模式 1 列）
+                columns = GridCells.Fixed(homeLayout.columns),
                 state = gridState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(SoftDimens.PagePadding),
@@ -913,6 +923,14 @@ fun HomeScreen(
                             Icon(
                                 imageVector = Icons.Filled.Search,
                                 contentDescription = "搜索",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        // v0.78.3：首页布局切换（对标 DsPlayer）
+                        IconButton(onClick = { showLayoutPicker = true }) {
+                            Icon(
+                                imageVector = homeLayout.icon,
+                                contentDescription = "切换布局",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -1185,16 +1203,29 @@ fun HomeScreen(
                         )
                     }
     
-                    // 网格海报墙
+                    // 网格海报墙 / 列表（v0.78.3：布局切换）
                     items(filtered, key = { it.id }) { vod ->
-                        PosterCard(
-                            title = vod.title,
-                            subtitle = "${vod.year} · ${vod.rating}分",
-                            badge = vod.rating,
-                            posterUrl = vod.poster,
-                            modifier = Modifier.aspectRatio(3f / 4.6f),
-                            onClick = { goDetail(vod.id, vod.title) },
-                        )
+                        val subtitle = "${vod.year} · ${vod.rating}分"
+                        when (homeLayout) {
+                            HomeLayout.COMPACT_LIST -> HomeCompactRow(
+                                vod = vod,
+                                subtitle = subtitle,
+                                onClick = { goDetail(vod.id, vod.title) },
+                            )
+                            HomeLayout.TEXT_ONLY -> HomeTextRow(
+                                vod = vod,
+                                subtitle = subtitle,
+                                onClick = { goDetail(vod.id, vod.title) },
+                            )
+                            else -> PosterCard(
+                                title = vod.title,
+                                subtitle = subtitle,
+                                badge = vod.rating,
+                                posterUrl = vod.poster,
+                                modifier = Modifier.aspectRatio(3f / 4.6f),
+                                onClick = { goDetail(vod.id, vod.title) },
+                            )
+                        }
                     }
                 }
             }
@@ -1232,6 +1263,51 @@ fun HomeScreen(
             } // v0.58：闭合切分类 loading Box
         } // 闭合 Column
     
+        // v0.78.3：首页布局切换
+        if (showLayoutPicker) {
+            Dialog(onDismissRequest = { showLayoutPicker = false }) {
+                AppCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                ) {
+                    Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
+                        Text(
+                            text = "首页布局",
+                            style = SoftType.CardTitle,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                        HomeLayout.entries.forEach { entry ->
+                            SettingsRow(
+                                icon = entry.icon,
+                                title = entry.label,
+                                subtitle = when (entry) {
+                                    HomeLayout.GRID_3 -> "一屏看更多"
+                                    HomeLayout.GRID_2 -> "海报更大"
+                                    HomeLayout.COMPACT_LIST -> "小图 + 文字"
+                                    HomeLayout.TEXT_ONLY -> "密度最高"
+                                },
+                                onClick = {
+                                    HomeSettings.setLayout(context, entry)
+                                    showLayoutPicker = false
+                                },
+                                trailing = {
+                                    if (entry == homeLayout) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Check,
+                                            contentDescription = "当前",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // 站源切换（v0.7.1）
         // v0.11.8：选源弹窗改成居中悬浮 Dialog（原来是底部 BottomSheet）
         if (showSourceSheet) {
@@ -1487,5 +1563,107 @@ private fun SourceSwitchSheet(
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** v0.78.3：紧凑列表行——小海报 + 标题 + 副标题 */
+@Composable
+private fun HomeCompactRow(vod: Vod, subtitle: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(SoftDimens.CardCorner))
+            .background(LocalSoftExtra.current.glass)
+            .clickable(onClick = onClick)
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (vod.poster.isNotBlank()) {
+            AsyncImage(
+                model = vod.poster,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(width = 48.dp, height = 68.dp)
+                    .clip(RoundedCornerShape(6.dp)),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(width = 48.dp, height = 68.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = vod.title.take(1),
+                    style = SoftType.CardTitle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = vod.title,
+                style = SoftType.Body,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = subtitle,
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (vod.rating.isNotBlank()) {
+            Text(
+                text = vod.rating,
+                style = SoftType.Body,
+                color = LocalSoftExtra.current.warning,
+            )
+        }
+    }
+}
+
+/** v0.78.3：无图文字行——纯文字，密度最高 */
+@Composable
+private fun HomeTextRow(vod: Vod, subtitle: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(SoftDimens.CardCorner))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = vod.title,
+                style = SoftType.Body,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = subtitle,
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (vod.rating.isNotBlank()) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = vod.rating,
+                style = SoftType.Body,
+                color = LocalSoftExtra.current.warning,
+            )
+        }
     }
 }
