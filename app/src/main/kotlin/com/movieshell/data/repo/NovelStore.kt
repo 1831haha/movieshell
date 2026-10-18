@@ -76,7 +76,7 @@ object NovelStore {
             }.onFailure { Log.w(TAG, "小说导入失败", it) }.getOrDefault(false)
         }
 
-    /** v0.84.0：换源——替换某书的目录与源 key，保留加入时间与阅读进度。返回新目录。 */
+    /** v0.83.0：换源——替换某书的目录与源 key，保留加入时间与阅读进度。返回新目录。 */
     suspend fun updateSource(
         context: Context,
         novelId: String,

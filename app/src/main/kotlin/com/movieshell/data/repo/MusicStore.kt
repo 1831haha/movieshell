@@ -5,9 +5,19 @@ import android.util.Log
 import com.movieshell.data.repo.MusicApi.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
+
+/** v0.84.0：自建歌单。整首 Track 存进歌单（在线歌曲不依赖搜索结果缓存）。 */
+@Serializable
+data class Playlist(
+    val id: String = "",
+    val name: String = "",
+    val tracks: List<Track> = emptyList(),
+    val createdAt: Long = 0L,
+)
 
 /**
  * v0.81.0：本地音乐 + 收藏歌曲持久化。
@@ -71,4 +81,88 @@ object MusicStore {
         writeTracks(f, cur)
         !exists
     }
+
+    // ---- 自建歌单（v0.84.0） ----
+
+    private const val PLAYLIST_FILE = "music_playlists.json"
+
+    private fun readPlaylists(f: File): List<Playlist> = runCatching {
+        if (!f.isFile) return emptyList()
+        json.decodeFromString(ListSerializer(Playlist.serializer()), f.readText())
+    }.onFailure { Log.w(TAG, "歌单读取失败", it) }.getOrDefault(emptyList())
+
+    private fun writePlaylists(f: File, list: List<Playlist>) = runCatching {
+        f.writeText(json.encodeToString(ListSerializer(Playlist.serializer()), list))
+    }.onFailure { Log.w(TAG, "歌单写入失败", it) }
+
+    suspend fun playlistList(context: Context): List<Playlist> = withContext(Dispatchers.IO) {
+        readPlaylists(File(context.filesDir, PLAYLIST_FILE))
+            .sortedByDescending { it.createdAt }
+    }
+
+    suspend fun getPlaylist(context: Context, id: String): Playlist? = withContext(Dispatchers.IO) {
+        readPlaylists(File(context.filesDir, PLAYLIST_FILE)).firstOrNull { it.id == id }
+    }
+
+    suspend fun createPlaylist(context: Context, name: String): Playlist? =
+        withContext(Dispatchers.IO) {
+            val nm = name.trim()
+            if (nm.isEmpty()) return@withContext null
+            val f = File(context.filesDir, PLAYLIST_FILE)
+            val cur = readPlaylists(f).toMutableList()
+            if (cur.any { it.name == nm }) return@withContext null // 重名不建
+            val pl = Playlist(
+                id = "pl_${System.currentTimeMillis()}",
+                name = nm,
+                createdAt = System.currentTimeMillis(),
+            )
+            cur.add(pl)
+            writePlaylists(f, cur)
+            pl
+        }
+
+    suspend fun renamePlaylist(context: Context, id: String, name: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val nm = name.trim()
+            if (nm.isEmpty()) return@withContext false
+            val f = File(context.filesDir, PLAYLIST_FILE)
+            val cur = readPlaylists(f)
+            if (cur.none { it.id == id } || cur.any { it.name == nm && it.id != id }) {
+                return@withContext false
+            }
+            writePlaylists(f, cur.map { if (it.id == id) it.copy(name = nm) else it })
+            true
+        }
+
+    suspend fun deletePlaylist(context: Context, id: String) = withContext(Dispatchers.IO) {
+        val f = File(context.filesDir, PLAYLIST_FILE)
+        writePlaylists(f, readPlaylists(f).filterNot { it.id == id })
+    }
+
+    /** 往歌单加歌；已在则返回 false。 */
+    suspend fun addToPlaylist(context: Context, playlistId: String, track: Track): Boolean =
+        withContext(Dispatchers.IO) {
+            val f = File(context.filesDir, PLAYLIST_FILE)
+            val cur = readPlaylists(f)
+            val pl = cur.firstOrNull { it.id == playlistId } ?: return@withContext false
+            if (pl.tracks.any { it.id == track.id }) return@withContext false
+            writePlaylists(
+                f,
+                cur.map { if (it.id == playlistId) it.copy(tracks = it.tracks + track) else it },
+            )
+            true
+        }
+
+    suspend fun removeFromPlaylist(context: Context, playlistId: String, trackId: String) =
+        withContext(Dispatchers.IO) {
+            val f = File(context.filesDir, PLAYLIST_FILE)
+            val cur = readPlaylists(f)
+            writePlaylists(
+                f,
+                cur.map {
+                    if (it.id == playlistId) it.copy(tracks = it.tracks.filterNot { t -> t.id == trackId })
+                    else it
+                },
+            )
+        }
 }

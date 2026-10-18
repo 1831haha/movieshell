@@ -102,7 +102,9 @@ import com.movieshell.ui.components.SoftBottomDock
 import com.movieshell.ui.components.SoftDockItem
 import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.home.HomeViewModel
+import com.movieshell.ui.music.MusicHistoryScreen
 import com.movieshell.ui.music.MusicScreen
+import com.movieshell.ui.music.PlaylistDetailScreen
 import com.movieshell.data.repo.HuyaApi
 import com.movieshell.ui.live.HuyaPortalScreen
 import com.movieshell.ui.live.LiveManageScreen
@@ -540,6 +542,29 @@ class MainActivity : ComponentActivity() {
                         composable("music") {
                             MusicScreen(
                                 onOpenPlayer = { navController.navigate("music_player") },
+                                // v0.84.0：历史页 / 歌单详情
+                                onOpenHistory = { navController.navigate("music_history") },
+                                onOpenPlaylist = { id ->
+                                    navController.navigate("playlist_detail/$id")
+                                },
+                            )
+                        }
+                        // v0.84.0：音乐历史页
+                        composable("music_history") {
+                            MusicHistoryScreen(
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
+                        // v0.84.0：歌单详情页
+                        composable(
+                            "playlist_detail/{playlistId}",
+                            arguments = listOf(
+                                navArgument("playlistId") { type = NavType.StringType },
+                            ),
+                        ) { entry ->
+                            PlaylistDetailScreen(
+                                playlistId = entry.arguments?.getString("playlistId").orEmpty(),
+                                onBack = { navController.popBackStack() },
                             )
                         }
                         composable("manual") {

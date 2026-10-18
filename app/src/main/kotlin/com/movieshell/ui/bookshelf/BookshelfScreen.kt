@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -44,8 +45,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.model.Novel
 import com.movieshell.data.model.ReadingProgress
+import com.movieshell.data.novel.BookSourceManager
+import com.movieshell.data.novel.NovelUpdateChecker
+import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.novel.TxtImporter
 import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.repo.NovelUpdateInfo
+import com.movieshell.data.repo.NovelUpdateStore
 import com.movieshell.data.repo.ReadingProgressStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -58,6 +64,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -108,6 +115,9 @@ private fun BookshelfList(
     var progressMap by remember { mutableStateOf<Map<String, ReadingProgress>>(emptyMap()) }
     var importing by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<Novel?>(null) }
+    // v0.84.0：追更检查
+    var checking by remember { mutableStateOf(false) }
+    var updates by remember { mutableStateOf<Map<String, NovelUpdateInfo>>(emptyMap()) }
 
     fun reload() {
         scope.launch {
@@ -121,9 +131,32 @@ private fun BookshelfList(
             }
             progressMap = pm
             books = all.sortedByDescending { pm[it.id]?.updatedAt ?: 0L }
+            updates = NovelUpdateStore.getAll(context)
         }
     }
     LaunchedEffect(Unit) { reload() }
+
+    // v0.84.0：检查全部在线书的更新（本地 TXT 跳过）
+    fun checkUpdates() {
+        if (checking) return
+        checking = true
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                BookSourceManager.load(context)
+                PyBookSourceManager.load(context)
+            }
+            val result = NovelUpdateChecker.checkAll(context, books)
+            result.forEach { (id, n) -> NovelUpdateStore.set(context, id, n) }
+            checking = false
+            // 目录可能已刷新（totalChapters 变了），重载一遍
+            reload()
+            Toast.makeText(
+                context,
+                if (result.isEmpty()) "都追上了，没有新章节" else "${result.size} 本有更新",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
 
     val pickTxt = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -194,6 +227,10 @@ private fun BookshelfList(
                     )
                 }
             }
+            // v0.84.0：追更检查
+            IconButton(onClick = { checkUpdates() }, enabled = !checking && !importing) {
+                Icon(Icons.Filled.Refresh, "检查更新", tint = gold)
+            }
             IconButton(onClick = onFindBookClick) {
                 Icon(Icons.Filled.Search, "找书", tint = gold)
             }
@@ -219,11 +256,38 @@ private fun BookshelfList(
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // v0.84.0：检查中提示条
+                if (checking) {
+                    item(key = "checking") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "正在检查更新…",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
                 items(books, key = { it.id }) { novel ->
                     NovelCard(
                         novel = novel,
                         lastReadAt = progressMap[novel.id]?.updatedAt ?: 0L,
-                        onClick = { onNovelClick(novel.id) },
+                        updateCount = updates[novel.id]?.newChapters ?: 0,
+                        onClick = {
+                            // v0.84.0：打开即清除追更角标
+                            scope.launch { NovelUpdateStore.clear(context, novel.id) }
+                            updates = updates - novel.id
+                            onNovelClick(novel.id)
+                        },
                         onLongClick = { deleteTarget = novel },
                     )
                 }
@@ -280,6 +344,7 @@ private fun formatLastRead(ts: Long): String {
 private fun NovelCard(
     novel: Novel,
     lastReadAt: Long,
+    updateCount: Int = 0, // v0.84.0：追更角标（新增章节数）
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -325,14 +390,33 @@ private fun NovelCard(
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    novel.title,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFFD9C39A), // v0.39.0：香槟金标题
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        novel.title,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFFD9C39A), // v0.39.0：香槟金标题
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // v0.84.0：追更角标
+                    if (updateCount > 0) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "+$updateCount 章",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.primary,
+                                    RoundedCornerShape(10.dp),
+                                )
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
                 NovelMetaRow(
                     icon = Icons.Filled.Person,

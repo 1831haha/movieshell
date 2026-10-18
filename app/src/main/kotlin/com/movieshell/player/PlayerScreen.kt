@@ -242,11 +242,17 @@ fun PlayerScreen(
         PlaySession.playerVisible = true
         val window = (context as? Activity)?.window
         val controller = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
-        controller?.hide(WindowInsetsCompat.Type.systemBars())
-        controller?.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        // v0.84.0：嵌入模式（直播页顶部）不碰系统栏/方向——之前一切 tab
+        // 嵌入播放器被销毁，onDispose 里的 show(systemBars()) 会把手机底部导航栏弹出来
+        if (!embedded) {
+            controller?.hide(WindowInsetsCompat.Type.systemBars())
+            controller?.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
         onDispose {
-            controller?.show(WindowInsetsCompat.Type.systemBars())
+            if (!embedded) {
+                controller?.show(WindowInsetsCompat.Type.systemBars())
+            }
             savePlayerProgress(
                 context, currentTitle, currentPlayUrl, isLive,
                 vodId, PlaySession.episodeIndex,
@@ -257,11 +263,13 @@ fun PlayerScreen(
             PlaySession.clear()
             // v0.78.1：退出播放页必须停播放器，否则退到后台还在响
             EngineHost.stop()
-            // v0.27.7：退出播放器恢复系统默认方向 + 停重力感应
-            OrientationSensor.stop()
-            (context as? Activity)?.let {
-                if (it.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-                    it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            // v0.27.7：退出播放器恢复系统默认方向 + 停重力感应（仅全屏页；嵌入不碰）
+            if (!embedded) {
+                OrientationSensor.stop()
+                (context as? Activity)?.let {
+                    if (it.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                        it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    }
                 }
             }
         }
@@ -284,11 +292,13 @@ fun PlayerScreen(
     // OrientationSensor 单例里，这里只消费方向变化。
     val gravityRotate by PlayerSettings.gravityRotate.collectAsState()
     val sensorLandscape by OrientationSensor.isLandscape.collectAsState()
-    LaunchedEffect(gravityRotate) {
+    // v0.84.0：嵌入模式（直播页顶部）不启动重力感应——之前在直播页转手机会被强制全 App 横屏
+    LaunchedEffect(gravityRotate, embedded) {
+        if (embedded) return@LaunchedEffect
         if (gravityRotate) OrientationSensor.start(context) else OrientationSensor.stop()
     }
-    LaunchedEffect(sensorLandscape, gravityRotate) {
-        if (!gravityRotate) return@LaunchedEffect
+    LaunchedEffect(sensorLandscape, gravityRotate, embedded) {
+        if (embedded || !gravityRotate) return@LaunchedEffect
         val activity = context as? Activity ?: return@LaunchedEffect
         activity.requestedOrientation = if (sensorLandscape) {
             LogBus.i("Player", "重力感应：切横屏")

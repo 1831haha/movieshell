@@ -54,7 +54,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
- * v0.84.0：换源弹窗——用书名在所有启用书源重搜，选一条替换当前书的目录。
+ * v0.83.0：换源弹窗——用书名在所有启用书源重搜，选一条替换当前书的目录。
  *
  * 进度尽量保留：按当前章节标题在新目录里找同名章节，找不到就按原下标兜底。
  * onSwitched(newChapterIndex)：切源成功后阅读器跳到该章节并重载。

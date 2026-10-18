@@ -68,6 +68,25 @@ object BookSourceManager {
         return added
     }
 
+    /**
+     * v0.84.0：导入已解析好的书源列表（订阅预览勾选后用）。
+     * 去重规则与 import 一致：key 已存在的不重复加。返回成功条数。
+     */
+    suspend fun importSources(context: Context, list: List<BookSource>): Int {
+        if (list.isEmpty()) return 0
+        val cur = _sources.value.toMutableList()
+        var added = 0
+        list.forEach { s ->
+            if (cur.none { it.key == s.key }) {
+                cur.add(s)
+                added++
+            }
+        }
+        _sources.value = cur
+        save(context)
+        return added
+    }
+
     suspend fun remove(context: Context, key: String) {
         _sources.value = _sources.value.filterNot { it.key == key }
         save(context)

@@ -6,6 +6,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.MusicApi
+import com.movieshell.data.repo.MusicHistoryStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -102,6 +103,8 @@ object MusicPlayer {
                 player.prepare()
                 player.play()
                 startProgressPoll(context)
+                // v0.84.0：记一条播放历史
+                launch { MusicHistoryStore.recordPlay(context.applicationContext, track) }
                 LogBus.i("MusicPlayer", "播放：${track.name} - ${track.artist}")
             }.onFailure {
                 LogBus.e("MusicPlayer", "播放失败：${it.message}")

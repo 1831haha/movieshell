@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.movieshell.data.repo.LogBus
 import com.movieshell.ui.components.TabTopBar
@@ -66,15 +67,20 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
+import com.movieshell.data.repo.MusicHistoryStore
 import com.movieshell.data.repo.MusicStore
+import com.movieshell.data.repo.Playlist
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.lazy.LazyRow
@@ -95,6 +101,8 @@ import androidx.compose.material.icons.filled.QueueMusic
 @Composable
 fun MusicScreen(
     onOpenPlayer: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
+    onOpenPlaylist: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -104,6 +112,13 @@ fun MusicScreen(
     var searching by remember { mutableStateOf(false) }
     var searched by remember { mutableStateOf(false) }
     val playState by MusicPlayer.state.collectAsState()
+    // v0.84.0：搜索历史
+    var searchHistory by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    fun reloadHistory() {
+        scope.launch { searchHistory = MusicHistoryStore.searchHistory(context) }
+    }
+    LaunchedEffect(Unit) { reloadHistory() }
 
     // v0.82.0：接受显式 query（风格 chips 点后直接搜，不等 state 落定）
     fun doSearch(q0: String = query) {
@@ -113,6 +128,9 @@ fun MusicScreen(
         searching = true
         searched = true
         scope.launch {
+            // v0.84.0：记搜索历史
+            MusicHistoryStore.addSearch(context, q)
+            searchHistory = MusicHistoryStore.searchHistory(context)
             runCatching { MusicApi.search(q) }
                 .onSuccess { tracks = it }
                 .onFailure {
@@ -123,11 +141,19 @@ fun MusicScreen(
         }
     }
 
-    var tab by remember { mutableIntStateOf(0) } // v0.81.0：0=在线 1=本地 2=收藏
+    var tab by remember { mutableIntStateOf(0) } // v0.81.0：0=在线 1=本地 2=收藏；v0.84.0：3=歌单
 
     Scaffold(
         topBar = {
-            TabTopBar(title = "音乐")
+            // v0.84.0：历史入口
+            TabTopBar(
+                title = "音乐",
+                actions = {
+                    IconButton(onClick = onOpenHistory) {
+                        Icon(Icons.Filled.History, contentDescription = "历史")
+                    }
+                },
+            )
         },
     ) { inner ->
         Column(
@@ -139,6 +165,7 @@ fun MusicScreen(
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("在线") })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("本地") })
                 Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("收藏") })
+                Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("歌单") })
             }
             if (tab == 0) {
                 OnlineTab(
@@ -147,6 +174,23 @@ fun MusicScreen(
                     tracks = tracks,
                     searching = searching,
                     searched = searched,
+                    searchHistory = searchHistory,
+                    onHistorySearch = { h ->
+                        query = h
+                        doSearch(h)
+                    },
+                    onHistoryRemove = { h ->
+                        scope.launch {
+                            MusicHistoryStore.removeSearch(context, h)
+                            reloadHistory()
+                        }
+                    },
+                    onHistoryClear = {
+                        scope.launch {
+                            MusicHistoryStore.clearSearch(context)
+                            reloadHistory()
+                        }
+                    },
                     onSearch = { q -> doSearch(q) },
                     onTracksLoaded = { list ->
                         tracks = list
@@ -156,8 +200,10 @@ fun MusicScreen(
                 )
             } else if (tab == 1) {
                 LocalTab()
-            } else {
+            } else if (tab == 2) {
                 FavTab()
+            } else {
+                PlaylistTab(onOpenPlaylist = onOpenPlaylist)
             }
             // 底部迷你播放条（三个 tab 共用；v0.83.0：点击进全屏播放页）
             MiniPlayer(
@@ -187,6 +233,10 @@ private fun OnlineTab(
     tracks: List<MusicApi.Track>,
     searching: Boolean,
     searched: Boolean,
+    searchHistory: List<String>,
+    onHistorySearch: (String) -> Unit,
+    onHistoryRemove: (String) -> Unit,
+    onHistoryClear: () -> Unit,
     onSearch: (String) -> Unit,
     onTracksLoaded: (List<MusicApi.Track>) -> Unit,
     onPlayAt: (Int) -> Unit,
@@ -201,6 +251,8 @@ private fun OnlineTab(
     var playlistInput by remember { mutableStateOf("") }
     var playlistName by remember { mutableStateOf<String?>(null) }
     var importingPlaylist by remember { mutableStateOf(false) }
+    // v0.84.0：加到歌单
+    var addToPlaylistTrack by remember { mutableStateOf<MusicApi.Track?>(null) }
 
     // v0.82.0：歌单导入共用逻辑
     fun importPlaylist(input: String) {
@@ -281,6 +333,61 @@ private fun OnlineTab(
             }
         }
         Spacer(Modifier.height(4.dp))
+        // v0.84.0：搜索历史（未输入时展示，点即搜）
+        if (query.isBlank() && !searched && searchHistory.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "搜索历史",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onHistoryClear) {
+                    Text("清空", fontSize = 12.sp)
+                }
+            }
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(searchHistory, key = { it }) { h ->
+                    AppCard(
+                        modifier = Modifier.clickable { onHistorySearch(h) },
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(
+                                start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp,
+                            ),
+                        ) {
+                            Text(
+                                text = h,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                            )
+                            IconButton(
+                                onClick = { onHistoryRemove(h) },
+                                modifier = Modifier.size(24.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "删除",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+        }
         playlistName?.let { pn ->
             Text(
                 text = "歌单：$pn",
@@ -377,6 +484,7 @@ private fun OnlineTab(
                                     favIds = if (nowFav) favIds + track.id else favIds - track.id
                                 }
                             },
+                            onPlaylistClick = { addToPlaylistTrack = track },
                             onClick = { onPlayAt(idx) },
                         )
                     }
@@ -422,6 +530,14 @@ private fun OnlineTab(
             },
         )
     }
+
+    // v0.84.0：加到歌单
+    addToPlaylistTrack?.let { t ->
+        AddToPlaylistDialog(
+            track = t,
+            onDismiss = { addToPlaylistTrack = null },
+        )
+    }
 }
 
 /** v0.81.0：本地音乐 tab——导入本地音频文件，列表播放/删除。 */
@@ -431,6 +547,8 @@ private fun LocalTab() {
     val scope = rememberCoroutineScope()
     val playState by MusicPlayer.state.collectAsState()
     var locals by remember { mutableStateOf<List<MusicApi.Track>>(emptyList()) }
+    // v0.84.0：加到歌单
+    var addToPlaylistTrack by remember { mutableStateOf<MusicApi.Track?>(null) }
 
     fun reload() {
         scope.launch {
@@ -516,12 +634,21 @@ private fun LocalTab() {
                                     reload()
                                 }
                             },
+                            onPlaylistClick = { addToPlaylistTrack = track },
                             onClick = { MusicPlayer.playList(context, locals, idx) },
                         )
                     }
                 }
             }
         }
+    }
+
+    // v0.84.0：加到歌单
+    addToPlaylistTrack?.let { t ->
+        AddToPlaylistDialog(
+            track = t,
+            onDismiss = { addToPlaylistTrack = null },
+        )
     }
 }
 
@@ -532,6 +659,8 @@ private fun FavTab() {
     val scope = rememberCoroutineScope()
     val playState by MusicPlayer.state.collectAsState()
     var favs by remember { mutableStateOf<List<MusicApi.Track>>(emptyList()) }
+    // v0.84.0：加到歌单
+    var addToPlaylistTrack by remember { mutableStateOf<MusicApi.Track?>(null) }
 
     fun reload() {
         scope.launch { favs = MusicStore.favList(context) }
@@ -568,11 +697,20 @@ private fun FavTab() {
                                 reload()
                             }
                         },
+                        onPlaylistClick = { addToPlaylistTrack = track },
                         onClick = { MusicPlayer.playList(context, favs, idx) },
                     )
                 }
             }
         }
+    }
+
+    // v0.84.0：加到歌单
+    addToPlaylistTrack?.let { t ->
+        AddToPlaylistDialog(
+            track = t,
+            onDismiss = { addToPlaylistTrack = null },
+        )
     }
 }
 
@@ -655,14 +793,16 @@ private fun MiniPlayer(
     }
 }
 
+/** v0.84.0：改为 internal，供歌单详情页/历史页复用。 */
 @Composable
-private fun TrackRow(
+internal fun TrackRow(
     track: MusicApi.Track,
     isCurrent: Boolean,
     isPlaying: Boolean,
     isFav: Boolean = false,
     onFavClick: (() -> Unit)? = null,
     onDeleteClick: (() -> Unit)? = null,
+    onPlaylistClick: (() -> Unit)? = null, // v0.84.0：加到歌单
     onClick: () -> Unit,
 ) {
     AppCard(
@@ -734,6 +874,16 @@ private fun TrackRow(
                     )
                 }
             }
+            // v0.84.0：加到歌单
+            onPlaylistClick?.let {
+                IconButton(onClick = it) {
+                    Icon(
+                        Icons.Filled.PlaylistAdd,
+                        contentDescription = "加到歌单",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             if (isCurrent) {
                 if (isPlaying) {
                     Icon(
@@ -750,5 +900,325 @@ private fun TrackRow(
                 }
             }
         }
+    }
+}
+
+/** v0.84.0：歌单 tab——自建歌单列表，新建/重命名/删除，点进详情。 */
+@Composable
+private fun PlaylistTab(
+    onOpenPlaylist: (String) -> Unit = {},
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var playlists by remember { mutableStateOf<List<Playlist>>(emptyList()) }
+    var showNew by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<Playlist?>(null) }
+    var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
+
+    fun reload() {
+        scope.launch { playlists = MusicStore.playlistList(context) }
+    }
+    LaunchedEffect(Unit) { reload() }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (playlists.isEmpty()) "把喜欢的歌攒成自己的歌单" else "共 ${playlists.size} 个歌单",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { showNew = true }) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
+                Text("新建歌单")
+            }
+        }
+        Box(modifier = Modifier.weight(1f)) {
+            if (playlists.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.QueueMusic,
+                        title = "还没有歌单",
+                        hint = "点「新建歌单」，或在歌曲上点 ⁺ 加进来",
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(playlists, key = { it.id }) { pl ->
+                        AppCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .clickable { onOpenPlaylist(pl.id) },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Filled.QueueMusic,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(36.dp),
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = pl.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "${pl.tracks.size} 首",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                IconButton(onClick = { renameTarget = pl }) {
+                                    Icon(
+                                        Icons.Filled.Edit,
+                                        contentDescription = "重命名",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                IconButton(onClick = { deleteTarget = pl }) {
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = "删除",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showNew) {
+        NewPlaylistDialog(
+            onDismiss = { showNew = false },
+            onConfirm = { name ->
+                scope.launch {
+                    val pl = MusicStore.createPlaylist(context, name)
+                    showNew = false
+                    if (pl != null) {
+                        reload()
+                        Toast.makeText(context, "已创建歌单「$name」", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "歌单名为空或已存在", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+        )
+    }
+
+    renameTarget?.let { pl ->
+        NewPlaylistDialog(
+            title = "重命名歌单",
+            initial = pl.name,
+            onDismiss = { renameTarget = null },
+            onConfirm = { name ->
+                scope.launch {
+                    val ok = MusicStore.renamePlaylist(context, pl.id, name)
+                    renameTarget = null
+                    if (ok) {
+                        reload()
+                    } else {
+                        Toast.makeText(context, "歌单名为空或已存在", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+        )
+    }
+
+    deleteTarget?.let { pl ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除歌单") },
+            text = { Text("确定删除歌单「${pl.name}」（${pl.tracks.size} 首）？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            MusicStore.deletePlaylist(context, pl.id)
+                            deleteTarget = null
+                            reload()
+                        }
+                    },
+                ) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
+            },
+        )
+    }
+}
+
+/** v0.84.0：新建/重命名歌单弹窗（共用）。 */
+@Composable
+private fun NewPlaylistDialog(
+    title: String = "新建歌单",
+    initial: String = "",
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var name by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = { Text("歌单名字") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(name) }) { Text("确定") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
+}
+
+/** v0.84.0：加到歌单弹窗——列出歌单点选，底部可直接新建。 */
+@Composable
+internal fun AddToPlaylistDialog(
+    track: MusicApi.Track,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var playlists by remember { mutableStateOf<List<Playlist>>(emptyList()) }
+    var showNew by remember { mutableStateOf(false) }
+
+    fun reload() {
+        scope.launch { playlists = MusicStore.playlistList(context) }
+    }
+    LaunchedEffect(Unit) { reload() }
+
+    fun addTo(pl: Playlist) {
+        scope.launch {
+            val ok = MusicStore.addToPlaylist(context, pl.id, track)
+            Toast.makeText(
+                context,
+                if (ok) "已加入「${pl.name}」" else "这首已经在「${pl.name}」里了",
+                Toast.LENGTH_SHORT,
+            ).show()
+            if (ok) onDismiss()
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("加到歌单") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "《${track.name}》",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(8.dp))
+                Box(modifier = Modifier.height(240.dp)) {
+                    if (playlists.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "还没有歌单，先新建一个",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 13.sp,
+                            )
+                        }
+                    } else {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(playlists, key = { it.id }) { pl ->
+                                AppCard(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { addTo(pl) },
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.QueueMusic,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(
+                                            text = pl.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            text = "${pl.tracks.size} 首",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = { showNew = true }) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("新建歌单")
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
+
+    if (showNew) {
+        NewPlaylistDialog(
+            onDismiss = { showNew = false },
+            onConfirm = { name ->
+                scope.launch {
+                    val pl = MusicStore.createPlaylist(context, name)
+                    showNew = false
+                    if (pl != null) {
+                        reload()
+                        addTo(pl)
+                    } else {
+                        Toast.makeText(context, "歌单名为空或已存在", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+        )
     }
 }
