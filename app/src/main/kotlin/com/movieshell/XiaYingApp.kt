@@ -1,9 +1,13 @@
 package com.movieshell
 
 import android.app.Application
+import com.movieshell.data.novel.NovelMigration
 import com.movieshell.data.novel.NovelUpdateWorker
 import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * v0.25.0：Application 入口。
@@ -17,5 +21,7 @@ class XiaYingApp : Application() {
         LogBus.readLastCrash(this)
         // v0.85.0：小说自动追更（每天一次，KEEP 防重复入队）
         NovelUpdateWorker.schedule(this)
+        // v0.95.0：小说旧数据一次性备份（.bak），后台跑不阻塞启动
+        CoroutineScope(Dispatchers.IO).launch { NovelMigration.runOnce(this@XiaYingApp) }
     }
 }

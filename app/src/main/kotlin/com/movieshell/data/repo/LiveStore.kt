@@ -249,6 +249,9 @@ object LiveStore {
                 val o = el.jsonObject
                 val url = o["url"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
                 if (url.isBlank()) return@mapNotNull null
+                // v0.95.0：过滤已下线的虎牙总站入口（huya:// 无播放器承载，v0.91.0 已删入口；
+                // cctv-live 1.0.3 残留的 huya://portal 条目会形成"虎牙直播"空分组）
+                if (url.startsWith("huya://", ignoreCase = true)) return@mapNotNull null
                 val name = o["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
                     .ifBlank { "未知频道" }
                 LiveChannel(

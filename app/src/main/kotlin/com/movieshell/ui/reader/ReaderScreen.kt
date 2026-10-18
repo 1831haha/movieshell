@@ -65,7 +65,10 @@ import com.movieshell.data.model.Novel
 import com.movieshell.data.model.ReadingProgress
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.ChapterMeta
+import com.movieshell.data.novel.NovelPaginator
+import com.movieshell.data.novel.NovelPurifyEngine
 import com.movieshell.data.novel.NovelSourceEngine
+import com.movieshell.data.novel.PurifyRuleStore
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.Bookmark
 import com.movieshell.data.repo.BookmarkStore
@@ -191,8 +194,11 @@ fun ReaderScreen(
             }
         }.getOrDefault("")
         if (text.isNotBlank()) {
-            NovelStore.updateChapterContent(context, n.id, index, text)
-            chapters = chapters.map { if (it.index == index) it.copy(content = text) else it }
+            // v0.95.0：正文统一过净化引擎再入库（规则见净化规则管理页）
+            val rules = PurifyRuleStore.list(context)
+            val clean = NovelPurifyEngine.purify(text, rules, bookUrl = n.id, sourceKey = n.sourceKey)
+            NovelStore.updateChapterContent(context, n.id, index, clean)
+            chapters = chapters.map { if (it.index == index) it.copy(content = clean) else it }
             return true
         }
         return false
@@ -206,7 +212,9 @@ fun ReaderScreen(
             fetchChapter(index)
             contentLoading = false
             // v0.72.0：预加载下一章（后台静默，不碰 contentLoading）
+            // v0.95.0：同时预加载上一章（回看不转圈）
             launch { fetchChapter(index + 1) }
+            launch { fetchChapter(index - 1) }
         }
     }
 
@@ -231,22 +239,16 @@ fun ReaderScreen(
 
     val chapter = chapters.getOrNull(chapterIndex)
 
-    // v0.89.0：字符数粗分页（翻页模式用）
+    // v0.95.0：真分页引擎（段落感知，见 NovelPaginator）
     val density = LocalDensity.current
     val charsPerPage = remember(pageWidth, pageHeight, fontSize, lineHeightRatio, density) {
         val fontPx = with(density) { fontSize.sp.toPx() }
         val innerW = (pageWidth - with(density) { 40.dp.toPx() }).coerceAtLeast(0f)
         val innerH = (pageHeight - with(density) { 24.dp.toPx() }).coerceAtLeast(0f)
-        val cpl = if (innerW > 0 && fontPx > 0) {
-            (innerW / (fontPx * 0.95f)).toInt().coerceAtLeast(10)
-        } else 30
-        val lpp = if (innerH > 0 && fontPx > 0) {
-            (innerH / (fontPx * lineHeightRatio)).toInt().coerceAtLeast(5)
-        } else 20
-        (cpl * lpp).coerceAtLeast(200)
+        NovelPaginator.charsPerPage(fontPx, lineHeightRatio, innerW, innerH)
     }
     val pages = remember(chapter?.content, charsPerPage) {
-        chapter?.content?.chunked(charsPerPage) ?: emptyList()
+        NovelPaginator.paginate(chapter?.content.orEmpty(), charsPerPage)
     }
     val pagerState = rememberPagerState(pageCount = { pages.size.coerceAtLeast(1) })
 
@@ -257,7 +259,8 @@ fun ReaderScreen(
             val max = scrollState.maxValue.coerceAtLeast(1)
             if (len > 0) (scrollState.value.toFloat() / max * len).toInt().coerceIn(0, len) else 0
         } else {
-            (pagerState.currentPage * charsPerPage).coerceIn(0, len)
+            // v0.95.0：翻页模式用分页引擎的页首偏移（段落感知分页下更精确）
+            NovelPaginator.pageStartOffset(pages, pagerState.currentPage).coerceIn(0, len)
         }
     }
 
@@ -312,9 +315,9 @@ fun ReaderScreen(
                 scrollState.scrollTo(0)
             }
         } else {
-            // v0.89.0：翻页模式按页恢复；正文还没到时等下一次 content 长度变化再恢复
+            // v0.95.0：翻页模式按字符偏移定位页；正文还没到时等下一次 content 长度变化再恢复
             if (restoreOffset > 0 && len > 0 && pages.isNotEmpty()) {
-                pagerState.scrollToPage((restoreOffset / charsPerPage).coerceIn(0, pages.size - 1))
+                pagerState.scrollToPage(NovelPaginator.pageForOffset(pages, restoreOffset))
                 restoreOffset = 0 // 只恢复一次
             } else {
                 pagerState.scrollToPage(0)
@@ -322,12 +325,15 @@ fun ReaderScreen(
         }
     }
 
-    // v0.89.0：字号/行距/窗口变化导致重分页时，按字符偏移尽量保持阅读位置
+    // v0.95.0：字号/行距/窗口变化导致重分页时，按字符偏移尽量保持阅读位置
     var lastCpp by remember { mutableIntStateOf(0) }
+    var lastPageOffset by remember { mutableIntStateOf(0) }
+    LaunchedEffect(pagerState.currentPage, pages) {
+        lastPageOffset = NovelPaginator.pageStartOffset(pages, pagerState.currentPage)
+    }
     LaunchedEffect(charsPerPage) {
         if (lastCpp > 0 && lastCpp != charsPerPage && pages.isNotEmpty() && pageMode != 0) {
-            val offset = pagerState.currentPage * lastCpp
-            pagerState.scrollToPage((offset / charsPerPage).coerceIn(0, pages.size - 1))
+            pagerState.scrollToPage(NovelPaginator.pageForOffset(pages, lastPageOffset))
         }
         lastCpp = charsPerPage
     }

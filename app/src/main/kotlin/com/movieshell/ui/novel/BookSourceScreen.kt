@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
@@ -73,6 +74,7 @@ import kotlinx.coroutines.withContext
 fun BookSourceScreen(
     onBack: () -> Unit = {},
     onOpenPySource: (ruleName: String) -> Unit = {},
+    onOpenPurifyRules: () -> Unit = {}, // v0.95.0：净化规则管理
     embedded: Boolean = false, // v0.79.0：嵌入书架子 tab 时隐藏头部
 ) {
     val context = LocalContext.current
@@ -238,6 +240,16 @@ fun BookSourceScreen(
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.height(8.dp))
+        // v0.95.0：净化规则入口（正文替换规则管理）
+        FilledTonalButton(
+            onClick = onOpenPurifyRules,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Filled.AutoFixHigh, "净化规则", modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("净化规则（正文去广告/版式整理）")
+        }
         Spacer(Modifier.height(12.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             // v0.64.0：本地 PY 书源区

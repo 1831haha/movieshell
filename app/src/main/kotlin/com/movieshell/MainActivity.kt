@@ -95,6 +95,7 @@ import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
 import com.movieshell.ui.bookshelf.BookshelfScreen
 import com.movieshell.ui.novel.BookSourceScreen
+import com.movieshell.ui.novel.PurifyRulesScreen
 import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
@@ -106,7 +107,6 @@ import com.movieshell.ui.components.SoftBottomDock
 import com.movieshell.ui.components.SoftDockItem
 import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.home.HomeViewModel
-import com.movieshell.ui.music.MusicHistoryScreen
 import com.movieshell.ui.music.MiniPlayer
 import com.movieshell.ui.music.MusicScreen
 import com.movieshell.ui.music.PlaylistDetailScreen
@@ -500,6 +500,14 @@ class MainActivity : ComponentActivity() {
                                 onOpenPySource = { ruleName ->
                                     navController.navigate("novel_search?pySource=$ruleName")
                                 },
+                                // v0.95.0：净化规则管理
+                                onOpenPurifyRules = { navController.navigate("purify_rules") },
+                            )
+                        }
+                        // v0.95.0：净化规则管理页
+                        composable("purify_rules") {
+                            PurifyRulesScreen(
+                                onBack = { navController.popBackStack() },
                             )
                         }
                         composable(
@@ -581,17 +589,9 @@ class MainActivity : ComponentActivity() {
                         // v0.79.0：实验室 tab 改为音乐 tab；原实验室功能已搬进设置页
                         composable("music") {
                             MusicScreen(
-                                // v0.84.0：历史页 / 歌单详情
-                                onOpenHistory = { navController.navigate("music_history") },
                                 onOpenPlaylist = { id ->
                                     navController.navigate("playlist_detail/$id")
                                 },
-                            )
-                        }
-                        // v0.84.0：音乐历史页
-                        composable("music_history") {
-                            MusicHistoryScreen(
-                                onBack = { navController.popBackStack() },
                             )
                         }
                         // v0.84.0：歌单详情页

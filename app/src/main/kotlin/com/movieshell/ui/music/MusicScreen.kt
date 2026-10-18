@@ -1,8 +1,13 @@
 package com.movieshell.ui.music
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -43,7 +49,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -63,6 +71,8 @@ import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.theme.SoftType
+import com.movieshell.ui.theme.LocalSoftExtra
+import com.movieshell.ui.theme.SoftDimens
 import kotlinx.coroutines.launch
 import android.provider.OpenableColumns
 import android.widget.Toast
@@ -75,7 +85,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
@@ -102,7 +111,6 @@ import androidx.compose.material.icons.filled.QueueMusic
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MusicScreen(
-    onOpenHistory: () -> Unit = {},
     onOpenPlaylist: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -145,15 +153,8 @@ fun MusicScreen(
 
     Scaffold(
         topBar = {
-            // v0.84.0：历史入口
-            TabTopBar(
-                title = "音乐",
-                actions = {
-                    IconButton(onClick = onOpenHistory) {
-                        Icon(Icons.Filled.History, contentDescription = "历史")
-                    }
-                },
-            )
+            // v0.95.0：去掉右上角历史按钮（用户要求）
+            TabTopBar(title = "音乐")
         },
     ) { inner ->
         Column(
@@ -218,6 +219,83 @@ private val RECOMMENDED_PLAYLISTS = listOf(
     "飙升榜" to "19723756",
     "原创榜" to "2884035",
 )
+
+// v0.95：榜单专属配色
+private val CHART_ACCENTS = mapOf(
+    "热歌榜" to Color(0xFFF87171),
+    "新歌榜" to Color(0xFF4ADE80),
+    "飙升榜" to Color(0xFFC084FC),
+    "原创榜" to Color(0xFF60A5FA),
+)
+
+/**
+ * v0.95：榜单小卡片——横向长方形，榜单配色渐变底 + 图标 + 榜名；
+ * 按下缩放到 0.95（animateFloatAsState），涟漪走 clickable 默认 indication，松手回弹。
+ * 点击行为与原来一致（importPlaylist）。
+ */
+@Composable
+private fun ChartCard(
+    name: String,
+    importing: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(SoftDimens.CardCorner)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.95f else 1f,
+        label = "chartCardPress",
+    )
+    val accent = CHART_ACCENTS[name] ?: MaterialTheme.colorScheme.primary
+    Surface(
+        modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
+            .clip(shape)
+            .clickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                onClick = onClick,
+            ),
+        shape = shape,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .background(
+                    Brush.linearGradient(
+                        listOf(accent.copy(alpha = 0.30f), LocalSoftExtra.current.glass),
+                    ),
+                )
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.QueueMusic,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(30.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+            )
+            if (importing) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = "导入",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
 
 // v0.89.0：本地音乐分组维度
 private val GROUP_LABELS = listOf("全部", "歌手", "专辑", "文件夹")
@@ -454,44 +532,20 @@ private fun OnlineTab(
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                     Spacer(Modifier.height(8.dp))
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    // v0.95：四榜改 2x2 长方形小卡片（横向，宽>高），按压缩放回弹
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        items(RECOMMENDED_PLAYLISTS) { (name, id) ->
-                            AppCard(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp)
-                                    .clickable { importPlaylist(id) },
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Icon(
-                                        Icons.Filled.QueueMusic,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(32.dp),
-                                    )
-                                    Spacer(Modifier.width(12.dp))
-                                    Text(
-                                        text = name,
-                                        style = MaterialTheme.typography.bodyLarge,
+                        RECOMMENDED_PLAYLISTS.chunked(2).forEach { row ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                row.forEach { (name, id) ->
+                                    ChartCard(
+                                        name = name,
+                                        importing = importingPlaylist,
+                                        onClick = { importPlaylist(id) },
                                         modifier = Modifier.weight(1f),
                                     )
-                                    if (importingPlaylist) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(20.dp),
-                                            strokeWidth = 2.dp,
-                                        )
-                                    } else {
-                                        Icon(
-                                            Icons.Filled.ChevronRight,
-                                            contentDescription = "导入",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
                                 }
                             }
                         }
