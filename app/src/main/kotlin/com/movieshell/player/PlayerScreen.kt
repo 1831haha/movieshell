@@ -770,7 +770,6 @@ fun PlayerScreen(
                     }
                 }
             }
-        }
     }
 
     // v0.14.0：片尾跳过——距离结尾 skipOutroSec 时自动下一集（无下一集则暂停）
@@ -1602,7 +1601,6 @@ fun PlayerScreen(
                         }
                     }
                 },
-            }
         }
 
         if (showSubtitleDialog) {
