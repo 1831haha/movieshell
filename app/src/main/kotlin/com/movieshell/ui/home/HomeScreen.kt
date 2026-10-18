@@ -34,11 +34,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -129,6 +128,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.foundation.basicMarquee
+import com.movieshell.data.repo.BackgroundStore
 
 /** drpy 影片 -> 界面 Vod（id=vodId, title=vodName, category=typeName, year=vodYear, rating=vodRemarks） */
 private fun ModelVod.toUiVod() = Vod(
@@ -886,8 +887,26 @@ fun HomeScreen(
     }
 
     // v0.32.0 影院黑：流动渐变光斑垫底，内容浮上
+    // v0.82.0：用户自定义背景底图（设置页更换）优先
+    val customBg by BackgroundStore.customBg.collectAsState()
+    LaunchedEffect(Unit) { BackgroundStore.load(context) }
     Box(modifier = Modifier.fillMaxSize()) {
-        FlowingGlowBackground(modifier = Modifier.fillMaxSize())
+        if (customBg != null) {
+            AsyncImage(
+                model = customBg,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            // 深色罩：保证文字可读
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.55f)),
+            )
+        } else {
+            FlowingGlowBackground(modifier = Modifier.fillMaxSize())
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -917,16 +936,15 @@ fun HomeScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        // 搜索图标（v0.60：搜索框缩小为放大镜）
-                        IconButton(onClick = onSearchClick) {
-                            Icon(
-                                imageVector = Icons.Filled.Search,
-                                contentDescription = "搜索",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        // v0.82.0：历史/追剧胶囊已移除（设置页快捷入口已有）；
+                        // 搜索改胶囊，与换源胶囊统一样式
+                        HomeCapsule(
+                            icon = Icons.Filled.Search,
+                            text = "搜索",
+                            onClick = onSearchClick,
+                        )
                         // v0.78.3：首页布局切换（对标 DsPlayer）
                         IconButton(onClick = { showLayoutPicker = true }) {
                             Icon(
@@ -935,72 +953,25 @@ fun HomeScreen(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        // 历史胶囊
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            onClick = onHistoryClick,
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.History,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = "历史",
-                                    style = SoftType.CardTitle,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                )
-                            }
-                        }
-                        // 追剧胶囊
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            onClick = onFollowClick,
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.PlaylistAddCheck,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = "追剧",
-                                    style = SoftType.CardTitle,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                )
-                            }
-                        }
                         // 换源胶囊（v0.7.1 入口，v0.60 搬进顶栏一行；v0.62：弹性宽度，源名过长省略）
                         Surface(
-                            shape = RoundedCornerShape(SoftDimens.ChipCorner),
+                            shape = RoundedCornerShape(20.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { showSourceSheet = true },
                             modifier = Modifier.weight(1f),
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
                             ) {
+                                Icon(
+                                    imageVector = Icons.Filled.SwapHoriz,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
                                 Text(
                                     text = sourceLabel,
                                     color = MaterialTheme.colorScheme.onSurface,
@@ -1609,9 +1580,10 @@ private fun HomeCompactRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
             Text(
                 text = vod.title,
                 style = SoftType.Body,
+                // v0.82.0：显示不全跑马灯
+                modifier = Modifier.basicMarquee(),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             if (subtitle != null) {
                 Spacer(Modifier.height(4.dp))
@@ -1649,9 +1621,10 @@ private fun HomeTextRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
             Text(
                 text = vod.title,
                 style = SoftType.Body,
+                // v0.82.0：显示不全跑马灯
+                modifier = Modifier.basicMarquee(),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             if (subtitle != null) {
                 Text(
@@ -1669,6 +1642,41 @@ private fun HomeTextRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
                 text = vod.rating,
                 style = SoftType.Body,
                 color = LocalSoftExtra.current.warning,
+            )
+        }
+    }
+}
+
+/** v0.82.0：首页胶囊按钮（搜索用；与换源胶囊统一样式）。 */
+@Composable
+private fun HomeCapsule(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = text,
+                style = SoftType.CardTitle,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                softWrap = false,
             )
         }
     }

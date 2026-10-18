@@ -24,8 +24,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import com.movieshell.ui.components.AppCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,7 +31,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -50,8 +47,6 @@ import com.movieshell.data.model.ReadingProgress
 import com.movieshell.data.novel.TxtImporter
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.ReadingProgressStore
-import com.movieshell.ui.novel.BookSourceScreen
-import com.movieshell.ui.novel.NovelSearchScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -71,6 +66,7 @@ import coil.compose.AsyncImage
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.Storage
 
 /**
  * v0.35.0 小说书架。
@@ -83,50 +79,18 @@ import androidx.compose.material3.DropdownMenuItem
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+// v0.82.0：顶部 书架/找书/书源 tab 已移除（用户嫌丑）；找书、书源改为独立路由，
+/// 书架页头部直接放入口按钮
 fun BookshelfScreen(
     onNovelClick: (String) -> Unit = {},
+    onFindBookClick: () -> Unit = {},
+    onManageSourcesClick: () -> Unit = {},
 ) {
-    var tabIdx by remember { mutableIntStateOf(0) }
-    // v0.66.0：书源页点本地 PY 源 → 切到找书 tab 并锁定该源
-    var lockedPySource by remember { mutableStateOf<String?>(null) }
-    val tabs = listOf("书架", "找书", "书源")
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(
-            selectedTabIndex = tabIdx,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            tabs.forEachIndexed { i, title ->
-                Tab(
-                    selected = i == tabIdx,
-                    onClick = {
-                        // 切走找书 tab 时清除单源锁定
-                        if (i != 1) lockedPySource = null
-                        tabIdx = i
-                    },
-                    text = { Text(title) },
-                )
-            }
-        }
-        when (tabIdx) {
-            0 -> BookshelfList(
-                onNovelClick = onNovelClick,
-                onFindBookClick = { tabIdx = 1 },
-            )
-            1 -> NovelSearchScreen(
-                embedded = true,
-                pySourceName = lockedPySource,
-                onManageSources = { tabIdx = 2 },
-            )
-            2 -> BookSourceScreen(
-                embedded = true,
-                onOpenPySource = { ruleName ->
-                    lockedPySource = ruleName
-                    tabIdx = 1
-                },
-            )
-        }
-    }
+    BookshelfList(
+        onNovelClick = onNovelClick,
+        onFindBookClick = onFindBookClick,
+        onManageSourcesClick = onManageSourcesClick,
+    )
 }
 
 /** 书架列表（原子内容，从原 BookshelfScreen 拆出） */
@@ -135,6 +99,7 @@ fun BookshelfScreen(
 private fun BookshelfList(
     onNovelClick: (String) -> Unit = {},
     onFindBookClick: () -> Unit = {},
+    onManageSourcesClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -231,6 +196,9 @@ private fun BookshelfList(
             }
             IconButton(onClick = onFindBookClick) {
                 Icon(Icons.Filled.Search, "找书", tint = gold)
+            }
+            IconButton(onClick = onManageSourcesClick) {
+                Icon(Icons.Filled.Storage, "书源管理", tint = gold)
             }
         }
 

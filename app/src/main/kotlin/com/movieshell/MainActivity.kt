@@ -91,6 +91,8 @@ import com.movieshell.player.PlaySession
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
 import com.movieshell.ui.bookshelf.BookshelfScreen
+import com.movieshell.ui.novel.BookSourceScreen
+import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
 import com.movieshell.ui.follow.FollowScreen
@@ -423,11 +425,35 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                         }
-                        // v0.35.0：小说书架（v0.79.0：找书/书源收进书架子 tab，不再独立路由）
+                        // v0.35.0：小说书架（v0.82.0：顶部三 tab 移除，找书/书源改为独立路由）
                         composable("bookshelf") {
                             BookshelfScreen(
                                 onNovelClick = { id ->
                                     navController.navigate("reader/$id")
+                                },
+                                onFindBookClick = { navController.navigate("novel_search") },
+                                onManageSourcesClick = { navController.navigate("book_source") },
+                            )
+                        }
+                        composable(
+                            "novel_search?pySource={pySource}",
+                            arguments = listOf(navArgument("pySource") {
+                                type = NavType.StringType
+                                defaultValue = ""
+                            }),
+                        ) { entry ->
+                            NovelSearchScreen(
+                                onBack = { navController.popBackStack() },
+                                onManageSources = { navController.navigate("book_source") },
+                                pySourceName = entry.arguments?.getString("pySource")
+                                    ?.takeIf { it.isNotBlank() },
+                            )
+                        }
+                        composable("book_source") {
+                            BookSourceScreen(
+                                onBack = { navController.popBackStack() },
+                                onOpenPySource = { ruleName ->
+                                    navController.navigate("novel_search?pySource=$ruleName")
                                 },
                             )
                         }

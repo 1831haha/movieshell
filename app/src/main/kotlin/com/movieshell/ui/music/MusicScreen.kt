@@ -76,6 +76,14 @@ import androidx.compose.runtime.mutableIntStateOf
 import com.movieshell.data.repo.MusicStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.QueueMusic
 
 /**
  * v0.79.0：音乐 Tab（原实验室 tab 位置）。
@@ -94,8 +102,9 @@ fun MusicScreen() {
     var searched by remember { mutableStateOf(false) }
     val playState by MusicPlayer.state.collectAsState()
 
-    fun doSearch() {
-        val q = query.trim()
+    // v0.82.0：接受显式 query（风格 chips 点后直接搜，不等 state 落定）
+    fun doSearch(q0: String = query) {
+        val q = q0.trim()
         if (q.isBlank() || searching) return
         keyboard?.hide()
         searching = true
@@ -135,7 +144,11 @@ fun MusicScreen() {
                     tracks = tracks,
                     searching = searching,
                     searched = searched,
-                    onSearch = { doSearch() },
+                    onSearch = { q -> doSearch(q) },
+                    onTracksLoaded = { list ->
+                        tracks = list
+                        searched = true
+                    },
                     onPlayAt = { idx -> MusicPlayer.playList(context, tracks, idx) },
                 )
             } else if (tab == 1) {
@@ -151,13 +164,27 @@ fun MusicScreen() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+// v0.82.0：风格快捷
+private val GENRE_CHIPS = listOf("古风", "流行", "民谣", "摇滚", "纯音乐", "DJ")
+
+// v0.82.0：推荐歌单（网易云官方榜单，一点即导入）
+private val RECOMMENDED_PLAYLISTS = listOf(
+    "热歌榜" to "3778678",
+    "新歌榜" to "3779629",
+    "飙升榜" to "19723756",
+    "原创榜" to "2884035",
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun OnlineTab(
     query: String,
     onQueryChange: (String) -> Unit,
     tracks: List<MusicApi.Track>,
     searching: Boolean,
     searched: Boolean,
-    onSearch: () -> Unit,
+    onSearch: (String) -> Unit,
+    onTracksLoaded: (List<MusicApi.Track>) -> Unit,
     onPlayAt: (Int) -> Unit,
 ) {
     val context = LocalContext.current
@@ -165,6 +192,35 @@ private fun OnlineTab(
     val keyboard = LocalSoftwareKeyboardController.current
     val playState by MusicPlayer.state.collectAsState()
     var favIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // v0.82.0：歌单导入
+    var showPlaylistDialog by remember { mutableStateOf(false) }
+    var playlistInput by remember { mutableStateOf("") }
+    var playlistName by remember { mutableStateOf<String?>(null) }
+    var importingPlaylist by remember { mutableStateOf(false) }
+
+    // v0.82.0：歌单导入共用逻辑
+    fun importPlaylist(input: String) {
+        val inp = input.trim()
+        if (inp.isBlank() || importingPlaylist) return
+        importingPlaylist = true
+        scope.launch {
+            runCatching { MusicApi.playlist(inp) }
+                .onSuccess { (name, list) ->
+                    playlistName = name
+                    onTracksLoaded(list)
+                    Toast.makeText(
+                        context, "已导入歌单「$name」（${list.size} 首）",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                .onFailure {
+                    Toast.makeText(
+                        context, "导入失败：${it.message}", Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            importingPlaylist = false
+        }
+    }
 
     LaunchedEffect(Unit) {
         favIds = withContext(Dispatchers.IO) {
@@ -187,16 +243,49 @@ private fun OnlineTab(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = {
                     keyboard?.hide()
-                    onSearch()
+                    onSearch(query)
                 }),
             )
             Spacer(Modifier.width(8.dp))
             IconButton(onClick = {
                 keyboard?.hide()
-                onSearch()
+                onSearch(query)
             }) {
                 Icon(Icons.Filled.Search, contentDescription = "搜索")
             }
+            // v0.82.0：歌单导入
+            IconButton(onClick = { showPlaylistDialog = true }) {
+                Icon(Icons.Filled.PlaylistAdd, contentDescription = "歌单导入")
+            }
+        }
+        // v0.82.0：风格快捷搜索
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(GENRE_CHIPS) { genre ->
+                FilterChip(
+                    selected = false,
+                    onClick = {
+                        onQueryChange(genre)
+                        keyboard?.hide()
+                        onSearch(genre)
+                    },
+                    label = { Text(genre) },
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        playlistName?.let { pn ->
+            Text(
+                text = "歌单：$pn",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         Box(modifier = Modifier.weight(1f)) {
             when {
@@ -204,16 +293,57 @@ private fun OnlineTab(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) { CircularProgressIndicator() }
-                !searched -> Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    EmptyState(
-                        kind = EmptyKind.Empty,
-                        icon = Icons.Filled.MusicNote,
-                        title = "搜你想听的歌",
-                        hint = "输入歌名或歌手名，回车搜索",
+                !searched -> Column(modifier = Modifier.fillMaxSize()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "推荐歌单",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp),
                     )
+                    Spacer(Modifier.height(8.dp))
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(RECOMMENDED_PLAYLISTS) { (name, id) ->
+                            AppCard(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
+                                    .clickable { importPlaylist(id) },
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        Icons.Filled.QueueMusic,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(32.dp),
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        text = name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (importingPlaylist) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                        )
+                                    } else {
+                                        Icon(
+                                            Icons.Filled.ChevronRight,
+                                            contentDescription = "导入",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 tracks.isEmpty() -> Box(
                     modifier = Modifier.fillMaxSize(),
@@ -249,6 +379,44 @@ private fun OnlineTab(
                 }
             }
         }
+    }
+
+    // v0.82.0：歌单导入弹窗
+    if (showPlaylistDialog) {
+        AlertDialog(
+            onDismissRequest = { showPlaylistDialog = false },
+            title = { Text("歌单导入") },
+            text = {
+                Column {
+                    Text(
+                        "粘贴网易云歌单链接或 ID，一键导入整单歌曲",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = playlistInput,
+                        onValueChange = { playlistInput = it },
+                        placeholder = { Text("歌单链接或 ID") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        importPlaylist(playlistInput)
+                        playlistInput = ""
+                        showPlaylistDialog = false
+                    },
+                    enabled = !importingPlaylist,
+                ) { Text(if (importingPlaylist) "导入中…" else "导入") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPlaylistDialog = false }) { Text("取消") }
+            },
+        )
     }
 }
 

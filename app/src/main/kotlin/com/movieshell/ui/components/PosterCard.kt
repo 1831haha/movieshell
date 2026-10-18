@@ -107,9 +107,10 @@ fun PosterCard(
         Column(modifier = Modifier.padding(8.dp)) {
             Text(
                 text = title,
-                style = SoftType.CardTitle,
+                // v0.82.0：片名字体调小 + 显示不全跑马灯
+                style = SoftType.CardTitle.copy(fontSize = 13.sp),
+                modifier = Modifier.basicMarquee(),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (subtitle != null) {

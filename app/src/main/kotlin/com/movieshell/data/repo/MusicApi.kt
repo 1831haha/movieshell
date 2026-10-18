@@ -80,6 +80,40 @@ object MusicApi {
         return tracks
     }
 
+    /** v0.82.0：歌单导入——网易云歌单 ID/链接 → 歌单名 + 曲目列表。 */
+    suspend fun playlist(idOrUrl: String): Pair<String, List<Track>> {
+        val id = Regex("[0-9]+").find(idOrUrl)?.value
+            ?: throw IllegalStateException("没识别出歌单 ID")
+        val body = get("$BASE?types=playlist&source=$SOURCE&id=$id")
+        val tracks = mutableListOf<Track>()
+        val name = runCatching {
+            val root = JSONObject(body)
+            val pl = root.getJSONObject("playlist")
+            val arr = pl.optJSONArray("tracks") ?: JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val sid = o.optLong("id", 0L).toString()
+                if (sid == "0") continue
+                val ar = o.optJSONArray("ar")
+                val artists = (0 until (ar?.length() ?: 0))
+                    .mapNotNull { ar!!.optJSONObject(it)?.optString("name")?.ifBlank { null } }
+                val al = o.optJSONObject("al")
+                tracks += Track(
+                    id = sid,
+                    name = o.optString("name").ifBlank { "未知曲目" },
+                    artist = artists.joinToString("、").ifBlank { "未知歌手" },
+                    album = al?.optString("name").orEmpty(),
+                    picId = al?.optString("pic_str").orEmpty(),
+                    urlId = sid,
+                )
+            }
+            pl.optString("name").ifBlank { "歌单 $id" }
+        }.getOrElse { throw IllegalStateException("歌单解析失败") }
+        if (tracks.isEmpty()) throw IllegalStateException("歌单是空的或已下架")
+        LogBus.i(TAG, "歌单导入成功")
+        return name to tracks
+    }
+
     /** 取可播放地址（url_id → 直链） */
     suspend fun playUrl(urlId: String): String {
         val body = get("$BASE?types=url&source=$SOURCE&id=$urlId")

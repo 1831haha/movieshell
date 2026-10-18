@@ -125,6 +125,8 @@ import com.movieshell.player.HistoryStore
 import com.movieshell.ui.components.BrandGradientColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.material.icons.filled.Image
+import com.movieshell.data.repo.BackgroundStore
 
 // v0.27.0 Soft Tech 换皮：分组卡片走 AppCard，分组标题走 SectionTitle，
 // 对话框 20dp 圆角 + 输入框走 AppTextField，按钮走 AppButton。逻辑与文案零变更。
@@ -232,7 +234,23 @@ fun SettingsScreen(
     var subCount by remember { mutableIntStateOf(0) }
     var localCount by remember { mutableIntStateOf(0) }
     var currentSourceName by remember { mutableStateOf("未设置") }
+    // v0.82.0：背景底图
+    var showBgMenu by remember { mutableStateOf(false) }
+    val bgPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = BackgroundStore.setCustomBg(context, uri)
+            Toast.makeText(
+                context,
+                if (ok) "背景底图已更换" else "设置失败，换张图片试试",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
     LaunchedEffect(Unit) {
+        BackgroundStore.load(context)
         favCount = runCatching { FavoriteStore.list(context).size }.getOrDefault(0)
         histCount = runCatching { withContext(Dispatchers.IO) { HistoryStore.getHistory(context).size } }
             .getOrDefault(0)
@@ -480,6 +498,18 @@ fun SettingsScreen(
                             }
                         }
                     }
+                    Spacer(Modifier.height(12.dp))
+                    // v0.82.0：背景底图
+                    val customBg by BackgroundStore.customBg.collectAsState()
+                    SettingsRow(
+                        icon = Icons.Filled.Image,
+                        title = "背景底图",
+                        subtitle = if (customBg != null) "已自定义（首页生效）" else "默认",
+                        onClick = {
+                            if (customBg != null) showBgMenu = true
+                            else bgPicker.launch("image/*")
+                        },
+                    )
                 }
             }
         }
@@ -971,6 +1001,33 @@ fun SettingsScreen(
                     onClick = { showCloudDialog = false },
                     enabled = !cloudWorking,
                 )
+            },
+        )
+    }
+
+    // v0.82.0：背景底图操作菜单
+    if (showBgMenu) {
+        AlertDialog(
+            onDismissRequest = { showBgMenu = false },
+            title = { Text("背景底图") },
+            text = { Text("更换首页的背景底图，或恢复默认。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBgMenu = false
+                    bgPicker.launch("image/*")
+                }) { Text("更换图片") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        showBgMenu = false
+                        scope.launch {
+                            BackgroundStore.clearCustomBg(context)
+                            Toast.makeText(context, "已恢复默认背景", Toast.LENGTH_SHORT).show()
+                        }
+                    }) { Text("恢复默认") }
+                    TextButton(onClick = { showBgMenu = false }) { Text("取消") }
+                }
             },
         )
     }

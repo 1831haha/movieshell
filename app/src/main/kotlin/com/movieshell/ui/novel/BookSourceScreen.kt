@@ -51,8 +51,6 @@ import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.PyBookApi
 import com.movieshell.data.novel.PyBookSourceManager
 import kotlinx.coroutines.launch
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -196,45 +194,21 @@ fun BookSourceScreen(
             TextButton(onClick = { pyImportLauncher.launch("*/*") }) {
                 Text("导入本地PY", color = gold, fontSize = 13.sp)
             }
-            var showImportMenu by remember { mutableStateOf(false) }
-            Box {
-                IconButton(onClick = { showImportMenu = true }) {
-                    Icon(Icons.Filled.Add, "导入书源", tint = gold)
-                }
-                DropdownMenu(
-                    expanded = showImportMenu,
-                    onDismissRequest = { showImportMenu = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("粘贴 JSON 导入") },
-                        onClick = {
-                            showImportMenu = false
-                            importText = ""
-                            showImport = true
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("书源 URL 导入") },
-                        onClick = {
-                            showImportMenu = false
-                            importUrl = ""
-                            showUrlImport = true
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("本地书源文件导入") },
-                        onClick = {
-                            showImportMenu = false
-                            jsonFileLauncher.launch("*/*")
-                        },
-                    )
-                }
+            // v0.82.0：导入入口直接摆出来，不再藏进 + 菜单
+            TextButton(onClick = { importText = ""; showImport = true }) {
+                Text("粘贴导入", color = gold, fontSize = 13.sp)
+            }
+            TextButton(onClick = { importUrl = ""; showUrlImport = true }) {
+                Text("URL导入", color = gold, fontSize = 13.sp)
+            }
+            TextButton(onClick = { jsonFileLauncher.launch("*/*") }) {
+                Text("文件导入", color = gold, fontSize = 13.sp)
             }
         }
         Spacer(Modifier.height(8.dp))
         }
         Text(
-            "右上角 + 粘贴阅读 App 导出的 bookSource.json 导入；「导入本地PY」选 .py 书源文件；开关控制搜索时是否使用该源",
+            "顶部「粘贴导入/URL导入/文件导入」可导入阅读 App 的 bookSource.json；「导入本地PY」选 .py 书源文件；开关控制搜索时是否使用该源",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -378,7 +352,7 @@ fun BookSourceScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "还没有书源，点右上角导入",
+                            "还没有书源，点顶部导入",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
