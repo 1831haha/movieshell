@@ -106,14 +106,24 @@ fun PosterCard(
             }
         }
         Column(modifier = Modifier.padding(8.dp)) {
-            Text(
-                text = title,
-                // v0.82.0：片名字体调小 + 显示不全跑马灯
-                style = SoftType.CardTitle.copy(fontSize = 13.sp),
-                modifier = Modifier.basicMarquee(),
-                maxLines = 1,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            // v0.90.0：片名底色改护眼绿胶囊 + 深色字保证对比度
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFE8F0E4))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = title,
+                    // v0.82.0：片名字体调小 + 显示不全跑马灯
+                    style = SoftType.CardTitle.copy(fontSize = 13.sp),
+                    modifier = Modifier.basicMarquee(),
+                    maxLines = 1,
+                    color = Color(0xFF2E3B2E),
+                )
+            }
             if (subtitle != null) {
                 Text(
                     text = subtitle,
