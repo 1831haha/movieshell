@@ -99,6 +99,8 @@ import androidx.compose.material.icons.filled.SwapHoriz
 fun ReaderScreen(
     novelId: String,
     onBack: () -> Unit = {},
+    // v0.96.1：净化规则快捷入口（设置面板里进管理页）
+    onOpenPurifyRules: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -135,6 +137,15 @@ fun ReaderScreen(
     // v0.89.0：书签
     var showBookmarks by remember { mutableStateOf(false) }
     var bookmarks by remember { mutableStateOf<List<Bookmark>>(emptyList()) }
+    // v0.96.1：净化规则生效数（设置面板入口展示；打开面板时刷新）
+    var purifyCount by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(showSettings) {
+        if (showSettings) {
+            purifyCount = runCatching {
+                PurifyRuleStore.list(context).count { it.enable }
+            }.getOrDefault(-1)
+        }
+    }
 
     // v0.61.0：设置变化即存档（v0.89.0：加 bgTheme/pageMode；nightMode 按 bgTheme 回填做兼容）
     LaunchedEffect(fontSize, bgTheme, serifFont, lineHeightRatio, brightness, volumePageTurn, pageMode) {
@@ -840,6 +851,21 @@ fun ReaderScreen(
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                        }
+                    }
+                    // v0.96.1：净化规则快捷入口（v0.95 底层已就绪，这里补界面入口）
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "净化规则" +
+                                if (purifyCount >= 0) "（$purifyCount 条生效）" else "",
+                            fontSize = 14.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = {
+                            showSettings = false
+                            onOpenPurifyRules()
+                        }) {
+                            Text("管理", color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }

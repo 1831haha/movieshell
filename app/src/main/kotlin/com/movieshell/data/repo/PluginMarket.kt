@@ -268,41 +268,87 @@ object PluginMarket {
         else -> base + icon.removePrefix("/")
     }
 
-    /** 一键安装（含更新：覆盖安装）。progress 为空则静默安装。 */
+    /**
+     * 一键安装（含更新：覆盖安装）。progress 为空则静默安装。
+     * v0.96.1：返回安装后校验告警（无则 null）；live 插件装完自动刷新直播聚合。
+     */
     suspend fun install(
         context: Context,
         plugin: MarketPlugin,
         progress: InstallProgress? = null,
-    ) = withContext(Dispatchers.IO) {
+    ): String? = withContext(Dispatchers.IO) {
         if (!plugin.isSupported()) throw IllegalStateException("插件类型 ${plugin.type} 侠影暂不支持")
         if (plugin.needsNewerApp()) throw IllegalStateException("该插件需要侠影 ${plugin.minApp} 及以上")
         LogBus.i(TAG, "开始安装：${plugin.id} v${plugin.version}")
+        // v0.96.1：记下旧版本号，供 live 备份命名
+        val oldVersion = PluginStore.installedOf(plugin.id)?.version
         val tmp = File.createTempFile("plugin_", ".tmp", context.cacheDir)
+        var warn: String? = null
         try {
             progress?.onStage(InstallStage.Downloading, 0, plugin.size)
             download(plugin.url, tmp, progress, plugin.size)
             progress?.onStage(InstallStage.Verifying, 0, 0)
             verifyMd5(tmp, plugin.md5, plugin.id)
             progress?.onStage(InstallStage.Installing, 0, 0)
-            if (plugin.type == "live") installLive(context, plugin, tmp)
-            else installZip(context, plugin, tmp)
+            if (plugin.type == "live") {
+                warn = installLive(context, plugin, tmp, oldVersion)
+                // v0.96.1：live 插件装完自动刷新聚合，不然还播内存里的旧频道
+                runCatching { LiveStore.refresh(context) }
+                    .onFailure { LogBus.w(TAG, "安装后刷新直播聚合失败：${it.message}") }
+            } else installZip(context, plugin, tmp)
             LogBus.i(TAG, "安装成功：${plugin.id} v${plugin.version}")
         } finally {
             tmp.delete()
         }
+        warn
     }
 
-    /** live：裸 JSON（非 zip），校验顶层 lives 数组后存 liveDir/<id>.json。 */
-    private fun installLive(context: Context, plugin: MarketPlugin, file: File) {
+    /**
+     * live：裸 JSON（非 zip），校验顶层 lives 数组后存 liveDir/<id>.json。
+     * v0.96.1：覆盖前备份旧文件（<id>.json.bak-<旧版本号>，只留最近 3 个）；
+     * 返回频道数校验告警（无则 null）。
+     */
+    private fun installLive(
+        context: Context,
+        plugin: MarketPlugin,
+        file: File,
+        oldVersion: String?,
+    ): String? {
         val o = runCatching { JSONObject(file.readText()) }
             .getOrElse { throw IllegalStateException("live 插件不是合法 JSON：${plugin.id}") }
-        if (o.optJSONArray("lives") == null) throw IllegalStateException("live 插件缺 lives 数组：${plugin.id}")
-        val dst = File(StoragePaths.liveDir(context), "${plugin.id}.json")
+        val lives = o.optJSONArray("lives")
+            ?: throw IllegalStateException("live 插件缺 lives 数组：${plugin.id}")
+        val newCount = lives.length()
+        val dir = StoragePaths.liveDir(context)
+        val dst = File(dir, "${plugin.id}.json")
+        var oldCount = -1
+        if (dst.exists()) {
+            oldCount = runCatching {
+                JSONObject(dst.readText()).optJSONArray("lives")?.length() ?: -1
+            }.getOrDefault(-1)
+            val stamp = oldVersion?.takeIf { it.isNotBlank() }
+                ?: System.currentTimeMillis().toString()
+            val bak = File(dir, "${plugin.id}.json.bak-$stamp")
+            runCatching { dst.copyTo(bak, overwrite = true) }
+                .onSuccess { LogBus.i(TAG, "live 旧文件已备份：${bak.name}") }
+                .onFailure { LogBus.w(TAG, "live 备份失败：${it.message}") }
+            // 只保留最近 3 个备份（注意备份名不以 .json 结尾，不会被直播聚合误读）
+            dir.listFiles { f -> f.isFile && f.name.startsWith("${plugin.id}.json.bak-") }
+                .orEmpty().sortedByDescending { it.lastModified() }
+                .drop(3).forEach { runCatching { it.delete() } }
+        }
         file.copyTo(dst, overwrite = true)
         PluginStore.recordInstalled(
             context,
             InstalledPlugin(plugin.id, plugin.name, plugin.version, "live", "", listOf(dst.name)),
         )
+        // 校验：新文件 0 频道，或比旧文件少一半以上 → 告警（toast 由调用方弹）
+        return when {
+            newCount == 0 -> "新版本频道数为 0，可去插件详情还原旧版"
+            oldCount > 0 && newCount * 2 < oldCount ->
+                "新版本频道数（$newCount）比旧版（$oldCount）少一半以上，可去插件详情还原旧版"
+            else -> null
+        }
     }
 
     /** zip 包：plugin.json 一致性校验 → 按 type 解压。 */
@@ -459,7 +505,34 @@ object PluginMarket {
         }
         PluginStore.removeInstalled(context, id)
         LogBus.i(TAG, "卸载成功：$id")
+        // v0.96.1：live 插件卸载后刷新聚合
+        if (rec.type == "live") {
+            runCatching { LiveStore.refresh(context) }
+                .onFailure { LogBus.w(TAG, "卸载后刷新直播聚合失败：${it.message}") }
+        }
     }
+
+    /**
+     * v0.96.1：live 插件还原旧版——把最新的备份拷回去并刷新聚合。
+     * 返回还原的备份文件名；无备份抛异常。
+     */
+    suspend fun restoreLiveBackup(context: Context, id: String): String =
+        withContext(Dispatchers.IO) {
+            val dir = StoragePaths.liveDir(context)
+            val bak = dir.listFiles { f -> f.isFile && f.name.startsWith("$id.json.bak-") }
+                .orEmpty().maxByOrNull { it.lastModified() }
+                ?: throw IllegalStateException("没有可还原的备份")
+            bak.copyTo(File(dir, "$id.json"), overwrite = true)
+            runCatching { LiveStore.refresh(context) }
+            LogBus.i(TAG, "live 已还原旧版：${bak.name}")
+            bak.name
+        }
+
+    /** v0.96.1：是否有 live 备份（供 UI 决定显不显示"还原旧版"）。 */
+    fun hasLiveBackup(context: Context, id: String): Boolean =
+        StoragePaths.liveDir(context)
+            .listFiles { f -> f.isFile && f.name.startsWith("$id.json.bak-") }
+            .orEmpty().isNotEmpty()
 
     /** 远程版本是否新于本地版本（语义版本比对；minApp 门槛复用）。 */
     fun isNewer(remote: String, local: String): Boolean {

@@ -515,6 +515,8 @@ class MainActivity : ComponentActivity() {
                             ReaderScreen(
                                 novelId = novelId,
                                 onBack = { navController.popBackStack() },
+                                // v0.96.1：阅读器设置面板里的净化规则入口
+                                onOpenPurifyRules = { navController.navigate("purify_rules") },
                             )
                         }
                         // v0.26.0：下载管理

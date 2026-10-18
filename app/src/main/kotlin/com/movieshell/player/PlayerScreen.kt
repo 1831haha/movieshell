@@ -111,6 +111,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -224,6 +225,17 @@ fun PlayerScreen(
     // v0.21.0：同地址已试过的内核（防 Media3↔libmpv 乒乓）
     val triedEngines = remember { mutableSetOf<PlayerEngine>() }
     var lastHeaders by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    // v0.96.1：横屏不断流——翻转前快照播放状态，方向变化后若停播则无缝恢复（双引擎通用）
+    var rotateWasPlaying by remember { mutableStateOf(false) }
+    var rotatePosMs by remember { mutableLongStateOf(0L) }
+    var lastSensorLandscape by remember { mutableStateOf<Boolean?>(null) }
+    var lastCfgOrientation by remember { mutableStateOf<Int?>(null) }
+
+    /** v0.96.1：横屏/竖屏切换前快照（供方向变化后恢复用）。 */
+    fun snapshotForRotation() {
+        rotateWasPlaying = EngineHost.isPlayingNow()
+        rotatePosMs = EngineHost.currentPosition()
+    }
     var showSleepDialog by remember { mutableStateOf(false) } // v0.21.0：定时关闭
     val sessionLines = remember { PlaySession.lines } // 进入前详情页已写入
     val snackbarHostState = remember { SnackbarHostState() }
@@ -305,11 +317,19 @@ fun PlayerScreen(
     }
     LaunchedEffect(sensorLandscape, gravityRotate, embedded) {
         if (embedded || !gravityRotate) return@LaunchedEffect
+        // v0.96.1：sensor 首次读数只记录不下发——进页时手机本来就横着属于"现状"而非"翻转"，
+        // 之前进页 0.5 秒就"切横屏"锁方向是一次误触发
+        val prev = lastSensorLandscape
+        lastSensorLandscape = sensorLandscape
+        if (prev == null || prev == sensorLandscape) return@LaunchedEffect
+        // v0.96.1：真翻转才锁方向，锁之前快照播放状态
+        snapshotForRotation()
         val activity = context as? Activity ?: return@LaunchedEffect
         activity.requestedOrientation = if (sensorLandscape) {
             LogBus.i("Player", "重力感应：切横屏")
             ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         } else {
+            LogBus.i("Player", "重力感应：切竖屏")
             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
     }
@@ -317,6 +337,8 @@ fun PlayerScreen(
     /** v0.27.7：手动横竖屏切换（控制条全屏按钮）。 */
     fun toggleOrientation() {
         val activity = context as? Activity ?: return
+        // v0.96.1：手动切换也先快照，保证不断流
+        snapshotForRotation()
         val landscape =
             context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         activity.requestedOrientation = if (landscape) {
@@ -340,6 +362,52 @@ fun PlayerScreen(
         return SubtitleKit.prepare(
             context, raw, lastHeaders, PlayerSettings.subtitleStyle.value.offsetMs
         )
+    }
+
+    /**
+     * v0.96.1：方向变化后若在播状态丢了→无缝恢复（双引擎通用）。
+     * 先轻量 resume（暂停态可直接恢复）；真停了（IDLE）则按原地址/原进度重播，
+     * 直播没有进度概念，startPositionMs≈0 即从直播边缘继续。
+     */
+    fun restoreAfterRotation() {
+        if (!rotateWasPlaying || EngineHost.isPlayingNow()) return
+        scope.launch {
+            EngineHost.resume()
+            delay(900)
+            if (EngineHost.isPlayingNow()) {
+                LogBus.i("Player", "横屏后 resume 恢复成功")
+                return@launch
+            }
+            // 真停了（IDLE）→ 按原地址/原进度无缝重播；磁力链路不走 EngineHost，只到 resume 为止
+            if (MagnetPlayer.isMagnet(playUrl)) {
+                LogBus.w("Player", "横屏后磁力链路未恢复，请手动点播")
+                return@launch
+            }
+            val sub = runCatching { currentSubtitleUrl() }.getOrNull()
+            val ok = EngineHost.play(
+                context, playUrl, headers = lastHeaders,
+                startPositionMs = rotatePosMs, subtitleUrl = sub,
+            )
+            if (ok) {
+                EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
+                LogBus.i("Player", "横屏后无缝重播成功")
+            } else {
+                LogBus.w("Player", "横屏后恢复播放失败")
+            }
+        }
+    }
+
+    // v0.96.1：系统方向变化后做一次"在播连续性"检查——翻转导致停播则无缝恢复；
+    // 首次组合只记录不动作。嵌入模式不参与（直播页顶部不跟重力感应）。
+    val cfgOrientation = LocalConfiguration.current.orientation
+    LaunchedEffect(cfgOrientation) {
+        if (embedded) return@LaunchedEffect
+        val prev = lastCfgOrientation
+        lastCfgOrientation = cfgOrientation
+        if (prev == null || prev == cfgOrientation) return@LaunchedEffect
+        LogBus.i("Player", "屏幕方向变化：$prev → $cfgOrientation")
+        delay(700)
+        restoreAfterRotation()
     }
 
     // 播放 / 切集：先保存上一集进度，再播新地址（带断点续播）

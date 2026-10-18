@@ -39,6 +39,8 @@ import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginStore
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
@@ -190,6 +192,33 @@ fun PluginDetailScreen(pluginId: String, onBack: () -> Unit = {}) {
                 },
             )
             Spacer(Modifier.height(8.dp))
+            // v0.96.1：live 插件有备份时给"还原旧版"入口（一键拷回旧文件并刷新聚合）
+            val hasBackup = remember(installedTick, installedVersion) {
+                plugin.type == "live" && installedVersion != null &&
+                    PluginMarket.hasLiveBackup(context, plugin.id)
+            }
+            if (hasBackup) {
+                AppButton(
+                    text = "还原旧版",
+                    onClick = {
+                        busy = true
+                        SubSiteStore.appScope.launch {
+                            val msg = runCatching {
+                                PluginMarket.restoreLiveBackup(context, plugin.id)
+                            }.fold(
+                                onSuccess = { "已还原旧版：$it" },
+                                onFailure = { "还原失败：${it.message}" },
+                            )
+                            PluginUi.toast(context.applicationContext, msg)
+                            installedTick++
+                            busy = false
+                        }
+                    },
+                    enabled = !busy,
+                    variant = AppButtonVariant.Secondary,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
             val typeNote = when (plugin.type) {
                 "server" -> "server 插件 App 只负责下载校验与版本管理，Node.js 服务需自行运行"
                 "env" -> "env 环境插件：依赖包解压到私有目录，PY 规则 import 即用；卸载后需重启 App 生效"

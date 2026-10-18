@@ -42,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -56,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.novel.BookSource
 import com.movieshell.data.novel.BookSourceManager
+import com.movieshell.data.novel.PurifyRuleStore
 import com.movieshell.data.novel.PyBookApi
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.ui.components.TechDialog
@@ -98,6 +100,13 @@ fun BookSourceScreen(
     var deletePyTarget by remember { mutableStateOf<PyBookSourceManager.PyBookRule?>(null) }
     // v0.67.0：PY 源连通性测试
     var testingPy by remember { mutableStateOf<String?>(null) }
+    // v0.96.1：净化规则生效数（按钮上展示）
+    var purifyCount by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(Unit) {
+        purifyCount = runCatching {
+            PurifyRuleStore.list(context).count { it.enable }
+        }.getOrDefault(-1)
+    }
     var testResult by remember { mutableStateOf<String?>(null) }
     // v0.76.0：导进来的是影视 spider——弹窗提示，可一键转去影视源导入
     var videoSpiderUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -234,14 +243,17 @@ fun BookSourceScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(8.dp))
-        // v0.95.0：净化规则入口（正文替换规则管理）
+        // v0.95.0：净化规则入口（正文替换规则管理）；v0.96.1：按钮上显示生效数
         FilledTonalButton(
             onClick = onOpenPurifyRules,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(Icons.Filled.AutoFixHigh, "净化规则", modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
-            Text("净化规则（正文去广告/版式整理）")
+            Text(
+                "净化规则（正文去广告/版式整理）" +
+                    if (purifyCount >= 0) " · $purifyCount 条生效" else ""
+            )
         }
         Spacer(Modifier.height(12.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {

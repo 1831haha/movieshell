@@ -274,7 +274,8 @@ fun LiveScreen(
                         kind = EmptyKind.Empty,
                         icon = Icons.Filled.Tv,
                         title = "还没有直播频道",
-                        hint = "点右上角设置添加 M3U 订阅，或从插件市场安装 live 插件",
+                        // v0.96.1：插件更新/重装瞬间聚合会短暂为 0，给明确指引而不是干等
+                        hint = "插件更新或重装时请稍候，点右上角刷新重试；\n或点设置添加 M3U 订阅、去插件市场安装 live 插件",
                     )
                 }
                 return@Column

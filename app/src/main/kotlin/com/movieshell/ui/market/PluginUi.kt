@@ -41,7 +41,8 @@ object PluginUi {
     ): Pair<Boolean, String> {
         onState(InstallProgressUi(p.name, "准备下载…", 0, p.size, true))
         return try {
-            PluginMarket.install(context, p) { stage, done, total ->
+            // v0.96.1：安装返回校验告警（如频道数骤降），拼进 toast 提醒用户
+            val warn = PluginMarket.install(context, p) { stage, done, total ->
                 onState(
                     InstallProgressUi(
                         pluginName = p.name,
@@ -56,7 +57,7 @@ object PluginUi {
                     )
                 )
             }
-            true to "已安装 ${p.name} v${p.version}"
+            true to ("已安装 ${p.name} v${p.version}" + (warn?.let { "\n$it" } ?: ""))
         } catch (e: Exception) {
             LogBus.e("PluginMarket", "安装失败：${e.message}（${p.id}）")
             false to "安装失败：${e.message}"

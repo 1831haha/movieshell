@@ -61,6 +61,7 @@ import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -92,6 +93,15 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
         )
     }
     var loading by remember { mutableStateOf(info == null) }
+    // v0.96.1：加载超过 8 秒还没回来→提示"正在走镜像"，免得用户以为卡死（之前三张骨架屏干转被当成加载不出来）
+    var loadingSlow by remember { mutableStateOf(false) }
+    LaunchedEffect(loading) {
+        loadingSlow = false
+        if (loading) {
+            delay(8000)
+            loadingSlow = true
+        }
+    }
     var error by remember { mutableStateOf<String?>(null) }
     var installedTick by remember { mutableStateOf(0) }
     var busyId by remember { mutableStateOf<String?>(null) }
@@ -204,6 +214,13 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
             when {
                 loading -> {
                     Column(verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing)) {
+                        // v0.96.1：加载态给明确文案，骨架屏不再"无声干转"
+                        Text(
+                            text = if (loadingSlow) "网络较慢，正在尝试镜像线路，请稍候…"
+                            else "正在加载插件市场…",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         repeat(3) {
                             LoadingSkeleton(
                                 modifier = Modifier
