@@ -474,6 +474,8 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onFindBookClick = { navController.navigate("novel_search") },
                                 onManageSourcesClick = { navController.navigate("book_source") },
+                                // v0.98.0：书籍详情里的净化规则快捷入口
+                                onOpenPurifyRules = { navController.navigate("purify_rules") },
                             )
                         }
                         composable(

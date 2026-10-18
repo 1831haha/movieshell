@@ -75,6 +75,7 @@ import com.movieshell.data.repo.BookmarkStore
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.ReaderSettings
 import com.movieshell.data.repo.ReadingProgressStore
+import com.movieshell.data.repo.ReadingStatsStore
 import com.movieshell.ui.components.TechDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -111,6 +112,10 @@ fun ReaderScreen(
     var showChangeSource by remember { mutableStateOf(false) }
     var sourceVersion by remember { mutableIntStateOf(0) }
     var chapterIndex by remember { mutableIntStateOf(0) }
+    // v0.98.0：阅读统计——会话开始时间 + 看过的章节集合（退出时记时长/章节数）
+    val sessionStartMs = remember(novelId) { System.currentTimeMillis() }
+    val chaptersSeen = remember(novelId) { mutableSetOf<Int>() }
+    LaunchedEffect(chapterIndex) { chaptersSeen.add(chapterIndex) }
     var loaded by remember { mutableStateOf(false) }
     // v0.61.0：设置持久化，打开即读档
     val savedSettings = remember { ReaderSettings.load(context) }
@@ -356,12 +361,17 @@ fun ReaderScreen(
     DisposableEffect(novelId) {
         onDispose {
             val len = latestLen
+            // v0.98.0：阅读统计（时长按天切分，章节记去重后的看过数）
+            val statStart = sessionStartMs
+            val statChapters = chaptersSeen.size
+            val statEnd = System.currentTimeMillis()
             scope.launch {
                 ReadingProgressStore.save(
                     context,
                     ReadingProgress(novelId, latestIndex, latestOffset.coerceIn(0, len)),
                 )
                 NovelStore.updateProgress(context, novelId, latestIndex)
+                ReadingStatsStore.recordSession(context, statStart, statEnd, statChapters)
             }
         }
     }
