@@ -35,7 +35,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,14 +53,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import android.content.Context
-import com.movieshell.data.model.Site
-import com.movieshell.data.model.Vod as ModelVod
-import com.movieshell.data.model.isSubSite
-import com.movieshell.data.repo.ApiSourceStore
-import com.movieshell.data.repo.DetailSiteHolder
-import com.movieshell.data.repo.SourceStateStore
-import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SearchHistoryStore
@@ -78,99 +69,7 @@ import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
 
-/** drpy 影片 -> 界面 Vod */
-private fun ModelVod.toUiVod() = Vod(
-    id = vodId,
-    title = vodName,
-    category = typeName,
-    year = vodYear,
-    rating = vodRemarks,
-    area = "",
-    actors = "",
-    desc = vodContent,
-    episodes = 0,
-    poster = vodPic,
-)
-
-/**
- * 为聚合搜索拼 TVBox 订阅 JSON：
- * - 接口站源：ApiSourceStore 里启用的条目。先判断——能解析出 sites 数组的就是
- *   完整 TVBox 配置（SubSiteStore.ensureExpanded 下载展开），逐站搜
- *   （csp_ 等不支持的站在展开时已剔除）；无 sites 的纯 CMS 地址保持旧逻辑 type=1；
- * - 本地 drpy / PY 规则：有激活规则时各补一条合成站点（走引擎适配器）。
- * 网页源是 URL 直达形态、无搜索接口，不参与聚合搜索。
- */
-private suspend fun buildSearchConfigJson(context: Context): String {
-    val arr = JSONArray()
-    ApiSourceStore.load(context)
-        .filter { it.enabled }
-        .forEach { s ->
-            val cache = SubSiteStore.ensureExpanded(context, s.url)
-            if (cache != null) {
-                // 完整 TVBox 配置：逐站（不支持的 kind 在展开时已标 unsupported，这里跳过）
-                cache.sites
-                    .filter { it.enabled && it.kind != SubSiteStore.KIND_UNSUPPORTED }
-                    .forEach { rec ->
-                        val site = SubSiteStore.toSite(cache.subUrl, rec)
-                        arr.put(
-                            JSONObject().apply {
-                                put("key", site.key)
-                                put("name", site.name)
-                                put("type", site.type)
-                                put("api", site.api)
-                                put("searchable", if (rec.searchable) 1 else 0)
-                                put("类型", site.typeLabel)
-                                put("subUrl", cache.subUrl)
-                            }
-                        )
-                    }
-            } else {
-                // 纯 CMS 地址（无 sites）：保持旧逻辑
-                arr.put(
-                    JSONObject().apply {
-                        put("key", "cms:${s.url}")
-                        put("name", s.name)
-                        put("type", 1)
-                        put("api", s.url)
-                        put("subUrl", s.url)
-                    }
-                )
-            }
-        }
-    // v0.24.0：被禁用的规则不参与聚合搜索（单点：SourceStateStore）
-    if (SourceStateStore.activeDrpyRule() != null) {
-        arr.put(
-            JSONObject().apply {
-                put("key", "drpy:active")
-                put("name", "drpy:${DrpySourceManager.activeRuleName().orEmpty()}")
-                put("type", 4)
-                put("api", "drpy")
-            }
-        )
-    }
-    if (SourceStateStore.activePyRule() != null) {
-        arr.put(
-            JSONObject().apply {
-                put("key", "py:active")
-                put("name", "py:${PySourceManager.activeRuleName().orEmpty()}")
-                put("type", 3)
-                put("api", "active.py")
-            }
-        )
-    }
-    return JSONObject().put("sites", arr).toString()
-}
-
-/**
- * v0.87.0：跨页面搜索词中转（对标 DetailSiteHolder 的做法）。
- * 详情页点演员名时先把名字写进来，再切到搜索 tab；搜索页 resume 时消费掉。
- */
-object SearchQueryHolder {
-    var query: String = ""
-}
 
 @Composable
 fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
@@ -196,20 +95,11 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
         history.clear()
         history.addAll(SearchHistoryStore.list(context))
     }
-    // v0.87.0：详情页点演员名带过来的待搜词（observer 里拾取，doSearch 定义后消费）
-    var pendingQuery by remember { mutableStateOf<String?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         refreshHistory()
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                refreshHistory()
-                val pending = SearchQueryHolder.query
-                if (pending.isNotBlank()) {
-                    SearchQueryHolder.query = ""
-                    pendingQuery = pending
-                }
-            }
+            if (event == Lifecycle.Event.ON_RESUME) refreshHistory()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -229,28 +119,6 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
             groupedResults = repo.searchAll(t)
             searching = false
         }
-    }
-
-    // v0.87.0：消费详情页演员名跳转（doSearch 定义之后才能调）
-    pendingQuery?.let { p ->
-        LaunchedEffect(p) {
-            pendingQuery = null
-            query = p
-            doSearch(p)
-        }
-    }
-
-    /**
-     * 进详情：订阅子站点 / CMS 订阅站把站点上下文带给详情页（详情/播放按站走引擎）；
-     * 本地规则合成站（drpy:active / py:active）传 null，详情页走当前激活规则旧逻辑。
-     */
-    fun goDetail(site: Site, vodId: String) {
-        DetailSiteHolder.site = when {
-            site.isSubSite() -> site
-            site.key.startsWith("cms:") -> site
-            else -> null
-        }
-        onVodClick(vodId)
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -491,7 +359,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                         val uiVods = group.vods.map { it.toUiVod() }
                         items(uiVods, key = { "vod:${group.site.key}:${it.id}" }) { vod ->
                             AppCard(
-                                onClick = { goDetail(group.site, vod.id) },
+                                onClick = { goDetail(group.site, vod.id, onVodClick) },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(
@@ -546,7 +414,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                     }
-                                    IconButton(onClick = { goDetail(group.site, vod.id) }) {
+                                    IconButton(onClick = { goDetail(group.site, vod.id, onVodClick) }) {
                                         Icon(
                                             imageVector = Icons.Filled.PlayArrow,
                                             contentDescription = "播放",
