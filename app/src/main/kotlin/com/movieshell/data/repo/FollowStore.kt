@@ -31,6 +31,10 @@ data class FollowItem(
     /** 有未读更新（列表角标 NEW） */
     val hasNew: Boolean = false,
     val updatedAt: Long = 0L,
+    /** v0.87.0：已完结——连续多日集数不变自动标记，不再参与更新检测 */
+    val finished: Boolean = false,
+    /** v0.87.0：上次集数变化时间（0=老数据，按当前时间起算） */
+    val lastEpisodeChangeAt: Long = 0L,
 )
 
 /**
@@ -74,7 +78,11 @@ object FollowStore {
     suspend fun follow(context: Context, item: FollowItem): Boolean =
         withContext(Dispatchers.IO) {
             runCatching {
-                val fresh = item.copy(updatedAt = System.currentTimeMillis())
+                // v0.87.0：新追时集数变化计时从当前起算
+                val fresh = item.copy(
+                    updatedAt = System.currentTimeMillis(),
+                    lastEpisodeChangeAt = System.currentTimeMillis(),
+                )
                 val rest = readAll(context).filterNot { it.id == fresh.id }
                 writeAll(context, (listOf(fresh) + rest).sortedByDescending { it.updatedAt })
                 refreshFlow(context)
@@ -117,13 +125,31 @@ object FollowStore {
                     readAll(context).map {
                         if (it.id == id && newCount > it.episodeCount) {
                             added = true
-                            it.copy(episodeCount = newCount, hasNew = true, updatedAt = System.currentTimeMillis())
+                            it.copy(
+                                episodeCount = newCount,
+                                hasNew = true,
+                                updatedAt = System.currentTimeMillis(),
+                                // v0.87.0：有更新则完结计时清零
+                                lastEpisodeChangeAt = System.currentTimeMillis(),
+                            )
                         } else it
                     },
                 )
                 if (added) refreshFlow(context)
                 added
             }.onFailure { Log.w(TAG, "markNew 失败", it) }.getOrDefault(false)
+        }
+
+    /** v0.87.0：集数长期不变，标为已完结，不再参与更新检测。 */
+    suspend fun markFinished(context: Context, id: String) =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                writeAll(
+                    context,
+                    readAll(context).map { if (it.id == id) it.copy(finished = true) else it },
+                )
+                refreshFlow(context)
+            }.onFailure { Log.w(TAG, "markFinished 失败", it) }
         }
 
     /** 看过更新后清 NEW 角标。 */

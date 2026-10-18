@@ -117,6 +117,7 @@ import com.movieshell.ui.market.PluginDetailScreen
 import com.movieshell.ui.market.PluginMarketScreen
 import com.movieshell.ui.market.PyDepGuideOverlay
 import com.movieshell.ui.preview.FilePreviewScreen
+import com.movieshell.ui.search.SearchQueryHolder
 import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.ParseSettingsScreen
 import com.movieshell.ui.settings.SettingsScreen
@@ -619,6 +620,11 @@ class MainActivity : ComponentActivity() {
                                 initialTitle = detailTitle,
                                 initialEpisode = detailEpisode,
                                 onBack = { navController.popBackStack() },
+                                // v0.87.0：点演员名→搜索页按该演员搜（经 SearchQueryHolder 中转）
+                                onActorClick = { actorName ->
+                                    SearchQueryHolder.query = actorName
+                                    navController.navigateTab("search")
+                                },
                                 onPlay = { playUrl, title ->
                                     // DetailScreen 已做完播放决策（磁力/直链解析）：
                                     // playUrl 为空 -> 播放页显示"暂无可播放地址"

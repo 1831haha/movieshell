@@ -2,6 +2,7 @@ package com.movieshell.ui.search
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Box
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +50,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -160,6 +164,14 @@ private suspend fun buildSearchConfigJson(context: Context): String {
     return JSONObject().put("sites", arr).toString()
 }
 
+/**
+ * v0.87.0：跨页面搜索词中转（对标 DetailSiteHolder 的做法）。
+ * 详情页点演员名时先把名字写进来，再切到搜索 tab；搜索页 resume 时消费掉。
+ */
+object SearchQueryHolder {
+    var query: String = ""
+}
+
 @Composable
 fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
     val context = LocalContext.current
@@ -184,11 +196,20 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
         history.clear()
         history.addAll(SearchHistoryStore.list(context))
     }
+    // v0.87.0：详情页点演员名带过来的待搜词（observer 里拾取，doSearch 定义后消费）
+    var pendingQuery by remember { mutableStateOf<String?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         refreshHistory()
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) refreshHistory()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshHistory()
+                val pending = SearchQueryHolder.query
+                if (pending.isNotBlank()) {
+                    SearchQueryHolder.query = ""
+                    pendingQuery = pending
+                }
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -207,6 +228,15 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
             repo.loadFromConfig(buildSearchConfigJson(context))
             groupedResults = repo.searchAll(t)
             searching = false
+        }
+    }
+
+    // v0.87.0：消费详情页演员名跳转（doSearch 定义之后才能调）
+    pendingQuery?.let { p ->
+        LaunchedEffect(p) {
+            pendingQuery = null
+            query = p
+            doSearch(p)
         }
     }
 
@@ -249,6 +279,58 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
             if (query.isNotEmpty()) {
                 IconButton(onClick = { query = "" }) {
                     Icon(Icons.Filled.Clear, contentDescription = "清空")
+                }
+            }
+        }
+
+        // v0.87.0：搜索联想——输入时下拉匹配历史搜索词（忽略大小写，最多 8 条）
+        val trimmedQuery = query.trim()
+        val suggestions = remember(trimmedQuery, history) {
+            if (trimmedQuery.isEmpty()) emptyList()
+            else history.filter {
+                it.contains(trimmedQuery, ignoreCase = true) &&
+                    !it.equals(trimmedQuery, ignoreCase = true)
+            }.take(8)
+        }
+        if (suggestions.isNotEmpty() && trimmedQuery != submitted) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = SoftDimens.PagePadding),
+                shape = RoundedCornerShape(SoftDimens.CardCorner),
+            ) {
+                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                    suggestions.forEach { s ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { doSearch(s) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = s,
+                                style = SoftType.Body,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            SearchHistoryStore.clear(context)
+                            refreshHistory()
+                        },
+                        modifier = Modifier.align(Alignment.End),
+                    ) { Text("清空历史", fontSize = 12.sp) }
                 }
             }
         }

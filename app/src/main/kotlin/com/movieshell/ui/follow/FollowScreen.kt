@@ -161,7 +161,8 @@ private fun FollowCard(
         PosterCard(
             title = item.name,
             subtitle = subtitle,
-            badge = if (item.hasNew) "NEW" else null,
+            // v0.87.0：已完结也打角标（NEW 优先）
+            badge = if (item.hasNew) "NEW" else if (item.finished) "已完结" else null,
             posterUrl = item.pic,
             modifier = Modifier.aspectRatio(0.55f),
         )

@@ -53,6 +53,7 @@ import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
@@ -139,6 +140,8 @@ fun DetailScreen(
     initialEpisode: Int = -1,
     onBack: () -> Unit,
     onPlay: (playUrl: String, title: String) -> Unit = { _, _ -> },
+    // v0.87.0：点演员名搜其作品
+    onActorClick: (actorName: String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -677,15 +680,34 @@ fun DetailScreen(
                                     }
                                 }
                                 // v0.84.0：源 pill 已上移到缩略图右边，这里删除
-                                // 第三行：主演 + 简介（可展开）；v0.84.0：收窄
+                                // 第三行：主演（v0.87.0：演员名可点，跳搜索找其作品）+ 简介（可展开）；v0.84.0：收窄
                                 if (vod.actors.isNotBlank()) {
                                     Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        text = "主演：${vod.actors}",
-                                        style = SoftType.Body,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    val actorNames = vod.actors.split("、", "/", "，", ",", " ")
+                                        .map { it.trim() }
+                                        .filter { it.isNotEmpty() }
+                                    val actorText = buildAnnotatedString {
+                                        append("主演：")
+                                        actorNames.forEachIndexed { i, name ->
+                                            if (i > 0) append("、")
+                                            pushStringAnnotation(tag = "actor", annotation = name)
+                                            withStyle(
+                                                SpanStyle(color = MaterialTheme.colorScheme.primary),
+                                            ) { append(name) }
+                                            pop()
+                                        }
+                                    }
+                                    ClickableText(
+                                        text = actorText,
+                                        style = SoftType.Body.copy(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        ),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
+                                        onClick = { offset ->
+                                            actorText.getStringAnnotations("actor", offset, offset)
+                                                .firstOrNull()?.let { onActorClick(it.item) }
+                                        },
                                     )
                                 }
                                 Spacer(Modifier.height(6.dp))

@@ -45,6 +45,8 @@ class FollowCheckWorker(
         Log.i(TAG, "追剧更新检测开始，共 ${items.size} 部")
         for (item in items) {
             if (isStopped) break
+            // v0.87.0：已完结的不再检查
+            if (item.finished) continue
             runCatching {
                 val count = withContext(Dispatchers.IO) { episodeCount(ctx, item) }
                 if (count != null && count > item.episodeCount) {
@@ -58,6 +60,14 @@ class FollowCheckWorker(
                             subKeyOf(item),
                         )
                         Log.i(TAG, "《${item.name}》${item.episodeCount}→$count 集")
+                    }
+                } else {
+                    // v0.87.0：集数连续 7 天不变，视为已完结（老数据无计时起点，从本次起算）
+                    val base = item.lastEpisodeChangeAt.takeIf { it > 0 }
+                        ?: System.currentTimeMillis()
+                    if (System.currentTimeMillis() - base > FINISH_AFTER_MS) {
+                        FollowStore.markFinished(ctx, item.id)
+                        Log.i(TAG, "《${item.name}》7 天无更新，标为已完结")
                     }
                 }
             }.onFailure { Log.w(TAG, "检测失败：${item.name}", it) }
@@ -111,6 +121,8 @@ class FollowCheckWorker(
     companion object {
         private const val TAG = "FollowCheck"
         private const val NAME = "follow-check"
+        /** v0.87.0：集数连续 7 天不变视为已完结 */
+        private const val FINISH_AFTER_MS = 7L * 24 * 60 * 60 * 1000
 
         /** App 启动时调用：开→排期，关→取消。 */
         fun reschedule(context: Context) {
