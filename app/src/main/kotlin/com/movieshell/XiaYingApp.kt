@@ -1,6 +1,7 @@
 package com.movieshell
 
 import android.app.Application
+import com.movieshell.data.novel.NovelUpdateWorker
 import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
 
@@ -14,5 +15,7 @@ class XiaYingApp : Application() {
         super.onCreate()
         CrashHandler.install(this)
         LogBus.readLastCrash(this)
+        // v0.85.0：小说自动追更（每天一次，KEEP 防重复入队）
+        NovelUpdateWorker.schedule(this)
     }
 }

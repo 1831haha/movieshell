@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 140
-        versionName = "0.84.0"
+        versionCode = 141
+        versionName = "0.85.0"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -139,6 +139,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
+    // v0.85.0：音乐后台播放——MediaSessionService + MediaController 门面
+    implementation("androidx.media3:media3-session:1.4.1")
 
     // v0.20.0：第二引擎 libmpv（Maven Central 预编译 AAR，内嵌 mpv v0.40.0，
     // minSdk 26 与本项目一致；0.5.1 是最后一个支持 compileSdk<=35 的版本）

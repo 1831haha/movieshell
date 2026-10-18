@@ -1,5 +1,7 @@
 package com.movieshell.ui.music
 
+import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,7 +29,9 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -57,6 +62,7 @@ import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicStore
 import com.movieshell.player.MusicPlayer
+import com.movieshell.player.SleepTimer
 import com.movieshell.ui.components.TabTopBar
 import kotlinx.coroutines.launch
 
@@ -75,6 +81,10 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
     var isFav by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var dragPos by remember { mutableStateOf(0L) }
+    // v0.85.0：睡眠定时
+    var showSleepDialog by remember { mutableStateOf(false) }
+    val sleepRemaining by SleepTimer.remainingMs.collectAsState()
+    val sleepArmed by SleepTimer.afterEpisodeArmed.collectAsState()
 
     LaunchedEffect(track?.id) {
         val t = track ?: return@LaunchedEffect
@@ -109,6 +119,26 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
             TabTopBar(
                 title = "正在播放",
                 onBack = onBack,
+                actions = {
+                    // v0.85.0：定时中显示剩余时间小胶囊
+                    if (sleepRemaining > 0 || sleepArmed) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                text = if (sleepRemaining > 0) fmtMs(sleepRemaining) else "播完停",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    IconButton(onClick = { showSleepDialog = true }) {
+                        Icon(Icons.Filled.Timer, contentDescription = "定时关闭")
+                    }
+                },
             )
         },
     ) { inner ->
@@ -295,6 +325,67 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
             Spacer(Modifier.height(16.dp))
         }
     }
+
+    // v0.85.0：睡眠定时菜单
+    if (showSleepDialog) {
+        MusicSleepTimerDialog(
+            onDismiss = { showSleepDialog = false },
+            onPickMinutes = { m ->
+                showSleepDialog = false
+                SleepTimer.startMinutes(m) {
+                    MusicPlayer.fadeOutAndPause()
+                    Toast.makeText(context, "定时关闭：音乐已暂停", Toast.LENGTH_SHORT).show()
+                }
+                Toast.makeText(context, "将在 $m 分钟后停止播放", Toast.LENGTH_SHORT).show()
+            },
+            onPickAfterTrack = {
+                showSleepDialog = false
+                SleepTimer.armAfterEpisode()
+                Toast.makeText(context, "本首播完后将停止播放", Toast.LENGTH_SHORT).show()
+            },
+            onCancelTimer = {
+                showSleepDialog = false
+                SleepTimer.cancel()
+                Toast.makeText(context, "定时关闭已取消", Toast.LENGTH_SHORT).show()
+            },
+        )
+    }
+}
+
+/** v0.85.0：音乐睡眠定时——15/30/60/90 分钟、播完本首停止、取消。 */
+@Composable
+private fun MusicSleepTimerDialog(
+    onDismiss: () -> Unit,
+    onPickMinutes: (Int) -> Unit,
+    onPickAfterTrack: () -> Unit,
+    onCancelTimer: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("定时关闭") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                listOf(15, 30, 60, 90).forEach { m ->
+                    TextButton(
+                        onClick = { onPickMinutes(m) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("$m 分钟后停止") }
+                }
+                TextButton(
+                    onClick = onPickAfterTrack,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("播完本首停止") }
+                TextButton(
+                    onClick = onCancelTimer,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("关闭定时", color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
 
 private fun fmtMs(ms: Long): String {

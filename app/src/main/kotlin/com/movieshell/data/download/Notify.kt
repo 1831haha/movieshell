@@ -28,6 +28,8 @@ object Notify {
 
     const val CH_FOLLOW = "follow_update"
     const val CH_DOWNLOAD = "download"
+    // v0.85.0：小说自动追更
+    const val CH_NOVEL = "novel_update"
 
     const val EXTRA_ROUTE = "xiaying.route"
     const val EXTRA_SUBKEY = "xiaying.subkey"
@@ -43,6 +45,11 @@ object Notify {
         if (nm.getNotificationChannel(CH_DOWNLOAD) == null) {
             nm.createNotificationChannel(
                 NotificationChannel(CH_DOWNLOAD, "下载", NotificationManager.IMPORTANCE_LOW),
+            )
+        }
+        if (nm.getNotificationChannel(CH_NOVEL) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(CH_NOVEL, "小说追更", NotificationManager.IMPORTANCE_DEFAULT),
             )
         }
     }
@@ -100,6 +107,21 @@ object Notify {
             .setAutoCancel(true)
             .build()
         runCatching { nm.notify(title.hashCode(), n) }
+    }
+
+    /** v0.85.0：小说自动追更通知（点通知进书架）。 */
+    fun novelUpdate(context: Context, bookCount: Int, chapterCount: Int) {
+        ensureChannels(context)
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val pi = routeIntent(context, "bookshelf", id = 9002)
+        val n = NotificationCompat.Builder(context, CH_NOVEL)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("小说追更")
+            .setContentText("$bookCount 本书共新增 $chapterCount 章")
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .build()
+        runCatching { nm.notify(9002, n) }
     }
 
     /** 进入追剧/下载页时调用一次：API 33+ 申请通知权限。 */
