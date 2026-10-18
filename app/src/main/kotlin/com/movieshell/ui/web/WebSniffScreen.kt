@@ -408,14 +408,15 @@ fun WebSniffScreen(
     }
 
     handleDiscoveredUrl = { view, referer, url ->
-        if (url.isBlank() || hitDone.get()) return@handleDiscoveredUrl
-        rememberSeen(url)
-        when (SniffEngine.sniffKind(url)) {
-            SniffKind.DIRECT -> onHit(view, referer, url)
-            SniffKind.RTMP -> onRtmp(view, url)
-            null -> when {
-                url.startsWith("blob:", ignoreCase = true) -> deepDigBlob(view)
-                SniffEngine.isSuspiciousMediaUrl(url) -> probeAsync(view, referer, url)
+        if (url.isNotBlank() && !hitDone.get()) {
+            rememberSeen(url)
+            when (SniffEngine.sniffKind(url)) {
+                SniffKind.DIRECT -> onHit(view, referer, url)
+                SniffKind.RTMP -> onRtmp(view, url)
+                null -> when {
+                    url.startsWith("blob:", ignoreCase = true) -> deepDigBlob(view)
+                    SniffEngine.isSuspiciousMediaUrl(url) -> probeAsync(view, referer, url)
+                }
             }
         }
     }
