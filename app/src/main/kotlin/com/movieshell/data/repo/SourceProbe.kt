@@ -4,6 +4,10 @@ import android.content.Context
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.PyApi
 import com.movieshell.data.source.QuickJsDrpyEngine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import java.io.File
@@ -97,6 +101,63 @@ object SourceProbe {
             LogBus.e("Probe", "探活失败：$reason")
             Result.Fail(reason)
         }
+    }
+
+    /** v0.90.0：检测任务——UI 与 Worker 共用同一套目标构建，不复制两份 */
+    data class ProbeTask(
+        val kind: String,
+        val name: String,
+        val label: String,
+        val probe: () -> Result,
+    )
+
+    /**
+     * v0.90.0：构建检测目标（与站源页"开始检测"同口径）：
+     * 已启用的 JS/PY 规则、网页源、订阅接口站；PHP 本地规则无解释器记不支持。
+     * 纯读盘/读 Store，不碰 UI 状态，Worker 内可直接调用。
+     */
+    fun buildTasks(context: Context): List<ProbeTask> {
+        val tasks = mutableListOf<ProbeTask>()
+        DrpySourceManager.listRules().forEach { r ->
+            if (SourceStateStore.isRuleEnabled("js", r.name)) {
+                val f = File(StoragePaths.jsDir(context), r.name)
+                tasks += ProbeTask("js", r.name, r.name) { probeJs(context, f) }
+            }
+        }
+        PySourceManager.listRules().forEach { r ->
+            if (SourceStateStore.isRuleEnabled("py", r.name)) {
+                val f = File(StoragePaths.pyDir(context), r.name)
+                tasks += ProbeTask("py", r.name, r.name) { probePy(context, f) }
+            }
+        }
+        StoragePaths.phpDir(context).listFiles { f -> f.isFile }.orEmpty()
+            .sortedBy { it.name }
+            .forEach { f -> tasks += ProbeTask("php", f.name, f.name) { Result.Unsupported } }
+        WebSourceManager.listSites().forEach { s ->
+            if (SourceStateStore.isRuleEnabled("web", s.fileName)) {
+                tasks += ProbeTask("web", s.fileName, s.fileName) { probeHttp(s.url) }
+            }
+        }
+        ApiSourceStore.load(context).filter { it.enabled }.forEach { e ->
+            tasks += ProbeTask("sub", e.url, e.name) { probeHttp(e.url) }
+        }
+        return tasks
+    }
+
+    /**
+     * v0.90.0：批量跑完，每个完成回调一次。
+     * 并发由 guarded 内 Semaphore(6) 限流，这里只做 IO 扇出。
+     */
+    suspend fun probeAll(
+        tasks: List<ProbeTask>,
+        onResult: suspend (ProbeTask, Result) -> Unit,
+    ) = coroutineScope {
+        tasks.map { task ->
+            async(Dispatchers.IO) {
+                val res = task.probe()
+                onResult(task, res)
+            }
+        }.awaitAll()
     }
 
     private const val UA =

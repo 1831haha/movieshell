@@ -30,6 +30,8 @@ object Notify {
     const val CH_DOWNLOAD = "download"
     // v0.85.0：小说自动追更
     const val CH_NOVEL = "novel_update"
+    // v0.90.0：站源批量检测
+    const val CH_PROBE = "source_probe"
 
     const val EXTRA_ROUTE = "xiaying.route"
     const val EXTRA_SUBKEY = "xiaying.subkey"
@@ -50,6 +52,11 @@ object Notify {
         if (nm.getNotificationChannel(CH_NOVEL) == null) {
             nm.createNotificationChannel(
                 NotificationChannel(CH_NOVEL, "小说追更", NotificationManager.IMPORTANCE_DEFAULT),
+            )
+        }
+        if (nm.getNotificationChannel(CH_PROBE) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(CH_PROBE, "源检测", NotificationManager.IMPORTANCE_DEFAULT),
             )
         }
     }
@@ -122,6 +129,21 @@ object Notify {
             .setAutoCancel(true)
             .build()
         runCatching { nm.notify(9002, n) }
+    }
+
+    /** v0.90.0：批量检测完成通知（点通知回站源页检测 tab）。 */
+    fun probeDone(context: Context, total: Int, ok: Int, slow: Int, fail: Int) {
+        ensureChannels(context)
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val pi = routeIntent(context, "sources?tab=2", id = 9003)
+        val n = NotificationCompat.Builder(context, CH_PROBE)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("源检测完成")
+            .setContentText("共 $total 个源：正常 $ok，缓慢 $slow，失败 $fail")
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .build()
+        runCatching { nm.notify(9003, n) }
     }
 
     /** 进入追剧/下载页时调用一次：API 33+ 申请通知权限。 */

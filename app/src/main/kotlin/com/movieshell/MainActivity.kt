@@ -345,8 +345,18 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                         }
-                        composable("sources") {
+                        composable(
+                            "sources?tab={tab}",
+                            arguments = listOf(
+                                navArgument("tab") {
+                                    type = NavType.IntType
+                                    defaultValue = 0
+                                },
+                            ),
+                        ) { backStackEntry ->
                             SourcesScreen(
+                                // v0.90.0：通知点进来可直达检测 tab
+                                initialTab = backStackEntry.arguments?.getInt("tab") ?: 0,
                                 onWebSniff = { siteName, siteUrl ->
                                     navController.navigate(
                                         "web_sniff/${Uri.encode(siteName)}/${Uri.encode(siteUrl)}"
@@ -546,6 +556,8 @@ class MainActivity : ComponentActivity() {
                                 onHistoryClick = { navController.navigate("history") },
                                 // v0.86.0：快捷宫格-我的收藏
                                 onFavoritesClick = { navController.navigate("favorites") },
+                                // v0.90.0：快捷宫格-我的追剧
+                                onFollowClick = { navController.navigate("follow") },
                             )
                         }
                         // v0.79.0：嗅探正则管理（原实验室）

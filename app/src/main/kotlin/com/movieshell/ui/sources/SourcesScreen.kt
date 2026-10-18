@@ -7,8 +7,11 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -54,8 +57,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableIntStateOf
@@ -76,6 +77,7 @@ import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -87,10 +89,11 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
-import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SourceProbe
+import com.movieshell.data.repo.toResult
+import com.movieshell.data.repo.SourceProbeStore
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubCache
@@ -111,6 +114,7 @@ import com.movieshell.ui.trash.TrashScreen
 import com.movieshell.ui.preview.openFileWithEditor
 import com.movieshell.ui.preview.previewKindDir
 import com.movieshell.ui.preview.shareFile
+import com.movieshell.ui.theme.LocalBrandGradient
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
@@ -119,11 +123,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.supervisorScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import com.movieshell.data.source.SourceProbeWorker
 
 /** 站源条目：开关状态用 mutableStateOf 包裹，保证 Switch 切换即时刷新 */
 class SourceEntry(
@@ -250,9 +254,6 @@ private data class GridFileItem(
     val probe: SourceProbe.Result? = null,
 )
 
-/** 探活结果 key：kind:name */
-private fun probeKey(kind: String, name: String) = "$kind:$name"
-
 /** v0.86.0：批量检测目标（检测 tab 列表展示用） */
 private data class ProbeTarget(
     val kind: String,
@@ -338,6 +339,53 @@ private fun ProbeResultRow(target: ProbeTarget, result: SourceProbe.Result?) {
     }
 }
 
+/**
+ * v0.90.0：胶囊分段 tab（影图系：整条圆角胶囊容器 + 毛玻璃深底，
+ * 四个等分胶囊；选中项主题渐变填充 + 白色加粗字，背景/字色带过渡动画）。
+ */
+@Composable
+private fun CapsuleTabBar(selected: Int, onSelect: (Int) -> Unit) {
+    val titles = listOf("订阅源", "本地源", "批量检测", "回收站")
+    val gradient = Brush.horizontalGradient(LocalBrandGradient.current)
+    val soft = LocalSoftExtra.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .border(1.dp, soft.border, RoundedCornerShape(50))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        titles.forEachIndexed { i, title ->
+            val isSel = i == selected
+            val bgAlpha by animateFloatAsState(if (isSel) 1f else 0f, label = "capsuleBg")
+            val textColor by animateColorAsState(
+                if (isSel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                label = "capsuleText",
+            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(50))
+                    .background(gradient, alpha = bgAlpha)
+                    .clickable { onSelect(i) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = title,
+                    style = SoftType.Body,
+                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                    color = textColor,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
 /** 置顶优先（按置顶顺序），其余按展示名排序 */
 private fun sortWithPins(items: List<GridFileItem>, pins: List<String>): List<GridFileItem> {    val order = pins.withIndex().associate { it.value to it.index }
     return items.sortedWith(
@@ -356,6 +404,8 @@ private fun formatSize(bytes: Long): String = when {
 fun SourcesScreen(
     onWebSniff: (name: String, url: String) -> Unit = { _, _ -> },
     onPreview: (kind: String, fileName: String) -> Unit = { _, _ -> },
+    // v0.90.0：通知点进来可直达检测 tab（MainActivity 传 tab 参数）
+    initialTab: Int = 0,
 ) {
     val context = LocalContext.current
 
@@ -499,84 +549,54 @@ fun SourcesScreen(
         }
     }
 
-    // ---------- v0.24.0：批量探活；v0.86.0：硬超时 + 检测 tab 结果列表 ----------
-    var probing by remember { mutableStateOf(false) }
-    var probeStatus by remember { mutableStateOf("") }
-    var probeJob by remember { mutableStateOf<Job?>(null) }
-    val probeResults = remember { mutableStateMapOf<String, SourceProbe.Result>() }
-    /** v0.86.0：检测目标列表（顺序展示）+ 总数（进度用） */
-    val probeTargets = remember { mutableStateListOf<ProbeTarget>() }
-    var probeTotal by remember { mutableIntStateOf(0) }
-    /** 启停状态流：toggle 后自动重组，无需手动刷新 */
-    val disabledRules by SourceStateStore.disabled.collectAsState()
+    // ---------- v0.90.0：批量检测后台化（SourceProbeWorker 跑，结果落 SourceProbeStore） ----------
+    /** 探活徽标：key="kind:name" -> Result（Worker 写 store，这里只读） */
+    val probeMap by SourceProbeStore.map.collectAsState()
+    val probeReport by SourceProbeStore.report.collectAsState()
+
+    /** 取某源的检测结果（各 tab 徽标用） */
+    fun probeOf(kind: String, name: String): SourceProbe.Result? =
+        probeMap[SourceProbeStore.probeKey(kind, name)]?.toResult()
+
+    /** 派生给 SubscriptionCard 的只读视图（key -> Result） */
+    val probeResultView = remember(probeMap) {
+        probeMap.mapValues { it.value.toResult() }
+    }
+
+    LaunchedEffect(Unit) { SourceProbeStore.load(context) }
+
+    // Worker 运行状态（后台检测进度：done/total/label）
+    val wm = remember { WorkManager.getInstance(context) }
+    val probeWorkInfos by remember(wm) {
+        wm.getWorkInfosForUniqueWorkFlow(SourceProbeWorker.WORK_NAME)
+    }.collectAsState(initial = emptyList())
+    val probeWork = probeWorkInfos.firstOrNull {
+        it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED
+    }
+    val probeRunning = probeWork != null
+    val probeDone = probeWork?.progress?.getInt("done", 0) ?: 0
+    val probeTotal = probeWork?.progress?.getInt("total", 0) ?: 0
+    val probeLabel = probeWork?.progress?.getString("label").orEmpty()
+    var showProbeDialog by remember { mutableStateOf(false) }
 
     /**
-     * 对各 tab 已启用条目做轻量探活（调 home()，8 秒硬超时），不碰全局激活状态。
-     * PHP 本地规则手机端无解释器，标"不支持"不探；订阅只探地址连通性。
-     * v0.86.0：SourceProbe 内部线程池硬超时 + Semaphore(6) 限流，
-     * 这里只负责 IO 调度与结果落盘。
+     * 开始检测：已在跑则提示，否则 enqueue 唯一任务并弹出进度框。
+     * isRunningBlocking 是阻塞读，放 IO 线程。
      */
-    fun runBatchProbe() {
-        if (probing) return
-        probing = true
-        probeStatus = "准备中…"
-        probeResults.clear()
-        probeTargets.clear()
-        val targets = mutableListOf<Pair<ProbeTarget, () -> SourceProbe.Result>>()
-        DrpySourceManager.listRules().forEach { r ->
-            if (SourceStateStore.isRuleEnabled(TAB_JS, r.name)) {
-                val f = File(StoragePaths.jsDir(context), r.name)
-                targets += ProbeTarget(TAB_JS, r.name, r.name) to
-                    { SourceProbe.probeJs(context, f) }
+    fun startProbe() {
+        SubSiteStore.appScope.launch(Dispatchers.IO) {
+            if (SourceProbeWorker.isRunningBlocking(context)) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "检测正在进行中", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
             }
-        }
-        PySourceManager.listRules().forEach { r ->
-            if (SourceStateStore.isRuleEnabled(TAB_PY, r.name)) {
-                val f = File(StoragePaths.pyDir(context), r.name)
-                targets += ProbeTarget(TAB_PY, r.name, r.name) to
-                    { SourceProbe.probePy(context, f) }
-            }
-        }
-        // PHP：手机端无解释器，不探
-        phpEntries.forEach { e ->
-            val t = ProbeTarget(TAB_PHP, e.name, e.name)
-            probeTargets.add(t)
-            probeResults[probeKey(TAB_PHP, e.name)] = SourceProbe.Result.Unsupported
-        }
-        WebSourceManager.listSites().forEach { s ->
-            if (SourceStateStore.isRuleEnabled(TAB_WEB, s.fileName)) {
-                targets += ProbeTarget(TAB_WEB, s.fileName, s.fileName) to
-                    { SourceProbe.probeHttp(s.url) }
-            }
-        }
-        apiGroup.entries.filter { it.enabled }.forEach { e ->
-            targets += ProbeTarget("sub", e.detail, e.name) to
-                { SourceProbe.probeHttp(e.detail) }
-        }
-        probeTargets.addAll(targets.map { it.first })
-        probeTotal = probeTargets.size
-        probeJob = SubSiteStore.appScope.launch {
-            supervisorScope {
-                targets.map { (t, fn) ->
-                    async(Dispatchers.IO) {
-                        val res = fn()
-                        probeResults[probeKey(t.kind, t.name)] = res
-                        probeStatus = t.label
-                    }
-                }.awaitAll()
-            }
-            probing = false
-            val ok = probeResults.count { it.value is SourceProbe.Result.Ok }
-            val slow = probeResults.count { it.value is SourceProbe.Result.Slow }
-            val fail = probeResults.count { it.value is SourceProbe.Result.Fail }
-            Toast.makeText(
-                context,
-                "检测完成：正常 $ok，缓慢 $slow，失败 $fail",
-                Toast.LENGTH_LONG,
-            ).show()
-            LogBus.i("Probe", "批量检测完成：正常 $ok / 缓慢 $slow / 失败 $fail")
+            SourceProbeWorker.start(context)
+            withContext(Dispatchers.Main) { showProbeDialog = true }
         }
     }
+    /** 启停状态流：toggle 后自动重组，无需手动刷新 */
+    val disabledRules by SourceStateStore.disabled.collectAsState()
 
     /** 规则文件启停开关（单点：首页/搜索/检测统一走 SourceStateStore） */
     fun toggleRuleEnabled(item: GridFileItem, enabled: Boolean) {
@@ -639,7 +659,7 @@ fun SourcesScreen(
                         TAB_JS, it.name, it.title.ifBlank { it.name },
                         "drpy 规则 · ${it.sizeKb} KB", it.name == active, false,
                         enabled = itemEnabled(TAB_JS, it.name),
-                        probe = probeResults[probeKey(TAB_JS, it.name)],
+                        probe = probeOf(TAB_JS, it.name),
                     )
                 }
             }
@@ -650,7 +670,7 @@ fun SourcesScreen(
                         TAB_PY, it.name, it.title.ifBlank { it.name },
                         "hipy 规则 · ${it.sizeKb} KB", it.name == active, false,
                         enabled = itemEnabled(TAB_PY, it.name),
-                        probe = probeResults[probeKey(TAB_PY, it.name)],
+                        probe = probeOf(TAB_PY, it.name),
                     )
                 }
             }
@@ -658,7 +678,7 @@ fun SourcesScreen(
                 GridFileItem(
                     TAB_PHP, it.name, it.name, it.detail, it.enabled, false,
                     enabled = itemEnabled(TAB_PHP, it.name),
-                    probe = probeResults[probeKey(TAB_PHP, it.name)],
+                    probe = probeOf(TAB_PHP, it.name),
                 )
             }
             TAB_WEB -> {
@@ -667,7 +687,7 @@ fun SourcesScreen(
                     GridFileItem(
                         TAB_WEB, it.fileName, it.name, it.url, it.fileName == active, false,
                         enabled = itemEnabled(TAB_WEB, it.fileName),
-                        probe = probeResults[probeKey(TAB_WEB, it.fileName)],
+                        probe = probeOf(TAB_WEB, it.fileName),
                     )
                 }
             }
@@ -878,7 +898,8 @@ fun SourcesScreen(
     }
 
     // v0.86.0：四 tab——订阅源 / 本地源 / 批量检测 / 回收站（检测与回收站收进页内）
-    var subTab by rememberSaveable { mutableIntStateOf(0) }
+    // v0.90.0：通知可带 tab 参数直达（如检测 tab）
+    var subTab by rememberSaveable { mutableIntStateOf(initialTab) }
 
     /** 订阅源 tab：订阅站点列表 + 网页源 */
     @Composable
@@ -907,7 +928,7 @@ fun SourcesScreen(
                 parsing = subParsing,
                 expandedMap = subExpanded,
                 currentSiteKey = currentSubSiteKey,
-                probeResults = probeResults,
+                probeResults = probeResultView,
                 onRemove = ::removeSubscription,
                 onToggle = ::toggleSubscription,
                 onParse = ::parseSubscription,
@@ -1049,9 +1070,14 @@ fun SourcesScreen(
         }
     }
 
-    /** 批量检测 tab：开始检测 + 逐源结果列表（结果保留可查看） */
+    /** v0.90.0：批量检测 tab——后台 Worker 跑，读 SourceProbeStore 展示上次结果 + 实时进度 */
     @Composable
     fun ProbeTab() {
+        val records = probeReport.records
+        val ok = records.count { it.status == "OK" }
+        val slow = records.count { it.status == "SLOW" }
+        val fail = records.count { it.status == "FAIL" }
+        val unsupported = records.count { it.status == "UNSUPPORTED" }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -1059,57 +1085,83 @@ fun SourcesScreen(
         ) {
             item {
                 Text(
-                    text = "对已启用源调 home() 探活，8 秒超时；绿=正常(≤3s) 黄=缓慢(>3s) 红=失败",
+                    text = "对已启用源调 home() 探活，8 秒超时；绿=正常(≤3s) 黄=缓慢(>3s) 红=失败；" +
+                        "开始后可切走/退后台，跑完发通知",
                     style = SoftType.Caption,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            item {
-                AppButton(
-                    text = if (probing) "检测中 ${probeResults.size}/$probeTotal…" else "开始检测",
-                    onClick = { runBatchProbe() },
-                    enabled = !probing,
-                    modifier = Modifier.fillMaxWidth(),
-                    variant = AppButtonVariant.Primary,
-                )
+            if (probeReport.time > 0) {
+                item {
+                    Text(
+                        text = "上次检测：${SourceProbeStore.agoText(probeReport.time)}" +
+                            " · 正常 $ok / 缓慢 $slow / 失败 $fail" +
+                            if (unsupported > 0) " / 不支持 $unsupported" else "",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            if (probing) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppButton(
+                        text = if (probeRunning) "检测中 $probeDone/$probeTotal…" else "开始检测",
+                        onClick = { startProbe() },
+                        enabled = !probeRunning,
+                        modifier = Modifier.weight(1f),
+                        variant = AppButtonVariant.Primary,
+                    )
+                    if (probeRunning) {
+                        AppButton(
+                            text = "取消",
+                            onClick = { SourceProbeWorker.cancel(context) },
+                            variant = AppButtonVariant.Ghost,
+                        )
+                    }
+                }
+            }
+            if (probeRunning) {
                 item {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "正在检测：$probeStatus",
+                        text = "正在检测：$probeLabel",
                         style = SoftType.Body,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "已完成 ${probeResults.size} / $probeTotal",
+                        text = "已完成 $probeDone / $probeTotal（后台运行中，可切走）",
                         style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            items(probeTargets, key = { "${it.kind}:${it.name}" }) { t ->
+            items(records, key = { "${it.kind}:${it.name}" }) { r ->
                 ProbeResultRow(
-                    target = t,
-                    result = probeResults[probeKey(t.kind, t.name)],
+                    target = ProbeTarget(r.kind, r.name, r.label),
+                    result = r.toResult(),
                 )
             }
-            if (probeTargets.isNotEmpty()) {
+            if (records.isEmpty() && !probeRunning) {
+                item {
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.Language,
+                        title = "还没有检测结果",
+                        hint = "点「开始检测」跑一次",
+                    )
+                }
+            }
+            if (records.isNotEmpty()) {
                 item { Spacer(Modifier.height(8.dp)) }
             }
         }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = subTab) {
-            Tab(selected = subTab == 0, onClick = { subTab = 0 }, text = { Text("订阅源") })
-            Tab(selected = subTab == 1, onClick = { subTab = 1 }, text = { Text("本地源") })
-            Tab(selected = subTab == 2, onClick = { subTab = 2 }, text = { Text("批量检测") })
-            Tab(selected = subTab == 3, onClick = { subTab = 3 }, text = { Text("回收站") })
-        }
+        CapsuleTabBar(selected = subTab, onSelect = { subTab = it })
         when (subTab) {
             0 -> SubscriptionTab()
             1 -> LocalTab()
@@ -1241,21 +1293,23 @@ fun SourcesScreen(
         )
     }
 
-    // ---- v0.24.0：批量检测进度；v0.86.0：换 TechDialog 深色科技风 ----
-    if (probing) {
+    // ---- v0.90.0：批量检测进度（Worker 后台跑；关弹窗=后台继续，"取消检测"真 cancel） ----
+    if (showProbeDialog && probeRunning) {
         TechDialog(
-            onDismissRequest = {
-                probeJob?.cancel()
-                probing = false
-            },
+            onDismissRequest = { showProbeDialog = false },
             title = "批量检测中",
-            subtitle = "8 秒超时自动判失败，可随时取消",
-            dismissText = "取消",
+            subtitle = "8 秒超时自动判失败；关掉后切走/退后台会继续跑，跑完发通知",
+            dismissText = "后台运行",
+            confirmText = "取消检测",
+            onConfirm = {
+                SourceProbeWorker.cancel(context)
+                showProbeDialog = false
+            },
         ) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(12.dp))
             Text(
-                text = "正在检测：$probeStatus",
+                text = "正在检测：$probeLabel",
                 color = Color.White,
                 style = SoftType.Body,
                 maxLines = 1,
@@ -1263,7 +1317,7 @@ fun SourcesScreen(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "已完成 ${probeResults.size} / $probeTotal",
+                text = "已完成 $probeDone / $probeTotal",
                 style = SoftType.Caption,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1546,7 +1600,7 @@ private fun SubscriptionCard(
     parsing: SnapshotStateMap<String, Boolean>,
     expandedMap: SnapshotStateMap<String, Boolean>,
     currentSiteKey: String?,
-    probeResults: SnapshotStateMap<String, SourceProbe.Result>,
+    probeResults: Map<String, SourceProbe.Result>,
     onRemove: (SourceEntry) -> Unit,
     onToggle: () -> Unit,
     onParse: (String) -> Unit,
@@ -1651,7 +1705,7 @@ private fun SubscriptionCard(
                                     },
                                 )
                                 // v0.24.0：批量检测徽标
-                                ProbeDot(probeResults[probeKey("sub", subUrl)])
+                                ProbeDot(probeResults[SourceProbeStore.probeKey("sub", subUrl)])
                                 IconButton(onClick = { onRemove(entry) }) {
                                     Icon(
                                         imageVector = Icons.Filled.Delete,

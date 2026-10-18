@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
@@ -145,6 +144,7 @@ fun SettingsScreen(
     onSniffPatternsClick: () -> Unit = {}, // v0.79.0：嗅探正则管理（实验室 tab 删除，入口搬进设置）
     onHistoryClick: () -> Unit = {}, // v0.80.0：快捷宫格-观看历史
     onFavoritesClick: () -> Unit = {}, // v0.86.0：快捷宫格-我的收藏
+    onFollowClick: () -> Unit = {}, // v0.90.0：快捷宫格-我的追剧（资料卡已可点进历史/收藏）
 ) {
     val context = LocalContext.current
     // v0.7.1：主题读持久化 ThemeStore，不再是本地假状态
@@ -386,15 +386,15 @@ fun SettingsScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 QuickEntry(
-                    label = "观看历史",
-                    icon = Icons.Filled.History,
-                    onClick = onHistoryClick,
+                    label = "我的追剧",
+                    icon = Icons.Filled.PlaylistAddCheck,
+                    onClick = onFollowClick,
                     modifier = Modifier.weight(1f),
                 )
                 QuickEntry(
-                    label = "我的收藏",
-                    icon = Icons.Filled.Favorite,
-                    onClick = onFavoritesClick,
+                    label = "解析接口",
+                    icon = Icons.Filled.Link,
+                    onClick = onParseSettingsClick,
                     modifier = Modifier.weight(1f),
                 )
                 QuickEntry(
