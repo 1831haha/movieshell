@@ -8,6 +8,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -93,9 +95,6 @@ private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 /** v0.79.0：虎牙总站入口频道（插件里 url 为 huya 协议 portal 地址的那单条），点它进直播间列表而非直接播放 */
 fun isHuyaPortal(ch: LiveChannel): Boolean = ch.url == "huya://portal"
 
-/** 直播 Tab：顶部 16:9 播放器 + 下方分组选台（v0.79.0 改版，对标 DsPlayer 直播页） */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
-@Composable
 /** 直播 Tab：DsPlayer 式布局（v0.80.0 重做）——顶部 16:9 播放器 + 节目信息卡 + 三列（分组/频道/源） */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -671,6 +670,7 @@ private fun HuyaEntryCard(onClick: () -> Unit) {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun ChannelDetailSheet(
     channel: LiveChannel,
     onDismiss: () -> Unit,

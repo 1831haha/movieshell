@@ -1570,7 +1570,7 @@ private fun SourceSwitchSheet(
 
 /** v0.78.3：紧凑列表行——小海报 + 标题 + 副标题 */
 @Composable
-private fun HomeCompactRow(vod: Vod, subtitle: String, onClick: () -> Unit) {
+private fun HomeCompactRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1613,14 +1613,16 @@ private fun HomeCompactRow(vod: Vod, subtitle: String, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = subtitle,
-                style = SoftType.Caption,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (subtitle != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = subtitle,
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         if (vod.rating.isNotBlank()) {
             Text(
@@ -1634,7 +1636,7 @@ private fun HomeCompactRow(vod: Vod, subtitle: String, onClick: () -> Unit) {
 
 /** v0.78.3：无图文字行——纯文字，密度最高 */
 @Composable
-private fun HomeTextRow(vod: Vod, subtitle: String, onClick: () -> Unit) {
+private fun HomeTextRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1651,13 +1653,15 @@ private fun HomeTextRow(vod: Vod, subtitle: String, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = subtitle,
-                style = SoftType.Caption,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         if (vod.rating.isNotBlank()) {
             Spacer(Modifier.width(8.dp))
