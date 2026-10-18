@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,6 +28,7 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.TabTopBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -294,28 +294,23 @@ private fun BookshelfList(
 
     // v0.36.0：长按删除确认
     deleteTarget?.let { target ->
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("删除《${target.title}》？") },
-            text = { Text("将从书架移除，阅读进度也会清除。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        deleteTarget = null
-                        scope.launch {
-                            withContext(Dispatchers.IO) {
-                                NovelStore.removeNovel(context, target.id)
-                                ReadingProgressStore.clear(context, target.id)
-                            }
-                            reload()
-                        }
-                    },
-                ) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            title = "删除《${target.title}》？",
+            confirmText = "删除",
+            onConfirm = {
+                deleteTarget = null
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        NovelStore.removeNovel(context, target.id)
+                        ReadingProgressStore.clear(context, target.id)
+                    }
+                    reload()
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
-            },
-        )
+        ) {
+            Text("将从书架移除，阅读进度也会清除。")
+        }
     }
 }
 

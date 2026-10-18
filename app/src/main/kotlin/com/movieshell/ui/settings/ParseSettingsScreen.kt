@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -21,7 +20,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.NetworkCheck
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,8 +44,6 @@ import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.source.ParseApi
 import com.movieshell.ui.components.TabTopBar
-import com.movieshell.ui.components.AppButton
-import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
@@ -208,11 +205,15 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
         var parseName by remember { mutableStateOf("") }
         var parseUrl by remember { mutableStateOf("") }
         var parseType by remember { mutableStateOf(1) }
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showAddDialog = false },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("添加解析接口", style = SoftType.CardTitle) },
-            text = {
+            title = "添加解析接口",
+            confirmText = "添加",
+            onConfirm = {
+                ParseStore.add(context, parseName, parseUrl, parseType)
+                showAddDialog = false
+            },
+        ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     AppTextField(
                         value = parseName,
@@ -249,23 +250,6 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            },
-            confirmButton = {
-                AppButton(
-                    text = "添加",
-                    onClick = {
-                        ParseStore.add(context, parseName, parseUrl, parseType)
-                        showAddDialog = false
-                    },
-                )
-            },
-            dismissButton = {
-                AppButton(
-                    text = "取消",
-                    onClick = { showAddDialog = false },
-                    variant = AppButtonVariant.Ghost,
-                )
-            },
-        )
+        }
     }
 }

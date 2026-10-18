@@ -19,6 +19,7 @@ import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
@@ -654,10 +655,17 @@ fun PlayerScreen(
         onDispose { EngineHost.setOnErrorListener(null) }
     }
     playError?.let { err ->
-        androidx.compose.material3.AlertDialog(
+        TechDialog(
             onDismissRequest = { playError = null },
-            title = { androidx.compose.material3.Text(err.title) },
-            text = {
+            title = err.title,
+            confirmText = "重试",
+            onConfirm = {
+                playError = null
+                // 重试当前地址
+                scope.launch { retryCurrent() }
+            },
+            dismissText = "关闭",
+        ) {
                 androidx.compose.foundation.layout.Column {
                     androidx.compose.material3.Text(err.reason)
                     androidx.compose.foundation.layout.Spacer(
@@ -672,23 +680,7 @@ fun PlayerScreen(
                     }
                 }
             },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = {
-                        playError = null
-                        // 重试当前地址
-                        scope.launch { retryCurrent() }
-                    }
-                ) {
-                    androidx.compose.material3.Text("重试")
-                }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { playError = null }) {
-                    androidx.compose.material3.Text("关闭")
-                }
-            },
-        )
+        }
     }
 
     // v0.14.0：片尾跳过——距离结尾 skipOutroSec 时自动下一集（无下一集则暂停）
@@ -1453,10 +1445,12 @@ fun PlayerScreen(
             val alphaV by ds.alpha.collectAsState()
             val speedIdx by ds.speed.collectAsState()
             val areaIdx by ds.area.collectAsState()
-            androidx.compose.material3.AlertDialog(
+            TechDialog(
                 onDismissRequest = { showDanmakuSettings = false },
-                title = { androidx.compose.material3.Text("弹幕设置") },
-                text = {
+                title = "弹幕设置",
+                confirmText = "确定",
+                onConfirm = { showDanmakuSettings = false },
+            ) {
                     androidx.compose.foundation.layout.Column {
                         // 字号
                         androidx.compose.material3.Text("字号", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
@@ -1505,12 +1499,7 @@ fun PlayerScreen(
                         }
                     }
                 },
-                confirmButton = {
-                    androidx.compose.material3.TextButton(onClick = { showDanmakuSettings = false }) {
-                        androidx.compose.material3.Text("确定")
-                    }
-                },
-            )
+            }
         }
 
         if (showSubtitleDialog) {

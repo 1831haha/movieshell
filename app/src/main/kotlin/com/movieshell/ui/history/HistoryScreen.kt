@@ -23,13 +23,13 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -221,42 +221,40 @@ fun HistoryScreen(
     }
 
     deleteTarget?.let { e ->
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("删除记录") },
-            text = { Text("删除「${e.title}」这条播放记录吗？") },
-            confirmButton = {
-                TextButton(onClick = {
-                    HistoryStore.delete(context, e.url)
-                    deleteTarget = null
-                    reload()
-                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            title = "删除记录",
+            confirmText = "删除",
+            onConfirm = {
+                HistoryStore.delete(context, e.url)
+                deleteTarget = null
+                reload()
             },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } },
-        )
+        ) {
+            Text("删除「${e.title}」这条播放记录吗？")
+        }
     }
 
     if (showClearAll) {
         // v0.86.0：按当前 tab 清空（全部=清所有，点播/直播只清该类）
         val tabName = when (tab) { 1 -> "点播"; 2 -> "直播"; else -> "全部" }
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showClearAll = false },
-            title = { Text("清空历史") },
-            text = { Text("确定清空${tabName}的 ${kindFiltered.size} 条播放记录吗？此操作不可恢复。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (tab == 0) {
-                        HistoryStore.clear(context)
-                    } else {
-                        kindFiltered.forEach { HistoryStore.delete(context, it.url) }
-                    }
-                    showClearAll = false
-                    reload()
-                    Toast.makeText(context, "已清空播放历史", Toast.LENGTH_SHORT).show()
-                }) { Text("清空", color = MaterialTheme.colorScheme.error) }
+            title = "清空历史",
+            confirmText = "清空",
+            onConfirm = {
+                if (tab == 0) {
+                    HistoryStore.clear(context)
+                } else {
+                    kindFiltered.forEach { HistoryStore.delete(context, it.url) }
+                }
+                showClearAll = false
+                reload()
+                Toast.makeText(context, "已清空播放历史", Toast.LENGTH_SHORT).show()
             },
-            dismissButton = { TextButton(onClick = { showClearAll = false }) { Text("取消") } },
-        )
+        ) {
+            Text("确定清空${tabName}的 ${kindFiltered.size} 条播放记录吗？此操作不可恢复。")
+        }
     }
 }
 

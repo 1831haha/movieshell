@@ -97,7 +97,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.filled.ChevronRight
@@ -1148,25 +1147,20 @@ private fun PlaylistTab(
     }
 
     deleteTarget?.let { pl ->
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("删除歌单") },
-            text = { Text("确定删除歌单「${pl.name}」（${pl.tracks.size} 首）？") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            MusicStore.deletePlaylist(context, pl.id)
-                            deleteTarget = null
-                            reload()
-                        }
-                    },
-                ) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            title = "删除歌单",
+            confirmText = "删除",
+            onConfirm = {
+                scope.launch {
+                    MusicStore.deletePlaylist(context, pl.id)
+                    deleteTarget = null
+                    reload()
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
-            },
-        )
+        ) {
+            Text("确定删除歌单「${pl.name}」（${pl.tracks.size} 首）？")
+        }
     }
 }
 

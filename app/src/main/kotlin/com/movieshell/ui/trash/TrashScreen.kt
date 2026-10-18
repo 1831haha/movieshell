@@ -15,13 +15,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -192,35 +192,33 @@ fun TrashScreen(
     }
 
     deleteTarget?.let { item ->
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("彻底删除") },
-            text = { Text("彻底删除「${item.name}」吗？无法恢复。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    TrashStore.deleteForever(context, item)
-                    deleteTarget = null
-                    reload()
-                }) { Text("彻底删除", color = MaterialTheme.colorScheme.error) }
+            title = "彻底删除",
+            confirmText = "彻底删除",
+            onConfirm = {
+                TrashStore.deleteForever(context, item)
+                deleteTarget = null
+                reload()
             },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("取消") } },
-        )
+        ) {
+            Text("彻底删除「${item.name}」吗？无法恢复。")
+        }
     }
 
     if (showClearAll) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showClearAll = false },
-            title = { Text("清空回收站") },
-            text = { Text("彻底删除回收站里的 ${items.size} 项吗？无法恢复。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    TrashStore.clearAll(context)
-                    showClearAll = false
-                    reload()
-                    Toast.makeText(context, "回收站已清空", Toast.LENGTH_SHORT).show()
-                }) { Text("清空", color = MaterialTheme.colorScheme.error) }
+            title = "清空回收站",
+            confirmText = "清空",
+            onConfirm = {
+                TrashStore.clearAll(context)
+                showClearAll = false
+                reload()
+                Toast.makeText(context, "回收站已清空", Toast.LENGTH_SHORT).show()
             },
-            dismissButton = { TextButton(onClick = { showClearAll = false }) { Text("取消") } },
-        )
+        ) {
+            Text("彻底删除回收站里的 ${items.size} 项吗？无法恢复。")
+        }
     }
 }

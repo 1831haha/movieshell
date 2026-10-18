@@ -7,12 +7,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -20,7 +20,6 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -86,23 +86,18 @@ fun DownloadScreen(
     var lowSpaceWarn by remember { mutableStateOf(DownloadSettings.lowSpaceWarn(context)) }
 
     if (confirmDelete != null) {
-        AlertDialog(
+        // 两个都是真实动作（删文件 / 仅移除记录），放 content 内双按钮，保留原行为
+        TechDialog(
             onDismissRequest = { confirmDelete = null },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("删除任务", style = SoftType.CardTitle) },
-            text = { Text("同时删除已下载的文件？", style = SoftType.Body) },
-            confirmButton = {
-                AppButton(
-                    text = "删除文件",
-                    onClick = {
-                        val t = confirmDelete!!
-                        confirmDelete = null
-                        scope.launch { DownloadManager.delete(context, t.id) }
-                    },
-                    variant = AppButtonVariant.Secondary,
-                )
-            },
-            dismissButton = {
+            title = "删除任务",
+            dismissText = null,
+        ) {
+            Text("同时删除已下载的文件？", style = SoftType.Body)
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 AppButton(
                     text = "仅移除记录",
                     onClick = {
@@ -113,18 +108,30 @@ fun DownloadScreen(
                         }
                     },
                     variant = AppButtonVariant.Ghost,
+                    modifier = Modifier.weight(1f),
                 )
-            },
-        )
+                AppButton(
+                    text = "删除文件",
+                    onClick = {
+                        val t = confirmDelete!!
+                        confirmDelete = null
+                        scope.launch { DownloadManager.delete(context, t.id) }
+                    },
+                    variant = AppButtonVariant.Secondary,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
     }
 
     // v0.63.0：自动清理设置弹窗
     if (showSettings) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showSettings = false },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("自动清理", style = SoftType.CardTitle) },
-            text = {
+            title = "自动清理",
+            confirmText = "完成",
+            onConfirm = { showSettings = false },
+        ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -197,15 +204,7 @@ fun DownloadScreen(
                         )
                     }
                 }
-            },
-            confirmButton = {
-                AppButton(
-                    text = "完成",
-                    onClick = { showSettings = false },
-                    variant = AppButtonVariant.Primary,
-                )
-            },
-        )
+        }
     }
 
     val active = tasks.filter { it.status != DlStatus.DONE }

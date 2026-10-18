@@ -41,7 +41,6 @@ import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistAddCheck
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,9 +52,10 @@ import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.TechTextField
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -979,16 +979,14 @@ fun DetailScreen(
     
         // 磁力转播服务未启动提示
         if (showMagnetDialog) {
-            AlertDialog(
+            TechDialog(
                 onDismissRequest = { showMagnetDialog = false },
-                title = { Text("磁力转播服务未启动") },
-                text = {
-                    Text("未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream 后再试")
-                },
-                confirmButton = {
-                    TextButton(onClick = { showMagnetDialog = false }) { Text("知道了") }
-                },
-            )
+                title = "磁力转播服务未启动",
+                confirmText = "知道了",
+                onConfirm = { showMagnetDialog = false },
+            ) {
+                Text("未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream 后再试")
+            }
         }
     
         // v0.28.0：在线字幕搜索（下载后按剧记忆，播放时自动挂载）
@@ -1153,10 +1151,10 @@ fun DetailScreen(
 
     // v0.69.0：收藏时选片单
     if (showPlaylistPicker) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showPlaylistPicker = false },
-            title = { Text("收藏到片单") },
-            text = {
+            title = "收藏到片单",
+        ) {
                 Column {
                     TextButton(
                         onClick = {
@@ -1179,48 +1177,35 @@ fun DetailScreen(
                         ) { Text(p.name, modifier = Modifier.fillMaxWidth()) }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showPlaylistPicker = false }) { Text("取消") }
-            },
-        )
+        }
     }
 
     // v0.77.0：跳集弹窗（集数>20 才有入口）
     if (showJumpDialog) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showJumpDialog = false; jumpText = "" },
-            title = { Text("跳到第几集") },
-            text = {
-                OutlinedTextField(
-                    value = jumpText,
-                    onValueChange = { jumpText = it.filter { c -> c.isDigit() }.take(4) },
-                    label = { Text("输入集数（1-${lineEpisodes.size}）") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val n = jumpText.toIntOrNull()
-                        if (n != null && n in 1..lineEpisodes.size) {
-                            showJumpDialog = false
-                            jumpText = ""
-                            val idx = n - 1
-                            selectedEpisode = idx
-                            playEpisode(lineEpisodes[idx], safeLine, idx)
-                        }
-                    },
-                ) { Text("播放") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showJumpDialog = false; jumpText = "" }) {
-                    Text("取消")
+            title = "跳到第几集",
+            confirmText = "播放",
+            onConfirm = {
+                val n = jumpText.toIntOrNull()
+                if (n != null && n in 1..lineEpisodes.size) {
+                    showJumpDialog = false
+                    jumpText = ""
+                    val idx = n - 1
+                    selectedEpisode = idx
+                    playEpisode(lineEpisodes[idx], safeLine, idx)
                 }
             },
-        )
+        ) {
+            TechTextField(
+                value = jumpText,
+                onValueChange = { jumpText = it.filter { c -> c.isDigit() }.take(4) },
+                placeholder = "输入集数（1-${lineEpisodes.size}）",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

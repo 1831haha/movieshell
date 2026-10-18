@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -399,10 +399,10 @@ private fun MusicSleepTimerDialog(
     onPickAfterTrack: () -> Unit,
     onCancelTimer: () -> Unit,
 ) {
-    AlertDialog(
+    TechDialog(
         onDismissRequest = onDismiss,
-        title = { Text("定时关闭") },
-        text = {
+        title = "定时关闭",
+    ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 listOf(15, 30, 60, 90).forEach { m ->
                     TextButton(
@@ -420,11 +420,8 @@ private fun MusicSleepTimerDialog(
                 ) { Text("关闭定时", color = MaterialTheme.colorScheme.error) }
             }
         },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        },
-    )
+    }
+}
 }
 
 private fun fmtMs(ms: Long): String {

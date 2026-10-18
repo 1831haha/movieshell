@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -37,6 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -634,10 +634,11 @@ fun ReaderScreen(
                 tocListState.scrollToItem(chapterIndex.coerceAtLeast(0))
             }
         }
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showToc = false },
-            title = { Text("目录（${chapters.size} 章）") },
-            text = {
+            title = "目录（${chapters.size} 章）",
+            dismissText = "关闭",
+        ) {
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
                     state = tocListState,
@@ -659,10 +660,7 @@ fun ReaderScreen(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showToc = false }) { Text("关闭") }
-            },
-        )
+        }
     }
 
     // v0.89.0：书签列表（TechDialog）
@@ -734,10 +732,12 @@ fun ReaderScreen(
 
     // 设置弹窗：字号 / 字体 / 行距 / 亮度
     if (showSettings) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showSettings = false },
-            title = { Text("阅读设置") },
-            text = {
+            title = "阅读设置",
+            confirmText = "确定",
+            onConfirm = { showSettings = false },
+        ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text("字号：${fontSize}sp", fontSize = 14.sp)
                     Row(
@@ -844,9 +844,6 @@ fun ReaderScreen(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showSettings = false }) { Text("确定") }
-            },
-        )
+        }
     }
 }

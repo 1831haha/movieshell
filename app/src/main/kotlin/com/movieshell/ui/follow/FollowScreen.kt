@@ -12,16 +12,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlaylistAddCheck
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,8 +36,6 @@ import com.movieshell.data.download.Notify
 import com.movieshell.data.repo.FollowItem
 import com.movieshell.data.repo.FollowStore
 import com.movieshell.ui.components.TabTopBar
-import com.movieshell.ui.components.AppButton
-import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.PosterCard
@@ -68,35 +65,23 @@ fun FollowScreen(
     var confirmUnfollow by remember { mutableStateOf<FollowItem?>(null) }
 
     if (confirmUnfollow != null) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { confirmUnfollow = null },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("取消追剧", style = SoftType.CardTitle) },
-            text = {
-                Text("不再追《${confirmUnfollow!!.name}》？", style = SoftType.Body)
+            title = "取消追剧",
+            confirmText = "确定",
+            onConfirm = {
+                val item = confirmUnfollow!!
+                confirmUnfollow = null
+                scope.launch {
+                    if (FollowStore.unfollow(context, item.id)) {
+                        Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
+                    }
+                }
             },
-            confirmButton = {
-                AppButton(
-                    text = "确定",
-                    onClick = {
-                        val item = confirmUnfollow!!
-                        confirmUnfollow = null
-                        scope.launch {
-                            if (FollowStore.unfollow(context, item.id)) {
-                                Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
-                )
-            },
-            dismissButton = {
-                AppButton(
-                    text = "取消",
-                    onClick = { confirmUnfollow = null },
-                    variant = AppButtonVariant.Ghost,
-                )
-            },
-        )
+            dismissText = "取消",
+        ) {
+            Text("不再追《${confirmUnfollow!!.name}》？", style = SoftType.Body)
+        }
     }
 
     Scaffold(

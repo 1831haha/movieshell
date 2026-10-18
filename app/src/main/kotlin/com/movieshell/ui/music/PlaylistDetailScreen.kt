@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Sort
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -310,26 +309,21 @@ fun PlaylistDetailScreen(
     }
 
     deleteTarget?.let { t ->
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("移出歌单") },
-            text = { Text("把《${t.name}》从歌单里移除？") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            MusicStore.removeFromPlaylist(context, playlistId, t.id)
-                            deleteTarget = null
-                            reload()
-                            Toast.makeText(context, "已移除", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                ) { Text("移除", color = MaterialTheme.colorScheme.error) }
+            title = "移出歌单",
+            confirmText = "移除",
+            onConfirm = {
+                scope.launch {
+                    MusicStore.removeFromPlaylist(context, playlistId, t.id)
+                    deleteTarget = null
+                    reload()
+                    Toast.makeText(context, "已移除", Toast.LENGTH_SHORT).show()
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
-            },
-        )
+        ) {
+            Text("把《${t.name}》从歌单里移除？")
+        }
     }
 
     // v0.89.0：排序方式弹窗（TechDialog；取消走自带取消按钮）

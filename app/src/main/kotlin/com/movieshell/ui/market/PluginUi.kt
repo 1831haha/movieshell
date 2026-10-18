@@ -10,11 +10,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -106,34 +106,33 @@ data class InstallProgressUi(
 @Composable
 fun InstallProgressDialog(state: InstallProgressUi?) {
     if (state == null) return
-    AlertDialog(
+    TechDialog(
         onDismissRequest = {},
-        title = { Text("正在安装 ${state.pluginName}") },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(state.stage, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (state.indeterminate) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                } else {
-                    val frac = (state.done.toFloat() / state.total.coerceAtLeast(1)).coerceIn(0f, 1f)
-                    LinearProgressIndicator(
-                        progress = frac,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Text(
-                        "${PluginUi.formatBytes(state.done)} / ${PluginUi.formatBytes(state.total)}" +
-                            "（${(frac * 100).toInt()}%）",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+        title = "正在安装 ${state.pluginName}",
+        dismissText = null,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(state.stage, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (state.indeterminate) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            } else {
+                val frac = (state.done.toFloat() / state.total.coerceAtLeast(1)).coerceIn(0f, 1f)
+                LinearProgressIndicator(
+                    progress = frac,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "${PluginUi.formatBytes(state.done)} / ${PluginUi.formatBytes(state.total)}" +
+                        "（${(frac * 100).toInt()}%）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-        },
-        confirmButton = {},
-    )
+        }
+    }
 }
 
 /**

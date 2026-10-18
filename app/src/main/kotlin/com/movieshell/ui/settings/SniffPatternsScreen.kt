@@ -13,13 +13,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -138,10 +138,20 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
     if (showAddPattern) {
         var input by remember { mutableStateOf("") }
         var error by remember { mutableStateOf<String?>(null) }
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showAddPattern = false },
-            title = { Text("添加嗅探正则", style = SoftType.Title) },
-            text = {
+            title = "添加嗅探正则",
+            confirmText = "确定",
+            onConfirm = {
+                if (SniffPatternStore.add(input)) {
+                    LogBus.i("UI", "添加嗅探正则: $input")
+                    refreshPatterns()
+                    showAddPattern = false
+                } else {
+                    error = "正则格式无效或已存在"
+                }
+            },
+        ) {
                 Column {
                     Text(
                         text = "正则表达式",
@@ -167,27 +177,6 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                         )
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (SniffPatternStore.add(input)) {
-                            LogBus.i("UI", "添加嗅探正则: $input")
-                            refreshPatterns()
-                            showAddPattern = false
-                        } else {
-                            error = "正则格式无效或已存在"
-                        }
-                    }
-                ) {
-                    Text("确定")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddPattern = false }) {
-                    Text("取消")
-                }
-            },
-        )
+        }
     }
 }

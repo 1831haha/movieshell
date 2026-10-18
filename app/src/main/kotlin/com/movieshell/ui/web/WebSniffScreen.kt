@@ -31,7 +31,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -42,6 +41,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -879,10 +879,11 @@ fun WebSniffScreen(
     // 嗅探测试结果弹窗：点 DIRECT 条目直接播放
     val results = testResults
     if (results != null) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { testResults = null },
-            title = { Text("嗅探测试（${results.size} 条）", style = SoftType.Title) },
-            text = {
+            title = "嗅探测试（${results.size} 条）",
+            dismissText = "关闭",
+        ) {
                 if (results.isEmpty()) {
                     Text(
                         "没抓到可播直链，可以换个页面再试一次。",
@@ -930,11 +931,7 @@ fun WebSniffScreen(
                         }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { testResults = null }) { Text("关闭") }
-            },
-        )
+        }
     }
 
     // v0.93：嗅探参数设置（顶栏溢出菜单进入，改完即时生效）

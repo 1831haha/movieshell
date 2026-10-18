@@ -25,16 +25,16 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.TechTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -346,93 +346,82 @@ fun FavoritesScreen(
 
     // v0.69.0：新建片单弹窗
     if (showCreate) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showCreate = false },
-            title = { Text("新建片单") },
-            text = {
-                OutlinedTextField(
-                    value = createName,
-                    onValueChange = { createName = it },
-                    placeholder = { Text("片单名称") },
-                    singleLine = true,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        val p = PlaylistStore.create(context, createName)
-                        if (p == null) {
-                            Toast.makeText(context, "名称为空或已存在", Toast.LENGTH_SHORT).show()
-                        } else {
-                            showCreate = false
-                            reload()
-                        }
+            title = "新建片单",
+            confirmText = "创建",
+            onConfirm = {
+                scope.launch {
+                    val p = PlaylistStore.create(context, createName)
+                    if (p == null) {
+                        Toast.makeText(context, "名称为空或已存在", Toast.LENGTH_SHORT).show()
+                    } else {
+                        showCreate = false
+                        reload()
                     }
-                }) { Text("创建") }
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { showCreate = false }) { Text("取消") }
-            },
+        ) {
+            TechTextField(
+                value = createName,
+                onValueChange = { createName = it },
+                placeholder = "片单名称",
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         )
     }
 
     // v0.69.0：重命名弹窗
     renameTarget?.let { pl ->
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text("重命名片单") },
-            text = {
-                OutlinedTextField(
-                    value = renameName,
-                    onValueChange = { renameName = it },
-                    singleLine = true,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        if (PlaylistStore.rename(context, pl.id, renameName)) {
-                            renameTarget = null
-                            reload()
-                        } else {
-                            Toast.makeText(context, "名称为空或已存在", Toast.LENGTH_SHORT).show()
-                        }
+            title = "重命名片单",
+            confirmText = "确定",
+            onConfirm = {
+                scope.launch {
+                    if (PlaylistStore.rename(context, pl.id, renameName)) {
+                        renameTarget = null
+                        reload()
+                    } else {
+                        Toast.makeText(context, "名称为空或已存在", Toast.LENGTH_SHORT).show()
                     }
-                }) { Text("确定") }
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { renameTarget = null }) { Text("取消") }
-            },
+        ) {
+            TechTextField(
+                value = renameName,
+                onValueChange = { renameName = it },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         )
     }
 
     // v0.69.0：删除片单确认
     deleteTarget?.let { pl ->
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("删除片单") },
-            text = { Text("「${pl.name}」下的收藏会回到未分组，确定删除？") },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        PlaylistStore.delete(context, pl.id)
-                        deleteTarget = null
-                        reload()
-                    }
-                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            title = "删除片单",
+            confirmText = "删除",
+            onConfirm = {
+                scope.launch {
+                    PlaylistStore.delete(context, pl.id)
+                    deleteTarget = null
+                    reload()
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
-            },
-        )
+        ) {
+            Text("「${pl.name}」下的收藏会回到未分组，确定删除？")
+        }
     }
 
     // v0.69.0：移动条目到片单
     moveTarget?.let { target ->
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { moveTarget = null },
-            title = { Text("移动到片单") },
-            text = {
+            title = "移动到片单",
+        ) {
                 Column {
                     TextButton(
                         onClick = {
@@ -461,11 +450,7 @@ fun FavoritesScreen(
                         ) { Text(p.name, modifier = Modifier.fillMaxWidth()) }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { moveTarget = null }) { Text("取消") }
-            },
-        )
+        }
     }
 }
 

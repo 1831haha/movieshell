@@ -2,8 +2,8 @@ package com.movieshell.ui.market
 
 import android.content.Context
 import android.widget.Toast
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -16,8 +16,6 @@ import androidx.compose.ui.platform.LocalContext
 import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.source.PyDepGuide
-import com.movieshell.ui.components.AppButton
-import com.movieshell.ui.components.AppButtonVariant
 import kotlinx.coroutines.launch
 
 /**
@@ -46,48 +44,39 @@ fun PyDepGuideOverlay() {
         return
     }
 
-    AlertDialog(
+    TechDialog(
         onDismissRequest = { PyDepGuide.markDismissed(context, module) },
-        title = { Text("缺 PY 依赖包") },
-        text = { Text("规则需要 Python 模块「$module」，安装「PY 引擎依赖包」即可（约 0.4MB，一次安装长期有效）。") },
-        confirmButton = {
-            AppButton(
-                text = if (busy) "安装中…" else "一键安装",
-                enabled = !busy,
-                onClick = {
-                    if (busy) return@AppButton
-                    busy = true
-                    scope.launch {
-                        try {
-                            val info = PluginMarket.fetch(PluginStore.DEFAULT_MARKET_URL)
-                            val dep = info.plugins.firstOrNull { it.id == PyDepGuide.DEP_PLUGIN_ID }
-                            if (dep == null) {
-                                toast(context, "市场里没找到 PY 引擎依赖包")
-                            } else {
-                                val (ok, msg) = PluginUi.installWithProgress(context, dep) {
-                                    installProgress = it
-                                }
-                                toast(context, msg)
-                                if (ok) PyDepGuide.clear()
-                            }
-                        } catch (e: Exception) {
-                            toast(context, "安装失败：${e.message}")
-                        } finally {
-                            installProgress = null
-                            busy = false
+        title = "缺 PY 依赖包",
+        confirmText = if (busy) "安装中…" else "一键安装",
+        confirmEnabled = !busy,
+        onConfirm = {
+            if (busy) return@TechDialog
+            busy = true
+            scope.launch {
+                try {
+                    val info = PluginMarket.fetch(PluginStore.DEFAULT_MARKET_URL)
+                    val dep = info.plugins.firstOrNull { it.id == PyDepGuide.DEP_PLUGIN_ID }
+                    if (dep == null) {
+                        toast(context, "市场里没找到 PY 引擎依赖包")
+                    } else {
+                        val (ok, msg) = PluginUi.installWithProgress(context, dep) {
+                            installProgress = it
                         }
+                        toast(context, msg)
+                        if (ok) PyDepGuide.clear()
                     }
-                },
-            )
+                } catch (e: Exception) {
+                    toast(context, "安装失败：${e.message}")
+                } finally {
+                    installProgress = null
+                    busy = false
+                }
+            }
         },
-        dismissButton = {
-            AppButton(
-                text = "下次再说",
-                variant = AppButtonVariant.Ghost,
-                onClick = { PyDepGuide.markDismissed(context, module) },
-            )
-        },
-    )
+        dismissText = "下次再说",
+    ) {
+        Text("规则需要 Python 模块「$module」，安装「PY 引擎依赖包」即可（约 0.4MB，一次安装长期有效）。")
+    }
     InstallProgressDialog(installProgress)
 }
 

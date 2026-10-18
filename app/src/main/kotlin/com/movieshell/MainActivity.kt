@@ -21,8 +21,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -46,6 +44,7 @@ import androidx.compose.material.icons.outlined.OndemandVideo
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -228,23 +227,21 @@ class MainActivity : ComponentActivity() {
                 // v0.7.2：存储权限引导（无权限时文件走私有回退目录，App 照常用）
                 var showPermDialog by remember { mutableStateOf(!StoragePaths.hasAccess(this@MainActivity)) }
                 if (showPermDialog) {
-                    AlertDialog(
+                    TechDialog(
                         onDismissRequest = {
                             showPermDialog = false
                             LogBus.w("StoragePaths", "用户跳过了存储权限申请")
                         },
-                        title = { Text("需要存储权限") },
-                        text = { Text("规则、备份、日志要存到 /storage/emulated/0/xiaying/，请授予「所有文件访问权限」。跳过也能用，文件会存在应用私有目录。") },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                showPermDialog = false
-                                StoragePaths.requestAccess(this@MainActivity)
-                            }) { Text("去授权") }
+                        title = "需要存储权限",
+                        confirmText = "去授权",
+                        onConfirm = {
+                            showPermDialog = false
+                            StoragePaths.requestAccess(this@MainActivity)
                         },
-                        dismissButton = {
-                            TextButton(onClick = { showPermDialog = false }) { Text("跳过") }
-                        },
-                    )
+                        dismissText = "跳过",
+                    ) {
+                        Text("规则、备份、日志要存到 /storage/emulated/0/xiaying/，请授予「所有文件访问权限」。跳过也能用，文件会存在应用私有目录。")
+                    }
                 }
                 Box(Modifier.fillMaxSize()) {
                 val navController = rememberNavController()

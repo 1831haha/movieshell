@@ -51,8 +51,6 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.core.content.FileProvider
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,6 +61,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.TechTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -823,11 +823,20 @@ fun SettingsScreen(
     if (showMarketSourcesDialog) {
         var nameInput by remember { mutableStateOf("") }
         var urlInput by remember { mutableStateOf("") }
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showMarketSourcesDialog = false },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("插件市场源", style = SoftType.CardTitle) },
-            text = {
+            title = "插件市场源",
+            confirmText = "添加",
+            onConfirm = {
+                if (!PluginStore.addMarketSource(context, nameInput, urlInput)) {
+                    Toast.makeText(context, "名称/地址为空或地址已存在", Toast.LENGTH_SHORT).show()
+                } else {
+                    nameInput = ""
+                    urlInput = ""
+                }
+            },
+            dismissText = "关闭",
+        ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     marketSources.forEachIndexed { i, s ->
                         Row(
@@ -887,57 +896,23 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            },
-            confirmButton = {
-                AppButton(
-                    text = "添加",
-                    onClick = {
-                        if (!PluginStore.addMarketSource(context, nameInput, urlInput)) {
-                            Toast.makeText(context, "名称/地址为空或地址已存在", Toast.LENGTH_SHORT).show()
-                        } else {
-                            nameInput = ""
-                            urlInput = ""
-                        }
-                    },
-                )
-            },
-            dismissButton = {
-                AppButton(
-                    text = "关闭",
-                    onClick = { showMarketSourcesDialog = false },
-                    variant = AppButtonVariant.Ghost,
-                )
-            },
-        )
+        }
     }
     if (showClearCacheDialog) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showClearCacheDialog = false },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("清理缓存", style = SoftType.CardTitle) },
-            text = {
-                Text(
-                    "确定要清理 $cacheSize 缓存吗？播放记录与站源配置不会被删除。",
-                    style = SoftType.Body,
-                )
+            title = "清理缓存",
+            confirmText = "确定",
+            onConfirm = {
+                cacheSize = "0 MB" // 占位：实际接入 CacheManager 后执行真实清理
+                showClearCacheDialog = false
             },
-            confirmButton = {
-                AppButton(
-                    text = "确定",
-                    onClick = {
-                        cacheSize = "0 MB" // 占位：实际接入 CacheManager 后执行真实清理
-                        showClearCacheDialog = false
-                    },
-                )
-            },
-            dismissButton = {
-                AppButton(
-                    text = "取消",
-                    onClick = { showClearCacheDialog = false },
-                    variant = AppButtonVariant.Ghost,
-                )
-            },
-        )
+        ) {
+            Text(
+                "确定要清理 $cacheSize 缓存吗？播放记录与站源配置不会被删除。",
+                style = SoftType.Body,
+            )
+        }
     }
     // v0.51.0：WebDAV 云同步配置 + 备份/恢复
     if (showCloudDialog) {
@@ -945,38 +920,37 @@ fun SettingsScreen(
         var urlInput by remember { mutableStateOf(cfg.url) }
         var userInput by remember { mutableStateOf(cfg.user) }
         var passInput by remember { mutableStateOf(cfg.pass) }
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { if (!cloudWorking) showCloudDialog = false },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("WebDAV 云同步", style = SoftType.CardTitle) },
-            text = {
+            title = "WebDAV 云同步",
+            dismissText = "关闭",
+        ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(lastSyncText, style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
+                    TechTextField(
                         value = urlInput,
                         onValueChange = { urlInput = it },
-                        label = { Text("服务器地址") },
-                        placeholder = { Text("https://dav.jianguoyun.com/dav/") },
+                        placeholder = "服务器地址",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !cloudWorking,
                     )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
+                    TechTextField(
                         value = userInput,
                         onValueChange = { userInput = it },
-                        label = { Text("账号") },
+                        placeholder = "账号",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !cloudWorking,
                     )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
+                    TechTextField(
                         value = passInput,
                         onValueChange = { passInput = it },
-                        label = { Text("密码") },
+                        placeholder = "密码",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !cloudWorking,
@@ -1045,42 +1019,33 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-            },
-            confirmButton = {
-                AppButton(
-                    text = "关闭",
-                    onClick = { showCloudDialog = false },
-                    enabled = !cloudWorking,
-                )
-            },
-        )
+        }
     }
 
     // v0.82.0：背景底图操作菜单
     if (showBgMenu) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showBgMenu = false },
-            title = { Text("背景底图") },
-            text = { Text("更换首页的背景底图，或恢复默认。") },
-            confirmButton = {
-                TextButton(onClick = {
+            title = "背景底图",
+            confirmText = "更换图片",
+            onConfirm = {
+                showBgMenu = false
+                bgPicker.launch("image/*")
+            },
+        ) {
+            Text("更换首页的背景底图，或恢复默认。")
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                onClick = {
                     showBgMenu = false
-                    bgPicker.launch("image/*")
-                }) { Text("更换图片") }
-            },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = {
-                        showBgMenu = false
-                        scope.launch {
-                            BackgroundStore.clearCustomBg(context)
-                            Toast.makeText(context, "已恢复默认背景", Toast.LENGTH_SHORT).show()
-                        }
-                    }) { Text("恢复默认") }
-                    TextButton(onClick = { showBgMenu = false }) { Text("取消") }
-                }
-            },
-        )
+                    scope.launch {
+                        BackgroundStore.clearCustomBg(context)
+                        Toast.makeText(context, "已恢复默认背景", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("恢复默认", modifier = Modifier.fillMaxWidth()) }
+        }
     }
 }
 
@@ -1143,11 +1108,10 @@ private fun SingleChoiceDialog(
     onDismiss: () -> Unit,
     onSelect: (String) -> Unit,
 ) {
-    AlertDialog(
+    TechDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(SoftDimens.CardCorner),
-        title = { Text(title, style = SoftType.CardTitle) },
-        text = {
+        title = title,
+    ) {
             Column {
                 options.forEach { option ->
                     ListItem(
@@ -1162,16 +1126,7 @@ private fun SingleChoiceDialog(
                     )
                 }
             }
-        },
-        confirmButton = {},
-        dismissButton = {
-            AppButton(
-                text = "取消",
-                onClick = onDismiss,
-                variant = AppButtonVariant.Ghost,
-            )
-        },
-    )
+    }
 }
 
 /**

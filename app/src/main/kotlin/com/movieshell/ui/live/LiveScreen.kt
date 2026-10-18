@@ -38,7 +38,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -47,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -904,11 +904,24 @@ fun LiveManageScreen(onBack: () -> Unit) {
         var name by remember { mutableStateOf("") }
         var url by remember { mutableStateOf("") }
         var err by remember { mutableStateOf(false) }
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showAddSub = false },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("添加 M3U 订阅", style = SoftType.CardTitle) },
-            text = {
+            title = "添加 M3U 订阅",
+            confirmText = "确定",
+            onConfirm = {
+                val u = url.trim()
+                if (!(u.startsWith("http://") || u.startsWith("https://"))) {
+                    err = true
+                    return@TechDialog
+                }
+                if (LiveStore.addSource(context, name.ifBlank { "M3U订阅" }, LiveSource.M3U_URL, u)) {
+                    showAddSub = false
+                    scope.launch { LiveStore.refresh(context) }
+                } else {
+                    Toast.makeText(context, "该订阅已存在", Toast.LENGTH_SHORT).show()
+                }
+            },
+        ) {
                 Column {
                     Text(
                         text = "名称",
@@ -942,34 +955,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         )
                     }
                 }
-            },
-            confirmButton = {
-                AppButton(
-                    text = "确定",
-                    onClick = {
-                        val u = url.trim()
-                        if (!(u.startsWith("http://") || u.startsWith("https://"))) {
-                            err = true
-                            return@AppButton
-                        }
-                        if (LiveStore.addSource(context, name.ifBlank { "M3U订阅" }, LiveSource.M3U_URL, u)) {
-                            showAddSub = false
-                            scope.launch { LiveStore.refresh(context) }
-                        } else {
-                            Toast.makeText(context, "该订阅已存在", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    variant = AppButtonVariant.Primary,
-                )
-            },
-            dismissButton = {
-                AppButton(
-                    text = "取消",
-                    onClick = { showAddSub = false },
-                    variant = AppButtonVariant.Ghost,
-                )
-            },
-        )
+        }
     }
 
     if (showAddChannel) {
@@ -977,11 +963,24 @@ fun LiveManageScreen(onBack: () -> Unit) {
         var url by remember { mutableStateOf("") }
         var logo by remember { mutableStateOf("") }
         var err by remember { mutableStateOf(false) }
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showAddChannel = false },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("手动添加频道", style = SoftType.CardTitle) },
-            text = {
+            title = "手动添加频道",
+            confirmText = "确定",
+            onConfirm = {
+                val u = url.trim()
+                if (!(u.startsWith("http://") || u.startsWith("https://"))) {
+                    err = true
+                    return@TechDialog
+                }
+                if (LiveStore.addManual(context, name.ifBlank { "未命名频道" }, u, logo)) {
+                    showAddChannel = false
+                    scope.launch { LiveStore.refresh(context) }
+                } else {
+                    Toast.makeText(context, "该频道已存在", Toast.LENGTH_SHORT).show()
+                }
+            },
+        ) {
                 Column {
                     Text(
                         text = "频道名",
@@ -1026,33 +1025,6 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-            },
-            confirmButton = {
-                AppButton(
-                    text = "确定",
-                    onClick = {
-                        val u = url.trim()
-                        if (!(u.startsWith("http://") || u.startsWith("https://"))) {
-                            err = true
-                            return@AppButton
-                        }
-                        if (LiveStore.addManual(context, name.ifBlank { "未命名频道" }, u, logo)) {
-                            showAddChannel = false
-                            scope.launch { LiveStore.refresh(context) }
-                        } else {
-                            Toast.makeText(context, "该频道已存在", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    variant = AppButtonVariant.Primary,
-                )
-            },
-            dismissButton = {
-                AppButton(
-                    text = "取消",
-                    onClick = { showAddChannel = false },
-                    variant = AppButtonVariant.Ghost,
-                )
-            },
-        )
+        }
     }
 }

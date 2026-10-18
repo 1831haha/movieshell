@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -48,7 +49,8 @@ fun TechDialog(
     confirmText: String = "确定",
     onConfirm: (() -> Unit)? = null,
     confirmEnabled: Boolean = true,
-    dismissText: String = "取消",
+    /** 取消按钮文案；传 null 则隐藏取消按钮（如不可取消的进度弹窗） */
+    dismissText: String? = "取消",
     // content 放最后：调用处用尾随 lambda 写法时必须对应最后一个参数
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -95,11 +97,13 @@ fun TechDialog(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TextButton(onClick = onDismissRequest) {
-                        Text(
-                            dismissText,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    if (dismissText != null) {
+                        TextButton(onClick = onDismissRequest) {
+                            Text(
+                                dismissText,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     if (onConfirm != null) {
                         Spacer(Modifier.width(8.dp))
@@ -133,6 +137,8 @@ fun TechTextField(
     placeholder: String = "",
     singleLine: Boolean = true,
     minLines: Int = 1,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    enabled: Boolean = true,
 ) {
     val shape = RoundedCornerShape(12.dp)
     val interactionSource = remember { MutableInteractionSource() }
@@ -142,9 +148,11 @@ fun TechTextField(
         onValueChange = onValueChange,
         singleLine = singleLine,
         minLines = minLines,
+        enabled = enabled,
         textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         interactionSource = interactionSource,
+        keyboardOptions = keyboardOptions,
         modifier = modifier
             .clip(shape)
             .background(Color(0xFF1F2433))

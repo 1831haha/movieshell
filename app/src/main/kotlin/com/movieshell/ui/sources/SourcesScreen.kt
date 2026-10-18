@@ -43,7 +43,6 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,6 +55,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.Composable
@@ -1194,58 +1194,36 @@ fun SourcesScreen(
             SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
                 .format(Date(file.lastModified()))
         }
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { infoItem = null },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("文件信息", style = SoftType.CardTitle) },
-            text = {
+            title = "文件信息",
+            dismissText = "关闭",
+        ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("文件名：${item.fileName}", style = SoftType.Body)
                     Text("大小：${formatSize(file.length())}", style = SoftType.Body)
                     Text("修改时间：$modified", style = SoftType.Body)
                     Text("路径：${file.absolutePath}", style = SoftType.Body)
                 }
-            },
-            confirmButton = {
-                AppButton(
-                    text = "关闭",
-                    onClick = { infoItem = null },
-                    variant = AppButtonVariant.Ghost,
-                )
-            },
-        )
+        }
     }
 
     // ---- 删除二次确认 ----
     deleteItemState?.let { item ->
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { deleteItemState = null },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("删除文件", style = SoftType.CardTitle) },
-            text = {
+            title = "删除文件",
+            confirmText = "删除",
+            onConfirm = {
+                deleteItemState = null
+                deleteItem(item)
+            },
+        ) {
                 Text(
                     "将「${item.fileName}」移入回收站，可随时恢复。",
                     style = SoftType.Body,
                 )
-            },
-            confirmButton = {
-                AppButton(
-                    text = "删除",
-                    onClick = {
-                        deleteItemState = null
-                        deleteItem(item)
-                    },
-                    variant = AppButtonVariant.Secondary,
-                )
-            },
-            dismissButton = {
-                AppButton(
-                    text = "取消",
-                    onClick = { deleteItemState = null },
-                    variant = AppButtonVariant.Ghost,
-                )
-            },
-        )
+        }
     }
 
     // ---- v0.90.0：批量检测进度（Worker 后台跑；关弹窗=后台继续，"取消检测"真 cancel） ----
@@ -1280,11 +1258,12 @@ fun SourcesScreen(
     }
 
     if (showAddDialog) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showAddDialog = false },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("添加订阅", style = SoftType.CardTitle) },
-            text = {
+            title = "添加订阅",
+            confirmText = "确定",
+            onConfirm = { addSubscription() },
+        ) {
                 Column {
                     AppTextField(
                         value = nameInput,
@@ -1314,30 +1293,16 @@ fun SourcesScreen(
                         )
                     }
                 }
-            },
-            confirmButton = {
-                AppButton(
-                    text = "确定",
-                    onClick = ::addSubscription,
-                    variant = AppButtonVariant.Primary,
-                )
-            },
-            dismissButton = {
-                AppButton(
-                    text = "取消",
-                    onClick = { showAddDialog = false },
-                    variant = AppButtonVariant.Ghost,
-                )
-            },
-        )
+        }
     }
 
     if (showWebAddDialog) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showWebAddDialog = false },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("添加网页站源", style = SoftType.CardTitle) },
-            text = {
+            title = "添加网页站源",
+            confirmText = "确定",
+            onConfirm = { addWebSite() },
+        ) {
                 Column {
                     Text(
                         text = "输入网站名称和地址，长按条目菜单可打开嗅探浏览器",
@@ -1379,22 +1344,7 @@ fun SourcesScreen(
                         )
                     }
                 }
-            },
-            confirmButton = {
-                AppButton(
-                    text = "确定",
-                    onClick = ::addWebSite,
-                    variant = AppButtonVariant.Primary,
-                )
-            },
-            dismissButton = {
-                AppButton(
-                    text = "取消",
-                    onClick = { showWebAddDialog = false },
-                    variant = AppButtonVariant.Ghost,
-                )
-            },
-        )
+        }
     }
 }
 
