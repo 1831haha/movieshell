@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -27,8 +26,6 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -56,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.movieshell.data.repo.LogBus
 import com.movieshell.ui.components.TabTopBar
+import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.player.MusicPlayer
 import com.movieshell.ui.components.AppCard
@@ -79,8 +77,6 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
@@ -101,12 +97,11 @@ import androidx.compose.material.icons.filled.QueueMusic
 /**
  * v0.79.0：音乐 Tab（原实验室 tab 位置）。
  *
- * 在线搜歌（网易云源聚合接口）+ 播放；底部迷你播放条：暂停/续播/上一首/下一首。
+ * 在线搜歌（网易云源聚合接口）+ 播放；v0.91.0：迷你播放条已上移到 MainActivity 全局挂载。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MusicScreen(
-    onOpenPlayer: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onOpenPlaylist: (String) -> Unit = {},
 ) {
@@ -117,7 +112,6 @@ fun MusicScreen(
     var tracks by remember { mutableStateOf<List<MusicApi.Track>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     var searched by remember { mutableStateOf(false) }
-    val playState by MusicPlayer.state.collectAsState()
     // v0.84.0：搜索历史
     var searchHistory by remember { mutableStateOf<List<String>>(emptyList()) }
 
@@ -167,12 +161,11 @@ fun MusicScreen(
                 .fillMaxSize()
                 .padding(inner),
         ) {
-            TabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("在线") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("本地") })
-                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("收藏") })
-                Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("歌单") })
-            }
+            CapsuleTabBar(
+                titles = listOf("在线", "本地", "收藏", "歌单"),
+                selected = tab,
+                onSelect = { tab = it },
+            )
             if (tab == 0) {
                 OnlineTab(
                     query = query,
@@ -211,11 +204,6 @@ fun MusicScreen(
             } else {
                 PlaylistTab(onOpenPlaylist = onOpenPlaylist)
             }
-            // 底部迷你播放条（三个 tab 共用；v0.83.0：点击进全屏播放页）
-            MiniPlayer(
-                playState = playState,
-                onOpenPlayer = { onOpenPlayer() },
-            )
         }
     }
 }
@@ -846,87 +834,6 @@ private fun FavTab() {
             track = t,
             onDismiss = { addToPlaylistTrack = null },
         )
-    }
-}
-
-/** v0.81.0：底部迷你播放条（三个 tab 共用）。 */
-@Composable
-private fun MiniPlayer(
-    playState: MusicPlayer.State,
-    onOpenPlayer: () -> Unit = {},
-) {
-    val context = LocalContext.current
-    val current = playState.track ?: return
-    // v0.89.0：封面走 picImageUrl 解析后的真实地址
-    val artUrl = rememberArtworkUrl(current.picId)
-    AppCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clickable(onClick = onOpenPlayer),
-    ) {
-        Row(
-            modifier = Modifier.padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (artUrl.isNotBlank()) {
-                AsyncImage(
-                    model = artUrl,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(8.dp)),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                Icon(
-                    Icons.Filled.MusicNote,
-                    contentDescription = null,
-                    modifier = Modifier.size(44.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = current.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = current.artist,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (playState.loading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    strokeWidth = 2.dp,
-                )
-            } else {
-                IconButton(onClick = { MusicPlayer.prev(context) }) {
-                    Icon(Icons.Filled.SkipPrevious, contentDescription = "上一首")
-                }
-                IconButton(
-                    onClick = { MusicPlayer.toggle() },
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape),
-                ) {
-                    Icon(
-                        if (playState.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (playState.playing) "暂停" else "播放",
-                    )
-                }
-                IconButton(onClick = { MusicPlayer.next(context) }) {
-                    Icon(Icons.Filled.SkipNext, contentDescription = "下一首")
-                }
-            }
-        }
     }
 }
 

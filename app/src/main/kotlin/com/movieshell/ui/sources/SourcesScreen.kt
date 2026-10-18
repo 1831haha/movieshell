@@ -7,8 +7,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -78,7 +76,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -105,6 +102,7 @@ import com.movieshell.data.repo.WebSourceManager
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
@@ -115,7 +113,6 @@ import com.movieshell.ui.trash.TrashScreen
 import com.movieshell.ui.preview.openFileWithEditor
 import com.movieshell.ui.preview.previewKindDir
 import com.movieshell.ui.preview.shareFile
-import com.movieshell.ui.theme.LocalBrandGradient
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
@@ -336,53 +333,6 @@ private fun ProbeResultRow(target: ProbeTarget, result: SourceProbe.Result?) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-        }
-    }
-}
-
-/**
- * v0.90.0：胶囊分段 tab（影图系：整条圆角胶囊容器 + 毛玻璃深底，
- * 四个等分胶囊；选中项主题渐变填充 + 白色加粗字，背景/字色带过渡动画）。
- */
-@Composable
-private fun CapsuleTabBar(selected: Int, onSelect: (Int) -> Unit) {
-    val titles = listOf("订阅源", "本地源", "批量检测", "回收站")
-    val gradient = Brush.horizontalGradient(LocalBrandGradient.current)
-    val soft = LocalSoftExtra.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-            .border(1.dp, soft.border, RoundedCornerShape(50))
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        titles.forEachIndexed { i, title ->
-            val isSel = i == selected
-            val bgAlpha by animateFloatAsState(if (isSel) 1f else 0f, label = "capsuleBg")
-            val textColor by animateColorAsState(
-                if (isSel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                label = "capsuleText",
-            )
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(50))
-                    .background(gradient, alpha = bgAlpha)
-                    .clickable { onSelect(i) }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = title,
-                    style = SoftType.Body,
-                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                    color = textColor,
-                    maxLines = 1,
-                )
-            }
         }
     }
 }
@@ -1162,7 +1112,11 @@ fun SourcesScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        CapsuleTabBar(selected = subTab, onSelect = { subTab = it })
+        CapsuleTabBar(
+            titles = listOf("订阅源", "本地源", "批量检测", "回收站"),
+            selected = subTab,
+            onSelect = { subTab = it },
+        )
         when (subTab) {
             0 -> SubscriptionTab()
             1 -> LocalTab()

@@ -80,15 +80,24 @@ object BookRuleEngine {
     fun parseDoc(html: String, baseUrl: String): org.jsoup.nodes.Document =
         Jsoup.parse(html, baseUrl)
 
-    /** 正文提取：去掉 script/style，按块级元素分段。 */
+    /**
+     * 正文提取：去掉 script/style；<br> 与块级元素都转成换行。
+     *
+     * v0.91.0 修复：此前用 el.textNodes() 只取直接文本节点；全本小说网等站正文
+     * 由 <p> 包裹时直接文本节点只有空白，过滤后返回空串 → 阅读器只显示标题。
+     * 现把块级元素尾部都追加换行再用 wholeText() 取全文，兼容
+     * "直接文本 + <br>" 与 "<p> 包裹" 两种排版。
+     */
     fun extractContent(doc: org.jsoup.nodes.Document, rule: String): String {
         if (rule.isBlank()) return ""
         return runCatching {
             val el = doc.selectFirst(rule) ?: return ""
             el.select("script, style").remove()
-            // <br> 转成分段
+            // after 只追加换行文本节点，不复制正文；嵌套块产生的多余空行会被 filter 去掉
             el.select("br").forEach { it.after("\n") }
-            el.textNodes().joinToString("\n") { it.text().trim() }
+            el.select("p, div, h1, h2, h3, h4, h5, h6, li, blockquote, tr, section, article")
+                .forEach { it.after("\n") }
+            el.wholeText()
                 .split("\n")
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }

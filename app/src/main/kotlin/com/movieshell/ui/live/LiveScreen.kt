@@ -92,16 +92,12 @@ import java.util.Locale
 
 private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-/** v0.79.0：虎牙总站入口频道（插件里 url 为 huya 协议 portal 地址的那单条），点它进直播间列表而非直接播放 */
-fun isHuyaPortal(ch: LiveChannel): Boolean = ch.url == "huya://portal"
-
 /** 直播 Tab：DsPlayer 式布局（v0.80.0 重做）——顶部 16:9 播放器 + 节目信息卡 + 三列（分组/频道/源） */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun LiveScreen(
     onFullscreenChannel: (LiveChannel) -> Unit,
     onManageClick: () -> Unit,
-    onHuyaPortalClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -132,25 +128,16 @@ fun LiveScreen(
     // 频道列表就绪后自动选中第一个（无选中时）
     LaunchedEffect(channels) {
         if (selected == null && channels.isNotEmpty()) {
-            val first = channels.firstOrNull { !isHuyaPortal(it) } ?: channels.first()
-            selected = first
+            selected = channels.first()
         }
     }
 
     fun playChannel(ch: LiveChannel) {
-        if (isHuyaPortal(ch)) {
-            onHuyaPortalClick()
-        } else {
-            selected = ch
-        }
+        selected = ch
     }
 
-    // 虎牙总站入口单独拎出来，不进三列
-    val huyaPortal = remember(channels) { channels.firstOrNull { isHuyaPortal(it) } }
-    val normalChannels = remember(channels) { channels.filter { !isHuyaPortal(it) } }
-
-    val filtered = remember(normalChannels, query, favOnly) {
-        normalChannels.filter {
+    val filtered = remember(channels, query, favOnly) {
+        channels.filter {
             (!favOnly || it.favorite) &&
                 (query.isBlank() || it.name.contains(query, ignoreCase = true))
         }
@@ -173,7 +160,7 @@ fun LiveScreen(
     val sources = remember(channels, selected) {
         val name = selected?.name
         if (name.isNullOrBlank()) emptyList()
-        else channels.filter { it.name == name && !isHuyaPortal(it) }
+        else channels.filter { it.name == name }
     }
 
     // EPG：当前节目 + 下一档（节目信息卡用）
@@ -226,7 +213,7 @@ fun LiveScreen(
                     .aspectRatio(16f / 9f)
                     .background(Color.Black),
             ) {
-                if (playing != null && !isHuyaPortal(playing)) {
+                if (playing != null) {
                     PlayerScreen(
                         url = playing.url,
                         title = playing.name,
@@ -264,10 +251,6 @@ fun LiveScreen(
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     placeholder = "搜索频道",
                 )
-            }
-            // 虎牙总站入口
-            if (huyaPortal != null) {
-                HuyaEntryCard(onClick = onHuyaPortalClick)
             }
             if (refreshing) {
                 Row(
@@ -636,41 +619,6 @@ private fun SourceButton(
             else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
         )
-    }
-}
-
-/** v0.80.0：虎牙总站入口条（有 portal 频道时显示在三列上方）。 */
-@Composable
-private fun HuyaEntryCard(onClick: () -> Unit) {
-    AppCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .clickable(onClick = onClick),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Filled.Tv,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = "虎牙直播",
-                style = SoftType.CardTitle,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = "进总站选台 >",
-                style = SoftType.Caption,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }
 

@@ -115,6 +115,7 @@ import com.movieshell.player.PlaySession
 import com.movieshell.player.PlayerScreen
 import com.movieshell.player.resolvePlayUrl
 import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
@@ -379,33 +380,12 @@ fun DetailScreen(
 
     Scaffold(
         topBar = {
-            // v0.78.2：顶栏瘦身——标准 TopAppBar 太粗，换成 44dp 细条 + 底部 2.5dp 炫彩渐变线
-            Column {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.size(40.dp),
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回",
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                    Text(
-                        vod?.title ?: initialTitle.ifBlank { displayTitle(vodId) },
-                        color = Color(0xFFD9C39A),
-                        style = SoftType.Body,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    // v0.65：收藏已移到信息区，顶栏只留追剧 + 分享占位
+            // v0.91.0：顶栏统一为 TabTopBar（与各 tab 一致；收藏已在信息区，顶栏只留追剧 + 分享占位）
+            TabTopBar(
+                title = vod?.title ?: initialTitle.ifBlank { displayTitle(vodId) },
+                onBack = onBack,
+                actions = {
+                    // v0.65：追剧开关
                     IconButton(
                         onClick = {
                             scope.launch {
@@ -435,7 +415,6 @@ fun DetailScreen(
                                 }
                             }
                         },
-                        modifier = Modifier.size(40.dp),
                     ) {
                         Icon(
                             imageVector = if (following) Icons.Filled.PlaylistAddCheck
@@ -443,35 +422,17 @@ fun DetailScreen(
                             contentDescription = "追剧",
                             tint = if (following) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp),
                         )
                     }
                     // 占位：分享
-                    IconButton(onClick = { }, modifier = Modifier.size(40.dp)) {
+                    IconButton(onClick = { }) {
                         Icon(
                             Icons.Filled.Share,
                             contentDescription = "分享",
-                            modifier = Modifier.size(20.dp),
                         )
                     }
-                }
-                // 彩色细条：v0.70 炫彩渐变（青→靛→品红→金）
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(2.5.dp)
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(
-                                    Color(0xFF22D3EE),
-                                    Color(0xFF818CF8),
-                                    Color(0xFFE879F9),
-                                    Color(0xFFFBBF24),
-                                ),
-                            ),
-                        ),
-                )
-            }
+                },
+            )
         },
     ) { inner ->
         if ((subSite != null || drpyActive) && detailLoading && detail == null) {

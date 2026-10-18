@@ -18,6 +18,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
@@ -86,6 +87,8 @@ import kotlinx.coroutines.launch
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.player.EngineHost
 import com.movieshell.player.MpvPlayerManager
+import com.movieshell.player.MusicPlayer
+import com.movieshell.player.PLAYER_ROUTE_BASE
 import com.movieshell.player.PlayerManager
 import com.movieshell.player.PlaySession
 import com.movieshell.player.navigateToPlayer
@@ -104,10 +107,9 @@ import com.movieshell.ui.components.SoftDockItem
 import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.home.HomeViewModel
 import com.movieshell.ui.music.MusicHistoryScreen
+import com.movieshell.ui.music.MiniPlayer
 import com.movieshell.ui.music.MusicScreen
 import com.movieshell.ui.music.PlaylistDetailScreen
-import com.movieshell.data.repo.HuyaApi
-import com.movieshell.ui.live.HuyaPortalScreen
 import com.movieshell.ui.live.LiveManageScreen
 import com.movieshell.ui.live.LiveScreen
 import com.movieshell.ui.log.LogBubbleOverlay
@@ -263,10 +265,23 @@ class MainActivity : ComponentActivity() {
                 val showBottomBar = current?.hierarchy?.any { dest ->
                     tabs.any { it.route == dest.route }
                 } == true
+                // v0.91.0：全局迷你播放条——有在播曲目且不在播放页/视频页时，悬在底部导航上方
+                val musicState by MusicPlayer.state.collectAsState()
+                val curRoute = current?.route
+                val showMiniPlayer = musicState.track != null &&
+                    curRoute != "music_player" &&
+                    curRoute?.startsWith(PLAYER_ROUTE_BASE) != true
 
                 Scaffold(
                     bottomBar = {
-                        if (showBottomBar) {
+                        Column {
+                            if (showMiniPlayer) {
+                                MiniPlayer(
+                                    playState = musicState,
+                                    onOpenPlayer = { navController.navigate("music_player") },
+                                )
+                            }
+                            if (showBottomBar) {
                             // v0.27.1：悬浮 dock 式导航（替代 NavigationBar 脏灰药丸选中态）
                             val selectedIdx = tabs.indexOfFirst { t ->
                                 current?.hierarchy?.any { it.route == t.route } == true
@@ -276,6 +291,7 @@ class MainActivity : ComponentActivity() {
                                 selectedIndex = selectedIdx,
                                 onSelect = { i -> navController.navigateTab(tabs[i].route) },
                             )
+                        }
                         }
                     }
                 ) { inner ->
@@ -380,20 +396,6 @@ class MainActivity : ComponentActivity() {
                                     )
                                 },
                                 onManageClick = { navController.navigate("live_manage") },
-                                onHuyaPortalClick = { navController.navigate("huya") },
-                            )
-                        }
-                        // v0.79.0：虎牙总站（分类+直播间列表）
-                        composable("huya") {
-                            HuyaPortalScreen(
-                                onBack = { navController.popBackStack() },
-                                onFullscreenRoom = { room ->
-                                    navController.navigateToPlayer(
-                                        url = HuyaApi.playUrl(room.roomId),
-                                        title = "虎牙-${room.nick}",
-                                        isLive = true,
-                                    )
-                                },
                             )
                         }
                         composable("live_manage") {
@@ -579,7 +581,6 @@ class MainActivity : ComponentActivity() {
                         // v0.79.0：实验室 tab 改为音乐 tab；原实验室功能已搬进设置页
                         composable("music") {
                             MusicScreen(
-                                onOpenPlayer = { navController.navigate("music_player") },
                                 // v0.84.0：历史页 / 歌单详情
                                 onOpenHistory = { navController.navigate("music_history") },
                                 onOpenPlaylist = { id ->

@@ -29,8 +29,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
 import com.movieshell.ui.components.TabTopBar
+import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
@@ -146,12 +145,12 @@ fun HistoryScreen(
                 .fillMaxSize()
                 .padding(inner),
         ) {
-            // v0.86.0：子 tab——全部 / 点播 / 直播
-            TabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("全部") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("点播") })
-                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("直播") })
-            }
+            // v0.86.0：子 tab——全部 / 点播 / 直播；v0.91.0：换胶囊 tab，风格统一
+            CapsuleTabBar(
+                titles = listOf("全部", "点播", "直播"),
+                selected = tab,
+                onSelect = { tab = it },
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

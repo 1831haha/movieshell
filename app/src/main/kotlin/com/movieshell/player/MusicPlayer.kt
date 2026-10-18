@@ -221,9 +221,20 @@ object MusicPlayer {
         }
     }
 
+    /**
+     * v0.91.0：controller 断开（如进程被回收后 service 还在播）时不再静默 return——
+     * 有 track 说明后台有播放任务，给 toast 反馈并尝试重连恢复后再执行这次切换。
+     */
     fun toggle() {
-        val c = controller ?: return
-        if (c.isPlaying) c.pause() else c.play()
+        val c = controller
+        if (c != null) {
+            if (c.isPlaying) c.pause() else c.play()
+            return
+        }
+        val ctx = appCtx ?: return
+        if (_state.value.track == null) return
+        toast("正在重连…")
+        withController(ctx) { if (it.isPlaying) it.pause() else it.play() }
     }
 
     /** v0.85.0：睡眠定时到期——2 秒线性渐弱后暂停，恢复音量 */

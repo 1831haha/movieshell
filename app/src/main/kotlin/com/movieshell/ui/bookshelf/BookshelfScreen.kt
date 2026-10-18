@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.TabTopBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -190,55 +190,50 @@ private fun BookshelfList(
         }
     }
 
-    val gold = Color(0xFFD9C39A)
+    // v0.91.0：顶栏统一为 TabTopBar（品牌渐变细线 + 标准 48dp 高），与各 tab 一致
+    var showAddMenu by remember { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabTopBar(
+            title = "书架",
+            actions = {
+                Box {
+                    IconButton(onClick = { showAddMenu = true }, enabled = !importing) {
+                        Icon(Icons.Filled.Add, "添加书籍")
+                    }
+                    DropdownMenu(
+                        expanded = showAddMenu,
+                        onDismissRequest = { showAddMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("添加本地书籍") },
+                            leadingIcon = {
+                                Icon(Icons.Filled.FolderOpen, contentDescription = null)
+                            },
+                            onClick = {
+                                showAddMenu = false
+                                pickTxt.launch("text/plain")
+                            },
+                        )
+                    }
+                }
+                // v0.84.0：追更检查
+                IconButton(onClick = { checkUpdates() }, enabled = !checking && !importing) {
+                    Icon(Icons.Filled.Refresh, "检查更新")
+                }
+                IconButton(onClick = onFindBookClick) {
+                    Icon(Icons.Filled.Search, "找书")
+                }
+                IconButton(onClick = onManageSourcesClick) {
+                    Icon(Icons.Filled.Storage, "书源管理")
+                }
+            },
+        )
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("书架", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = gold)
-                Text(
-                    // v0.66.0：单列表，显示总数
-                    if (books.isEmpty()) "管理你的藏书" else "共 ${books.size} 本",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            var showAddMenu by remember { mutableStateOf(false) }
-            Box {
-                IconButton(onClick = { showAddMenu = true }, enabled = !importing) {
-                    Icon(Icons.Filled.Add, "添加书籍", tint = gold)
-                }
-                DropdownMenu(
-                    expanded = showAddMenu,
-                    onDismissRequest = { showAddMenu = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("添加本地书籍") },
-                        leadingIcon = {
-                            Icon(Icons.Filled.FolderOpen, contentDescription = null)
-                        },
-                        onClick = {
-                            showAddMenu = false
-                            pickTxt.launch("text/plain")
-                        },
-                    )
-                }
-            }
-            // v0.84.0：追更检查
-            IconButton(onClick = { checkUpdates() }, enabled = !checking && !importing) {
-                Icon(Icons.Filled.Refresh, "检查更新", tint = gold)
-            }
-            IconButton(onClick = onFindBookClick) {
-                Icon(Icons.Filled.Search, "找书", tint = gold)
-            }
-            IconButton(onClick = onManageSourcesClick) {
-                Icon(Icons.Filled.Storage, "书源管理", tint = gold)
-            }
-        }
-
         Spacer(Modifier.height(12.dp))
 
         // v0.66.0：分组 tab 已移除（用户要求只留一个书架）
@@ -293,6 +288,7 @@ private fun BookshelfList(
                 }
             }
         }
+    }
     }
 
     // v0.36.0：长按删除确认

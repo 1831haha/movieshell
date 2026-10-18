@@ -34,8 +34,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -58,6 +56,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.ui.components.TabTopBar
+import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.data.repo.FavoriteItem
 import com.movieshell.data.repo.FavoriteStore
 import com.movieshell.data.repo.Playlist
@@ -336,10 +335,11 @@ fun FavoritesScreen(
                 .fillMaxSize()
                 .padding(inner),
         ) {
-            TabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("收藏") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("片单") })
-            }
+            CapsuleTabBar(
+                titles = listOf("收藏", "片单"),
+                selected = tab,
+                onSelect = { tab = it },
+            )
             if (tab == 0) FavTab() else PlaylistTab()
         }
     }

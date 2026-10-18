@@ -28,8 +28,6 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
@@ -60,6 +58,7 @@ import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.PyBookApi
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -253,10 +252,7 @@ fun BookSourceScreen(
                 }
             }
             items(pyRules, key = { "py_${it.name}" }) { r ->
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    ),
+                AppCard(
                     // v0.66.0：点卡片直接打开该源（找书只搜它）
                     onClick = { onOpenPySource(r.name) },
                 ) {
@@ -331,11 +327,7 @@ fun BookSourceScreen(
                 }
             }
             items(sources, key = { "json_${it.key}" }) { s ->
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        ),
-                    ) {
+                    AppCard {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically,

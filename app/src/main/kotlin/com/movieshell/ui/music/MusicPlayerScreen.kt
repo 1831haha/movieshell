@@ -3,6 +3,7 @@ package com.movieshell.ui.music
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -50,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,6 +75,7 @@ import kotlinx.coroutines.launch
 
 /**
  * v0.83.0：全屏播放页——大封面 / 歌词滚动跟随 / 进度条拖动 / 播放模式。
+ * v0.91.0：中间内容区单击在封面模式与歌词模式间切换（网易云式）。
  */
 @Composable
 fun MusicPlayerScreen(onBack: () -> Unit = {}) {
@@ -88,6 +91,8 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
     var dragPos by remember { mutableStateOf(0L) }
     // v0.85.0：睡眠定时
     var showSleepDialog by remember { mutableStateOf(false) }
+    // v0.91.0：中间内容区单击切换——封面模式 / 歌词模式（网易云式）
+    var showLyrics by rememberSaveable { mutableStateOf(false) }
     val sleepRemaining by SleepTimer.remainingMs.collectAsState()
     val sleepArmed by SleepTimer.afterEpisodeArmed.collectAsState()
     // v0.89.0：封面旋转（只转封面；暂停时 LaunchedEffect key 变化自动取消即停）
@@ -171,90 +176,105 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(16.dp))
-            // 封面（v0.89.0：旋转只作用在这两处；封面地址走 picImageUrl 解析）
-            val artUrl = rememberArtworkUrl(track.picId)
-            if (artUrl.isNotBlank()) {
-                AsyncImage(
-                    model = artUrl,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(240.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .graphicsLayer { rotationZ = angle.value },
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(240.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .graphicsLayer { rotationZ = angle.value },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Filled.MusicNote,
-                        contentDescription = null,
-                        modifier = Modifier.size(96.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-            Text(
-                text = track.name,
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = track.artist,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(12.dp))
-            // 歌词区
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                when {
-                    lyricLoading -> Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) { CircularProgressIndicator(modifier = Modifier.size(28.dp)) }
-                    lyrics.isEmpty() -> Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
+            // v0.91.0：中间内容区单击切换封面/歌词（网易云式）；进度条与控制区不在此 Box 内，不冲突
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                    ) { showLyrics = !showLyrics },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (!showLyrics) {
+                    // 封面模式：大封面（保留旋转动画）+ 歌名/歌手
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        // 封面（v0.89.0：旋转只作用在这两处；封面地址走 picImageUrl 解析）
+                        val artUrl = rememberArtworkUrl(track.picId)
+                        if (artUrl.isNotBlank()) {
+                            AsyncImage(
+                                model = artUrl,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(240.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .graphicsLayer { rotationZ = angle.value },
+                                contentScale = ContentScale.Crop,
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(240.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .graphicsLayer { rotationZ = angle.value },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Filled.MusicNote,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(96.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
                         Text(
-                            "暂无歌词",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            text = track.name,
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = track.artist,
                             style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    else -> LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        // v0.89.0：行距 10.dp→14.dp，当前行加粗，呼吸感
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        itemsIndexed(lyrics) { i, line ->
+                } else {
+                    // 歌词模式：歌词占满中间区域（滚动跟随/当前行高亮保留）
+                    when {
+                        lyricLoading -> Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) { CircularProgressIndicator(modifier = Modifier.size(28.dp)) }
+                        lyrics.isEmpty() -> Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
                             Text(
-                                text = line.text,
-                                modifier = Modifier.fillMaxWidth(),
-                                textAlign = TextAlign.Center,
-                                fontWeight = if (i == curIdx) FontWeight.Bold else null,
-                                style = if (i == curIdx) {
-                                    MaterialTheme.typography.bodyLarge
-                                } else {
-                                    MaterialTheme.typography.bodyMedium
-                                },
-                                color = if (i == curIdx) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                },
+                                "暂无歌词",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
                             )
+                        }
+                        else -> LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            // v0.89.0：行距 10.dp→14.dp，当前行加粗，呼吸感
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            itemsIndexed(lyrics) { i, line ->
+                                Text(
+                                    text = line.text,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textAlign = TextAlign.Center,
+                                    fontWeight = if (i == curIdx) FontWeight.Bold else null,
+                                    style = if (i == curIdx) {
+                                        MaterialTheme.typography.bodyLarge
+                                    } else {
+                                        MaterialTheme.typography.bodyMedium
+                                    },
+                                    color = if (i == curIdx) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    },
+                                )
+                            }
                         }
                     }
                 }

@@ -27,7 +27,6 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
-import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -161,11 +160,10 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
             }.take(8)
         }
         if (suggestions.isNotEmpty() && trimmedQuery != submitted) {
-            Card(
+            AppCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = SoftDimens.PagePadding),
-                shape = RoundedCornerShape(SoftDimens.CardCorner),
             ) {
                 Column(modifier = Modifier.padding(vertical = 4.dp)) {
                     suggestions.forEach { s ->
