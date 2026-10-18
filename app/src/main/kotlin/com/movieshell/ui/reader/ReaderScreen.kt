@@ -670,9 +670,8 @@ fun ReaderScreen(
                         )
                     }
                 }
-            },
+            }
         }
-    }
 
     // v0.89.0：书签列表（TechDialog）
     if (showBookmarks) {
@@ -869,7 +868,6 @@ fun ReaderScreen(
                         }
                     }
                 }
-            },
+            }
         }
     }
-}
