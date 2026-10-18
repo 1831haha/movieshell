@@ -163,7 +163,12 @@ fun LiveScreen(
     LaunchedEffect(groupNames) {
         if (selectedGroup !in groupNames) selectedGroup = groupNames.firstOrNull()
     }
-    val groupChannels = remember(groups, selectedGroup) { groups[selectedGroup].orEmpty() }
+    // v0.80.1：selectedGroup 初始为 null（LaunchedEffect 异步才赋值），TreeMap.get(null)
+    // 会直接 NPE 闪退；首帧先兜底取首个分组
+    val groupChannels = remember(groups, selectedGroup) {
+        val g = selectedGroup ?: groups.keys.firstOrNull()
+        if (g == null) emptyList() else groups[g].orEmpty()
+    }
     // 同名多线路 = 源1..N（对标 DsPlayer 右列）
     val sources = remember(channels, selected) {
         val name = selected?.name
