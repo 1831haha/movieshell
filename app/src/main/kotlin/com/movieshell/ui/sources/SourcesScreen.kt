@@ -54,7 +54,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -62,7 +66,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -70,6 +76,7 @@ import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -99,6 +106,8 @@ import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.trash.TrashScreen
 import com.movieshell.ui.preview.openFileWithEditor
 import com.movieshell.ui.preview.previewKindDir
 import com.movieshell.ui.preview.shareFile
@@ -109,6 +118,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -243,6 +253,13 @@ private data class GridFileItem(
 /** 探活结果 key：kind:name */
 private fun probeKey(kind: String, name: String) = "$kind:$name"
 
+/** v0.86.0：批量检测目标（检测 tab 列表展示用） */
+private data class ProbeTarget(
+    val kind: String,
+    val name: String,
+    val label: String,
+)
+
 /** 探活徽标颜色（Soft Tech 柔和版） */
 @Composable
 private fun ProbeDot(probe: SourceProbe.Result?) {
@@ -263,9 +280,66 @@ private fun ProbeDot(probe: SourceProbe.Result?) {
     Spacer(Modifier.width(4.dp))
 }
 
+/** v0.86.0：检测 tab 的逐源结果行——名称 + 状态徽标 + 耗时/失败原因 */
+@Composable
+private fun ProbeResultRow(target: ProbeTarget, result: SourceProbe.Result?) {
+    val soft = LocalSoftExtra.current
+    val (label, color) = when (result) {
+        is SourceProbe.Result.Ok -> "${result.ms}ms" to soft.success
+        is SourceProbe.Result.Slow -> "${result.ms}ms" to soft.warning
+        is SourceProbe.Result.Fail -> result.reason to soft.errorSoft
+        is SourceProbe.Result.Unsupported -> "不支持" to
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        null -> "待检测" to MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    }
+    val statusText = when (result) {
+        is SourceProbe.Result.Ok -> "正常"
+        is SourceProbe.Result.Slow -> "缓慢"
+        is SourceProbe.Result.Fail -> "失败"
+        is SourceProbe.Result.Unsupported -> "不支持"
+        null -> "待检测"
+    }
+    AppCard(
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .background(color, CircleShape),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = target.label,
+                style = SoftType.Body,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = statusText,
+                style = SoftType.Caption,
+                color = color,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = label,
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 /** 置顶优先（按置顶顺序），其余按展示名排序 */
-private fun sortWithPins(items: List<GridFileItem>, pins: List<String>): List<GridFileItem> {
-    val order = pins.withIndex().associate { it.value to it.index }
+private fun sortWithPins(items: List<GridFileItem>, pins: List<String>): List<GridFileItem> {    val order = pins.withIndex().associate { it.value to it.index }
     return items.sortedWith(
         compareBy({ order[it.fileName] ?: Int.MAX_VALUE }, { it.displayName.lowercase() }),
     )
@@ -282,8 +356,6 @@ private fun formatSize(bytes: Long): String = when {
 fun SourcesScreen(
     onWebSniff: (name: String, url: String) -> Unit = { _, _ -> },
     onPreview: (kind: String, fileName: String) -> Unit = { _, _ -> },
-    // v0.24.0：回收站入口
-    onTrashClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
 
@@ -427,54 +499,69 @@ fun SourcesScreen(
         }
     }
 
-    // ---------- v0.24.0：批量探活 ----------
+    // ---------- v0.24.0：批量探活；v0.86.0：硬超时 + 检测 tab 结果列表 ----------
     var probing by remember { mutableStateOf(false) }
     var probeStatus by remember { mutableStateOf("") }
     var probeJob by remember { mutableStateOf<Job?>(null) }
     val probeResults = remember { mutableStateMapOf<String, SourceProbe.Result>() }
+    /** v0.86.0：检测目标列表（顺序展示）+ 总数（进度用） */
+    val probeTargets = remember { mutableStateListOf<ProbeTarget>() }
+    var probeTotal by remember { mutableIntStateOf(0) }
     /** 启停状态流：toggle 后自动重组，无需手动刷新 */
     val disabledRules by SourceStateStore.disabled.collectAsState()
 
     /**
-     * 对各 tab 已启用条目做轻量探活（调 home()，8 秒超时），不碰全局激活状态。
+     * 对各 tab 已启用条目做轻量探活（调 home()，8 秒硬超时），不碰全局激活状态。
      * PHP 本地规则手机端无解释器，标"不支持"不探；订阅只探地址连通性。
+     * v0.86.0：SourceProbe 内部线程池硬超时 + Semaphore(6) 限流，
+     * 这里只负责 IO 调度与结果落盘。
      */
     fun runBatchProbe() {
         if (probing) return
         probing = true
         probeStatus = "准备中…"
         probeResults.clear()
+        probeTargets.clear()
+        val targets = mutableListOf<Pair<ProbeTarget, () -> SourceProbe.Result>>()
+        DrpySourceManager.listRules().forEach { r ->
+            if (SourceStateStore.isRuleEnabled(TAB_JS, r.name)) {
+                val f = File(StoragePaths.jsDir(context), r.name)
+                targets += ProbeTarget(TAB_JS, r.name, r.name) to
+                    { SourceProbe.probeJs(context, f) }
+            }
+        }
+        PySourceManager.listRules().forEach { r ->
+            if (SourceStateStore.isRuleEnabled(TAB_PY, r.name)) {
+                val f = File(StoragePaths.pyDir(context), r.name)
+                targets += ProbeTarget(TAB_PY, r.name, r.name) to
+                    { SourceProbe.probePy(context, f) }
+            }
+        }
+        // PHP：手机端无解释器，不探
+        phpEntries.forEach { e ->
+            val t = ProbeTarget(TAB_PHP, e.name, e.name)
+            probeTargets.add(t)
+            probeResults[probeKey(TAB_PHP, e.name)] = SourceProbe.Result.Unsupported
+        }
+        WebSourceManager.listSites().forEach { s ->
+            if (SourceStateStore.isRuleEnabled(TAB_WEB, s.fileName)) {
+                targets += ProbeTarget(TAB_WEB, s.fileName, s.fileName) to
+                    { SourceProbe.probeHttp(s.url) }
+            }
+        }
+        apiGroup.entries.filter { it.enabled }.forEach { e ->
+            targets += ProbeTarget("sub", e.detail, e.name) to
+                { SourceProbe.probeHttp(e.detail) }
+        }
+        probeTargets.addAll(targets.map { it.first })
+        probeTotal = probeTargets.size
         probeJob = SubSiteStore.appScope.launch {
-            val targets = mutableListOf<Triple<String, String, suspend () -> SourceProbe.Result>>()
-            DrpySourceManager.listRules().forEach { r ->
-                if (SourceStateStore.isRuleEnabled(TAB_JS, r.name)) {
-                    val f = File(StoragePaths.jsDir(context), r.name)
-                    targets += Triple(TAB_JS, r.name, suspend { SourceProbe.probeJs(context, f) })
-                }
-            }
-            PySourceManager.listRules().forEach { r ->
-                if (SourceStateStore.isRuleEnabled(TAB_PY, r.name)) {
-                    val f = File(StoragePaths.pyDir(context), r.name)
-                    targets += Triple(TAB_PY, r.name, suspend { SourceProbe.probePy(context, f) })
-                }
-            }
-            // PHP：手机端无解释器，不探
-            phpEntries.forEach { e ->
-                probeResults[probeKey(TAB_PHP, e.name)] = SourceProbe.Result.Unsupported
-            }
-            WebSourceManager.listSites().forEach { s ->
-                if (SourceStateStore.isRuleEnabled(TAB_WEB, s.fileName)) {
-                    targets += Triple(TAB_WEB, s.fileName, suspend { SourceProbe.probeHttp(s.url) })
-                }
-            }
-            apiGroup.entries.filter { it.enabled }.forEach { e ->
-                targets += Triple("sub", e.detail, suspend { SourceProbe.probeHttp(e.detail) })
-            }
             supervisorScope {
-                targets.map { (kind, name, fn) ->
-                    async {
-                        probeStatus = "$name"
-                        probeResults[probeKey(kind, name)] = fn()
+                targets.map { (t, fn) ->
+                    async(Dispatchers.IO) {
+                        val res = fn()
+                        probeResults[probeKey(t.kind, t.name)] = res
+                        probeStatus = t.label
                     }
                 }.awaitAll()
             }
@@ -790,33 +877,18 @@ fun SourcesScreen(
         else -> "？"
     }
 
-    // v0.27.4：站源页单页两 section（订阅源 / 本地源），不再分 tab
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        // v0.24.0：批量检测 + 回收站（v0.27.4：插件市场按钮移到实验室）
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                AppButton(
-                    text = if (probing) "检测中…" else "批量检测",
-                    onClick = { runBatchProbe() },
-                    modifier = Modifier.weight(1f),
-                    variant = AppButtonVariant.Secondary,
-                )
-                AppButton(
-                    text = "回收站",
-                    onClick = onTrashClick,
-                    modifier = Modifier.weight(1f),
-                    variant = AppButtonVariant.Secondary,
-                )
-            }
-        }
-        // ===== section 一：订阅源 =====
+    // v0.86.0：四 tab——订阅源 / 本地源 / 批量检测 / 回收站（检测与回收站收进页内）
+    var subTab by rememberSaveable { mutableIntStateOf(0) }
+
+    /** 订阅源 tab：订阅站点列表 + 网页源 */
+    @Composable
+    fun SubscriptionTab() {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+        // ===== 订阅源 =====
         item {
             SectionTitle(title = "订阅源")
         }
@@ -886,7 +958,18 @@ fun SourcesScreen(
                 )
             }
         }
-        // ===== section 二：本地源 =====
+        }
+    }
+
+    /** 本地源 tab：PY / JS / drpy / JAR 文件网格 + 导入入口 */
+    @Composable
+    fun LocalTab() {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+        // ===== 本地源 =====
         item {
             SectionTitle(title = "本地源")
         }
@@ -963,6 +1046,76 @@ fun SourcesScreen(
             }
         }
         item { Spacer(Modifier.height(8.dp)) }
+        }
+    }
+
+    /** 批量检测 tab：开始检测 + 逐源结果列表（结果保留可查看） */
+    @Composable
+    fun ProbeTab() {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                Text(
+                    text = "对已启用源调 home() 探活，8 秒超时；绿=正常(≤3s) 黄=缓慢(>3s) 红=失败",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            item {
+                AppButton(
+                    text = if (probing) "检测中 ${probeResults.size}/$probeTotal…" else "开始检测",
+                    onClick = { runBatchProbe() },
+                    enabled = !probing,
+                    modifier = Modifier.fillMaxWidth(),
+                    variant = AppButtonVariant.Primary,
+                )
+            }
+            if (probing) {
+                item {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "正在检测：$probeStatus",
+                        style = SoftType.Body,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "已完成 ${probeResults.size} / $probeTotal",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            items(probeTargets, key = { "${it.kind}:${it.name}" }) { t ->
+                ProbeResultRow(
+                    target = t,
+                    result = probeResults[probeKey(t.kind, t.name)],
+                )
+            }
+            if (probeTargets.isNotEmpty()) {
+                item { Spacer(Modifier.height(8.dp)) }
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = subTab) {
+            Tab(selected = subTab == 0, onClick = { subTab = 0 }, text = { Text("订阅源") })
+            Tab(selected = subTab == 1, onClick = { subTab = 1 }, text = { Text("本地源") })
+            Tab(selected = subTab == 2, onClick = { subTab = 2 }, text = { Text("批量检测") })
+            Tab(selected = subTab == 3, onClick = { subTab = 3 }, text = { Text("回收站") })
+        }
+        when (subTab) {
+            0 -> SubscriptionTab()
+            1 -> LocalTab()
+            2 -> ProbeTab()
+            3 -> TrashScreen(embedded = true)
+        }
     }
     // ---- 长按操作菜单（ModalBottomSheet） ----
     menuItem?.let { item ->
@@ -1088,44 +1241,33 @@ fun SourcesScreen(
         )
     }
 
-    // ---- v0.24.0：批量检测进度 ----
+    // ---- v0.24.0：批量检测进度；v0.86.0：换 TechDialog 深色科技风 ----
     if (probing) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = {
                 probeJob?.cancel()
                 probing = false
             },
-            shape = RoundedCornerShape(SoftDimens.CardCorner),
-            title = { Text("批量检测中", style = SoftType.CardTitle) },
-            text = {
-                Column {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = "正在检测：$probeStatus",
-                        style = SoftType.Body,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "已完成 ${probeResults.size} 项",
-                        style = SoftType.Caption,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            },
-            confirmButton = {
-                AppButton(
-                    text = "取消",
-                    onClick = {
-                        probeJob?.cancel()
-                        probing = false
-                    },
-                    variant = AppButtonVariant.Ghost,
-                )
-            },
-        )
+            title = "批量检测中",
+            subtitle = "8 秒超时自动判失败，可随时取消",
+            dismissText = "取消",
+        ) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "正在检测：$probeStatus",
+                color = Color.White,
+                style = SoftType.Body,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "已完成 ${probeResults.size} / $probeTotal",
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 
     if (showAddDialog) {

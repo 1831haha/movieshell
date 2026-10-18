@@ -29,13 +29,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,6 +101,8 @@ fun HistoryScreen(
     var query by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<HistoryEntry?>(null) }
     var showClearAll by remember { mutableStateOf(false) }
+    // v0.86.0：子 tab（0=全部 1=点播 2=直播），切 tab 不丢
+    var tab by rememberSaveable { mutableIntStateOf(0) }
 
     fun reload() {
         entries = HistoryStore.getHistory(context)
@@ -104,9 +110,17 @@ fun HistoryScreen(
 
     LaunchedEffect(Unit) { reload() }
 
-    val filtered = remember(entries, query) {
-        if (query.isBlank()) entries
-        else entries.filter { it.title.contains(query, ignoreCase = true) }
+    // v0.86.0：先按 tab 过滤 kind，再按搜索词过滤
+    val kindFiltered = remember(entries, tab) {
+        when (tab) {
+            1 -> entries.filter { it.kind != "live" }
+            2 -> entries.filter { it.kind == "live" }
+            else -> entries
+        }
+    }
+    val filtered = remember(kindFiltered, query) {
+        if (query.isBlank()) kindFiltered
+        else kindFiltered.filter { it.title.contains(query, ignoreCase = true) }
     }
     val groups = remember(filtered) {
         filtered.groupBy { dayFmt.format(Date(it.timestamp)) }
@@ -119,7 +133,7 @@ fun HistoryScreen(
                 title = "播放历史",
                 onBack = onBack,
                 actions = {
-                                if (entries.isNotEmpty()) {
+                                if (kindFiltered.isNotEmpty()) {
                                     TextButton(onClick = { showClearAll = true }) { Text("清空") }
                                 }
             
@@ -132,6 +146,12 @@ fun HistoryScreen(
                 .fillMaxSize()
                 .padding(inner),
         ) {
+            // v0.86.0：子 tab——全部 / 点播 / 直播
+            TabRow(selectedTabIndex = tab) {
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("全部") })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("点播") })
+                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("直播") })
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -164,7 +184,13 @@ fun HistoryScreen(
                     EmptyState(
                         kind = EmptyKind.Empty,
                         icon = Icons.Filled.History,
-                        title = if (entries.isEmpty()) "还没有播放记录" else "没有匹配的结果",
+                        title = when {
+                            entries.isEmpty() -> "还没有播放记录"
+                            query.isNotBlank() -> "没有匹配的结果"
+                            tab == 1 -> "暂无点播记录"
+                            tab == 2 -> "暂无直播记录"
+                            else -> "没有匹配的结果"
+                        },
                     )
                 }
                 return@Column
@@ -212,13 +238,19 @@ fun HistoryScreen(
     }
 
     if (showClearAll) {
+        // v0.86.0：按当前 tab 清空（全部=清所有，点播/直播只清该类）
+        val tabName = when (tab) { 1 -> "点播"; 2 -> "直播"; else -> "全部" }
         AlertDialog(
             onDismissRequest = { showClearAll = false },
             title = { Text("清空历史") },
-            text = { Text("确定清空全部 ${entries.size} 条播放记录吗？此操作不可恢复。") },
+            text = { Text("确定清空${tabName}的 ${kindFiltered.size} 条播放记录吗？此操作不可恢复。") },
             confirmButton = {
                 TextButton(onClick = {
-                    HistoryStore.clear(context)
+                    if (tab == 0) {
+                        HistoryStore.clear(context)
+                    } else {
+                        kindFiltered.forEach { HistoryStore.delete(context, it.url) }
+                    }
                     showClearAll = false
                     reload()
                     Toast.makeText(context, "已清空播放历史", Toast.LENGTH_SHORT).show()

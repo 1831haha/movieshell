@@ -1212,7 +1212,8 @@ fun PlayerScreen(
                     // v0.69.1：嵌入模式收窄底部黑边
                     .padding(horizontal = 12.dp, vertical = if (embedded) 0.dp else 2.dp),
             ) {
-                // 第一行：当前时间 + 进度条 + 总时长
+                // 第一行：当前时间 + 进度条 + 总时长；v0.86.0：直播没有进度可言，直接隐藏
+                if (!isLive) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth(),
@@ -1291,6 +1292,7 @@ fun PlayerScreen(
                         color = Color.White,
                         style = SoftType.Caption,
                     )
+                }
                 }
                 // 第二行：暂停 + 时间 + 上一集/下一集 + 倍速 + 选集 + 引擎 + 全屏
                 Row(

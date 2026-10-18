@@ -1,6 +1,7 @@
 package com.movieshell.ui.trash
 
 import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -60,10 +61,14 @@ private fun kindLabel(kind: String): String = when (kind) {
 
 /**
  * 回收站（v0.24.0；v0.27.0 Soft Tech 换皮）：软删除的源/文件列表，可恢复、彻底删除、清空。
+ * v0.86.0：embedded=true 时不画自己的 Scaffold 顶栏，只出内容（站源页 tab 内嵌用）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TrashScreen(onBack: () -> Unit) {
+fun TrashScreen(
+    onBack: () -> Unit = {},
+    embedded: Boolean = false,
+) {
     val context = LocalContext.current
     var items by remember { mutableStateOf(TrashStore.list(context)) }
     var showClearAll by remember { mutableStateOf(false) }
@@ -73,25 +78,11 @@ fun TrashScreen(onBack: () -> Unit) {
         items = TrashStore.list(context)
     }
 
-    Scaffold(
-        topBar = {
-            TabTopBar(
-                title = "回收站",
-                onBack = onBack,
-                actions = {
-                                if (items.isNotEmpty()) {
-                                    TextButton(onClick = { showClearAll = true }) { Text("清空") }
-                                }
-            
-                },
-            )
-        },
-    ) { inner ->
+    @Composable
+    fun TrashContent(modifier: Modifier = Modifier) {
         if (items.isEmpty()) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(inner),
+                modifier = modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
                 EmptyState(
@@ -100,14 +91,26 @@ fun TrashScreen(onBack: () -> Unit) {
                     title = "回收站是空的",
                 )
             }
-            return@Scaffold
+            return
         }
         LazyColumn(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxSize()
-                .padding(inner)
                 .padding(horizontal = SoftDimens.PagePadding),
         ) {
+            // embedded 模式没有顶栏，清空按钮放这里
+            if (embedded) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(onClick = { showClearAll = true }) { Text("清空") }
+                    }
+                }
+            }
             item {
                 Text(
                     "删除的源和规则文件会先放这里，可恢复；彻底删除后无法找回",
@@ -165,6 +168,26 @@ fun TrashScreen(onBack: () -> Unit) {
                 }
             }
             item { Spacer(Modifier.height(16.dp)) }
+        }
+    }
+
+    if (embedded) {
+        TrashContent()
+    } else {
+        Scaffold(
+            topBar = {
+                TabTopBar(
+                    title = "回收站",
+                    onBack = onBack,
+                    actions = {
+                        if (items.isNotEmpty()) {
+                            TextButton(onClick = { showClearAll = true }) { Text("清空") }
+                        }
+                    },
+                )
+            },
+        ) { inner ->
+            TrashContent(Modifier.padding(inner))
         }
     }
 

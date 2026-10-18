@@ -1,9 +1,11 @@
 package com.movieshell.ui.favorites
 
 import android.widget.Toast
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -31,14 +34,18 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +64,7 @@ import com.movieshell.data.repo.Playlist
 import com.movieshell.data.repo.PlaylistStore
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.GradientBlock
@@ -96,6 +104,9 @@ fun FavoritesScreen(
     var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
     // v0.69.0：条目移动目标
     var moveTarget by remember { mutableStateOf<FavoriteItem?>(null) }
+    // v0.86.0：子 tab（0=收藏 1=片单）+ 收藏 tab 的片单过滤（null=全部）
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var filterPid by rememberSaveable { mutableStateOf<String?>(null) }
 
     fun reload() {
         scope.launch {
@@ -131,26 +142,20 @@ fun FavoritesScreen(
         groups
     }
 
-    Scaffold(
-        topBar = {
-            TabTopBar(
-                title = "收藏",
-                onBack = onBack,
-                actions = {
-                    // v0.69.0：新建片单
-                    IconButton(onClick = { createName = ""; showCreate = true }) {
-                        Icon(Icons.Filled.Add, contentDescription = "新建片单")
-                    }
-                },
-            )
-        },
-    ) { inner ->
+    // v0.86.0：收藏 tab 的过滤后条目（null=全部）
+    val favItems = remember(items, filterPid) {
+        if (filterPid == null) items
+        else items.filter { it.playlistId == filterPid }
+    }
+
+    /** 收藏 tab：全部条目 + 片单过滤 chips，保留卡片样式/移入片单/删除 */
+    @Composable
+    fun FavTab() {
         when {
             loading -> {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(inner)
                         .padding(SoftDimens.PagePadding),
                     verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
                 ) {
@@ -165,9 +170,7 @@ fun FavoritesScreen(
             }
             items.isEmpty() -> {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(inner),
+                    modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
                     EmptyState(
@@ -179,105 +182,165 @@ fun FavoritesScreen(
                 }
             }
             else -> {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(inner)
-                        .padding(vertical = 8.dp),
-                ) {
-                    grouped.forEach { (pid, groupItems) ->
-                        if (groupItems.isEmpty()) return@forEach
-                        val pl = pid?.let { id -> playlists.find { it.id == id } }
-                        // v0.69.0：片单分组头
-                        item(key = "header_$pid") {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        horizontal = SoftDimens.PagePadding,
-                                        vertical = 6.dp,
-                                    ),
-                            ) {
-                                Text(
-                                    text = pl?.name ?: "未分组",
-                                    style = SoftType.CardTitle,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text(
-                                    text = "${groupItems.size}",
-                                    style = SoftType.Caption,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                // 片单操作（未分组没有）
-                                if (pl != null) {
-                                    var menu by remember { mutableStateOf(false) }
-                                    Box {
-                                        IconButton(onClick = { menu = true }) {
-                                            Icon(
-                                                Icons.Filled.MoreVert,
-                                                contentDescription = "片单操作",
-                                            )
-                                        }
-                                        DropdownMenu(
-                                            expanded = menu,
-                                            onDismissRequest = { menu = false },
-                                        ) {
-                                            DropdownMenuItem(
-                                                text = { Text("重命名") },
-                                                leadingIcon = {
-                                                    Icon(Icons.Filled.Edit, null)
-                                                },
-                                                onClick = {
-                                                    menu = false
-                                                    renameName = pl.name
-                                                    renameTarget = pl
-                                                },
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("删除片单") },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        Icons.Filled.Delete,
-                                                        null,
-                                                        tint = MaterialTheme.colorScheme.error,
-                                                    )
-                                                },
-                                                onClick = {
-                                                    menu = false
-                                                    deleteTarget = pl
-                                                },
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = SoftDimens.PagePadding, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AppChip(
+                            text = "全部",
+                            selected = filterPid == null,
+                            onClick = { filterPid = null },
+                            small = true,
+                        )
+                        playlists.forEach { p ->
+                            AppChip(
+                                text = p.name,
+                                selected = filterPid == p.id,
+                                onClick = { filterPid = p.id },
+                                small = true,
+                            )
                         }
-                        items(
-                            groupItems,
-                            key = { "${it.sourceName}\u001f${it.vodId}" },
-                        ) { item ->
-                            FavoriteRow(
-                                item = item,
-                                onVodClick = onVodClick,
-                                onDelete = {
-                                    scope.launch {
-                                        FavoriteStore.remove(
-                                            context,
-                                            item.vodId,
-                                            item.sourceName,
-                                        )
-                                        Toast.makeText(context, "已删除", Toast.LENGTH_SHORT).show()
-                                        reload()
-                                    }
-                                },
-                                onMove = { moveTarget = item },
+                    }
+                    if (favItems.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            EmptyState(
+                                kind = EmptyKind.Empty,
+                                icon = Icons.Filled.Favorite,
+                                title = "该片单还没有收藏",
+                            )
+                        }
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(
+                                favItems,
+                                key = { "${it.sourceName}\u001f${it.vodId}" },
+                            ) { item ->
+                                FavoriteRow(
+                                    item = item,
+                                    onVodClick = onVodClick,
+                                    onDelete = {
+                                        scope.launch {
+                                            FavoriteStore.remove(
+                                                context,
+                                                item.vodId,
+                                                item.sourceName,
+                                            )
+                                            Toast.makeText(context, "已删除", Toast.LENGTH_SHORT).show()
+                                            reload()
+                                        }
+                                    },
+                                    onMove = { moveTarget = item },
+                                )
+                            }
+                            item { Spacer(Modifier.height(16.dp)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** 片单 tab：片单管理——名称/条目数/重命名/删除，点卡片进收藏 tab 看条目 */
+    @Composable
+    fun PlaylistTab() {
+        if (playlists.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                EmptyState(
+                    kind = EmptyKind.Empty,
+                    icon = Icons.Filled.Favorite,
+                    title = "还没有片单",
+                    hint = "点右上角 + 新建片单，把收藏分门别类",
+                )
+            }
+            return
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(playlists, key = { it.id }) { p ->
+                val count = grouped[p.id]?.size ?: 0
+                AppCard(
+                    onClick = {
+                        filterPid = p.id
+                        tab = 0
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(SoftDimens.CardSpacing),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = p.name,
+                                style = SoftType.CardTitle,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "$count 部收藏",
+                                style = SoftType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        IconButton(onClick = {
+                            renameName = p.name
+                            renameTarget = p
+                        }) {
+                            Icon(Icons.Filled.Edit, contentDescription = "重命名")
+                        }
+                        IconButton(onClick = { deleteTarget = p }) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = "删除片单",
+                                tint = MaterialTheme.colorScheme.error,
                             )
                         }
                     }
                 }
             }
+            item { Spacer(Modifier.height(16.dp)) }
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TabTopBar(
+                title = "收藏",
+                onBack = onBack,
+                actions = {
+                    // v0.69.0：新建片单
+                    IconButton(onClick = { createName = ""; showCreate = true }) {
+                        Icon(Icons.Filled.Add, contentDescription = "新建片单")
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(inner),
+        ) {
+            TabRow(selectedTabIndex = tab) {
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("收藏") })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("片单") })
+            }
+            if (tab == 0) FavTab() else PlaylistTab()
         }
     }
 

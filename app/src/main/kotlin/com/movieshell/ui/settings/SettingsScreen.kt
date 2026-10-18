@@ -34,8 +34,9 @@ import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Memory
@@ -143,6 +144,7 @@ fun SettingsScreen(
     onMarketClick: () -> Unit = {}, // v0.79.0：插件市场（实验室 tab 删除，入口搬进设置）
     onSniffPatternsClick: () -> Unit = {}, // v0.79.0：嗅探正则管理（实验室 tab 删除，入口搬进设置）
     onHistoryClick: () -> Unit = {}, // v0.80.0：快捷宫格-观看历史
+    onFavoritesClick: () -> Unit = {}, // v0.86.0：快捷宫格-我的收藏
 ) {
     val context = LocalContext.current
     // v0.7.1：主题读持久化 ThemeStore，不再是本地假状态
@@ -373,7 +375,7 @@ fun SettingsScreen(
                 }
             }
         }
-        // 2. 快捷宫格：最常用的 5 个入口
+        // 2. 快捷宫格：最常用的 6 个入口（两行）
         item {
             Spacer(Modifier.height(12.dp))
             Row(
@@ -387,11 +389,23 @@ fun SettingsScreen(
                     modifier = Modifier.weight(1f),
                 )
                 QuickEntry(
+                    label = "我的收藏",
+                    icon = Icons.Filled.Favorite,
+                    onClick = onFavoritesClick,
+                    modifier = Modifier.weight(1f),
+                )
+                QuickEntry(
                     label = "离线下载",
                     icon = Icons.Filled.Download,
                     onClick = onDownloadsClick,
                     modifier = Modifier.weight(1f),
                 )
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 QuickEntry(
                     label = "插件市场",
                     icon = Icons.Filled.Store,

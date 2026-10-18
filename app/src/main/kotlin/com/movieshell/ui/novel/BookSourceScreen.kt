@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,18 +14,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.novel.BookSource
@@ -189,31 +197,44 @@ fun BookSourceScreen(
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         if (!embedded) {
+        // v0.86.0：第一行只留返回+标题，清爽
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = gold)
             }
             Text("书源管理", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = gold)
-            Spacer(Modifier.weight(1f))
-            // v0.64.0：导入本地 .py 书源
-            TextButton(onClick = { pyImportLauncher.launch("*/*") }) {
-                Text("导入本地PY", color = gold, fontSize = 13.sp)
-            }
-            // v0.82.0：导入入口直接摆出来，不再藏进 + 菜单
-            TextButton(onClick = { importText = ""; showImport = true }) {
-                Text("粘贴导入", color = gold, fontSize = 13.sp)
-            }
-            TextButton(onClick = { importUrl = ""; showUrlImport = true }) {
-                Text("URL导入", color = gold, fontSize = 13.sp)
-            }
-            TextButton(onClick = { jsonFileLauncher.launch("*/*") }) {
-                Text("文件导入", color = gold, fontSize = 13.sp)
-            }
+        }
+        Spacer(Modifier.height(8.dp))
+        // v0.86.0：第二行导入操作——四个均分，图标+文字单行不断行
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ImportAction(
+                icon = Icons.Filled.ContentPaste,
+                label = "粘贴导入",
+                onClick = { importText = ""; showImport = true },
+            )
+            ImportAction(
+                icon = Icons.Filled.Link,
+                label = "URL导入",
+                onClick = { importUrl = ""; showUrlImport = true },
+            )
+            ImportAction(
+                icon = Icons.Filled.FolderOpen,
+                label = "文件导入",
+                onClick = { jsonFileLauncher.launch("*/*") },
+            )
+            ImportAction(
+                icon = Icons.Filled.Code,
+                label = "导入本地PY",
+                onClick = { pyImportLauncher.launch("*/*") },
+            )
         }
         Spacer(Modifier.height(8.dp))
         }
         Text(
-            "顶部「粘贴导入/URL导入/文件导入」可导入阅读 App 的 bookSource.json；「导入本地PY」选 .py 书源文件；开关控制搜索时是否使用该源",
+            "粘贴/URL/文件可导入阅读 App 的 bookSource.json；导入本地PY选 .py 书源文件；开关控制搜索时是否使用该源",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -560,6 +581,29 @@ fun BookSourceScreen(
             confirmButton = {
                 TextButton(onClick = { testResult = null }) { Text("知道了") }
             },
+        )
+    }
+}
+
+/** v0.86.0：书源顶栏导入操作按钮——图标+文字，四均分单行 */
+@Composable
+private fun RowScope.ImportAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = Modifier.weight(1f),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(4.dp))
+        Text(
+            label,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

@@ -95,6 +95,7 @@ import com.movieshell.ui.novel.BookSourceScreen
 import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
+import com.movieshell.ui.favorites.FavoritesScreen
 import com.movieshell.ui.follow.FollowScreen
 import com.movieshell.ui.history.HistoryScreen
 import com.movieshell.ui.reader.ReaderScreen
@@ -339,8 +340,6 @@ class MainActivity : ComponentActivity() {
                                         "preview/$kind/${Uri.encode(fileName)}"
                                     )
                                 },
-                                // v0.24.0：回收站入口（v0.27.4：插件市场入口移到实验室）
-                                onTrashClick = { navController.navigate("trash") },
                             )
                         }
                         // v0.24.0：直播 Tab（v0.79.0：顶部嵌入播放器+下方选台；全屏跳独立播放页）
@@ -375,9 +374,17 @@ class MainActivity : ComponentActivity() {
                                 onBack = { navController.popBackStack() },
                             )
                         }
+                        // v0.86.0：收藏独立页（收藏 / 片单）
+                        composable("favorites") {
+                            FavoritesScreen(
+                                onVodClick = { vodId ->
+                                    navController.navigate("detail/${Uri.encode(vodId)}")
+                                },
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
                         // v0.24.0：播放历史独立页
-                        composable("history") {
-                            HistoryScreen(
+                        composable("history") {                            HistoryScreen(
                                 onBack = { navController.popBackStack() },
                                 onPlay = { entry ->
                                     if (entry.kind == "live") {
@@ -520,6 +527,8 @@ class MainActivity : ComponentActivity() {
                                 onSniffPatternsClick = { navController.navigate("sniff_patterns") },
                                 // v0.80.0：快捷宫格-观看历史
                                 onHistoryClick = { navController.navigate("history") },
+                                // v0.86.0：快捷宫格-我的收藏
+                                onFavoritesClick = { navController.navigate("favorites") },
                             )
                         }
                         // v0.79.0：嗅探正则管理（原实验室）
