@@ -2,6 +2,7 @@ package com.movieshell.data.source
 
 import com.movieshell.data.repo.LogBus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
@@ -24,9 +25,6 @@ import okhttp3.Request
 object SniffEngine {
 
     private const val TAG = "SniffEngine"
-
-    /** 探测超时：单个 URL 的 Content-Type 判定最多等 5 秒 */
-    private const val PROBE_TIMEOUT_MS = 5_000L
 
     /** 嗅探命中种类 */
     enum class SniffKind {
@@ -146,12 +144,16 @@ object SniffEngine {
     /**
      * Content-Type → 命中种类（纯函数，可单元测试）：
      * 只认播放器能直接播的类型；其余一律 null。
+     * v0.93：按海阔视界口径补齐 mpegurl 变体。
      */
     fun contentTypeKind(contentType: String?): SniffKind? {
         val ct = contentType?.substringBefore(';')?.trim()?.lowercase() ?: return null
         return when (ct) {
             "application/vnd.apple.mpegurl",
             "application/x-mpegurl",
+            "application/mpegurl",
+            "audio/mpegurl", "audio/x-mpegurl",
+            "video/vnd.mpegurl", "video/x-mpegurl",
             "application/dash+xml",
             "video/mp4", "video/x-m4v",
             "audio/aac", "audio/x-aac", "audio/mp4", "audio/mpeg" -> SniffKind.DIRECT
@@ -162,14 +164,25 @@ object SniffEngine {
     /**
      * 无后缀流探测：HEAD 取 Content-Type 判定；HEAD 被拒（405/501）或无
      * Content-Type 时回退 Range GET（只取 0 字节，看响应头）。
-     * 单 URL 最多等 [PROBE_TIMEOUT_MS]；任何异常返回 null。
+     * 单 URL 最多等 [SniffConfig.probeTimeoutMs]；失败按 [SniffConfig.probeRetry]
+     * 重试；任何异常返回 null。
      */
-    suspend fun probeContentType(url: String, client: OkHttpClient): SniffKind? =
-        withTimeoutOrNull(PROBE_TIMEOUT_MS) {
-            withContext(Dispatchers.IO) {
-                headKind(url, client) ?: rangeGetKind(url, client)
+    suspend fun probeContentType(url: String, client: OkHttpClient): SniffKind? {
+        val timeoutMs = SniffConfig.probeTimeoutMs
+        val retries = SniffConfig.probeRetry.coerceIn(0, 5)
+        var attempt = 0
+        while (true) {
+            val kind = withTimeoutOrNull(timeoutMs) {
+                withContext(Dispatchers.IO) {
+                    headKind(url, client) ?: rangeGetKind(url, client)
+                }
             }
+            if (kind != null) return kind
+            if (attempt >= retries) return null
+            attempt++
+            delay(600)
         }
+    }
 
     private fun headKind(url: String, client: OkHttpClient): SniffKind? = runCatching {
         val req = Request.Builder().url(url).head()

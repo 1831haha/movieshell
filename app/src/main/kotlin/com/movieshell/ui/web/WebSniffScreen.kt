@@ -9,24 +9,31 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,12 +47,14 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,9 +65,13 @@ import androidx.webkit.WebViewFeature
 import com.movieshell.data.source.CmsApi
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.source.SniffCandidate
+import com.movieshell.data.source.SniffConfig
 import com.movieshell.data.source.SniffEngine
 import com.movieshell.data.source.SniffEngine.SniffKind
 import com.movieshell.player.SniffPlayHeaders
+import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -70,6 +83,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /** 嗅探超时：20 秒内没抓到直链则提示用户，可继续手动浏览 */
 private const val SNIFF_TIMEOUT_MS = 20_000L
@@ -213,6 +227,10 @@ private fun parseRootStringArray(json: String): List<String> {
  * 命中直链后 stopLoading（省流量）并回调 onPlay；20 秒超时仅 Toast 提示不关页面。
  * Service Worker 嗅探是补齐：SW 上下文的 fetch，WebViewClient 拦不到；
  * 各链路共用 hitDone 去重，先命中的生效。
+ *
+ * v0.93：候选列表模式——各链路命中后不再首条即播，而是收集进候选列表
+ * （[SniffCandidate]，按 url 去重），用户点选后才 stopLoading + onPlay；
+ * hitDone 语义改为"用户已选播"。顶栏溢出菜单可调嗅探参数（[SniffConfig]）。
  */
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -232,7 +250,7 @@ fun WebSniffScreen(
     var currentUrl by remember { mutableStateOf(url) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
-    // 首条命中标记：只取第一条直链
+    // v0.93：用户已选播标记——点选候选后停止后续收集（省流量）
     val hitDone = remember { AtomicBoolean(false) }
     // 超时提示标记：超时后只提示一次
     var timeoutToasted by remember { mutableStateOf(false) }
@@ -250,6 +268,16 @@ fun WebSniffScreen(
     // v0.92：blob 深挖去重——同一主页面只深挖一次，主 frame 跳走后重置
     val blobDug = remember { AtomicBoolean(false) }
     var lastMainUrl by remember { mutableStateOf("") }
+    // v0.93：候选列表——各链路命中后收集（按 url 去重），用户点选播放
+    val candidates = remember { mutableStateListOf<SniffCandidate>() }
+    val candidateUrls = remember { java.util.Collections.synchronizedSet(mutableSetOf<String>()) }
+    // v0.93：hitDone 语义改为"用户已选播"；picked 驱动候选面板显隐
+    var picked by remember { mutableStateOf(false) }
+    // v0.93：嗅探参数（顶栏溢出菜单可调，改完即时生效）
+    var concurrency by remember { mutableIntStateOf(SniffConfig.deepSniffConcurrency) }
+    var retryCount by remember { mutableIntStateOf(SniffConfig.probeRetry) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var cfgDialog by remember { mutableStateOf<String?>(null) } // "concurrency" / "retry" / null
 
     fun rememberSeen(u: String) {
         if (u.isBlank()) return
@@ -265,27 +293,43 @@ fun WebSniffScreen(
     }
 
     /**
-     * 命中直链的统一处理：先把 Referer/UA/Cookie 存进 [SniffPlayHeaders]，
-     * 再 stopLoading（省流量）-> 交给播放器。全局只执行一次。
-     * v0.21.0：补传 Cookie（WebView 的 CookieManager 里取，防盗链站点常要它）。
+     * v0.93：候选收集——各链路命中直链后进候选列表（按 url 去重），
+     * 用户点选后才播。请求头在点选播放时现取现存（[playCandidate]）。
      */
-    fun onHit(view: WebView, reqReferer: String?, directUrl: String) {
+    fun addCandidate(url: String, source: String) {
+        if (hitDone.get() || url.isBlank()) return
+        if (!candidateUrls.add(url)) return
+        candidates.add(SniffCandidate(url = url, kind = SniffKind.DIRECT, source = source))
+        LogBus.i("WebSniff", "候选+1 [$source] ${url.take(120)}")
+    }
+
+    /**
+     * v0.93：用户从候选列表点选播放（hitDone 语义改为"用户已选播"）。
+     * 先把 Referer/UA/Cookie 存进 [SniffPlayHeaders]（v0.21.0：防盗链站点常要 Cookie），
+     * 再 stopLoading（省流量）-> 交给播放器。全局只执行一次。
+     */
+    fun playCandidate(view: WebView?, candidate: SniffCandidate) {
         if (!hitDone.compareAndSet(false, true)) return
+        picked = true
+        if (view == null) {
+            onPlay(candidate.url, pageTitle.ifBlank { name })
+            return
+        }
         view.post {
             runCatching {
-                val referer = reqReferer ?: view.url.orEmpty()
+                val referer = view.url.orEmpty()
                 val userAgent = runCatching { view.settings?.userAgentString }.getOrNull().orEmpty()
                 val cookie = runCatching {
-                    CookieManager.getInstance().getCookie(directUrl)
+                    CookieManager.getInstance().getCookie(candidate.url)
                 }.getOrNull().orEmpty()
                 val headers = buildMap {
                     if (referer.isNotBlank()) put("Referer", referer)
                     if (userAgent.isNotBlank()) put("User-Agent", userAgent)
                     if (cookie.isNotBlank()) put("Cookie", cookie)
                 }
-                SniffPlayHeaders.put(directUrl, headers)
+                SniffPlayHeaders.put(candidate.url, headers)
                 view.stopLoading()
-                onPlay(directUrl, pageTitle.ifBlank { name })
+                onPlay(candidate.url, pageTitle.ifBlank { name })
             }
         }
     }
@@ -297,29 +341,29 @@ fun WebSniffScreen(
         }
     }
 
-    /** 可疑 URL 的异步 Content-Type 探测（不阻塞原请求） */
-    fun probeAsync(view: WebView, reqReferer: String?, target: String) {
+    /** 可疑 URL 的异步 Content-Type 探测（不阻塞原请求）；命中进候选列表 */
+    fun probeAsync(view: WebView, target: String, source: String) {
         probeScope.launch(Dispatchers.IO) {
             val kind = SniffEngine.probeContentType(target, probeClient) ?: return@launch
             when (kind) {
-                SniffKind.DIRECT -> onHit(view, reqReferer, target)
+                SniffKind.DIRECT -> addCandidate(target, source)
                 SniffKind.RTMP -> onRtmp(view, target)
             }
         }
     }
 
     /**
-     * JS 发现的候选 URL 统一走这里判定（第 3/4 层共用）：
-     * DIRECT 直接命中；RTMP 提示；blob: 触发深挖；其余可疑的异步探测。
+     * 各链路发现 URL 的统一入口（第 1/3/4 层共用）：
+     * DIRECT 进候选列表；RTMP 提示；blob: 触发深挖；其余可疑的异步探测。
      * 与 deepDigBlob/probeIframes 循环引用，故先声明后赋值。
      */
-    lateinit var handleDiscoveredUrl: (WebView, String?, String) -> Unit
+    lateinit var onUrlFound: (WebView, String, String) -> Unit
 
     /**
      * v0.92：ts 分片线索处理——同目录拼出 playlist 候选，逐个 probe 验证，
-     * 命中才 onHit。分片 URL 本身永远不直接播。
+     * 命中才进候选列表。分片 URL 本身永远不直接播。
      */
-    fun probeTsClues(view: WebView, referer: String?, tsUrl: String) {
+    fun probeTsClues(view: WebView, tsUrl: String, source: String) {
         rememberSeen(tsUrl)
         val cands = SniffEngine.tsCluePlaylists(tsUrl)
         if (cands.isEmpty()) return
@@ -330,7 +374,7 @@ fun WebSniffScreen(
             probeScope.launch(Dispatchers.IO) {
                 if (hitDone.get()) return@launch
                 if (SniffEngine.probeContentType(cand, probeClient) == SniffKind.DIRECT) {
-                    onHit(view, referer, cand)
+                    addCandidate(cand, source)
                 }
             }
         }
@@ -355,7 +399,7 @@ fun WebSniffScreen(
                 .distinct()
             for (src in srcs) {
                 if (hitDone.get()) break
-                handleDiscoveredUrl(view, view.url, src)
+                onUrlFound(view, src, "iframe")
             }
         }
     }
@@ -376,12 +420,11 @@ fun WebSniffScreen(
             if (hitDone.get()) return@evaluateJavascript
             val found = parseRootStringArray(decodeJsResult(raw))
             LogBus.i("WebSniff", "blob 深挖扫到 ${found.size} 个候选 URL")
-            val referer = view.url
             for (u in found) {
                 if (hitDone.get()) break
-                // v0.92：ts 分片只是线索——同目录拼 playlist 候选并验证，不直接 onHit
-                if (SniffEngine.isTsSegment(u)) probeTsClues(view, referer, u)
-                else handleDiscoveredUrl(view, referer, u)
+                // v0.92：ts 分片只是线索——同目录拼 playlist 候选并验证，不直接进候选
+                if (SniffEngine.isTsSegment(u)) probeTsClues(view, u, "blob深挖")
+                else onUrlFound(view, u, "blob深挖")
             }
             // 同时重跑一遍 iframe 剥壳探测
             if (!hitDone.get()) probeIframes(view)
@@ -395,34 +438,33 @@ fun WebSniffScreen(
             if (hitDone.get()) return@evaluateJavascript
             val decoded = decodeJsResult(raw)
             if (decoded.isBlank()) return@evaluateJavascript
-            val referer = view.url
             for (u in parseStringArray(decoded, "v")) {
                 if (hitDone.get()) break
-                handleDiscoveredUrl(view, referer, u)
+                onUrlFound(view, u, "JS钩子")
             }
             for (f in parseStringArray(decoded, "f")) {
                 if (hitDone.get()) break
-                handleDiscoveredUrl(view, referer, SniffEngine.resolveUrl(referer.orEmpty(), f))
+                onUrlFound(view, SniffEngine.resolveUrl(view.url.orEmpty(), f), "iframe")
             }
         }
     }
 
-    handleDiscoveredUrl = { view, referer, url ->
+    onUrlFound = { view, url, source ->
         if (url.isNotBlank() && !hitDone.get()) {
             rememberSeen(url)
             when (SniffEngine.sniffKind(url)) {
-                SniffKind.DIRECT -> onHit(view, referer, url)
+                SniffKind.DIRECT -> addCandidate(url, source)
                 SniffKind.RTMP -> onRtmp(view, url)
                 null -> when {
                     url.startsWith("blob:", ignoreCase = true) -> deepDigBlob(view)
-                    SniffEngine.isSuspiciousMediaUrl(url) -> probeAsync(view, referer, url)
+                    SniffEngine.isSuspiciousMediaUrl(url) -> probeAsync(view, url, source)
                 }
             }
         }
     }
 
     fun showTimeoutToast() {
-        if (!timeoutToasted && !hitDone.get()) {
+        if (!timeoutToasted && !picked && candidates.isEmpty()) {
             timeoutToasted = true
             Toast.makeText(context, "未嗅探到可播放直链，可继续手动浏览", Toast.LENGTH_LONG).show()
         }
@@ -478,10 +520,10 @@ fun WebSniffScreen(
 
     /**
      * v0.92 第 5 层：深度嗅探（手动触发）。
+     * v0.93：命中进候选列表（不再首条即播）；并发数走 [SniffConfig]。
      * 把拦截到的全部 http(s) URL（去重、排除静态资源后缀）逐个 Content-Type 探测，
-     * 并发上限 6，单个超时复用 SniffEngine 的 PROBE_TIMEOUT_MS；
-     * 命中第一个 DIRECT 即 onHit 并停掉其余；ts 分片只当线索（同目录拼 playlist 候选验证）。
-     * 全灭则 Toast 提示。按钮探测中显示 loading，禁用重复点击。
+     * ts 分片只当线索（同目录拼 playlist 候选验证）。全灭则 Toast 提示。
+     * 按钮探测中显示 loading，禁用重复点击。
      */
     fun runDeepSniff() {
         val view = webViewRef ?: return
@@ -489,54 +531,56 @@ fun WebSniffScreen(
         deepSniffing = true
         LogBus.i("WebSniff", "深度嗅探开始")
         probeScope.launch(Dispatchers.IO) {
-            val candidates = LinkedHashSet<String>()
-            synchronized(seenUrls) { candidates += seenUrls }
-            val referer = withContext(Dispatchers.Main) { view.url.orEmpty() }
-            val httpUrls = candidates.filter { u ->
+            val seen = LinkedHashSet<String>()
+            synchronized(seenUrls) { seen += seenUrls }
+            val httpUrls = seen.filter { u ->
                 val l = u.lowercase()
                 (l.startsWith("http://") || l.startsWith("https://")) &&
                     !SniffEngine.isStaticResource(u)
             }
-            LogBus.i("WebSniff", "深度嗅探候选 ${httpUrls.size} 个")
-            val semaphore = Semaphore(6)
-            val found = AtomicBoolean(false)
-            suspend fun hitOrNull(u: String) {
-                if (hitDone.get() || found.get()) return
+            val permits = SniffConfig.deepSniffConcurrency.coerceIn(2, 16)
+            LogBus.i("WebSniff", "深度嗅探候选 ${httpUrls.size} 个，并发 $permits")
+            val semaphore = Semaphore(permits)
+            val added = AtomicInteger(0)
+            suspend fun collectIfDirect(u: String) {
+                if (hitDone.get()) return
                 val kind = SniffEngine.sniffKind(u) ?: SniffEngine.probeContentType(u, probeClient)
                 when (kind) {
-                    SniffKind.DIRECT -> if (found.compareAndSet(false, true)) onHit(view, referer, u)
+                    SniffKind.DIRECT -> {
+                        val before = candidateUrls.size
+                        addCandidate(u, "深度嗅探")
+                        if (candidateUrls.size > before) added.incrementAndGet()
+                    }
                     SniffKind.RTMP -> onRtmp(view, u)
                     null -> {}
                 }
             }
             val jobs = httpUrls.map { u ->
                 launch {
-                    if (hitDone.get() || found.get()) return@launch
-                    // ts 分片只是线索：同目录拼 playlist 候选并验证，不直接 onHit
+                    if (hitDone.get()) return@launch
+                    // ts 分片只是线索：同目录拼 playlist 候选并验证，不直接进候选
                     if (SniffEngine.isTsSegment(u)) {
                         rememberSeen(u)
                         for (cand in SniffEngine.tsCluePlaylists(u)) {
-                            if (hitDone.get() || found.get()) break
+                            if (hitDone.get()) break
                             semaphore.withPermit {
-                                if (hitDone.get() || found.get()) return@withPermit
+                                if (hitDone.get()) return@withPermit
                                 rememberSeen(cand)
-                                if (SniffEngine.probeContentType(cand, probeClient) == SniffKind.DIRECT) {
-                                    if (found.compareAndSet(false, true)) onHit(view, referer, cand)
-                                }
+                                collectIfDirect(cand)
                             }
                         }
                         return@launch
                     }
                     semaphore.withPermit {
-                        if (hitDone.get() || found.get()) return@withPermit
-                        hitOrNull(u)
+                        if (hitDone.get()) return@withPermit
+                        collectIfDirect(u)
                     }
                 }
             }
             jobs.joinAll()
             withContext(Dispatchers.Main) {
                 deepSniffing = false
-                if (!hitDone.get() && !found.get()) {
+                if (!hitDone.get() && added.get() == 0) {
                     Toast.makeText(context, "深度嗅探也没找到，可试手动复制地址", Toast.LENGTH_LONG).show()
                 }
             }
@@ -549,6 +593,27 @@ fun WebSniffScreen(
                 TabTopBar(
                     title = pageTitle,
                     onBack = onBack,
+                    actions = {
+                        // v0.93：嗅探参数（溢出菜单）
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "嗅探设置")
+                            }
+                            DropdownMenu(
+                                expanded = menuOpen,
+                                onDismissRequest = { menuOpen = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("探测并发数：$concurrency") },
+                                    onClick = { menuOpen = false; cfgDialog = "concurrency" },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("失败重试：$retryCount 次") },
+                                    onClick = { menuOpen = false; cfgDialog = "retry" },
+                                )
+                            }
+                        }
+                    },
                 )
                 // v0.10：浏览器式头部——后退/前进/刷新 + 当前 URL + 嗅探测试
                 Row(
@@ -666,10 +731,10 @@ fun WebSniffScreen(
                                 if (u.isEmpty() || hitDone.get()) return
                                 rememberSeen(u)
                                 when (SniffEngine.sniffKind(u)) {
-                                    SniffKind.DIRECT -> onHit(webView, webView.url, u)
+                                    SniffKind.DIRECT -> addCandidate(u, "网络拦截")
                                     SniffKind.RTMP -> onRtmp(webView, u)
                                     null -> if (SniffEngine.isSuspiciousMediaUrl(u)) {
-                                        probeAsync(webView, webView.url, u)
+                                        probeAsync(webView, u, "网络拦截")
                                     }
                                 }
                             }
@@ -682,14 +747,11 @@ fun WebSniffScreen(
                                 val reqUrl = request?.url?.toString().orEmpty()
                                 if (webView != null && reqUrl.isNotEmpty()) {
                                     rememberSeen(reqUrl)
-                                    // 拦截线程可安全读 request
-                                    val reqReferer = runCatching { request?.requestHeaders?.get("Referer") }
-                                        .getOrNull()?.takeIf { it.isNotBlank() }
                                     when (SniffEngine.sniffKind(reqUrl)) {
-                                        SniffKind.DIRECT -> onHit(webView, reqReferer, reqUrl)
+                                        SniffKind.DIRECT -> addCandidate(reqUrl, "网络拦截")
                                         SniffKind.RTMP -> onRtmp(webView, reqUrl)
                                         null -> if (SniffEngine.isSuspiciousMediaUrl(reqUrl)) {
-                                            probeAsync(webView, reqReferer, reqUrl)
+                                            probeAsync(webView, reqUrl, "网络拦截")
                                         }
                                     }
                                 }
@@ -697,7 +759,7 @@ fun WebSniffScreen(
                             }
                         }
                         // Service Worker 嗅探补齐：部分站点的 fetch 走 SW 上下文，WebViewClient 拦不到。
-                        // 不支持该特性的 WebView 静默跳过（不崩）；命中时走与上面完全相同的 onHit 命中处理，
+                        // 不支持该特性的 WebView 静默跳过（不崩）；命中时进候选列表，
                         // 共用 hitDone 去重；未命中返回 null 不拦截。
                         runCatching {
                             if (WebViewFeature.isFeatureSupported(
@@ -711,11 +773,8 @@ fun WebSniffScreen(
                                         ): WebResourceResponse? {
                                             val reqUrl = request.url.toString()
                                             if (reqUrl.isEmpty()) return null
-                                            // SW 回调在后台线程：Referer 在这里读好，onHit 内部切回 UI 线程
-                                            val reqReferer = request.requestHeaders["Referer"]
-                                                ?.takeIf { it.isNotBlank() }
                                             when (SniffEngine.sniffKind(reqUrl)) {
-                                                SniffKind.DIRECT -> onHit(this@apply, reqReferer, reqUrl)
+                                                SniffKind.DIRECT -> addCandidate(reqUrl, "网络拦截")
                                                 SniffKind.RTMP -> onRtmp(this@apply, reqUrl)
                                                 null -> { /* SW 上下文不做 HEAD 探测，避免跨线程复杂 */ }
                                             }
@@ -734,6 +793,16 @@ fun WebSniffScreen(
                 LinearProgressIndicator(
                     progress = { progress / 100f },
                     modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            // v0.93：嗅探候选列表（毛玻璃卡片，底部悬浮；点选播放）
+            if (!picked) {
+                SniffCandidatePanel(
+                    candidates = candidates,
+                    onPick = { c -> playCandidate(webViewRef, c) },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(12.dp),
                 )
             }
         }
@@ -758,9 +827,11 @@ fun WebSniffScreen(
                             TextButton(
                                 onClick = {
                                     testResults = null
-                                    val view = webViewRef
-                                    if (kind == SniffKind.DIRECT && view != null) {
-                                        onHit(view, view.url, u)
+                                    if (kind == SniffKind.DIRECT) {
+                                        playCandidate(
+                                            webViewRef,
+                                            SniffCandidate(url = u, kind = kind, source = "嗅探测试"),
+                                        )
                                     } else {
                                         Toast.makeText(
                                             context,
@@ -798,8 +869,49 @@ fun WebSniffScreen(
         )
     }
 
+    // v0.93：嗅探参数设置（顶栏溢出菜单进入，改完即时生效）
+    val cfg = cfgDialog
+    if (cfg != null) {
+        val isConcurrency = cfg == "concurrency"
+        TechDialog(
+            onDismissRequest = { cfgDialog = null },
+            title = if (isConcurrency) "探测并发数" else "失败重试",
+            subtitle = if (isConcurrency) "深度嗅探同时探测几个地址" else "可疑地址探测失败后重试几次",
+            onConfirm = null,
+            content = {
+                (if (isConcurrency) listOf(4, 6, 8) else listOf(0, 1, 2)).forEach { v ->
+                    val selected = v == if (isConcurrency) concurrency else retryCount
+                    TextButton(
+                        onClick = {
+                            if (isConcurrency) {
+                                SniffConfig.update(context, concurrency = v)
+                                concurrency = SniffConfig.deepSniffConcurrency
+                            } else {
+                                SniffConfig.update(context, retry = v)
+                                retryCount = SniffConfig.probeRetry
+                            }
+                            cfgDialog = null
+                            Toast.makeText(context, "已生效", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = (if (isConcurrency) "$v" else "$v 次") +
+                                if (selected) " ✓" else "",
+                            color = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            },
+        )
+    }
+
     // 20 秒嗅探超时：只 Toast，不关闭页面
     LaunchedEffect(url) {
+        SniffConfig.ensureLoaded(context)
+        concurrency = SniffConfig.deepSniffConcurrency
+        retryCount = SniffConfig.probeRetry
         delay(SNIFF_TIMEOUT_MS)
         showTimeoutToast()
     }
@@ -832,4 +944,100 @@ fun WebSniffScreen(
             }
         }
     }
+}
+
+/**
+ * v0.93：嗅探候选列表面板——毛玻璃卡片，底部悬浮。
+ * 为空时显示"嗅探中…"；有候选后列出格式徽标 + 来源 + 地址，点条目播放。
+ */
+@Composable
+private fun SniffCandidatePanel(
+    candidates: List<SniffCandidate>,
+    onPick: (SniffCandidate) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AppCard(modifier = modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "嗅探候选",
+                    style = SoftType.Title,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.width(8.dp))
+                if (candidates.isEmpty()) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "嗅探中…",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        text = "${candidates.size} 条，点选播放",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (candidates.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
+                    items(candidates, key = { it.url }) { c ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(c) }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // 格式徽标
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                            ) {
+                                Text(
+                                    text = formatLabelOf(c.url),
+                                    style = SoftType.Caption,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = c.url,
+                                    style = SoftType.Body,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = "来源：" + c.source,
+                                    style = SoftType.Caption,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 候选条目的格式徽标：M3U8 / MP4 / …；认不出时显示"直链" */
+private fun formatLabelOf(url: String): String {
+    val l = url.lowercase()
+    if ("m3u8" in l) return "M3U8"
+    val path = l.substringBefore('#').substringBefore('?')
+    val ext = path.substringAfterLast('.', "")
+    return if (ext.isNotEmpty() && ext.length <= 5 && '/' !in ext) ext.uppercase() else "直链"
 }

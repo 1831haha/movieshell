@@ -173,6 +173,7 @@ class ParseApi(
         parse: ParseConfig,
         videoUrl: String,
     ): String = withTimeoutOrNull(SNIFF_TIMEOUT_MS) {
+        SniffConfig.ensureLoaded(context)
         withContext(Dispatchers.Main) {
             suspendCancellableCoroutine { cont ->
                 var webView: WebView? = null
