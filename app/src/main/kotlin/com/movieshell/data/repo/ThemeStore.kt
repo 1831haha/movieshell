@@ -20,6 +20,8 @@ object ThemeStore {
     private const val PREFS = "movieshell_prefs"
     private const val KEY_MODE = "theme_mode"
     private const val KEY_COLOR = "theme_color"
+    /** v0.87.1：炫彩渐变主题 id；有值=渐变模式，无值=单色模式 */
+    private const val KEY_GRADIENT = "theme_gradient"
 
     /** 默认主题色：紫（v0.33.0 按设计稿对齐） */
     const val DEFAULT_COLOR = 0xFF6344FF.toInt()
@@ -39,6 +41,13 @@ object ThemeStore {
         0xFFAA00FF.toInt(), // 紫
         0xFF8D6E63.toInt(), // 棕
         0xFF9E9E9E.toInt(), // 灰
+        // v0.87.1：炫彩组（霓虹高饱和）
+        0xFFFF2E9F.toInt(), // 炫彩玫红
+        0xFF00E5FF.toInt(), // 电光青
+        0xFF76FF03.toInt(), // 荧光绿
+        0xFFD500F9.toInt(), // 霓虹紫
+        0xFFFF9100.toInt(), // 炫彩橙
+        0xFFFF6E40.toInt(), // 珊瑚橙红
     )
 
     private val _mode = MutableStateFlow(MODE_SYSTEM)
@@ -47,14 +56,68 @@ object ThemeStore {
     private val _color = MutableStateFlow(DEFAULT_COLOR)
     val color: StateFlow<Int> = _color
 
-    /** 启动时读回上次保存的模式和主题色；未知值回退默认。 */
+    /**
+     * v0.87.1：炫彩渐变预设。
+     * - colors：渐变色带（ARGB），用于顶栏品牌线/弹窗描边/海报跑马灯等招牌渐变面；
+     * - anchor：Material 主色锚点（单色），按钮/chip/开关等跟随它。
+     */
+    data class GradientPreset(
+        val id: String,
+        val name: String,
+        val colors: List<Int>,
+        val anchor: Int,
+    )
+
+    val GRADIENT_OPTIONS = listOf(
+        GradientPreset(
+            "aurora", "极光炫彩",
+            listOf(0xFF22D3EE.toInt(), 0xFF818CF8.toInt(), 0xFFE879F9.toInt(), 0xFFFBBF24.toInt()),
+            0xFF818CF8.toInt(),
+        ),
+        GradientPreset(
+            "neon", "霓虹电光",
+            listOf(0xFF00E5FF.toInt(), 0xFFD500F9.toInt(), 0xFFFF2E9F.toInt()),
+            0xFFD500F9.toInt(),
+        ),
+        GradientPreset(
+            "sunset", "日落鎏金",
+            listOf(0xFFFF9100.toInt(), 0xFFFF2E9F.toInt(), 0xFF7C4DFF.toInt()),
+            0xFFFF2E9F.toInt(),
+        ),
+        GradientPreset(
+            "mint", "薄荷冰晶",
+            listOf(0xFF76FF03.toInt(), 0xFF00E5FF.toInt(), 0xFF7C4DFF.toInt()),
+            0xFF00E5FF.toInt(),
+        ),
+    )
+
+    private val _gradientId = MutableStateFlow<String?>(null)
+    val gradientId: StateFlow<String?> = _gradientId
+
+    /** 当前渐变色带（ARGB）；单色模式下为 null，UI 用默认品牌渐变 */
+    private val _brandGradient = MutableStateFlow<List<Int>?>(null)
+    val brandGradient: StateFlow<List<Int>?> = _brandGradient
+
+    /** 选择器统一选中态："g:<id>" 渐变 / "c:<argb>" 单色 */
+    private val _themeKey = MutableStateFlow("c:$DEFAULT_COLOR")
+    val themeKey: StateFlow<String> = _themeKey
+
+    private fun presetOf(id: String?): GradientPreset? =
+        id?.let { want -> GRADIENT_OPTIONS.firstOrNull { it.id == want } }
+
+    /** 启动时读回上次保存的模式和主题；未知值回退默认。 */
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val saved = prefs.getString(KEY_MODE, MODE_SYSTEM)
             .takeIf { it == MODE_DARK || it == MODE_LIGHT || it == MODE_SYSTEM }
             ?: MODE_SYSTEM
         _mode.value = saved
-        _color.value = prefs.getInt(KEY_COLOR, DEFAULT_COLOR)
+        val preset = presetOf(prefs.getString(KEY_GRADIENT, null))
+        if (preset != null) {
+            applyGradient(preset)
+        } else {
+            applyColor(prefs.getInt(KEY_COLOR, DEFAULT_COLOR))
+        }
     }
 
     fun setMode(context: Context, mode: String) {
@@ -73,7 +136,31 @@ object ThemeStore {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putInt(KEY_COLOR, argb)
+            .remove(KEY_GRADIENT)
             .apply()
+        applyColor(argb)
+    }
+
+    fun setGradient(context: Context, id: String) {
+        val preset = presetOf(id) ?: return
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_GRADIENT, id)
+            .apply()
+        applyGradient(preset)
+    }
+
+    private fun applyColor(argb: Int) {
+        _gradientId.value = null
+        _brandGradient.value = null
         _color.value = argb
+        _themeKey.value = "c:$argb"
+    }
+
+    private fun applyGradient(preset: GradientPreset) {
+        _gradientId.value = preset.id
+        _brandGradient.value = preset.colors
+        _color.value = preset.anchor
+        _themeKey.value = "g:${preset.id}"
     }
 }

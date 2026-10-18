@@ -5,9 +5,21 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import com.movieshell.data.repo.ThemeStore
+import com.movieshell.ui.components.BrandGradientColors
+
+/**
+ * v0.87.1：品牌渐变 CompositionLocal。
+ * 单色主题下取默认 [BrandGradientColors]（行为与之前一致）；
+ * 炫彩渐变主题下取所选预设的色带，顶栏品牌线/弹窗描边/跑马灯等跟随换色。
+ */
+val LocalBrandGradient = compositionLocalOf { BrandGradientColors }
 
 /**
  * v0.33.0 影院黑配色：底 #050508 + 紫主色（按设计稿对齐）。
@@ -50,8 +62,12 @@ fun MovieShellTheme(
     themeColor: Color = Color(0xFF6344FF),
     content: @Composable () -> Unit,
 ) {
+    // v0.87.1：炫彩渐变主题时，品牌渐变面跟随预设色带
+    val brandArgb by ThemeStore.brandGradient.collectAsState()
+    val brandColors = brandArgb?.map { Color(it) } ?: BrandGradientColors
     CompositionLocalProvider(
         LocalSoftExtra provides if (darkTheme) SoftExtraDark else SoftExtraLight,
+        LocalBrandGradient provides brandColors,
     ) {
         MaterialTheme(
             colorScheme = if (darkTheme) darkScheme(themeColor) else lightScheme(themeColor),

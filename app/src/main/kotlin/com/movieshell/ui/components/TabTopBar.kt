@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.movieshell.ui.theme.SoftType
+import com.movieshell.ui.theme.LocalBrandGradient
 
 /**
  * v0.80.0：各 tab / 二级页统一窄顶栏（向首页、详情页学习）。
@@ -82,7 +83,7 @@ fun TabTopBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.5.dp)
-                .background(Brush.horizontalGradient(BrandGradientColors)),
+                .background(Brush.horizontalGradient(LocalBrandGradient.current)),
         )
     }
 }

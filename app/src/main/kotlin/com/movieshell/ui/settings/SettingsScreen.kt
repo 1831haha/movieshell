@@ -102,6 +102,7 @@ import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.theme.LocalBrandGradient
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
@@ -124,7 +125,6 @@ import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.player.HistoryStore
-import com.movieshell.ui.components.BrandGradientColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.filled.Image
@@ -295,7 +295,7 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .size(56.dp)
                                 .clip(CircleShape)
-                                .background(Brush.horizontalGradient(BrandGradientColors)),
+                                .background(Brush.horizontalGradient(LocalBrandGradient.current)),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -359,17 +359,20 @@ fun SettingsScreen(
                             label = "收藏",
                             value = "$favCount",
                             modifier = Modifier.weight(1f),
+                            onClick = onFavoritesClick,
                         )
                         ProfileStat(
                             label = "历史",
                             value = "$histCount",
                             modifier = Modifier.weight(1f),
+                            onClick = onHistoryClick,
                         )
                         ProfileStat(
                             label = "源",
                             value = "${subCount + localCount}",
                             sub = "订阅$subCount 本地$localCount",
                             modifier = Modifier.weight(1f),
+                            onClick = onSourcesClick,
                         )
                     }
                 }
@@ -484,10 +487,10 @@ fun SettingsScreen(
                     Spacer(Modifier.height(12.dp))
                     Text(text = "主题色", style = SoftType.Body)
                     Spacer(Modifier.height(8.dp))
-                    val selectedColor by ThemeStore.color.collectAsState()
+                    val themeKey by ThemeStore.themeKey.collectAsState()
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(ThemeStore.COLOR_OPTIONS) { argb ->
-                            val isSelected = argb == selectedColor
+                            val isSelected = themeKey == "c:$argb"
                             Box(
                                 modifier = Modifier
                                     .size(40.dp)
@@ -500,6 +503,39 @@ fun SettingsScreen(
                                         shape = CircleShape,
                                     )
                                     .clickable { ThemeStore.setColor(context, argb) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Check,
+                                        contentDescription = "已选",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    // v0.87.1：炫彩渐变主题（非单色）：渐变面跟随换色，主色取锚点
+                    Spacer(Modifier.height(10.dp))
+                    Text(text = "炫彩渐变", style = SoftType.Body)
+                    Spacer(Modifier.height(8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(ThemeStore.GRADIENT_OPTIONS) { preset ->
+                            val key = "g:${preset.id}"
+                            val isSelected = key == themeKey
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Brush.horizontalGradient(preset.colors.map { Color(it) }))
+                                    .border(
+                                        width = if (isSelected) 3.dp else SoftDimens.BorderWidth,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                        else LocalSoftExtra.current.border,
+                                        shape = CircleShape,
+                                    )
+                                    .clickable { ThemeStore.setGradient(context, preset.id) },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 if (isSelected) {
@@ -1147,9 +1183,10 @@ private fun ProfileStat(
     value: String,
     sub: String? = null,
     modifier: Modifier = Modifier,
+    onClick: () -> Unit = {},
 ) {
     Column(
-        modifier = modifier,
+        modifier = modifier.clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(

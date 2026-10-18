@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.movieshell.ui.theme.LocalSoftExtra
+import com.movieshell.ui.theme.LocalBrandGradient
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 
@@ -96,7 +97,7 @@ fun PosterCard(
                         .basicMarquee()
                         .padding(horizontal = 6.dp, vertical = 4.dp),
                     style = TextStyle(
-                        brush = Brush.horizontalGradient(BrandGradientColors),
+                        brush = Brush.horizontalGradient(LocalBrandGradient.current),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                     ),

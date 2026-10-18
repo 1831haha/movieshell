@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.movieshell.ui.theme.LocalBrandGradient
 
 /**
  * v0.84.0：科技感弹窗——深色玻璃拟态底 + 四色渐变描边 + 标题下渐变细线。
@@ -56,7 +57,7 @@ fun TechDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(22.dp))
-                .background(Brush.linearGradient(BrandGradientColors))
+                .background(Brush.linearGradient(LocalBrandGradient.current))
                 .padding(1.5.dp)
                 .clip(RoundedCornerShape(21.dp))
                 .background(Color(0xFF171B28))
@@ -76,7 +77,7 @@ fun TechDialog(
                         .width(46.dp)
                         .height(3.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(Brush.horizontalGradient(BrandGradientColors)),
+                        .background(Brush.horizontalGradient(LocalBrandGradient.current)),
                 )
                 if (subtitle != null) {
                     Spacer(Modifier.height(8.dp))
