@@ -79,7 +79,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -685,14 +689,23 @@ fun DetailScreen(
                                     )
                                 }
                                 Spacer(Modifier.height(6.dp))
+                                // v0.86.0：简介标签与内容同一行（"简介："加粗前缀+正文流排），点击展开/收起
                                 Row(
-                                    verticalAlignment = Alignment.CenterVertically,
+                                    verticalAlignment = Alignment.Top,
                                     modifier = Modifier.clickable { descExpanded = !descExpanded },
                                 ) {
                                     Text(
-                                        text = "简介",
+                                        text = buildAnnotatedString {
+                                            withStyle(
+                                                SpanStyle(fontWeight = FontWeight.Bold),
+                                            ) { append("简介：") }
+                                            append(vod.desc)
+                                        },
                                         style = SoftType.Body,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        lineHeight = 19.sp, // v0.84.0：收窄行距
+                                        maxLines = if (descExpanded) Int.MAX_VALUE else 2,
+                                        overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f),
                                     )
                                     Icon(
@@ -703,15 +716,6 @@ fun DetailScreen(
                                         modifier = Modifier.size(20.dp),
                                     )
                                 }
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = vod.desc,
-                                    style = SoftType.Body,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    lineHeight = 19.sp, // v0.84.0：收窄行距
-                                    maxLines = if (descExpanded) Int.MAX_VALUE else 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
                                 // 第四行：操作图标（复制链接 / 下载 / 刷新 / 字幕）
                                 Spacer(Modifier.height(8.dp))
                                 // v0.69.1：操作图标下方加炫彩小字
@@ -792,37 +796,20 @@ fun DetailScreen(
                         lineEpisodes.isNotEmpty() -> {
                             if (playLines.size > 1) {
                                 item {
-                                    // v0.65：线路 tab + 右侧集数徽标（对标目标界面）
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
+                                    // v0.86.0："1/8"集数徽标去掉（多余且用户嫌丑；集数信息由"选集（共N集）"+高亮集承担）
+                                    ScrollableTabRow(
+                                        selectedTabIndex = safeLine,
+                                        edgePadding = SoftDimens.PagePadding,
                                         modifier = Modifier.fillMaxWidth(),
                                     ) {
-                                        ScrollableTabRow(
-                                            selectedTabIndex = safeLine,
-                                            edgePadding = SoftDimens.PagePadding,
-                                            modifier = Modifier.weight(1f),
-                                        ) {
-                                            playLines.forEachIndexed { i, line ->
-                                                Tab(
-                                                    selected = safeLine == i,
-                                                    onClick = {
-                                                        selectedLine = i
-                                                        selectedEpisode = 0
-                                                    },
-                                                    text = { Text(line.name) },
-                                                )
-                                            }
-                                        }
-                                        Surface(
-                                            shape = RoundedCornerShape(12.dp),
-                                            color = MaterialTheme.colorScheme.primaryContainer,
-                                            modifier = Modifier.padding(end = SoftDimens.PagePadding),
-                                        ) {
-                                            Text(
-                                                text = "${highlightEp + 1}/${lineEpisodes.size}",
-                                                style = SoftType.Caption,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        playLines.forEachIndexed { i, line ->
+                                            Tab(
+                                                selected = safeLine == i,
+                                                onClick = {
+                                                    selectedLine = i
+                                                    selectedEpisode = 0
+                                                },
+                                                text = { Text(line.name) },
                                             )
                                         }
                                     }
