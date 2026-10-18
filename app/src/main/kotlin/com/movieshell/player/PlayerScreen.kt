@@ -1600,7 +1600,7 @@ fun PlayerScreen(
                             }
                         }
                     }
-                },
+                }
         }
 
         if (showSubtitleDialog) {
