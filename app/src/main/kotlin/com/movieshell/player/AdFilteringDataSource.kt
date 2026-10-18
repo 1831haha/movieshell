@@ -13,9 +13,13 @@ import java.io.ByteArrayInputStream
  * 包装底层 HTTP DataSource：当请求的 URL 以 .m3u8 结尾（或 Content-Type
  * 为 mpegurl）时，把播放列表全文读出来，经 [M3u8AdFilter] 过滤后再交给
  * ExoPlayer；分片 (.ts) 请求直接透传，不做处理。
+ *
+ * v0.97.0：过滤受 SniffConfig.adFilterEnabled 总开关门控（默认开），
+ * 由 Factory 传入 enabledProvider 实现"改完即时生效"。
  */
 class AdFilteringDataSource(
     private val upstream: DataSource,
+    private val enabledProvider: () -> Boolean = { true },
 ) : DataSource {
 
     private var filteredStream: ByteArrayInputStream? = null
@@ -33,8 +37,8 @@ class AdFilteringDataSource(
 
         val length = upstream.open(dataSpec)
 
-        // 只处理播放列表；分片直接透传
-        if (!isPlaylist || length == 0L) {
+        // 只处理播放列表；分片直接透传；总开关关闭时整体透传
+        if (!isPlaylist || length == 0L || !enabledProvider()) {
             return length
         }
 
@@ -63,8 +67,8 @@ class AdFilteringDataSource(
 
             val text = buf.toString(Charsets.UTF_8)
             val filtered = M3u8AdFilter.filter(text, url)
-            if (filtered !== text && filtered != text) {
-                LogBus.i("AdFilter", "m3u8 去广告：已过滤 ${text.lines().size - filtered.lines().size} 行")
+            if (filtered != text) {
+                LogBus.i("AdFilter", "m3u8 去广告：播放列表已重写（${text.length} -> ${filtered.length} 字符）")
             }
             filteredBytes = filtered.toByteArray(Charsets.UTF_8)
             filteredStream = ByteArrayInputStream(filteredBytes)
@@ -100,8 +104,9 @@ class AdFilteringDataSource(
     /** Factory：包装任意 DataSource.Factory */
     class Factory(
         private val upstreamFactory: DataSource.Factory,
+        private val enabledProvider: () -> Boolean = { true },
     ) : DataSource.Factory {
         override fun createDataSource(): DataSource =
-            AdFilteringDataSource(upstreamFactory.createDataSource())
+            AdFilteringDataSource(upstreamFactory.createDataSource(), enabledProvider)
     }
 }

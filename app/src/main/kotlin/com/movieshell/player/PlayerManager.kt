@@ -24,6 +24,7 @@ import androidx.media3.ui.PlayerView
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubtitleStyle
+import com.movieshell.data.source.SniffConfig
 import java.io.File
 import java.io.FileOutputStream
 
@@ -107,8 +108,11 @@ object PlayerManager {
         }
         // v0.18.0：m3u8 去广告——包装 DataSource，过滤播放列表中的广告分片
         // v0.21.0：外层包 DefaultDataSource，字幕时间偏移后的 file:// 本地字幕也能读
+        // v0.97.0：受 SniffConfig.adFilterEnabled 总开关门控（顶栏溢出菜单可关，改完即时生效）
+        SniffConfig.ensureLoaded(app)
         val adFilterFactory = AdFilteringDataSource.Factory(
-            DefaultDataSource.Factory(app, httpFactory)
+            DefaultDataSource.Factory(app, httpFactory),
+            enabledProvider = { SniffConfig.adFilterEnabled },
         )
         // v0.19.0：显式声明 FLV 提取器（HTTP-FLV 直播/点播），不依赖默认工厂的隐含行为
         val extractorsFactory = ExtractorsFactory {

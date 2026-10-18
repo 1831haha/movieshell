@@ -8,7 +8,8 @@ import android.content.Context
  * - deepSniffConcurrency：深度嗅探并发数（4/6/8）
  * - probeRetry：可疑 URL 探测失败重试次数（0/1/2）
  * - probeTimeoutMs：单次探测超时毫秒（默认 5 秒，暂不开放 UI 调整）
- * - adFilterEnabled：广告过滤总开关（默认开；管候选排除 + 去广告 JS 注入 + 广告域名拦截）
+ * - adFilterEnabled：广告过滤总开关（默认开；管候选排除 + 去广告 JS 注入 + 广告域名拦截
+ *   + m3u8 分片过滤）
  *
  * SharedPreferences（sniff_config）持久化；改完即时生效——并发数在每次
  * 深度嗅探启动时读取，重试/超时在每次 probeContentType 调用时读取，
