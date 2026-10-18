@@ -769,7 +769,7 @@ fun PlayerScreen(
                         )
                     }
                 }
-            },
+            }
         }
     }
 

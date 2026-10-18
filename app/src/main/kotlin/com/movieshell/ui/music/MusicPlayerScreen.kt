@@ -419,10 +419,8 @@ private fun MusicSleepTimerDialog(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("关闭定时", color = MaterialTheme.colorScheme.error) }
             }
-        },
+        }
     }
-}
-}
 
 private fun fmtMs(ms: Long): String {
     val s = (ms / 1000).toInt().coerceAtLeast(0)

@@ -369,7 +369,6 @@ fun FavoritesScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        )
     }
 
     // v0.69.0：重命名弹窗
@@ -395,7 +394,6 @@ fun FavoritesScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        )
     }
 
     // v0.69.0：删除片单确认
