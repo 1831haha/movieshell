@@ -76,6 +76,32 @@ object NovelStore {
             }.onFailure { Log.w(TAG, "小说导入失败", it) }.getOrDefault(false)
         }
 
+    /** v0.84.0：换源——替换某书的目录与源 key，保留加入时间与阅读进度。返回新目录。 */
+    suspend fun updateSource(
+        context: Context,
+        novelId: String,
+        sourceKey: String,
+        chapters: List<Chapter>,
+    ): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val fixed = chapters.mapIndexed { i, c ->
+                c.copy(novelId = novelId, index = i)
+            }
+            chaptersFile(context, novelId).writeText(
+                json.encodeToString(ListSerializer(Chapter.serializer()), fixed),
+            )
+            val list = readIndex(context).toMutableList()
+            val i = list.indexOfFirst { it.id == novelId }
+            if (i < 0) return@runCatching false
+            list[i] = list[i].copy(
+                sourceKey = sourceKey,
+                totalChapters = fixed.size,
+            )
+            writeIndex(context, list)
+            true
+        }.onFailure { Log.w(TAG, "换源失败", it) }.getOrDefault(false)
+    }
+
     suspend fun removeNovel(context: Context, id: String): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             writeIndex(context, readIndex(context).filterNot { it.id == id })

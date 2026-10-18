@@ -114,6 +114,31 @@ object MusicApi {
         return name to tracks
     }
 
+    /** v0.83.0：单行歌词 */
+    data class LyricLine(val timeMs: Long, val text: String)
+
+    /** v0.83.0：拉歌词（LRC）并解析；无歌词返回空列表。 */
+    suspend fun lyric(track: Track): List<LyricLine> {
+        val lid = track.urlId.ifBlank { return emptyList() }
+        val body = runCatching {
+            get("$BASE?types=lyric&source=$SOURCE&id=$lid")
+        }.getOrNull() ?: return emptyList()
+        val raw = runCatching { JSONObject(body).optString("lyric") }.getOrDefault("")
+        if (raw.isBlank()) return emptyList()
+        val pat = Regex("""\[(\d+):(\d+)(?:\.(\d+))?\]""")
+        val lines = mutableListOf<LyricLine>()
+        for (ln in raw.lineSequence()) {
+            val m = pat.find(ln) ?: continue
+            val min = m.groupValues[1].toLong()
+            val sec = m.groupValues[2].toLong()
+            val cs = m.groupValues[3].padEnd(3, '0').take(3).toLongOrNull() ?: 0L
+            val text = ln.substring(m.range.last + 1).trim()
+            if (text.isBlank()) continue
+            lines += LyricLine(min * 60000 + sec * 1000 + cs, text)
+        }
+        return lines.sortedBy { it.timeMs }
+    }
+
     /** 取可播放地址（url_id → 直链） */
     suspend fun playUrl(urlId: String): String {
         val body = get("$BASE?types=url&source=$SOURCE&id=$urlId")

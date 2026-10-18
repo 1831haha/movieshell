@@ -64,6 +64,7 @@ import com.movieshell.data.repo.ReadingProgressStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.material.icons.filled.SwapHoriz
 
 /**
  * v0.35.0 基础阅读器。
@@ -82,6 +83,9 @@ fun ReaderScreen(
 
     var novel by remember { mutableStateOf<Novel?>(null) }
     var chapters by remember { mutableStateOf<List<Chapter>>(emptyList()) }
+    // v0.84.0：换源
+    var showChangeSource by remember { mutableStateOf(false) }
+    var sourceVersion by remember { mutableIntStateOf(0) }
     var chapterIndex by remember { mutableIntStateOf(0) }
     var loaded by remember { mutableStateOf(false) }
     // v0.61.0：设置持久化，打开即读档
@@ -196,8 +200,8 @@ fun ReaderScreen(
         }
     }
 
-    // 载入书 + 章节 + 进度
-    LaunchedEffect(novelId) {
+    // 载入书 + 章节 + 进度（v0.84.0：换源后 sourceVersion 递增触发重载）
+    LaunchedEffect(novelId, sourceVersion) {
         val n = withContext(Dispatchers.IO) { NovelStore.get(context, novelId) }
         val cs = withContext(Dispatchers.IO) { NovelStore.chapters(context, novelId) }
         val p = withContext(Dispatchers.IO) { ReadingProgressStore.load(context, novelId) }
@@ -309,6 +313,12 @@ fun ReaderScreen(
                         maxLines = 1,
                     )
                 }
+                // v0.84.0：换源（本地 TXT 书没有源可换）
+                if (novel?.sourceKey != "local") {
+                    IconButton(onClick = { showChangeSource = true }) {
+                        Icon(Icons.Filled.SwapHoriz, "换源", tint = fg)
+                    }
+                }
                 IconButton(onClick = { nightMode = !nightMode }) {
                     Icon(
                         if (nightMode) Icons.Filled.LightMode else Icons.Filled.DarkMode,
@@ -317,6 +327,30 @@ fun ReaderScreen(
                     )
                 }
             }
+        }
+
+        // v0.84.0：换源弹窗
+        val curNovel = novel
+        if (showChangeSource && curNovel != null) {
+            ChangeSourceDialog(
+                novel = curNovel,
+                currentChapterTitle = chapter?.title.orEmpty(),
+                currentChapterIndex = chapterIndex,
+                onDismiss = { showChangeSource = false },
+                onSwitched = { newIndex ->
+                    showChangeSource = false
+                    // v0.84.0：先存新进度再重载，否则重载会被旧进度覆盖
+                    scope.launch {
+                        ReadingProgressStore.save(
+                            context,
+                            ReadingProgress(novelId, newIndex, 0),
+                        )
+                        NovelStore.updateProgress(context, novelId, newIndex)
+                        chapterIndex = newIndex
+                        sourceVersion++
+                    }
+                },
+            )
         }
 
         // 正文（v0.61.0：点中央切换沉浸模式；章节标题印在正文顶部）

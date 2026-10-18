@@ -93,7 +93,9 @@ import androidx.compose.material.icons.filled.QueueMusic
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MusicScreen() {
+fun MusicScreen(
+    onOpenPlayer: () -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -157,8 +159,11 @@ fun MusicScreen() {
             } else {
                 FavTab()
             }
-            // 底部迷你播放条（三个 tab 共用）
-            MiniPlayer(playState = playState)
+            // 底部迷你播放条（三个 tab 共用；v0.83.0：点击进全屏播放页）
+            MiniPlayer(
+                playState = playState,
+                onOpenPlayer = { onOpenPlayer() },
+            )
         }
     }
 }
@@ -573,13 +578,17 @@ private fun FavTab() {
 
 /** v0.81.0：底部迷你播放条（三个 tab 共用）。 */
 @Composable
-private fun MiniPlayer(playState: MusicPlayer.State) {
+private fun MiniPlayer(
+    playState: MusicPlayer.State,
+    onOpenPlayer: () -> Unit = {},
+) {
     val context = LocalContext.current
     val current = playState.track ?: return
     AppCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clickable(onClick = onOpenPlayer),
     ) {
         Row(
             modifier = Modifier.padding(8.dp),

@@ -123,6 +123,7 @@ import com.movieshell.ui.trash.TrashScreen
 import com.movieshell.ui.theme.MovieShellTheme
 import com.movieshell.ui.theme.SoftMotion
 import com.movieshell.ui.web.WebSniffScreen
+import com.movieshell.ui.music.MusicPlayerScreen
 
 private data class Tab(
     val route: String,
@@ -449,6 +450,12 @@ class MainActivity : ComponentActivity() {
                                     ?.takeIf { it.isNotBlank() },
                             )
                         }
+                        // v0.83.0：音乐全屏播放页
+                        composable("music_player") {
+                            MusicPlayerScreen(
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
                         composable("book_source") {
                             BookSourceScreen(
                                 onBack = { navController.popBackStack() },
@@ -531,7 +538,9 @@ class MainActivity : ComponentActivity() {
                         }
                         // v0.79.0：实验室 tab 改为音乐 tab；原实验室功能已搬进设置页
                         composable("music") {
-                            MusicScreen()
+                            MusicScreen(
+                                onOpenPlayer = { navController.navigate("music_player") },
+                            )
                         }
                         composable("manual") {
                             ManualScreen(onBack = { navController.popBackStack() })

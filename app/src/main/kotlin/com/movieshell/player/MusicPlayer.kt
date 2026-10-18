@@ -22,10 +22,17 @@ object MusicPlayer {
     private var exo: ExoPlayer? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    /** v0.83.0：播放模式 */
+    enum class RepeatMode { ALL, ONE, SHUFFLE }
+
     data class State(
         val track: MusicApi.Track? = null,
         val playing: Boolean = false,
         val loading: Boolean = false,
+        // v0.83.0：进度
+        val positionMs: Long = 0L,
+        val durationMs: Long = 0L,
+        val repeatMode: RepeatMode = RepeatMode.ALL,
     )
 
     private val _state = MutableStateFlow(State())
@@ -43,6 +50,15 @@ object MusicPlayer {
             if (state == Player.STATE_BUFFERING) {
                 _state.value = _state.value.copy(loading = true)
             }
+            if (state == Player.STATE_READY) {
+                _state.value = _state.value.copy(
+                    durationMs = exo?.duration?.coerceAtLeast(0L) ?: 0L,
+                )
+            }
+            // v0.83.0：播完按模式切歌
+            if (state == Player.STATE_ENDED) {
+                onTrackEnded()
+            }
         }
     }
 
@@ -58,6 +74,7 @@ object MusicPlayer {
     /** 播放列表从 index 开始 */
     fun playList(context: Context, tracks: List<MusicApi.Track>, startIndex: Int) {
         if (tracks.isEmpty()) return
+        appCtx = context.applicationContext
         queue = tracks
         playAt(context, startIndex.coerceIn(tracks.indices))
     }
@@ -84,6 +101,7 @@ object MusicPlayer {
                 player.setMediaItem(MediaItem.fromUri(mediaUri))
                 player.prepare()
                 player.play()
+                startProgressPoll(context)
                 LogBus.i("MusicPlayer", "播放：${track.name} - ${track.artist}")
             }.onFailure {
                 LogBus.e("MusicPlayer", "播放失败：${it.message}")
@@ -97,6 +115,56 @@ object MusicPlayer {
         if (p.isPlaying) p.pause() else p.play()
     }
 
+    // v0.83.0：进度轮询（播放中每 500ms 推一次）
+    private var progressJob: kotlinx.coroutines.Job? = null
+
+    private fun startProgressPoll(context: Context) {
+        progressJob?.cancel()
+        progressJob = scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(500)
+                val p = exo ?: break
+                if (p.isPlaying) {
+                    _state.value = _state.value.copy(
+                        positionMs = p.currentPosition.coerceAtLeast(0L),
+                        durationMs = p.duration.coerceAtLeast(0L),
+                    )
+                }
+            }
+        }
+    }
+
+    fun seekTo(ms: Long) {
+        exo?.seekTo(ms.coerceAtLeast(0L))
+        _state.value = _state.value.copy(positionMs = ms.coerceAtLeast(0L))
+    }
+
+    fun cycleRepeatMode() {
+        val next = when (_state.value.repeatMode) {
+            RepeatMode.ALL -> RepeatMode.ONE
+            RepeatMode.ONE -> RepeatMode.SHUFFLE
+            RepeatMode.SHUFFLE -> RepeatMode.ALL
+        }
+        _state.value = _state.value.copy(repeatMode = next)
+    }
+
+    private fun onTrackEnded() {
+        val ctx = appCtx ?: return
+        when (_state.value.repeatMode) {
+            RepeatMode.ONE -> playAt(ctx, index)
+            RepeatMode.SHUFFLE -> {
+                if (queue.size > 1) {
+                    var n = index
+                    while (n == index) n = (0 until queue.size).random()
+                    playAt(ctx, n)
+                } else playAt(ctx, index)
+            }
+            RepeatMode.ALL -> next(ctx)
+        }
+    }
+
+    private var appCtx: Context? = null
+
     fun next(context: Context) {
         if (queue.isEmpty()) return
         playAt(context, (index + 1) % queue.size)
@@ -108,8 +176,9 @@ object MusicPlayer {
     }
 
     fun stop() {
+        progressJob?.cancel()
         exo?.stop()
-        _state.value = State()
+        _state.value = State(repeatMode = _state.value.repeatMode)
         queue = emptyList()
         index = -1
     }
