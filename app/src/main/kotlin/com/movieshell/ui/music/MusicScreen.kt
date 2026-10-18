@@ -1,5 +1,6 @@
 package com.movieshell.ui.music
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -16,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.stickyHeader
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -579,6 +579,7 @@ private fun OnlineTab(
 }
 
 /** v0.81.0：本地音乐 tab——导入本地音频文件，列表播放/删除；v0.89.0：按歌手/专辑/文件夹分组浏览。 */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LocalTab() {
     val context = LocalContext.current
