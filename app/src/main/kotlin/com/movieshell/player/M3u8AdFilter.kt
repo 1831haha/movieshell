@@ -10,10 +10,10 @@ package com.movieshell.player
  */
 object M3u8AdFilter {
 
-    /** URL 中出现这些词即判为广告分片 */
+    /** URL 中出现这些词即判为广告分片（v0.94：按 drpy 截图口径补齐 advert/adsrv/popad） */
     private val AD_URL_KEYWORDS = listOf(
-        "advertisement", "/ad/", "/ads/", "adserver",
-        "doubleclick", "googlesyndication",
+        "advert", "/ad/", "/ads/", "adserver",
+        "doubleclick", "googlesyndication", "adsrv", "popad",
     )
 
     /**

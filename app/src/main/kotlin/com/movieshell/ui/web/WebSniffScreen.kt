@@ -83,6 +83,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -182,6 +183,41 @@ private const val JS_BLOB_DIG = """
 """
 
 /**
+ * v0.94：inject 式去广告（drpy 截图里 inject 思路）。
+ * onPageFinished 后注入：删广告 DOM、禁 window.open 弹窗、隐藏广告横幅，
+ * 每 800ms 跑一次 rmAd 兜底后加载的广告。
+ * 保守处理：不 blanket 删 iframe（会破坏第 3 层 iframe 嗅探，只清广告 src 的）、
+ * 不用 div[class*="ad"]（会误删 header/badge 等正常元素）。
+ */
+private const val JS_RM_AD = """
+(function(){
+  var AD_RE=/advert|doubleclick|googlesyndication|adsrv|popad|adservice/i;
+  function rmAd(){
+    try{
+      document.querySelectorAll('.ads,.advert,.ad-popup,.ad-banner,.popup,.tip').forEach(function(e){e.remove();});
+      document.querySelectorAll('div[id^="ad-"],div[id$="-ad"],div[id="ad"]').forEach(function(e){e.remove();});
+      document.querySelectorAll('iframe').forEach(function(f){
+        try{ if(f.src && AD_RE.test(f.src)) f.remove(); }catch(e){}
+      });
+      document.querySelectorAll('style,script').forEach(function(s){
+        try{ if(/advert|adpop|ads\.js/.test(s.innerHTML)) s.remove(); }catch(e){}
+      });
+    }catch(e){}
+  }
+  rmAd();
+  try{ window.open=function(){return null;}; }catch(e){}
+  try{ window.onbeforeunload=null; }catch(e){}
+  try{
+    var sty=document.createElement('style');
+    sty.textContent='.ad,.ads,.advert,.ad-popup,.ad-banner{display:none!important}';
+    document.head.appendChild(sty);
+  }catch(e){}
+  try{ setInterval(rmAd,800); }catch(e){}
+  return 'ok';
+})()
+"""
+
+/**
  * evaluateJavascript 返回值解开一层转义：回调拿到的是 JSON 字符串字面量
  * （如 "\"{\\\"v\\\":[...]}\""），包一层 {"v":...} 再 getString 即得原文。
  */
@@ -277,6 +313,8 @@ fun WebSniffScreen(
     // v0.93：嗅探参数（顶栏溢出菜单可调，改完即时生效）
     var concurrency by remember { mutableIntStateOf(SniffConfig.deepSniffConcurrency) }
     var retryCount by remember { mutableIntStateOf(SniffConfig.probeRetry) }
+    // v0.94：广告过滤总开关（候选排除 + 去广告 JS 注入 + 广告域名拦截）
+    var adFilter by remember { mutableStateOf(SniffConfig.adFilterEnabled) }
     var menuOpen by remember { mutableStateOf(false) }
     var cfgDialog by remember { mutableStateOf<String?>(null) } // "concurrency" / "retry" / null
 
@@ -299,6 +337,11 @@ fun WebSniffScreen(
      */
     fun addCandidate(url: String, source: String) {
         if (hitDone.get() || url.isBlank()) return
+        // v0.94：广告地址过滤（SniffConfig 广告过滤总开关；默认开）
+        if (SniffConfig.adFilterEnabled && SniffEngine.isAdUrl(url)) {
+            LogBus.i("WebSniff", "广告过滤 [$source] ${url.take(120)}")
+            return
+        }
         if (!candidateUrls.add(url)) return
         candidates.add(SniffCandidate(url = url, kind = SniffKind.DIRECT, source = source))
         LogBus.i("WebSniff", "候选+1 [$source] ${url.take(120)}")
@@ -612,6 +655,15 @@ fun WebSniffScreen(
                                     text = { Text("失败重试：$retryCount 次") },
                                     onClick = { menuOpen = false; cfgDialog = "retry" },
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("过滤广告地址：${if (adFilter) "开" else "关"}") },
+                                    onClick = {
+                                        menuOpen = false
+                                        SniffConfig.update(context, adFilter = !adFilter)
+                                        adFilter = SniffConfig.adFilterEnabled
+                                        Toast.makeText(context, "已生效", Toast.LENGTH_SHORT).show()
+                                    },
+                                )
                             }
                         }
                     },
@@ -715,6 +767,10 @@ fun WebSniffScreen(
                                     }
                                     // v0.92 第 3 层：动态 iframe 追踪（新页面重新注入）
                                     view.evaluateJavascript(JS_IFRAME_OBSERVER, null)
+                                    // v0.94：inject 式去广告（广告过滤总开关控制）
+                                    if (SniffConfig.adFilterEnabled) {
+                                        view.evaluateJavascript(JS_RM_AD, null)
+                                    }
                                     probeIframes(view)
                                 }
                             }
@@ -746,6 +802,17 @@ fun WebSniffScreen(
                             ): WebResourceResponse? {
                                 val webView = view
                                 val reqUrl = request?.url?.toString().orEmpty()
+                                // v0.94：广告域名黑名单——命中直接返回空响应拦截，不请求
+                                if (SniffConfig.adFilterEnabled && reqUrl.isNotEmpty()) {
+                                    val host = request?.url?.host.orEmpty()
+                                    if (SniffEngine.isAdHost(host)) {
+                                        LogBus.i("WebSniff", "广告域名拦截 $host")
+                                        return WebResourceResponse(
+                                            "text/plain", "utf-8",
+                                            ByteArrayInputStream(ByteArray(0)),
+                                        )
+                                    }
+                                }
                                 if (webView != null && reqUrl.isNotEmpty()) {
                                     rememberSeen(reqUrl)
                                     when (SniffEngine.sniffKind(reqUrl)) {
@@ -913,6 +980,7 @@ fun WebSniffScreen(
         SniffConfig.ensureLoaded(context)
         concurrency = SniffConfig.deepSniffConcurrency
         retryCount = SniffConfig.probeRetry
+        adFilter = SniffConfig.adFilterEnabled
         delay(SNIFF_TIMEOUT_MS)
         showTimeoutToast()
     }

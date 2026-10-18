@@ -113,6 +113,40 @@ object SniffEngine {
     )
 
     /**
+     * v0.94：广告地址特征（drpy 截图里 sniffReg 加强版的负向前瞻思路）。
+     * 命中则不进候选列表。大小写不敏感；关键词故意保守，宁可漏放不误杀。
+     */
+    private val AD_URL_KEYWORDS = listOf(
+        "advert", "doubleclick", "googlesyndication", "googleadservices",
+        "adsrv", "popad", "adserver", "/ads/", ".ads.", "/ad/",
+        "preview",
+    )
+
+    /** 广告地址判定（v0.94，纯函数）：URL 含广告特征 → 不进候选列表 */
+    fun isAdUrl(url: String): Boolean {
+        if (url.isBlank()) return false
+        val lower = url.lowercase()
+        return AD_URL_KEYWORDS.any { it in lower }
+    }
+
+    /**
+     * v0.94：广告域名黑名单（drpy 截图里 hosts 拦截思路）。
+     * shouldInterceptRequest 里 host 命中 → 直接返回空响应拦截请求。
+     */
+    private val AD_HOST_KEYWORDS = listOf(
+        "doubleclick", "googlesyndication", "googleadservices",
+        "adsrv", "popad", "adservice", ".ads.", "advert",
+        "adnxs", "criteo",
+    )
+
+    /** 广告域名判定（v0.94，纯函数）：host 含广告特征 → 拦截 */
+    fun isAdHost(host: String): Boolean {
+        if (host.isBlank()) return false
+        val lower = host.lowercase()
+        return AD_HOST_KEYWORDS.any { it in lower }
+    }
+
+    /**
      * 静态资源判定（v0.92 公开：深度嗅探过滤候选 URL 用）。
      * 注意 .ts 不在其中——分片由 [isTsSegment] 另行处理。
      */
