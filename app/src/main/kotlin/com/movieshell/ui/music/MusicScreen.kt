@@ -80,7 +80,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import com.movieshell.data.repo.MusicHistoryStore
 import com.movieshell.data.repo.MusicStore
-import com.movieshell.data.repo.Playlist
+import com.movieshell.data.repo.MusicPlaylist
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.lazy.LazyRow
@@ -910,10 +910,10 @@ private fun PlaylistTab(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var playlists by remember { mutableStateOf<List<Playlist>>(emptyList()) }
+    var playlists by remember { mutableStateOf<List<MusicPlaylist>>(emptyList()) }
     var showNew by remember { mutableStateOf(false) }
-    var renameTarget by remember { mutableStateOf<Playlist?>(null) }
-    var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
+    var renameTarget by remember { mutableStateOf<MusicPlaylist?>(null) }
+    var deleteTarget by remember { mutableStateOf<MusicPlaylist?>(null) }
 
     fun reload() {
         scope.launch { playlists = MusicStore.playlistList(context) }
@@ -1108,7 +1108,7 @@ internal fun AddToPlaylistDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var playlists by remember { mutableStateOf<List<Playlist>>(emptyList()) }
+    var playlists by remember { mutableStateOf<List<MusicPlaylist>>(emptyList()) }
     var showNew by remember { mutableStateOf(false) }
 
     fun reload() {
@@ -1116,7 +1116,7 @@ internal fun AddToPlaylistDialog(
     }
     LaunchedEffect(Unit) { reload() }
 
-    fun addTo(pl: Playlist) {
+    fun addTo(pl: MusicPlaylist) {
         scope.launch {
             val ok = MusicStore.addToPlaylist(context, pl.id, track)
             Toast.makeText(

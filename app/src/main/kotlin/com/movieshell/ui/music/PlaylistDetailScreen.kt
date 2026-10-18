@@ -40,7 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicStore
-import com.movieshell.data.repo.Playlist
+import com.movieshell.data.repo.MusicPlaylist
 import com.movieshell.player.MusicPlayer
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
@@ -58,7 +58,7 @@ fun PlaylistDetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val playState by MusicPlayer.state.collectAsState()
-    var playlist by remember { mutableStateOf<Playlist?>(null) }
+    var playlist by remember { mutableStateOf<MusicPlaylist?>(null) }
     var loading by remember { mutableStateOf(true) }
     var deleteTarget by remember { mutableStateOf<MusicApi.Track?>(null) }
 

@@ -12,7 +12,7 @@ import java.io.File
 
 /** v0.84.0：自建歌单。整首 Track 存进歌单（在线歌曲不依赖搜索结果缓存）。 */
 @Serializable
-data class Playlist(
+data class MusicPlaylist(
     val id: String = "",
     val name: String = "",
     val tracks: List<Track> = emptyList(),
@@ -86,32 +86,32 @@ object MusicStore {
 
     private const val PLAYLIST_FILE = "music_playlists.json"
 
-    private fun readPlaylists(f: File): List<Playlist> = runCatching {
+    private fun readPlaylists(f: File): List<MusicPlaylist> = runCatching {
         if (!f.isFile) return emptyList()
-        json.decodeFromString(ListSerializer(Playlist.serializer()), f.readText())
+        json.decodeFromString(ListSerializer(MusicPlaylist.serializer()), f.readText())
     }.onFailure { Log.w(TAG, "歌单读取失败", it) }.getOrDefault(emptyList())
 
-    private fun writePlaylists(f: File, list: List<Playlist>) = runCatching {
-        f.writeText(json.encodeToString(ListSerializer(Playlist.serializer()), list))
+    private fun writePlaylists(f: File, list: List<MusicPlaylist>) = runCatching {
+        f.writeText(json.encodeToString(ListSerializer(MusicPlaylist.serializer()), list))
     }.onFailure { Log.w(TAG, "歌单写入失败", it) }
 
-    suspend fun playlistList(context: Context): List<Playlist> = withContext(Dispatchers.IO) {
+    suspend fun playlistList(context: Context): List<MusicPlaylist> = withContext(Dispatchers.IO) {
         readPlaylists(File(context.filesDir, PLAYLIST_FILE))
             .sortedByDescending { it.createdAt }
     }
 
-    suspend fun getPlaylist(context: Context, id: String): Playlist? = withContext(Dispatchers.IO) {
+    suspend fun getPlaylist(context: Context, id: String): MusicPlaylist? = withContext(Dispatchers.IO) {
         readPlaylists(File(context.filesDir, PLAYLIST_FILE)).firstOrNull { it.id == id }
     }
 
-    suspend fun createPlaylist(context: Context, name: String): Playlist? =
+    suspend fun createPlaylist(context: Context, name: String): MusicPlaylist? =
         withContext(Dispatchers.IO) {
             val nm = name.trim()
             if (nm.isEmpty()) return@withContext null
             val f = File(context.filesDir, PLAYLIST_FILE)
             val cur = readPlaylists(f).toMutableList()
             if (cur.any { it.name == nm }) return@withContext null // 重名不建
-            val pl = Playlist(
+            val pl = MusicPlaylist(
                 id = "pl_${System.currentTimeMillis()}",
                 name = nm,
                 createdAt = System.currentTimeMillis(),
