@@ -165,4 +165,53 @@ object MusicStore {
                 },
             )
         }
+
+    /**
+     * v0.89.0：手动排序——把 from 位置的歌移到 to（邻位交换用 removeAt/add 一次到位）。
+     * 越界直接 return；其余照抄 readPlaylists/writePlaylists 模式。
+     */
+    suspend fun moveTrack(context: Context, playlistId: String, from: Int, to: Int) =
+        withContext(Dispatchers.IO) {
+            val f = File(context.filesDir, PLAYLIST_FILE)
+            val cur = readPlaylists(f)
+            val pl = cur.firstOrNull { it.id == playlistId } ?: return@withContext
+            val tracks = pl.tracks
+            if (from !in tracks.indices || to !in tracks.indices || from == to) return@withContext
+            val mutable = tracks.toMutableList()
+            mutable.add(to, mutable.removeAt(from))
+            writePlaylists(
+                f,
+                cur.map { if (it.id == playlistId) pl.copy(tracks = mutable) else it },
+            )
+        }
+
+    /** v0.89.0：批量删除（多选模式）。 */
+    suspend fun removeTracks(context: Context, playlistId: String, ids: Set<String>) =
+        withContext(Dispatchers.IO) {
+            if (ids.isEmpty()) return@withContext
+            val f = File(context.filesDir, PLAYLIST_FILE)
+            val cur = readPlaylists(f)
+            writePlaylists(
+                f,
+                cur.map {
+                    if (it.id == playlistId) it.copy(tracks = it.tracks.filterNot { t -> t.id in ids })
+                    else it
+                },
+            )
+        }
+
+    /** v0.89.0：按歌名排序（name.lowercase()）写回。 */
+    suspend fun sortByName(context: Context, playlistId: String) =
+        withContext(Dispatchers.IO) {
+            val f = File(context.filesDir, PLAYLIST_FILE)
+            val cur = readPlaylists(f)
+            writePlaylists(
+                f,
+                cur.map {
+                    if (it.id == playlistId) {
+                        it.copy(tracks = it.tracks.sortedBy { t -> t.name.lowercase() })
+                    } else it
+                },
+            )
+        }
 }

@@ -1,8 +1,10 @@
 package com.movieshell.ui.reader
 
 import android.app.Activity
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,20 +13,24 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,8 +51,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,12 +67,19 @@ import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.ChapterMeta
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.PyBookSourceManager
+import com.movieshell.data.repo.Bookmark
+import com.movieshell.data.repo.BookmarkStore
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.ReaderSettings
 import com.movieshell.data.repo.ReadingProgressStore
+import com.movieshell.ui.components.TechDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.absoluteValue
 import androidx.compose.material.icons.filled.SwapHoriz
 
 /**
@@ -72,6 +88,9 @@ import androidx.compose.material.icons.filled.SwapHoriz
  * - 打开恢复进度（章 + 章内字符偏移估算），无进度从第 0 章起；
  * - 退出（Dispose）时自动保存进度；
  * - 字号 14~24sp、夜间模式切换；目录弹窗可跳转。
+ *
+ * v0.89.0：背景主题四档（白/米黄/护眼绿/夜间黑，替代旧夜间开关）；
+ * 翻页模式三档（上下滚动/左右覆盖/仿真翻页，默认左右覆盖）；书签。
  */
 @Composable
 fun ReaderScreen(
@@ -91,7 +110,10 @@ fun ReaderScreen(
     // v0.61.0：设置持久化，打开即读档
     val savedSettings = remember { ReaderSettings.load(context) }
     var fontSize by remember { mutableIntStateOf(savedSettings.fontSize) }
-    var nightMode by remember { mutableStateOf(savedSettings.nightMode) }
+    // v0.89.0：背景主题 0=白 1=米黄 2=护眼绿 3=夜间黑（替代旧 nightMode 开关）
+    var bgTheme by remember { mutableIntStateOf(savedSettings.bgTheme) }
+    // v0.89.0：翻页模式 0=上下滚动 1=左右覆盖 2=仿真翻页
+    var pageMode by remember { mutableIntStateOf(savedSettings.pageMode) }
     var showToc by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var restoreOffset by remember { mutableIntStateOf(0) }
@@ -105,42 +127,30 @@ fun ReaderScreen(
     // v0.72.0：音量键翻页
     var volumePageTurn by remember { mutableStateOf(savedSettings.volumePageTurn) }
     var pageHeight by remember { mutableIntStateOf(0) }
+    // v0.89.0：翻页模式分页用正文区宽
+    var pageWidth by remember { mutableIntStateOf(0) }
+    // v0.89.0：书签
+    var showBookmarks by remember { mutableStateOf(false) }
+    var bookmarks by remember { mutableStateOf<List<Bookmark>>(emptyList()) }
 
-    // v0.61.0：设置变化即存档
-    LaunchedEffect(fontSize, nightMode, serifFont, lineHeightRatio, brightness, volumePageTurn) {
+    // v0.61.0：设置变化即存档（v0.89.0：加 bgTheme/pageMode；nightMode 按 bgTheme 回填做兼容）
+    LaunchedEffect(fontSize, bgTheme, serifFont, lineHeightRatio, brightness, volumePageTurn, pageMode) {
         ReaderSettings.save(
             context,
             ReaderSettings.Settings(
-                fontSize, nightMode, serifFont, lineHeightRatio, brightness, volumePageTurn,
+                fontSize = fontSize,
+                nightMode = bgTheme == 3,
+                serifFont = serifFont,
+                lineHeightRatio = lineHeightRatio,
+                brightness = brightness,
+                volumePageTurn = volumePageTurn,
+                bgTheme = bgTheme,
+                pageMode = pageMode,
             ),
         )
     }
 
     val scrollState = rememberScrollState()
-
-    // v0.72.0：音量键翻页注册（开着才接管音量键，离开页面/关掉即释放）
-    DisposableEffect(volumePageTurn) {
-        if (volumePageTurn) {
-            VolumeKeyRouter.onVolumeUp = {
-                scope.launch {
-                    scrollState.animateScrollTo((scrollState.value - pageHeight).coerceAtLeast(0))
-                }
-                true
-            }
-            VolumeKeyRouter.onVolumeDown = {
-                scope.launch {
-                    scrollState.animateScrollTo(
-                        (scrollState.value + pageHeight).coerceAtMost(scrollState.maxValue),
-                    )
-                }
-                true
-            }
-        }
-        onDispose {
-            VolumeKeyRouter.onVolumeUp = null
-            VolumeKeyRouter.onVolumeDown = null
-        }
-    }
 
     // v0.36.0：亮度 Slider 直接写 Activity 的 Window
     val activity = context as? Activity
@@ -221,56 +231,163 @@ fun ReaderScreen(
 
     val chapter = chapters.getOrNull(chapterIndex)
 
-    // 章节切换后：回到顶部，或按保存的字符偏移估算滚动位置
-    LaunchedEffect(chapterIndex, loaded, chapter?.content?.length) {
-        if (!loaded) return@LaunchedEffect
+    // v0.89.0：字符数粗分页（翻页模式用）
+    val density = LocalDensity.current
+    val charsPerPage = remember(pageWidth, pageHeight, fontSize, lineHeightRatio, density) {
+        val fontPx = with(density) { fontSize.sp.toPx() }
+        val innerW = (pageWidth - with(density) { 40.dp.toPx() }).coerceAtLeast(0f)
+        val innerH = (pageHeight - with(density) { 24.dp.toPx() }).coerceAtLeast(0f)
+        val cpl = if (innerW > 0 && fontPx > 0) {
+            (innerW / (fontPx * 0.95f)).toInt().coerceAtLeast(10)
+        } else 30
+        val lpp = if (innerH > 0 && fontPx > 0) {
+            (innerH / (fontPx * lineHeightRatio)).toInt().coerceAtLeast(5)
+        } else 20
+        (cpl * lpp).coerceAtLeast(200)
+    }
+    val pages = remember(chapter?.content, charsPerPage) {
+        chapter?.content?.chunked(charsPerPage) ?: emptyList()
+    }
+    val pagerState = rememberPagerState(pageCount = { pages.size.coerceAtLeast(1) })
+
+    /** v0.89.0：当前阅读位置换算成字符偏移（进度保存/书签用，两种模式统一）。 */
+    fun computeOffset(): Int {
         val len = chapter?.content?.length ?: 0
-        if (restoreOffset > 0 && len > 0) {
-            val approxLine = fontSize * 1.8f // 每行像素粗估
-            val charsPerLine = 22 // 按常见行宽粗估
-            val targetPx = (restoreOffset / charsPerLine.toFloat() * approxLine).toInt()
-            scrollState.scrollTo(targetPx.coerceAtLeast(0))
-            restoreOffset = 0 // 只恢复一次
+        return if (pageMode == 0) {
+            val max = scrollState.maxValue.coerceAtLeast(1)
+            if (len > 0) (scrollState.value.toFloat() / max * len).toInt().coerceIn(0, len) else 0
         } else {
-            scrollState.scrollTo(0)
+            (pagerState.currentPage * charsPerPage).coerceIn(0, len)
         }
     }
 
-    // 退出时保存进度：用滚动比例反推字符偏移（粗估，自洽即可）。
-    // 用 rememberUpdatedState 保证 onDispose 拿到最新的章节和滚动值。
+    // v0.72.0：音量键翻页注册（开着才接管音量键，离开页面/关掉即释放）
+    // v0.89.0：翻页模式下音量键改为前后翻页
+    DisposableEffect(volumePageTurn, pageMode) {
+        if (volumePageTurn) {
+            VolumeKeyRouter.onVolumeUp = {
+                scope.launch {
+                    if (pageMode == 0) {
+                        scrollState.animateScrollTo((scrollState.value - pageHeight).coerceAtLeast(0))
+                    } else {
+                        pagerState.animateScrollToPage((pagerState.currentPage - 1).coerceAtLeast(0))
+                    }
+                }
+                true
+            }
+            VolumeKeyRouter.onVolumeDown = {
+                scope.launch {
+                    if (pageMode == 0) {
+                        scrollState.animateScrollTo(
+                            (scrollState.value + pageHeight).coerceAtMost(scrollState.maxValue),
+                        )
+                    } else {
+                        pagerState.animateScrollToPage(
+                            (pagerState.currentPage + 1)
+                                .coerceAtMost((pagerState.pageCount - 1).coerceAtLeast(0)),
+                        )
+                    }
+                }
+                true
+            }
+        }
+        onDispose {
+            VolumeKeyRouter.onVolumeUp = null
+            VolumeKeyRouter.onVolumeDown = null
+        }
+    }
+
+    // 章节切换后：回到顶部，或按保存的字符偏移恢复位置
+    LaunchedEffect(chapterIndex, loaded, chapter?.content?.length) {
+        if (!loaded) return@LaunchedEffect
+        val len = chapter?.content?.length ?: 0
+        if (pageMode == 0) {
+            if (restoreOffset > 0 && len > 0) {
+                val approxLine = fontSize * 1.8f // 每行像素粗估
+                val charsPerLine = 22 // 按常见行宽粗估
+                val targetPx = (restoreOffset / charsPerLine.toFloat() * approxLine).toInt()
+                scrollState.scrollTo(targetPx.coerceAtLeast(0))
+                restoreOffset = 0 // 只恢复一次
+            } else {
+                scrollState.scrollTo(0)
+            }
+        } else {
+            // v0.89.0：翻页模式按页恢复；正文还没到时等下一次 content 长度变化再恢复
+            if (restoreOffset > 0 && len > 0 && pages.isNotEmpty()) {
+                pagerState.scrollToPage((restoreOffset / charsPerPage).coerceIn(0, pages.size - 1))
+                restoreOffset = 0 // 只恢复一次
+            } else {
+                pagerState.scrollToPage(0)
+            }
+        }
+    }
+
+    // v0.89.0：字号/行距/窗口变化导致重分页时，按字符偏移尽量保持阅读位置
+    var lastCpp by remember { mutableIntStateOf(0) }
+    LaunchedEffect(charsPerPage) {
+        if (lastCpp > 0 && lastCpp != charsPerPage && pages.isNotEmpty() && pageMode != 0) {
+            val offset = pagerState.currentPage * lastCpp
+            pagerState.scrollToPage((offset / charsPerPage).coerceIn(0, pages.size - 1))
+        }
+        lastCpp = charsPerPage
+    }
+
+    // 退出时保存进度。用 rememberUpdatedState 保证 onDispose 拿到最新的章节和偏移值。
     val latestIndex by rememberUpdatedState(chapterIndex)
+    val latestOffset by rememberUpdatedState(computeOffset())
     val latestLen by rememberUpdatedState(chapter?.content?.length ?: 0)
     DisposableEffect(novelId) {
         onDispose {
             val len = latestLen
-            val max = scrollState.maxValue.coerceAtLeast(1)
-            val offset = if (len > 0) (scrollState.value.toFloat() / max * len).toInt() else 0
             scope.launch {
                 ReadingProgressStore.save(
                     context,
-                    ReadingProgress(novelId, latestIndex, offset.coerceIn(0, len)),
+                    ReadingProgress(novelId, latestIndex, latestOffset.coerceIn(0, len)),
                 )
                 NovelStore.updateProgress(context, novelId, latestIndex)
             }
         }
     }
 
-    fun jumpTo(index: Int) {
+    fun jumpTo(index: Int, restoreTo: Int = 0) {
         if (index in chapters.indices) {
             // 切章前先把当前进度存了
-            val len = chapter?.content?.length ?: 0
-            val max = scrollState.maxValue.coerceAtLeast(1)
-            val offset = if (len > 0) (scrollState.value.toFloat() / max * len).toInt() else 0
+            val offset = computeOffset()
             scope.launch {
                 ReadingProgressStore.save(
                     context,
-                    ReadingProgress(novelId, chapterIndex, offset.coerceIn(0, len)),
+                    ReadingProgress(novelId, chapterIndex, offset),
                 )
                 NovelStore.updateProgress(context, novelId, index)
             }
+            restoreOffset = restoreTo
             chapterIndex = index
             showToc = false
+            showBookmarks = false
             ensureContent(index)
+        }
+    }
+
+    // v0.89.0：书签
+    fun refreshBookmarks() {
+        scope.launch { bookmarks = BookmarkStore.list(context, novelId) }
+    }
+
+    fun addBookmark() {
+        val c = chapter ?: return
+        scope.launch {
+            BookmarkStore.add(
+                context,
+                novelId,
+                Bookmark(
+                    chapterIndex = chapterIndex,
+                    charOffset = computeOffset(),
+                    chapterTitle = c.title,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+            refreshBookmarks()
+            Toast.makeText(context, "已添加书签", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -279,8 +396,18 @@ fun ReaderScreen(
         ((chapterIndex + 1) * 100 / chapters.size).coerceIn(0, 100)
     } else 0
 
-    val bg = if (nightMode) Color(0xFF121212) else Color(0xFFF7F3E8)
-    val fg = if (nightMode) Color(0xFFD8D8D8) else Color(0xFF2B2B2B)
+    // v0.89.0：背景主题配色 0=白 1=米黄 2=护眼绿 3=夜间黑
+    val bg = when (bgTheme) {
+        0 -> Color(0xFFFFFFFF)
+        2 -> Color(0xFFE8F0E4)
+        3 -> Color(0xFF121212)
+        else -> Color(0xFFF7F3E8)
+    }
+    val fg = when (bgTheme) {
+        2 -> Color(0xFF2E3B2E)
+        3 -> Color(0xFFD8D8D8)
+        else -> Color(0xFF2B2B2B)
+    }
 
     Column(
         modifier = Modifier
@@ -319,13 +446,11 @@ fun ReaderScreen(
                         Icon(Icons.Filled.SwapHoriz, "换源", tint = fg)
                     }
                 }
-                IconButton(onClick = { nightMode = !nightMode }) {
-                    Icon(
-                        if (nightMode) Icons.Filled.LightMode else Icons.Filled.DarkMode,
-                        "夜间模式",
-                        tint = fg,
-                    )
+                // v0.89.0：书签（加当前进度为书签 / 打开书签列表）
+                IconButton(onClick = { addBookmark() }) {
+                    Icon(Icons.Filled.BookmarkBorder, "添加书签", tint = fg)
                 }
+                TextButton(onClick = { showBookmarks = true }) { Text("书签", color = fg) }
             }
         }
 
@@ -354,12 +479,15 @@ fun ReaderScreen(
         }
 
         // 正文（v0.61.0：点中央切换沉浸模式；章节标题印在正文顶部）
+        // v0.89.0：翻页模式 1/2 用 HorizontalPager，点按中央切换沉浸（drag 留给 pager）
         Box(
             modifier = Modifier
                 .weight(1f)
-                // v0.72.0：记下可视高度，音量键按页滚
-                .onSizeChanged { pageHeight = it.height }
-                .clickable { immersive = !immersive },
+                // v0.72.0：记下可视宽高（音量键按页滚 / 翻页模式粗分页）
+                .onSizeChanged {
+                    pageHeight = it.height
+                    pageWidth = it.width
+                },
         ) {
             if (!loaded) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -377,11 +505,12 @@ fun ReaderScreen(
                         Text("正文加载中…", color = fg.copy(alpha = 0.6f), fontSize = 13.sp)
                     }
                 }
-            } else {
+            } else if (pageMode == 0) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(scrollState)
+                        .clickable { immersive = !immersive }
                         .padding(horizontal = 20.dp, vertical = 12.dp),
                 ) {
                     Text(
@@ -398,6 +527,67 @@ fun ReaderScreen(
                         lineHeight = (fontSize * lineHeightRatio).sp,
                         fontFamily = if (serifFont) FontFamily.Serif else FontFamily.SansSerif,
                     )
+                }
+            } else {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { immersive = !immersive })
+                        },
+                ) { page ->
+                    val pageOffset =
+                        (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(
+                                if (pageMode == 2) {
+                                    // v0.89.0 仿真翻页：书页翻动旋转
+                                    Modifier.graphicsLayer {
+                                        rotationY = -30f * pageOffset
+                                        cameraDistance = 12f
+                                    }
+                                } else Modifier,
+                            ),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                        ) {
+                            if (page == 0) {
+                                Text(
+                                    text = chapter.title,
+                                    color = fg,
+                                    fontSize = (fontSize + 2).sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 16.dp),
+                                )
+                            }
+                            Text(
+                                text = pages.getOrNull(page).orEmpty(),
+                                color = fg,
+                                fontSize = fontSize.sp,
+                                lineHeight = (fontSize * lineHeightRatio).sp,
+                                fontFamily = if (serifFont) FontFamily.Serif else FontFamily.SansSerif,
+                            )
+                        }
+                        // v0.89.0 仿真翻页：翻页中的页面叠一层随偏移渐变的黑色遮罩
+                        if (pageMode == 2 && pageOffset != 0f) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Color.Black.copy(
+                                            alpha = (0.3f * pageOffset.absoluteValue)
+                                                .coerceIn(0f, 0.3f),
+                                        ),
+                                    ),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -469,6 +659,73 @@ fun ReaderScreen(
         )
     }
 
+    // v0.89.0：书签列表（TechDialog）
+    if (showBookmarks) {
+        val dateFmt = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
+        LaunchedEffect(showBookmarks) { refreshBookmarks() }
+        TechDialog(
+            onDismissRequest = { showBookmarks = false },
+            title = "书签",
+            subtitle = novel?.title,
+            dismissText = "关闭",
+        ) {
+            Button(
+                onClick = { addBookmark() },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("＋ 添加当前进度") }
+            Spacer(Modifier.height(8.dp))
+            if (bookmarks.isEmpty()) {
+                Text(
+                    "暂无书签",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp),
+                ) {
+                    items(bookmarks, key = { it.createdAt }) { b ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        showBookmarks = false
+                                        jumpTo(b.chapterIndex, b.charOffset)
+                                    }
+                                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                            ) {
+                                Text(b.chapterTitle, fontSize = 14.sp, maxLines = 1)
+                                Text(
+                                    dateFmt.format(Date(b.createdAt)),
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            IconButton(onClick = {
+                                scope.launch {
+                                    BookmarkStore.remove(context, novelId, b.createdAt)
+                                    bookmarks = bookmarks.filterNot { it.createdAt == b.createdAt }
+                                }
+                            }) {
+                                Icon(
+                                    Icons.Filled.Delete,
+                                    "删除书签",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 设置弹窗：字号 / 字体 / 行距 / 亮度
     if (showSettings) {
         AlertDialog(
@@ -526,6 +783,19 @@ fun ReaderScreen(
                             }
                         }
                     }
+                    // v0.89.0：背景主题四档（替代旧夜间开关）
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("背景", fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        listOf(0 to "白", 1 to "米黄", 2 to "护眼绿", 3 to "夜间黑").forEach { (theme, label) ->
+                            TextButton(onClick = { bgTheme = theme }) {
+                                Text(
+                                    label,
+                                    color = if (bgTheme == theme) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                     // v0.36.0：亮度（-1=跟随系统）
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -551,6 +821,19 @@ fun ReaderScreen(
                                 color = if (volumePageTurn) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        }
+                    }
+                    // v0.89.0：翻页模式三档
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("翻页", fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        listOf(0 to "上下滚动", 1 to "左右覆盖", 2 to "仿真翻页").forEach { (mode, label) ->
+                            TextButton(onClick = { pageMode = mode }) {
+                                Text(
+                                    label,
+                                    color = if (pageMode == mode) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }

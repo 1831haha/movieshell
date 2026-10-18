@@ -49,9 +49,24 @@ object NovelSourceEngine {
         }.awaitAll()
     }
 
-    /** 拉目录。bookUrl 为空时尝试直接用 remoteId。 */
+    /**
+     * 拉目录。bookUrl 为空时尝试直接用 remoteId。
+     *
+     * v0.89.0：支持 ruleBookTocUrl（详情页→目录页两步跳转）——有些站详情页不内嵌
+     * 目录，只有一个"章节列表"按钮（如全本小说网）；规则为空时保持旧行为。
+     */
     suspend fun chapters(source: BookSource, book: NovelSearchResult): List<ChapterMeta> {
-        val tocUrl = book.remoteId.ifBlank { return emptyList() }
+        val detailUrl = book.remoteId.ifBlank { return emptyList() }
+        var tocUrl = detailUrl
+        if (source.ruleBookTocUrl.isNotBlank()) {
+            val detailHtml = BookRuleEngine.getHtml(detailUrl) ?: return emptyList()
+            val resolved = BookRuleEngine.extract(
+                BookRuleEngine.parseDoc(detailHtml, detailUrl),
+                detailUrl,
+                source.ruleBookTocUrl,
+            )
+            if (resolved.isNotBlank()) tocUrl = resolved
+        }
         val html = BookRuleEngine.getHtml(tocUrl) ?: return emptyList()
         // 目录页可能是详情页（规则里 toc 列表直接在详情页上）
         val doc = BookRuleEngine.parseDoc(html, tocUrl)

@@ -1,6 +1,7 @@
 package com.movieshell.ui.music
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.stickyHeader
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -72,6 +74,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -80,6 +84,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.movieshell.data.repo.MusicHistoryStore
 import com.movieshell.data.repo.MusicStore
 import com.movieshell.data.repo.MusicPlaylist
@@ -225,6 +230,53 @@ private val RECOMMENDED_PLAYLISTS = listOf(
     "飙升榜" to "19723756",
     "原创榜" to "2884035",
 )
+
+// v0.89.0：本地音乐分组维度
+private val GROUP_LABELS = listOf("全部", "歌手", "专辑", "文件夹")
+
+/**
+ * v0.89.0："歌手 - 歌名" 拆成 (歌手, 歌名)；无 " - " 分隔或任一半为空返回 null。
+ * 导入解析与展示解析共用这一份，不写两遍。
+ */
+private fun splitArtistTitle(raw: String): Pair<String, String>? {
+    if (" - " !in raw) return null
+    val a = raw.substringBefore(" - ").trim()
+    val n = raw.substringAfter(" - ").trim()
+    return if (a.isBlank() || n.isBlank()) null else a to n
+}
+
+/** v0.89.0：展示用歌手名——artist 为空或 "本地" 的老数据，从歌名再拆一次，仍拆不出归"未知歌手"。 */
+private fun displayArtist(t: MusicApi.Track): String {
+    val a = t.artist.trim()
+    if (a.isNotBlank() && a != "本地") return a
+    return splitArtistTitle(t.name)?.first ?: "未知歌手"
+}
+
+/**
+ * v0.89.0：本地音频所在文件夹。
+ * 如实实现：GetContent 拿到的 content:// URI 经 MediaStore 授权，拿不到真实文件夹，
+ * 不硬猜，统一归"手机导入"；file:// 取父目录名；其他含 "/" 的取倒数第二段；取不到归"手机导入"。
+ */
+private fun folderOf(t: MusicApi.Track): String {
+    val uri = t.localUri
+    if (uri.isBlank() || "/" !in uri || uri.startsWith("content://")) return "手机导入"
+    return uri.substringBeforeLast("/").substringAfterLast("/").ifBlank { "手机导入" }
+}
+
+/**
+ * v0.89.0：封面真实地址（pic 接口返回 {"url":...} 包一层，需异步解析一次，MusicApi 侧带内存缓存）。
+ * 解析中/失败返回 ""，调用处回退 MusicNote 占位。
+ */
+@Composable
+internal fun rememberArtworkUrl(picId: String): String {
+    var url by remember(picId) { mutableStateOf("") }
+    LaunchedEffect(picId) {
+        url = if (picId.isBlank()) "" else withContext(Dispatchers.IO) {
+            runCatching { MusicApi.picImageUrl(picId) }.getOrDefault("")
+        }
+    }
+    return url
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -526,7 +578,7 @@ private fun OnlineTab(
     }
 }
 
-/** v0.81.0：本地音乐 tab——导入本地音频文件，列表播放/删除。 */
+/** v0.81.0：本地音乐 tab——导入本地音频文件，列表播放/删除；v0.89.0：按歌手/专辑/文件夹分组浏览。 */
 @Composable
 private fun LocalTab() {
     val context = LocalContext.current
@@ -535,6 +587,19 @@ private fun LocalTab() {
     var locals by remember { mutableStateOf<List<MusicApi.Track>>(emptyList()) }
     // v0.84.0：加到歌单
     var addToPlaylistTrack by remember { mutableStateOf<MusicApi.Track?>(null) }
+    // v0.89.0：分组维度（0=全部 1=歌手 2=专辑 3=文件夹），rememberSaveable 记住选择；折叠组 key 带维度前缀
+    var groupMode by rememberSaveable { mutableIntStateOf(0) }
+    var collapsed by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    // v0.89.0：分组列表（全部模式不分组）
+    val groups = remember(groupMode, locals) {
+        when (groupMode) {
+            1 -> locals.groupBy { displayArtist(it) }
+            2 -> locals.groupBy { it.album.trim().ifBlank { "未知专辑" } }
+            3 -> locals.groupBy { folderOf(it) }
+            else -> emptyMap()
+        }.toList().sortedBy { it.first }
+    }
 
     fun reload() {
         scope.launch {
@@ -557,10 +622,12 @@ private fun LocalTab() {
                 }.getOrNull()
             } ?: "本地音乐"
             val clean = name.substringBeforeLast(".")
+            // v0.89.0：文件名含 " - " 拆成歌手+歌名（如"周杰伦 - 晴天"），只影响新导入，老数据不动
+            val parsed = splitArtistTitle(clean)
             val track = MusicApi.Track(
                 id = "local_" + uri.toString().hashCode().toString(),
-                name = clean,
-                artist = "本地",
+                name = parsed?.second ?: clean,
+                artist = parsed?.first ?: "本地",
                 album = "",
                 picId = "",
                 urlId = "",
@@ -605,24 +672,105 @@ private fun LocalTab() {
                     )
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    itemsIndexed(locals, key = { _, t -> t.id }) { idx, track ->
-                        TrackRow(
-                            track = track,
-                            isCurrent = playState.track?.id == track.id,
-                            isPlaying = playState.track?.id == track.id && playState.playing,
-                            onDeleteClick = {
-                                scope.launch {
-                                    MusicStore.removeLocal(context, track.id)
-                                    reload()
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // v0.89.0：分组维度 chips
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(GROUP_LABELS.size) { i ->
+                            FilterChip(
+                                selected = groupMode == i,
+                                onClick = { groupMode = i },
+                                label = { Text(GROUP_LABELS[i]) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    if (groupMode == 0) {
+                        // 全部：现状平铺
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            itemsIndexed(locals, key = { _, t -> t.id }) { idx, track ->
+                                TrackRow(
+                                    track = track,
+                                    isCurrent = playState.track?.id == track.id,
+                                    isPlaying = playState.track?.id == track.id && playState.playing,
+                                    onDeleteClick = {
+                                        scope.launch {
+                                            MusicStore.removeLocal(context, track.id)
+                                            reload()
+                                        }
+                                    },
+                                    onPlaylistClick = { addToPlaylistTrack = track },
+                                    onClick = { MusicPlayer.playList(context, locals, idx) },
+                                )
+                            }
+                        }
+                    } else {
+                        // v0.89.0：分组视图——sticky 分组头（点头展开/折叠）+ 组内连续播放
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            groups.forEach { (gname, glist) ->
+                                val ckey = "${groupMode}_$gname"
+                                stickyHeader(key = "hdr_$ckey") {
+                                    val isCollapsed = ckey in collapsed
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(
+                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                                            )
+                                            .clickable {
+                                                collapsed = if (isCollapsed) {
+                                                    collapsed - ckey
+                                                } else {
+                                                    collapsed + ckey
+                                                }
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = "$gname · ${glist.size} 首",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Icon(
+                                            if (isCollapsed) Icons.Filled.ExpandMore
+                                            else Icons.Filled.ExpandLess,
+                                            contentDescription = if (isCollapsed) "展开" else "折叠",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                 }
-                            },
-                            onPlaylistClick = { addToPlaylistTrack = track },
-                            onClick = { MusicPlayer.playList(context, locals, idx) },
-                        )
+                                if (ckey !in collapsed) {
+                                    itemsIndexed(glist, key = { _, t -> t.id }) { idx, track ->
+                                        TrackRow(
+                                            track = track,
+                                            isCurrent = playState.track?.id == track.id,
+                                            isPlaying = playState.track?.id == track.id &&
+                                                playState.playing,
+                                            onDeleteClick = {
+                                                scope.launch {
+                                                    MusicStore.removeLocal(context, track.id)
+                                                    reload()
+                                                }
+                                            },
+                                            onPlaylistClick = { addToPlaylistTrack = track },
+                                            onClick = {
+                                                MusicPlayer.playList(context, glist, idx)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -708,6 +856,8 @@ private fun MiniPlayer(
 ) {
     val context = LocalContext.current
     val current = playState.track ?: return
+    // v0.89.0：封面走 picImageUrl 解析后的真实地址
+    val artUrl = rememberArtworkUrl(current.picId)
     AppCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -718,9 +868,9 @@ private fun MiniPlayer(
             modifier = Modifier.padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (MusicApi.picUrl(current.picId).isNotBlank()) {
+            if (artUrl.isNotBlank()) {
                 AsyncImage(
-                    model = MusicApi.picUrl(current.picId),
+                    model = artUrl,
                     contentDescription = null,
                     modifier = Modifier
                         .size(44.dp)
@@ -791,6 +941,8 @@ internal fun TrackRow(
     onPlaylistClick: (() -> Unit)? = null, // v0.84.0：加到歌单
     onClick: () -> Unit,
 ) {
+    // v0.89.0：封面走 picImageUrl 解析后的真实地址（接口包一层 {"url":...}）
+    val artUrl = rememberArtworkUrl(track.picId)
     AppCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -801,9 +953,9 @@ internal fun TrackRow(
             modifier = Modifier.padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (MusicApi.picUrl(track.picId).isNotBlank()) {
+            if (artUrl.isNotBlank()) {
                 AsyncImage(
-                    model = MusicApi.picUrl(track.picId),
+                    model = artUrl,
                     contentDescription = null,
                     modifier = Modifier
                         .size(48.dp)

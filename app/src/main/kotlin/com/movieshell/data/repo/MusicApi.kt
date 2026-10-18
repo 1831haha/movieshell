@@ -14,7 +14,8 @@ import java.util.concurrent.TimeUnit
  *
  * - 搜索：GET {BASE}?types=search&source=netease&name={q}&count={n}&pages={p}
  * - 播放地址：GET {BASE}?types=url&source=netease&id={url_id} → {"url": "..."}
- * - 封面：GET {BASE}?types=pic&source=netease&id={pic_id}（直接返回图片）
+ * - 封面：GET {BASE}?types=pic&source=netease&id={pic_id} → {"url": "真实图片地址"}
+ *   （v0.89.0 实测：并非直接返回图片，而是包一层 {"url":...}，须经 picImageUrl 解析一次）
  */
 object MusicApi {
     private const val TAG = "MusicApi"
@@ -147,7 +148,21 @@ object MusicApi {
         return url
     }
 
-    /** 封面图地址 */
-    fun picUrl(picId: String): String =
-        if (picId.isBlank()) "" else "$BASE?types=pic&source=$SOURCE&id=$picId"
+    /**
+     * v0.89.0：封面真实图片地址。
+     *
+     * types=pic 实际返回 {"url": "https://p2.music.126.net/...jpg"}（包一层，不是直出图片），
+     * 这里解析一次；结果进内存缓存，列表滚动不反复请求；失败返回 ""。
+     */
+    private val picCache = mutableMapOf<String, String>()
+
+    suspend fun picImageUrl(picId: String): String {
+        if (picId.isBlank()) return ""
+        synchronized(picCache) { picCache[picId]?.let { return it } }
+        val url = runCatching {
+            JSONObject(get("$BASE?types=pic&source=$SOURCE&id=$picId")).optString("url")
+        }.getOrDefault("")
+        if (url.isNotBlank()) synchronized(picCache) { picCache[picId] = url }
+        return url
+    }
 }

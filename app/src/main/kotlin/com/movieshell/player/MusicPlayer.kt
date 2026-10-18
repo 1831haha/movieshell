@@ -3,8 +3,10 @@ package com.movieshell.player
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.widget.Toast
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -15,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -62,6 +65,14 @@ object MusicPlayer {
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _state.value = _state.value.copy(playing = isPlaying, loading = false)
+        }
+
+        // v0.89.0：之前缺这块——流加载失败（CDN 抽风/网络抖动）时 UI 会永远卡在 loading，
+        // 这里落 loading 并给用户一句可读的反馈
+        override fun onPlayerError(error: PlaybackException) {
+            LogBus.e("MusicPlayer", "播放器错误：${error.errorCodeName} ${error.message}")
+            _state.value = _state.value.copy(playing = false, loading = false)
+            toast("播放失败，请重试")
         }
 
         override fun onPlaybackStateChanged(state: Int) {
@@ -122,8 +133,8 @@ object MusicPlayer {
         }
     }
 
-    private fun MusicApi.Track.toMediaItem(uri: String): MediaItem {
-        val artwork = MusicApi.picUrl(picId).takeIf { it.isNotBlank() }?.let { Uri.parse(it) }
+    private fun MusicApi.Track.toMediaItem(uri: String, artworkUrl: String = ""): MediaItem {
+        val artwork = artworkUrl.takeIf { it.isNotBlank() }?.let { Uri.parse(it) }
         val metadata = MediaMetadata.Builder()
             .setTitle(name)
             .setArtist(artist)
@@ -134,6 +145,13 @@ object MusicPlayer {
             .setMediaId(id)
             .setMediaMetadata(metadata)
             .build()
+    }
+
+    /** 用户可见的失败提示（门面内统一出口；调用处都在主线程协程里） */
+    private fun toast(msg: String) {
+        runCatching {
+            appCtx?.let { Toast.makeText(it, msg, Toast.LENGTH_SHORT).show() }
+        }
     }
 
     /** 播放列表从 index 开始 */
@@ -149,23 +167,45 @@ object MusicPlayer {
         index = i
         val track = queue[i]
         val gen = ++playGen
-        _state.value = State(track = track, playing = false, loading = true)
+        // v0.89.0：保留播放模式（之前每次切歌都重置回 ALL）
+        _state.value = State(
+            track = track, playing = false, loading = true,
+            repeatMode = _state.value.repeatMode,
+        )
         scope.launch {
             // v0.81.0：本地音频直接播 content URI；在线歌曲实时取直链（不缓存）
-            val mediaUri = if (track.isLocal) {
-                track.localUri
-            } else {
-                runCatching { MusicApi.playUrl(track.urlId) }.getOrNull()
+            // v0.89.0：直链接口偶发 503，失败 1.5 秒后重试一次；封面与直链并发解析，不拖慢起播
+            val mediaDeferred = async {
+                if (track.isLocal) {
+                    track.localUri
+                } else {
+                    try {
+                        MusicApi.playUrl(track.urlId)
+                    } catch (e: Exception) {
+                        LogBus.w("MusicPlayer", "取直链失败，重试一次：${track.name}（${e.message}）")
+                        delay(1500)
+                        runCatching { MusicApi.playUrl(track.urlId) }.getOrNull()
+                    }
+                }
             }
+            val artDeferred = async {
+                if (track.picId.isBlank()) "" else {
+                    runCatching { MusicApi.picImageUrl(track.picId) }.getOrDefault("")
+                }
+            }
+            val mediaUri = mediaDeferred.await()
             if (mediaUri.isNullOrBlank()) {
+                artDeferred.cancel()
                 LogBus.e("MusicPlayer", "取播放地址失败：${track.name}")
                 _state.value = _state.value.copy(loading = false)
+                toast("取不到播放地址，请重试")
                 return@launch
             }
+            val artworkUrl = artDeferred.await()
             withController(context) { c ->
                 if (gen != playGen) return@withController
                 runCatching {
-                    c.setMediaItem(track.toMediaItem(mediaUri))
+                    c.setMediaItem(track.toMediaItem(mediaUri, artworkUrl))
                     c.prepare()
                     c.play()
                     startProgressPoll()
@@ -175,6 +215,7 @@ object MusicPlayer {
                 }.onFailure {
                     LogBus.e("MusicPlayer", "播放失败：${it.message}")
                     _state.value = _state.value.copy(loading = false)
+                    toast("播放失败，请重试")
                 }
             }
         }

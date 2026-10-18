@@ -3,6 +3,9 @@ package com.movieshell.ui.music
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,8 +55,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -85,6 +90,15 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
     var showSleepDialog by remember { mutableStateOf(false) }
     val sleepRemaining by SleepTimer.remainingMs.collectAsState()
     val sleepArmed by SleepTimer.afterEpisodeArmed.collectAsState()
+    // v0.89.0：封面旋转（只转封面；暂停时 LaunchedEffect key 变化自动取消即停）
+    val angle = remember { Animatable(0f) }
+    LaunchedEffect(playState.playing) {
+        if (playState.playing) {
+            while (true) {
+                angle.animateTo(angle.value + 360f, tween(9000, easing = LinearEasing))
+            }
+        }
+    }
 
     LaunchedEffect(track?.id) {
         val t = track ?: return@LaunchedEffect
@@ -157,21 +171,24 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(16.dp))
-            // 封面
-            if (MusicApi.picUrl(track.picId).isNotBlank()) {
+            // 封面（v0.89.0：旋转只作用在这两处；封面地址走 picImageUrl 解析）
+            val artUrl = rememberArtworkUrl(track.picId)
+            if (artUrl.isNotBlank()) {
                 AsyncImage(
-                    model = MusicApi.picUrl(track.picId),
+                    model = artUrl,
                     contentDescription = null,
                     modifier = Modifier
                         .size(240.dp)
-                        .clip(RoundedCornerShape(16.dp)),
+                        .clip(RoundedCornerShape(16.dp))
+                        .graphicsLayer { rotationZ = angle.value },
                     contentScale = ContentScale.Crop,
                 )
             } else {
                 Box(
                     modifier = Modifier
                         .size(240.dp)
-                        .clip(RoundedCornerShape(16.dp)),
+                        .clip(RoundedCornerShape(16.dp))
+                        .graphicsLayer { rotationZ = angle.value },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -218,13 +235,15 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
                     else -> LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        // v0.89.0：行距 10.dp→14.dp，当前行加粗，呼吸感
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         itemsIndexed(lyrics) { i, line ->
                             Text(
                                 text = line.text,
                                 modifier = Modifier.fillMaxWidth(),
                                 textAlign = TextAlign.Center,
+                                fontWeight = if (i == curIdx) FontWeight.Bold else null,
                                 style = if (i == curIdx) {
                                     MaterialTheme.typography.bodyLarge
                                 } else {

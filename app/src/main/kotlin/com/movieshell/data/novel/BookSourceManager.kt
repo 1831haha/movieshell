@@ -19,6 +19,8 @@ object BookSourceManager {
 
     private const val TAG = "BookSourceManager"
     private const val FILE_NAME = "book_sources.json"
+    // v0.89.0 内置真实书源的 key（url 去协议去尾斜杠），老用户补种时去重用
+    private const val BUILTIN_KEY = "www.quanben.io"
 
     private val _sources = MutableStateFlow<List<BookSource>>(emptyList())
     val sources: StateFlow<List<BookSource>> = _sources.asStateFlow()
@@ -40,7 +42,10 @@ object BookSourceManager {
                 BookSource.fromJson(arr.getJSONObject(it).toString())
             }
         }.onFailure { Log.w(TAG, "书源文件读取失败", it) }.getOrDefault(emptyList())
-        _sources.value = list.ifEmpty { builtIn() }
+        // v0.89.0：老用户也补上内置真实书源（没有才加；用户可在书源管理页删除/关闭）
+        val merged = if (list.none { it.key == BUILTIN_KEY }) list + builtIn() else list
+        _sources.value = merged.ifEmpty { builtIn() }
+        if (merged.size != list.size) save(context)
     }
 
     private suspend fun save(context: Context) = withContext(Dispatchers.IO) {
@@ -102,24 +107,37 @@ object BookSourceManager {
     fun enabledSources(): List<BookSource> = _sources.value.filter { it.enabled }
 
     /**
-     * 内置示例书源（开箱即用）。规则按目标站当前结构编写，站改版后用户可自行更新规则。
+     * v0.89.0 内置真实书源：全本小说网（https://www.quanben.io），规则编写于 2026-10-18。
+     *
+     * 站点：公开免费、无需登录、无付费章节；桌面端 HTML 结构简单、UTF-8。
+     * 三步实测（2026-10-18，curl + 规则选择器复核）：
+     * ①搜索 GET /index.php?c=book&a=search&keywords=斗罗大陆 → div.list2 共 48 条，
+     *   首条"斗罗大陆 / 唐家三少"，bookUrl=/n/douluodalu/
+     * ②详情页 /n/douluodalu/ 经 div.tool_button a 跳到 /n/douluodalu/list.html，
+     *   ul.list3 li 共 83 章（短书目录完整；数百章以上的超长书站方只列前 24 + 后 23 章，
+     *   中间章节不展示——已知限制）
+     * ③正文 /n/douluodalu/2.html 的 div#content 为正常中文（约 1900 字），无乱码、
+     *   无"登录后可见"。
+     * 站改版后用户可在书源管理页自行更新规则、关闭或删除。
      */
     private fun builtIn(): List<BookSource> = listOf(
         BookSource(
-            name = "示例书源（请导入自己的书源）",
-            url = "https://example.com",
+            name = "全本小说网",
+            url = "https://www.quanben.io",
             group = "内置",
-            enabled = false,
-            searchUrl = "https://example.com/s?q={{key}}",
-            ruleSearchList = "div.item",
-            ruleSearchName = "a@text",
-            ruleSearchAuthor = "span.author@text",
+            enabled = true,
+            searchUrl = "https://www.quanben.io/index.php?c=book&a=search&keywords={{key}}",
+            ruleSearchList = "div.list2",
+            ruleSearchName = "h3 a@text",
+            ruleSearchAuthor = "span[itemprop=author]@text",
             ruleSearchCover = "img@src",
-            ruleSearchBookUrl = "a@href",
-            ruleTocList = "div.chapters a",
+            ruleSearchBookUrl = "h3 a@href",
+            // 详情页无内嵌目录：先提"章节列表"按钮跳到目录页（NovelSourceEngine 两步跳转）
+            ruleBookTocUrl = "div.tool_button a@href",
+            ruleTocList = "ul.list3 li",
             ruleTocTitle = "@text",
-            ruleTocUrl = "@href",
-            ruleContent = "div.content",
+            ruleTocUrl = "a@href",
+            ruleContent = "div#content",
         ),
     )
 }
