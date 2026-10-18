@@ -51,6 +51,10 @@ import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.PyBookApi
 import com.movieshell.data.novel.PyBookSourceManager
 import kotlinx.coroutines.launch
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * v0.61.0 书源管理：列表 / 启用开关 / 删除 / 粘贴 JSON 导入。
@@ -73,6 +77,10 @@ fun BookSourceScreen(
     val pyEnabled by PyBookSourceManager.enabled.collectAsState()
     var showImport by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
+    // v0.81.0：书源 URL 导入 + 本地书源文件导入
+    var showUrlImport by remember { mutableStateOf(false) }
+    var importUrl by remember { mutableStateOf("") }
+    var importingUrl by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<BookSource?>(null) }
     var deletePyTarget by remember { mutableStateOf<PyBookSourceManager.PyBookRule?>(null) }
     // v0.67.0：PY 源连通性测试
@@ -107,6 +115,32 @@ fun BookSourceScreen(
                 is PyBookSourceManager.ImportResult.Failed ->
                     Toast.makeText(context, "导入失败：${r.msg}", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    // v0.81.0：本地 bookSource.json 文件导入
+    val jsonFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val json = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use {
+                        it.readBytes().toString(Charsets.UTF_8)
+                    }
+                }.getOrNull()
+            }
+            if (json.isNullOrBlank()) {
+                Toast.makeText(context, "读取文件失败", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val n = BookSourceManager.import(context, json)
+            Toast.makeText(
+                context,
+                if (n > 0) "导入 $n 个书源" else "没有识别出书源，检查 JSON 格式",
+                Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 
@@ -162,8 +196,39 @@ fun BookSourceScreen(
             TextButton(onClick = { pyImportLauncher.launch("*/*") }) {
                 Text("导入本地PY", color = gold, fontSize = 13.sp)
             }
-            IconButton(onClick = { importText = ""; showImport = true }) {
-                Icon(Icons.Filled.Add, "导入书源", tint = gold)
+            var showImportMenu by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { showImportMenu = true }) {
+                    Icon(Icons.Filled.Add, "导入书源", tint = gold)
+                }
+                DropdownMenu(
+                    expanded = showImportMenu,
+                    onDismissRequest = { showImportMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("粘贴 JSON 导入") },
+                        onClick = {
+                            showImportMenu = false
+                            importText = ""
+                            showImport = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("书源 URL 导入") },
+                        onClick = {
+                            showImportMenu = false
+                            importUrl = ""
+                            showUrlImport = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("本地书源文件导入") },
+                        onClick = {
+                            showImportMenu = false
+                            jsonFileLauncher.launch("*/*")
+                        },
+                    )
+                }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -349,6 +414,59 @@ fun BookSourceScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showImport = false }) { Text("取消") }
+            },
+        )
+    }
+
+    // v0.81.0：书源 URL 导入
+    if (showUrlImport) {
+        AlertDialog(
+            onDismissRequest = { showUrlImport = false },
+            title = { Text("书源 URL 导入") },
+            text = {
+                OutlinedTextField(
+                    value = importUrl,
+                    onValueChange = { importUrl = it },
+                    placeholder = { Text("输入 bookSource.json 的 URL") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val url = importUrl.trim()
+                        if (url.isBlank()) return@TextButton
+                        importingUrl = true
+                        scope.launch {
+                            val json = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    val req = okhttp3.Request.Builder().url(url).build()
+                                    okhttp3.OkHttpClient().newCall(req).execute().use { resp ->
+                                        if (!resp.isSuccessful) null
+                                        else resp.body?.string()
+                                    }
+                                }.getOrNull()
+                            }
+                            importingUrl = false
+                            if (json.isNullOrBlank()) {
+                                Toast.makeText(context, "下载失败，检查 URL", Toast.LENGTH_SHORT).show()
+                                return@launch
+                            }
+                            val n = BookSourceManager.import(context, json)
+                            showUrlImport = false
+                            Toast.makeText(
+                                context,
+                                if (n > 0) "导入 $n 个书源" else "没有识别出书源，检查 JSON 格式",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    },
+                    enabled = !importingUrl,
+                ) { Text(if (importingUrl) "下载中…" else "导入") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUrlImport = false }) { Text("取消") }
             },
         )
     }

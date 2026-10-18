@@ -56,6 +56,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.LibraryBooks
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import coil.compose.AsyncImage
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 
 /**
  * v0.35.0 小说书架。
@@ -193,8 +207,26 @@ private fun BookshelfList(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            IconButton(onClick = { pickTxt.launch("text/plain") }, enabled = !importing) {
-                Icon(Icons.Filled.Add, "导入 TXT", tint = gold)
+            var showAddMenu by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { showAddMenu = true }, enabled = !importing) {
+                    Icon(Icons.Filled.Add, "添加书籍", tint = gold)
+                }
+                DropdownMenu(
+                    expanded = showAddMenu,
+                    onDismissRequest = { showAddMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("添加本地书籍") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.FolderOpen, contentDescription = null)
+                        },
+                        onClick = {
+                            showAddMenu = false
+                            pickTxt.launch("text/plain")
+                        },
+                    )
+                }
             }
             IconButton(onClick = onFindBookClick) {
                 Icon(Icons.Filled.Search, "找书", tint = gold)
@@ -288,62 +320,105 @@ private fun NovelCard(
     val percent = (progress * 100).toInt()
     val cyan = Color(0xFF4DD0E1) // v0.39.0：mockup 青色进度
 
-    // v0.39.0：毛玻璃卡片（mockup 风格）
+    // v0.81.0：阅读 3.0 风格——封面 + 书名/作者/已读章节/共几章
     AppCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-                .padding(14.dp),
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                novel.title,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xFFD9C39A), // v0.39.0：香槟金标题
-                maxLines = 1,
-            )
-            if (!novel.author.isNullOrBlank()) {
-                Text(
-                    novel.author!!,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+            // 封面
+            Box(
+                modifier = Modifier
+                    .size(width = 56.dp, height = 76.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    "读到第 ${read + 1} 章 / 共 $total 章",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    formatLastRead(lastReadAt),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (!novel.cover.isNullOrBlank()) {
+                    AsyncImage(
+                        model = novel.cover,
+                        contentDescription = novel.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Text(
+                        text = novel.title.firstOrNull()?.toString() ?: "书",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
+                }
             }
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.weight(1f).height(6.dp),
-                    color = cyan,
-                    trackColor = cyan.copy(alpha = 0.2f),
-                )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "$percent%",
-                    fontSize = 12.sp,
-                    color = cyan,
-                    modifier = Modifier.padding(start = 8.dp),
+                    novel.title,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFD9C39A), // v0.39.0：香槟金标题
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(4.dp))
+                NovelMetaRow(
+                    icon = Icons.Filled.Person,
+                    text = novel.author?.takeIf { it.isNotBlank() } ?: "未知作者",
+                )
+                Spacer(Modifier.height(2.dp))
+                NovelMetaRow(
+                    icon = Icons.Filled.MenuBook,
+                    text = if (novel.lastReadChapter == 0) "还没读过"
+                    else "已读：第 ${read + 1} 章",
+                )
+                Spacer(Modifier.height(2.dp))
+                NovelMetaRow(
+                    icon = Icons.Filled.LibraryBooks,
+                    text = "共 $total 章 · ${formatLastRead(lastReadAt)}",
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(5.dp),
+                        color = cyan,
+                        trackColor = cyan.copy(alpha = 0.2f),
+                    )
+                    Text(
+                        "$percent%",
+                        fontSize = 11.sp,
+                        color = cyan,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
             }
         }
+    }
+}
+
+/** v0.81.0：书架列表项元信息行（图标 + 文字）。 */
+@Composable
+private fun NovelMetaRow(icon: ImageVector, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = text,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

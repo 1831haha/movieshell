@@ -21,6 +21,8 @@ object MusicApi {
     private const val BASE = "https://music-api.gdstudio.xyz/api.php"
     private const val SOURCE = "netease"
 
+    // v0.81.0：@Serializable 以便本地音乐/收藏持久化；localUri 存本地音频的 content URI
+    @kotlinx.serialization.Serializable
     data class Track(
         val id: String,
         val name: String,
@@ -28,7 +30,10 @@ object MusicApi {
         val album: String,
         val picId: String,
         val urlId: String,
-    )
+        val localUri: String = "",
+    ) {
+        val isLocal: Boolean get() = localUri.isNotBlank()
+    }
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)

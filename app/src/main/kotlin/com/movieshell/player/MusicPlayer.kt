@@ -68,18 +68,27 @@ object MusicPlayer {
         val track = queue[i]
         _state.value = State(track = track, playing = false, loading = true)
         scope.launch {
-            runCatching { MusicApi.playUrl(track.urlId) }
-                .onSuccess { url ->
-                    val player = ensure(context)
-                    player.setMediaItem(MediaItem.fromUri(url))
-                    player.prepare()
-                    player.play()
-                    LogBus.i("MusicPlayer", "播放：${track.name} - ${track.artist}")
-                }
-                .onFailure {
-                    LogBus.e("MusicPlayer", "取播放地址失败：${it.message}")
-                    _state.value = _state.value.copy(loading = false)
-                }
+            // v0.81.0：本地音频直接播 content URI；在线歌曲实时取直链（不缓存）
+            val mediaUri = if (track.isLocal) {
+                track.localUri
+            } else {
+                runCatching { MusicApi.playUrl(track.urlId) }.getOrNull()
+            }
+            if (mediaUri.isNullOrBlank()) {
+                LogBus.e("MusicPlayer", "取播放地址失败：${track.name}")
+                _state.value = _state.value.copy(loading = false)
+                return@launch
+            }
+            runCatching {
+                val player = ensure(context)
+                player.setMediaItem(MediaItem.fromUri(mediaUri))
+                player.prepare()
+                player.play()
+                LogBus.i("MusicPlayer", "播放：${track.name} - ${track.artist}")
+            }.onFailure {
+                LogBus.e("MusicPlayer", "播放失败：${it.message}")
+                _state.value = _state.value.copy(loading = false)
+            }
         }
     }
 
