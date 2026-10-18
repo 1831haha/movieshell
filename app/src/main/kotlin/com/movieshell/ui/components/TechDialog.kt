@@ -44,11 +44,12 @@ fun TechDialog(
     onDismissRequest: () -> Unit,
     title: String,
     subtitle: String? = null,
-    content: @Composable ColumnScope.() -> Unit,
     confirmText: String = "确定",
     onConfirm: (() -> Unit)? = null,
     confirmEnabled: Boolean = true,
     dismissText: String = "取消",
+    // content 放最后：调用处用尾随 lambda 写法时必须对应最后一个参数
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     Dialog(onDismissRequest = onDismissRequest) {
         Box(

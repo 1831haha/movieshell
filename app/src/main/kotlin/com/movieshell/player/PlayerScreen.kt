@@ -75,6 +75,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -165,6 +166,7 @@ private const val LONG_PRESS_MS = 400L
  * v0.19.0：线路/选集走 PlaySession（详情页进入前写入），播放器内可切线路；
  * 播放失败自动按线路顺序重试；支持外挂字幕与画中画。
  */
+@OptIn(ExperimentalMaterial3Api::class) // v0.84.0：Slider 自定义 track 用到实验性 SliderState API
 @Composable
 fun PlayerScreen(
     url: String,
