@@ -12,16 +12,21 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,14 +55,19 @@ import androidx.webkit.ServiceWorkerControllerCompat
 import androidx.webkit.WebViewFeature
 import com.movieshell.data.source.CmsApi
 import com.movieshell.ui.components.TabTopBar
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.source.SniffEngine
 import com.movieshell.data.source.SniffEngine.SniffKind
 import com.movieshell.player.SniffPlayHeaders
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -68,18 +78,141 @@ private const val SNIFF_TIMEOUT_MS = 20_000L
 private const val SEEN_URL_CAP = 300
 
 /**
- * 网页源嗅探页（v0.10 增强）：可见 WebView 加载目标站，用户可自行浏览点播。
+ * v0.92 第 4 层：JS video hook 轮询脚本。
+ * 首次执行时 hook HTMLMediaElement.src 的 setter（hls.js 等库常走 el.src = xxx 赋值）；
+ * 每次返回 {v:[video 地址], f:[MutationObserver 攒的新增 iframe src]}。
+ * iframe 队列在 JS 侧 splice 取走，天然去重（observer 侧另有 seen 表）。
+ */
+private const val JS_VIDEO_POLL = """
+(function(){
+  var out=[];
+  if(!window.__xhHooked){
+    window.__xhHooked=true;
+    try{
+      var d=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'src');
+      Object.defineProperty(HTMLMediaElement.prototype,'src',{
+        set:function(v){ window.__xhLastSrc=v; if(d&&d.set) d.set.call(this,v); },
+        get:function(){ return (d&&d.get)?d.get.call(this):this.getAttribute('src'); },
+        configurable:true
+      });
+    }catch(e){}
+  }
+  try{
+    document.querySelectorAll('video').forEach(function(v){
+      var s=v.currentSrc||v.src||''; if(s) out.push(s);
+    });
+  }catch(e){}
+  if(window.__xhLastSrc) out.push(window.__xhLastSrc);
+  var fr=[];
+  try{
+    if(window.__xhIframeQueue && window.__xhIframeQueue.length){
+      fr=window.__xhIframeQueue.splice(0, window.__xhIframeQueue.length);
+    }
+  }catch(e){}
+  return JSON.stringify({v:out, f:fr});
+})()
+"""
+
+/**
+ * v0.92 第 3 层：动态 iframe 追踪。
+ * onPageFinished 后注入；SPA 内跳走不刷新页面时重复注入会先 disconnect 旧的。
+ * 回调里只收集 src 进队列，探测仍在 Kotlin 侧（由轮询每 2 秒消费）。
+ */
+private const val JS_IFRAME_OBSERVER = """
+(function(){
+  try{
+    if(window.__xhObs) window.__xhObs.disconnect();
+    if(!window.__xhIframeQueue) window.__xhIframeQueue=[];
+    if(!window.__xhIframeSeen) window.__xhIframeSeen={};
+    var q=window.__xhIframeQueue, seen=window.__xhIframeSeen;
+    function pushSrc(s){ if(s && !seen[s]){ seen[s]=1; q.push(s); } }
+    window.__xhObs=new MutationObserver(function(muts){
+      for(var i=0;i<muts.length;i++){
+        var nodes=muts[i].addedNodes;
+        for(var j=0;j<nodes.length;j++){
+          var n=nodes[j];
+          if(!n) continue;
+          if(n.tagName==='IFRAME'){ pushSrc(n.src); }
+          else if(n.querySelectorAll){
+            var fs=n.querySelectorAll('iframe');
+            for(var k=0;k<fs.length;k++) pushSrc(fs[k].src);
+          }
+        }
+      }
+    });
+    window.__xhObs.observe(document.documentElement,{childList:true,subtree:true});
+  }catch(e){}
+  return 'ok';
+})()
+"""
+
+/**
+ * v0.92 blob 深挖：video 播的是 blob: 地址（MSE 方案）时，真实流地址藏在
+ * JS 或页面源码里。扫 innerHTML 找媒体 URL，JS 侧正则、去重，只回传命中的地址。
+ * v0.92：后缀扩到全部 DIRECT 后缀 + ts（分片只当线索）+ `/m3u8` 路径形式。
+ */
+private const val JS_BLOB_DIG = """
+(function(){
+  var html='';
+  try{ html=document.documentElement.innerHTML||''; }catch(e){}
+  var out=[], seen={};
+  function grab(re){
+    var m;
+    while((m=re.exec(html))!==null){ var u=m[0]; if(!seen[u]){ seen[u]=1; out.push(u); } }
+  }
+  grab(/https?:\/\/[^\s"'<>]+\.(m3u8|mp4|mkv|flv|avi|ts|webm|mp3|m4a|aac|mov|wmv|mpd)(\?[^\s"'<>]*)?/gi);
+  grab(/https?:\/\/[^\s"'<>]*\/m3u8([?&#\/][^\s"'<>]*)?/gi);
+  return JSON.stringify(out);
+})()
+"""
+
+/**
+ * evaluateJavascript 返回值解开一层转义：回调拿到的是 JSON 字符串字面量
+ * （如 "\"{\\\"v\\\":[...]}\""），包一层 {"v":...} 再 getString 即得原文。
+ */
+private fun decodeJsResult(raw: String?): String {
+    if (raw.isNullOrBlank()) return ""
+    return runCatching { JSONObject("{\"v\":$raw}").getString("v") }.getOrDefault("")
+}
+
+/** 从 {"v":[...],"f":[...]} 这类对象里取字符串数组 */
+private fun parseStringArray(json: String, key: String): List<String> {
+    if (json.isBlank()) return emptyList()
+    return runCatching {
+        val arr = JSONObject(json).optJSONArray(key) ?: return emptyList()
+        (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
+    }.getOrDefault(emptyList())
+}
+
+/** 从顶层 JSON 数组字符串里取字符串列表 */
+private fun parseRootStringArray(json: String): List<String> {
+    if (json.isBlank()) return emptyList()
+    return runCatching {
+        val arr = JSONArray(json)
+        (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
+    }.getOrDefault(emptyList())
+}
+
+/**
+ * 网页源嗅探页（v0.92 增强）：可见 WebView 加载目标站，用户可自行浏览点播。
  *
- * 嗅探三层（判定全在 [SniffEngine]）：
+ * 嗅探五层（判定全在 [SniffEngine]）：
  * 1. 后缀直判：shouldInterceptRequest 抓 .m3u8/.mp4/.mpd/.aac 直接命中；
  *    rtmp 标"需外部播放"（App 内播不了，只 Toast 提示一次）。
  * 2. 无后缀流探测：URL 可疑（path/query 含 video/play/stream 等词）时异步 HEAD
  *    看 Content-Type 判定，不阻塞原请求、不全量探测。
- * 3. iframe 剥壳：页面加载完用 JS 抠所有 iframe src，逐个走第 2 条探测。
+ * 3. iframe 剥壳 + 动态追踪：页面加载完抠所有 iframe src（v0.92 修：之前把
+ *    JSON 数组误当 HTML 解析，这层实际没生效）；MutationObserver 追踪后注入的
+ *    iframe，src 进队列由第 4 层的轮询统一消费。
+ * 4. JS video hook：hook HTMLMediaElement.src 的 setter + 每 2 秒轮询
+ *    video.currentSrc，抓 hls.js/dplayer 等 MSE 播放器的真实地址；video 播的是
+ *    blob: 地址时自动深挖一次（扫页面 innerHTML 找媒体 URL + 重跑 iframe 探测）。
+ * 5. 深度嗅探（手动）：顶栏按钮，把拦截到的全部 http(s) URL（去静态资源后缀）
+ *    逐个 Content-Type 探测，并发 6，命中即停。
  *
  * 命中直链后 stopLoading（省流量）并回调 onPlay；20 秒超时仅 Toast 提示不关页面。
  * Service Worker 嗅探是补齐：SW 上下文的 fetch，WebViewClient 拦不到；
- * 两条链路共用 hitDone 去重，先命中的生效。
+ * 各链路共用 hitDone 去重，先命中的生效。
  */
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -112,6 +245,11 @@ fun WebSniffScreen(
     // 嗅探测试：结果列表，null=没在测
     var testResults by remember { mutableStateOf<List<Pair<String, SniffKind>>?>(null) }
     var testing by remember { mutableStateOf(false) }
+    // v0.92：深度嗅探按钮的 loading 态
+    var deepSniffing by remember { mutableStateOf(false) }
+    // v0.92：blob 深挖去重——同一主页面只深挖一次，主 frame 跳走后重置
+    val blobDug = remember { AtomicBoolean(false) }
+    var lastMainUrl by remember { mutableStateOf("") }
 
     fun rememberSeen(u: String) {
         if (u.isBlank()) return
@@ -170,7 +308,39 @@ fun WebSniffScreen(
         }
     }
 
-    /** iframe 剥壳：页面加载完抠 iframe src，逐个探测直链 */
+    /**
+     * JS 发现的候选 URL 统一走这里判定（第 3/4 层共用）：
+     * DIRECT 直接命中；RTMP 提示；blob: 触发深挖；其余可疑的异步探测。
+     * 与 deepDigBlob/probeIframes 循环引用，故先声明后赋值。
+     */
+    lateinit var handleDiscoveredUrl: (WebView, String?, String) -> Unit
+
+    /**
+     * v0.92：ts 分片线索处理——同目录拼出 playlist 候选，逐个 probe 验证，
+     * 命中才 onHit。分片 URL 本身永远不直接播。
+     */
+    fun probeTsClues(view: WebView, referer: String?, tsUrl: String) {
+        rememberSeen(tsUrl)
+        val cands = SniffEngine.tsCluePlaylists(tsUrl)
+        if (cands.isEmpty()) return
+        LogBus.i("WebSniff", "ts 线索 ${tsUrl.take(80)}… 派生 ${cands.size} 个 playlist 候选")
+        for (cand in cands) {
+            if (hitDone.get()) break
+            rememberSeen(cand)
+            probeScope.launch(Dispatchers.IO) {
+                if (hitDone.get()) return@launch
+                if (SniffEngine.probeContentType(cand, probeClient) == SniffKind.DIRECT) {
+                    onHit(view, referer, cand)
+                }
+            }
+        }
+    }
+
+    /**
+     * iframe 剥壳：页面加载完抠 iframe src，逐个探测直链。
+     * v0.92 修：JS 返回的是 JSON.stringify 后的 src 数组，之前误用
+     * [SniffEngine.extractIframeSrcs] 按 HTML 正则解析，永远拿到空列表。
+     */
     fun probeIframes(view: WebView) {
         if (hitDone.get()) return
         view.evaluateJavascript(
@@ -179,24 +349,73 @@ fun WebSniffScreen(
                 "return JSON.stringify(r);})()",
         ) { raw ->
             if (hitDone.get()) return@evaluateJavascript
-            val srcs = runCatching {
-                // evaluateJavascript 返回 JSON 字符串字面量，先解开转义
-                val decoded = JSONObject("{\"v\":$raw}").getString("v")
-                SniffEngine.extractIframeSrcs(decoded, view.url.orEmpty())
-            }.getOrDefault(emptyList())
+            val base = view.url.orEmpty()
+            val srcs = parseRootStringArray(decodeJsResult(raw))
+                .map { SniffEngine.resolveUrl(base, it) }
+                .distinct()
             for (src in srcs) {
                 if (hitDone.get()) break
-                rememberSeen(src)
-                when (SniffEngine.sniffKind(src)) {
-                    SniffKind.DIRECT -> {
-                        onHit(view, view.url, src)
-                        break
-                    }
-                    SniffKind.RTMP -> onRtmp(view, src)
-                    null -> {
-                        if (SniffEngine.isSuspiciousMediaUrl(src)) probeAsync(view, view.url, src)
-                    }
-                }
+                handleDiscoveredUrl(view, view.url, src)
+            }
+        }
+    }
+
+    /**
+     * blob 命中深挖（第 4 层）：video 播的是 blob: 地址（hls.js/dplayer/artplayer
+     * 等 MSE 方案）时，真实流地址藏在 JS 或页面源码里。扫一遍 innerHTML 找媒体
+     * URL 逐个判定，同时重跑一遍 iframe 探测。同一主页面只深挖一次。
+     * UI 上只给弱提示（Log + 一次 Toast），不打断用户浏览。
+     */
+    fun deepDigBlob(view: WebView) {
+        if (hitDone.get() || !blobDug.compareAndSet(false, true)) return
+        LogBus.i("WebSniff", "检测到 blob 播放器，正在深挖…")
+        view.post {
+            Toast.makeText(context, "检测到 blob 播放器，正在深挖…", Toast.LENGTH_SHORT).show()
+        }
+        view.evaluateJavascript(JS_BLOB_DIG) { raw ->
+            if (hitDone.get()) return@evaluateJavascript
+            val found = parseRootStringArray(decodeJsResult(raw))
+            LogBus.i("WebSniff", "blob 深挖扫到 ${found.size} 个候选 URL")
+            val referer = view.url
+            for (u in found) {
+                if (hitDone.get()) break
+                // v0.92：ts 分片只是线索——同目录拼 playlist 候选并验证，不直接 onHit
+                if (SniffEngine.isTsSegment(u)) probeTsClues(view, referer, u)
+                else handleDiscoveredUrl(view, referer, u)
+            }
+            // 同时重跑一遍 iframe 剥壳探测
+            if (!hitDone.get()) probeIframes(view)
+        }
+    }
+
+    /** 第 4 层：JS video hook 轮询——抓 video.currentSrc/src + hook 到的 src + 动态 iframe 队列 */
+    fun pollVideoHook(view: WebView) {
+        if (hitDone.get()) return
+        view.evaluateJavascript(JS_VIDEO_POLL) { raw ->
+            if (hitDone.get()) return@evaluateJavascript
+            val decoded = decodeJsResult(raw)
+            if (decoded.isBlank()) return@evaluateJavascript
+            val referer = view.url
+            for (u in parseStringArray(decoded, "v")) {
+                if (hitDone.get()) break
+                handleDiscoveredUrl(view, referer, u)
+            }
+            for (f in parseStringArray(decoded, "f")) {
+                if (hitDone.get()) break
+                handleDiscoveredUrl(view, referer, SniffEngine.resolveUrl(referer.orEmpty(), f))
+            }
+        }
+    }
+
+    handleDiscoveredUrl = { view, referer, url ->
+        if (url.isBlank() || hitDone.get()) return@handleDiscoveredUrl
+        rememberSeen(url)
+        when (SniffEngine.sniffKind(url)) {
+            SniffKind.DIRECT -> onHit(view, referer, url)
+            SniffKind.RTMP -> onRtmp(view, url)
+            null -> when {
+                url.startsWith("blob:", ignoreCase = true) -> deepDigBlob(view)
+                SniffEngine.isSuspiciousMediaUrl(url) -> probeAsync(view, referer, url)
             }
         }
     }
@@ -256,6 +475,73 @@ fun WebSniffScreen(
         }
     }
 
+    /**
+     * v0.92 第 5 层：深度嗅探（手动触发）。
+     * 把拦截到的全部 http(s) URL（去重、排除静态资源后缀）逐个 Content-Type 探测，
+     * 并发上限 6，单个超时复用 SniffEngine 的 PROBE_TIMEOUT_MS；
+     * 命中第一个 DIRECT 即 onHit 并停掉其余；ts 分片只当线索（同目录拼 playlist 候选验证）。
+     * 全灭则 Toast 提示。按钮探测中显示 loading，禁用重复点击。
+     */
+    fun runDeepSniff() {
+        val view = webViewRef ?: return
+        if (deepSniffing || testing) return
+        deepSniffing = true
+        LogBus.i("WebSniff", "深度嗅探开始")
+        probeScope.launch(Dispatchers.IO) {
+            val candidates = LinkedHashSet<String>()
+            synchronized(seenUrls) { candidates += seenUrls }
+            val referer = withContext(Dispatchers.Main) { view.url.orEmpty() }
+            val httpUrls = candidates.filter { u ->
+                val l = u.lowercase()
+                (l.startsWith("http://") || l.startsWith("https://")) &&
+                    !SniffEngine.isStaticResource(u)
+            }
+            LogBus.i("WebSniff", "深度嗅探候选 ${httpUrls.size} 个")
+            val semaphore = Semaphore(6)
+            val found = AtomicBoolean(false)
+            suspend fun hitOrNull(u: String) {
+                if (hitDone.get() || found.get()) return
+                val kind = SniffEngine.sniffKind(u) ?: SniffEngine.probeContentType(u, probeClient)
+                when (kind) {
+                    SniffKind.DIRECT -> if (found.compareAndSet(false, true)) onHit(view, referer, u)
+                    SniffKind.RTMP -> onRtmp(view, u)
+                    null -> {}
+                }
+            }
+            val jobs = httpUrls.map { u ->
+                launch {
+                    if (hitDone.get() || found.get()) return@launch
+                    // ts 分片只是线索：同目录拼 playlist 候选并验证，不直接 onHit
+                    if (SniffEngine.isTsSegment(u)) {
+                        rememberSeen(u)
+                        for (cand in SniffEngine.tsCluePlaylists(u)) {
+                            if (hitDone.get() || found.get()) break
+                            semaphore.withPermit {
+                                if (hitDone.get() || found.get()) return@withPermit
+                                rememberSeen(cand)
+                                if (SniffEngine.probeContentType(cand, probeClient) == SniffKind.DIRECT) {
+                                    if (found.compareAndSet(false, true)) onHit(view, referer, cand)
+                                }
+                            }
+                        }
+                        return@launch
+                    }
+                    semaphore.withPermit {
+                        if (hitDone.get() || found.get()) return@withPermit
+                        hitOrNull(u)
+                    }
+                }
+            }
+            jobs.joinAll()
+            withContext(Dispatchers.Main) {
+                deepSniffing = false
+                if (!hitDone.get() && !found.get()) {
+                    Toast.makeText(context, "深度嗅探也没找到，可试手动复制地址", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             Column {
@@ -299,6 +585,26 @@ fun WebSniffScreen(
                     ) {
                         Text(if (testing) "测试中…" else "嗅探测试")
                     }
+                    // v0.92：第 5 层深度嗅探——手动把拦截到的 URL 全量探测一遍
+                    TextButton(
+                        onClick = ::runDeepSniff,
+                        enabled = !deepSniffing && !testing,
+                    ) {
+                        if (deepSniffing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(
+                                Icons.Filled.Search,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (deepSniffing) "深挖中…" else "深度嗅探")
+                    }
                 }
             }
         },
@@ -333,7 +639,38 @@ fun WebSniffScreen(
                                 currentUrl = view?.url ?: url.orEmpty()
                                 canGoBack = view?.canGoBack() == true
                                 canGoForward = view?.canGoForward() == true
-                                if (view != null) probeIframes(view)
+                                if (view != null) {
+                                    // v0.92：主 frame 换页后重置 blob 深挖标记
+                                    val mainUrl = view.url.orEmpty()
+                                    if (mainUrl.isNotBlank() && mainUrl != lastMainUrl) {
+                                        lastMainUrl = mainUrl
+                                        blobDug.set(false)
+                                    }
+                                    // v0.92 第 3 层：动态 iframe 追踪（新页面重新注入）
+                                    view.evaluateJavascript(JS_IFRAME_OBSERVER, null)
+                                    probeIframes(view)
+                                }
+                            }
+
+                            /**
+                             * v0.92：onLoadResource 监听——拿到页面加载的全部资源 URL，
+                             * 含部分 shouldInterceptRequest 视角不易命中的（如重定向后的地址）。
+                             * 主线程回调：rememberSeen 是同步容器，探测走异步 probeAsync。
+                             * 判定与拦截链路完全一致，共用 hitDone 去重。
+                             */
+                            override fun onLoadResource(view: WebView?, url: String?) {
+                                super.onLoadResource(view, url)
+                                val webView = view ?: return
+                                val u = url.orEmpty()
+                                if (u.isEmpty() || hitDone.get()) return
+                                rememberSeen(u)
+                                when (SniffEngine.sniffKind(u)) {
+                                    SniffKind.DIRECT -> onHit(webView, webView.url, u)
+                                    SniffKind.RTMP -> onRtmp(webView, u)
+                                    null -> if (SniffEngine.isSuspiciousMediaUrl(u)) {
+                                        probeAsync(webView, webView.url, u)
+                                    }
+                                }
                             }
 
                             override fun shouldInterceptRequest(
@@ -464,6 +801,17 @@ fun WebSniffScreen(
     LaunchedEffect(url) {
         delay(SNIFF_TIMEOUT_MS)
         showTimeoutToast()
+    }
+
+    // v0.92 第 4 层：每 2 秒轮询 JS video hook（video.currentSrc/src + hook 到的
+    // src + MutationObserver 攒的动态 iframe）；命中或 WebView 销毁后停
+    LaunchedEffect(url) {
+        while (!hitDone.get()) {
+            delay(2_000)
+            val v = webViewRef ?: break
+            if (hitDone.get()) break
+            runCatching { pollVideoHook(v) }
+        }
     }
 
     // 页面销毁时销毁 WebView，防止泄漏；同时清掉 SW 嗅探拦截器，

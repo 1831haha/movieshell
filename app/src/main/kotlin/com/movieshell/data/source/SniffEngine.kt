@@ -8,11 +8,14 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
- * 嗅探引擎（v0.10）：所有"这个 URL 是不是可播直链"的判定收敛到这里，
+ * 嗅探引擎（v0.92）：所有"这个 URL 是不是可播直链"的判定收敛到这里，
  * WebSniffScreen（手动嗅探页）与 ParseApi.sniffType0（type=0 解析线路）共用。
  *
- * 三层判定：
- * 1. 后缀直判（零成本）：.m3u8/.mp4/.mpd/.aac 直接命中；rtmp 标"需外部播放"。
+ * 判定：
+ * 1. 后缀直判（零成本）：.m3u8/.mp4/.mkv/.flv/.avi/.webm/.mp3/.m4a/.aac/.mov/.wmv/.mpd
+ *    直接命中；另认 `/m3u8` 路径形式（DsPlayer 口径）；rtmp 标"需外部播放"。
+ *    例外：.ts 是 m3u8 分片，不直接命中——只在深度嗅探/HTML 深挖里当线索
+ *    （同目录拼 playlist 候选再验证）。
  * 2. 可疑 URL 探测（按需 HEAD）：无后缀但 path/query 像媒体地址的，
  *    发 HEAD（失败回退 Range GET）看 Content-Type 判定。只对可疑 URL 做，
  *    不全量探测，避免把图片/接口请求都打一遍。
@@ -38,15 +41,22 @@ object SniffEngine {
      * 只看 URL 的 path 部分（去掉 query/fragment 后）是否以媒体后缀结尾，忽略大小写。
      * 带 query 的（如 xxx.m3u8?token=abc）同样命中。
      * v0.10 在 .m3u8/.mp4 基础上加 .mpd（DASH）/.aac。
+     * v0.92 按 DsPlayer 口径扩到 12 种后缀 + `/m3u8` 路径形式；.ts 除外（分片不直接播）。
      */
     fun isPlayableDirectUrl(url: String): Boolean =
         sniffKind(url) == SniffKind.DIRECT
 
+    /** 可直接播的媒体后缀（v0.92：DsPlayer 口径；.ts 除外——分片单独拿出来播不了） */
+    private val DIRECT_EXTS = setOf(
+        ".m3u8", ".mp4", ".mkv", ".flv", ".avi", ".webm",
+        ".mp3", ".m4a", ".aac", ".mov", ".wmv", ".mpd",
+    )
+
     /**
      * 后缀判定（纯函数，可单元测试）：
-     * - DIRECT：.m3u8/.mp4/.mpd/.aac
+     * - DIRECT：DIRECT_EXTS 后缀，或 `/m3u8` 路径形式（如 https://host/m3u8/abc123）
      * - RTMP：rtmp:// 开头或 .rtmp 后缀
-     * - null：都不是
+     * - null：都不是（.ts 分片走 [isTsSegment]，不直接命中）
      *
      * v0.16.1：先查用户自定义正则（SniffPatternStore），命中即 DIRECT。
      */
@@ -56,12 +66,34 @@ object SniffEngine {
         val lower = url.lowercase()
         if (lower.startsWith("rtmp://")) return SniffKind.RTMP
         val path = lower.substringBefore('#').substringBefore('?')
-        return when {
-            path.endsWith(".m3u8") || path.endsWith(".mp4") ||
-                path.endsWith(".mpd") || path.endsWith(".aac") -> SniffKind.DIRECT
-            path.endsWith(".rtmp") -> SniffKind.RTMP
-            else -> null
+        if (DIRECT_EXTS.any { path.endsWith(it) }) return SniffKind.DIRECT
+        // DsPlayer 式：/m3u8 路径形式；排除 .html 等静态页面误伤
+        if (path.split('/').any { it == "m3u8" } && STATIC_EXTS.none { path.endsWith(it) }) {
+            return SniffKind.DIRECT
         }
+        if (path.endsWith(".rtmp")) return SniffKind.RTMP
+        return null
+    }
+
+    /**
+     * ts 分片判定（v0.92，纯函数）：m3u8 的分片，不是可播直链。
+     * 只在深度嗅探/HTML 深挖里当线索（[tsCluePlaylists]），各拦截链路不直接 onHit。
+     */
+    fun isTsSegment(url: String): Boolean {
+        val path = url.lowercase().substringBefore('#').substringBefore('?')
+        return path.endsWith(".ts")
+    }
+
+    /**
+     * ts 分片线索（v0.92，纯函数）：按分片同目录的常见 playlist 名拼候选。
+     * 调用方必须再经 [probeContentType] 验证，禁止直接 onHit。
+     */
+    fun tsCluePlaylists(tsUrl: String): List<String> {
+        if (!isTsSegment(tsUrl)) return emptyList()
+        val clean = tsUrl.substringBefore('#').substringBefore('?')
+        val dir = clean.substringBeforeLast('/') + "/"
+        if (!(dir.startsWith("http://") || dir.startsWith("https://"))) return emptyList()
+        return listOf("index.m3u8", "playlist.m3u8").map { dir + it }.distinct()
     }
 
     /**
@@ -81,6 +113,15 @@ object SniffEngine {
         ".woff", ".woff2", ".ttf", ".otf", ".eot", ".json", ".xml", ".txt",
         ".html", ".htm",
     )
+
+    /**
+     * 静态资源判定（v0.92 公开：深度嗅探过滤候选 URL 用）。
+     * 注意 .ts 不在其中——分片由 [isTsSegment] 另行处理。
+     */
+    fun isStaticResource(url: String): Boolean {
+        val path = url.lowercase().substringBefore('#').substringBefore('?')
+        return STATIC_EXTS.any { path.endsWith(it) }
+    }
 
     /** path/query 里出现这些词就值得探测一次 Content-Type */
     private val MEDIA_HINTS = setOf(
