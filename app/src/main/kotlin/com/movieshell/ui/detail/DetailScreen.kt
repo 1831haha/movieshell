@@ -598,6 +598,52 @@ fun DetailScreen(
                                             MetaChip(vod.year)
                                             MetaChip(vod.area)
                                         }
+                                        // v0.84.0：源胶囊上移到缩略图右边（紧凑版）
+                                        if (playLines.isNotEmpty()) {
+                                            Spacer(Modifier.height(6.dp))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.padding(
+                                                            horizontal = 8.dp,
+                                                            vertical = 3.dp,
+                                                        ),
+                                                    ) {
+                                                        Text(
+                                                            text = playLines[safeLine].name,
+                                                            style = SoftType.Caption,
+                                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                        )
+                                                        Spacer(Modifier.width(3.dp))
+                                                        Icon(
+                                                            Icons.Filled.SwapHoriz,
+                                                            contentDescription = "切换源",
+                                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                            modifier = Modifier.size(13.dp),
+                                                        )
+                                                    }
+                                                }
+                                                if (vod.rating.isNotBlank()) {
+                                                    Spacer(Modifier.width(6.dp))
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Star,
+                                                        contentDescription = null,
+                                                        tint = LocalSoftExtra.current.warning,
+                                                        modifier = Modifier.size(13.dp),
+                                                    )
+                                                    Spacer(Modifier.width(3.dp))
+                                                    Text(
+                                                        text = vod.rating,
+                                                        style = SoftType.Caption,
+                                                        color = LocalSoftExtra.current.warning,
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                     // 收藏（从顶栏移到这里，对标目标界面右上角心形）
                                     IconButton(onClick = {
@@ -626,61 +672,19 @@ fun DetailScreen(
                                         )
                                     }
                                 }
-                                // 第二行：当前源 pill
-                                if (playLines.isNotEmpty()) {
-                                    Spacer(Modifier.height(10.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Surface(
-                                            shape = RoundedCornerShape(16.dp),
-                                            color = MaterialTheme.colorScheme.primaryContainer,
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                            ) {
-                                                Text(
-                                                    text = playLines[safeLine].name,
-                                                    style = SoftType.Body,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                )
-                                                Spacer(Modifier.width(4.dp))
-                                                Icon(
-                                                    Icons.Filled.SwapHoriz,
-                                                    contentDescription = "切换源",
-                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                    modifier = Modifier.size(16.dp),
-                                                )
-                                            }
-                                        }
-                                        Spacer(Modifier.width(8.dp))
-                                        if (vod.rating.isNotBlank()) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Star,
-                                                contentDescription = null,
-                                                tint = LocalSoftExtra.current.warning,
-                                                modifier = Modifier.size(16.dp),
-                                            )
-                                            Spacer(Modifier.width(4.dp))
-                                            Text(
-                                                text = vod.rating,
-                                                style = SoftType.Body,
-                                                color = LocalSoftExtra.current.warning,
-                                            )
-                                        }
-                                    }
-                                }
-                                // 第三行：主演 + 简介（可展开）
+                                // v0.84.0：源 pill 已上移到缩略图右边，这里删除
+                                // 第三行：主演 + 简介（可展开）；v0.84.0：收窄
                                 if (vod.actors.isNotBlank()) {
-                                    Spacer(Modifier.height(10.dp))
+                                    Spacer(Modifier.height(6.dp))
                                     Text(
                                         text = "主演：${vod.actors}",
                                         style = SoftType.Body,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 2,
+                                        maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                 }
-                                Spacer(Modifier.height(8.dp))
+                                Spacer(Modifier.height(6.dp))
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.clickable { descExpanded = !descExpanded },
@@ -704,7 +708,7 @@ fun DetailScreen(
                                     text = vod.desc,
                                     style = SoftType.Body,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    lineHeight = 22.sp,
+                                    lineHeight = 19.sp, // v0.84.0：收窄行距
                                     maxLines = if (descExpanded) Int.MAX_VALUE else 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )

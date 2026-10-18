@@ -60,6 +60,8 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
+import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
 import android.provider.OpenableColumns
@@ -87,7 +89,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.QueueMusic
@@ -493,42 +494,27 @@ private fun OnlineTab(
         }
     }
 
-    // v0.82.0：歌单导入弹窗
+    // v0.82.0：歌单导入弹窗；v0.84.0：换科技感 TechDialog
     if (showPlaylistDialog) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showPlaylistDialog = false },
-            title = { Text("歌单导入") },
-            text = {
-                Column {
-                    Text(
-                        "粘贴网易云歌单链接或 ID，一键导入整单歌曲",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = playlistInput,
-                        onValueChange = { playlistInput = it },
-                        placeholder = { Text("歌单链接或 ID") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                    )
-                }
+            title = "歌单导入",
+            subtitle = "粘贴网易云歌单链接或 ID，一键导入整单歌曲",
+            confirmText = if (importingPlaylist) "导入中…" else "导入",
+            onConfirm = {
+                importPlaylist(playlistInput)
+                playlistInput = ""
+                showPlaylistDialog = false
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        importPlaylist(playlistInput)
-                        playlistInput = ""
-                        showPlaylistDialog = false
-                    },
-                    enabled = !importingPlaylist,
-                ) { Text(if (importingPlaylist) "导入中…" else "导入") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPlaylistDialog = false }) { Text("取消") }
-            },
-        )
+            confirmEnabled = !importingPlaylist,
+        ) {
+            TechTextField(
+                value = playlistInput,
+                onValueChange = { playlistInput = it },
+                placeholder = "歌单链接或 ID",
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 
     // v0.84.0：加到歌单
@@ -1070,7 +1056,7 @@ private fun PlaylistTab(
     }
 }
 
-/** v0.84.0：新建/重命名歌单弹窗（共用）。 */
+/** v0.84.0：新建/重命名歌单弹窗（共用）；科技感 TechDialog。 */
 @Composable
 private fun NewPlaylistDialog(
     title: String = "新建歌单",
@@ -1079,25 +1065,18 @@ private fun NewPlaylistDialog(
     onConfirm: (String) -> Unit,
 ) {
     var name by remember { mutableStateOf(initial) }
-    AlertDialog(
+    TechDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                placeholder = { Text("歌单名字") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(name) }) { Text("确定") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        },
-    )
+        title = title,
+        onConfirm = { onConfirm(name) },
+    ) {
+        TechTextField(
+            value = name,
+            onValueChange = { name = it },
+            placeholder = "歌单名字",
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 /** v0.84.0：加到歌单弹窗——列出歌单点选，底部可直接新建。 */
@@ -1128,79 +1107,68 @@ internal fun AddToPlaylistDialog(
         }
     }
 
-    AlertDialog(
+    // v0.84.0：换科技感 TechDialog
+    TechDialog(
         onDismissRequest = onDismiss,
-        title = { Text("加到歌单") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "《${track.name}》",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(8.dp))
-                Box(modifier = Modifier.height(240.dp)) {
-                    if (playlists.isEmpty()) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                "还没有歌单，先新建一个",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 13.sp,
-                            )
-                        }
-                    } else {
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items(playlists, key = { it.id }) { pl ->
-                                AppCard(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { addTo(pl) },
+        title = "加到歌单",
+        subtitle = "《${track.name}》",
+        onConfirm = null,
+        content = {
+            Box(modifier = Modifier.height(240.dp)) {
+                if (playlists.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "还没有歌单，先新建一个",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp,
+                        )
+                    }
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(playlists, key = { it.id }) { pl ->
+                            AppCard(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { addTo(pl) },
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.QueueMusic,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(24.dp),
-                                        )
-                                        Spacer(Modifier.width(10.dp))
-                                        Text(
-                                            text = pl.name,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            modifier = Modifier.weight(1f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        Text(
-                                            text = "${pl.tracks.size} 首",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
+                                    Icon(
+                                        Icons.Filled.QueueMusic,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        text = pl.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "${pl.tracks.size} 首",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             }
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                TextButton(onClick = { showNew = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("新建歌单")
-                }
             }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = { showNew = true }) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
+                Text("新建歌单")
+            }
         },
     )
 

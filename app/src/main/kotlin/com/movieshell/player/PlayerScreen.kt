@@ -25,6 +25,7 @@ import com.movieshell.ui.theme.SoftType
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -104,7 +105,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -1202,7 +1205,8 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .background(Color.Black)
+                    // v0.84.0：半透明，少遮挡画面；用户反馈再调低一点
+                    .background(Color.Black.copy(alpha = 0.3f))
                     // v0.69.1：嵌入模式收窄底部黑边
                     .padding(horizontal = 12.dp, vertical = if (embedded) 0.dp else 2.dp),
             ) {
@@ -1233,6 +1237,52 @@ fun PlayerScreen(
                             activeTrackColor = Color(0xFF2196F3),
                             inactiveTrackColor = Color.White.copy(alpha = 0.3f),
                         ),
+                        // v0.84.0：3dp 细进度线 + 小圆点，少遮挡画面
+                        // （触摸区域由 minimumInteractiveComponentSize 保底，不影响拖动）
+                        track = { sliderState ->
+                            val fraction = sliderState.valueRange.let { r ->
+                                val span = r.endInclusive - r.start
+                                if (span <= 0f) 0f
+                                else ((sliderState.value - r.start) / span).coerceIn(0f, 1f)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(20.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Canvas(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(3.dp),
+                                ) {
+                                    val y = size.height / 2f
+                                    val w = 3.dp.toPx()
+                                    drawLine(
+                                        color = Color.White.copy(alpha = 0.25f),
+                                        start = Offset(0f, y),
+                                        end = Offset(size.width, y),
+                                        strokeWidth = w,
+                                        cap = StrokeCap.Round,
+                                    )
+                                    drawLine(
+                                        color = Color(0xFF2196F3).copy(alpha = 0.9f),
+                                        start = Offset(0f, y),
+                                        end = Offset(size.width * fraction, y),
+                                        strokeWidth = w,
+                                        cap = StrokeCap.Round,
+                                    )
+                                }
+                            }
+                        },
+                        thumb = {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White),
+                            )
+                        },
                     )
                     Text(
                         text = fmtTime(dur),

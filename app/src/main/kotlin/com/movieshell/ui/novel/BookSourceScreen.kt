@@ -28,7 +28,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,6 +50,8 @@ import com.movieshell.data.novel.BookSource
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.PyBookApi
 import com.movieshell.data.novel.PyBookSourceManager
+import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -365,175 +366,154 @@ fun BookSourceScreen(
         }
     }
 
+    // v0.84.0：换科技感 TechDialog
     if (showImport) {
-        AlertDialog(
+        TechDialog(
             onDismissRequest = { showImport = false },
-            title = { Text("导入书源") },
-            text = {
-                OutlinedTextField(
-                    value = importText,
-                    onValueChange = { importText = it },
-                    placeholder = { Text("粘贴 bookSource.json（单条或数组）") },
-                    modifier = Modifier.fillMaxWidth().height(200.dp),
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        val n = BookSourceManager.import(context, importText)
-                        showImport = false
-                        Toast.makeText(
-                            context,
-                            if (n > 0) "导入 $n 个书源" else "没有识别出书源，检查 JSON 格式",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }) { Text("导入") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showImport = false }) { Text("取消") }
-            },
-        )
-    }
-
-    // v0.81.0：书源 URL 导入
-    if (showUrlImport) {
-        AlertDialog(
-            onDismissRequest = { showUrlImport = false },
-            title = { Text("书源 URL 导入") },
-            text = {
-                OutlinedTextField(
-                    value = importUrl,
-                    onValueChange = { importUrl = it },
-                    placeholder = { Text("输入 bookSource.json 的 URL") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val url = importUrl.trim()
-                        if (url.isBlank()) return@TextButton
-                        importingUrl = true
-                        scope.launch {
-                            val json = withContext(Dispatchers.IO) {
-                                runCatching {
-                                    val req = okhttp3.Request.Builder().url(url).build()
-                                    okhttp3.OkHttpClient().newCall(req).execute().use { resp ->
-                                        if (!resp.isSuccessful) null
-                                        else resp.body?.string()
-                                    }
-                                }.getOrNull()
-                            }
-                            importingUrl = false
-                            if (json.isNullOrBlank()) {
-                                Toast.makeText(context, "下载失败，检查 URL", Toast.LENGTH_SHORT).show()
-                                return@launch
-                            }
-                            // v0.84.0：先解析预览，勾选再导入（对标阅读3.0网络导入）
-                            val parsed = BookSource.listFromJson(json)
-                            if (parsed.isEmpty()) {
-                                Toast.makeText(
-                                    context, "没有识别出书源，检查 JSON 格式",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                                return@launch
-                            }
-                            urlPreview = parsed
-                            urlChecked = parsed.map { it.key }.toSet()
-                            showUrlImport = false
-                        }
-                    },
-                    enabled = !importingUrl,
-                ) { Text(if (importingUrl) "下载中…" else "下一步") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showUrlImport = false }) { Text("取消") }
-            },
-        )
-    }
-
-    // v0.84.0：订阅预览——列出 URL 里全部书源，勾选再导入
-    urlPreview?.let { preview ->
-        AlertDialog(
-            onDismissRequest = { urlPreview = null },
-            title = { Text("订阅预览（${preview.size} 个书源）") },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        TextButton(
-                            onClick = { urlChecked = preview.map { it.key }.toSet() },
-                        ) { Text("全选", fontSize = 12.sp) }
-                        TextButton(
-                            onClick = { urlChecked = emptySet() },
-                        ) { Text("全不选", fontSize = 12.sp) }
-                    }
-                    Box(modifier = Modifier.height(320.dp)) {
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items(preview, key = { it.key }) { s ->
-                                val checked = s.key in urlChecked
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Checkbox(
-                                        checked = checked,
-                                        onCheckedChange = { on ->
-                                            urlChecked = if (on) urlChecked + s.key
-                                            else urlChecked - s.key
-                                        },
-                                    )
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            s.name.ifBlank { s.key },
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            maxLines = 1,
-                                        )
-                                        Text(
-                                            s.url,
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Text(
-                        "已选 ${urlChecked.size} 个",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            title = "导入书源",
+            subtitle = "粘贴阅读 App 的 bookSource.json（单条或数组）",
+            confirmText = "导入",
+            onConfirm = {
+                scope.launch {
+                    val n = BookSourceManager.import(context, importText)
+                    showImport = false
+                    Toast.makeText(
+                        context,
+                        if (n > 0) "导入 $n 个书源" else "没有识别出书源，检查 JSON 格式",
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 }
             },
-            confirmButton = {
+        ) {
+            TechTextField(
+                value = importText,
+                onValueChange = { importText = it },
+                placeholder = "粘贴 bookSource.json",
+                modifier = Modifier.fillMaxWidth().height(200.dp),
+                singleLine = false,
+            )
+        }
+    }
+
+    // v0.81.0：书源 URL 导入；v0.84.0：换科技感 TechDialog
+    if (showUrlImport) {
+        TechDialog(
+            onDismissRequest = { showUrlImport = false },
+            title = "书源 URL 导入",
+            subtitle = "输入 bookSource.json 的订阅地址，先预览再导入",
+            confirmText = if (importingUrl) "下载中…" else "下一步",
+            onConfirm = {
+                val url = importUrl.trim()
+                if (url.isBlank()) return@TechDialog
+                importingUrl = true
+                scope.launch {
+                    val json = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val req = okhttp3.Request.Builder().url(url).build()
+                            okhttp3.OkHttpClient().newCall(req).execute().use { resp ->
+                                if (!resp.isSuccessful) null
+                                else resp.body?.string()
+                            }
+                        }.getOrNull()
+                    }
+                    importingUrl = false
+                    if (json.isNullOrBlank()) {
+                        Toast.makeText(context, "下载失败，检查 URL", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    // v0.84.0：先解析预览，勾选再导入（对标阅读3.0网络导入）
+                    val parsed = BookSource.listFromJson(json)
+                    if (parsed.isEmpty()) {
+                        Toast.makeText(
+                            context, "没有识别出书源，检查 JSON 格式",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        return@launch
+                    }
+                    urlPreview = parsed
+                    urlChecked = parsed.map { it.key }.toSet()
+                    showUrlImport = false
+                }
+            },
+            confirmEnabled = !importingUrl,
+        ) {
+            TechTextField(
+                value = importUrl,
+                onValueChange = { importUrl = it },
+                placeholder = "https://…/bookSource.json",
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+
+    // v0.84.0：订阅预览——列出 URL 里全部书源，勾选再导入；换科技感 TechDialog
+    urlPreview?.let { preview ->
+        TechDialog(
+            onDismissRequest = { urlPreview = null },
+            title = "订阅预览",
+            subtitle = "共 ${preview.size} 个书源，已选 ${urlChecked.size} 个",
+            confirmText = "导入选中",
+            onConfirm = {
+                scope.launch {
+                    val selected = preview.filter { it.key in urlChecked }
+                    val n = BookSourceManager.importSources(context, selected)
+                    urlPreview = null
+                    Toast.makeText(
+                        context,
+                        if (n > 0) "导入 $n 个书源"
+                        else "所选书源都已存在，无需重复导入",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+            confirmEnabled = urlChecked.isNotEmpty(),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
                 TextButton(
-                    onClick = {
-                        scope.launch {
-                            val selected = preview.filter { it.key in urlChecked }
-                            val n = BookSourceManager.importSources(context, selected)
-                            urlPreview = null
-                            Toast.makeText(
-                                context,
-                                if (n > 0) "导入 $n 个书源"
-                                else "所选书源都已存在，无需重复导入",
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                    onClick = { urlChecked = preview.map { it.key }.toSet() },
+                ) { Text("全选", fontSize = 12.sp) }
+                TextButton(
+                    onClick = { urlChecked = emptySet() },
+                ) { Text("全不选", fontSize = 12.sp) }
+            }
+            Box(modifier = Modifier.height(300.dp)) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(preview, key = { it.key }) { s ->
+                        val checked = s.key in urlChecked
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = { on ->
+                                    urlChecked = if (on) urlChecked + s.key
+                                    else urlChecked - s.key
+                                },
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    s.name.ifBlank { s.key },
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    color = Color.White,
+                                )
+                                Text(
+                                    s.url,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
                         }
-                    },
-                    enabled = urlChecked.isNotEmpty(),
-                ) { Text("导入选中") }
-            },
-            dismissButton = {
-                TextButton(onClick = { urlPreview = null }) { Text("取消") }
-            },
-        )
+                    }
+                }
+            }
+        }
     }
 
     deleteTarget?.let { s ->
