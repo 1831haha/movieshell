@@ -1,8 +1,11 @@
 package com.movieshell.ui.live
 
 import android.content.ContentResolver
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.app.Activity
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,6 +51,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -61,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -111,6 +116,20 @@ fun LiveScreen(
     var selected by remember { mutableStateOf<LiveChannel?>(null) }
     // v0.80.0：左侧分组选中态
     var selectedGroup by remember { mutableStateOf<String?>(null) }
+
+    // v0.96.2：横屏全屏播放（手动横屏按钮 / 物理横屏）且有在播频道时，播放器占满全屏
+    val fullscreenPlayer = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+        selected != null
+    // v0.96.2：离页时恢复系统方向——手动横屏后切 tab / 跳独立播放页，不能把整个 App 锁在横屏
+    DisposableEffect(Unit) {
+        onDispose {
+            (context as? Activity)?.let {
+                if (it.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                    it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
+            }
+        }
+    }
 
     fun doRefresh() {
         if (refreshing) return
@@ -176,6 +195,8 @@ fun LiveScreen(
 
     Scaffold(
         topBar = {
+            // v0.96.2：横屏全屏播放时隐藏顶栏
+            if (!fullscreenPlayer) {
             TabTopBar(
                 title = "直播",
                 actions = {
@@ -198,6 +219,7 @@ fun LiveScreen(
                     }
                 },
             )
+            } // v0.96.2 if (!fullscreenPlayer)
         },
     ) { inner ->
         Column(
@@ -205,12 +227,11 @@ fun LiveScreen(
                 .fillMaxSize()
                 .padding(inner),
         ) {
-            // 顶部 16:9 播放器
+            // 顶部 16:9 播放器；v0.96.2：横屏全屏时占满（PlayerScreen 调用点唯一，不重建播放器）
             val playing = selected
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
+                modifier = (if (fullscreenPlayer) Modifier.fillMaxSize()
+                            else Modifier.fillMaxWidth().aspectRatio(16f / 9f))
                     .background(Color.Black),
             ) {
                 if (playing != null) {
@@ -239,6 +260,8 @@ fun LiveScreen(
                     }
                 }
             }
+            // v0.96.2：横屏全屏只留播放器，其他 UI 隐藏
+            if (!fullscreenPlayer) {
             // 节目信息卡：台标 + 正在播/下一档（对标 DsPlayer）
             ProgramInfoCard(channel = playing, epg = epg)
             // 搜索行（默认收起，点顶栏放大镜展开）
@@ -346,6 +369,7 @@ fun LiveScreen(
                     }
                 }
             }
+            } // v0.96.2 if (!fullscreenPlayer)
         }
     }
 

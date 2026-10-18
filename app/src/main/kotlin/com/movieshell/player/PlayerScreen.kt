@@ -65,6 +65,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
@@ -351,6 +352,27 @@ fun PlayerScreen(
     }
 
     /**
+     * v0.96.2：嵌入模式手动横竖屏切换（直播页控制条横屏按钮）。
+     * 嵌入模式不启动重力感应（v0.84.0），手动按钮是直播页唯一的旋转控制，
+     * 不会和 sensor 打架；切之前先快照，复用 v0.96.1 的不断流恢复逻辑。
+     * 方向走 Activity 显式锁定，双引擎统一走 EngineHost。
+     */
+    fun toggleEmbeddedLandscape() {
+        val activity = context as? Activity ?: return
+        // v0.96.1：手动切换先快照，保证不断流
+        snapshotForRotation()
+        val landscape =
+            context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        activity.requestedOrientation = if (landscape) {
+            LogBus.i("Player", "手动：嵌入切回竖屏")
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else {
+            LogBus.i("Player", "手动：嵌入切横屏")
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
+    }
+
+    /**
      * v0.21.0：当前字幕地址（含时间偏移处理）。双引擎统一走 SubtitleKit 单入口：
      * 偏移为 0 直接返回原地址；非 0 则下载移位后返回 file:// 本地地址。
      * 含网络 IO，必须在协程里调用。
@@ -398,10 +420,10 @@ fun PlayerScreen(
     }
 
     // v0.96.1：系统方向变化后做一次"在播连续性"检查——翻转导致停播则无缝恢复；
-    // 首次组合只记录不动作。嵌入模式不参与（直播页顶部不跟重力感应）。
+    // 首次组合只记录不动作。v0.96.2：嵌入模式也参与（直播页手动横屏按钮要不断流），
+    // sensor 本身依然只在独立页跑（上面的 LaunchedEffect 有 embedded 守卫）。
     val cfgOrientation = LocalConfiguration.current.orientation
     LaunchedEffect(cfgOrientation) {
-        if (embedded) return@LaunchedEffect
         val prev = lastCfgOrientation
         lastCfgOrientation = cfgOrientation
         if (prev == null || prev == cfgOrientation) return@LaunchedEffect
@@ -794,9 +816,11 @@ fun PlayerScreen(
         }
     }
 
-    // v0.65：嵌入模式用 16:9 盒子（详情页顶部），独立模式全屏
+    // v0.65：嵌入模式用 16:9 盒子（详情页顶部），独立模式全屏；
+    // v0.96.2：嵌入横屏时占满（直播页手动横屏按钮 / 物理横屏），cfgOrientation 上面已读
     Box(
-        modifier = (if (embedded) Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+        modifier = (if (embedded && cfgOrientation != Configuration.ORIENTATION_LANDSCAPE)
+            Modifier.fillMaxWidth().aspectRatio(16f / 9f)
         else Modifier.fillMaxSize()).background(Color.Black)
     ) {
         if (playUrl.isBlank()) {
@@ -1476,6 +1500,17 @@ fun PlayerScreen(
                         }
                     }
                     Spacer(Modifier.weight(1f))
+                    // v0.96.2：嵌入直播手动横竖屏切换（详情页嵌入不显示，保持跳独立播放页逻辑）
+                    if (embedded && isLive) {
+                        val isLandscape = cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
+                        IconButton(onClick = { toggleEmbeddedLandscape() }) {
+                            Icon(
+                                if (isLandscape) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                                contentDescription = if (isLandscape) "退出横屏" else "横屏",
+                                tint = Color.White,
+                            )
+                        }
+                    }
                     IconButton(onClick = {
                         // v0.65：嵌入模式点全屏 → 跳独立播放页（详情页传入回调）
                         if (embedded) onFullscreen() else toggleOrientation()

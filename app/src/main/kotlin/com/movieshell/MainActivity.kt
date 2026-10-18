@@ -3,6 +3,7 @@ package com.movieshell
 import android.net.Uri
 import android.os.Bundle
 import android.content.Intent
+import android.content.res.Configuration
 import android.util.Rational
 import android.view.KeyEvent
 import android.app.PictureInPictureParams
@@ -28,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -259,15 +261,18 @@ class MainActivity : ComponentActivity() {
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val current = backStackEntry?.destination
                 // 详情页等非 tab 页面隐藏底部导航栏
-                val showBottomBar = current?.hierarchy?.any { dest ->
+                // v0.96.2：直播页横屏全屏播放时也隐藏，播放器真正占满
+                val curRoute = current?.route
+                val liveLandscape = curRoute == "live" &&
+                    LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+                val showBottomBar = (current?.hierarchy?.any { dest ->
                     tabs.any { it.route == dest.route }
-                } == true
+                } == true) && !liveLandscape
                 // v0.91.0：全局迷你播放条——有在播曲目且不在播放页/视频页时，悬在底部导航上方
                 val musicState by MusicPlayer.state.collectAsState()
-                val curRoute = current?.route
-                val showMiniPlayer = musicState.track != null &&
+                val showMiniPlayer = (musicState.track != null &&
                     curRoute != "music_player" &&
-                    curRoute?.startsWith(PLAYER_ROUTE_BASE) != true
+                    curRoute?.startsWith(PLAYER_ROUTE_BASE) != true) && !liveLandscape
 
                 Scaffold(
                     bottomBar = {
