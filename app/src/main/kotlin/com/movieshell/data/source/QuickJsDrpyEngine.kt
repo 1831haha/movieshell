@@ -9,23 +9,29 @@ import com.movieshell.data.model.FilterOption
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
+import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.EmptyCoroutineContext
 
 /**
  * v0.16.0：QuickJS drpy 引擎（替代 WebView）。
  *
- * 对标 DsPlayer：drpy 规则本就是为 QuickJS 写的，WebView 又重又慢还容易被规则里的
- * 浏览器嗅探代码干扰。QuickJS 纯 JS 引擎，启动快、内存小、兼容性更好。
+ * v0.99.0 单线程化改造（诊断 P0-2/P0-3/P0-4）：QuickJS 非线程安全，所有 JS 调用强制走
+ * companion 共享的 "quickjs-worker" 单线程 dispatcher；loadRule 切源强制重建上下文；
+ * JS 异常/超时后关闭重建；进行中的网络 Call 被追踪，release 时取消。
  *
- * JS 环境：shim.js（同 WebView 版）+ 规则源码，通过 __bridge 提供同步 request()。
+ * JS 环境：shim.js（同 WebView 版）+ 规则源码，通过 __bridge 提供同步 request()/http()。
  */
 class QuickJsDrpyEngine(
     context: Context,
@@ -38,17 +44,46 @@ class QuickJsDrpyEngine(
     private var ruleJs: String? = null
     private var homeCache: JSONObject? = null
 
+    /**
+     * v0.99.0：进行中的网络请求。bridge 在 JS 线程调用 request()，release() 可能在任意线程，
+     * 用并发集合保证可见性；release 时全部 cancel。
+     */
+    private val pendingCalls = ConcurrentHashMap.newKeySet<Call>()
+
     companion object {
         private const val TAG = "QuickJsDrpy"
-        private const val JS_TIMEOUT_MS = 30_000L
+        private const val JS_TIMEOUT_MS = 15_000L
+
+        /**
+         * v0.99.0：全 App 共享的 JS 单线程。QuickJS 的 JSContext 只能绑一个线程，
+         * 所有 evaluate 强制走这里，杜绝多线程并发进 JNI 导致 SIGSEGV。
+         * 生命周期与 App 一致，不关闭。
+         */
+        @OptIn(DelicateCoroutinesApi::class)
+        val jsDispatcher = newSingleThreadContext("quickjs-worker")
     }
 
     override fun loadRule(js: String) {
         ruleJs = js
         homeCache = null
-        // 懒创建：第一次调用时再建 QuickJs
+        // v0.99.0 P0-3：切源强制重建——旧上下文跑的是老规则，post 到 JS 线程关闭，
+        // 下次 ensureEngine 新建实例并 evaluate 新规则（单线程 FIFO 保序）。
+        jsDispatcher.dispatch(EmptyCoroutineContext, Runnable { closeEngine() })
     }
 
+    /**
+     * 关闭 QuickJS 上下文并取消进行中的网络请求。必须在 jsDispatcher 线程内调用，
+     * 避免与 evaluate 并发造成 use-after-free。
+     */
+    private fun closeEngine() {
+        pendingCalls.forEach { runCatching { it.cancel() } }
+        pendingCalls.clear()
+        runCatching { quickJs?.close() }
+        quickJs = null
+        homeCache = null
+    }
+
+    /** 调用方保证在 jsDispatcher 线程内（经 evalForJson 进入）。 */
     private fun ensureEngine(): QuickJs {
         quickJs?.let { return it }
         val qjs = QuickJs.create()
@@ -150,73 +185,109 @@ class QuickJsDrpyEngine(
     }
 
     override fun release() {
-        try {
-            quickJs?.close()
-        } catch (e: Exception) {
-            Log.w(TAG, "QuickJs close 异常", e)
-        }
-        quickJs = null
-        ruleJs = null
-        homeCache = null
+        // v0.99.0：切到 JS 线程关闭，避免与 evaluate 并发造成 use-after-free；
+        // ruleJs 保留，release 后复用可重建（切源由 loadRule 强制重建）。
+        jsDispatcher.dispatch(EmptyCoroutineContext, Runnable { closeEngine() })
     }
 
     /**
-     * 在 IO 线程同步执行 JS（QuickJS 是同步引擎，无需主线程）。
-     * 返回 JSON 字符串，超时/异常返回 null。
+     * v0.99.0：在 JS 单线程同步执行（QuickJS 是同步引擎）。
+     * 返回 JSON 字符串；JS 异常/超时返回 null 并关闭重建上下文。
+     * 注意：withTimeout 取消不掉 JNI 里死循环的 evaluate，超时后 post 的 closeEngine
+     * 会排队等待——这是 QuickJS 无中断机制下的极限，见 P0-4。
      */
-    private suspend fun evalForJson(expression: String): String? =
-        withTimeoutOrNull(JS_TIMEOUT_MS) {
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    val qjs = ensureEngine()
-                    val result = qjs.evaluate(expression)
-                    result?.toString()
-                }.onFailure {
-                    LogBus.w(TAG, "JS 执行失败: ${it.message}")
-                }.getOrNull()
+    private suspend fun evalForJson(expression: String): String? {
+        return try {
+            withTimeout(JS_TIMEOUT_MS) {
+                withContext(jsDispatcher) {
+                    runCatching {
+                        val qjs = ensureEngine()
+                        qjs.evaluate(expression)?.toString()
+                    }.onFailure {
+                        LogBus.w(TAG, "JS 执行失败: ${it.message}")
+                        // 上下文可能已损坏，直接关闭，下次重建
+                        closeEngine()
+                    }.getOrNull()
+                }
             }
+        } catch (e: TimeoutCancellationException) {
+            LogBus.w(TAG, "JS 执行超时(${JS_TIMEOUT_MS}ms)，关闭重建引擎")
+            jsDispatcher.dispatch(EmptyCoroutineContext, Runnable { closeEngine() })
+            null
         }
+    }
 
     /**
      * JS 桥接口：QuickJS 的 set() 只接受接口绑定，实现类在下面。
-     * JS 侧通过 __bridge.request(url, options) / __bridge.log(msg) 调用。
+     * v0.99.0 P0-1：补上 http()——shim.js 调的是 __bridge.http(url, headersJson, method, body)，
+     * 之前没注册导致所有规则的 request()/fetch() 抛 TypeError。
      */
     interface JsBridgeInterface {
         fun request(url: String, options: String?): String
+
+        /** 兼容 shim.js 的 4 参调用。 */
+        fun http(url: String, headersJson: String, method: String, body: String): String
         fun log(msg: String)
     }
 
-    /**
-     * JS 桥：提供同步 request(url, options) 给 drpy 规则。
-     */
+    /** JS 桥：提供同步 request()/http() 给 drpy 规则。 */
     inner class JsBridge : JsBridgeInterface {
         override fun request(url: String, options: String?): String {
-            return runCatching {
-                val opt = if (options.isNullOrBlank()) JSONObject() else JSONObject(options)
-                val method = opt.optString("method", "GET").uppercase()
-                val headers = opt.optJSONObject("headers")
-                val body = opt.optString("body", null)
+            val opt = runCatching {
+                if (options.isNullOrBlank()) JSONObject() else JSONObject(options)
+            }.getOrDefault(JSONObject())
+            return doRequest(
+                url = url,
+                method = opt.optString("method", "GET"),
+                headers = opt.optJSONObject("headers"),
+                body = opt.optString("body", ""),
+            )
+        }
 
-                val reqBuilder = Request.Builder().url(url)
-                headers?.keys()?.forEach { k ->
-                    reqBuilder.addHeader(k, headers.optString(k))
-                }
-                if (method == "POST") {
-                    val mediaType = "application/x-www-form-urlencoded".toMediaTypeOrNull()
-                    reqBuilder.post((body ?: "").toRequestBody(mediaType))
-                } else {
-                    reqBuilder.get()
-                }
-                http.newCall(reqBuilder.build()).execute().use { resp ->
-                    resp.body?.string() ?: ""
-                }
-            }.onFailure {
-                LogBus.w(TAG, "request 失败: $url ${it.message}")
-            }.getOrDefault("")
+        override fun http(url: String, headersJson: String, method: String, body: String): String {
+            val headers = runCatching {
+                if (headersJson.isBlank()) null else JSONObject(headersJson)
+            }.getOrNull()
+            return doRequest(url, method, headers, body)
         }
 
         override fun log(msg: String) {
             LogBus.d(TAG, "JS: $msg")
+        }
+
+        /**
+         * v0.99.0：统一网络执行，request()/http() 共用。
+         * 返回裸 body 字符串（"" 表失败），与 shim.js 里 `JSON.parse(request(...))` 的旧契约一致；
+         * POST/PUT/PATCH 的 Content-Type 从 headers 里读，默认 application/x-www-form-urlencoded（P1-3）。
+         * 在 JS 线程同步 execute，会占住 JS 线程直到返回/超时——调用方可被 release() cancel。
+         */
+        private fun doRequest(url: String, method: String, headers: JSONObject?, body: String): String {
+            val call = runCatching {
+                val reqBuilder = Request.Builder().url(url)
+                headers?.keys()?.forEach { k ->
+                    reqBuilder.header(k, headers.optString(k))
+                }
+                when (val m = method.uppercase()) {
+                    "POST", "PUT", "PATCH" -> {
+                        val ct = headers?.optString("Content-Type")?.ifBlank { null }
+                            ?: headers?.optString("content-type")?.ifBlank { null }
+                            ?: "application/x-www-form-urlencoded"
+                        reqBuilder.method(m, body.toRequestBody(ct.toMediaTypeOrNull()))
+                    }
+                    "GET" -> reqBuilder.get()
+                    else -> reqBuilder.method(m, null)
+                }
+                http.newCall(reqBuilder.build())
+            }.getOrNull() ?: return ""
+            pendingCalls.add(call)
+            return try {
+                call.execute().use { resp -> resp.body?.string() ?: "" }
+            } catch (e: Exception) {
+                LogBus.w(TAG, "request 失败: $url ${e.message}")
+                ""
+            } finally {
+                pendingCalls.remove(call)
+            }
         }
     }
 

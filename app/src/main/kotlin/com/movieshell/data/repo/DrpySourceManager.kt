@@ -101,6 +101,8 @@ object DrpySourceManager {
         try {
             val js = file.readText()
             val ctx = appContext ?: return
+            // v0.99.0 P0-3：切源先释放旧引擎，避免 QuickJS 实例泄漏
+            runCatching { engine?.release() }
             engine = QuickJsDrpyEngine(ctx).also { it.loadRule(js) }
             activeName = name
             Log.i(TAG, "active 规则: $name")

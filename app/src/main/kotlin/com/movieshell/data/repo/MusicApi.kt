@@ -129,13 +129,17 @@ object MusicApi {
         val pat = Regex("""\[(\d+):(\d+)(?:\.(\d+))?\]""")
         val lines = mutableListOf<LyricLine>()
         for (ln in raw.lineSequence()) {
-            val m = pat.find(ln) ?: continue
-            val min = m.groupValues[1].toLong()
-            val sec = m.groupValues[2].toLong()
-            val cs = m.groupValues[3].padEnd(3, '0').take(3).toLongOrNull() ?: 0L
-            val text = ln.substring(m.range.last + 1).trim()
+            // v0.99.0 P1-10：一行多个时间戳（如 [00:12.00][00:25.00]歌词）都要保留
+            val matches = pat.findAll(ln).toList()
+            if (matches.isEmpty()) continue
+            val text = ln.substring(matches.last().range.last + 1).trim()
             if (text.isBlank()) continue
-            lines += LyricLine(min * 60000 + sec * 1000 + cs, text)
+            for (m in matches) {
+                val min = m.groupValues[1].toLong()
+                val sec = m.groupValues[2].toLong()
+                val cs = m.groupValues[3].padEnd(3, '0').take(3).toLongOrNull() ?: 0L
+                lines += LyricLine(min * 60000 + sec * 1000 + cs, text)
+            }
         }
         return lines.sortedBy { it.timeMs }
     }

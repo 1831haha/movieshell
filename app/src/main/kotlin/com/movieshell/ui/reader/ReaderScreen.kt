@@ -78,6 +78,8 @@ import com.movieshell.data.repo.ReadingProgressStore
 import com.movieshell.data.repo.ReadingStatsStore
 import com.movieshell.ui.components.TechDialog
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -193,6 +195,9 @@ fun ReaderScreen(
 
     // v0.61.0：在线书源章节正文按需拉取（本地 TXT 导入的 content 本来就有，不走这里）
     // v0.64.0：本地 PY 书源的书（sourceKey 以 "pybook:" 开头）走 PY 链路
+    // v0.99.0 P1-8/P1-9：预加载任务与翻页自动存档任务，翻章时取消上一次
+    var preloadJob by remember { mutableStateOf<Job?>(null) }
+    var saveJob by remember { mutableStateOf<Job?>(null) }
     // 注意：局部 fun 必须先声明后调用，故放在 LaunchedEffect 之前
     /** v0.72.0：拉取章节正文并写库（纯 IO，不碰 UI 状态），返回是否拿到正文。 */
     suspend fun fetchChapter(index: Int): Boolean {
@@ -229,8 +234,12 @@ fun ReaderScreen(
             contentLoading = false
             // v0.72.0：预加载下一章（后台静默，不碰 contentLoading）
             // v0.95.0：同时预加载上一章（回看不转圈）
-            launch { fetchChapter(index + 1) }
-            launch { fetchChapter(index - 1) }
+            // v0.99.0 P1-8：取消上一次预加载，快速翻章不产生请求风暴
+            preloadJob?.cancel()
+            preloadJob = scope.launch {
+                fetchChapter(index + 1)
+                fetchChapter(index - 1)
+            }
         }
     }
 
@@ -344,8 +353,17 @@ fun ReaderScreen(
     // v0.95.0：字号/行距/窗口变化导致重分页时，按字符偏移尽量保持阅读位置
     var lastCpp by remember { mutableIntStateOf(0) }
     var lastPageOffset by remember { mutableIntStateOf(0) }
+    val latestChapterIndex by rememberUpdatedState(chapterIndex)
     LaunchedEffect(pagerState.currentPage, pages) {
         lastPageOffset = NovelPaginator.pageStartOffset(pages, pagerState.currentPage)
+        // v0.99.0 P1-9：翻页 2 秒 debounce 自动存进度，App 崩溃/被杀不丢进度
+        saveJob?.cancel()
+        saveJob = scope.launch {
+            delay(2000)
+            val idx = latestChapterIndex
+            val off = NovelPaginator.pageStartOffset(pages, pagerState.currentPage)
+            ReadingProgressStore.save(context, ReadingProgress(novelId, idx, off))
+        }
     }
     LaunchedEffect(charsPerPage) {
         if (lastCpp > 0 && lastCpp != charsPerPage && pages.isNotEmpty() && pageMode != 0) {

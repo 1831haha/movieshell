@@ -1,5 +1,7 @@
 package com.movieshell.player
 
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -41,7 +43,17 @@ class MusicService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         // 耳机拔出暂停等默认由 ExoPlayer 处理（becoming noisy）
-        val exo = ExoPlayer.Builder(this).build()
+        // v0.99.0 P0-6：显式音频属性 + 接管音频焦点，来电/导航/其他 App 抢音频时自动暂停或 duck
+        val exo = ExoPlayer.Builder(this)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                /* handleAudioFocus= */ true,
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .build()
         val sessionActivity = Notify.routeIntent(this, "music_player", id = 9001)
         session = MediaSession.Builder(this, QueueForwardingPlayer(exo))
             .setSessionActivity(sessionActivity)

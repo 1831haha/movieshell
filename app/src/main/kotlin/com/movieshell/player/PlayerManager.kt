@@ -38,7 +38,9 @@ import java.io.FileOutputStream
  */
 object PlayerManager {
 
-    private const val USER_AGENT = "MovieShell/0.1.0 (Android)"
+    // v0.99.0 P0-5：用浏览器 UA，自定义 App UA 会被影视 CDN/WAF 直接 403
+    private const val USER_AGENT =
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
 
     @Volatile
     private var exoPlayer: ExoPlayer? = null

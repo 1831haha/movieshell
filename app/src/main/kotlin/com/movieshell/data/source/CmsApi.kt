@@ -18,8 +18,11 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import okhttp3.Cookie
+import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.xmlpull.v1.XmlPullParser
@@ -55,7 +58,58 @@ class CmsApi(
             .connectTimeout(TIMEOUT_S, TimeUnit.SECONDS)
             .readTimeout(TIMEOUT_S, TimeUnit.SECONDS)
             .writeTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            // v0.99.0 P1-1：拦截器链——UA 统一补、IO 异常重试、内存 CookieJar、简易日志
+            .cookieJar(memoryCookieJar)
+            .addInterceptor(uaInterceptor)
+            .addInterceptor(retryInterceptor)
+            .addInterceptor(simpleLogInterceptor)
             .build()
+
+        /** 内存 CookieJar：host → cookies，需要登录态的源保持会话 */
+        private val memoryCookieJar = object : CookieJar {
+            private val store = mutableMapOf<String, List<Cookie>>()
+            override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+                synchronized(store) { store[url.host] = cookies }
+            }
+
+            override fun loadForRequest(url: HttpUrl): List<Cookie> =
+                synchronized(store) { store[url.host].orEmpty() }
+        }
+
+        /** UA 拦截器：没带 UA 的请求统一补浏览器 UA，不覆盖调用方显式设置的 */
+        private val uaInterceptor = Interceptor { chain ->
+            val req = chain.request()
+            if (req.header("User-Agent") == null) {
+                chain.proceed(req.newBuilder().header("User-Agent", UA).build())
+            } else {
+                chain.proceed(req)
+            }
+        }
+
+        /**
+         * 重试拦截器：IO 异常（超时/断连）最多重试 2 次；HTTP 错误码不重试。
+         * 注意：Interceptor 是阻塞上下文，这里不能用协程 delay，只做立即重试。
+         */
+        private val retryInterceptor = Interceptor { chain ->
+            var lastError: IOException? = null
+            repeat(3) { attempt ->
+                try {
+                    return@Interceptor chain.proceed(chain.request())
+                } catch (e: IOException) {
+                    lastError = e
+                    LogBus.w(TAG, "请求 IO 异常，重试 ${attempt + 1}/3：${chain.request().url}")
+                }
+            }
+            throw lastError ?: IOException("unknown network error")
+        }
+
+        /** 简易日志拦截器（不引入 logging-interceptor 依赖）：方法 + URL + 状态码 */
+        private val simpleLogInterceptor = Interceptor { chain ->
+            val req = chain.request()
+            val resp = chain.proceed(req)
+            LogBus.d(TAG, "${req.method} ${req.url} → ${resp.code}")
+            resp
+        }
 
         private val jsonLenient = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
     }
