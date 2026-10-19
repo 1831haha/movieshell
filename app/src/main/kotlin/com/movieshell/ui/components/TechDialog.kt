@@ -86,7 +86,9 @@ fun TechDialog(
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // v0.109.0 A9：弹窗体恒为深色 #171B28，主题 onSurfaceVariant 在亮色主题下是深灰
+                        // 写深底上对比度约 2.5:1；固定用浅灰紫保证深浅主题都可读（约 8:1）
+                        color = Color(0xFFAEB6D4),
                     )
                 }
                 Spacer(Modifier.height(12.dp))
@@ -101,7 +103,8 @@ fun TechDialog(
                         TextButton(onClick = onDismissRequest) {
                             Text(
                                 dismissText,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                // v0.109.0 A9：同上，取消键固定用浅灰紫（弹窗体恒深色）
+                                color = Color(0xFFAEB6D4),
                             )
                         }
                     }

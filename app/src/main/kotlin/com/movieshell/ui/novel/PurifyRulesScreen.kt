@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.movieshell.data.novel.PurifyRule
 import com.movieshell.data.novel.PurifyRuleStore
 import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.goldTitleColor
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.launch
@@ -53,7 +54,8 @@ fun PurifyRulesScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val gold = Color(0xFFD9C39A)
+    // v0.109.0 A9：亮色主题白底金字对比度约 2.1:1，按底色明度自适应
+    val gold = goldTitleColor()
 
     var rules by remember { mutableStateOf<List<PurifyRule>>(emptyList()) }
     var showAdd by remember { mutableStateOf(false) }

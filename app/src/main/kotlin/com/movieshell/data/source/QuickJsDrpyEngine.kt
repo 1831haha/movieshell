@@ -21,6 +21,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import org.jsoup.Jsoup
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.security.MessageDigest
@@ -55,6 +56,8 @@ class QuickJsDrpyEngine(
     companion object {
         private const val TAG = "QuickJsDrpy"
         private const val JS_TIMEOUT_MS = 15_000L
+        /** v0.109.0 P0-1：query() 单次返回元素上限，防超大页面 JSON 爆炸。 */
+        private const val MAX_QUERY_ELEMENTS = 5000
 
         /**
          * v0.99.1：全 App 共享的 JS 单线程。QuickJS 的 JSContext 只能绑一个线程，
@@ -239,6 +242,13 @@ class QuickJsDrpyEngine(
          * （与 v0.99.0 的 http() 未注册同类 bug），依赖 MD5 签名的 lazy 解析会静默算错地址。
          */
         fun md5(s: String): String
+
+        /**
+         * v0.109.0 P0-1：shim.js 的 pdfh()/pdfa() 转调 __bridge.query()。
+         * jsoup CSS 查询 html；cssQuery 为空时返回根元素（body）。
+         * 返回 JSON 数组，元素含 text/html/outer/attrs；失败返回 "[]"。
+         */
+        fun query(html: String, cssQuery: String): String
     }
 
     /** JS 桥：提供同步 request()/http() 给 drpy 规则。 */
@@ -272,6 +282,34 @@ class QuickJsDrpyEngine(
                     .digest(s.toByteArray(Charsets.UTF_8))
                     .joinToString("") { "%02x".format(it) }
             }.getOrDefault("")
+        }
+
+        /**
+         * v0.109.0 P0-1：jsoup HTML 查询桥，供 shim.js 实现 pdfh()/pdfa()。
+         * 在 JS 线程同步调用（CPU 计算，无网络）；超大结果截断防 JSON 爆炸。
+         */
+        override fun query(html: String, cssQuery: String): String {
+            return runCatching {
+                val doc = Jsoup.parseBodyFragment(html)
+                val els = if (cssQuery.isBlank()) {
+                    listOfNotNull(doc.body())
+                } else {
+                    doc.select(cssQuery).take(MAX_QUERY_ELEMENTS)
+                }
+                val arr = JSONArray()
+                els.forEach { el ->
+                    val attrs = JSONObject()
+                    el.attributes().forEach { attrs.put(it.key, it.value) }
+                    arr.put(
+                        JSONObject()
+                            .put("text", el.text())
+                            .put("html", el.html())
+                            .put("outer", el.outerHtml())
+                            .put("attrs", attrs),
+                    )
+                }
+                arr.toString()
+            }.getOrDefault("[]")
         }
 
         /**

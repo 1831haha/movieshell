@@ -1,15 +1,8 @@
 package com.movieshell.data.novel
 
-/**
- * v0.37.0 在线小说源接口。演示源用 mock 数据打通链路，真实网页解析下版再做。
- */
-interface NovelSource {
-    val key: String
-    val name: String
-    suspend fun search(keyword: String): List<NovelSearchResult>
-    suspend fun chapters(novel: NovelSearchResult): List<ChapterMeta>
-    suspend fun content(chapter: ChapterMeta): String
-}
+// v0.109.0 B7：旧 NovelSource 接口已删（全仓零引用，DemoNovelSource 一并删除；
+// 真实链路走 BookRuleEngine/PyBookApi）。同文件的 NovelSearchResult/ChapterMeta
+// 被多处使用，保留。
 
 /** 搜索结果（轻量，不含正文）。 */
 data class NovelSearchResult(

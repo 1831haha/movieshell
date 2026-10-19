@@ -305,7 +305,12 @@ fun SettingsScreen(
                         ) {
                             Text(
                                 text = "侠",
-                                color = Color.White,
+                                // v0.109.0 A9：侠字压在品牌渐变圆上——炫彩预设含荧光高明度色段，
+                                // 白字在其上对比度约 1.9:1；按渐变平均明度取对比度更高的字色
+                                //（>0.2 取深色 0xFF1A1408，否则白字），品牌渐变可自定义故自适应
+                                color = if (LocalBrandGradient.current.map { it.luminance() }
+                                        .average() > 0.2f
+                                ) Color(0xFF1A1408) else Color.White,
                                 fontSize = 24.sp,
                                 fontWeight = FontWeight.Bold,
                             )

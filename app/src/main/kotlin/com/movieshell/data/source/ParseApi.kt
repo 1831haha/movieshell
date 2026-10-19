@@ -9,7 +9,9 @@ import android.webkit.WebViewClient
 import com.movieshell.data.model.ParseConfig
 import com.movieshell.data.repo.LogBus
 import com.movieshell.player.SniffPlayHeaders
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -174,74 +176,85 @@ class ParseApi(
         videoUrl: String,
     ): String = withTimeoutOrNull(SNIFF_TIMEOUT_MS) {
         SniffConfig.ensureLoaded(context)
-        withContext(Dispatchers.Main) {
-            suspendCancellableCoroutine { cont ->
-                var webView: WebView? = null
-                // 探测是异步的（HEAD 回来时拦截早已返回），resume 必须防重入
-                fun tryResume(url: String) {
-                    if (!cont.isCompleted) cont.resume(url)
-                }
-                try {
-                    val wv = WebView(context.applicationContext)
-                    webView = wv
-                    wv.settings.javaScriptEnabled = true
-                    wv.settings.domStorageEnabled = true
-                    wv.settings.mediaPlaybackRequiresUserGesture = false
-                    wv.webViewClient = object : WebViewClient() {
-                        override fun shouldInterceptRequest(
-                            view: WebView?,
-                            request: WebResourceRequest?,
-                        ): WebResourceResponse? {
-                            val reqUrl = request?.url?.toString().orEmpty()
-                            if (reqUrl.isNotEmpty()) {
-                                when (SniffEngine.sniffKind(reqUrl)) {
-                                    SniffEngine.SniffKind.DIRECT -> {
-                                        // 存下该直链的请求头，播放器经 SniffPlayHeaders.take 透传
-                                        SniffPlayHeaders.put(reqUrl, request?.requestHeaders.orEmpty())
-                                        runCatching { view?.stopLoading() }
-                                        tryResume(reqUrl)
-                                    }
-                                    SniffEngine.SniffKind.RTMP -> {
-                                        LogBus.w(TAG, "type0 抓到 rtmp，需外部播放：$reqUrl")
-                                    }
-                                    null -> if (SniffEngine.isSuspiciousMediaUrl(reqUrl)) {
-                                        // 切 IO 做 HEAD 探测，不阻塞拦截线程
-                                        val referer = request?.requestHeaders?.get("Referer")
-                                        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
-                                            val kind = SniffEngine.probeContentType(reqUrl, client)
-                                            if (kind == SniffEngine.SniffKind.DIRECT) {
-                                                if (!referer.isNullOrBlank()) {
-                                                    SniffPlayHeaders.put(
-                                                        reqUrl,
-                                                        mapOf("Referer" to referer),
-                                                    )
-                                                }
-                                                withContext(Dispatchers.Main) {
-                                                    runCatching { view?.stopLoading() }
-                                                    tryResume(reqUrl)
+        // v0.109.0：HEAD 探测协程跟随本次嗅探的生命周期。WebViewClient 是本函数内创建、
+        // 本函数返回即销毁（无更长的宿主组件），所以 scope 以本次嗅探调用为边界：
+        // 命中/超时/异常/取消时整体取消，不再用 GlobalScope 裸奔耗资源。
+        val probeJob = SupervisorJob()
+        val probeScope = CoroutineScope(probeJob + Dispatchers.IO)
+        try {
+            withContext(Dispatchers.Main) {
+                suspendCancellableCoroutine { cont ->
+                    var webView: WebView? = null
+                    // 探测是异步的（HEAD 回来时拦截早已返回），resume 必须防重入
+                    fun tryResume(url: String) {
+                        if (!cont.isCompleted) cont.resume(url)
+                    }
+                    try {
+                        val wv = WebView(context.applicationContext)
+                        webView = wv
+                        wv.settings.javaScriptEnabled = true
+                        wv.settings.domStorageEnabled = true
+                        wv.settings.mediaPlaybackRequiresUserGesture = false
+                        wv.webViewClient = object : WebViewClient() {
+                            override fun shouldInterceptRequest(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                            ): WebResourceResponse? {
+                                val reqUrl = request?.url?.toString().orEmpty()
+                                if (reqUrl.isNotEmpty()) {
+                                    when (SniffEngine.sniffKind(reqUrl)) {
+                                        SniffEngine.SniffKind.DIRECT -> {
+                                            // 存下该直链的请求头，播放器经 SniffPlayHeaders.take 透传
+                                            SniffPlayHeaders.put(reqUrl, request?.requestHeaders.orEmpty())
+                                            probeJob.cancel()
+                                            runCatching { view?.stopLoading() }
+                                            tryResume(reqUrl)
+                                        }
+                                        SniffEngine.SniffKind.RTMP -> {
+                                            LogBus.w(TAG, "type0 抓到 rtmp，需外部播放：$reqUrl")
+                                        }
+                                        null -> if (SniffEngine.isSuspiciousMediaUrl(reqUrl)) {
+                                            // 切 IO 做 HEAD 探测，不阻塞拦截线程
+                                            val referer = request?.requestHeaders?.get("Referer")
+                                            probeScope.launch {
+                                                val kind = SniffEngine.probeContentType(reqUrl, client)
+                                                if (kind == SniffEngine.SniffKind.DIRECT) {
+                                                    if (!referer.isNullOrBlank()) {
+                                                        SniffPlayHeaders.put(
+                                                            reqUrl,
+                                                            mapOf("Referer" to referer),
+                                                        )
+                                                    }
+                                                    withContext(Dispatchers.Main) {
+                                                        runCatching { view?.stopLoading() }
+                                                        tryResume(reqUrl)
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
+                                return super.shouldInterceptRequest(view, request)
                             }
-                            return super.shouldInterceptRequest(view, request)
                         }
+                        cont.invokeOnCancellation {
+                            // 取消（超时）时：停掉 HEAD 探测 + 在主线程销毁 WebView（要求同线程操作）
+                            probeJob.cancel()
+                            runCatching { wv.stopLoading(); wv.destroy() }
+                        }
+                        val target = parse.url.trim() +
+                            URLEncoder.encode(videoUrl, Charsets.UTF_8.name())
+                        if (parse.header.isNotEmpty()) wv.loadUrl(target, parse.header)
+                        else wv.loadUrl(target)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "type0 嗅探异常", e)
+                        runCatching { webView?.destroy() }
+                        tryResume("")
                     }
-                    cont.invokeOnCancellation {
-                        // 取消（超时）时在主线程销毁，WebView 要求同线程操作
-                        runCatching { wv.stopLoading(); wv.destroy() }
-                    }
-                    val target = parse.url.trim() +
-                        URLEncoder.encode(videoUrl, Charsets.UTF_8.name())
-                    if (parse.header.isNotEmpty()) wv.loadUrl(target, parse.header)
-                    else wv.loadUrl(target)
-                } catch (e: Exception) {
-                    Log.w(TAG, "type0 嗅探异常", e)
-                    runCatching { webView?.destroy() }
-                    tryResume("")
                 }
             }
+        } finally {
+            probeJob.cancel()
         }
     }.orEmpty()
 }

@@ -136,9 +136,12 @@ object PlayerManager {
         subtitleUrl: String? = null,
     ) {
         // v0.102.0 P2-6：视频开播联动暂停音乐——只暂停不自动恢复，恢复走音乐迷你条手动。
-        // MusicPlayer 无 fun pause()（只读），用现有 fadeOutAndPause（保留队列/状态）；
-        // 仅播着时才调用，controller 为空时其内部 ?: return 直接收敛。
-        if (MusicPlayer.state.value.playing) {
+        // MusicPlayer 无 fun pause()（只读），用现有 fadeOutAndPause（保留队列/状态）。
+        // v0.109.0 A5：联动条件覆盖"解析中"态——点歌后 loading=true/playing=false 时播视频，
+        // 音乐直链稍后回来会盖过视频声，故 playing||loading 都暂停；
+        // controller 为空时 fadeOutAndPause 内部 ?: return 直接收敛。
+        val ms = MusicPlayer.state.value
+        if (ms.playing || ms.loading) {
             MusicPlayer.fadeOutAndPause()
         }
         val player = exoPlayer ?: return
@@ -169,15 +172,19 @@ object PlayerManager {
         // v0.21.0：外层包 DefaultDataSource，字幕时间偏移后的 file:// 本地字幕也能读
         // v0.97.0：受 SniffConfig.adFilterEnabled 总开关门控（顶栏溢出菜单可关，改完即时生效）
         SniffConfig.ensureLoaded(app)
-        val adFilterFactory = AdFilteringDataSource.Factory(
-            DefaultDataSource.Factory(app, httpFactory),
-            enabledProvider = { SniffConfig.adFilterEnabled },
-        )
         // v0.100.0：m3u8 播放列表/ts 分片磁盘缓存（500MB LRU；缓存出错时忽略缓存走网络）
+        // v0.109.0 A11：去广告包在缓存外层——缓存里存的是过滤前的原文，
+        // 每次读出再按当前 adFilterEnabled 过滤，"改完即时生效"才真正成立；
+        // 之前 CacheDataSource 在外层时，被过滤改写过的列表原文会写入 SimpleCache，
+        // 关掉总开关后缓存仍按过滤版 serving。
         val cacheFactory = CacheDataSource.Factory()
             .setCache(videoCache(app))
-            .setUpstreamDataSourceFactory(adFilterFactory)
+            .setUpstreamDataSourceFactory(DefaultDataSource.Factory(app, httpFactory))
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        val adFilterFactory = AdFilteringDataSource.Factory(
+            cacheFactory,
+            enabledProvider = { SniffConfig.adFilterEnabled },
+        )
         // v0.19.0：显式声明 FLV 提取器（HTTP-FLV 直播/点播），不依赖默认工厂的隐含行为
         val extractorsFactory = ExtractorsFactory {
             arrayOf<Extractor>(FlvExtractor()) + DefaultExtractorsFactory().createExtractors()
@@ -204,7 +211,7 @@ object PlayerManager {
             }
             .build()
         val mediaSource = DefaultMediaSourceFactory(app, extractorsFactory)
-            .setDataSourceFactory(cacheFactory)
+            .setDataSourceFactory(adFilterFactory)
             .createMediaSource(mediaItem)
         player.setMediaSource(mediaSource)
         player.prepare()

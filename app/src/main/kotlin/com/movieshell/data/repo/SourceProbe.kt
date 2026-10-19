@@ -53,8 +53,13 @@ object SourceProbe {
     /** 注意：阻塞式调用方须包在 withContext(Dispatchers.IO) 里 */
     fun probeJs(context: Context, file: File): Result = guarded {
         val engine = QuickJsDrpyEngine(context.applicationContext)
-        engine.loadRule(file.readText())
-        runBlocking { engine.home() }
+        try {
+            engine.loadRule(file.readText())
+            runBlocking { engine.home() }
+        } finally {
+            // v0.109.0：探活用完即释放 native 上下文（release 切到 JS 单线程关闭，任意线程可调）
+            engine.release()
+        }
     }
 
     fun probePy(context: Context, file: File): Result = guarded {

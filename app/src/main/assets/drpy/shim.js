@@ -7,8 +7,9 @@
  * 筛选支持（drpy2 语义）：rule.filter_url 里的 {{fl.键名}} 占位符按筛选值渲染后拼进
  * url 的 fyfilter 处（无 fyfilter 标记时追加到 url 末尾）；无筛选值时按规则默认值
  *（filter_def[tid]，再取 filter 分组首项）或空字符串渲染；gzip+base64 的 filter 字符串自动解开。
- * 已知不支持：cheerio/pdfa/pdfh 等 HTML 解析、rule.lazy 返回非对象时的复杂嗅探、
- * jsDelivr 远程依赖。
+ * 已知不支持：rule.lazy 返回非对象时的复杂嗅探、jsDelivr 远程依赖。
+ * HTML 解析：pdfh/pdfa 经 __bridge.query（Kotlin 侧 jsoup 桥）实现，支持 drpy && 链式、
+ * :eq(n)/:gt(n)/:lt(n) 等伪类（jsoup 原生支持，直接透传选择器）。
  */
 (function () {
 'use strict';
@@ -211,46 +212,47 @@ globalThis.post = function (url, params) {
     return request(url, params);
 };
 
-/* ---------- pdfh/pdfa：基于 DOM 的最小实现（drpy && 链式写法） ---------- */
-function _asRoot(html) {
-    if (html && html.nodeType) return html;
-    return new DOMParser().parseFromString(String(html == null ? '' : html), 'text/html');
+/* ---------- pdfh/pdfa：经 __bridge.query（jsoup 桥）的实现（drpy && 链式写法） ----------
+ * QuickJS 没有 DOMParser，CSS 查询全部走 Kotlin 侧 jsoup。
+ * 元素对象：{__el: 1, text, html, outer, attrs}；字符串输入直接当 HTML 传。
+ * jsoup 原生支持 :eq(n)/:gt(n)/:lt(n)/:first/:last 等伪类，选择器直接透传。 */
+function _q(src, sel) {
+    try {
+        sel = String(sel);
+        if (src && typeof src === 'object' && src.__el) {
+            if (sel.trim() === '') return [src];
+            var inner = JSON.parse(globalThis.__bridge.query(src.outer, sel));
+            if (!Array.isArray(inner)) return [];
+            inner.forEach(function (el) { el.__el = 1; });
+            return inner;
+        }
+        var arr = JSON.parse(globalThis.__bridge.query(String(src == null ? '' : src), sel));
+        if (!Array.isArray(arr)) return [];
+        arr.forEach(function (el) { el.__el = 1; });
+        return arr;
+    } catch (e) { return []; }
 }
-function _selAll(root, sel) {
-    sel = String(sel);
-    // jQuery 伪类 :eq(n)/:gt(n)/:lt(n)，按从左到右在当前集合上过滤
-    var pseudos = [];
-    var base = sel.replace(/:(eq|gt|lt)\((\d+)\)/g, function (m, name, n) {
-        pseudos.push({ name: name, n: Number(n) });
-        return '';
-    }).trim();
-    var list;
-    try { list = Array.prototype.slice.call(root.querySelectorAll(base || '*')); }
-    catch (e) { return []; }
-    pseudos.forEach(function (p) {
-        if (p.name === 'eq') list = list[p.n] != null ? [list[p.n]] : [];
-        else if (p.name === 'gt') list = list.filter(function (_, i) { return i > p.n; });
-        else if (p.name === 'lt') list = list.filter(function (_, i) { return i < p.n; });
-    });
-    return list;
-}
-function _selOne(root, sel) {
-    var all = _selAll(root, sel);
-    return all[0] || null;
+/** 把 HTML 字符串或元素对象归一成根元素（对应旧 _asRoot 的 Document 角色）。 */
+function _ctx(src) {
+    if (src && typeof src === 'object' && src.__el) return src;
+    var list = _q(src, '');
+    return list[0] || null;
 }
 function _pick(el, op) {
     if (!el) return '';
-    if (op === 'Text') return (el.textContent || '').trim();
-    if (op === 'Html' || op === 'html') return el.innerHTML || '';
-    try { return el.getAttribute(op) || ''; } catch (e) { return ''; }
+    if (op === 'Text') return String(el.text || '').trim();
+    if (op === 'Html' || op === 'html') return el.html || '';
+    var a = el.attrs || {};
+    return a[op] != null ? String(a[op]) : '';
 }
 /** pdfh(html|el, 'a.b&&c&&Text')：链式下钻取文本/属性。 */
 globalThis.pdfh = function (html, parse) {
     try {
         var parts = String(parse).split('&&');
-        var cur = _asRoot(html);
+        var cur = _ctx(html);
         for (var i = 0; i < parts.length - 1; i++) {
-            cur = (cur && cur.nodeType ? _selOne(cur, parts[i]) : null);
+            var one = _q(cur, parts[i]);
+            cur = one[0] || null;
             if (!cur) return '';
         }
         return _pick(cur, parts[parts.length - 1]);
@@ -260,12 +262,10 @@ globalThis.pdfh = function (html, parse) {
 globalThis.pdfa = function (html, parse) {
     try {
         var parts = String(parse).split('&&');
-        var cur = [_asRoot(html)];
+        var cur = [_ctx(html)].filter(function (x) { return x != null; });
         for (var i = 0; i < parts.length - 1; i++) {
             var next = [];
-            cur.forEach(function (c) {
-                if (c && c.nodeType) next = next.concat(_selAll(c, parts[i]));
-            });
+            cur.forEach(function (c) { next = next.concat(_q(c, parts[i])); });
             cur = next;
         }
         var last = parts[parts.length - 1];
@@ -293,14 +293,14 @@ function runListTemplate(tpl, ctx) {
     var imgSel = hasContainer ? parts[3] : parts[2];
     var descSel = hasContainer ? parts[4] : parts[3];
     var urlSel = hasContainer ? parts[5] : parts[4];
-    var doc = _asRoot(request(ctx.input));
+    var html = request(ctx.input);
     var items = [];
     if (hasContainer && parts[0]) {
-        _selAll(doc, parts[0]).forEach(function (c) {
-            items = items.concat(_selAll(c, itemSel));
+        _q(html, parts[0]).forEach(function (c) {
+            items = items.concat(_q(c, itemSel));
         });
     }
-    if (items.length === 0) items = _selAll(doc, itemSel);
+    if (items.length === 0) items = _q(html, itemSel);
     return items.map(function (el) {
         return {
             url: pdfh(el, urlSel),
@@ -347,8 +347,8 @@ function getPath(obj, path) {
  */
 function parseClassTemplate(tpl, baseUrl) {
     var parts = String(tpl).split(';');
-    var doc = _asRoot(request(baseUrl));
-    return _selAll(doc, parts[0]).map(function (el) {
+    var html = request(baseUrl);
+    return _q(html, parts[0]).map(function (el) {
         var name = pdfh(el, parts[1] || '');
         var url = pdfh(el, parts[2] || '');
         var tid = url;

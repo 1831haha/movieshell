@@ -1,10 +1,13 @@
 package com.movieshell.data.source
 
 import android.content.Context
+import android.os.SystemClock
 import app.cash.quickjs.QuickJs
 import com.movieshell.data.repo.LogBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -51,6 +54,14 @@ class LxMusicSourceEngine(context: Context) {
     private val engines = HashMap<String, LxInstance>()
     private val enginesLock = Any()
 
+    /**
+     * v0.109.0 B4②：loadScript check-then-act 并发双建修复。旧代码锁外检查、
+     * 锁外下载建引擎，两个并发协程会各下载一次、各 evaluate 一次。
+     * 修：下载（IO 密集）不占锁；建引擎前在 Mutex 内二次确认——下载期间若已有
+     * 并发协程先建好，直接复用，不再重复 evaluate。
+     */
+    private val scriptMutex = Mutex()
+
     private data class LxInstance(
         val qjs: QuickJs,
         val initedJson: String?,
@@ -62,11 +73,16 @@ class LxMusicSourceEngine(context: Context) {
      */
     suspend fun loadScript(scriptUrl: String): Boolean {
         if (scriptUrl.isBlank()) return false
+        // 快路：已加载直接返回
         synchronized(enginesLock) { if (engines.containsKey(scriptUrl)) return true }
         return try {
             val script = downloadText(scriptUrl) ?: return false
-            val initedJson = createEngine(scriptUrl, script)
-            initedJson != null
+            scriptMutex.withLock {
+                // v0.109.0 B4②：下载期间可能已有并发协程先建好，二次确认避免重复建引擎
+                if (synchronized(enginesLock) { engines.containsKey(scriptUrl) }) return@withLock true
+                val initedJson = createEngine(scriptUrl, script)
+                initedJson != null
+            }
         } catch (e: Exception) {
             LogBus.w(TAG, "loadScript 失败: $scriptUrl ${e.message}")
             false
@@ -224,20 +240,36 @@ class LxMusicSourceEngine(context: Context) {
     }
 
     /**
-     * 轮询 `__lxInitedPayload`（shim 里 send('inited') 时写入），最多等到超时。
-     * LX 脚本通常在模块初始化时同步 send inited，轮询只为兼容延迟上报的脚本。
+     * v0.109.0 B4③（如实结论，不硬改挂起式等待）：
+     * waitInited 运行在 [QuickJsDrpyEngine.jsDispatcher]（全 App 共享的 quickjs-worker
+     * 单线程）上——createEngine 在 `withContext(jsDispatcher)` 里先
+     * `qjs.evaluate(script)` 再调 waitInited。`lx.send('inited')` 把 payload 写入
+     * `__lxInitedPayload` 发生在同线程的 evaluate 返回之前，所以"挂起等待 init 完成"
+     * 救不了：单线程上下文里没有别的线程能让 inited"稍后到达"，app.cash.quickjs
+     * 也不会在 sleep 期间泵事件循环。旧 15s Thread.sleep 轮询纯粹把全 App 的
+     * JS 执行冻结 15s（且 withTimeout 的取消也中断不了 Thread.sleep）。
+     * 替代方案：evaluate 返回后立即检查一次（同步上报的脚本必命中），再给一个
+     * 很短的有界轮询（3s，兼容极少数延迟上报），deadline 走单调时钟
+     * SystemClock.elapsedRealtime()（不受墙钟跳变影响）。外层 createEngine 的
+     * withTimeout(15s) 仍是总兜底。
      */
     private fun waitInited(qjs: QuickJs): String? {
-        val deadline = System.currentTimeMillis() + JS_TIMEOUT_MS
-        while (System.currentTimeMillis() < deadline) {
-            val v = runCatching {
-                qjs.evaluate("typeof __lxInitedPayload === 'undefined' ? null : __lxInitedPayload")?.toString()
-            }.getOrNull()
-            if (!v.isNullOrBlank() && v != "null" && v != "undefined") return v
+        readInitedPayload(qjs)?.let { return it }
+        val deadline = SystemClock.elapsedRealtime() + INIT_POLL_BUDGET_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
             Thread.sleep(120)
+            readInitedPayload(qjs)?.let { return it }
         }
         LogBus.w(TAG, "未收到 inited 事件（脚本可能不支持 lx 运行时协议）")
         return null
+    }
+
+    /** 读 shim 在 send('inited') 时写入的 __lxInitedPayload。 */
+    private fun readInitedPayload(qjs: QuickJs): String? {
+        val v = runCatching {
+            qjs.evaluate("typeof __lxInitedPayload === 'undefined' ? null : __lxInitedPayload")?.toString()
+        }.getOrNull()
+        return v?.takeIf { it.isNotBlank() && it != "null" && it != "undefined" }
     }
 
     // ---------------- 内部：request 事件调用（必须在 jsDispatcher 线程内调用） ----------------
@@ -445,6 +477,13 @@ class LxMusicSourceEngine(context: Context) {
     companion object {
         private const val TAG = "LxMusic"
         private const val JS_TIMEOUT_MS = 15_000L
+
+        /**
+         * v0.109.0 B4③：waitInited 有界轮询预算。同步上报的脚本在 evaluate 返回时
+         * payload 已就绪；这 3s 只为兼容极少数延迟上报，超时后外层 withTimeout(15s)
+         * 仍兜底。把原来最长 15s 的 JS 线程冻结压到 3s。
+         */
+        private const val INIT_POLL_BUDGET_MS = 3_000L
 
         /**
          * v0.106.0：内置 huibq 自报档次（管理页 chips 口径：流畅/标准），从高到低试播。

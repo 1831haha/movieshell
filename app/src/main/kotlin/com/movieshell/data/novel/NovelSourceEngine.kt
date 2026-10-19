@@ -131,6 +131,14 @@ object NovelSourceEngine {
         }.awaitAll()
     }
 
+    /**
+     * v0.109.0：统一搜索限流入口。searchAll/searchAllPy 之外的搜索路径
+     * （如追更检查 checkAll）也走这个，避免直调 search/searchPy 绕过 Semaphore(4)
+     * 被反爬封 IP。
+     */
+    suspend fun <T> withSearchThrottle(block: suspend () -> T): T =
+        searchSemaphore.withPermit(block)
+
     /** 拉 PY 书源的目录。 */
     suspend fun chaptersPy(context: Context, book: NovelSearchResult): List<ChapterMeta> {
         val path = pyRulePath(context, book) ?: return emptyList()

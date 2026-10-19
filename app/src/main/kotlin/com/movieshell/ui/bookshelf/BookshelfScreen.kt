@@ -75,6 +75,7 @@ import com.movieshell.data.novel.TxtImporter
 import com.movieshell.data.repo.BookGroup
 import com.movieshell.data.repo.BookshelfGroupStore
 import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.repo.BookmarkStore
 import com.movieshell.data.repo.NovelUpdateInfo
 import com.movieshell.data.repo.NovelUpdateStore
 import com.movieshell.data.repo.ReadingProgressStore
@@ -82,6 +83,7 @@ import com.movieshell.data.repo.ReadingStats
 import com.movieshell.data.repo.ReadingStatsStore
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.goldTitleColor
 import com.movieshell.ui.theme.LocalBrandGradient
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -202,6 +204,11 @@ fun BookshelfScreen(
                 targets.forEach { t ->
                     NovelStore.removeNovel(context, t.id)
                     ReadingProgressStore.clear(context, t.id)
+                    // v0.109.0 A8：删书同时清书签——否则重加同书旧书签复活；
+                    // BookmarkStore 无整书 clear，用 list+remove 逐条删
+                    BookmarkStore.list(context, t.id).forEach { bm ->
+                        BookmarkStore.remove(context, t.id, bm.createdAt)
+                    }
                     BookshelfGroupStore.removeNovelEverywhere(context, t.id)
                 }
             }
@@ -800,7 +807,7 @@ private fun GroupChip(
             name,
             fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) Color(0xFFD9C39A)
+            color = if (selected) goldTitleColor()
             else MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (count >= 0) {
@@ -808,7 +815,7 @@ private fun GroupChip(
             Text(
                 "$count",
                 fontSize = 11.sp,
-                color = if (selected) Color(0xFFD9C39A).copy(alpha = 0.8f)
+                color = if (selected) goldTitleColor().copy(alpha = 0.8f)
                 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
         }

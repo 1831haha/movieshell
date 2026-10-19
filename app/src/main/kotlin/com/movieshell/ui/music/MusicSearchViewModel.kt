@@ -8,6 +8,8 @@ import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicHistoryStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
@@ -35,6 +37,9 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
     /** v0.84.0：搜索历史（视频/小说两端独立存，互不串） */
     private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
     val searchHistory: StateFlow<List<String>> = _searchHistory
+
+    /** v0.109.0 A4：连续搜索时取消前一次的搜索协程 */
+    private var searchJob: Job? = null
 
     init {
         reloadHistory()
@@ -76,20 +81,29 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun doSearch(q0: String = _query.value) {
         val q = q0.trim()
-        if (q.isBlank() || _searching.value) return
-        viewModelScope.launch {
+        if (q.isBlank()) return
+        // v0.109.0 A4：连续搜索取消前一次——之前的 `_searching` 守卫会让一次慢搜索
+        // 锁死后续所有点击（30s 内点搜索无反应）；改为取消旧 Job 后重搜
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
             _searching.value = true
             _searched.value = true
-            // v0.84.0：记搜索历史
-            MusicHistoryStore.addSearch(getApplication(), q)
-            _searchHistory.value = MusicHistoryStore.searchHistory(getApplication())
-            runCatching { MusicApi.search(q) }
-                .onSuccess { _tracks.value = it }
-                .onFailure {
-                    LogBus.e("Music", "搜索失败：${it.message}")
-                    _tracks.value = emptyList()
-                }
-            _searching.value = false
+            try {
+                // v0.84.0：记搜索历史
+                MusicHistoryStore.addSearch(getApplication(), q)
+                _searchHistory.value = MusicHistoryStore.searchHistory(getApplication())
+                // 注意：runCatching 会吞 CancellationException，这里显式重抛，
+                // 否则旧慢请求被取消后仍会走到 onFailure 把 _tracks 清空覆盖新结果
+                runCatching { MusicApi.search(q) }
+                    .onSuccess { _tracks.value = it }
+                    .onFailure {
+                        if (it is CancellationException) throw it
+                        LogBus.e("Music", "搜索失败：${it.message}")
+                        _tracks.value = emptyList()
+                    }
+            } finally {
+                _searching.value = false
+            }
         }
     }
 }

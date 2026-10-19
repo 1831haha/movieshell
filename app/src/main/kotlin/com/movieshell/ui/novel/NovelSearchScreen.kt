@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Source
 import androidx.compose.material3.Button
 import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.goldTitleColor
 import com.movieshell.ui.components.TechDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -69,7 +70,8 @@ fun NovelSearchScreen(
     // v0.103.0：activity 级 VM——切后台/切 tab 不销毁，viewModelScope 里的多书源搜索不中断、结果保留
     val activity = LocalContext.current as ComponentActivity
     val vm: NovelSearchViewModel = viewModel(activity)
-    val gold = Color(0xFFD9C39A)
+    // v0.109.0 A9：亮色主题白底金字对比度约 2.1:1，按底色明度自适应
+    val gold = goldTitleColor()
 
     val sources by BookSourceManager.sources.collectAsState()
     val pyRules by PyBookSourceManager.rules.collectAsState()

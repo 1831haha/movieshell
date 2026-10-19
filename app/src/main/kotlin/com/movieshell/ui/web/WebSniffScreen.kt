@@ -359,8 +359,11 @@ fun WebSniffScreen(
             onPlay(candidate.url, pageTitle.ifBlank { name })
             return
         }
-        view.post {
-            runCatching {
+        // v0.109.0 A13：hitDone 先置位防连点，但 post 被丢弃/内部异常时必须解锁——
+        // 之前先置位后 post，一旦 runCatching 内异常（被吞掉）或 runnable 永不执行，
+        // onPlay 永不执行且 hitDone 已锁死，用户点播放没反应、再点也被拦，直接卡死
+        val posted = view.post {
+            val ok = runCatching {
                 val referer = view.url.orEmpty()
                 val userAgent = runCatching { view.settings?.userAgentString }.getOrNull().orEmpty()
                 val cookie = runCatching {
@@ -374,7 +377,16 @@ fun WebSniffScreen(
                 SniffPlayHeaders.put(candidate.url, headers)
                 view.stopLoading()
                 onPlay(candidate.url, pageTitle.ifBlank { name })
+            }.isSuccess
+            if (!ok) {
+                // 失败解锁，候选面板也重新打开，允许用户重选
+                hitDone.set(false)
+                picked = false
             }
+        }
+        if (!posted) {
+            hitDone.set(false)
+            picked = false
         }
     }
 

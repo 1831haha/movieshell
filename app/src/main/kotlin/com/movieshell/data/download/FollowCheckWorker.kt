@@ -105,7 +105,12 @@ class FollowCheckWorker(
                         }
                     }
                 } ?: return null
-                SiteRepository().parseEpisodes(detail.detail(item.vodId)).size.takeIf { it > 0 }
+                try {
+                    SiteRepository().parseEpisodes(detail.detail(item.vodId)).size.takeIf { it > 0 }
+                } finally {
+                    // v0.109.0：追剧检查用完即释放 native 上下文（release 切到 JS 单线程关闭，任意线程可调）
+                    detail.release()
+                }
             }
             "py" -> {
                 PySourceManager.init(context)

@@ -61,6 +61,7 @@ import com.movieshell.data.repo.ReadingStats
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.goldTitleColor
 import com.movieshell.ui.theme.LocalBrandGradient
 
 /**
@@ -119,7 +120,8 @@ private fun formatDuration(seconds: Long): String {
 /** v0.98.0：顶部阅读数据条。 */
 @Composable
 fun StatsBar(stats: ReadingStats) {
-    val gold = Color(0xFFD9C39A)
+    // v0.109.0 A9：数据条在玻璃卡片上，亮色主题下白底金字难读，用明度自适应金
+    val gold = goldTitleColor()
     AppCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -259,7 +261,8 @@ fun NovelListCard(
                         novel.title,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFFD9C39A),
+                        // v0.109.0 A9：书名在玻璃卡片上，亮色主题白底金字难读，用明度自适应金
+                        color = goldTitleColor(),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),

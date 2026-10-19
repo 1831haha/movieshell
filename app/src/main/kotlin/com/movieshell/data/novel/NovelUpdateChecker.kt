@@ -60,7 +60,9 @@ object NovelUpdateChecker {
     ): Map<String, Int> = coroutineScope {
         novels.filter { it.sourceKey != "local" }.map { novel ->
             async {
-                novel.id to check(context, novel)
+                // v0.109.0：走统一限流（NovelSourceEngine 的 Semaphore(4)），
+                // 之前每本书一个 async 直调 search，绕过限流齐发被反爬封 IP
+                novel.id to NovelSourceEngine.withSearchThrottle { check(context, novel) }
             }
         }.awaitAll().mapNotNull { (id, r) ->
             (r as? Result.Updated)?.let { id to it.newCount }

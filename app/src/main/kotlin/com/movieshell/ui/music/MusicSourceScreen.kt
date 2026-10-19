@@ -56,7 +56,10 @@ import com.movieshell.player.MusicPlayer
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
+import com.movieshell.ui.components.goldTitleColor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -72,12 +75,20 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lxEngine = remember(context) { LxMusicSourceEngine(context) }
-    // v0.100.0：页面退出时释放引擎，避免 QuickJs 实例泄漏
-    DisposableEffect(lxEngine) { onDispose { runCatching { lxEngine.release() } } }
     var sources by remember { mutableStateOf<List<MusicSource>>(emptyList()) }
     var showAdd by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
     var testMsg by remember { mutableStateOf<String?>(null) }
+    /** v0.109.0 A6：测试协程句柄——testing 期间允许用户取消（返回键/点外部） */
+    var testJob by remember { mutableStateOf<Job?>(null) }
+    // v0.100.0：页面退出时释放引擎，避免 QuickJs 实例泄漏
+    DisposableEffect(lxEngine) {
+        onDispose {
+            // v0.109.0 A6：在飞的测试协程先取消，再释引擎
+            testJob?.cancel()
+            runCatching { lxEngine.release() }
+        }
+    }
 
     fun reload() {
         scope.launch { sources = MusicSourceStore.list(context) }
@@ -153,24 +164,32 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             Toast.makeText(context, "先播放一首歌再测试", Toast.LENGTH_SHORT).show()
             return
         }
+        testMsg = null
         testing = true
-        scope.launch {
-            val url = withContext(Dispatchers.IO) {
-                if (source.builtin) {
-                    // v0.106.0：按内置源自报的最高档测试
+        // v0.109.0 A6：testing 期间允许取消——关弹窗（返回键/点外部）即 cancel；
+        // 旧 runCatching 会吞 CancellationException 导致取消后仍弹"解析失败"，这里显式重抛
+        testJob?.cancel()
+        val job = scope.launch {
+            try {
+                val url = withContext(Dispatchers.IO) {
                     runCatching {
-                        resolveBuiltinHuibq("wy", urlId, LxMusicSourceEngine.BUILTIN_QUALITIES.first())
-                    }.getOrNull()
-                } else {
-                    runCatching {
-                        lxEngine.resolveMusicUrl(source.url, "wy", urlId, "320k")
-                    }.getOrNull()
+                        if (source.builtin) {
+                            // v0.106.0：按内置源自报的最高档测试
+                            resolveBuiltinHuibq("wy", urlId, LxMusicSourceEngine.BUILTIN_QUALITIES.first())
+                        } else {
+                            lxEngine.resolveMusicUrl(source.url, "wy", urlId, "320k")
+                        }
+                    }.getOrElse { e -> if (e is CancellationException) throw e else null }
                 }
+                testMsg = if (url.isNullOrBlank()) "解析失败"
+                else "解析成功：\n${url.take(80)}"
+            } finally {
+                // 只有"我仍是当前测试"时才落 testing：旧任务的 finally 不能误关新测试的弹窗；
+                // 用户主动取消时 onDismissRequest 已直接把 testing 置 false 立刻关弹窗
+                if (testJob === coroutineContext[Job]) testing = false
             }
-            testMsg = if (url.isNullOrBlank()) "解析失败"
-            else "解析成功：\n${url.take(80)}"
-            testing = false
         }
+        testJob = job
     }
 
     Scaffold(
@@ -210,13 +229,15 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                             )
                             if (source.builtin) {
                                 Spacer(Modifier.width(6.dp))
+                                // v0.109.0 A9：内置 chip 金底 16% 透在亮色主题下近白，金字难读，用明度自适应金
+                                val goldChip = goldTitleColor()
                                 Text(
                                     text = "内置",
                                     fontSize = 11.sp,
-                                    color = Color(0xFFD9C39A),
+                                    color = goldChip,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFFD9C39A).copy(alpha = 0.16f))
+                                        .background(goldChip.copy(alpha = 0.16f))
                                         .padding(horizontal = 8.dp, vertical = 2.dp),
                                 )
                             }
@@ -348,7 +369,20 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
     // 测试中 / 测试结果
     if (testing || testMsg != null) {
         TechDialog(
-            onDismissRequest = { testMsg = null },
+            // v0.109.0 A6：testing 期间关弹窗 = 取消测试协程并清状态，不再锁死；
+            // 注意 resolveMusicUrl 内部是 QuickJS 同步调用，cancel 只保证弹窗可关、
+            // 过期结果不再回填，JS 线程上的阻塞调用要等它自己返回/15s 超时
+            onDismissRequest = {
+                if (testing) {
+                    // v0.109.0 A6：testing 期间允许取消——立刻关弹窗（testing=false），
+                    // 后台的测试协程 cancel 掉；其 finally 有 Job 身份守卫，不会误关后续测试
+                    testJob?.cancel()
+                    testJob = null
+                    testing = false
+                } else {
+                    testMsg = null
+                }
+            },
             title = "测试内置源解析",
             dismissText = if (testing) null else "关闭",
             onConfirm = null,

@@ -136,6 +136,8 @@ fun ReaderScreen(
     // v0.61.0：沉浸模式（点中央切换）、正文加载中
     var immersive by remember { mutableStateOf(false) }
     var contentLoading by remember { mutableStateOf(false) }
+    // v0.109.0 A7：正文拉取失败给可见反馈——Toast + 正文区重试入口，不许静默空白页
+    var contentLoadError by remember { mutableStateOf(false) }
     // v0.72.0：音量键翻页
     var volumePageTurn by remember { mutableStateOf(savedSettings.volumePageTurn) }
     var pageHeight by remember { mutableIntStateOf(0) }
@@ -230,8 +232,15 @@ fun ReaderScreen(
         if (c.content.isNotBlank() || c.url.isBlank()) return
         scope.launch {
             contentLoading = true
-            fetchChapter(index)
+            contentLoadError = false
+            // v0.109.0 A7：fetchChapter 返回值别再丢掉——失败时 Toast + 置错误态给重试入口
+            val ok = fetchChapter(index)
             contentLoading = false
+            if (!ok) {
+                contentLoadError = true
+                Toast.makeText(context, "正文拉取失败，点击正文区重试", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
             // v0.72.0：预加载下一章（后台静默，不碰 contentLoading）
             // v0.95.0：同时预加载上一章（回看不转圈）
             // v0.99.0 P1-8：取消上一次预加载，快速翻章不产生请求风暴
@@ -549,6 +558,30 @@ fun ReaderScreen(
                         CircularProgressIndicator(color = fg.copy(alpha = 0.6f))
                         Spacer(Modifier.height(8.dp))
                         Text("正文加载中…", color = fg.copy(alpha = 0.6f), fontSize = 13.sp)
+                    }
+                }
+            // v0.109.0 A7：正文拉取失败——可见错误态 + 点任意处重试，不许静默空白页
+            } else if (contentLoadError && chapter.content.isBlank()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .clickable {
+                            contentLoadError = false
+                            ensureContent(chapterIndex)
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("正文拉取失败", color = fg, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(
+                            onClick = {
+                                contentLoadError = false
+                                ensureContent(chapterIndex)
+                            },
+                        ) {
+                            Text("点击重试", color = fg.copy(alpha = 0.8f), fontSize = 14.sp)
+                        }
                     }
                 }
             } else if (pageMode == 0) {

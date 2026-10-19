@@ -182,6 +182,17 @@ fun AppChip(
     )
 }
 
+/**
+ * v0.109.0 A9：香槟金标题色（mockup 风格）——暗底用品牌香槟金 #D9C39A（影图风）；
+ * 亮色主题下页面/玻璃卡片为白色系，金字在其上对比度仅约 2.1:1，
+ * 按底色明度自适应改用深金 #8A6A2B（对白约 5:1）。
+ * 固定深色底（如 TechDialog 弹窗体、#171B28 图标圆）上的金字不受影响，继续用原色。
+ */
+@Composable
+fun goldTitleColor(): Color =
+    if (MaterialTheme.colorScheme.background.luminance() > 0.5f) Color(0xFF8A6A2B)
+    else Color(0xFFD9C39A)
+
 /** 分区标题：15sp Medium + 可选右侧操作。v0.38.0：香槟金（mockup 风格）。 */
 @Composable
 fun SectionTitle(
@@ -194,7 +205,7 @@ fun SectionTitle(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(title, style = SoftType.CardTitle, color = Color(0xFFD9C39A))
+        Text(title, style = SoftType.CardTitle, color = goldTitleColor())
         action?.invoke()
     }
 }
@@ -446,7 +457,7 @@ fun PrivateScreeningBanner(
                 Text(
                     text = "私人放映",
                     style = SoftType.Title.copy(fontSize = 24.sp),
-                    color = Color(0xFFD9C39A),
+                    color = goldTitleColor(),
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(

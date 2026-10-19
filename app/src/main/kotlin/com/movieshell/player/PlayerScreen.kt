@@ -23,6 +23,7 @@ import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
+import android.view.View
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -111,6 +112,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -124,6 +126,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -186,6 +189,8 @@ fun PlayerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
+    // v0.109.0 A2：双引擎画面 View 引用（keepScreenOn 用，Media3/libmpv 统一）
+    var videoView by remember { mutableStateOf<View?>(null) }
     // v0.74.0：倍速记忆——从持久化恢复上次的倍速
     var speedIndex by remember {
         val saved = PlayerSettings.getSpeed(context)
@@ -200,6 +205,9 @@ fun PlayerScreen(
     // v0.19.0
     var playUrl by remember { mutableStateOf(url) } // 实际播放地址（切线路/重试时更新）
     val triedLines = remember { mutableSetOf<Int>() } // 已试过的线路下标（声明前置：LaunchedEffect(url) 里引用）
+    // v0.109.0 A10：切集代际 guard 的持有量（声明前置：switchEpisode 里引用）
+    val resolveGen = remember { mutableIntStateOf(0) }
+    var resolveJob by remember { mutableStateOf<Job?>(null) }
     // v0.65：嵌入模式下外部换地址（如详情页点选集）→ 跟随切过去，走已有 LaunchedEffect(playUrl) 起播
     LaunchedEffect(url) {
         if (url.isNotBlank() && url != playUrl) {
@@ -535,9 +543,14 @@ fun PlayerScreen(
     fun switchEpisode(lineIdx: Int, epIdx: Int) {
         val resolver = PlaySession.resolver ?: return
         val ep = PlaySession.lines.getOrNull(lineIdx)?.episodes?.getOrNull(epIdx) ?: return
-        // v0.106.0：切线路解析走应用级 scope，解析中退出播放器也不中断拿地址
-        PlayResolveScope.launch {
+        // v0.109.0 A10：切集代际 guard——快速连点不同选集，慢的旧解析后完成会覆盖新选择。
+        // 先 cancel 旧 Job；不合作的解析器再靠代际计数兜底，过期结果直接丢弃（v0.106.0 的
+        // 应用级 scope 本意是"切页不中断解析"，切集时旧解析该停——cancel 只针对上一次切集）
+        resolveJob?.cancel()
+        val myGen = ++resolveGen
+        resolveJob = PlayResolveScope.launch {
             val link = resolver(context, ep)
+            if (myGen != resolveGen) return@launch // 已被更新的切集取代，丢弃
             if (link.isNotBlank()) {
                 PlaySession.moveTo(lineIdx, epIdx)
                 triedLines.clear()
@@ -846,7 +859,7 @@ fun PlayerScreen(
                     factory = { ctx ->
                         if (engine == PlayerEngine.LIBMPV) {
                             MpvPlayerManager.init(ctx)
-                            MpvVideoView(ctx)
+                            MpvVideoView(ctx).also { videoView = it }
                         } else {
                             PlayerView(ctx).apply {
                                 // v0.27.7：关闭 Media3 原生控制器，走自绘统一控制层（中央播放键+底部条），
@@ -862,11 +875,19 @@ fun PlayerScreen(
                             }.also {
                                 it.player = PlayerManager.player
                                 playerView = it
+                                videoView = it
                             }
                         }
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
+                // v0.109.0 A2：播放中屏幕常亮（keepScreenOn=true），暂停/切内核/退出时恢复 false，
+                // 否则视频播放时按系统息屏设置熄屏；key videoView 保证切内核时先清旧画面再置新画面
+                DisposableEffect(isPlaying, videoView) {
+                    val v = videoView
+                    v?.keepScreenOn = isPlaying
+                    onDispose { v?.keepScreenOn = false }
+                }
             }
             // v0.54：弹幕覆盖层（视频画面之上，手势层之下）
             com.movieshell.player.danmaku.DanmakuOverlay(
@@ -1075,7 +1096,10 @@ fun PlayerScreen(
                     ) {
                         Text(
                             text = "直播",
-                            color = Color.Black,
+                            // v0.109.0 A9：errorSoft 亮色主题下是深红 #DC2626，黑字在其上约 2.9:1；
+                            // 按底色明度自适应（暗底黑字、深红底白字）
+                            color = if (LocalSoftExtra.current.errorSoft.luminance() > 0.18f)
+                                Color.Black else Color.White,
                             style = SoftType.Caption,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )

@@ -10,6 +10,7 @@ import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SiteSearchResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
@@ -43,6 +44,9 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
         drpyEngine = DrpySourceManager.drpyEngineAdapter,
         pyEngine = PySourceManager.engineAdapter,
     )
+
+    /** v0.109.0 A4：连续搜索时取消前一次的搜索协程 */
+    private var searchJob: Job? = null
 
     init {
         refreshHistory()
@@ -81,10 +85,16 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
         refreshHistory()
         _searching.value = true
         _groupedResults.value = null
-        viewModelScope.launch {
-            repo.loadFromConfig(buildSearchConfigJson(getApplication()))
-            _groupedResults.value = repo.searchAll(t)
-            _searching.value = false
+        // v0.109.0 A4：连续搜索取消前一次——旧慢请求后返回覆盖新结果；try/finally
+        // 保证被取消时 spinner 也能落下
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            try {
+                repo.loadFromConfig(buildSearchConfigJson(getApplication()))
+                _groupedResults.value = repo.searchAll(t)
+            } finally {
+                _searching.value = false
+            }
         }
     }
 }

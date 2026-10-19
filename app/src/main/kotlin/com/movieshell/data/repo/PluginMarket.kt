@@ -3,6 +3,7 @@ package com.movieshell.data.repo
 import android.content.Context
 import com.movieshell.BuildConfig
 import com.movieshell.data.repo.PluginStore.InstalledPlugin
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -207,7 +208,16 @@ object PluginMarket {
         val ch = Channel<Result<Pair<String, String>>>(Channel.UNLIMITED)
         val jobs = urls.map { u ->
             launch(Dispatchers.IO) {
-                ch.send(runCatching { withTimeout(10_000) { getBody(u) } to u })
+                // v0.109.0：runCatching 会吞 CancellationException（withTimeout 的取消/
+                // 外层页面退出），取消必须透传，否则对冲子协程取消不掉
+                val result = try {
+                    Result.success(withTimeout(10_000) { getBody(u) } to u)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Result.failure(e)
+                }
+                ch.send(result)
             }
         }
         var lastErr: Throwable? = null

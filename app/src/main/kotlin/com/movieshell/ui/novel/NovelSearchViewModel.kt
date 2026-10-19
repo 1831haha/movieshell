@@ -17,6 +17,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
@@ -54,6 +55,9 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
     /** v0.66.0：锁定的 PY 源名（书源管理点源直达时带入） */
     var lockPyName: String? = null
         private set
+
+    /** v0.109.0 A4：连续搜索时取消前一次的搜索协程 */
+    private var searchJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -112,10 +116,14 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         // v0.67.0：记搜索历史
         SearchHistoryStore.add(getApplication(), kw, "novel")
         refreshHistory()
-        viewModelScope.launch {
-            _loading.value = true
-            _searched.value = true
-            _results.value = coroutineScope {
+        // v0.109.0 A4：连续搜索取消前一次——旧慢请求后返回覆盖新结果；try/finally
+        // 保证被取消时 loading 也能落下
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            try {
+                _loading.value = true
+                _searched.value = true
+                _results.value = coroutineScope {
                 // v0.66.0：锁定单 PY 源 → 只搜它
                 if (locked != null) {
                     NovelSourceEngine.searchAllPy(getApplication(), listOf(locked), kw)
@@ -150,7 +158,9 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                     jsonJob.await() + pyJob.await()
                 }
             }
-            _loading.value = false
+            } finally {
+                _loading.value = false
+            }
         }
     }
 

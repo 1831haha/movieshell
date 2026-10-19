@@ -8,6 +8,7 @@ import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -42,7 +43,7 @@ import java.util.concurrent.TimeUnit
  *   详情       GET {api}?ac=videolist&ids={vodId}
  *   分类       rss > class > ty(id) 节点
  *
- * 所有请求 15 秒超时，任何异常吞掉并返回空结果（列表）/ 空详情，不向上传播崩溃。
+ * 所有请求单操作 15 秒超时、整 call 60 秒上限（v0.109.0），任何异常吞掉并返回空结果（列表）/ 空详情，不向上传播崩溃。
  */
 class CmsApi(
     private val client: OkHttpClient = defaultClient()
@@ -51,13 +52,30 @@ class CmsApi(
     companion object {
         private const val TAG = "CmsApi"
         private const val TIMEOUT_S = 15L
+        /** v0.109.0：整 call 上限。审计过全部 defaultClient() 调用点：全是短 GET/HEAD
+         *（CMS/探活/解析/嗅探 HEAD/音乐解析），无 SSE/流式/大文件下载（那些走各自私有
+         * client）；最坏单链路 3 次重试 × 15s + 退避 1.5s ≈ 46.5s < 60s，保守取值。 */
+        private const val CALL_TIMEOUT_S = 60L
+        /** 重试退避基数：500ms → 1s 指数退避（阻塞拦截器里小睡可接受）。 */
+        private const val RETRY_BACKOFF_BASE_MS = 500L
         private const val UA =
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
 
-        fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+        /**
+         * v0.109.0：进程级单例。之前每次调用 build 一个新 OkHttpClient，
+         * 连接池/Dispatcher 全丢，频繁建连 churn；现在全 App 共用一个。
+         */
+        fun defaultClient(): OkHttpClient = sharedClient
+
+        private val sharedClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+            buildDefaultClient()
+        }
+
+        private fun buildDefaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(TIMEOUT_S, TimeUnit.SECONDS)
             .readTimeout(TIMEOUT_S, TimeUnit.SECONDS)
             .writeTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT_S, TimeUnit.SECONDS)
             // v0.99.0 P1-1：拦截器链——UA 统一补、IO 异常重试、内存 CookieJar、简易日志
             .cookieJar(memoryCookieJar)
             .addInterceptor(uaInterceptor)
@@ -88,7 +106,8 @@ class CmsApi(
 
         /**
          * 重试拦截器：IO 异常（超时/断连）最多重试 2 次；HTTP 错误码不重试。
-         * 注意：Interceptor 是阻塞上下文，这里不能用协程 delay，只做立即重试。
+         * 注意：Interceptor 是阻塞上下文，这里不能用协程 delay，只做小睡退避。
+         * v0.109.0：加指数退避（500ms→1s），之前无间隔连发 3 次容易把对面打成限流。
          */
         private val retryInterceptor = Interceptor { chain ->
             var lastError: IOException? = null
@@ -98,6 +117,15 @@ class CmsApi(
                 } catch (e: IOException) {
                     lastError = e
                     LogBus.w(TAG, "请求 IO 异常，重试 ${attempt + 1}/3：${chain.request().url}")
+                    if (attempt < 2) {
+                        try {
+                            Thread.sleep(RETRY_BACKOFF_BASE_MS shl attempt)
+                        } catch (ie: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                            // 被中断就别再睡了，把原始异常抛出去结束重试
+                            throw e
+                        }
+                    }
                 }
             }
             throw lastError ?: IOException("unknown network error")
@@ -219,6 +247,9 @@ class CmsApi(
             try {
                 block()
             } catch (e: Exception) {
+                // v0.109.0：取消必须透传。之前连 CancellationException 一起吞，
+                // 取消搜索/切页后底层请求照样跑到 15 秒超时才停。
+                if (e is CancellationException) throw e
                 Log.w(TAG, "request failed: ${e.message}")
                 fallback
             }

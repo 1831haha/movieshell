@@ -68,6 +68,21 @@ object MusicPlayer {
     // 后续切歌仍按默认顺序（启用源列表顺序）解析
     private var forcedSourceId: String? = null
 
+    /**
+     * v0.109.0 B4①：引擎复用——之前 resolveLxUrl 每首歌 `new LxMusicSourceEngine`
+     * 再 `release()`，实例级的脚本缓存（engines map，按 scriptUrl）永远架空，
+     * 每首歌都重下载、重建 QuickJs 上下文。引擎实例与 QuickJs 上下文按 scriptUrl
+     * 绑定，不存在"单例 + 每次 loadScript 重载"的必要；选型：按持有者生命周期复用——
+     * MusicPlayer（object 单例）持有一个引擎实例，随 MusicPlayer.release() 释放；
+     * MusicSourceScreen 本就 remember 复用自己的实例。两者互不 release，
+     * 不做跨持有者共享，避免 release 竞态。resolveLxUrl 调用都在 Main 线程的
+     * scope 协程里，engines map 本身也有锁，线程安全。
+     */
+    private var lxEngine: LxMusicSourceEngine? = null
+
+    private fun getOrCreateLxEngine(appContext: Context): LxMusicSourceEngine =
+        lxEngine ?: LxMusicSourceEngine(appContext).also { lxEngine = it }
+
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _state.value = _state.value.copy(playing = isPlaying, loading = false)
@@ -118,6 +133,8 @@ object MusicPlayer {
             if (c == null) {
                 LogBus.e("MusicPlayer", "音乐服务连接失败")
                 _state.value = _state.value.copy(loading = false)
+                // v0.109.0 A12：之前只记 LogBus，用户点歌静默无事发生——给可见 Toast
+                toast("音乐服务连接失败，请重试")
                 return@launch
             }
             c.addListener(listener)
@@ -262,29 +279,26 @@ object MusicPlayer {
             .filter { it.enabled }
             .let { list -> if (forced != null) list.filter { it.id == forced } else list }
         if (sources.isEmpty()) return null
-        val engine = LxMusicSourceEngine(appContext)
-        try {
-            for (s in sources) {
-                val qualities: List<String> = if (s.builtin) {
-                    LxMusicSourceEngine.BUILTIN_QUALITIES
-                } else {
-                    runCatching { engine.loadScript(s.url) }.getOrDefault(false)
-                    LxMusicSourceEngine.sortHighToLow(engine.getQualityIds(s.url))
-                        .ifEmpty { listOf("320k", "128k") }
-                }
-                for (q in qualities) {
-                    val url = runCatching {
-                        if (s.builtin) resolveBuiltinHuibq("wy", songId, q)
-                        else engine.resolveMusicUrl(s.url, "wy", songId, q)
-                    }.getOrNull()?.takeIf { it.isNotBlank() }
-                    if (url != null) {
-                        LogBus.i("MusicPlayer", "LX 解析成功：${s.name} $q")
-                        return url
-                    }
+        // v0.109.0 B4①：复用 MusicPlayer 生命周期内的引擎实例，不再每首歌 new+release
+        val engine = getOrCreateLxEngine(appContext)
+        for (s in sources) {
+            val qualities: List<String> = if (s.builtin) {
+                LxMusicSourceEngine.BUILTIN_QUALITIES
+            } else {
+                runCatching { engine.loadScript(s.url) }.getOrDefault(false)
+                LxMusicSourceEngine.sortHighToLow(engine.getQualityIds(s.url))
+                    .ifEmpty { listOf("320k", "128k") }
+            }
+            for (q in qualities) {
+                val url = runCatching {
+                    if (s.builtin) resolveBuiltinHuibq("wy", songId, q)
+                    else engine.resolveMusicUrl(s.url, "wy", songId, q)
+                }.getOrNull()?.takeIf { it.isNotBlank() }
+                if (url != null) {
+                    LogBus.i("MusicPlayer", "LX 解析成功：${s.name} $q")
+                    return url
                 }
             }
-        } finally {
-            runCatching { engine.release() }
         }
         LogBus.w("MusicPlayer", "LX 源全部解析失败，回退 GD Studio")
         return null
@@ -405,5 +419,8 @@ object MusicPlayer {
         progressJob?.cancel()
         controller?.release()
         controller = null
+        // v0.109.0 B4①：随 MusicPlayer 一起释放复用的 LX 引擎
+        runCatching { lxEngine?.release() }
+        lxEngine = null
     }
 }
