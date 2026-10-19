@@ -1,5 +1,6 @@
 package com.movieshell.ui.novel
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,8 +9,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -86,7 +89,21 @@ fun PurifyRulesScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(r.name.ifBlank { "未命名规则" }, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(r.name.ifBlank { "未命名规则" }, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                // v0.102.0 P2-3：内置规则标识；开关/删除走现有逻辑
+                                if (r.builtin) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "内置",
+                                        fontSize = 11.sp,
+                                        color = gold,
+                                        modifier = Modifier
+                                            .border(1.dp, gold, RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    )
+                                }
+                            }
                             Text(
                                 "${r.group.ifBlank { "未分组" }} · ${scopeLabel(r.scope)} · ${r.regex.take(40)}",
                                 fontSize = 12.sp,

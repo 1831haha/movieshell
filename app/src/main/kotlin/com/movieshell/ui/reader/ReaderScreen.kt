@@ -266,11 +266,12 @@ fun ReaderScreen(
 
     // v0.95.0：真分页引擎（段落感知，见 NovelPaginator）
     val density = LocalDensity.current
-    val charsPerPage = remember(pageWidth, pageHeight, fontSize, lineHeightRatio, density) {
+    val charsPerPage = remember(pageWidth, pageHeight, fontSize, lineHeightRatio, density, chapter?.content) {
         val fontPx = with(density) { fontSize.sp.toPx() }
         val innerW = (pageWidth - with(density) { 40.dp.toPx() }).coerceAtLeast(0f)
         val innerH = (pageHeight - with(density) { 24.dp.toPx() }).coerceAtLeast(0f)
-        NovelPaginator.charsPerPage(fontPx, lineHeightRatio, innerW, innerH)
+        // v0.102.0 P2-1（降级）：按正文中英文混排比例微调字符宽度系数
+        NovelPaginator.charsPerPage(fontPx, lineHeightRatio, innerW, innerH, chapter?.content.orEmpty())
     }
     val pages = remember(chapter?.content, charsPerPage) {
         NovelPaginator.paginate(chapter?.content.orEmpty(), charsPerPage)

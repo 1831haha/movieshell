@@ -20,6 +20,7 @@ import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.Extractor
 import androidx.media3.extractor.ExtractorsFactory
@@ -102,9 +103,17 @@ object PlayerManager {
         if (exoPlayer != null) return
         val app = context.applicationContext
         appContext = app
-        exoPlayer = ExoPlayer.Builder(app).build().also {
-            it.addListener(listener)
-        }
+        // v0.102.0 P2-4：自适应码率上限 1080p（默认开启自适应，这里只封顶分辨率）
+        val trackSelector = DefaultTrackSelector(app)
+        trackSelector.setParameters(
+            trackSelector.buildUponParameters().setMaxVideoSize(1920, 1080),
+        )
+        exoPlayer = ExoPlayer.Builder(app)
+            .setTrackSelector(trackSelector)
+            .build()
+            .also {
+                it.addListener(listener)
+            }
     }
 
     /** 设置播放错误回调，传 null 取消 */
@@ -126,6 +135,12 @@ object PlayerManager {
         startPositionMs: Long = 0L,
         subtitleUrl: String? = null,
     ) {
+        // v0.102.0 P2-6：视频开播联动暂停音乐——只暂停不自动恢复，恢复走音乐迷你条手动。
+        // MusicPlayer 无 fun pause()（只读），用现有 fadeOutAndPause（保留队列/状态）；
+        // 仅播着时才调用，controller 为空时其内部 ?: return 直接收敛。
+        if (MusicPlayer.state.value.playing) {
+            MusicPlayer.fadeOutAndPause()
+        }
         val player = exoPlayer ?: return
         val app = appContext ?: return
         // v0.12.1：空 URL 直接拒掉，避免 ExoPlayer 抛异常闪退
