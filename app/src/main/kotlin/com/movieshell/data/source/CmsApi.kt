@@ -88,15 +88,16 @@ class CmsApi(
          * 进程单例不再无限增长。
          * saveFromResponse 语义不变：整 host 覆盖（含空列表照存）；
          * loadForRequest 语义不变：命中返回该 host cookies、无则空列表。
+         * v0.110.1：匿名 object 内禁止声明类（'Class' is prohibited here），Entry 移到 companion 作用域。
          */
-        private val memoryCookieJar = object : CookieJar {
-            private data class Entry(val cookies: List<Cookie>, @Volatile var lastUsed: Long)
+        private data class CookieEntry(val cookies: List<Cookie>, @Volatile var lastUsed: Long)
 
-            private val store = ConcurrentHashMap<String, Entry>()
+        private val memoryCookieJar = object : CookieJar {
+            private val store = ConcurrentHashMap<String, CookieEntry>()
             private val maxHosts = 200
 
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-                store[url.host] = Entry(cookies, System.currentTimeMillis())
+                store[url.host] = CookieEntry(cookies, System.currentTimeMillis())
                 if (store.size > maxHosts) evictOldest()
             }
 
