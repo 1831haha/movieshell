@@ -157,7 +157,10 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         scope.launch {
             val url = withContext(Dispatchers.IO) {
                 if (source.builtin) {
-                    runCatching { resolveBuiltinHuibq("wy", urlId, "320k") }.getOrNull()
+                    // v0.106.0：按内置源自报的最高档测试
+                    runCatching {
+                        resolveBuiltinHuibq("wy", urlId, LxMusicSourceEngine.BUILTIN_QUALITIES.first())
+                    }.getOrNull()
                 } else {
                     runCatching {
                         lxEngine.resolveMusicUrl(source.url, "wy", urlId, "320k")
@@ -228,10 +231,10 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        // v0.103.0：档次 chips——内置 huibq 固定两档（纯 HTTP 无 inited）；
+                        // v0.103.0：档次 chips——内置 huibq 用自报两档（v0.106.0：走引擎共享声明）；
                         // 自定义源取脚本 inited 自报的 qualitys；加载中"…", 失败/无数据"未知"
                         val labels: List<String>? = when {
-                            source.builtin -> listOf("流畅", "标准")
+                            source.builtin -> LxMusicSourceEngine.BUILTIN_QUALITIES.map(::qualityLabel)
                             !source.enabled -> null
                             else -> {
                                 val ids = qualityOf[source.id]
@@ -381,12 +384,5 @@ private fun qualityLabel(id: String): String = when (id) {
     else -> id
 }
 
-/** 档次排序权重（未知 id 排最后） */
-private fun qualityRank(id: String): Int = when (id) {
-    "128k" -> 0
-    "192k" -> 1
-    "320k" -> 2
-    "flac" -> 3
-    "flac24bit", "hires", "atmos", "atmos_plus", "master" -> 4
-    else -> 5
-}
+/** 档次排序权重（v0.106.0：收敛到 LxMusicSourceEngine 单一口径，防两处打架） */
+private fun qualityRank(id: String): Int = LxMusicSourceEngine.qualityRank(id)

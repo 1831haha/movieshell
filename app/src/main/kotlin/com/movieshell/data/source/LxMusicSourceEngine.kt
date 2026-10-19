@@ -393,6 +393,32 @@ class LxMusicSourceEngine(context: Context) {
     companion object {
         private const val TAG = "LxMusic"
         private const val JS_TIMEOUT_MS = 15_000L
+
+        /**
+         * v0.106.0：内置 huibq 自报档次（管理页 chips 口径：流畅/标准），从高到低试播。
+         * 不硬编码假设——这是该源声明的实际档次，不是猜的。
+         */
+        val BUILTIN_QUALITIES: List<String> = listOf("192k", "128k")
+
+        /** 档次排序权重（未知 id 排最后）；管理页 chips 与试播共用同一口径 */
+        fun qualityRank(id: String): Int = when (id) {
+            "128k" -> 0
+            "192k" -> 1
+            "320k" -> 2
+            "flac" -> 3
+            "flac24bit", "hires", "atmos", "atmos_plus", "master" -> 4
+            else -> 5
+        }
+
+        /**
+         * v0.106.0：从高到低试播排序——已知档次按权重降序（超高清→流畅），
+         * 未知 id 沉底（不假设能播，播不了再往下走）。
+         */
+        fun sortHighToLow(ids: List<String>): List<String> =
+            ids.sortedWith(
+                compareByDescending<String> { qualityRank(it) < 5 }
+                    .thenByDescending { qualityRank(it) },
+            )
     }
 }
 
@@ -401,14 +427,19 @@ class LxMusicSourceEngine(context: Context) {
  *
  * GET `https://lxmusicapi.onrender.com/url/{source}/{songId}/{quality}`，
  * header `X-Request-Key: share-v3`；source ∈ {kw,kg,tx,wy,mg}；
- * quality 取 "320k"/"128k"；从返回 JSON 取 url 字段（兼容 data.url 包裹），失败 null。
+ * quality 取 "192k"/"128k"（v0.106.0：按内置源自报档次透传，不再只认 320k/128k）；
+ * 从返回 JSON 取 url 字段（兼容 data.url 包裹），失败 null。
  */
 suspend fun resolveBuiltinHuibq(source: String, songId: String, quality: String): String? =
     withContext(Dispatchers.IO) {
         val src = source.lowercase()
         if (src !in setOf("kw", "kg", "tx", "wy", "mg")) return@withContext null
         if (songId.isBlank()) return@withContext null
-        val q = if (quality == "320k") "320k" else "128k"
+        val q = when (quality) {
+            "320k" -> "320k"
+            "192k" -> "192k"
+            else -> "128k"
+        }
         runCatching {
             val req = Request.Builder()
                 .url("https://lxmusicapi.onrender.com/url/$src/$songId/$q")

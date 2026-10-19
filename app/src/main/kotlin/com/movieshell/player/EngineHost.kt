@@ -53,7 +53,11 @@ object EngineHost {
         val t0 = SystemClock.elapsedRealtime()
         if (!isPlayableUrl(url)) {
             LogBus.w("Play", "播放地址非法，已拒绝：${url.take(80)}")
-            Toast.makeText(context, "播放地址无效，无法播放", Toast.LENGTH_SHORT).show()
+            // v0.106.0：NBY-XMYAES 这类源返回的加密/自定义 scheme 串解不了也播不了，
+            // 别只说"无效"让用户懵——说清楚是"该源返回的地址格式暂不支持"
+            val msg = if (url.isBlank()) "未获取到播放地址"
+            else "该源返回的地址格式暂不支持播放"
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             return false
         }
         var eng = engine()

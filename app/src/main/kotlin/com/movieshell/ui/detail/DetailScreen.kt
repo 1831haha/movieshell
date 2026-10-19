@@ -111,6 +111,7 @@ import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.player.MagnetPlayer
+import com.movieshell.player.PlayResolveScope
 import com.movieshell.player.PlaySession
 import com.movieshell.player.PlayerScreen
 import com.movieshell.player.resolvePlayUrl
@@ -328,7 +329,9 @@ fun DetailScreen(
                 watchedEp = maxOf(watchedEp, episodeIndex)
             }
         }
-        scope.launch {
+        // v0.106.0：解析走应用级 PlayResolveScope——rememberCoroutineScope 会在切页/
+        // 返回时取消，导致 "The coroutine scope left the composition"（16 条线路全灭）
+        PlayResolveScope.launch {
             if (MagnetPlayer.isMagnet(ep.url)) {
                 val ok = runCatching {
                     MagnetPlayer.playIfReady(context, ep.url, vod?.title ?: displayTitle(vodId))
@@ -1076,7 +1079,8 @@ fun DetailScreen(
                                 text = "下载选中（${selected.size}）",
                                 onClick = {
                                     resolving = true
-                                    scope.launch {
+                                    // v0.106.0：批量解析走应用级 scope，关弹窗/切页不中断
+                                    PlayResolveScope.launch {
                                         val tasks = mutableListOf<DownloadTask>()
                                         selected.sorted().forEach { i ->
                                             val ep = lineEpisodes.getOrNull(i) ?: return@forEach

@@ -10,6 +10,7 @@ import com.movieshell.data.model.isJavaSpider
 import com.movieshell.data.model.isPySite
 import com.movieshell.data.model.isType4Site
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
@@ -37,7 +38,7 @@ suspend fun resolvePlayUrl(
             subSite == null ->
                 if (DrpySourceManager.hasActiveRule()) DrpySourceManager.playUrl(flag, epUrl)
                 else if (PySourceManager.hasActiveRule())
-                    finishPyPlay(context, null, PySourceManager.playRaw(flag, epUrl))
+                    finishPyPlay(context, null) { PySourceManager.playRaw(flag, epUrl) }
                 else ""
             // CMS 站：vod_play_url 里就是直链，直接播
             // v0.21.0：防盗链兜底——CMS 直链默认带站点 Referer（经 SniffPlayHeaders 透传）
@@ -51,7 +52,7 @@ suspend fun resolvePlayUrl(
             }
             // PY 站：playerContent 拿直链 + header；parse=1 时走解析线路（与 Java spider 一致）
             subSite.isPySite() ->
-                finishPyPlay(context, subSite, SubSiteEngines.pyPlayRaw(subSite, flag, epUrl))
+                finishPyPlay(context, subSite) { SubSiteEngines.pyPlayRaw(subSite, flag, epUrl) }
             // type=4 站：GET {api}?ac=play&flag=&id= 拿直链；header 经
             // SniffPlayHeaders 透传给播放器（PlayerScreen 用 take 一次性取出）。
             // parse=1 时走解析线路自动解析，全部失败 Toast "解析失败"。
@@ -94,10 +95,20 @@ suspend fun resolvePlayUrl(
 private suspend fun finishPyPlay(
     context: Context,
     subSite: Site?,
-    r: Triple<String, Int, Map<String, String>>,
+    produce: suspend () -> Triple<String, Int, Map<String, String>>,
 ): String {
+    // v0.106.0：规则偶发空返回（如 JS 抖动），先重试一次；仍空则明确 Toast，
+    // 不再静默返回 ""（用户看到的就是"点了播不出来"，无从查起）
+    var r = produce()
+    if (r.first.isBlank()) {
+        LogBus.w("Play", "PY 规则首次未返回播放地址，重试一次")
+        r = runCatching { produce() }.getOrDefault(Triple("", 0, emptyMap()))
+    }
     val (url, parse, header) = r
-    if (url.isBlank()) return ""
+    if (url.isBlank()) {
+        Toast.makeText(context, "该规则未返回播放地址", Toast.LENGTH_LONG).show()
+        return ""
+    }
     if (header.isNotEmpty()) SniffPlayHeaders.put(url, header)
     if (parse != 1) return url
     val parses = if (subSite != null) effectiveParses(context, subSite)

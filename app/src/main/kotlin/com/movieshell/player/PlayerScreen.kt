@@ -535,7 +535,8 @@ fun PlayerScreen(
     fun switchEpisode(lineIdx: Int, epIdx: Int) {
         val resolver = PlaySession.resolver ?: return
         val ep = PlaySession.lines.getOrNull(lineIdx)?.episodes?.getOrNull(epIdx) ?: return
-        scope.launch {
+        // v0.106.0：切线路解析走应用级 scope，解析中退出播放器也不中断拿地址
+        PlayResolveScope.launch {
             val link = resolver(context, ep)
             if (link.isNotBlank()) {
                 PlaySession.moveTo(lineIdx, epIdx)

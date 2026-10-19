@@ -388,7 +388,9 @@ fun HomeScreen(
                 launch {
                     delay(8_000)
                     if (netVods != null || myGen != contentGen) return@launch
-                    if (drpyList != null || !isHomeForeground()) return@launch
+                    // v0.106.0：drpyList 恒不为 null（currentVideos 派生），之前写 != null
+                    // 导致 8s 降级恒被跳过——25s 熔断前用户一直看白屏。改判 isNotEmpty()
+                    if (drpyList.isNotEmpty() || !isHomeForeground()) return@launch
                     val stale = cacheVods.takeIf { it.isNotEmpty() }
                     if (stale != null) {
                         vm.setRecommend(stale)
@@ -523,7 +525,11 @@ fun HomeScreen(
         vm.isLoading.value = false
         if (payload == null) {
             // v0.53.0：prevVods 非空（currentVideos 恒不为 null），空列表=无数据
-            if (prevVods.isEmpty()) homeError = "加载失败，点击重试"
+            // v0.106.0：homeError 从未被 UI 渲染，改走 recommendEmpty 的重试空态
+            if (prevVods.isEmpty()) {
+                homeError = "加载失败，点击重试"
+                recommendEmpty = true
+            }
             return
         }
         if (payload.resetSelection) {
@@ -548,6 +554,9 @@ fun HomeScreen(
         // 导致 CI 编译失败 Unresolved reference 'cats'。语义=分类失败且当前无任何分类可展示。
         catsFailed = payload.catsFailed && vm.categories.value.isEmpty()
         homeError = if (vm.currentVideos.value.isEmpty()) "加载失败，点击重试" else null
+        // v0.106.0：25s 熔断/网络失败且无数据可展示时，给可见的"加载超时，点重试"入口
+        //（之前只设 homeError，但它从未被渲染，用户看到的是白屏）
+        if (payload.vods == null && vm.currentVideos.value.isEmpty()) recommendEmpty = true
     }
 
     /**

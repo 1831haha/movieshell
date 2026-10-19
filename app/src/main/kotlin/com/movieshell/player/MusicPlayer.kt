@@ -229,7 +229,10 @@ object MusicPlayer {
 
     /**
      * v0.100.0：按顺序尝试启用的 LX 音乐源。内置源走纯 HTTP（huibq 模板），用户添加的
-     * 脚本 URL 走 LxMusicSourceEngine；quality 先 320k 后 128k。全部失败返回 null，
+     * 脚本 URL 走 LxMusicSourceEngine。
+     * v0.106.0：按该源实际档次从高到低试——内置 huibq 用自报两档（192k→128k）；
+     * 脚本源先 loadScript 再读 inited 上报的 qualitys 降序试（未知 id 沉底）；
+     * 脚本未上报档次时兜底 320k→128k（老行为）。单个失败换下一个，全部失败返回 null，
      * 调用方回退 MusicApi.playUrl。只换直链来源，不碰播放链路；本地歌曲不走这里。
      */
     private suspend fun resolveLxUrl(appContext: Context, songId: String): String? {
@@ -241,7 +244,14 @@ object MusicPlayer {
         val engine = LxMusicSourceEngine(appContext)
         try {
             for (s in sources) {
-                for (q in listOf("320k", "128k")) {
+                val qualities: List<String> = if (s.builtin) {
+                    LxMusicSourceEngine.BUILTIN_QUALITIES
+                } else {
+                    runCatching { engine.loadScript(s.url) }.getOrDefault(false)
+                    LxMusicSourceEngine.sortHighToLow(engine.getQualityIds(s.url))
+                        .ifEmpty { listOf("320k", "128k") }
+                }
+                for (q in qualities) {
                     val url = runCatching {
                         if (s.builtin) resolveBuiltinHuibq("wy", songId, q)
                         else engine.resolveMusicUrl(s.url, "wy", songId, q)
