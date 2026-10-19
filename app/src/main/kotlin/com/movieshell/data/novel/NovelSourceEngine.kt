@@ -137,7 +137,7 @@ object NovelSourceEngine {
      * 被反爬封 IP。
      */
     suspend fun <T> withSearchThrottle(block: suspend () -> T): T =
-        searchSemaphore.withPermit(block)
+        searchSemaphore.withPermit { block() }
 
     /** 拉 PY 书源的目录。 */
     suspend fun chaptersPy(context: Context, book: NovelSearchResult): List<ChapterMeta> {

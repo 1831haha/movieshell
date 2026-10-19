@@ -206,7 +206,7 @@ fun PlayerScreen(
     var playUrl by remember { mutableStateOf(url) } // 实际播放地址（切线路/重试时更新）
     val triedLines = remember { mutableSetOf<Int>() } // 已试过的线路下标（声明前置：LaunchedEffect(url) 里引用）
     // v0.109.0 A10：切集代际 guard 的持有量（声明前置：switchEpisode 里引用）
-    val resolveGen = remember { mutableIntStateOf(0) }
+    var resolveGen by remember { mutableIntStateOf(0) }
     var resolveJob by remember { mutableStateOf<Job?>(null) }
     // v0.65：嵌入模式下外部换地址（如详情页点选集）→ 跟随切过去，走已有 LaunchedEffect(playUrl) 起播
     LaunchedEffect(url) {
