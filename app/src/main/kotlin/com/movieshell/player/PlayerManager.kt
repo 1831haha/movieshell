@@ -227,6 +227,16 @@ object PlayerManager {
         }
     }
 
+    /**
+     * v0.101.0：关闭视频磁盘缓存单例（设置页清理缓存用；下次播放 [videoCache] 懒加载重建）。
+     * 注意顺序：必须先 release 再删 video_cache 目录——删开着的 SimpleCache 会损坏其索引。
+     */
+    @Synchronized
+    fun releaseCache() {
+        runCatching { videoCache?.release() }
+        videoCache = null
+    }
+
     /** 释放播放器；释放后如需继续播放必须重新 [init] */
     @Synchronized
     fun release() {

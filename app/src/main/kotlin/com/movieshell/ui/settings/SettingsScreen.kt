@@ -1,6 +1,7 @@
 package com.movieshell.ui.settings
 
 import android.content.ClipData
+import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -93,6 +94,7 @@ import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.player.MpvPluginLoader
 import com.movieshell.ui.preview.fileProviderAuthority
 import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.player.PlayerManager
 import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.ThemeStore
 import com.movieshell.ui.components.AppButton
@@ -126,6 +128,7 @@ import com.movieshell.player.HistoryStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.filled.Image
+import coil.imageLoader
 import com.movieshell.data.repo.BackgroundStore
 
 // v0.27.0 Soft Tech 换皮：分组卡片走 AppCard，分组标题走 SectionTitle，
@@ -158,7 +161,7 @@ fun SettingsScreen(
     // v0.20.0：播放器内核（Media3 默认，libmpv 可选，记忆选择）
     val engine by PlayerSettings.engine.collectAsState()
     var showEngineDialog by remember { mutableStateOf(false) }
-    var cacheSize by remember { mutableStateOf("128 MB") }
+    var cacheSize by remember { mutableStateOf("计算中…") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     // v0.78.2：解析接口已搬进子页面（ParseSettingsScreen），本页只留入口
     // v0.23.0：插件市场源（多源）+ 显示不兼容插件开关
@@ -253,6 +256,8 @@ fun SettingsScreen(
     }
     LaunchedEffect(Unit) {
         BackgroundStore.load(context)
+        // v0.101.0：缓存占用（视频 m3u8 分片 + Coil 图片磁盘缓存）
+        cacheSize = refreshCacheSize(context)
         favCount = runCatching { FavoriteStore.list(context).size }.getOrDefault(0)
         histCount = runCatching { withContext(Dispatchers.IO) { HistoryStore.getHistory(context).size } }
             .getOrDefault(0)
@@ -892,12 +897,24 @@ fun SettingsScreen(
             title = "清理缓存",
             confirmText = "确定",
             onConfirm = {
-                cacheSize = "0 MB" // 占位：实际接入 CacheManager 后执行真实清理
                 showClearCacheDialog = false
+                scope.launch(Dispatchers.IO) {
+                    // 先关 SimpleCache 再删目录（顺序不能反）；Coil 用官方 clear()，
+                    // 不直接删它开着的磁盘缓存 journal。
+                    PlayerManager.releaseCache()
+                    runCatching { context.imageLoader.diskCache?.clear() }
+                    cacheDirs(context).forEach { dir ->
+                        runCatching { dir.deleteRecursively() }
+                    }
+                    cacheSize = refreshCacheSize(context)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "缓存已清理", Toast.LENGTH_SHORT).show()
+                    }
+                }
             },
         ) {
             Text(
-                "确定要清理 $cacheSize 缓存吗？播放记录与站源配置不会被删除。",
+                "清理视频缓存（m3u8 分片）与图片缓存，共 $cacheSize。播放记录与站源配置不会被删除。",
                 style = SoftType.Body,
             )
         }
@@ -1199,3 +1216,32 @@ private fun QuickEntry(
         )
     }
 }
+
+/**
+ * v0.101.0：设置页缓存清理。
+ * - 视频缓存：Media3 SimpleCache，目录为 cacheDir/video_cache（见 PlayerManager.videoCache）。
+ * - 图片缓存：Coil 2 默认磁盘缓存目录 cacheDir/image_cache。
+ */
+private fun cacheDirs(context: Context): List<File> = listOf(
+    File(context.cacheDir, "video_cache"),
+    File(context.cacheDir, "image_cache"),
+)
+
+private fun dirBytes(dir: File): Long =
+    if (dir.isDirectory) {
+        dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    } else {
+        0L
+    }
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1L shl 30 -> "%.1f GB".format(Locale.US, bytes / (1L shl 30).toDouble())
+    bytes >= 1L shl 20 -> "%.1f MB".format(Locale.US, bytes / (1L shl 20).toDouble())
+    bytes >= 1L shl 10 -> "%.1f KB".format(Locale.US, bytes / (1L shl 10).toDouble())
+    else -> "$bytes B"
+}
+
+private suspend fun refreshCacheSize(context: Context): String =
+    withContext(Dispatchers.IO) {
+        formatBytes(cacheDirs(context).sumOf { dirBytes(it) })
+    }

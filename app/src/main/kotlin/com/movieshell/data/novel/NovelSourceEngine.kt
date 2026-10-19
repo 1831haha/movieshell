@@ -5,6 +5,8 @@ import android.util.Log
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 /**
  * v0.61.0 书源执行引擎：把 BookSource 规则跑通
@@ -15,6 +17,10 @@ import kotlinx.coroutines.coroutineScope
 object NovelSourceEngine {
 
     private const val TAG = "NovelSourceEngine"
+
+    /** v0.101.0：书源并发搜上限，书源齐发会被反爬封 IP（影视模块有自己的限流，互不干扰）。 */
+    private const val SEARCH_MAX_CONCURRENCY = 4
+    private val searchSemaphore = Semaphore(SEARCH_MAX_CONCURRENCY)
 
     /** 在单个书源里搜书。 */
     suspend fun search(source: BookSource, keyword: String): List<NovelSearchResult> {
@@ -35,16 +41,18 @@ object NovelSourceEngine {
         }
     }
 
-    /** 多源并发搜，结果按源分组返回。 */
+    /** 多源并发搜，结果按源分组返回。v0.101.0：Semaphore(4) 限流防反爬封 IP。 */
     suspend fun searchAll(
         sources: List<BookSource>,
         keyword: String,
     ): List<Pair<BookSource, List<NovelSearchResult>>> = coroutineScope {
         sources.map { s ->
             async {
-                s to runCatching { search(s, keyword) }
-                    .onFailure { Log.w(TAG, "搜索失败 ${s.name}", it) }
-                    .getOrDefault(emptyList())
+                s to searchSemaphore.withPermit {
+                    runCatching { search(s, keyword) }
+                        .onFailure { Log.w(TAG, "搜索失败 ${s.name}", it) }
+                        .getOrDefault(emptyList())
+                }
             }
         }.awaitAll()
     }
@@ -112,14 +120,14 @@ object NovelSourceEngine {
             .map { it.copy(sourceKey = PyBookSourceManager.SOURCE_KEY_PREFIX + rule.name) }
     }
 
-    /** 多个 PY 书源并发搜，结果按源分组返回。 */
+    /** 多个 PY 书源并发搜，结果按源分组返回。v0.101.0：Semaphore(4) 限流防反爬封 IP。 */
     suspend fun searchAllPy(
         context: Context,
         rules: List<PyBookSourceManager.PyBookRule>,
         keyword: String,
     ): List<Pair<PyBookSourceManager.PyBookRule, List<NovelSearchResult>>> = coroutineScope {
         rules.map { r ->
-            async { r to searchPy(context, r, keyword) }
+            async { r to searchSemaphore.withPermit { searchPy(context, r, keyword) } }
         }.awaitAll()
     }
 

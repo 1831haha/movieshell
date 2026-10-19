@@ -25,6 +25,8 @@ import com.movieshell.data.source.Type4PlayResult
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -56,7 +58,13 @@ class SiteRepository(
 
     companion object {
         private const val TAG = "SiteRepo"
+
+        /** v0.101.0：聚合搜索并发上限，20 个源齐发会被反爬封 IP。 */
+        private const val SEARCH_MAX_CONCURRENCY = 4
     }
+
+    /** v0.101.0：聚合搜索并发限流（与小说/音乐模块各自独立）。 */
+    private val searchSemaphore = Semaphore(SEARCH_MAX_CONCURRENCY)
 
     /**
      * v0.7.2：带日志的 runCatching。失败记 LogBus.E，返回 null。
@@ -183,6 +191,8 @@ class SiteRepository(
      * - 复用单源 search()（CMS / drpy / PY 各走原实现，不重写）；
      * - 每个站源独立协程 + supervisorScope：单个源失败/超时只跳过该源，不影响其他源；
      * - 每个源超时 timeoutMs（默认 15 秒），超时/失败静默返回空；
+     * - v0.101.0：Semaphore(4) 限流，个人家用 20 个源齐发易被反爬封 IP；
+     *   结果先到先等，awaitAll 返回后按原顺序展示，流式行为不变；
      * - 网页源是 URL 直达形态、无搜索接口，天然不在 sites 列表中（已跳过）；
      * - 返回按站源原顺序排列的分组，只含结果非空的站源。
      */
@@ -192,9 +202,11 @@ class SiteRepository(
         return supervisorScope {
             targets.map { site ->
                 async {
-                    val vods = runCatching {
-                        withTimeoutOrNull(timeoutMs) { search(site, wd) }
-                    }.getOrNull().orEmpty()
+                    val vods = searchSemaphore.withPermit {
+                        runCatching {
+                            withTimeoutOrNull(timeoutMs) { search(site, wd) }
+                        }.getOrNull().orEmpty()
+                    }
                     SiteSearchResult(site, vods)
                 }
             }.awaitAll()
