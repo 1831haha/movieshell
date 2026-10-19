@@ -15,6 +15,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -98,6 +99,7 @@ import com.movieshell.data.repo.SourceProbeStore
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubCache
+import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubRefreshStore
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.TrashStore
@@ -131,13 +133,17 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.movieshell.data.source.SourceProbeWorker
 
-/** 站源条目：开关状态用 mutableStateOf 包裹，保证 Switch 切换即时刷新 */
+/** 站源条目：开关/备注/分组状态用 mutableStateOf 包裹，保证变更即时刷新 */
 class SourceEntry(
     val name: String,
     val detail: String,
     enabled: Boolean = true,
+    note: String = "",
+    group: String = "",
 ) {
     var enabled by mutableStateOf(enabled)
+    var note by mutableStateOf(note)
+    var group by mutableStateOf(group)
 }
 
 /** 站源分组 */
@@ -380,16 +386,16 @@ fun SourcesScreen(
         SourceGroup(
             id = "api", name = "接口站源", icon = Icons.Filled.Language,
             entries = ApiSourceStore.load(context)
-                .map { SourceEntry(it.name, it.url, it.enabled) }
+                .map { SourceEntry(it.name, it.url, it.enabled, it.note, it.group) }
                 .toMutableStateList(),
         )
     }
 
-    /** 接口站源持久化：增删/开关后写回 filesDir/api_sources.json，供备份使用 */
+    /** 接口站源持久化：增删/开关/备注分组后写回 filesDir/api_sources.json，供备份使用 */
     fun persistApiGroup() {
         ApiSourceStore.save(
             context,
-            apiGroup.entries.map { ApiSource(it.name, it.detail, it.enabled) },
+            apiGroup.entries.map { ApiSource(it.name, it.detail, it.enabled, it.note, it.group) },
         )
     }
 
@@ -705,6 +711,8 @@ fun SourcesScreen(
     var deleteItemState by remember { mutableStateOf<GridFileItem?>(null) }
     // v0.108.0：订阅删除二次确认（挂起的待删订阅，弹窗确认后才进回收站）
     var pendingDeleteSub by remember { mutableStateOf<SourceEntry?>(null) }
+    // v0.112.0：订阅级备注/分组编辑（挂起的待编辑订阅）
+    var pendingEditSub by remember { mutableStateOf<SourceEntry?>(null) }
 
     // ---------- 文件导入 ----------
     var pendingImport by remember { mutableStateOf<ImportTarget?>(null) }
@@ -786,6 +794,9 @@ fun SourcesScreen(
     var nameInput by remember { mutableStateOf("") }
     var urlInput by remember { mutableStateOf("") }
     var urlError by remember { mutableStateOf(false) }
+    // v0.112.0：订阅级备注/分组（添加时可填）
+    var noteInput by remember { mutableStateOf("") }
+    var groupInput by remember { mutableStateOf("") }
 
     // 网页站源添加对话框：名称 + URL（URL 必须 http(s) 开头）
     var showWebAddDialog by remember { mutableStateOf(false) }
@@ -823,10 +834,12 @@ fun SourcesScreen(
         val name = if (inputName.isNotBlank()) inputName else runCatching {
             url.substringAfter("://").substringBefore("/").substringBefore(":")
         }.getOrDefault("自定义订阅").ifBlank { "自定义订阅" }
-        apiGroup.entries.add(0, SourceEntry(name, url))
+        apiGroup.entries.add(0, SourceEntry(name, url, note = noteInput.trim(), group = groupInput.trim()))
         persistApiGroup()
         nameInput = ""
         urlInput = ""
+        noteInput = ""
+        groupInput = ""
         urlError = false
         showAddDialog = false
         // v0.5.1：新订阅自动解析站点
@@ -864,6 +877,15 @@ fun SourcesScreen(
     /** 订阅源 tab：v0.104.0 订阅 2 列卡片（对标 DsPlayer 资源页）+ 网页源 */
     @Composable
     fun SubscriptionTab() {
+        // v0.112.0：订阅分组筛选（分组改名/删光后过滤自动回退到全部）
+        var subGroupFilter by remember { mutableStateOf("") }
+        val subGroups =
+            apiGroup.entries.map { it.group.trim() }.filter { it.isNotBlank() }.distinct()
+        val effectiveFilter =
+            if (subGroupFilter.isNotBlank() && subGroups.none { it == subGroupFilter }) ""
+            else subGroupFilter
+        val visibleSubs = if (effectiveFilter.isBlank()) apiGroup.entries
+        else apiGroup.entries.filter { it.group.trim() == effectiveFilter }
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),
@@ -890,6 +912,31 @@ fun SourcesScreen(
                     modifier = Modifier.weight(1f),
                     variant = AppButtonVariant.Ghost,
                 )
+            }
+        }
+        // v0.112.0：订阅分组 chips 筛选（只有订阅被标过分组才出现）
+        if (subGroups.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    AppChip(
+                        text = "全部",
+                        small = true,
+                        selected = effectiveFilter.isBlank(),
+                        onClick = { subGroupFilter = "" },
+                    )
+                    subGroups.forEach { g ->
+                        AppChip(
+                            text = g,
+                            small = true,
+                            selected = effectiveFilter == g,
+                            onClick = { subGroupFilter = if (effectiveFilter == g) "" else g },
+                        )
+                    }
+                }
             }
         }
         // v0.104.0：检测状态行
@@ -922,7 +969,7 @@ fun SourcesScreen(
             }
         } else {
             // v0.104.0：每张卡片一个订阅；展开态占满整行
-            apiGroup.entries.forEach { entry ->
+            visibleSubs.forEach { entry ->
                 val subUrl = entry.detail
                 val expanded = subExpanded[subUrl] == true
                 val probe = probeResultView[SourceProbeStore.probeKey("sub", subUrl)]
@@ -945,6 +992,7 @@ fun SourcesScreen(
                             onCollapse = { subExpanded[subUrl] = false },
                             onParse = ::parseSubscription,
                             onSetCurrent = ::setCurrentSubSite,
+                            onEdit = { pendingEditSub = entry },
                         )
                     }
                 } else {
@@ -959,6 +1007,7 @@ fun SourcesScreen(
                             onToggle = { entry.enabled = it; toggleSubscription() },
                             onRemove = { pendingDeleteSub = entry },
                             onExpand = { subExpanded[subUrl] = true },
+                            onEdit = { pendingEditSub = entry },
                         )
                     }
                 }
@@ -1326,6 +1375,51 @@ fun SourcesScreen(
         }
     }
 
+    // ---- v0.112.0：订阅级备注/分组编辑 ----
+    pendingEditSub?.let { sub ->
+        var editNote by remember(sub) { mutableStateOf(sub.note) }
+        var editGroup by remember(sub) { mutableStateOf(sub.group) }
+        TechDialog(
+            onDismissRequest = { pendingEditSub = null },
+            title = "编辑订阅 · ${sub.name}",
+            confirmText = "保存",
+            onConfirm = {
+                sub.note = editNote.trim()
+                sub.group = editGroup.trim()
+                persistApiGroup()
+                pendingEditSub = null
+            },
+        ) {
+            Column {
+                Text(
+                    text = "备注",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                AppTextField(
+                    value = editNote,
+                    onValueChange = { editNote = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "如：4K 资源多，更新快",
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "分组",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                AppTextField(
+                    value = editGroup,
+                    onValueChange = { editGroup = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "如：影视 / 直播",
+                )
+            }
+        }
+    }
+
     // ---- v0.90.0：批量检测进度（Worker 后台跑；关弹窗=后台继续，"取消检测"真 cancel） ----
     if (showProbeDialog && probeRunning) {
         TechDialog(
@@ -1392,6 +1486,33 @@ fun SourcesScreen(
                             color = LocalSoftExtra.current.errorSoft,
                         )
                     }
+                    // v0.112.0：订阅级备注/分组（选填）
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "备注",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppTextField(
+                        value = noteInput,
+                        onValueChange = { noteInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "如：4K 资源多，更新快（选填）",
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "分组",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppTextField(
+                        value = groupInput,
+                        onValueChange = { groupInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "如：影视 / 直播（选填）",
+                    )
                 }
         }
     }
@@ -1631,6 +1752,26 @@ private fun SubscriptionInfoLines(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
     )
+    // v0.112.0：订阅级备注/分组小字（都没有则不占行）
+    val subNoteLine = buildString {
+        val g = entry.group.trim()
+        val n = entry.note.trim()
+        if (g.isNotBlank()) append("【$g】")
+        if (n.isNotBlank()) {
+            if (isNotEmpty()) append(" ")
+            append(n)
+        }
+    }
+    if (subNoteLine.isNotEmpty()) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = subNoteLine,
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
     Spacer(Modifier.height(4.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
         val (latencyText, latencyColor) = when (probe) {
@@ -1705,6 +1846,7 @@ private fun SubscriptionGridCard(
     onToggle: (Boolean) -> Unit,
     onRemove: () -> Unit,
     onExpand: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     // v0.108.0：统一卡片高度 160dp，信息区裁剪、操作行底对齐，保证 2 列视觉对齐；整卡可点展开
     RainbowRingCard(onClick = onExpand) {
@@ -1730,6 +1872,13 @@ private fun SubscriptionGridCard(
                     onCheckedChange = onToggle,
                 )
                 Spacer(Modifier.weight(1f))
+                // v0.112.0：编辑订阅备注/分组
+                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.Edit,
+                        contentDescription = "编辑备注分组",
+                    )
+                }
                 IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
                     Icon(
                         imageVector = Icons.Filled.Delete,
@@ -1765,6 +1914,7 @@ private fun SubscriptionExpandedCard(
     onCollapse: () -> Unit,
     onParse: (String) -> Unit,
     onSetCurrent: (subUrl: String, siteKey: String, siteName: String) -> Unit,
+    onEdit: () -> Unit,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -1785,6 +1935,13 @@ private fun SubscriptionExpandedCard(
                     onCheckedChange = onToggle,
                 )
                 Spacer(Modifier.weight(1f))
+                // v0.112.0：编辑订阅备注/分组
+                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.Edit,
+                        contentDescription = "编辑备注分组",
+                    )
+                }
                 IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
                     Icon(
                         imageVector = Icons.Filled.Delete,
@@ -1987,12 +2144,45 @@ private fun SubscriptionSiteRows(
     onSetCurrent: (subUrl: String, siteKey: String, siteName: String) -> Unit,
 ) {
     val context = LocalContext.current
+    // v0.112.0：分组 chips 筛选（只有站点被标过分组才出现）
+    val groups = remember(cache) {
+        cache.sites.map { it.group.trim() }.filter { it.isNotBlank() }.distinct()
+    }
+    var groupFilter by remember(cacheUrl) { mutableStateOf("") }
+    val visibleSites = if (groupFilter.isBlank()) cache.sites
+    else cache.sites.filter { it.group.trim() == groupFilter }
+    // v0.112.0：站点备注/分组编辑弹窗（挂起的待编辑站点）
+    var editingSite by remember(cacheUrl) { mutableStateOf<SubSiteRecord?>(null) }
+    if (groups.isNotEmpty()) {
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            AppChip(
+                text = "全部",
+                small = true,
+                selected = groupFilter.isBlank(),
+                onClick = { groupFilter = "" },
+            )
+            groups.forEach { g ->
+                AppChip(
+                    text = g,
+                    small = true,
+                    selected = groupFilter == g,
+                    onClick = { groupFilter = if (groupFilter == g) "" else g },
+                )
+            }
+        }
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            text = "站点（${cache.sites.size}）· 点站点设为当前源并回主页",
+            text = "站点（${visibleSites.size}）· 点站点设为当前源并回主页",
             style = SoftType.Caption,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
@@ -2003,7 +2193,7 @@ private fun SubscriptionSiteRows(
             variant = AppButtonVariant.Ghost,
         )
     }
-    cache.sites.forEach { rec ->
+    visibleSites.forEach { rec ->
         val key = SubSiteStore.siteKey(cacheUrl, rec)
         val isCurrent = key == currentSiteKey
         val supported = rec.kind != SubSiteStore.KIND_UNSUPPORTED
@@ -2024,16 +2214,47 @@ private fun SubscriptionSiteRows(
                 .padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = rec.name,
-                style = SoftType.Body,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = rec.name,
+                    style = SoftType.Body,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                // v0.112.0：备注/分组小字展示（都没有则不占行）
+                val subLine = buildString {
+                    val g = rec.group.trim()
+                    val n = rec.note.trim()
+                    if (g.isNotBlank()) append("【$g】")
+                    if (n.isNotBlank()) {
+                        if (isNotEmpty()) append(" ")
+                        append(n)
+                    }
+                }
+                if (subLine.isNotEmpty()) {
+                    Text(
+                        text = subLine,
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             Spacer(Modifier.width(8.dp))
             KindBadge(rec.kind)
             Spacer(Modifier.width(8.dp))
+            // v0.112.0：编辑备注/分组
+            IconButton(
+                onClick = { editingSite = rec },
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Edit,
+                    contentDescription = "编辑备注分组",
+                )
+            }
+            Spacer(Modifier.width(4.dp))
             // v0.24.0：站点级启停（禁用后聚合搜索跳过）
             Switch(
                 checked = rec.enabled,
@@ -2056,6 +2277,52 @@ private fun SubscriptionSiteRows(
                 )
             } else {
                 Spacer(Modifier.size(20.dp))
+            }
+        }
+    }
+    // v0.112.0：站点备注/分组编辑弹窗
+    val target = editingSite
+    if (target != null) {
+        var noteInput by remember(target.key) { mutableStateOf(target.note) }
+        var groupInput by remember(target.key) { mutableStateOf(target.group) }
+        TechDialog(
+            onDismissRequest = { editingSite = null },
+            title = "编辑站点 · ${target.name}",
+            confirmText = "保存",
+            onConfirm = {
+                SubSiteStore.setSiteNoteGroup(
+                    context, cacheUrl, target.key, noteInput.trim(), groupInput.trim(),
+                )
+                SubSiteStore.getCached(context, cacheUrl)?.let { caches[cacheUrl] = it }
+                editingSite = null
+            },
+        ) {
+            Column {
+                Text(
+                    text = "备注",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                AppTextField(
+                    value = noteInput,
+                    onValueChange = { noteInput = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "如：4K 资源多，更新快",
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "分组",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                AppTextField(
+                    value = groupInput,
+                    onValueChange = { groupInput = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "如：影视 / 直播",
+                )
             }
         }
     }

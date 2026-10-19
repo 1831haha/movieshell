@@ -17,8 +17,14 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import java.io.File
 
-/** 接口站源（订阅）条目快照 */
-data class ApiSource(val name: String, val url: String, val enabled: Boolean = true)
+/** 接口站源（订阅）条目快照；v0.112.0 加 note/group（订阅级备注/分组），缺字段的老数据读作空串 */
+data class ApiSource(
+    val name: String,
+    val url: String,
+    val enabled: Boolean = true,
+    val note: String = "",
+    val group: String = "",
+)
 
 /**
  * 接口站源最小持久化：filesDir/api_sources.json。
@@ -55,7 +61,9 @@ object ApiSourceStore {
                 val url = o["url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                 val enabled = o["enabled"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
                     ?: true
-                ApiSource(name, url, enabled)
+                val note = o["note"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val group = o["group"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                ApiSource(name, url, enabled, note, group)
             }
         } catch (e: Exception) {
             Log.w(TAG, "读取 $FILE_NAME 失败，返回空列表", e)
@@ -88,6 +96,8 @@ object ApiSourceStore {
                         put("name", s.name)
                         put("url", s.url)
                         put("enabled", s.enabled)
+                        put("note", s.note)
+                        put("group", s.group)
                     }
                 }
             }
@@ -133,6 +143,8 @@ object BackupManager {
                         put("name", s.name)
                         put("url", s.url)
                         put("enabled", s.enabled)
+                        put("note", s.note)
+                        put("group", s.group)
                     }
                 }
             }
@@ -168,7 +180,9 @@ object BackupManager {
                 val url = o["url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                 val enabled = o["enabled"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
                     ?: true
-                ApiSource(name, url, enabled)
+                val note = o["note"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val group = o["group"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                ApiSource(name, url, enabled, note, group)
             }.orEmpty()
             ApiSourceStore.save(context, apiSources)
 

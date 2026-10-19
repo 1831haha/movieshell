@@ -1,5 +1,6 @@
 package com.movieshell.data.source.subtitle.builtin
 
+import com.movieshell.data.source.DEFAULT_UA_ANDROID10
 import com.movieshell.data.source.subtitle.OnlineSubtitle
 import com.movieshell.data.source.subtitle.SubtitleSource
 import kotlinx.coroutines.Dispatchers
@@ -45,15 +46,15 @@ object BuiltinSubHdSource : SubtitleSource {
         override fun loadForRequest(url: HttpUrl): List<Cookie> = store.toList()
     }
 
+    // v0.112.0 B3：自带按 cookie name 替换的私有 jar（共享单例是 host 维度语义），
+    // 故保留私有 client；补 callTimeout 30s 兜底慢连接。
     private val http = OkHttpClient.Builder()
         .cookieJar(jar)
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    private val ua =
-        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) " +
-            "Chrome/120.0 Mobile Safari/537.36"
 
     // /a/{sid} 两种链接：标题链和文件名链，按 sid 去重，取更长的文件名做标题
     private val LINK_RE = Regex("""href='/a/([a-zA-Z0-9]+)'[^>]*>\s*([^<]{2,120})""")
@@ -122,7 +123,7 @@ object BuiltinSubHdSource : SubtitleSource {
 
     /** 拉文件并处理压缩包，返回（内容，扩展名）。 */
     private fun fetchFile(url: String): Pair<String, String> {
-        val req = Request.Builder().url(url).header("User-Agent", ua).build()
+        val req = Request.Builder().url(url).header("User-Agent", DEFAULT_UA_ANDROID10).build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("下载失败：${resp.code}")
             val bytes = resp.body?.bytes() ?: throw IllegalStateException("空文件")
@@ -162,7 +163,7 @@ object BuiltinSubHdSource : SubtitleSource {
 
     private fun get(url: String, referer: String = BASE): String? {
         val req = Request.Builder().url(url)
-            .header("User-Agent", ua).header("Referer", referer).build()
+            .header("User-Agent", DEFAULT_UA_ANDROID10).header("Referer", referer).build()
         http.newCall(req).execute().use { resp ->
             return if (resp.isSuccessful) resp.body?.string() else null
         }
@@ -171,7 +172,7 @@ object BuiltinSubHdSource : SubtitleSource {
     private fun postJson(url: String, json: String, referer: String): String? {
         val body = json.toRequestBody("application/json".toMediaType())
         val req = Request.Builder().url(url).post(body)
-            .header("User-Agent", ua).header("Referer", referer)
+            .header("User-Agent", DEFAULT_UA_ANDROID10).header("Referer", referer)
             .header("Accept", "application/json").build()
         http.newCall(req).execute().use { resp ->
             return if (resp.isSuccessful) resp.body?.string() else null

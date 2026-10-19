@@ -2,6 +2,7 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import com.movieshell.data.source.CmsApi
+import com.movieshell.data.source.DEFAULT_UA
 import com.movieshell.data.source.PyApi
 import com.movieshell.data.source.QuickJsDrpyEngine
 import kotlinx.coroutines.Dispatchers
@@ -72,7 +73,7 @@ object SourceProbe {
     fun probeHttp(url: String): Result = guarded {
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", UA)
+            .header("User-Agent", DEFAULT_UA)
             .build()
         CmsApi.defaultClient().newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
@@ -174,6 +175,4 @@ object SourceProbe {
         }.awaitAll()
     }
 
-    private const val UA =
-        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
 }

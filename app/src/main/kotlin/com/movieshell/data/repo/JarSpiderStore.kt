@@ -2,6 +2,7 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import com.movieshell.data.source.CmsApi
+import com.movieshell.data.source.DEFAULT_UA_BARE
 import okhttp3.Request
 import java.io.File
 import java.net.URI
@@ -55,7 +56,7 @@ object JarSpiderStore {
         cachedFile(context, subUrl, jarUrl)?.let { return it }
         return runCatching {
             val req = Request.Builder().url(jarUrl)
-                .header("User-Agent", "Mozilla/5.0").build()
+                .header("User-Agent", DEFAULT_UA_BARE).build()
             client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
                     LogBus.e(TAG, "jar 下载 HTTP ${resp.code}：$jarUrl")

@@ -1,15 +1,15 @@
 package com.movieshell.data.novel
 
 import android.util.Log
+import com.movieshell.data.source.CmsApi
+import com.movieshell.data.source.DEFAULT_UA_CHROME120
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
 import java.nio.charset.Charset
-import java.util.concurrent.TimeUnit
 
 /**
  * v0.61.0 书源规则引擎：OkHttp 抓取 + Jsoup CSS 解析。
@@ -25,20 +25,16 @@ object BookRuleEngine {
 
     private const val TAG = "BookRuleEngine"
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .build()
+    // v0.112.0 B1：小说 HTML 抓取（跟随重定向 + 幂等 GET 重试均在共享单例里已有），
+    // 改用进程级共享单例。UA/Accept-Language 每次请求显式带，单例拦截器不覆盖。
+    private val client = CmsApi.defaultClient()
 
-    private const val UA =
-        "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
 
     suspend fun getHtml(url: String): String? = withContext(Dispatchers.IO) {
         runCatching {
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", UA)
+                .header("User-Agent", DEFAULT_UA_CHROME120)
                 .header("Accept-Language", "zh-CN,zh;q=0.9")
                 .build()
             client.newCall(req).execute().use { resp ->

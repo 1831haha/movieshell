@@ -1,13 +1,10 @@
 package com.movieshell.data.source
 
-import android.util.Log
 import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.SiteRepository
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -19,8 +16,6 @@ import kotlinx.serialization.json.jsonObject
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.io.IOException
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 
@@ -68,8 +63,6 @@ class Type4Api(
 
     companion object {
         private const val TAG = "Type4Api"
-        private const val UA =
-            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
 
         private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 
@@ -97,9 +90,9 @@ class Type4Api(
     // ---------------- 对外接口（5 个） ----------------
 
     /** 首页：分类 + 推荐列表（一次 GET {api}）。 */
-    suspend fun home(site: Site): List<Vod> = safe(emptyList()) {
-        val url = buildUrl(site) ?: return@safe emptyList<Vod>()
-        parseHome(getText(url)).second
+    suspend fun home(site: Site): List<Vod> = ioSafe(TAG, emptyList()) {
+        val url = buildUrl(site) ?: return@ioSafe emptyList<Vod>()
+        parseHome(client.getText(url)).second
     }
 
     /**
@@ -108,12 +101,12 @@ class Type4Api(
      * 同一站切分类不再重复请求首页；切站或该站 api 变化时记忆键变化，自动失效重拉。
      */
     suspend fun category(site: Site, tid: String, pg: Int): Pair<List<CategoryType>, List<Vod>> =
-        safe(emptyList<CategoryType>() to emptyList()) {
+        ioSafe(TAG, emptyList<CategoryType>() to emptyList()) {
             val types = cachedTypes(site)
-            if (tid.isBlank()) return@safe types to emptyList()
+            if (tid.isBlank()) return@ioSafe types to emptyList()
             val url = buildUrl(site, "ac" to "detail", "t" to tid, "pg" to pg.toString())
-                ?: return@safe types to emptyList()
-            types to parseCategory(getText(url))
+                ?: return@ioSafe types to emptyList()
+            types to parseCategory(client.getText(url))
         }
 
     /** 分类列表内存缓存：命中直接返回；未命中请求一次首页，非空才缓存。 */
@@ -121,7 +114,7 @@ class Type4Api(
         val key = memKey(site)
         typeCache[key]?.let { return it }
         val homeUrl = buildUrl(site) ?: return emptyList()
-        val types = parseHome(getText(homeUrl)).first
+        val types = parseHome(client.getText(homeUrl)).first
         if (types.isNotEmpty()) typeCache[key] = types
         return types
     }
@@ -131,11 +124,11 @@ class Type4Api(
      * 调用方（SiteRepository.search）目前只要列表；搜索页暂无分页 UI，UI 不动。
      */
     suspend fun searchPage(site: Site, wd: String, pg: Int = 1): Type4SearchPage =
-        safe(Type4SearchPage()) {
-            if (wd.isBlank()) return@safe Type4SearchPage()
+        ioSafe(TAG, Type4SearchPage()) {
+            if (wd.isBlank()) return@ioSafe Type4SearchPage()
             val url = buildUrl(site, "wd" to wd, "pg" to pg.toString())
-                ?: return@safe Type4SearchPage()
-            parseSearchPage(getText(url))
+                ?: return@ioSafe Type4SearchPage()
+            parseSearchPage(client.getText(url))
         }
 
     /** 搜索：返回列表；需要总数/翻页时用 [searchPage]。 */
@@ -143,10 +136,10 @@ class Type4Api(
         searchPage(site, wd, pg).list
 
     /** 详情：取 list[0]。失败返回仅带 vodId 的空详情。 */
-    suspend fun detail(site: Site, vodId: String): VodDetail = safe(VodDetail(vodId = vodId)) {
+    suspend fun detail(site: Site, vodId: String): VodDetail = ioSafe(TAG, VodDetail(vodId = vodId)) {
         val url = buildUrl(site, "ac" to "detail", "ids" to vodId)
-            ?: return@safe VodDetail(vodId = vodId)
-        parseDetail(getText(url), vodId)
+            ?: return@ioSafe VodDetail(vodId = vodId)
+        parseDetail(client.getText(url), vodId)
     }
 
     /**
@@ -159,15 +152,15 @@ class Type4Api(
      * 记住它，下次直接走第二分支（不改站点配置 JSON，用户侧配置原样不动）。
      */
     suspend fun play(site: Site, flag: String, id: String): Type4PlayResult =
-        safe(Type4PlayResult()) {
+        ioSafe(TAG, Type4PlayResult()) {
             val key = memKey(site)
             if (modeB[key] != true) {
                 val first = buildUrl(site, "ac" to "play", "flag" to flag, "id" to id)
-                    ?.let { parsePlay(getText(it)) }
-                if (first?.isPlayResponse() == true) return@safe first
+                    ?.let { parsePlay(client.getText(it)) }
+                if (first?.isPlayResponse() == true) return@ioSafe first
             }
-            val second = buildUrl(site, "play" to id) ?: return@safe Type4PlayResult()
-            val result = parsePlay(getText(second))
+            val second = buildUrl(site, "play" to id) ?: return@ioSafe Type4PlayResult()
+            val result = parsePlay(client.getText(second))
             if (result.isPlayResponse()) modeB[key] = true
             result
         }
@@ -182,7 +175,7 @@ class Type4Api(
             .map { it.jsonObject }
             .map { o -> CategoryType(o.optString("type_id"), o.optString("type_name")) }
             .filter { it.typeId.isNotBlank() }
-        val list = root.listArray().map { it.jsonObject.toVod() }
+        val list = root.listArray().map { it.jsonObject.toVod(picTransform = ::fixPic) }
         types to list
     }.getOrDefault(emptyList<CategoryType>() to emptyList())
 
@@ -201,7 +194,7 @@ class Type4Api(
             ?: return Type4SearchPage()
         Type4SearchPage(
             total = root.optInt("total"),
-            list = root.listArray().map { it.jsonObject.toVod() }
+            list = root.listArray().map { it.jsonObject.toVod(picTransform = ::fixPic) }
         )
     }.getOrDefault(Type4SearchPage())
 
@@ -210,7 +203,7 @@ class Type4Api(
         val first = text.toRootObject()?.takeUnless { it.isError() }
             ?.listArray()?.firstOrNull()?.jsonObject
             ?: return VodDetail(vodId = vodId)
-        first.toVodDetail()
+        first.toVodDetail(picTransform = ::fixPic)
     }.getOrDefault(VodDetail(vodId = vodId))
 
     /** 播放 text -> (直链, parse 标记, 白名单 header)。 */
@@ -273,25 +266,6 @@ class Type4Api(
         return b.build()
     }
 
-    @Throws(IOException::class)
-    private fun getText(url: HttpUrl): String {
-        val req = Request.Builder().url(url).header("User-Agent", UA).build()
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code} ${resp.message}")
-            return resp.body?.string().orEmpty()
-        }
-    }
-
-    private suspend fun <T> safe(fallback: T, block: suspend () -> T): T =
-        withContext(Dispatchers.IO) {
-            try {
-                block()
-            } catch (e: Exception) {
-                Log.w(TAG, "request failed: ${e.message}")
-                fallback
-            }
-        }
-
     // ---------------- 内部：JSON 解析 helpers ----------------
 
     private fun String.toRootObject(): JsonObject? = runCatching {
@@ -301,30 +275,8 @@ class Type4Api(
     /** 错误包络 {code:500,msg}（code 兼容数字/字符串写法）。 */
     private fun JsonObject.isError(): Boolean = optInt("code") == 500
 
-    // listArray / optString / stripHtml 见顶层 JsonHelpers.kt（与 CmsApi 共用）
-
-    private fun JsonObject.toVod(): Vod = Vod(
-        vodId = optString("vod_id"),
-        vodName = optString("vod_name"),
-        vodPic = optString("vod_pic").fixPic(),
-        vodRemarks = optString("vod_remarks"),
-        vodYear = optString("vod_year"),
-        typeName = optString("type_name")
-    )
-
-    private fun JsonObject.toVodDetail(): VodDetail = VodDetail(
-        vodId = optString("vod_id"),
-        vodName = optString("vod_name"),
-        vodPic = optString("vod_pic").fixPic(),
-        vodRemarks = optString("vod_remarks"),
-        vodYear = optString("vod_year"),
-        typeName = optString("type_name"),
-        vodDesc = optString("vod_content").stripHtml(),
-        vodActor = optString("vod_actor"),
-        vodDirector = optString("vod_director"),
-        vodPlayFrom = optString("vod_play_from"),
-        vodPlayUrl = optString("vod_play_url")
-    )
+    // listArray / optString / stripHtml 见顶层 JsonHelpers.kt；
+    // toVod / toVodDetail 见顶层 VodMappers.kt（与 CmsApi 共用）
 
     /** 兼容 Int / "500" / true 等写法；缺失或 null 返回 null。 */
     private fun JsonObject.optInt(key: String): Int? {
@@ -334,6 +286,4 @@ class Type4Api(
         return prim.contentOrNull?.toIntOrNull()
     }
 
-    /** pic 以 // 开头补 https:。 */
-    private fun String.fixPic(): String = if (startsWith("//")) "https:$this" else this
 }

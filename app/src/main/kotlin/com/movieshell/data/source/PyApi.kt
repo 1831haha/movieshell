@@ -13,7 +13,6 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
 /**
@@ -256,9 +255,6 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
         if (prim is JsonNull) return ""
         return prim.contentOrNull.orEmpty()
     }
-
-    private fun String.stripHtml(): String =
-        this.replace(Regex("<[^>]*>"), "").replace("&nbsp;", " ").trim()
 
     companion object {
         private const val TAG = "PyApi"

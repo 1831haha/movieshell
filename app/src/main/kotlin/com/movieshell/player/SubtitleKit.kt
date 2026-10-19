@@ -2,12 +2,11 @@ package com.movieshell.player
 
 import android.content.Context
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 /**
  * 外挂字幕单入口（v0.21.0）。
@@ -20,10 +19,8 @@ import java.util.concurrent.TimeUnit
  */
 object SubtitleKit {
 
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
+    // v0.112.0 B1：字幕小文件下载，改用进程级共享单例。
+    private val http = CmsApi.defaultClient()
 
     private val SRT_TS = Regex("""\d+:\d{2}:\d{2},\d{3}""")
     private val VTT_TS = Regex("""(?:\d+:)?\d{2}:\d{2}\.\d{3}""")

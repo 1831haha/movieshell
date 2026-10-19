@@ -220,7 +220,7 @@ object SniffEngine {
 
     private fun headKind(url: String, client: OkHttpClient): SniffKind? = runCatching {
         val req = Request.Builder().url(url).head()
-            .header("User-Agent", DEFAULT_UA).build()
+            .header("User-Agent", DEFAULT_UA_CHROME120).build()
         client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) return null
             contentTypeKind(resp.header("Content-Type"))?.also {
@@ -231,7 +231,7 @@ object SniffEngine {
 
     private fun rangeGetKind(url: String, client: OkHttpClient): SniffKind? = runCatching {
         val req = Request.Builder().url(url).get()
-            .header("User-Agent", DEFAULT_UA)
+            .header("User-Agent", DEFAULT_UA_CHROME120)
             .header("Range", "bytes=0-0").build()
         client.newCall(req).execute().use { resp ->
             if (!(resp.isSuccessful || resp.code == 206)) return null
@@ -241,8 +241,6 @@ object SniffEngine {
         }
     }.getOrNull()
 
-    private const val DEFAULT_UA =
-        "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
 
     private val IFRAME_SRC =
         "<iframe[^>]*?\\ssrc\\s*=\\s*[\"']([^\"']+)[\"']".toRegex(RegexOption.IGNORE_CASE)

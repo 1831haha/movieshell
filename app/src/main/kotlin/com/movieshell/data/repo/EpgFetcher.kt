@@ -1,6 +1,7 @@
 package com.movieshell.data.repo
 
 import com.movieshell.data.source.CmsApi
+import com.movieshell.data.source.DEFAULT_UA_SHORT
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -122,7 +123,7 @@ object EpgFetcher {
     private fun downloadText(url: String): String {
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14)")
+            .header("User-Agent", DEFAULT_UA_SHORT)
             .build()
         CmsApi.defaultClient().newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")

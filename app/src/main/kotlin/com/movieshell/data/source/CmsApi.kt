@@ -1,6 +1,5 @@
 package com.movieshell.data.source
 
-import android.util.Log
 import android.util.Xml
 import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.Episode
@@ -8,13 +7,9 @@ import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -22,7 +17,6 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import org.xmlpull.v1.XmlPullParser
 import java.io.IOException
 import java.io.StringReader
@@ -56,8 +50,6 @@ class CmsApi(
         private const val CALL_TIMEOUT_S = 60L
         /** 重试退避基数：500ms → 1s 指数退避（阻塞拦截器里小睡可接受）。 */
         private const val RETRY_BACKOFF_BASE_MS = 500L
-        private const val UA =
-            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
 
         /**
          * v0.109.0：进程级单例。之前每次调用 build 一个新 OkHttpClient，
@@ -86,7 +78,8 @@ class CmsApi(
          * v0.110.0：synchronized + mutableMapOf → ConcurrentHashMap，读写无锁；
          * host 维度 LRU 上限 200（超限淘汰最久未用，见 SniffPlayHeaders 同款 200 上限），
          * 进程单例不再无限增长。
-         * saveFromResponse 语义不变：整 host 覆盖（含空列表照存）；
+         * saveFromResponse 语义：仅当 Set-Cookie 非空时整 host 覆盖；
+         * v0.112.0 修 B6：之前无条件覆盖，无 Set-Cookie 的响应会把该 host 已有 cookie 清空。
          * loadForRequest 语义不变：命中返回该 host cookies、无则空列表。
          * v0.110.1：匿名 object 内禁止声明类（'Class' is prohibited here），Entry 移到 companion 作用域。
          */
@@ -97,8 +90,10 @@ class CmsApi(
             private val maxHosts = 200
 
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-                store[url.host] = CookieEntry(cookies, System.currentTimeMillis())
-                if (store.size > maxHosts) evictOldest()
+                if (cookies.isNotEmpty()) {
+                    store[url.host] = CookieEntry(cookies, System.currentTimeMillis())
+                    if (store.size > maxHosts) evictOldest()
+                }
             }
 
             override fun loadForRequest(url: HttpUrl): List<Cookie> {
@@ -125,7 +120,7 @@ class CmsApi(
         private val uaInterceptor = Interceptor { chain ->
             val req = chain.request()
             if (req.header("User-Agent") == null) {
-                chain.proceed(req.newBuilder().header("User-Agent", UA).build())
+                chain.proceed(req.newBuilder().header("User-Agent", DEFAULT_UA).build())
             } else {
                 chain.proceed(req)
             }
@@ -182,10 +177,10 @@ class CmsApi(
     // ---------------- 对外接口 ----------------
 
     /** 首页：推荐 / 最新（不带 t 参数的 videolist 即最新列表）。 */
-    suspend fun home(site: Site): List<Vod> = safe(emptyList()) {
-        val url = buildUrl(site, "ac" to "videolist") ?: return@safe emptyList<Vod>()
+    suspend fun home(site: Site): List<Vod> = ioSafe(TAG, emptyList()) {
+        val url = buildUrl(site, "ac" to "videolist") ?: return@ioSafe emptyList<Vod>()
         LogBus.i(TAG, "CMS 请求: $url")
-        parseList(site, getText(url))
+        parseList(site, client.getText(url))
     }
 
     /**
@@ -193,49 +188,49 @@ class CmsApi(
      * type=1 用 ac=list 一次拿全部分类；type=0 从任意 videolist 响应的 class 节点拿。
      */
     suspend fun category(site: Site, tid: String, pg: Int): Pair<List<CategoryType>, List<Vod>> =
-        safe(emptyList<CategoryType>() to emptyList()) {
+        ioSafe(TAG, emptyList<CategoryType>() to emptyList()) {
             val classUrl = if (site.type == 1) {
                 buildUrl(site, "ac" to "list")
             } else {
                 // XML 的分类藏在 videolist 响应里，先拿一页顺手解析
                 buildUrl(site, "ac" to "videolist", "pg" to "1")
-            } ?: return@safe (emptyList<CategoryType>() to emptyList())
+            } ?: return@ioSafe (emptyList<CategoryType>() to emptyList())
 
             val types: List<CategoryType>
             var list: List<Vod> = emptyList()
             if (site.type == 1) {
-                types = parseClassJson(getText(classUrl))
+                types = parseClassJson(client.getText(classUrl))
             } else {
-                val xml = getText(classUrl)
+                val xml = client.getText(classUrl)
                 types = parseClassXml(xml)
                 list = parseListXml(xml)
             }
             if (tid.isNotBlank()) {
                 val pageUrl = buildUrl(site, "ac" to "videolist", "t" to tid, "pg" to pg.toString())
-                    ?: return@safe (types to emptyList())
-                list = parseList(site, getText(pageUrl))
+                    ?: return@ioSafe (types to emptyList())
+                list = parseList(site, client.getText(pageUrl))
             }
             types to list
         }
 
     /** 详情。失败返回仅带 vodId 的空详情，不抛异常。 */
-    suspend fun detail(site: Site, vodId: String): VodDetail = safe(VodDetail(vodId = vodId)) {
+    suspend fun detail(site: Site, vodId: String): VodDetail = ioSafe(TAG, VodDetail(vodId = vodId)) {
         val url = if (site.type == 1) {
             buildUrl(site, "ac" to "detail", "ids" to vodId)
         } else {
             // 老 XML 接口用 ac=videolist&ids= 取单条
             buildUrl(site, "ac" to "videolist", "ids" to vodId)
-        } ?: return@safe VodDetail(vodId = vodId)
+        } ?: return@ioSafe VodDetail(vodId = vodId)
         LogBus.i(TAG, "CMS 详情请求: $url")
-        parseDetail(site, getText(url), vodId)
+        parseDetail(site, client.getText(url), vodId)
     }
 
     /** 搜索：wd 由 HttpUrl 自动编码。 */
-    suspend fun search(site: Site, wd: String): List<Vod> = safe(emptyList()) {
-        if (wd.isBlank()) return@safe emptyList<Vod>()
+    suspend fun search(site: Site, wd: String): List<Vod> = ioSafe(TAG, emptyList()) {
+        if (wd.isBlank()) return@ioSafe emptyList<Vod>()
         val url = buildUrl(site, "ac" to "videolist", "wd" to wd)
-            ?: return@safe emptyList<Vod>()
-        parseList(site, getText(url))
+            ?: return@ioSafe emptyList<Vod>()
+        parseList(site, client.getText(url))
     }
 
     /**
@@ -270,28 +265,6 @@ class CmsApi(
         return b.build()
     }
 
-    @Throws(IOException::class)
-    private fun getText(url: HttpUrl): String {
-        val req = Request.Builder().url(url).header("User-Agent", UA).build()
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code} ${resp.message}")
-            return resp.body?.string().orEmpty()
-        }
-    }
-
-    private suspend fun <T> safe(fallback: T, block: suspend () -> T): T =
-        withContext(Dispatchers.IO) {
-            try {
-                block()
-            } catch (e: Exception) {
-                // v0.109.0：取消必须透传。之前连 CancellationException 一起吞，
-                // 取消搜索/切页后底层请求照样跑到 15 秒超时才停。
-                if (e is CancellationException) throw e
-                Log.w(TAG, "request failed: ${e.message}")
-                fallback
-            }
-        }
-
     // ---------------- 内部：JSON(type=1) 解析 ----------------
 
     private fun parseList(site: Site, text: String): List<Vod> =
@@ -321,30 +294,8 @@ class CmsApi(
         first.toVodDetail()
     }.getOrDefault(VodDetail(vodId = vodId))
 
-    // listArray / optString / stripHtml 见顶层 JsonHelpers.kt（与 Type4Api 共用）
-
-    private fun JsonObject.toVod(): Vod = Vod(
-        vodId = optString("vod_id"),
-        vodName = optString("vod_name"),
-        vodPic = optString("vod_pic"),
-        vodRemarks = optString("vod_remarks"),
-        vodYear = optString("vod_year"),
-        typeName = optString("type_name")
-    )
-
-    private fun JsonObject.toVodDetail(): VodDetail = VodDetail(
-        vodId = optString("vod_id"),
-        vodName = optString("vod_name"),
-        vodPic = optString("vod_pic"),
-        vodRemarks = optString("vod_remarks"),
-        vodYear = optString("vod_year"),
-        typeName = optString("type_name"),
-        vodDesc = optString("vod_content").stripHtml(),
-        vodActor = optString("vod_actor"),
-        vodDirector = optString("vod_director"),
-        vodPlayFrom = optString("vod_play_from"),
-        vodPlayUrl = optString("vod_play_url")
-    )
+    // listArray / optString / stripHtml 见顶层 JsonHelpers.kt；
+    // toVod / toVodDetail 见顶层 VodMappers.kt（与 Type4Api 共用）
 
     // ---------------- 内部：XML(type=0) 解析 ----------------
     //

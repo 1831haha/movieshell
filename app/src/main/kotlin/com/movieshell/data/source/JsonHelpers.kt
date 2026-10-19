@@ -11,8 +11,9 @@ import kotlinx.serialization.json.contentOrNull
  *
  * v0.110.0：两处各有一份签名+语义完全一致的拷贝，抽到这里做单一入口。
  * 只收录真重复的；有细微差异的（如 Type4Api.fixPic、两处 safe/getText 的实例依赖）
- * 不硬抽，宁可留着。PyApi 里还有一份私有拷贝（stripHtml 正则差一个量词），
- * 不在本轮文件集合内，未动——类内私有成员优先于顶层扩展解析，不冲突。
+ * 不硬抽，宁可留着。
+ * v0.112.0：PyApi 的私有 stripHtml 也并入此处（正则统一为 `[^>]*`，
+ * 与 PyApi 原版同语义，对空标签 `<>` 也清理，顶层声明覆盖后类内私有版本删除）。
  */
 
 /** 兼容字段值为数字 / 布尔 / 字符串的写法；缺失或 null 返回空串。 */
@@ -28,4 +29,4 @@ fun JsonObject.listArray(): JsonArray =
 
 /** 去 HTML 标签 + &nbsp;。 */
 fun String.stripHtml(): String =
-    replace(Regex("<[^>]+>"), "").replace("&nbsp;", " ").trim()
+    replace(Regex("<[^>]*>"), "").replace("&nbsp;", " ").trim()

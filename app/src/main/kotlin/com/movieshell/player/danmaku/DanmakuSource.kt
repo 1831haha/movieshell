@@ -2,15 +2,14 @@ package com.movieshell.player.danmaku
 
 import android.content.Context
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.TimeUnit
 
 /**
  * v0.54：弹幕数据源（弹弹play 公开 API，无需登录）。
@@ -20,10 +19,8 @@ import java.util.concurrent.TimeUnit
 object DanmakuSource {
     private const val TAG = "Danmaku"
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
+    // v0.112.0 B1：弹幕小 JSON（搜索/拉取均为 GET），改用进程级共享单例。
+    private val client = CmsApi.defaultClient()
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 

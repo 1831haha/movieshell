@@ -24,7 +24,6 @@ class AdFilteringDataSource(
 
     private var filteredStream: ByteArrayInputStream? = null
     private var filteredBytes: ByteArray? = null
-    private var bytesRead = 0L
     private var isFiltered = false
 
     override fun addTransferListener(transferListener: TransferListener) {
@@ -72,7 +71,6 @@ class AdFilteringDataSource(
             }
             filteredBytes = filtered.toByteArray(Charsets.UTF_8)
             filteredStream = ByteArrayInputStream(filteredBytes)
-            bytesRead = 0
             isFiltered = true
             filteredBytes!!.size.toLong()
         } catch (e: Exception) {
@@ -86,7 +84,6 @@ class AdFilteringDataSource(
         if (isFiltered) {
             val stream = filteredStream ?: return C.RESULT_END_OF_INPUT
             val n = stream.read(buffer, offset, length)
-            if (n > 0) bytesRead += n
             return if (n < 0) C.RESULT_END_OF_INPUT else n
         }
         return upstream.read(buffer, offset, length)

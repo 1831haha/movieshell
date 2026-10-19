@@ -2,6 +2,7 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import com.movieshell.data.source.CmsApi
+import com.movieshell.data.source.DEFAULT_UA
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -342,7 +343,7 @@ object LiveStore {
     private fun downloadText(url: String): String {
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", UA)
+            .header("User-Agent", DEFAULT_UA)
             .build()
         CmsApi.defaultClient().newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
@@ -350,6 +351,4 @@ object LiveStore {
         }
     }
 
-    private const val UA =
-        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
 }

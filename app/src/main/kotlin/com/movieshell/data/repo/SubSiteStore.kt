@@ -7,6 +7,7 @@ import com.movieshell.data.model.Site
 import com.movieshell.data.model.SubSiteKeyPrefix
 import com.movieshell.data.model.WarehouseEntry
 import com.movieshell.data.source.CmsApi
+import com.movieshell.data.source.DEFAULT_UA
 import com.movieshell.data.source.TvBoxConfigParser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +66,10 @@ data class SubSiteRecord(
     val enabled: Boolean = true,
     /** 订阅声明的扩展字段"类型"（如 "小说"/"漫画"） */
     val typeLabel: String = "",
+    /** v0.112.0：用户备注（订阅站点列表展示） */
+    val note: String = "",
+    /** v0.112.0：用户分组（订阅站点列表分组筛选） */
+    val group: String = "",
 )
 
 @Serializable
@@ -244,6 +249,23 @@ object SubSiteStore {
         if (!enabled && getCurrent(context)?.let { it.subUrl == subUrl && it.siteKey == siteKey } == true) {
             clearCurrent(context)
         }
+    }
+
+    /** v0.112.0：设置站点的用户备注与分组（站点编辑弹窗保存用） */
+    fun setSiteNoteGroup(
+        context: Context,
+        subUrl: String,
+        siteKey: String,
+        note: String,
+        group: String,
+    ) {
+        val all = loadAll(context).toMutableMap()
+        val cache = all[subUrl] ?: return
+        val sites = cache.sites.map {
+            if (it.key == siteKey) it.copy(note = note, group = group) else it
+        }
+        all[subUrl] = cache.copy(sites = sites)
+        saveAll(context, all)
     }
 
     private fun loadAll(context: Context): Map<String, SubCache> {
@@ -567,7 +589,7 @@ object SubSiteStore {
     // ---------------- 内部工具 ----------------
 
     private fun downloadText(url: String): String {
-        val req = Request.Builder().url(url).header("User-Agent", UA).build()
+        val req = Request.Builder().url(url).header("User-Agent", DEFAULT_UA).build()
         client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
             return resp.body?.string() ?: throw IllegalStateException("空响应")
@@ -598,7 +620,7 @@ object SubSiteStore {
             var lowered = false
             for (attempt in 0 until 3) {
                 try {
-                    val req = Request.Builder().url(tryUrl).header("User-Agent", UA).build()
+                    val req = Request.Builder().url(tryUrl).header("User-Agent", DEFAULT_UA).build()
                     client.newCall(req).execute().use { resp ->
                         if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
                         resp.body?.byteStream()?.use { input ->
@@ -689,6 +711,4 @@ object SubSiteStore {
         return name == "drpy2.min.js" || name == "drpy.min.js" || name == "drpy2.js"
     }
 
-    private const val UA =
-        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
 }

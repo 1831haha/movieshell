@@ -122,42 +122,49 @@ object SpiderEngine {
      * 必须在 IO 线程调用。
      */
     private fun getSpider(context: Context, site: Site): Spider? {
-        instances[instanceKey(site)]?.let { return it }
         val subUrl = site.subUrl
         if (subUrl.isBlank()) {
             LogBus.w(TAG, "站点无订阅 URL，无法定位 jar：${site.name}")
             return null
         }
-        val jarUrl = SubSiteStore.getSpiderJar(context, subUrl)
-            .ifBlank { SubSiteStore.ensureSpiderJar(context, subUrl) }
-        val jar = JarSpiderStore.ensureJar(context, subUrl, jarUrl) ?: return null
-        // v0.10.1：jar 必须只读（privateJarFile 内已 setReadOnly），否则 Android 14+ 拒绝加载
-        val dexJar = privateJarFile(context.filesDir, jar) ?: return null
-        return runCatching {
-            val loader = loaders.getOrPut(dexJar.absolutePath) {
-                val dexOut = File(context.filesDir, "spider/opt").apply { mkdirs() }
-                DexClassLoader(
-                    dexJar.absolutePath,
-                    dexOut.absolutePath,
-                    null,
-                    Spider::class.java.classLoader,
-                )
-            }
-            val clazz = loader.loadClass(classNameForApi(site.api))
-            val spider = clazz.getDeclaredConstructor().newInstance() as? Spider
-                // v0.42.0：带上实际父类名，R8 误改宿主 Spider 类名时一眼定位
-                ?: throw IllegalStateException(
-                    "不是 Spider 子类（${clazz.name} 实际父类=${clazz.superclass?.name}，" +
-                        "若父类不是 com.github.catvod.crawler.Spider，请检查 proguard keep 规则）",
-                )
-            // v0.13.0：ext 相对路径（如 ./config/blys.json）按订阅 base 解析为绝对 URL
-            val resolvedExt = resolveExt(site.ext, subUrl)
-            spider.init(context.applicationContext, resolvedExt)
-            instances[instanceKey(site)] = spider
-            LogBus.i(TAG, "spider 加载成功：${site.api}")
-            spider
-        }.onFailure { LogBus.e(TAG, "spider 加载失败 ${site.api}：${it.message}") }
-            .getOrNull()
+        // v0.112.0 D1：之前"先查后放"非原子，并发下同一站点可能双建 spider
+        //（init 两次、后建覆盖先建）。改 computeIfAbsent 原子化，选此方案的理由：
+        // ConcurrentHashMap 在 Java 8+ 是按 bin（键）加锁而非整表/段锁，
+        // jar 下载/dex 加载的耗时 IO 只阻塞同一站点 key 的并发请求，不同站点互不影响；
+        // synchronized 整表锁反而会把其他站点的加载一起串行化。mapping 返回 null 或抛异常时
+        // 不缓存，失败下次重试；lambda 内不再手写 put，避免递归更新同一张表。
+        return instances.computeIfAbsent(instanceKey(site)) {
+            val jarUrl = SubSiteStore.getSpiderJar(context, subUrl)
+                .ifBlank { SubSiteStore.ensureSpiderJar(context, subUrl) }
+            val jar = JarSpiderStore.ensureJar(context, subUrl, jarUrl)
+                ?: return@computeIfAbsent null
+            // v0.10.1：jar 必须只读（privateJarFile 内已 setReadOnly），否则 Android 14+ 拒绝加载
+            val dexJar = privateJarFile(context.filesDir, jar) ?: return@computeIfAbsent null
+            runCatching {
+                val loader = loaders.getOrPut(dexJar.absolutePath) {
+                    val dexOut = File(context.filesDir, "spider/opt").apply { mkdirs() }
+                    DexClassLoader(
+                        dexJar.absolutePath,
+                        dexOut.absolutePath,
+                        null,
+                        Spider::class.java.classLoader,
+                    )
+                }
+                val clazz = loader.loadClass(classNameForApi(site.api))
+                val spider = clazz.getDeclaredConstructor().newInstance() as? Spider
+                    // v0.42.0：带上实际父类名，R8 误改宿主 Spider 类名时一眼定位
+                    ?: throw IllegalStateException(
+                        "不是 Spider 子类（${clazz.name} 实际父类=${clazz.superclass?.name}，" +
+                            "若父类不是 com.github.catvod.crawler.Spider，请检查 proguard keep 规则）",
+                    )
+                // v0.13.0：ext 相对路径（如 ./config/blys.json）按订阅 base 解析为绝对 URL
+                val resolvedExt = resolveExt(site.ext, subUrl)
+                spider.init(context.applicationContext, resolvedExt)
+                LogBus.i(TAG, "spider 加载成功：${site.api}")
+                spider
+            }.onFailure { LogBus.e(TAG, "spider 加载失败 ${site.api}：${it.message}") }
+                .getOrNull()
+        }
     }
 
     suspend fun home(site: Site): List<Vod> = withContext(Dispatchers.IO) {

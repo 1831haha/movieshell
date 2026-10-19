@@ -13,7 +13,6 @@ import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.SearchHistoryStore
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

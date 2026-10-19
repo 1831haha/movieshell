@@ -3,6 +3,7 @@ package com.movieshell.data.repo
 import android.content.Context
 import com.movieshell.BuildConfig
 import com.movieshell.data.repo.PluginStore.InstalledPlugin
+import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -97,12 +98,9 @@ object PluginMarket {
     /**
      * v0.25.0：市场索引拉取专用客户端（索引小，15s 超时；下载走上面的 http 长超时）。
      * v0.45.0：对冲层另有 10 秒单镜像超时，这里的 30 秒 callTimeout 只做兜底。
+     * v0.112.0 B1：索引拉取并入进程级共享单例。
      */
-    private val marketHttp = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .callTimeout(30, TimeUnit.SECONDS)
-        .build()
+    private val marketHttp = CmsApi.defaultClient()
 
     @Volatile
     private var lastList: List<MarketPlugin> = emptyList()

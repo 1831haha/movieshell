@@ -1,11 +1,10 @@
 package com.movieshell.data.repo
 
+import com.movieshell.data.source.CmsApi
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.concurrent.TimeUnit
 
 /**
  * v0.51.0：极简 WebDAV 客户端（只做备份文件上传/下载，不做目录浏览）。
@@ -13,11 +12,9 @@ import java.util.concurrent.TimeUnit
  * 坚果云/Alist/群晖等标准 WebDAV 服务都认这套。
  */
 object WebDavClient {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .build()
+    // v0.112.0 B1：只做小备份文件 PUT/GET + PROPFIND，无大文件上传，
+    // 改用进程级共享单例（15s 超时 + callTimeout 60s 兜底 + 幂等重试）。
+    private val client = CmsApi.defaultClient()
 
     private val JSON = "application/json; charset=utf-8".toMediaType()
 

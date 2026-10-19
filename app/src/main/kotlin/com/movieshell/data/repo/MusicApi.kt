@@ -1,13 +1,13 @@
 package com.movieshell.data.repo
 
+import com.movieshell.data.source.CmsApi
+import com.movieshell.data.source.DEFAULT_UA_WEBKIT
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
-import java.util.concurrent.TimeUnit
 
 /**
  * v0.79.0：在线音乐 API（GD Studio 聚合接口，2026-10-17 实测可用）。
@@ -36,16 +36,14 @@ object MusicApi {
         val isLocal: Boolean get() = localUri.isNotBlank()
     }
 
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .callTimeout(30, TimeUnit.SECONDS)
-        .build()
+    // v0.112.0 B1：纯短 GET（搜索/播放地址/封面），每次请求显式带 UA 头，
+    // 共享单例的 UA 拦截器不覆盖调用方显式 UA；改用进程级共享单例。
+    private val http = CmsApi.defaultClient()
 
     private suspend fun get(url: String): String = withContext(Dispatchers.IO) {
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+            .header("User-Agent", DEFAULT_UA_WEBKIT)
             .build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("音乐接口请求失败：${resp.code}")

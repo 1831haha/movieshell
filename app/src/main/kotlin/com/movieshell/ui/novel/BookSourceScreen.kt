@@ -63,6 +63,7 @@ import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.PurifyRuleStore
 import com.movieshell.data.novel.PyBookApi
 import com.movieshell.data.novel.PyBookSourceManager
+import com.movieshell.data.source.CmsApi
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.TechTextField
@@ -463,7 +464,8 @@ fun BookSourceScreen(
                     val json = withContext(Dispatchers.IO) {
                         runCatching {
                             val req = okhttp3.Request.Builder().url(url).build()
-                            okhttp3.OkHttpClient().newCall(req).execute().use { resp ->
+                            // v0.112.0 B2：书源 URL 导入用共享单例，不再每请求 new 一个 client。
+                            CmsApi.defaultClient().newCall(req).execute().use { resp ->
                                 if (!resp.isSuccessful) null
                                 else resp.body?.string()
                             }

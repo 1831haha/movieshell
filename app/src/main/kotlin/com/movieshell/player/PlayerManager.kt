@@ -31,6 +31,7 @@ import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubtitleStyle
+import com.movieshell.data.source.DEFAULT_UA
 import com.movieshell.data.source.SniffConfig
 import java.io.File
 import java.io.FileOutputStream
@@ -46,8 +47,6 @@ import java.io.FileOutputStream
 object PlayerManager {
 
     // v0.99.0 P0-5：用浏览器 UA，自定义 App UA 会被影视 CDN/WAF 直接 403
-    private const val USER_AGENT =
-        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
 
     @Volatile
     private var exoPlayer: ExoPlayer? = null
@@ -159,7 +158,7 @@ object PlayerManager {
         // v0.14.5：记录播放地址（截断防刷屏）
         LogBus.i("Player", "播放: ${url.take(120)}${if (url.length > 120) "..." else ""}")
         val rest = headers.toMutableMap()
-        val ua = rest.remove("User-Agent")?.takeIf { it.isNotBlank() } ?: USER_AGENT
+        val ua = rest.remove("User-Agent")?.takeIf { it.isNotBlank() } ?: DEFAULT_UA
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(ua)
             .setConnectTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
@@ -312,17 +311,22 @@ object PlayerManager {
                 val frame: Bitmap =
                     mmr.getFrameAtTime(positionMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST)
                         ?: return@runCatching null
-                val safe = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(40).ifBlank { "截图" }
-                val file = File(
-                    StoragePaths.screenshotsDir(context),
-                    "侠影_${safe}_${System.currentTimeMillis()}.png",
-                )
-                FileOutputStream(file).use { out ->
-                    frame.compress(Bitmap.CompressFormat.PNG, 100, out)
+                // v0.112.0：frame 包装 try/finally——compress 抛异常时也要 recycle，
+                // 否则 Bitmap 泄漏。外层 try/finally 管 mmr.release() 保持不变。
+                try {
+                    val safe = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(40).ifBlank { "截图" }
+                    val file = File(
+                        StoragePaths.screenshotsDir(context),
+                        "侠影_${safe}_${System.currentTimeMillis()}.png",
+                    )
+                    FileOutputStream(file).use { out ->
+                        frame.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                    LogBus.i("Player", "截图已保存：${file.absolutePath}")
+                    file
+                } finally {
+                    frame.recycle()
                 }
-                frame.recycle()
-                LogBus.i("Player", "截图已保存：${file.absolutePath}")
-                file
             } finally {
                 runCatching { mmr.release() }
             }

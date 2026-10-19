@@ -10,6 +10,7 @@ import androidx.work.WorkerParameters
 import com.movieshell.data.repo.DlStatus
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.DownloadTask
+import com.movieshell.data.source.DEFAULT_UA
 import com.movieshell.player.M3u8AdFilter
 import com.movieshell.player.SniffPlayHeaders
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,8 @@ class DownloadQueueWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(context, params) {
 
+    // v0.112.0 B1：有意例外——大文件下载不得加 callTimeout（整链路超时会杀死
+    // 大文件下载），也不并入共享单例（共享单例有 60s callTimeout）。
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -266,7 +269,7 @@ class DownloadQueueWorker(
         }
         var done = if (part.isFile) part.length() else 0L
         val reqB = Request.Builder().url(task.url)
-            .header("User-Agent", UA)
+            .header("User-Agent", DEFAULT_UA)
         headers.forEach { (k, v) -> reqB.header(k, v) }
         if (done > 0) reqB.header("Range", "bytes=$done-")
         http.newCall(reqB.build()).execute().use { resp ->
@@ -333,7 +336,7 @@ class DownloadQueueWorker(
     // ---------------- 基础 ----------------
 
     private fun getText(url: String, headers: Map<String, String>): String {
-        val reqB = Request.Builder().url(url).header("User-Agent", UA)
+        val reqB = Request.Builder().url(url).header("User-Agent", DEFAULT_UA)
         headers.forEach { (k, v) -> reqB.header(k, v) }
         http.newCall(reqB.build()).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
@@ -343,7 +346,7 @@ class DownloadQueueWorker(
 
     /** 小文件下载（分片/key/map），带断点续传。 */
     private fun downloadTo(url: String, dst: File, headers: Map<String, String>, resumeFrom: Long) {
-        val reqB = Request.Builder().url(url).header("User-Agent", UA)
+        val reqB = Request.Builder().url(url).header("User-Agent", DEFAULT_UA)
         headers.forEach { (k, v) -> reqB.header(k, v) }
         var start = if (dst.isFile) dst.length() else 0L
         if (start > 0) reqB.header("Range", "bytes=$start-")
@@ -418,7 +421,5 @@ class DownloadQueueWorker(
     companion object {
         private const val TAG = "Download"
         private const val FG_ID = 1001
-        private const val UA =
-            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
     }
 }

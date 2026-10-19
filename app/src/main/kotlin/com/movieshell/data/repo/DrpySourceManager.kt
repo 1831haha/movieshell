@@ -101,8 +101,8 @@ object DrpySourceManager {
         try {
             val js = file.readText()
             val ctx = appContext ?: return
-            // v0.99.0 P0-3：切源先释放旧引擎，避免 QuickJS 实例泄漏
-            runCatching { engine?.release() }
+            // v0.112.0 D2：删重复 release——旧引擎已在函数开头 try/catch 里释放并置空，
+            // 此处的 engine?.release() 恒为 no-op。保留开头那一次。
             engine = QuickJsDrpyEngine(ctx).also { it.loadRule(js) }
             activeName = name
             Log.i(TAG, "active 规则: $name")
