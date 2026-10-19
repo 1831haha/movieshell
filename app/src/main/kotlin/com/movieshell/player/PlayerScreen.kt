@@ -1370,12 +1370,13 @@ fun PlayerScreen(
                                 }
                             }
                         },
+                        // v0.108.0 B2：进度条 thumb 小圆球跟随主题色（之前硬编码白色）
                         thumb = {
                             Box(
                                 modifier = Modifier
-                                    .size(10.dp)
+                                    .size(12.dp)
                                     .clip(CircleShape)
-                                    .background(Color.White),
+                                    .background(MaterialTheme.colorScheme.primary),
                             )
                         },
                     )

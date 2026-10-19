@@ -64,6 +64,9 @@ object MusicPlayer {
     private var index: Int = -1
     // v0.85.0：播放请求代际——连接 service 是异步的，旧请求回来时若已被取代则丢弃
     private var playGen = 0
+    // v0.108.0 B1：手动切换音源的一次性指定源 id——resolveLxUrl 消费后清零，
+    // 后续切歌仍按默认顺序（启用源列表顺序）解析
+    private var forcedSourceId: String? = null
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -165,6 +168,20 @@ object MusicPlayer {
         playAt(context, startIndex.coerceIn(tracks.indices))
     }
 
+    /**
+     * v0.108.0 B1：手动切换音源——仅用指定源重新解析当前歌曲并播放。
+     * 指定源解析失败时回落默认顺序（其他启用源 → GD Studio），不卡死；
+     * 切歌后不持久，下一首仍按默认顺序。
+     */
+    fun playWithSource(context: Context, sourceId: String) {
+        if (index !in queue.indices) {
+            toast("当前没有播放的歌曲")
+            return
+        }
+        forcedSourceId = sourceId
+        playAt(context, index)
+    }
+
     private fun playAt(context: Context, i: Int) {
         if (i !in queue.indices) return
         index = i
@@ -237,9 +254,13 @@ object MusicPlayer {
      */
     private suspend fun resolveLxUrl(appContext: Context, songId: String): String? {
         if (songId.isBlank()) return null
+        // v0.108.0 B1：一次性消费手动指定的源；该源不存在/已禁用时 sources 为空，
+        // 自然回落为调用方 MusicApi.playUrl（GD Studio）兜底
+        val forced = forcedSourceId.also { forcedSourceId = null }
         val sources = runCatching { MusicSourceStore.list(appContext) }
             .getOrDefault(emptyList())
             .filter { it.enabled }
+            .let { list -> if (forced != null) list.filter { it.id == forced } else list }
         if (sources.isEmpty()) return null
         val engine = LxMusicSourceEngine(appContext)
         try {

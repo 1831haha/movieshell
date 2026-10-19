@@ -270,10 +270,13 @@ class MainActivity : ComponentActivity() {
                     tabs.any { it.route == dest.route }
                 } == true) && !liveLandscape
                 // v0.91.0：全局迷你播放条——有在播曲目且不在播放页/视频页时，悬在底部导航上方
+                // v0.108.0 B3：只在音乐 tab（含其子页）显示，小说/看剧 tab 不再出现；
+                // 锁屏通知走 MediaSession 不动
                 val musicState by MusicPlayer.state.collectAsState()
-                val showMiniPlayer = (musicState.track != null &&
-                    curRoute != "music_player" &&
-                    curRoute?.startsWith(PLAYER_ROUTE_BASE) != true) && !liveLandscape
+                val onMusicTab = curRoute == "music" ||
+                    curRoute == "music_source" ||
+                    curRoute?.startsWith("playlist_detail/") == true
+                val showMiniPlayer = musicState.track != null && onMusicTab
 
                 Scaffold(
                     bottomBar = {
@@ -386,6 +389,8 @@ class MainActivity : ComponentActivity() {
                                         "preview/$kind/${Uri.encode(fileName)}"
                                     )
                                 },
+                                // v0.108.0 B6.1：站源页点站点设为当前源后自动回主页 tab
+                                onGoHome = { navController.navigateTab("home") },
                             )
                         }
                         // v0.24.0：直播 Tab（v0.79.0：顶部嵌入播放器+下方选台；全屏跳独立播放页）

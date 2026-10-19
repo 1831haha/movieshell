@@ -654,7 +654,15 @@ object SubSiteStore {
 
     /** 相对路径按订阅 URL 解析；绝对 URL 原样返回。java.net.URI.resolve 全兼容。 */
     private fun resolveUrl(baseUri: URI, ref: String): String =
-        runCatching { baseUri.resolve(ref.trim()).toString() }.getOrDefault(ref.trim())
+        runCatching { ensureSlashPath(baseUri).resolve(ref.trim()).toString() }.getOrDefault(ref.trim())
+
+    /**
+     * v0.108.0 A2：base path 为空时补 "/"。java.net.URI.resolve 在 base path 为空时不补斜杠
+     *（URI("http://a").resolve("b") → "http://ab"），订阅 `http://肥猫.net` 的相对规则
+     * `json/txt/ken.txt` 会被拼成畸形 host `http://肥猫.netjson/...` 致 DNS 失败（用户真机日志实锤）。
+     */
+    fun ensureSlashPath(uri: URI): URI =
+        if (uri.path.isNullOrEmpty()) URI(uri.scheme, uri.authority, "/", null, null) else uri
 
     private fun isRelativePath(path: String): Boolean {
         val t = path.trim()

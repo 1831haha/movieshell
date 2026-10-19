@@ -27,6 +27,8 @@ import kotlin.coroutines.EmptyCoroutineContext
  * - `on(eventName, handler)` / `send(eventName, data)`：脚本侧监听注册与事件上报；
  *   host 侧捕获 `inited` 事件的 payload（内含 sources/qualitys）
  * - `utils = {}`（空对象，脚本用到的子方法缺失时不崩）、`env = { platform: 'android' }`、`version = '1.0.0'`
+ * - `console = {log,info,warn,error,debug}`：转 LogBus（v0.108.0：墨澜等脚本调 console，
+ *   QuickJS 默认无 console 定义致脚本加载抛 ReferenceError，全 LX 源加载失败）
  *
  * 线程安全：app.cash.quickjs 的 JSContext 只能绑一个线程，所有 evaluate 强制走
  * [QuickJsDrpyEngine.jsDispatcher]（全 App 共享的 "quickjs-worker" 单线程），
@@ -197,6 +199,8 @@ class LxMusicSourceEngine(context: Context) {
                         try {
                             qjs.set("__lxBridge", LxBridgeInterface::class.java, LxBridge())
                             qjs.evaluate(LX_SHIM, "lx-shim.js")
+                            qjs.set("__lxConsole", LxConsoleInterface::class.java, LxConsole())
+                            qjs.evaluate(CONSOLE_SHIM, "lx-console.js")
                             qjs.evaluate(script, "lx-script.js")
                             val payload = waitInited(qjs)
                             synchronized(enginesLock) {
@@ -300,6 +304,33 @@ class LxMusicSourceEngine(context: Context) {
     // ---------------- lx 运行时 shim ----------------
 
     /**
+     * v0.108.0：`globalThis.console` 垫片。QuickJS 默认没有 console，墨澜等 LX 脚本
+     * 调 console.log/info/warn/error/debug 会抛 ReferenceError 致整个脚本加载失败。
+     * 多参数按空格拼接，对象走 JSON.stringify；全部转 LogBus（沿用本文件 "LX: " 口径）。
+     */
+    private val CONSOLE_SHIM = """
+        (function(){
+          if (globalThis.console) return;
+          function fmt(a) {
+            var out = [];
+            for (var i = 0; i < a.length; i++) {
+              var x = a[i];
+              try { out.push((x !== null && typeof x === 'object') ? JSON.stringify(x) : String(x)); }
+              catch (e) { out.push(String(x)); }
+            }
+            return out.join(' ');
+          }
+          globalThis.console = {
+            log: function(){ __lxConsole.log(fmt(arguments)); },
+            info: function(){ __lxConsole.info(fmt(arguments)); },
+            warn: function(){ __lxConsole.warn(fmt(arguments)); },
+            error: function(){ __lxConsole.error(fmt(arguments)); },
+            debug: function(){ __lxConsole.debug(fmt(arguments)); }
+          };
+        })();
+    """.trimIndent()
+
+    /**
      * host 提供的 `globalThis.lx`。request 同步走 `__lxBridge.http`（JSON 契约）；
      * send('inited', payload) 时把 payload 写入 `__lxInitedPayload` 供 host 轮询；
      * request 事件监听器存在 `lx.__listeners['request']`。
@@ -340,6 +371,18 @@ class LxMusicSourceEngine(context: Context) {
         /** 同步 HTTP：返回 JSON 字符串 `{status, body, headers}`（body 为响应文本；出错 status=-1）。 */
         fun http(url: String, optionsJson: String): String
         fun log(msg: String)
+    }
+
+    /**
+     * v0.108.0：console 桥。QuickJS 的 set() 只接受接口绑定，
+     * 五个方法分别转 LogBus 的 d/w/e（log/info/debug 走 d，warn 走 w，error 走 e）。
+     */
+    interface LxConsoleInterface {
+        fun log(msg: String)
+        fun info(msg: String)
+        fun warn(msg: String)
+        fun error(msg: String)
+        fun debug(msg: String)
     }
 
     /** lx.request 的同步网络实现：在 JS 线程同步 execute，占住 JS 线程直到返回/超时。 */
@@ -388,6 +431,15 @@ class LxMusicSourceEngine(context: Context) {
         override fun log(msg: String) {
             LogBus.d(TAG, "LX: $msg")
         }
+    }
+
+    /** console.* 的宿主实现：log/info/debug → LogBus.d，warn → LogBus.w，error → LogBus.e。 */
+    inner class LxConsole : LxConsoleInterface {
+        override fun log(msg: String) = LogBus.d(TAG, "LX console: $msg")
+        override fun info(msg: String) = LogBus.d(TAG, "LX console: $msg")
+        override fun warn(msg: String) = LogBus.w(TAG, "LX console: $msg")
+        override fun error(msg: String) = LogBus.e(TAG, "LX console: $msg")
+        override fun debug(msg: String) = LogBus.d(TAG, "LX console: $msg")
     }
 
     companion object {

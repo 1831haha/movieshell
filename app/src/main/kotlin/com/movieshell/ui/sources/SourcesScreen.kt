@@ -77,6 +77,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -114,6 +116,7 @@ import com.movieshell.ui.trash.TrashScreen
 import com.movieshell.ui.preview.openFileWithEditor
 import com.movieshell.ui.preview.previewKindDir
 import com.movieshell.ui.preview.shareFile
+import com.movieshell.ui.theme.LocalBrandGradient
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
@@ -358,6 +361,8 @@ fun SourcesScreen(
     onPreview: (kind: String, fileName: String) -> Unit = { _, _ -> },
     // v0.90.0：通知点进来可直达检测 tab（MainActivity 传 tab 参数）
     initialTab: Int = 0,
+    // v0.108.0：点站点设为当前源后顺手切回主页 tab（待 MainActivity 接线：navController.navigateTab("home")）
+    onGoHome: () -> Unit = {},
 ) {
     val context = LocalContext.current
 
@@ -437,11 +442,12 @@ fun SourcesScreen(
         }
     }
 
-    /** 设为点播页当前源 */
+    /** 设为点播页当前源（v0.108.0：成功后顺手切回主页 tab） */
     fun setCurrentSubSite(subUrl: String, siteKey: String, siteName: String) {
         if (SubSiteStore.setCurrent(context, subUrl, siteKey)) {
             currentSubSiteKey = SubSiteStore.currentSiteKey(context)
             Toast.makeText(context, "点播页当前源：$siteName", Toast.LENGTH_SHORT).show()
+            onGoHome()
         } else {
             Toast.makeText(context, "设置失败：该站点不可用", Toast.LENGTH_SHORT).show()
         }
@@ -697,6 +703,8 @@ fun SourcesScreen(
     var menuItem by remember { mutableStateOf<GridFileItem?>(null) }
     var infoItem by remember { mutableStateOf<GridFileItem?>(null) }
     var deleteItemState by remember { mutableStateOf<GridFileItem?>(null) }
+    // v0.108.0：订阅删除二次确认（挂起的待删订阅，弹窗确认后才进回收站）
+    var pendingDeleteSub by remember { mutableStateOf<SourceEntry?>(null) }
 
     // ---------- 文件导入 ----------
     var pendingImport by remember { mutableStateOf<ImportTarget?>(null) }
@@ -933,7 +941,7 @@ fun SourcesScreen(
                             parsingMap = subParsing,
                             expandedMap = subExpanded,
                             onToggle = { entry.enabled = it; toggleSubscription() },
-                            onRemove = { removeSubscription(entry) },
+                            onRemove = { pendingDeleteSub = entry },
                             onCollapse = { subExpanded[subUrl] = false },
                             onParse = ::parseSubscription,
                             onSetCurrent = ::setCurrentSubSite,
@@ -949,7 +957,7 @@ fun SourcesScreen(
                             cache = subCaches[subUrl],
                             refreshStatus = refreshStatus,
                             onToggle = { entry.enabled = it; toggleSubscription() },
-                            onRemove = { removeSubscription(entry) },
+                            onRemove = { pendingDeleteSub = entry },
                             onExpand = { subExpanded[subUrl] = true },
                         )
                     }
@@ -1295,6 +1303,24 @@ fun SourcesScreen(
         ) {
                 Text(
                     "将「${item.fileName}」移入回收站，可随时恢复。",
+                    style = SoftType.Body,
+                )
+        }
+    }
+
+    // ---- v0.108.0：订阅删除二次确认 ----
+    pendingDeleteSub?.let { sub ->
+        TechDialog(
+            onDismissRequest = { pendingDeleteSub = null },
+            title = "删除订阅",
+            confirmText = "删除",
+            onConfirm = {
+                pendingDeleteSub = null
+                removeSubscription(sub)
+            },
+        ) {
+                Text(
+                    "将「${sub.name}」移入回收站，可随时恢复。",
                     style = SoftType.Body,
                 )
         }
@@ -1647,6 +1673,26 @@ private fun SubscriptionInfoLines(
     }
 }
 
+/** v0.108.0：炫彩渐变描边卡片容器——照 TechDialog 的 1.5dp 四色渐变描边口径（跟随主题）。 */
+@Composable
+private fun RainbowRingCard(
+    onClick: (() -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.linearGradient(LocalBrandGradient.current),
+                RoundedCornerShape(SoftDimens.CardCorner),
+            )
+            .padding(1.5.dp)
+            .clip(RoundedCornerShape(SoftDimens.CardCorner)),
+    ) {
+        AppCard(modifier = Modifier.fillMaxWidth(), onClick = onClick, content = content)
+    }
+}
+
 /** v0.104.0：订阅 2 列卡片（收起态，对标 DsPlayer 资源页） */
 @Composable
 private fun SubscriptionGridCard(
@@ -1660,15 +1706,23 @@ private fun SubscriptionGridCard(
     onRemove: () -> Unit,
     onExpand: () -> Unit,
 ) {
-    AppCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            SubscriptionInfoLines(
-                entry = entry,
-                probe = probe,
-                probeTime = probeTime,
-                cache = cache,
-                refreshStatus = refreshStatus,
-            )
+    // v0.108.0：统一卡片高度 160dp，信息区裁剪、操作行底对齐，保证 2 列视觉对齐；整卡可点展开
+    RainbowRingCard(onClick = onExpand) {
+        Column(modifier = Modifier.height(160.dp).padding(12.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clipToBounds(),
+            ) {
+                SubscriptionInfoLines(
+                    entry = entry,
+                    probe = probe,
+                    probeTime = probeTime,
+                    cache = cache,
+                    refreshStatus = refreshStatus,
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(
@@ -1714,7 +1768,8 @@ private fun SubscriptionExpandedCard(
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    AppCard(modifier = Modifier.fillMaxWidth()) {
+    // v0.108.0：展开卡片也套炫彩描边，与收起卡片统一
+    RainbowRingCard {
         Column(modifier = Modifier.padding(12.dp)) {
             SubscriptionInfoLines(
                 entry = entry,
@@ -1937,7 +1992,7 @@ private fun SubscriptionSiteRows(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            text = "站点（${cache.sites.size}）· 点站点设为点播页当前源",
+            text = "站点（${cache.sites.size}）· 点站点设为当前源并回主页",
             style = SoftType.Caption,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),

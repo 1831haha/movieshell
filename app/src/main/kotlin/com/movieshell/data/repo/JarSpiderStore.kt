@@ -26,7 +26,9 @@ object JarSpiderStore {
         // 分号后是校验指示，不是 URL 的一部分，先剥掉
         val url = field.split(";").first().trim()
         if (url.startsWith("http", ignoreCase = true)) return url
-        return runCatching { URI(subUrl.trim()).resolve(url).toString() }
+        // v0.108.0 A2：同 SubSiteStore.resolveUrl，base path 为空时先补 "/"，否则
+        // URI("http://a").resolve("b") 得 "http://ab" 畸形 host。
+        return runCatching { SubSiteStore.ensureSlashPath(URI(subUrl.trim())).resolve(url).toString() }
             .getOrDefault("")
     }
 

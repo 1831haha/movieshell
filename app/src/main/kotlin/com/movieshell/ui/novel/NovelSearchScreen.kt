@@ -1,5 +1,6 @@
 package com.movieshell.ui.novel
 
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Source
 import androidx.compose.material3.Button
 import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.TechDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,7 +37,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,6 +51,8 @@ import androidx.compose.ui.unit.sp
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.NovelSearchResult
 import com.movieshell.data.novel.PyBookSourceManager
+import com.movieshell.data.repo.NovelStore
+import kotlinx.coroutines.launch
 
 /**
  * v0.61.0 找书页：多书源并发真搜 → 加入书架（只拉目录，正文阅读时按需拉取）。
@@ -74,6 +81,19 @@ fun NovelSearchScreen(
     val joining by vm.joining.collectAsState()
     // v0.67.0：小说搜索历史（独立作用域）
     val history by vm.history.collectAsState()
+
+    // v0.108.0 B4：书架成员 id 快照——按钮按此切换"加入书架"/"已在书架"
+    var shelfIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val scope = rememberCoroutineScope()
+    val appCtx = LocalContext.current.applicationContext
+    LaunchedEffect(results, joining) {
+        // 结果刷新或一次加入结束 → 重拉书架成员，按钮状态实时跟上
+        if (results.isNotEmpty() && joining == null) {
+            shelfIds = NovelStore.list(appCtx).map { it.id }.toSet()
+        }
+    }
+    // v0.108.0 B4：已在书架时点按钮 → 二次确认移出的目标
+    var removeTarget by remember { mutableStateOf<Pair<SourceGroup, NovelSearchResult>?>(null) }
 
     // v0.66.0：锁定单 PY 源时只搜它（书源管理点源直达）；锁变化时 VM 清空旧结果
     val lockedPyRule = remember(pyRules, pySourceName) {
@@ -228,13 +248,44 @@ fun NovelSearchScreen(
                                     )
                                 }
                                 Spacer(Modifier.width(8.dp))
+                                val nid = shelfNovelId(group, item)
+                                val onShelf = nid in shelfIds
                                 val busy = joining == group.key + item.remoteId
-                                Button(onClick = { vm.joinShelf(group, item) }, enabled = !busy) {
-                                    Text(if (busy) "加入中" else "加入书架")
+                                Button(
+                                    onClick = {
+                                        if (onShelf) removeTarget = group to item
+                                        else vm.joinShelf(group, item)
+                                    },
+                                    enabled = !busy,
+                                ) {
+                                    Text(if (busy) "加入中" else if (onShelf) "已在书架" else "加入书架")
                                 }
                             }
                         }
                     }
+                }
+            }
+            // v0.108.0 B4：已在书架点按钮 → 二次确认移出（影图风 TechDialog，文案走主题色）
+            removeTarget?.let { (g, it) ->
+                TechDialog(
+                    onDismissRequest = { removeTarget = null },
+                    title = "移出《${it.title}》？",
+                    confirmText = "移出",
+                    onConfirm = {
+                        removeTarget = null
+                        scope.launch {
+                            val rid = shelfNovelId(g, it)
+                            val ok = NovelStore.removeNovel(appCtx, rid)
+                            if (ok) shelfIds = shelfIds - rid
+                            Toast.makeText(
+                                appCtx,
+                                if (ok) "已移出书架" else "移出失败",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    },
+                ) {
+                    Text("将从书架移除，阅读进度也会清除。")
                 }
             }
         }
@@ -248,3 +299,7 @@ data class SourceGroup(
     val name: String,
     val books: List<NovelSearchResult>,
 )
+
+/** v0.108.0 B4：书架小说 id——拼法与 NovelSearchViewModel.joinShelf() 保持一致。 */
+fun shelfNovelId(group: SourceGroup, item: NovelSearchResult): String =
+    "bs_${group.key.hashCode()}_${item.remoteId.hashCode()}"

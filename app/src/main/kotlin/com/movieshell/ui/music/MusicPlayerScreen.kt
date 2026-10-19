@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.CircularProgressIndicator
@@ -67,6 +68,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.MusicApi
+import com.movieshell.data.repo.MusicSource
+import com.movieshell.data.repo.MusicSourceStore
 import com.movieshell.data.repo.MusicStore
 import com.movieshell.player.MusicPlayer
 import com.movieshell.player.SleepTimer
@@ -93,6 +96,8 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
     var showSleepDialog by remember { mutableStateOf(false) }
     // v0.91.0：中间内容区单击切换——封面模式 / 歌词模式（网易云式）
     var showLyrics by rememberSaveable { mutableStateOf(false) }
+    // v0.108.0 B1：音源切换弹窗
+    var showSourceDialog by remember { mutableStateOf(false) }
     val sleepRemaining by SleepTimer.remainingMs.collectAsState()
     val sleepArmed by SleepTimer.afterEpisodeArmed.collectAsState()
     // v0.89.0：封面旋转（只转封面；暂停时 LaunchedEffect key 变化自动取消即停）
@@ -153,6 +158,10 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
                                 color = MaterialTheme.colorScheme.primary,
                             )
                         }
+                    }
+                    // v0.108.0 B1：手动切换音源（已启用音乐源列表，点选重解析当前歌曲）
+                    IconButton(onClick = { showSourceDialog = true }) {
+                        Icon(Icons.Filled.SwapHoriz, contentDescription = "切换音源")
                     }
                     IconButton(onClick = { showSleepDialog = true }) {
                         Icon(Icons.Filled.Timer, contentDescription = "定时关闭")
@@ -295,6 +304,15 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
                 },
                 valueRange = 0f..dur.toFloat(),
                 modifier = Modifier.fillMaxWidth(),
+                // v0.108.0 B2：竖线 pill thumb 改小圆球，跟随主题色
+                thumb = {
+                    Box(
+                        modifier = Modifier
+                            .size(14.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                },
             )
             Row(modifier = Modifier.fillMaxWidth()) {
                 Text(
@@ -388,6 +406,56 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
                 Toast.makeText(context, "定时关闭已取消", Toast.LENGTH_SHORT).show()
             },
         )
+    }
+
+    // v0.108.0 B1：音源切换弹窗——点选后仅用该源重解析当前歌曲并播放
+    if (showSourceDialog) {
+        MusicSourcePickerDialog(
+            onDismiss = { showSourceDialog = false },
+            onPick = { src ->
+                showSourceDialog = false
+                Toast.makeText(context, "正在用「${src.name}」重新解析", Toast.LENGTH_SHORT).show()
+                MusicPlayer.playWithSource(context, src.id)
+            },
+        )
+    }
+}
+
+/** v0.108.0 B1：音源选择——列出已启用音乐源；暂无可用源时给空态提示。 */
+@Composable
+private fun MusicSourcePickerDialog(
+    onDismiss: () -> Unit,
+    onPick: (MusicSource) -> Unit,
+) {
+    val context = LocalContext.current
+    var sources by remember { mutableStateOf<List<MusicSource>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        sources = runCatching { MusicSourceStore.list(context) }
+            .onFailure { LogBus.w("MusicPlayer", "读取音乐源失败：${it.message}") }
+            .getOrDefault(emptyList())
+            .filter { it.enabled }
+    }
+    TechDialog(
+        onDismissRequest = onDismiss,
+        title = "切换音源",
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            if (sources.isEmpty()) {
+                Text(
+                    "暂无可用的音乐源",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 12.dp),
+                )
+            } else {
+                sources.forEach { s ->
+                    TextButton(
+                        onClick = { onPick(s) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(s.name) }
+                }
+            }
+        }
     }
 }
 
