@@ -60,7 +60,8 @@ object MpvPlayerManager {
      */
     private val expectEndFileCount = AtomicInteger(0)
     /** 是否有已加载的文件（首播前不计忽略，避免把真正的失败吞掉） */
-    @Volatile private var hasFile = false    @Volatile
+    @Volatile private var hasFile = false
+    @Volatile
     private var errorListener: ((String) -> Unit)? = null
 
     private val observer = object : MPVLib.EventObserver {
