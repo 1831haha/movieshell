@@ -27,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -111,6 +112,7 @@ import androidx.compose.material.icons.filled.QueueMusic
 @Composable
 fun MusicScreen(
     onOpenPlaylist: (String) -> Unit = {},
+    onOpenMusicSource: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -153,7 +155,19 @@ fun MusicScreen(
     Scaffold(
         topBar = {
             // v0.95.0：去掉右上角历史按钮（用户要求）
-            TabTopBar(title = "音乐")
+            // v0.100.0：右上角音乐源管理入口
+            TabTopBar(
+                title = "音乐",
+                actions = {
+                    IconButton(onClick = onOpenMusicSource, modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            imageVector = Icons.Filled.LibraryMusic,
+                            contentDescription = "音乐源管理",
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                },
+            )
         },
     ) { inner ->
         Column(

@@ -110,6 +110,7 @@ import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.home.HomeViewModel
 import com.movieshell.ui.music.MiniPlayer
 import com.movieshell.ui.music.MusicScreen
+import com.movieshell.ui.music.MusicSourceScreen
 import com.movieshell.ui.music.PlaylistDetailScreen
 import com.movieshell.ui.live.LiveManageScreen
 import com.movieshell.ui.live.LiveScreen
@@ -598,7 +599,14 @@ class MainActivity : ComponentActivity() {
                                 onOpenPlaylist = { id ->
                                     navController.navigate("playlist_detail/$id")
                                 },
+                                onOpenMusicSource = {
+                                    navController.navigate("music_source")
+                                },
                             )
+                        }
+                        // v0.100.0：音乐源管理页
+                        composable("music_source") {
+                            MusicSourceScreen(onBack = { navController.popBackStack() })
                         }
                         // v0.84.0：歌单详情页
                         composable(

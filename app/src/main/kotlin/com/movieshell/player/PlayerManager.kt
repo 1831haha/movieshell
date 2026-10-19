@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.TypedValue
+import android.widget.Toast
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -13,6 +14,10 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.cache.StandaloneDatabaseProvider
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
@@ -22,6 +27,7 @@ import androidx.media3.extractor.flv.FlvExtractor
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubtitleStyle
 import com.movieshell.data.source.SniffConfig
@@ -52,9 +58,40 @@ object PlayerManager {
     private var appContext: Context? = null
     private var onError: ((PlaybackException) -> Unit)? = null
 
+    /** v0.100.0：当前播放地址/头/字幕（硬解失败自动切 libmpv 重播用） */
+    private var lastUrl: String = ""
+    private var lastHeaders: Map<String, String> = emptyMap()
+    private var lastSubtitleUrl: String? = null
+
+    /** v0.100.0：硬解失败自动 fallback 每次播放只做一次，play() 重置 */
+    private var decoderFallbackDone: Boolean = false
+
+    /** v0.100.0：m3u8/ts 磁盘缓存（App 级单例；同目录建多个 SimpleCache 会抛异常） */
+    @Volatile
+    private var videoCache: SimpleCache? = null
+
     private val listener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
             LogBus.e("Player", "播放器错误：${error.errorCodeName} ${error.message}")
+            // v0.100.0：硬解初始化失败 → 自动切 libmpv 重播（每次播放只做一次）。
+            // 播放页另有通用换内核逻辑（EngineHost.setOnErrorListener），这里接管后不再外抛，
+            // 避免两处重复切换；libmpv 再失败会走播放页逻辑回到 Media3 后试其他线路。
+            if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED &&
+                !decoderFallbackDone
+            ) {
+                decoderFallbackDone = true
+                val app = appContext
+                if (app != null && MpvPluginLoader.isInstalled(app)) {
+                    Toast.makeText(app, "硬解失败，已自动切换 libmpv 重播", Toast.LENGTH_SHORT).show()
+                    LogBus.i("Player", "硬解初始化失败，自动切 libmpv 重播")
+                    EngineHost.setEngineOverride(PlayerEngine.LIBMPV)
+                    val pos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L
+                    EngineHost.play(app, lastUrl, lastHeaders, pos, lastSubtitleUrl)
+                    return
+                } else if (app != null) {
+                    Toast.makeText(app, "硬解失败，可在设置安装 libmpv 插件切换", Toast.LENGTH_SHORT).show()
+                }
+            }
             onError?.invoke(error)
         }
     }
@@ -96,6 +133,11 @@ object PlayerManager {
             LogBus.e("Player", "播放地址为空，已拒绝")
             return
         }
+        // v0.100.0：记下本次播放参数，供硬解失败自动切 libmpv 重播
+        lastUrl = url
+        lastHeaders = headers
+        lastSubtitleUrl = subtitleUrl
+        decoderFallbackDone = false
         // v0.14.5：记录播放地址（截断防刷屏）
         LogBus.i("Player", "播放: ${url.take(120)}${if (url.length > 120) "..." else ""}")
         val rest = headers.toMutableMap()
@@ -116,6 +158,11 @@ object PlayerManager {
             DefaultDataSource.Factory(app, httpFactory),
             enabledProvider = { SniffConfig.adFilterEnabled },
         )
+        // v0.100.0：m3u8 播放列表/ts 分片磁盘缓存（500MB LRU；缓存出错时忽略缓存走网络）
+        val cacheFactory = CacheDataSource.Factory()
+            .setCache(videoCache(app))
+            .setUpstreamDataSourceFactory(adFilterFactory)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         // v0.19.0：显式声明 FLV 提取器（HTTP-FLV 直播/点播），不依赖默认工厂的隐含行为
         val extractorsFactory = ExtractorsFactory {
             arrayOf<Extractor>(FlvExtractor()) + DefaultExtractorsFactory().createExtractors()
@@ -142,7 +189,7 @@ object PlayerManager {
             }
             .build()
         val mediaSource = DefaultMediaSourceFactory(app, extractorsFactory)
-            .setDataSourceFactory(adFilterFactory)
+            .setDataSourceFactory(cacheFactory)
             .createMediaSource(mediaItem)
         player.setMediaSource(mediaSource)
         player.prepare()
@@ -164,6 +211,20 @@ object PlayerManager {
 
     fun stop() {
         exoPlayer?.stop()
+    }
+
+    /**
+     * v0.100.0：App 级视频磁盘缓存单例。SimpleCache 同一目录只允许一个实例，
+     * 这里双重检查锁保证单例；生命周期与 App 一致，不释放。
+     */
+    private fun videoCache(app: Context): SimpleCache {
+        return videoCache ?: synchronized(this) {
+            videoCache ?: SimpleCache(
+                File(app.cacheDir, "video_cache"),
+                LeastRecentlyUsedCacheEvictor(500L * 1024 * 1024),
+                StandaloneDatabaseProvider(app),
+            ).also { videoCache = it }
+        }
     }
 
     /** 释放播放器；释放后如需继续播放必须重新 [init] */

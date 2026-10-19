@@ -13,6 +13,9 @@ import androidx.media3.session.SessionToken
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicHistoryStore
+import com.movieshell.data.repo.MusicSourceStore
+import com.movieshell.data.source.LxMusicSourceEngine
+import com.movieshell.data.source.resolveBuiltinHuibq
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -175,17 +178,20 @@ object MusicPlayer {
         scope.launch {
             // v0.81.0：本地音频直接播 content URI；在线歌曲实时取直链（不缓存）
             // v0.89.0：直链接口偶发 503，失败 1.5 秒后重试一次；封面与直链并发解析，不拖慢起播
+            // v0.100.0：在线歌曲先走启用的 LX 音乐源解析（内置 huibq 纯 HTTP / 用户脚本），
+            // 全部失败再回退 MusicApi.playUrl（GD Studio）
             val mediaDeferred = async {
                 if (track.isLocal) {
                     track.localUri
                 } else {
-                    try {
-                        MusicApi.playUrl(track.urlId)
-                    } catch (e: Exception) {
-                        LogBus.w("MusicPlayer", "取直链失败，重试一次：${track.name}（${e.message}）")
-                        delay(1500)
-                        runCatching { MusicApi.playUrl(track.urlId) }.getOrNull()
-                    }
+                    resolveLxUrl(context.applicationContext, track.urlId)
+                        ?: try {
+                            MusicApi.playUrl(track.urlId)
+                        } catch (e: Exception) {
+                            LogBus.w("MusicPlayer", "取直链失败，重试一次：${track.name}（${e.message}）")
+                            delay(1500)
+                            runCatching { MusicApi.playUrl(track.urlId) }.getOrNull()
+                        }
                 }
             }
             val artDeferred = async {
@@ -219,6 +225,38 @@ object MusicPlayer {
                 }
             }
         }
+    }
+
+    /**
+     * v0.100.0：按顺序尝试启用的 LX 音乐源。内置源走纯 HTTP（huibq 模板），用户添加的
+     * 脚本 URL 走 LxMusicSourceEngine；quality 先 320k 后 128k。全部失败返回 null，
+     * 调用方回退 MusicApi.playUrl。只换直链来源，不碰播放链路；本地歌曲不走这里。
+     */
+    private suspend fun resolveLxUrl(appContext: Context, songId: String): String? {
+        if (songId.isBlank()) return null
+        val sources = runCatching { MusicSourceStore.list(appContext) }
+            .getOrDefault(emptyList())
+            .filter { it.enabled }
+        if (sources.isEmpty()) return null
+        val engine = LxMusicSourceEngine(appContext)
+        try {
+            for (s in sources) {
+                for (q in listOf("320k", "128k")) {
+                    val url = runCatching {
+                        if (s.builtin) resolveBuiltinHuibq("wy", songId, q)
+                        else engine.resolveMusicUrl(s.url, "wy", songId, q)
+                    }.getOrNull()?.takeIf { it.isNotBlank() }
+                    if (url != null) {
+                        LogBus.i("MusicPlayer", "LX 解析成功：${s.name} $q")
+                        return url
+                    }
+                }
+            }
+        } finally {
+            runCatching { engine.release() }
+        }
+        LogBus.w("MusicPlayer", "LX 源全部解析失败，回退 GD Studio")
+        return null
     }
 
     /**
