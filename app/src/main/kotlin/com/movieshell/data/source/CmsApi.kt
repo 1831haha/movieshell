@@ -139,13 +139,19 @@ class CmsApi(
          * OkHttp 自身 retryOnConnectionFailure 同样阻塞 dispatcher 线程；默认 64 并发、
          * 单 call 最坏阻塞 0.5s+1s=1.5s（3 次尝试，远低于 callTimeout 60s），耗尽概率
          * 可忽略。改成 delay 要把整条调用链改成挂起结构，代价大于收益。
+         * v0.111.0 B5：加两项检查——①已取消的 call 不再睡 0.5s/1s 后重试，
+         * 直接抛；②非幂等方法（POST/PUT/PATCH/DELETE）一次失败就抛，不重试。
          */
         private val retryInterceptor = Interceptor { chain ->
             var lastError: IOException? = null
             repeat(3) { attempt ->
+                if (chain.call().isCanceled()) throw IOException("Canceled")  // 已取消直接抛，不重试
                 try {
                     return@Interceptor chain.proceed(chain.request())
                 } catch (e: IOException) {
+                    if (chain.call().isCanceled()) throw e  // 取消表现为 IOException("Canceled")，不睡不重试
+                    val m = chain.request().method
+                    if (!m.equals("GET", ignoreCase = true) && !m.equals("HEAD", ignoreCase = true)) throw e  // 非幂等不重试
                     lastError = e
                     LogBus.w(TAG, "请求 IO 异常，重试 ${attempt + 1}/3：${chain.request().url}")
                     if (attempt < 2) {

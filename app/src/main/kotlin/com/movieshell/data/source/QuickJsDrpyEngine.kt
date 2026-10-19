@@ -10,21 +10,27 @@ import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
+import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.EmptyCoroutineContext
 
 /**
@@ -33,6 +39,13 @@ import kotlin.coroutines.EmptyCoroutineContext
  * v0.99.0 单线程化改造（诊断 P0-2/P0-3/P0-4）：QuickJS 非线程安全，所有 JS 调用强制走
  * companion 共享的 "quickjs-worker" 单线程 dispatcher；loadRule 切源强制重建上下文；
  * JS 异常/超时后关闭重建；进行中的网络 Call 被追踪，release 时取消。
+ *
+ * v0.111.0 A1 一引擎一线程（"不跨线程碰 context" 的 1:1 绑定形式保留）：
+ * 每个引擎实例独占一条 JS 线程（[JsEngineThreads]），QuickJS 上下文只在自己的
+ * 线程里创建/使用/关闭，永不出线程、不跨引擎共享。单点故障消除——任一引擎的
+ * 网络/死循环只 park/杀自己的线程，不再卡死全 App 的 JS 调用。
+ * 新权衡：①线程数上限 8（JsEngineThreads 信号量，超了排队）；
+ * ②死锁在 JNI 的线程 shutdownNow 也杀不掉，daemon 泄漏认了（随进程走）。
  *
  * JS 环境：shim.js（同 WebView 版）+ 规则源码，通过 __bridge 提供同步 request()/http()。
  */
@@ -43,8 +56,22 @@ class QuickJsDrpyEngine(
     private val appContext = context.applicationContext
     private val http: OkHttpClient = CmsApi.defaultClient()
 
+    /**
+     * v0.111.0：一引擎一线程。QuickJS 上下文的创建/使用/关闭全部发生在
+     * [engineDispatcher] 绑定的独占线程里；跨线程可见性靠 @Volatile/synchronized，
+     * 不许裸 var。
+     */
+    @Volatile
     private var quickJs: QuickJs? = null
     private var ruleJs: String? = null
+
+    @Volatile
+    private var dispatcher: ExecutorCoroutineDispatcher? = null
+    private val dispatcherLock = Any()
+
+    /** 看门狗心跳：true = 有 evaluate 正在引擎线程执行。超时后仍 true 即死锁。 */
+    @Volatile
+    private var evaluateActive = false
 
     /**
      * v0.99.0：进行中的网络请求。bridge 在 JS 线程调用 request()，release() 可能在任意线程，
@@ -52,24 +79,25 @@ class QuickJsDrpyEngine(
      */
     private val pendingCalls = ConcurrentHashMap.newKeySet<Call>()
 
+    /** 懒获取本引擎的独占线程 dispatcher（首个 JS 调用时才占一个线程名额）。 */
+    private fun engineDispatcher(): ExecutorCoroutineDispatcher = synchronized(dispatcherLock) {
+        dispatcher ?: JsEngineThreads.acquireDispatcher("drpy").also { dispatcher = it }
+    }
+
     companion object {
         private const val TAG = "QuickJsDrpy"
         private const val JS_TIMEOUT_MS = 15_000L
+        /**
+         * v0.111.0：网络请求兜底超时（略高于共享 OkHttpClient 的 callTimeout 60s）。
+         * doRequest 真异步后，JS 线程 park 在 future.get 上，超时即 cancel + 返回空。
+         */
+        private const val REQUEST_TIMEOUT_MS = 65_000L
+        /** v0.111.0：JS 超时后看门狗 grace 期——grace 内 evaluateActive 仍 true 即废弃线程重建。 */
+        private const val DEATH_GRACE_MS = 5_000L
         /** v0.110.0：home 缓存窗口 60s（原 10s）。规则标识 = 引擎实例本身，切源建新实例。 */
         private const val HOME_CACHE_MS = 60_000L
         /** v0.109.0 P0-1：query() 单次返回元素上限，防超大页面 JSON 爆炸。 */
         private const val MAX_QUERY_ELEMENTS = 5000
-
-        /**
-         * v0.99.1：全 App 共享的 JS 单线程。QuickJS 的 JSContext 只能绑一个线程，
-         * 所有 evaluate 强制走这里，杜绝多线程并发进 JNI 导致 SIGSEGV。
-         * newSingleThreadContext 在新版 kotlinx.coroutines 已移除，改用
-         * Executors 单线程 + asCoroutineDispatcher（官方推荐替代）。
-         * 生命周期与 App 一致，不关闭。
-         */
-        val jsDispatcher = Executors.newSingleThreadExecutor { r ->
-            Thread(r, "quickjs-worker").apply { isDaemon = true }
-        }.asCoroutineDispatcher()
     }
 
     override fun loadRule(js: String) {
@@ -78,13 +106,13 @@ class QuickJsDrpyEngine(
         // 与 closeEngine 的失效逻辑一致（清 sharedHomeJson）。
         sharedHomeJson = null
         sharedHomeAt = 0L
-        // v0.99.0 P0-3：切源强制重建——旧上下文跑的是老规则，post 到 JS 线程关闭，
+        // v0.99.0 P0-3：切源强制重建——旧上下文跑的是老规则，post 到本引擎 JS 线程关闭，
         // 下次 ensureEngine 新建实例并 evaluate 新规则（单线程 FIFO 保序）。
-        jsDispatcher.dispatch(EmptyCoroutineContext, Runnable { closeEngine() })
+        engineDispatcher().dispatch(EmptyCoroutineContext, Runnable { closeEngine() })
     }
 
     /**
-     * 关闭 QuickJS 上下文并取消进行中的网络请求。必须在 jsDispatcher 线程内调用，
+     * 关闭 QuickJS 上下文并取消进行中的网络请求。必须在引擎线程内调用，
      * 避免与 evaluate 并发造成 use-after-free。
      */
     private fun closeEngine() {
@@ -97,7 +125,7 @@ class QuickJsDrpyEngine(
         sharedHomeAt = 0L
     }
 
-    /** 调用方保证在 jsDispatcher 线程内（经 evalForJson 进入）。 */
+    /** 调用方保证在引擎线程内（经 evalForJson 进入）。 */
     private fun ensureEngine(): QuickJs {
         quickJs?.let { return it }
         val qjs = QuickJs.create()
@@ -198,37 +226,86 @@ class QuickJsDrpyEngine(
         parsePlayUrl(json)
     }
 
+    /**
+     * v0.111.0 A2 根治"取消够不着"：
+     * 先在调用线程直接 cancel 所有在途 Call（OkHttp Call.cancel 线程安全，
+     * 立刻打断 enqueue 的网络 I/O 和引擎线程的 future.get），再原子取走 dispatcher
+     * （置 null，幂等），在旧线程上执行 closeEngine() 后归还线程许可
+     *（[JsEngineThreads.retireDispatcher]，线程已死则 3s 后备直接归还，不漏信号量）。
+     * ruleJs 保留，release 后复用可重建（切源由 loadRule 强制重建）。
+     */
     override fun release() {
-        // v0.99.0：切到 JS 线程关闭，避免与 evaluate 并发造成 use-after-free；
-        // ruleJs 保留，release 后复用可重建（切源由 loadRule 强制重建）。
-        jsDispatcher.dispatch(EmptyCoroutineContext, Runnable { closeEngine() })
+        pendingCalls.forEach { runCatching { it.cancel() } }
+        val d = synchronized(dispatcherLock) {
+            val old = dispatcher
+            dispatcher = null
+            old
+        } ?: return
+        JsEngineThreads.retireDispatcher(d) { closeEngine() }
     }
 
     /**
-     * v0.99.0：在 JS 单线程同步执行（QuickJS 是同步引擎）。
+     * v0.99.0：在本引擎的 JS 独占线程同步执行（QuickJS 是同步引擎）。
      * 返回 JSON 字符串；JS 异常/超时返回 null 并关闭重建上下文。
-     * 注意：withTimeout 取消不掉 JNI 里死循环的 evaluate，超时后 post 的 closeEngine
-     * 会排队等待——这是 QuickJS 无中断机制下的极限，见 P0-4。
+     *
+     * v0.111.0 A3/A4：withTimeout 取消不掉 JNI 里死循环的 evaluate——超时后先取消
+     * 在途网络（网络卡住的情况可自愈，不必走到废弃），再起看门狗：5s grace 后
+     * evaluateActive 仍为 true 即判定线程死锁，废弃重建（retireThread）。
      */
     private suspend fun evalForJson(expression: String): String? {
+        val d = engineDispatcher()
+        evaluateActive = true
         return try {
             withTimeout(JS_TIMEOUT_MS) {
-                withContext(jsDispatcher) {
-                    runCatching {
-                        val qjs = ensureEngine()
-                        qjs.evaluate(expression)?.toString()
-                    }.onFailure {
-                        LogBus.w(TAG, "JS 执行失败: ${it.message}")
-                        // 上下文可能已损坏，直接关闭，下次重建
-                        closeEngine()
-                    }.getOrNull()
+                withContext(d) {
+                    try {
+                        runCatching {
+                            val qjs = ensureEngine()
+                            qjs.evaluate(expression)?.toString()
+                        }.onFailure {
+                            LogBus.w(TAG, "JS 执行失败: ${it.message}")
+                            // 上下文可能已损坏，直接关闭，下次重建
+                            closeEngine()
+                        }.getOrNull()
+                    } finally {
+                        evaluateActive = false // 卡死在 JNI 则不执行，由看门狗接管
+                    }
                 }
             }
         } catch (e: TimeoutCancellationException) {
-            LogBus.w(TAG, "JS 执行超时(${JS_TIMEOUT_MS}ms)，关闭重建引擎")
-            jsDispatcher.dispatch(EmptyCoroutineContext, Runnable { closeEngine() })
+            LogBus.w(TAG, "JS 执行超时(${JS_TIMEOUT_MS}ms)，先取消在途网络，5s grace 后仍未返回则废弃本引擎线程")
+            pendingCalls.forEach { runCatching { it.cancel() } }
+            scheduleDeathWatch()
             null
         }
+    }
+
+    /** v0.111.0 A4：看门狗。grace 期后 evaluateActive 仍 true → 线程死锁，废弃重建。 */
+    private fun scheduleDeathWatch() {
+        JsEngineThreads.watchdogScope.launch {
+            delay(DEATH_GRACE_MS)
+            if (evaluateActive) {
+                LogBus.e(TAG, "JS 引擎线程死锁（超时+grace 未返回），废弃重建")
+                retireThread()
+            }
+        }
+    }
+
+    /**
+     * 废弃已死锁的引擎线程：原子取走 dispatcher 并归还许可（线程名额回收），
+     * quickJs 直接丢弃不 close——绑定已死线程的上下文跨线程 close 不安全。
+     * 幂等：dispatcher 已为 null 直接返回。
+     */
+    private fun retireThread() {
+        val d = synchronized(dispatcherLock) {
+            val old = dispatcher
+            dispatcher = null
+            quickJs = null
+            old
+        } ?: return
+        pendingCalls.forEach { runCatching { it.cancel() } }
+        pendingCalls.clear()
+        JsEngineThreads.releaseDispatcher(d)
     }
 
     /**
@@ -322,7 +399,11 @@ class QuickJsDrpyEngine(
          * v0.99.0：统一网络执行，request()/http() 共用。
          * 返回裸 body 字符串（"" 表失败），与 shim.js 里 `JSON.parse(request(...))` 的旧契约一致；
          * POST/PUT/PATCH 的 Content-Type 从 headers 里读，默认 application/x-www-form-urlencoded（P1-3）。
-         * 在 JS 线程同步 execute，会占住 JS 线程直到返回/超时——调用方可被 release() cancel。
+         *
+         * v0.111.0：真异步——网络 I/O 走 OkHttp 的 enqueue+Callback（跑在 OkHttp 线程池，
+         * 不占 JS 线程），结果经 CompletableFuture 回到引擎线程（JS 线程只 park 在
+         * future.get 上）；超时/失败先 call.cancel() 再返回 ""，cancel 会立刻打断
+         * 在途 I/O 并让 future.get 立即返回。兜底超时 65s（略高于 client 的 60s）。
          */
         private fun doRequest(url: String, method: String, headers: JSONObject?, body: String): String {
             val call = runCatching {
@@ -343,9 +424,20 @@ class QuickJsDrpyEngine(
                 http.newCall(reqBuilder.build())
             }.getOrNull() ?: return ""
             pendingCalls.add(call)
+            val future = CompletableFuture<String>()
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    future.complete("")
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use { future.complete(it.body?.string() ?: "") }
+                }
+            })
             return try {
-                call.execute().use { resp -> resp.body?.string() ?: "" }
+                future.get(REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             } catch (e: Exception) {
+                runCatching { call.cancel() }
                 LogBus.w(TAG, "request 失败: $url ${e.message}")
                 ""
             } finally {

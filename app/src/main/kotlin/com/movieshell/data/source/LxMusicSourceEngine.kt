@@ -5,6 +5,7 @@ import android.os.SystemClock
 import app.cash.quickjs.QuickJs
 import com.movieshell.data.repo.LogBus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -17,7 +18,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.net.URI
-import kotlin.coroutines.EmptyCoroutineContext
 
 /**
  * v0.100.0：洛雪（LX）音乐脚本的 URL 解析引擎。
@@ -33,9 +33,13 @@ import kotlin.coroutines.EmptyCoroutineContext
  * - `console = {log,info,warn,error,debug}`：转 LogBus（v0.108.0：墨澜等脚本调 console，
  *   QuickJS 默认无 console 定义致脚本加载抛 ReferenceError，全 LX 源加载失败）
  *
- * 线程安全：app.cash.quickjs 的 JSContext 只能绑一个线程，所有 evaluate 强制走
- * [QuickJsDrpyEngine.jsDispatcher]（全 App 共享的 "quickjs-worker" 单线程），
- * 绝不在 Dispatchers.IO 上直接 evaluate（照抄 QuickJsDrpyEngine v0.99.x 的单线程化约束）。
+ * 线程模型（v0.111.0）：本 holder 独占一条 JS 线程（[JsEngineThreads]），多个 LX
+ * 脚本实例的 QuickJs 上下文继续串行跑在这条线程上，语义不变，只是从原来的
+ * 全 App 共享线程搬到了自己的线程。任一 LX 脚本的慢网络/死循环只影响音乐解析，
+ * 不卡 drpy。
+ *
+ * v0.99.1 单线程化原因依旧有效：app.cash.quickjs 的 JSContext 只能绑一个线程，
+ * 所有 evaluate 强制走自己的独占线程，绝不在 Dispatchers.IO 上直接 evaluate。
  *
  * 返回值归一化说明：request handler 的返回值可能是字符串、对象（含 url 字段）或 Promise，
  * 做尽力解析——字符串直接用；对象取 `.url`（兼容 `data.url` 包裹）；Promise 则尝试在 JS 侧
@@ -61,6 +65,18 @@ class LxMusicSourceEngine(context: Context) {
      * 并发协程先建好，直接复用，不再重复 evaluate。
      */
     private val scriptMutex = Mutex()
+
+    /**
+     * v0.111.0：一引擎一线程——本 holder 的独占 JS 线程（JsEngineThreads），懒建、
+     * release 后可懒重建。用 @Volatile + 锁内双重赋值，禁裸 var。
+     */
+    @Volatile
+    private var dispatcher: ExecutorCoroutineDispatcher? = null
+    private val dispatcherLock = Any()
+    private fun engineDispatcher(): ExecutorCoroutineDispatcher =
+        synchronized(dispatcherLock) {
+            dispatcher ?: JsEngineThreads.acquireDispatcher("lx").also { dispatcher = it }
+        }
 
     private data class LxInstance(
         val qjs: QuickJs,
@@ -106,7 +122,7 @@ class LxMusicSourceEngine(context: Context) {
         return try {
             if (!loadScript(scriptUrl)) return null
             withTimeout(JS_TIMEOUT_MS) {
-                withContext(QuickJsDrpyEngine.jsDispatcher) {
+                withContext(engineDispatcher()) {
                     val inst = synchronized(enginesLock) { engines[scriptUrl] } ?: return@withContext null
                     callRequestHandler(inst.qjs, source, songId, quality)
                 }
@@ -153,17 +169,24 @@ class LxMusicSourceEngine(context: Context) {
         }.getOrDefault(emptyList())
     }
 
-    /** 关闭所有缓存的 QuickJs 上下文（在 JS 线程执行，避免与 evaluate 并发）。 */
+    /**
+     * 关闭所有缓存的 QuickJs 上下文（在自己的 JS 独占线程上执行，避免与 evaluate 并发）。
+     * 收尾走 [JsEngineThreads.retireDispatcher]：线程上先逐个 close，3s 未执行
+     * （线程已死）则后备直接归还许可，不漏信号量。
+     * release 后线程归还 JsEngineThreads；若本 holder 被复用，engineDispatcher() 懒重建新线程。
+     */
     fun release() {
         val all = synchronized(enginesLock) {
             val list = engines.values.toList()
             engines.clear()
             list
         }
-        QuickJsDrpyEngine.jsDispatcher.dispatch(
-            EmptyCoroutineContext,
-            Runnable { all.forEach { runCatching { it.qjs.close() } } },
-        )
+        val d = synchronized(dispatcherLock) {
+            dispatcher.also { dispatcher = null }
+        } ?: return
+        JsEngineThreads.retireDispatcher(d) {
+            all.forEach { runCatching { it.qjs.close() } }
+        }
     }
 
     // ---------------- 内部：网络 ----------------
@@ -200,7 +223,7 @@ class LxMusicSourceEngine(context: Context) {
         }.getOrNull()
     }
 
-    // ---------------- 内部：引擎创建（必须在 jsDispatcher 线程内调用） ----------------
+    // ---------------- 内部：引擎创建（必须在本 holder 独占 JS 线程内调用） ----------------
 
     /**
      * 在 JS 线程创建 QuickJs 实例：绑定 `__lxBridge` 接口桥 → 跑 lx shim →
@@ -209,7 +232,7 @@ class LxMusicSourceEngine(context: Context) {
     private suspend fun createEngine(scriptUrl: String, script: String): String? {
         return try {
             withTimeout(JS_TIMEOUT_MS) {
-                withContext(QuickJsDrpyEngine.jsDispatcher) {
+                withContext(engineDispatcher()) {
                     runCatching {
                         val qjs = QuickJs.create()
                         try {
@@ -240,13 +263,13 @@ class LxMusicSourceEngine(context: Context) {
     }
 
     /**
-     * v0.109.0 B4③（如实结论，不硬改挂起式等待）：
-     * waitInited 运行在 [QuickJsDrpyEngine.jsDispatcher]（全 App 共享的 quickjs-worker
-     * 单线程）上——createEngine 在 `withContext(jsDispatcher)` 里先
+     * v0.109.0 B4③（如实结论，不硬改挂起式等待），v0.111.0 线程口径更新：
+     * waitInited 运行在本 holder 的独占 JS 线程（[JsEngineThreads]，不再是全 App 共享线程）
+     * 上——createEngine 在 `withContext(engineDispatcher())` 里先
      * `qjs.evaluate(script)` 再调 waitInited。`lx.send('inited')` 把 payload 写入
      * `__lxInitedPayload` 发生在同线程的 evaluate 返回之前，所以"挂起等待 init 完成"
      * 救不了：单线程上下文里没有别的线程能让 inited"稍后到达"，app.cash.quickjs
-     * 也不会在 sleep 期间泵事件循环。旧 15s Thread.sleep 轮询纯粹把全 App 的
+     * 也不会在 sleep 期间泵事件循环。旧 15s Thread.sleep 轮询纯粹把本 holder 的
      * JS 执行冻结 15s（且 withTimeout 的取消也中断不了 Thread.sleep）。
      * 替代方案：evaluate 返回后立即检查一次（同步上报的脚本必命中），再给一个
      * 很短的有界轮询（3s，兼容极少数延迟上报），deadline 走单调时钟
@@ -272,7 +295,7 @@ class LxMusicSourceEngine(context: Context) {
         return v?.takeIf { it.isNotBlank() && it != "null" && it != "undefined" }
     }
 
-    // ---------------- 内部：request 事件调用（必须在 jsDispatcher 线程内调用） ----------------
+    // ---------------- 内部：request 事件调用（必须在本 holder 独占 JS 线程内调用） ----------------
 
     /**
      * 取出脚本注册的 request handler，以 musicUrl 参数调用，尽力归一化返回值。

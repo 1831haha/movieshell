@@ -51,14 +51,17 @@ object SourceProbe {
     private val semaphore = Semaphore(MAX_CONCURRENCY)
 
     /** 注意：阻塞式调用方须包在 withContext(Dispatchers.IO) 里 */
-    fun probeJs(context: Context, file: File): Result = guarded {
+    fun probeJs(context: Context, file: File): Result {
         val engine = QuickJsDrpyEngine(context.applicationContext)
-        try {
-            engine.loadRule(file.readText())
-            runBlocking { engine.home() }
+        return try {
+            guarded(onTimeout = { runCatching { engine.release() } }) {
+                engine.loadRule(file.readText())
+                runBlocking { engine.home() }
+            }
         } finally {
             // v0.109.0：探活用完即释放 native 上下文（release 切到 JS 单线程关闭，任意线程可调）
-            engine.release()
+            // release 幂等（dispatcher 已 null 直接返回），超时回调里调过也安全，重复调无害
+            runCatching { engine.release() }
         }
     }
 
@@ -79,17 +82,22 @@ object SourceProbe {
         }
     }
 
-    /** 限流 + 硬超时 */
-    private fun guarded(block: () -> Any?): Result {
+    /**
+     * 限流 + 硬超时。
+     * v0.111.0 A5：onTimeout 在 TimeoutException 分支最先执行，让调用方先直接
+     * cancel 引擎在途的网络 call（release 幂等），中断不到引擎线程的
+     * future.cancel(true) 之后再调。
+     */
+    private fun guarded(onTimeout: () -> Unit = {}, block: () -> Any?): Result {
         semaphore.acquire()
         try {
-            return hardTimeout(block)
+            return hardTimeout(onTimeout, block)
         } finally {
             semaphore.release()
         }
     }
 
-    private fun hardTimeout(block: () -> Any?): Result {
+    private fun hardTimeout(onTimeout: () -> Unit = {}, block: () -> Any?): Result {
         val start = System.currentTimeMillis()
         val future = pool.submit(Callable<Any?> { block() })
         return try {
@@ -97,6 +105,7 @@ object SourceProbe {
             val ms = System.currentTimeMillis() - start
             if (ms > SLOW_MS) Result.Slow(ms) else Result.Ok(ms)
         } catch (e: TimeoutException) {
+            onTimeout()
             future.cancel(true)
             LogBus.e("Probe", "探活超时")
             Result.Fail("8秒超时无响应")
