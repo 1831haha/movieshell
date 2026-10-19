@@ -226,7 +226,7 @@ class LxMusicSourceEngine(context: Context) {
         }
 
         qjs.evaluate("globalThis.__lxErr")?.toString()
-            .takeIf { it.isNotBlank() && it != "null" }
+            ?.takeIf { it.isNotBlank() && it != "null" }
             ?.let { LogBus.w(TAG, "request handler 报错: $it") }
         return null
     }
