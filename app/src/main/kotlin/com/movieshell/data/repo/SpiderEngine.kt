@@ -42,7 +42,12 @@ object SpiderEngine {
     private var appContext: Context? = null
     private val cmsApi = CmsApi()
     private val loaders = ConcurrentHashMap<String, DexClassLoader>()
-    private val instances = ConcurrentHashMap<String, Spider>()
+    private val instances = ConcurrentHashMap<String, Spider?>()
+        // v0.112.0 修：D1 初版用 ConcurrentHashMap<String, Spider> 配 computeIfAbsent，
+        // Java 的 Function<? super K, ? extends V> 在 Kotlin 侧映射成返回非空 Spider 的 SAM，
+        // lambda 里 return@computeIfAbsent null 编译不过。值类型放宽为 Spider? 后，
+        // Java 语义"mapping 返回 null 则不缓存"依然成立（ConcurrentHashMap.computeIfAbsent 规范），
+        // 加载失败下次照常重试，调用方本来就按 Spider? 处理。
 
     fun init(context: Context) {
         if (appContext == null) {

@@ -175,7 +175,7 @@ class Type4Api(
             .map { it.jsonObject }
             .map { o -> CategoryType(o.optString("type_id"), o.optString("type_name")) }
             .filter { it.typeId.isNotBlank() }
-        val list = root.listArray().map { it.jsonObject.toVod(picTransform = ::fixPic) }
+        val list = root.listArray().map { it.jsonObject.toVod(picTransform = { it.fixPic() }) }
         types to list
     }.getOrDefault(emptyList<CategoryType>() to emptyList())
 
@@ -194,7 +194,7 @@ class Type4Api(
             ?: return Type4SearchPage()
         Type4SearchPage(
             total = root.optInt("total"),
-            list = root.listArray().map { it.jsonObject.toVod(picTransform = ::fixPic) }
+            list = root.listArray().map { it.jsonObject.toVod(picTransform = { it.fixPic() }) }
         )
     }.getOrDefault(Type4SearchPage())
 
@@ -203,7 +203,7 @@ class Type4Api(
         val first = text.toRootObject()?.takeUnless { it.isError() }
             ?.listArray()?.firstOrNull()?.jsonObject
             ?: return VodDetail(vodId = vodId)
-        first.toVodDetail(picTransform = ::fixPic)
+        first.toVodDetail(picTransform = { it.fixPic() })
     }.getOrDefault(VodDetail(vodId = vodId))
 
     /** 播放 text -> (直链, parse 标记, 白名单 header)。 */
