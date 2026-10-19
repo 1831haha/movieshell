@@ -25,6 +25,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,8 +46,6 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -852,47 +853,118 @@ fun SourcesScreen(
     // v0.90.0：通知可带 tab 参数直达（如检测 tab）
     var subTab by rememberSaveable { mutableIntStateOf(initialTab) }
 
-    /** 订阅源 tab：订阅站点列表 + 网页源 */
+    /** 订阅源 tab：v0.104.0 订阅 2 列卡片（对标 DsPlayer 资源页）+ 网页源 */
     @Composable
     fun SubscriptionTab() {
-        LazyColumn(
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
         // ===== 订阅源 =====
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             SectionTitle(title = "订阅源")
         }
-        item {
-            AppButton(
-                text = "添加订阅",
-                onClick = { showAddDialog = true },
-                modifier = Modifier.fillMaxWidth(),
-                variant = AppButtonVariant.Primary,
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppButton(
+                    text = "添加订阅",
+                    onClick = { showAddDialog = true },
+                    modifier = Modifier.weight(1f),
+                    variant = AppButtonVariant.Primary,
+                )
+                AppButton(
+                    text = if (probeRunning) "检测中 $probeDone/$probeTotal…" else "批量检测",
+                    onClick = { startProbe() },
+                    enabled = !probeRunning,
+                    modifier = Modifier.weight(1f),
+                    variant = AppButtonVariant.Ghost,
+                )
+            }
+        }
+        // v0.104.0：检测状态行
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            val statusText = when {
+                probeRunning -> "检测中 $probeDone/$probeTotal…"
+                probeReport.time > 0 -> {
+                    val rs = probeReport.records
+                    "上次检测：${SourceProbeStore.agoText(probeReport.time)} · " +
+                        "正常 ${rs.count { it.status == "OK" }} / " +
+                        "缓慢 ${rs.count { it.status == "SLOW" }} / " +
+                        "失败 ${rs.count { it.status == "FAIL" }}"
+                }
+                else -> "尚未检测"
+            }
+            Text(
+                text = statusText,
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        item {
-            SubscriptionCard(
-                group = apiGroup,
-                caches = subCaches,
-                parsing = subParsing,
-                expandedMap = subExpanded,
-                currentSiteKey = currentSubSiteKey,
-                probeResults = probeResultView,
-                onRemove = ::removeSubscription,
-                onToggle = ::toggleSubscription,
-                onParse = ::parseSubscription,
-                onSetCurrent = ::setCurrentSubSite,
-            )
+        if (apiGroup.entries.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                EmptyState(
+                    kind = EmptyKind.Empty,
+                    icon = Icons.Filled.Language,
+                    title = "暂无订阅",
+                    hint = "点「添加订阅」新增",
+                )
+            }
+        } else {
+            // v0.104.0：每张卡片一个订阅；展开态占满整行
+            apiGroup.entries.forEach { entry ->
+                val subUrl = entry.detail
+                val expanded = subExpanded[subUrl] == true
+                val probe = probeResultView[SourceProbeStore.probeKey("sub", subUrl)]
+                val refreshStatus = SubRefreshStore.statusOf(context, subUrl)
+                if (expanded) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "exp:$subUrl") {
+                        SubscriptionExpandedCard(
+                            entry = entry,
+                            subUrl = subUrl,
+                            probe = probe,
+                            probeTime = probeReport.time,
+                            cache = subCaches[subUrl],
+                            refreshStatus = refreshStatus,
+                            currentSiteKey = currentSubSiteKey,
+                            caches = subCaches,
+                            parsingMap = subParsing,
+                            expandedMap = subExpanded,
+                            onToggle = { entry.enabled = it; toggleSubscription() },
+                            onRemove = { removeSubscription(entry) },
+                            onCollapse = { subExpanded[subUrl] = false },
+                            onParse = ::parseSubscription,
+                            onSetCurrent = ::setCurrentSubSite,
+                        )
+                    }
+                } else {
+                    item(key = "card:$subUrl") {
+                        SubscriptionGridCard(
+                            entry = entry,
+                            subUrl = subUrl,
+                            probe = probe,
+                            probeTime = probeReport.time,
+                            cache = subCaches[subUrl],
+                            refreshStatus = refreshStatus,
+                            onToggle = { entry.enabled = it; toggleSubscription() },
+                            onRemove = { removeSubscription(entry) },
+                            onExpand = { subExpanded[subUrl] = true },
+                        )
+                    }
+                }
+            }
         }
-        item {
+        // ===== 网页源（外观不变，整行占位） =====
+        item(span = { GridItemSpan(maxLineSpan) }) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = "网页源 · ${webItems.size} 个",
                     style = SoftType.CardTitle,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
                 AppButton(
@@ -908,7 +980,7 @@ fun SourcesScreen(
             }
         }
         if (webItems.isEmpty()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 EmptyState(
                     kind = EmptyKind.Empty,
                     icon = Icons.Filled.Public,
@@ -917,17 +989,19 @@ fun SourcesScreen(
                 )
             }
         } else {
-            items(webItems, key = { it.fileName }) { item ->
-                FileCard(
-                    item = item,
-                    badgeLabel = "网页",
-                    onClick = {
-                        webSites.firstOrNull { it.fileName == item.fileName }
-                            ?.let(::activateWeb)
-                    },
-                    onLongClick = { menuItem = item },
-                    onToggleEnabled = ::toggleRuleEnabled,
-                )
+            webItems.forEach { item ->
+                item(span = { GridItemSpan(maxLineSpan) }, key = "web:${item.fileName}") {
+                    FileCard(
+                        item = item,
+                        badgeLabel = "网页",
+                        onClick = {
+                            webSites.firstOrNull { it.fileName == item.fileName }
+                                ?.let(::activateWeb)
+                        },
+                        onLongClick = { menuItem = item },
+                        onToggleEnabled = ::toggleRuleEnabled,
+                    )
+                }
             }
         }
         }
@@ -1499,185 +1573,220 @@ private fun KindBadge(kind: String) {    val (label, color) = when (kind) {
  * 点可用站点即"设为点播页当前源"（持久化），点"不支持"的站点 Toast 说明原因。
  */
 @Composable
-private fun SubscriptionCard(
-    group: SourceGroup,
-    caches: SnapshotStateMap<String, SubCache>,
-    parsing: SnapshotStateMap<String, Boolean>,
-    expandedMap: SnapshotStateMap<String, Boolean>,
+/**
+ * v0.104.0：订阅卡片共用信息区——名称 / 站点数 / 延迟·检测时间 / 刷新状态。
+ * 颜色铁律：全部走主题色，禁止硬编码 Color.White。
+ */
+@Composable
+private fun SubscriptionInfoLines(
+    entry: SourceEntry,
+    probe: SourceProbe.Result?,
+    probeTime: Long,
+    cache: SubCache?,
+    refreshStatus: SubRefreshStore.SubStatus?,
+) {
+    val soft = LocalSoftExtra.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = entry.name,
+            style = SoftType.CardTitle,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        ProbeDot(probe)
+    }
+    Spacer(Modifier.height(6.dp))
+    val siteText = when {
+        cache == null -> "未解析"
+        cache.warehouses.isNotEmpty() -> "子仓 ${cache.warehouses.size} 个"
+        else -> "站点 ${cache.sites.size} 个"
+    }
+    Text(
+        text = siteText,
+        style = SoftType.Caption,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+    Spacer(Modifier.height(4.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        val (latencyText, latencyColor) = when (probe) {
+            is SourceProbe.Result.Ok -> "${probe.ms}ms" to soft.success
+            is SourceProbe.Result.Slow -> "${probe.ms}ms" to soft.warning
+            is SourceProbe.Result.Fail -> "无法连接" to soft.errorSoft
+            else -> "待检测" to MaterialTheme.colorScheme.onSurfaceVariant
+        }
+        Text(
+            text = latencyText,
+            style = SoftType.Caption,
+            fontWeight = FontWeight.Bold,
+            color = latencyColor,
+            maxLines = 1,
+        )
+        Text(
+            text = " · ",
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "检测 ${SourceProbeStore.agoText(probeTime)}",
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    if (refreshStatus != null) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = if (!refreshStatus.ok) "已失效（刷新失败）"
+            else "上次刷新：${timeAgo(refreshStatus.checkedAt)}",
+            style = SoftType.Caption,
+            color = if (!refreshStatus.ok) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** v0.104.0：订阅 2 列卡片（收起态，对标 DsPlayer 资源页） */
+@Composable
+private fun SubscriptionGridCard(
+    entry: SourceEntry,
+    subUrl: String,
+    probe: SourceProbe.Result?,
+    probeTime: Long,
+    cache: SubCache?,
+    refreshStatus: SubRefreshStore.SubStatus?,
+    onToggle: (Boolean) -> Unit,
+    onRemove: () -> Unit,
+    onExpand: () -> Unit,
+) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            SubscriptionInfoLines(
+                entry = entry,
+                probe = probe,
+                probeTime = probeTime,
+                cache = cache,
+                refreshStatus = refreshStatus,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = entry.enabled,
+                    onCheckedChange = onToggle,
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "删除",
+                    )
+                }
+                IconButton(onClick = onExpand, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.ExpandMore,
+                        contentDescription = "展开站点",
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** v0.104.0：订阅展开卡片（占满整行；内容复用原展开逻辑，只换容器） */
+@Composable
+private fun SubscriptionExpandedCard(
+    entry: SourceEntry,
+    subUrl: String,
+    probe: SourceProbe.Result?,
+    probeTime: Long,
+    cache: SubCache?,
+    refreshStatus: SubRefreshStore.SubStatus?,
     currentSiteKey: String?,
-    probeResults: Map<String, SourceProbe.Result>,
-    onRemove: (SourceEntry) -> Unit,
-    onToggle: () -> Unit,
+    caches: SnapshotStateMap<String, SubCache>,
+    parsingMap: SnapshotStateMap<String, Boolean>,
+    expandedMap: SnapshotStateMap<String, Boolean>,
+    onToggle: (Boolean) -> Unit,
+    onRemove: () -> Unit,
+    onCollapse: () -> Unit,
     onParse: (String) -> Unit,
     onSetCurrent: (subUrl: String, siteKey: String, siteName: String) -> Unit,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     AppCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            // 分组头
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = group.icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
+        Column(modifier = Modifier.padding(12.dp)) {
+            SubscriptionInfoLines(
+                entry = entry,
+                probe = probe,
+                probeTime = probeTime,
+                cache = cache,
+                refreshStatus = refreshStatus,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = entry.enabled,
+                    onCheckedChange = onToggle,
                 )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = group.name,
-                    style = SoftType.CardTitle,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                BadgedBox(badge = { Badge { Text(group.entries.size.toString()) } }) {
-                    Spacer(Modifier.size(4.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                IconButton(
-                    onClick = { group.expanded = !group.expanded },
-                    modifier = Modifier.size(36.dp),
-                ) {
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
                     Icon(
-                        imageVector = if (group.expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = if (group.expanded) "收起" else "展开",
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "删除",
+                    )
+                }
+                IconButton(onClick = onCollapse, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.ExpandLess,
+                        contentDescription = "收起",
                     )
                 }
             }
-
-            AnimatedVisibility(visible = group.expanded) {
-                Column {
-                    if (group.entries.isEmpty()) {
-                        EmptyState(
-                            kind = EmptyKind.Empty,
-                            icon = Icons.Filled.Language,
-                            title = "暂无订阅",
-                            hint = "点「添加订阅」新增",
-                        )
-                    }
-                    group.entries.forEach { entry ->
-                        val subUrl = entry.detail
-                        val expanded = expandedMap[subUrl] == true
-                        Column(
-                            modifier = Modifier.padding(vertical = 4.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = entry.name,
-                                        style = SoftType.CardTitle,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        text = subUrl,
-                                        style = SoftType.Caption,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    // v0.46.0：自动刷新状态——失败标红"已失效"，成功显示上次刷新时间
-                                    val refreshStatus =
-                                        SubRefreshStore.statusOf(context, subUrl)
-                                    if (refreshStatus != null) {
-                                        Text(
-                                            text = if (!refreshStatus.ok) "已失效（刷新失败）"
-                                            else "上次刷新：${timeAgo(refreshStatus.checkedAt)}",
-                                            style = SoftType.Caption,
-                                            color = if (!refreshStatus.ok)
-                                                MaterialTheme.colorScheme.error
-                                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                        )
-                                    }
-                                }
-                                Switch(
-                                    checked = entry.enabled,
-                                    onCheckedChange = {
-                                        entry.enabled = it
-                                        onToggle()
-                                    },
-                                )
-                                // v0.24.0：批量检测徽标
-                                ProbeDot(probeResults[SourceProbeStore.probeKey("sub", subUrl)])
-                                IconButton(onClick = { onRemove(entry) }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Delete,
-                                        contentDescription = "删除",
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { expandedMap[subUrl] = !expanded },
-                                    modifier = Modifier.size(36.dp),
-                                ) {
-                                    Icon(
-                                        imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                        contentDescription = if (expanded) "收起站点" else "展开站点",
-                                    )
-                                }
-                            }
-
-                            AnimatedVisibility(visible = expanded) {
-                                Column(
-                                    modifier = Modifier.padding(
-                                        start = 16.dp, end = 8.dp, bottom = 8.dp,
-                                    ),
-                                ) {
-                                    // v0.42.0：完整订阅链接展示 + 复制
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp),
-                                    ) {
-                                        SelectionContainer(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = subUrl,
-                                                style = SoftType.Caption,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                clipboard.setText(AnnotatedString(subUrl))
-                                                Toast.makeText(context, "订阅链接已复制", Toast.LENGTH_SHORT).show()
-                                            },
-                                            modifier = Modifier.size(36.dp),
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.ContentCopy,
-                                                contentDescription = "复制链接",
-                                            )
-                                        }
-                                    }
-                                    SubscriptionCacheBody(
-                                        cacheUrl = subUrl,
-                                        caches = caches,
-                                        parsing = parsing,
-                                        expandedMap = expandedMap,
-                                        currentSiteKey = currentSiteKey,
-                                        onParse = onParse,
-                                        onSetCurrent = onSetCurrent,
-                                        parseButtonText = "解析站点",
-                                        depth = 0,
-                                    )
-                                }
-                            }
-                        }
-                    }
+            // v0.42.0：完整订阅链接展示 + 复制（原展开逻辑）
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+            ) {
+                SelectionContainer(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = subUrl,
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        clipboard.setText(AnnotatedString(subUrl))
+                        Toast.makeText(context, "订阅链接已复制", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ContentCopy,
+                        contentDescription = "复制链接",
+                    )
                 }
             }
+            SubscriptionCacheBody(
+                cacheUrl = subUrl,
+                caches = caches,
+                parsing = parsingMap,
+                expandedMap = expandedMap,
+                currentSiteKey = currentSiteKey,
+                onParse = onParse,
+                onSetCurrent = onSetCurrent,
+                parseButtonText = "解析站点",
+                depth = 0,
+            )
         }
     }
 }

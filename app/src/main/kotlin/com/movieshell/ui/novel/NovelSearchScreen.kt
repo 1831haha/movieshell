@@ -241,8 +241,9 @@ fun NovelSearchScreen(
     }
 }
 
-/** v0.64.0：找书结果分组（JSON 书源 / 本地 PY 书源统一展示）。 */
-internal data class SourceGroup(
+/** v0.64.0：找书结果分组（JSON 书源 / 本地 PY 书源统一展示）。v0.103.1：去 internal——
+ * NovelSearchViewModel 的 public 成员 results/joinShelf 暴露它，internal 会编译失败。 */
+data class SourceGroup(
     val key: String,
     val name: String,
     val books: List<NovelSearchResult>,
