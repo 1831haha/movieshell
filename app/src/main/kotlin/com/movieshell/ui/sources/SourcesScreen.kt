@@ -1568,12 +1568,6 @@ private fun KindBadge(kind: String) {    val (label, color) = when (kind) {
 }
 
 /**
- * 接口站源卡（v0.5.1）。
- * 每条启用的订阅可展开站点列表：站名 + 类型徽标（CMS/drpy/PY/PHP/不支持）；
- * 点可用站点即"设为点播页当前源"（持久化），点"不支持"的站点 Toast 说明原因。
- */
-@Composable
-/**
  * v0.104.0：订阅卡片共用信息区——名称 / 站点数 / 延迟·检测时间 / 刷新状态。
  * 颜色铁律：全部走主题色，禁止硬编码 Color.White。
  */
