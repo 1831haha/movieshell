@@ -102,6 +102,39 @@ class LxMusicSourceEngine(context: Context) {
         }
     }
 
+    /**
+     * v0.103.0：取某脚本 inited 上报的音质 id 列表。
+     *
+     * 从 engines 锁内只读该 scriptUrl 的 initedJson（createEngine 里存的 payload），
+     * 解析 `sources[].qualitys[].id` 展平去重（兼容 qualitys 条目为字符串的写法）；
+     * 脚本未加载过 / 无 inited / 解析失败返回空 list。
+     * 只读 map + 解析 JSON，任一线程可调。
+     */
+    fun getQualityIds(scriptUrl: String): List<String> {
+        val initedJson = synchronized(enginesLock) {
+            engines[scriptUrl]?.initedJson
+        } ?: return emptyList()
+        if (initedJson.isBlank()) return emptyList()
+        return runCatching {
+            val seen = LinkedHashSet<String>()
+            val sources = JSONObject(initedJson).optJSONArray("sources")
+            for (i in 0 until (sources?.length() ?: 0)) {
+                val qualitys = sources?.optJSONObject(i)?.optJSONArray("qualitys")
+                for (j in 0 until (qualitys?.length() ?: 0)) {
+                    val id = when (val q = qualitys?.opt(j)) {
+                        is JSONObject -> q.optString("id")
+                        is String -> q
+                        else -> ""
+                    }
+                    if (id.isNotBlank()) seen.add(id)
+                }
+            }
+            seen.toList()
+        }.onFailure {
+            LogBus.w(TAG, "getQualityIds 解析失败: $scriptUrl ${it.message}")
+        }.getOrDefault(emptyList())
+    }
+
     /** 关闭所有缓存的 QuickJs 上下文（在 JS 线程执行，避免与 evaluate 并发）。 */
     fun release() {
         val all = synchronized(enginesLock) {

@@ -60,7 +60,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.movieshell.data.repo.LogBus
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.data.repo.MusicApi
@@ -77,6 +76,8 @@ import com.movieshell.ui.theme.SoftDimens
 import kotlinx.coroutines.launch
 import android.provider.OpenableColumns
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Add
@@ -91,7 +92,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.movieshell.data.repo.MusicHistoryStore
 import com.movieshell.data.repo.MusicStore
 import com.movieshell.data.repo.MusicPlaylist
 import kotlinx.coroutines.Dispatchers
@@ -115,39 +115,21 @@ fun MusicScreen(
     onOpenMusicSource: () -> Unit = {},
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    // v0.103.0：activity 级 VM——切后台/切 tab 不销毁，viewModelScope 里的搜索不中断、结果保留
+    val activity = LocalContext.current as ComponentActivity
+    val vm: MusicSearchViewModel = viewModel(activity)
     val keyboard = LocalSoftwareKeyboardController.current
-    var query by remember { mutableStateOf("") }
-    var tracks by remember { mutableStateOf<List<MusicApi.Track>>(emptyList()) }
-    var searching by remember { mutableStateOf(false) }
-    var searched by remember { mutableStateOf(false) }
+    val query by vm.query.collectAsState()
+    val tracks by vm.tracks.collectAsState()
+    val searching by vm.searching.collectAsState()
+    val searched by vm.searched.collectAsState()
     // v0.84.0：搜索历史
-    var searchHistory by remember { mutableStateOf<List<String>>(emptyList()) }
+    val searchHistory by vm.searchHistory.collectAsState()
 
-    fun reloadHistory() {
-        scope.launch { searchHistory = MusicHistoryStore.searchHistory(context) }
-    }
-    LaunchedEffect(Unit) { reloadHistory() }
-
-    // v0.82.0：接受显式 query（风格 chips 点后直接搜，不等 state 落定）
+    // v0.82.0：接受显式 query（风格 chips 点后直接搜，不等 state 落定）；键盘收起在 composable 侧
     fun doSearch(q0: String = query) {
-        val q = q0.trim()
-        if (q.isBlank() || searching) return
         keyboard?.hide()
-        searching = true
-        searched = true
-        scope.launch {
-            // v0.84.0：记搜索历史
-            MusicHistoryStore.addSearch(context, q)
-            searchHistory = MusicHistoryStore.searchHistory(context)
-            runCatching { MusicApi.search(q) }
-                .onSuccess { tracks = it }
-                .onFailure {
-                    LogBus.e("Music", "搜索失败：${it.message}")
-                    tracks = emptyList()
-                }
-            searching = false
-        }
+        vm.doSearch(q0)
     }
 
     var tab by remember { mutableIntStateOf(0) } // v0.81.0：0=在线 1=本地 2=收藏；v0.84.0：3=歌单
@@ -183,32 +165,19 @@ fun MusicScreen(
             if (tab == 0) {
                 OnlineTab(
                     query = query,
-                    onQueryChange = { query = it },
+                    onQueryChange = { vm.setQuery(it) },
                     tracks = tracks,
                     searching = searching,
                     searched = searched,
                     searchHistory = searchHistory,
                     onHistorySearch = { h ->
-                        query = h
+                        vm.setQuery(h)
                         doSearch(h)
                     },
-                    onHistoryRemove = { h ->
-                        scope.launch {
-                            MusicHistoryStore.removeSearch(context, h)
-                            reloadHistory()
-                        }
-                    },
-                    onHistoryClear = {
-                        scope.launch {
-                            MusicHistoryStore.clearSearch(context)
-                            reloadHistory()
-                        }
-                    },
+                    onHistoryRemove = { h -> vm.removeHistory(h) },
+                    onHistoryClear = { vm.clearHistory() },
                     onSearch = { q -> doSearch(q) },
-                    onTracksLoaded = { list ->
-                        tracks = list
-                        searched = true
-                    },
+                    onTracksLoaded = { list -> vm.setTracks(list) },
                     onPlayAt = { idx -> MusicPlayer.playList(context, tracks, idx) },
                 )
             } else if (tab == 1) {

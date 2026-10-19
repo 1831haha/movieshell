@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -82,6 +83,23 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         scope.launch { sources = MusicSourceStore.list(context) }
     }
     LaunchedEffect(Unit) { reload() }
+
+    // v0.103.0：档次 chips——进入管理页对启用的自定义源并发 loadScript
+    //（引擎内已有 15s 超时，不另起超时），成功后读 inited 上报的 qualitys；
+    // file:// 本地源同样走 loadScript。value=null=加载中，空 list=失败/无数据
+    val qualityOf = remember { mutableStateMapOf<String, List<String>?>() }
+    LaunchedEffect(sources, lxEngine) {
+        sources
+            .filter { it.enabled && !it.builtin && it.url.isNotBlank() && it.id !in qualityOf }
+            .forEach { s ->
+                qualityOf[s.id] = null
+                launch {
+                    qualityOf[s.id] =
+                        if (lxEngine.loadScript(s.url)) lxEngine.getQualityIds(s.url)
+                        else emptyList()
+                }
+            }
+    }
 
     // v0.103.0：本地 .js 文件导入。mime 传 */*（很多文件管理器给 .js 报奇怪 mime），
     // 选完后校验扩展名或内容头含 EVENT_NAMES/globalThis.lx，不对则 Toast。
@@ -182,7 +200,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                                 text = source.name,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false),
@@ -205,10 +223,46 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                             Text(
                                 text = source.url,
                                 fontSize = 12.sp,
-                                color = Color.White.copy(alpha = 0.45f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                        }
+                        // v0.103.0：档次 chips——内置 huibq 固定两档（纯 HTTP 无 inited）；
+                        // 自定义源取脚本 inited 自报的 qualitys；加载中"…", 失败/无数据"未知"
+                        val labels: List<String>? = when {
+                            source.builtin -> listOf("流畅", "标准")
+                            !source.enabled -> null
+                            else -> {
+                                val ids = qualityOf[source.id]
+                                when {
+                                    ids == null -> listOf("…")
+                                    ids.isEmpty() -> listOf("未知")
+                                    else -> ids.sortedBy { qualityRank(it) }
+                                        .map(::qualityLabel)
+                                        .distinct()
+                                }
+                            }
+                        }
+                        if (!labels.isNullOrEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                labels.forEach { label ->
+                                    Text(
+                                        text = label,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                                    .copy(alpha = 0.12f),
+                                            )
+                                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
                         }
                     }
                     Spacer(Modifier.width(8.dp))
@@ -234,7 +288,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                             Icon(
                                 imageVector = Icons.Filled.Delete,
                                 contentDescription = "删除音乐源",
-                                tint = Color.White.copy(alpha = 0.6f),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp),
                             )
                         }
@@ -307,9 +361,32 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                 Text(
                     text = testMsg.orEmpty(),
                     fontSize = 13.sp,
-                    color = Color.White.copy(alpha = 0.85f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
     }
+}
+
+/**
+ * v0.103.0：音质 id → 档次中文标签；未知 id 直接显示原文。
+ * 有自带的用自带的——优先用脚本 inited 自报的 qualitys id 进这个映射。
+ */
+private fun qualityLabel(id: String): String = when (id) {
+    "128k" -> "流畅"
+    "192k" -> "标准"
+    "320k" -> "高清"
+    "flac" -> "无损"
+    "flac24bit", "hires", "atmos", "atmos_plus", "master" -> "超高清"
+    else -> id
+}
+
+/** 档次排序权重（未知 id 排最后） */
+private fun qualityRank(id: String): Int = when (id) {
+    "128k" -> 0
+    "192k" -> 1
+    "320k" -> 2
+    "flac" -> 3
+    "flac24bit", "hires", "atmos", "atmos_plus", "master" -> 4
+    else -> 5
 }

@@ -34,12 +34,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.activity.ComponentActivity
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -52,11 +50,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.movieshell.data.repo.DrpySourceManager
-import com.movieshell.data.repo.PySourceManager
-import com.movieshell.data.repo.SearchHistoryStore
-import com.movieshell.data.repo.SiteRepository
-import com.movieshell.data.repo.SiteSearchResult
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.AppTextField
@@ -67,57 +61,34 @@ import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
-import kotlinx.coroutines.launch
 
 
 @Composable
 fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
-    val context = LocalContext.current
-    var query by remember { mutableStateOf("") }
-    var submitted by remember { mutableStateOf("") }
-    val history = remember { mutableStateListOf<String>() }
+    // v0.103.0：activity 级 VM——切后台/切 tab 不销毁，viewModelScope 里的聚合搜索不中断、结果保留
+    val activity = LocalContext.current as ComponentActivity
+    val vm: SearchViewModel = viewModel(activity)
+    val query by vm.query.collectAsState()
+    val submitted by vm.submitted.collectAsState()
+    val history by vm.history.collectAsState()
     val focusManager = LocalFocusManager.current
-    val scope = rememberCoroutineScope()
-
-    // 聚合搜索 repo：drpy / PY 走当前激活规则的引擎适配器
-    val repo = remember {
-        SiteRepository(
-            drpyEngine = DrpySourceManager.drpyEngineAdapter,
-            pyEngine = PySourceManager.engineAdapter,
-        )
-    }
-    var searching by remember { mutableStateOf(false) }
-    var groupedResults by remember { mutableStateOf<List<SiteSearchResult>?>(null) } // null=尚未搜过
+    val searching by vm.searching.collectAsState()
+    val groupedResults by vm.groupedResults.collectAsState() // null=尚未搜过
 
     // 搜索历史：进入页面读一次，切回页面时刷新
-    fun refreshHistory() {
-        history.clear()
-        history.addAll(SearchHistoryStore.list(context))
-    }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        refreshHistory()
+        vm.refreshHistory()
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) refreshHistory()
+            if (event == Lifecycle.Event.ON_RESUME) vm.refreshHistory()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     fun doSearch(text: String) {
-        val t = text.trim()
-        if (t.isEmpty()) return
-        submitted = t
-        SearchHistoryStore.add(context, t)
-        refreshHistory()
         focusManager.clearFocus()
-        searching = true
-        groupedResults = null
-        scope.launch {
-            repo.loadFromConfig(buildSearchConfigJson(context))
-            groupedResults = repo.searchAll(t)
-            searching = false
-        }
+        vm.doSearch(text)
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -137,14 +108,14 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
             }
             AppTextField(
                 value = query,
-                onValueChange = { query = it },
+                onValueChange = { vm.setQuery(it) },
                 placeholder = "搜索影片、剧集、演员…",
                 modifier = Modifier.weight(1f),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { doSearch(query) }),
             )
             if (query.isNotEmpty()) {
-                IconButton(onClick = { query = "" }) {
+                IconButton(onClick = { vm.setQuery("") }) {
                     Icon(Icons.Filled.Clear, contentDescription = "清空")
                 }
             }
@@ -192,8 +163,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                     }
                     TextButton(
                         onClick = {
-                            SearchHistoryStore.clear(context)
-                            refreshHistory()
+                            vm.clearHistory()
                         },
                         modifier = Modifier.align(Alignment.End),
                     ) { Text("清空历史", fontSize = 12.sp) }
@@ -213,7 +183,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                         SectionHeader(icon = Icons.Filled.TrendingUp, title = "热搜")
                         HotSearchFlow(
                             words = hotWords,
-                            onPick = { query = it; doSearch(it) },
+                            onPick = { vm.setQuery(it); doSearch(it) },
                         )
                         Spacer(Modifier.height(20.dp))
                     }
@@ -228,8 +198,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                         SectionHeader(icon = Icons.Filled.History, title = "搜索历史")
                         if (history.isNotEmpty()) {
                             TextButton(onClick = {
-                                SearchHistoryStore.clear(context)
-                                refreshHistory()
+                                vm.clearHistory()
                             }) { Text("清空") }
                         }
                     }
@@ -248,7 +217,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { query = h; doSearch(h) },
+                                .clickable { vm.setQuery(h); doSearch(h) },
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
@@ -268,8 +237,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                             )
                             IconButton(onClick = {
                                 // v0.67.0：单条删除走 Store.remove
-                                SearchHistoryStore.remove(context, h)
-                                refreshHistory()
+                                vm.removeHistory(h)
                             }) {
                                 Icon(
                                     imageVector = Icons.Filled.Close,
@@ -313,7 +281,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                         icon = Icons.Filled.Search,
                         title = "没有找到「$submitted」相关结果",
                         actionText = "返回",
-                        onAction = { submitted = ""; query = "" },
+                        onAction = { vm.backToSearch() },
                     )
                 }
             } else {

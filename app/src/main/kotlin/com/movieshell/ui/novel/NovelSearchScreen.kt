@@ -1,6 +1,5 @@
 package com.movieshell.ui.novel
 
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,11 +32,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.activity.ComponentActivity
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -45,18 +43,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.movieshell.data.model.Chapter
-import com.movieshell.data.model.Novel
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.NovelSearchResult
-import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.PyBookSourceManager
-import com.movieshell.data.repo.NovelStore
-import com.movieshell.data.repo.SearchHistoryStore
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 
 /**
  * v0.61.0 找书页：多书源并发真搜 → 加入书架（只拉目录，正文阅读时按需拉取）。
@@ -70,124 +59,30 @@ fun NovelSearchScreen(
     pySourceName: String? = null,
     embedded: Boolean = false, // v0.79.0：嵌入书架子 tab 时隐藏头部
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    // v0.103.0：activity 级 VM——切后台/切 tab 不销毁，viewModelScope 里的多书源搜索不中断、结果保留
+    val activity = LocalContext.current as ComponentActivity
+    val vm: NovelSearchViewModel = viewModel(activity)
     val gold = Color(0xFFD9C39A)
 
     val sources by BookSourceManager.sources.collectAsState()
     val pyRules by PyBookSourceManager.rules.collectAsState()
     val pyEnabled by PyBookSourceManager.enabled.collectAsState()
-    var keyword by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(false) }
-    var results by remember { mutableStateOf<List<SourceGroup>>(emptyList()) }
-    var searched by remember { mutableStateOf(false) }
-    var joining by remember { mutableStateOf<String?>(null) }
+    val keyword by vm.keyword.collectAsState()
+    val loading by vm.loading.collectAsState()
+    val results by vm.results.collectAsState()
+    val searched by vm.searched.collectAsState()
+    val joining by vm.joining.collectAsState()
     // v0.67.0：小说搜索历史（独立作用域）
-    var history by remember { mutableStateOf<List<String>>(emptyList()) }
-    fun refreshHistory() { history = SearchHistoryStore.list(context, "novel") }
+    val history by vm.history.collectAsState()
 
-    LaunchedEffect(Unit) {
-        BookSourceManager.load(context)
-        PyBookSourceManager.load(context)
-        refreshHistory()
-    }
-
-    val enabledSources = remember(sources) { sources.filter { it.enabled } }
-    val enabledPyRules = remember(pyRules, pyEnabled) { pyRules.filter { it.name in pyEnabled } }
-    // v0.66.0：锁定单 PY 源时只搜它
+    // v0.66.0：锁定单 PY 源时只搜它（书源管理点源直达）；锁变化时 VM 清空旧结果
     val lockedPyRule = remember(pyRules, pySourceName) {
         pySourceName?.let { name -> pyRules.find { it.name == name } }
     }
-    val totalEnabled = enabledSources.size + enabledPyRules.size
-
-    fun doSearch() {
-        val kw = keyword.trim()
-        // v0.66.0：锁定模式下只要该源存在即可搜
-        val canSearch = if (lockedPyRule != null) true else totalEnabled > 0
-        if (kw.isEmpty() || !canSearch) {
-            if (!canSearch) {
-                Toast.makeText(context, "没有启用的书源，先去书源管理添加", Toast.LENGTH_SHORT).show()
-            }
-            return
-        }
-        // v0.67.0：记搜索历史
-        SearchHistoryStore.add(context, kw, "novel")
-        refreshHistory()
-        scope.launch {
-            loading = true
-            searched = true
-            results = coroutineScope {
-                // v0.66.0：锁定单 PY 源 → 只搜它
-                if (lockedPyRule != null) {
-                    NovelSourceEngine.searchAllPy(context, listOf(lockedPyRule), kw)
-                        .filter { it.second.isNotEmpty() }
-                        .map { (r, books) ->
-                            SourceGroup(
-                                PyBookSourceManager.SOURCE_KEY_PREFIX + r.name,
-                                "${r.title}（本地PY）",
-                                books,
-                            )
-                        }
-                } else {
-                    val jsonJob = async {
-                        NovelSourceEngine.searchAll(enabledSources, kw)
-                            .filter { it.second.isNotEmpty() }
-                            .map { (s, books) -> SourceGroup(s.key, s.name, books) }
-                    }
-                    val pyJob = async {
-                        NovelSourceEngine.searchAllPy(context, enabledPyRules, kw)
-                            .filter { it.second.isNotEmpty() }
-                            .map { (r, books) ->
-                                SourceGroup(
-                                    PyBookSourceManager.SOURCE_KEY_PREFIX + r.name,
-                                    "${r.title}（本地PY）",
-                                    books,
-                                )
-                            }
-                    }
-                    jsonJob.await() + pyJob.await()
-                }
-            }
-            loading = false
-        }
+    val totalEnabled = remember(sources, pyRules, pyEnabled) {
+        sources.count { it.enabled } + pyRules.count { it.name in pyEnabled }
     }
-
-    fun joinShelf(group: SourceGroup, item: NovelSearchResult) {
-        scope.launch {
-            joining = group.key + item.remoteId
-            val ok = runCatching {
-                val metas = if (group.key.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
-                    NovelSourceEngine.chaptersPy(context, item)
-                } else {
-                    val source = enabledSources.firstOrNull { it.key == group.key }
-                        ?: return@runCatching false
-                    NovelSourceEngine.chapters(source, item)
-                }
-                if (metas.isEmpty()) return@runCatching false
-                val novel = Novel(
-                    id = "bs_${group.key.hashCode()}_${item.remoteId.hashCode()}",
-                    sourceKey = group.key,
-                    title = item.title,
-                    author = item.author,
-                    cover = item.cover,
-                    addedAt = System.currentTimeMillis(),
-                )
-                // 只存目录（带章节 URL），正文阅读时按需拉取并缓存
-                val chapters = metas.map {
-                    Chapter(
-                        novelId = novel.id,
-                        index = it.index,
-                        title = it.title,
-                        content = "",
-                        url = it.url,
-                    )
-                }
-                NovelStore.addNovel(context, novel, chapters)
-            }.getOrDefault(false)
-            joining = null
-            Toast.makeText(context, if (ok) "已加入书架" else "加入失败（目录拉取失败）", Toast.LENGTH_SHORT).show()
-        }
-    }
+    LaunchedEffect(pySourceName) { vm.setLockPyName(pySourceName) }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         if (!embedded) {
@@ -217,12 +112,12 @@ fun NovelSearchScreen(
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = keyword,
-                onValueChange = { keyword = it },
+                onValueChange = { vm.setKeyword(it) },
                 placeholder = { Text("书名 / 作者") },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = { doSearch() }, modifier = Modifier.padding(start = 4.dp)) {
+            IconButton(onClick = { vm.doSearch() }, modifier = Modifier.padding(start = 4.dp)) {
                 Icon(Icons.Filled.Search, "搜索", tint = gold)
             }
         }
@@ -264,8 +159,7 @@ fun NovelSearchScreen(
                                     modifier = Modifier.weight(1f),
                                 )
                                 TextButton(onClick = {
-                                    SearchHistoryStore.clear(context, "novel")
-                                    refreshHistory()
+                                    vm.clearHistory()
                                 }) { Text("清空", fontSize = 13.sp) }
                             }
                         }
@@ -275,8 +169,8 @@ fun NovelSearchScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        keyword = h
-                                        doSearch()
+                                        vm.setKeyword(h)
+                                        vm.doSearch()
                                     }
                                     .padding(vertical = 6.dp),
                             ) {
@@ -294,8 +188,7 @@ fun NovelSearchScreen(
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
                                 IconButton(onClick = {
-                                    SearchHistoryStore.remove(context, h, "novel")
-                                    refreshHistory()
+                                    vm.removeHistory(h)
                                 }) {
                                     Icon(
                                         Icons.Filled.Close,
@@ -336,7 +229,7 @@ fun NovelSearchScreen(
                                 }
                                 Spacer(Modifier.width(8.dp))
                                 val busy = joining == group.key + item.remoteId
-                                Button(onClick = { joinShelf(group, item) }, enabled = !busy) {
+                                Button(onClick = { vm.joinShelf(group, item) }, enabled = !busy) {
                                     Text(if (busy) "加入中" else "加入书架")
                                 }
                             }
@@ -349,7 +242,7 @@ fun NovelSearchScreen(
 }
 
 /** v0.64.0：找书结果分组（JSON 书源 / 本地 PY 书源统一展示）。 */
-private data class SourceGroup(
+internal data class SourceGroup(
     val key: String,
     val name: String,
     val books: List<NovelSearchResult>,
