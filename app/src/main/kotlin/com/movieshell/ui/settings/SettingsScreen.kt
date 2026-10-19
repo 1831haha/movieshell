@@ -75,6 +75,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -513,7 +514,8 @@ fun SettingsScreen(
                                     Icon(
                                         imageVector = Icons.Filled.Check,
                                         contentDescription = "已选",
-                                        tint = Color.White,
+                                        // v0.105.0：圆圈是用户自选主题色（含浅色），按明度取深/白勾
+                                        tint = if (Color(argb).luminance() > 0.5f) Color(0xFF1A1408) else Color.White,
                                         modifier = Modifier.size(20.dp),
                                     )
                                 }
@@ -546,7 +548,8 @@ fun SettingsScreen(
                                     Icon(
                                         imageVector = Icons.Filled.Check,
                                         contentDescription = "已选",
-                                        tint = Color.White,
+                                        // v0.105.0：渐变预设可能偏浅，按色带平均明度取深/白勾
+                                        tint = if (preset.colors.map { Color(it).luminance() }.average() > 0.5f) Color(0xFF1A1408) else Color.White,
                                         modifier = Modifier.size(20.dp),
                                     )
                                 }

@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.movieshell.ui.theme.LocalBrandGradient
@@ -40,7 +41,10 @@ fun CapsuleTabBar(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val gradient = Brush.horizontalGradient(LocalBrandGradient.current)
+    val brandColors = LocalBrandGradient.current
+    val gradient = Brush.horizontalGradient(brandColors)
+    // v0.105.0：选中底是品牌渐变（用户可换浅色预设），按渐变平均明度取深/白字保证对比度（与 Theme.kt onPrimary 同口径）
+    val selTextColor = if (brandColors.map { it.luminance() }.average() > 0.5f) Color(0xFF1A1408) else Color.White
     val soft = LocalSoftExtra.current
     Row(
         modifier = modifier
@@ -56,7 +60,7 @@ fun CapsuleTabBar(
             val isSel = i == selected
             val bgAlpha by animateFloatAsState(if (isSel) 1f else 0f, label = "capsuleBg")
             val textColor by animateColorAsState(
-                if (isSel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                if (isSel) selTextColor else MaterialTheme.colorScheme.onSurfaceVariant,
                 label = "capsuleText",
             )
             Box(

@@ -423,7 +423,8 @@ fun NovelGridCard(
                         Icon(
                             Icons.Filled.Check,
                             contentDescription = null,
-                            tint = Color.White,
+                            // v0.105.0：选中底是主题 primary（含浅色），用明度自适应的 onPrimary
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(16.dp),
                         )
                     }
