@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
@@ -269,7 +270,7 @@ fun BookSourceScreen(
             },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(Icons.Filled.RestartAlt, "恢复默认书源", modifier = Modifier.size(18.dp))
+            Icon(Icons.Filled.Refresh, "恢复默认书源", modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
             Text("恢复默认书源")
         }
