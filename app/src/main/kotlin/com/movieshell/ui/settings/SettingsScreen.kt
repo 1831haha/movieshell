@@ -88,7 +88,6 @@ import com.movieshell.data.repo.SubRefreshStore
 import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
-import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.player.MpvPluginLoader
@@ -596,17 +595,6 @@ fun SettingsScreen(
                                 },
                             )
                         },
-                    )
-                }
-                // v0.78.2：解析接口收进子页面，设置页只留一个入口
-                run {
-                    val customParses by ParseStore.custom.collectAsState()
-                    SettingsRow(
-                        icon = Icons.Filled.Link,
-                        title = "解析接口",
-                        subtitle = if (customParses.isEmpty()) "自定义 jx 解析，播放时优先尝试"
-                        else "${customParses.size} 条线路",
-                        onClick = onParseSettingsClick,
                     )
                 }
                 // v0.79.0：嗅探自定义正则（原实验室）
