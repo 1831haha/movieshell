@@ -12,6 +12,7 @@ import java.io.File
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * libmpv 播放器封装（v0.20.0：可选第二引擎）。
@@ -51,10 +52,15 @@ object MpvPlayerManager {
     @Volatile private var lastPositionMs: Long = 0L
     @Volatile private var lastDurationMs: Long = 0L
     @Volatile private var paused = true
-    /** 手动 stop()/loadfile 后的 END_FILE 误报抑制窗口（毫秒时间戳） */
-    @Volatile private var suppressErrorUntil: Long = 0L
-
-    @Volatile
+    /**
+     * v0.107.0 P0-3：我们自己 stop()/loadfile 会产生一次 END_FILE，用计数显式忽略，
+     * 替代原来的 2 秒时间窗口——时间窗口会把 404/拒连的快速失败也吞掉，errorListener 永不触发。
+     * 用计数而非布尔：快速连播两次会产生两次 END_FILE。消费只发生在单线程 executor 上，
+     * 主线程只做 increment/decrement，AtomicInteger 足够，无需 CAS 循环。
+     */
+    private val expectEndFileCount = AtomicInteger(0)
+    /** 是否有已加载的文件（首播前不计忽略，避免把真正的失败吞掉） */
+    @Volatile private var hasFile = false    @Volatile
     private var errorListener: ((String) -> Unit)? = null
 
     private val observer = object : MPVLib.EventObserver {
@@ -159,7 +165,6 @@ object MpvPlayerManager {
             return
         }
         LogBus.i("MpvPlayer", "播放: ${url.take(120)}${if (url.length > 120) "..." else ""}")
-        suppressErrorUntil = System.currentTimeMillis() + 2000
         lastPositionMs = 0L
         lastDurationMs = 0L
         executor.execute {
@@ -172,6 +177,11 @@ object MpvPlayerManager {
                     arrayOf("loadfile", url, "replace", "-1", buildFileOptions(headers, startPositionMs, subtitleUrl))
                 )
                 MPVLib.setPropertyBoolean("pause", false)
+            }.onSuccess {
+                // v0.107.0 P0-3：replace 会结束旧文件（若有），其 END_FILE 计一次忽略；
+                // 命令发出后再计数，保证与 handleEndFile（同 executor 串行）的先后顺序
+                if (hasFile) expectEndFileCount.incrementAndGet()
+                hasFile = true
             }.onFailure { LogBus.e("MpvPlayer", "loadfile 失败：${it.message}") }
         }
     }
@@ -199,10 +209,13 @@ object MpvPlayerManager {
     }
 
     fun stop() {
-        suppressErrorUntil = System.currentTimeMillis() + 2000
+        val hadFile = hasFile
+        hasFile = false
         paused = true
         executor.execute {
             runCatching { MPVLib.command(arrayOf("stop")) }
+                // v0.107.0 P0-3：命令发出后才计数；命令本身失败则不会有 END_FILE，不计数
+                .onSuccess { if (hadFile) expectEndFileCount.incrementAndGet() }
                 .onFailure { LogBus.w("MpvPlayer", "stop 失败：${it.message}") }
         }
     }
@@ -344,10 +357,15 @@ object MpvPlayerManager {
     /**
      * END_FILE 处理：自然播完（eof-reached=true）不做任何事；
      * 异常结束则回调 onError（调用方走自动换线路重试）。
-     * 手动 stop()/loadfile 触发的 END_FILE 在抑制窗口内，直接忽略。
+     * v0.107.0 P0-3：我们自己 stop()/loadfile 触发的按计数忽略；
+     * 快速失败（404/拒连，eof-reached=false）直接走错误路径，不再被时间窗口吞掉。
      */
     private fun handleEndFile() {
-        if (System.currentTimeMillis() < suppressErrorUntil) return
+        hasFile = false
+        if (expectEndFileCount.get() > 0) {
+            expectEndFileCount.decrementAndGet()
+            return
+        }
         val eof = runCatching { MPVLib.getPropertyBoolean("eof-reached") }.getOrNull() == true
         if (!eof) {
             LogBus.w("MpvPlayer", "播放异常结束（非自然播完），触发错误回调")

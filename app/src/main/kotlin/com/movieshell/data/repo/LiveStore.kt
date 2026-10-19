@@ -157,18 +157,29 @@ object LiveStore {
 
     // ---------------- 刷新聚合 ----------------
 
-    /** 重拉所有来源并聚合；IO 线程调用 */
-    suspend fun refresh(context: Context) = withContext(Dispatchers.IO) {
+    /**
+     * 重拉所有来源并聚合；IO 线程调用。
+     * @return 未解析出频道的订阅名（含原因），调用方可给用户可见提示。
+     * v0.107.0 P0-9：之前 0 频道静默无提示。
+     */
+    suspend fun refresh(context: Context): List<String> = withContext(Dispatchers.IO) {
         val favs = readFavs(context)
         val out = mutableListOf<LiveChannel>()
+        val emptySources = mutableListOf<String>()
         out += readManual(context).map { it.copy(favorite = favs.contains(it.id)) }
         for (s in _sources.value) {
             val text = when (s.type) {
                 LiveSource.LOCAL_FILE -> runCatching { File(s.url).readText() }.getOrNull()
                 else -> withTimeoutOrNull(15_000) { downloadText(s.url) }
-            } ?: continue
+            }
+            if (text == null) {
+                emptySources += "${s.name}（下载失败）"
+                continue
+            }
             val key = "m3u:${s.name}"
-            out += parseM3u(text, key).map { it.copy(favorite = favs.contains(it.id)) }
+            val parsed = parseM3u(text, key)
+            if (parsed.isEmpty()) emptySources += "${s.name}（未解析出频道）"
+            out += parsed.map { it.copy(favorite = favs.contains(it.id)) }
         }
         // live 插件（v0.23.0 安装时已校验 lives 数组）
         StoragePaths.liveDir(context).listFiles { f -> f.isFile && f.name.endsWith(".json") }
@@ -178,6 +189,7 @@ object LiveStore {
             }
         _channels.value = out
         LogBus.i("Live", "聚合 ${out.size} 个频道（手动/订阅/插件）")
+        emptySources
     }
 
     // ---------------- 解析 ----------------
@@ -192,7 +204,12 @@ object LiveStore {
      */
     fun parseM3u(text: String, sourceKey: String): List<LiveChannel> {
         val lines = text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
-        if (lines.none { it.startsWith("#EXTM3U") }) return parseTxt(lines, sourceKey)
+        // v0.107.0 P0-9：无 #EXTM3U 头但有 #EXTINF 的也按 M3U 解析（现实中常见）；
+        // 之前直接走 parseTxt 兜底，而 parseTxt 会过滤所有 # 开头行 → 确定性 0 频道且静默。
+        // 两者都没有才走 TXT 兜底。
+        if (lines.none { it.startsWith("#EXTM3U") } && lines.none { it.startsWith("#EXTINF") }) {
+            return parseTxt(lines, sourceKey)
+        }
         val playlistEpg = lines.firstOrNull()?.let { h ->
             attrRe.findAll(h).firstOrNull { it.groupValues[1] == "x-tvg-url" }
                 ?.groupValues?.get(2).orEmpty()
@@ -257,7 +274,7 @@ object LiveStore {
                 LiveChannel(
                     id = "$sourceKey|$url", name = name, url = url,
                     logo = o["logo"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    group = o["group"]?.jsonPrimitive?.contentOrNull.orEmpty().ifBlank { "插件源" },
+                    group = o["group"]?.jsonPrimitive?.contentOrNull.orEmpty().ifBlank { "本地源" },
                     ua = o["ua"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                     epgUrl = o["epg"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                     sourceKey = sourceKey,

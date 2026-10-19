@@ -563,15 +563,27 @@ fun PlayerScreen(
         }
     }
     // v0.57：错误对话框的"重试"——按当前进度重播当前地址
+    // v0.107.0 P0-4：重试统一入口——magnet: 地址不直接喂 EngineHost（ExoPlayer 必失败），
+    // 重走 MagnetPlayer.playIfReady 探测本机转播服务链路
+    suspend fun playCurrentUrl(startPositionMs: Long): Boolean {
+        val sub = runCatching { currentSubtitleUrl() }.getOrNull()
+        return if (MagnetPlayer.isMagnet(playUrl)) {
+            MagnetPlayer.playIfReady(
+                context, magnet = playUrl, title = title,
+                startPositionMs = startPositionMs,
+            )
+        } else {
+            EngineHost.play(
+                context, playUrl, headers = lastHeaders,
+                startPositionMs = startPositionMs, subtitleUrl = sub,
+            )
+        }
+    }
     fun retryCurrent() {
         scope.launch {
             try {
                 val pos = EngineHost.currentPosition()
-                val sub = runCatching { currentSubtitleUrl() }.getOrNull()
-                val ok = EngineHost.play(
-                    context, playUrl, headers = lastHeaders,
-                    startPositionMs = pos, subtitleUrl = sub,
-                )
+                val ok = playCurrentUrl(pos)
                 if (!ok) {
                     playError = PlayError.classify("重试失败")
                 }
@@ -718,11 +730,7 @@ fun PlayerScreen(
                     EngineHost.setEngineOverride(other)
                     val pos = EngineHost.currentPosition()
                     scope.launch {
-                        val sub = runCatching { currentSubtitleUrl() }.getOrNull()
-                        val ok = EngineHost.play(
-                            context, playUrl, headers = lastHeaders,
-                            startPositionMs = pos, subtitleUrl = sub,
-                        )
+                        val ok = playCurrentUrl(pos)
                         if (ok) {
                             EngineHost.applySubtitleStyle(
                                 PlayerSettings.subtitleStyle.value, playerView

@@ -255,6 +255,24 @@ fun BookSourceScreen(
                     if (purifyCount >= 0) " · $purifyCount 条生效" else ""
             )
         }
+        // v0.107.0 P0-7：删光书源后手动恢复内置源（已存在则提示，无需操作）
+        OutlinedButton(
+            onClick = {
+                scope.launch {
+                    val added = BookSourceManager.restoreBuiltin(context)
+                    Toast.makeText(
+                        context,
+                        if (added) "已恢复内置书源（全本小说网）" else "内置书源已存在，无需恢复",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Filled.RestartAlt, "恢复默认书源", modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("恢复默认书源")
+        }
         Spacer(Modifier.height(12.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             // v0.64.0：本地 PY 书源区

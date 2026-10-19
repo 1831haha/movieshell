@@ -136,6 +136,16 @@ fun LiveScreen(
         refreshing = true
         scope.launch {
             runCatching { LiveStore.refresh(context) }
+                // v0.107.0 P0-9：订阅 0 频道不再静默，给可见提示
+                .onSuccess { empties ->
+                    if (empties.isNotEmpty()) {
+                        Toast.makeText(
+                            context,
+                            "以下订阅未解析出频道：${empties.joinToString("、")}",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
                 .onFailure { Toast.makeText(context, "刷新失败：${it.message}", Toast.LENGTH_LONG).show() }
             refreshing = false
         }
@@ -709,7 +719,7 @@ private fun ChannelDetailSheet(
                             when {
                                 channel.sourceKey.startsWith("manual") -> "手动添加"
                                 channel.sourceKey.startsWith("m3u:") -> "订阅：" + channel.sourceKey.removePrefix("m3u:")
-                                else -> "插件源"
+                                else -> "本地源"
                             },
                         style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

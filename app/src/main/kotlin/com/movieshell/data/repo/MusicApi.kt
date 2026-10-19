@@ -83,7 +83,9 @@ object MusicApi {
 
     /** v0.82.0：歌单导入——网易云歌单 ID/链接 → 歌单名 + 曲目列表。 */
     suspend fun playlist(idOrUrl: String): Pair<String, List<Track>> {
-        val id = Regex("[0-9]+").find(idOrUrl)?.value
+        // v0.107.0 P0-8：优先取 id= 参数——直接取首个数字串会把 music.163.com 里的 "163" 当成歌单 ID
+        val id = Regex("[?&]id=(\\d+)").find(idOrUrl)?.groupValues?.get(1)
+            ?: Regex("[0-9]+").find(idOrUrl)?.value
             ?: throw IllegalStateException("没识别出歌单 ID")
         val body = get("$BASE?types=playlist&source=$SOURCE&id=$id")
         val tracks = mutableListOf<Track>()

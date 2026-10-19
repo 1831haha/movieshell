@@ -23,6 +23,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.security.MessageDigest
 import kotlin.coroutines.EmptyCoroutineContext
 
 /**
@@ -232,6 +233,12 @@ class QuickJsDrpyEngine(
         /** 兼容 shim.js 的 4 参调用。 */
         fun http(url: String, headersJson: String, method: String, body: String): String
         fun log(msg: String)
+
+        /**
+         * v0.107.0 P0-2：shim.js 的 md5() 转调 __bridge.md5()，之前没注册
+         * （与 v0.99.0 的 http() 未注册同类 bug），依赖 MD5 签名的 lazy 解析会静默算错地址。
+         */
+        fun md5(s: String): String
     }
 
     /** JS 桥：提供同步 request()/http() 给 drpy 规则。 */
@@ -257,6 +264,14 @@ class QuickJsDrpyEngine(
 
         override fun log(msg: String) {
             LogBus.d(TAG, "JS: $msg")
+        }
+
+        override fun md5(s: String): String {
+            return runCatching {
+                MessageDigest.getInstance("MD5")
+                    .digest(s.toByteArray(Charsets.UTF_8))
+                    .joinToString("") { "%02x".format(it) }
+            }.getOrDefault("")
         }
 
         /**

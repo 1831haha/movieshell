@@ -42,6 +42,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -167,7 +168,9 @@ fun AppChip(
         colors = FilterChipDefaults.filterChipColors(
             containerColor = LocalSoftExtra.current.glass,
             selectedContainerColor = glowColor.copy(alpha = 0.22f),
-            selectedLabelColor = glowColor,
+            // v0.107.0 P0-10：照 v0.105.0 口径（CapsuleTabBar 同款），浅色主题色下选中字取深色，
+            // 之前直接用主色原色，亮色主题+浅色主题色时对比度约 1.2:1 不可读
+            selectedLabelColor = if (glowColor.luminance() > 0.5f) Color(0xFF1A1408) else glowColor,
         ),
         border = FilterChipDefaults.filterChipBorder(
             enabled = true,

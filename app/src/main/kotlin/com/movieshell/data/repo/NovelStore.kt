@@ -84,8 +84,16 @@ object NovelStore {
         chapters: List<Chapter>,
     ): Boolean = withContext(Dispatchers.IO) {
         runCatching {
+            // v0.107.0 P0-6：追更/换源只带目录不带正文——content 为空的新章节不许覆盖
+            // 已有缓存正文（按标题匹配，防源方目录乱序 graft 错章）
+            val oldByTitle = runCatching {
+                val f = chaptersFile(context, novelId)
+                if (!f.isFile) emptyList()
+                else json.decodeFromString(ListSerializer(Chapter.serializer()), f.readText())
+            }.getOrDefault(emptyList()).associateBy { it.title }
             val fixed = chapters.mapIndexed { i, c ->
-                c.copy(novelId = novelId, index = i)
+                val keep = c.content.ifBlank { oldByTitle[c.title]?.content.orEmpty() }
+                c.copy(novelId = novelId, index = i, content = keep)
             }
             chaptersFile(context, novelId).writeText(
                 json.encodeToString(ListSerializer(Chapter.serializer()), fixed),

@@ -42,10 +42,9 @@ object BookSourceManager {
                 BookSource.fromJson(arr.getJSONObject(it).toString())
             }
         }.onFailure { Log.w(TAG, "书源文件读取失败", it) }.getOrDefault(emptyList())
-        // v0.89.0：老用户也补上内置真实书源（没有才加；用户可在书源管理页删除/关闭）
-        val merged = if (list.none { it.key == BUILTIN_KEY }) list + builtIn() else list
-        _sources.value = merged.ifEmpty { builtIn() }
-        if (merged.size != list.size) save(context)
+        // v0.107.0 P0-7：删光就是删光，不再自动复活内置源；
+        // 内置源走书源管理页"恢复默认"手动加回（restoreBuiltin）
+        _sources.value = list
     }
 
     private suspend fun save(context: Context) = withContext(Dispatchers.IO) {
@@ -95,6 +94,18 @@ object BookSourceManager {
     suspend fun remove(context: Context, key: String) {
         _sources.value = _sources.value.filterNot { it.key == key }
         save(context)
+    }
+
+    /**
+     * v0.107.0 P0-7：手动恢复内置书源（已存在则不重复）。删光书源后靠这个加回来，
+     * 不再靠 load() 自动复活。
+     * @return true=新增了内置源，false=已存在（无需操作）
+     */
+    suspend fun restoreBuiltin(context: Context): Boolean = withContext(Dispatchers.IO) {
+        if (_sources.value.any { it.key == BUILTIN_KEY }) return@withContext false
+        _sources.value = _sources.value + builtIn()
+        save(context)
+        true
     }
 
     suspend fun setEnabled(context: Context, key: String, enabled: Boolean) {
