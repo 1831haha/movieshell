@@ -265,28 +265,28 @@ fun NovelSearchScreen(
                     }
                 }
             }
-            // v0.108.0 B4：已在书架点按钮 → 二次确认移出（影图风 TechDialog，文案走主题色）
-            removeTarget?.let { (g, it) ->
-                TechDialog(
-                    onDismissRequest = { removeTarget = null },
-                    title = "移出《${it.title}》？",
-                    confirmText = "移出",
-                    onConfirm = {
-                        removeTarget = null
-                        scope.launch {
-                            val rid = shelfNovelId(g, it)
-                            val ok = NovelStore.removeNovel(appCtx, rid)
-                            if (ok) shelfIds = shelfIds - rid
-                            Toast.makeText(
-                                appCtx,
-                                if (ok) "已移出书架" else "移出失败",
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
-                    },
-                ) {
-                    Text("将从书架移除，阅读进度也会清除。")
-                }
+        }
+        // v0.108.0 B4：已在书架点按钮 → 二次确认移出（影图风 TechDialog，文案走主题色）
+        removeTarget?.let { (g, it) ->
+            TechDialog(
+                onDismissRequest = { removeTarget = null },
+                title = "移出《${it.title}》？",
+                confirmText = "移出",
+                onConfirm = {
+                    removeTarget = null
+                    scope.launch {
+                        val rid = shelfNovelId(g, it)
+                        val ok = NovelStore.removeNovel(appCtx, rid)
+                        if (ok) shelfIds = shelfIds - rid
+                        Toast.makeText(
+                            appCtx,
+                            if (ok) "已移出书架" else "移出失败",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                },
+            ) {
+                Text("将从书架移除，阅读进度也会清除。")
             }
         }
     }
