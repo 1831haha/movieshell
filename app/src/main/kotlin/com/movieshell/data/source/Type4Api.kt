@@ -22,6 +22,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * type=4 播放请求的返回。
@@ -33,6 +34,16 @@ data class Type4PlayResult(
     val url: String = "",
     val parse: Int = 0,
     val header: Map<String, String> = emptyMap()
+)
+
+/**
+ * type=4 搜索返回。
+ * @param total 上游 total 字段（有才透出，无则为 null，不编造）
+ * @param list 本页影片列表
+ */
+data class Type4SearchPage(
+    val total: Int? = null,
+    val list: List<Vod> = emptyList()
 )
 
 /**
@@ -64,6 +75,23 @@ class Type4Api(
 
         /** 播放 header 白名单（小写比对）：只透传这四个，其余丢弃。 */
         private val headerAllow = setOf("user-agent", "referer", "origin", "cookie")
+
+        /** 站点记忆键：key 为空时退回 api；拼接 api 使站点配置变化时记忆自动失效。 */
+        private fun memKey(site: Site): String = "${site.key.ifBlank { site.api }}|${site.api}"
+
+        /**
+         * 分类列表内存缓存：memKey(site) -> types。PHP 站无独立取分类接口，
+         * 每次切分类都要请求一次首页；缓存后同站切分类不再重复请求。
+         * 只缓存非空结果（首页失败/包络错误时不污染缓存，下次重拉）。
+         */
+        private val typeCache = ConcurrentHashMap<String, List<CategoryType>>()
+
+        /**
+         * 播放模式 B 记忆：memKey(site) -> true 表示该站已确认走 ?play= 独立分支，
+         * 下次直接走第二分支，省掉第一次注定落空的 ac=play 试探。
+         * 只有第二分支真正成功（有效播放响应）才标记；不改站点配置 JSON。
+         */
+        private val modeB = ConcurrentHashMap<String, Boolean>()
     }
 
     // ---------------- 对外接口（5 个） ----------------
@@ -76,26 +104,43 @@ class Type4Api(
 
     /**
      * 分类：返回 (分类列表, 当前分类第 pg 页)。
-     * 分类列表取自首页响应的 class 数组（PHP 站无独立取分类接口）。
+     * 分类列表取自首页响应的 class 数组（PHP 站无独立取分类接口），按站做内存缓存：
+     * 同一站切分类不再重复请求首页；切站或该站 api 变化时记忆键变化，自动失效重拉。
      */
     suspend fun category(site: Site, tid: String, pg: Int): Pair<List<CategoryType>, List<Vod>> =
         safe(emptyList<CategoryType>() to emptyList()) {
-            val homeUrl = buildUrl(site)
-                ?: return@safe (emptyList<CategoryType>() to emptyList())
-            val types = parseHome(getText(homeUrl)).first
+            val types = cachedTypes(site)
             if (tid.isBlank()) return@safe types to emptyList()
             val url = buildUrl(site, "ac" to "detail", "t" to tid, "pg" to pg.toString())
                 ?: return@safe types to emptyList()
             types to parseCategory(getText(url))
         }
 
-    /** 搜索。 */
-    suspend fun search(site: Site, wd: String): List<Vod> = safe(emptyList()) {
-        if (wd.isBlank()) return@safe emptyList<Vod>()
-        val url = buildUrl(site, "wd" to wd, "pg" to "1")
-            ?: return@safe emptyList<Vod>()
-        parseSearch(getText(url))
+    /** 分类列表内存缓存：命中直接返回；未命中请求一次首页，非空才缓存。 */
+    private fun cachedTypes(site: Site): List<CategoryType> {
+        val key = memKey(site)
+        typeCache[key]?.let { return it }
+        val homeUrl = buildUrl(site) ?: return emptyList()
+        val types = parseHome(getText(homeUrl)).first
+        if (types.isNotEmpty()) typeCache[key] = types
+        return types
     }
+
+    /**
+     * 搜索（分页就绪版）：pg 透传给上游；total 为上游 total 字段，无则为 null（不编造）。
+     * 调用方（SiteRepository.search）目前只要列表；搜索页暂无分页 UI，UI 不动。
+     */
+    suspend fun searchPage(site: Site, wd: String, pg: Int = 1): Type4SearchPage =
+        safe(Type4SearchPage()) {
+            if (wd.isBlank()) return@safe Type4SearchPage()
+            val url = buildUrl(site, "wd" to wd, "pg" to pg.toString())
+                ?: return@safe Type4SearchPage()
+            parseSearchPage(getText(url))
+        }
+
+    /** 搜索：返回列表；需要总数/翻页时用 [searchPage]。 */
+    suspend fun search(site: Site, wd: String, pg: Int = 1): List<Vod> =
+        searchPage(site, wd, pg).list
 
     /** 详情：取 list[0]。失败返回仅带 vodId 的空详情。 */
     suspend fun detail(site: Site, vodId: String): VodDetail = safe(VodDetail(vodId = vodId)) {
@@ -105,20 +150,26 @@ class Type4Api(
     }
 
     /**
-     * 播放双试探：
+     * 播放双试探（带模式记忆）：
      *   先 GET {api}?ac=play&flag={flag}&id={id}；
      *   若返回不是有效播放响应（含 class 落回首页、url 为空或解析失败），
      *   再发 GET {api}?play={urlEncode(id)}。
      * 模式 A（BaseSpider::run）两种参数都认，第一次即中；模式 B（独立文件）
-     * 只认 ?play=，第一次会落回首页、第二次命中。
+     * 只认 ?play=，第一次会落回首页、第二次命中。一旦某站走过第二分支成功，
+     * 记住它，下次直接走第二分支（不改站点配置 JSON，用户侧配置原样不动）。
      */
     suspend fun play(site: Site, flag: String, id: String): Type4PlayResult =
         safe(Type4PlayResult()) {
-            val first = buildUrl(site, "ac" to "play", "flag" to flag, "id" to id)
-                ?.let { parsePlay(getText(it)) }
-            if (first?.isPlayResponse() == true) return@safe first
+            val key = memKey(site)
+            if (modeB[key] != true) {
+                val first = buildUrl(site, "ac" to "play", "flag" to flag, "id" to id)
+                    ?.let { parsePlay(getText(it)) }
+                if (first?.isPlayResponse() == true) return@safe first
+            }
             val second = buildUrl(site, "play" to id) ?: return@safe Type4PlayResult()
-            parsePlay(getText(second))
+            val result = parsePlay(getText(second))
+            if (result.isPlayResponse()) modeB[key] = true
+            result
         }
 
     // ---------------- 纯解析函数（输入 String 输出模型，便于测试） ----------------
@@ -139,11 +190,20 @@ class Type4Api(
     fun parseCategory(text: String): List<Vod> = parseSearch(text)
 
     /** 搜索 text -> 影片列表。 */
-    fun parseSearch(text: String): List<Vod> = runCatching {
+    fun parseSearch(text: String): List<Vod> = parseSearchPage(text).list
+
+    /**
+     * 搜索 text -> (总数, 影片列表)。total 只有上游给了才透出，没有就是 null。
+     * {code:500} 或解析失败返回 (null, 空列表)。
+     */
+    fun parseSearchPage(text: String): Type4SearchPage = runCatching {
         val root = text.toRootObject()?.takeUnless { it.isError() }
-            ?: return emptyList()
-        root.listArray().map { it.jsonObject.toVod() }
-    }.getOrDefault(emptyList())
+            ?: return Type4SearchPage()
+        Type4SearchPage(
+            total = root.optInt("total"),
+            list = root.listArray().map { it.jsonObject.toVod() }
+        )
+    }.getOrDefault(Type4SearchPage())
 
     /** 详情 text -> VodDetail（取 list[0]）。失败返回仅带 vodId 的空详情。 */
     fun parseDetail(text: String, vodId: String): VodDetail = runCatching {
@@ -241,8 +301,7 @@ class Type4Api(
     /** 错误包络 {code:500,msg}（code 兼容数字/字符串写法）。 */
     private fun JsonObject.isError(): Boolean = optInt("code") == 500
 
-    private fun JsonObject.listArray(): JsonArray =
-        (this["list"] as? JsonArray) ?: JsonArray(emptyList())
+    // listArray / optString / stripHtml 见顶层 JsonHelpers.kt（与 CmsApi 共用）
 
     private fun JsonObject.toVod(): Vod = Vod(
         vodId = optString("vod_id"),
@@ -267,13 +326,6 @@ class Type4Api(
         vodPlayUrl = optString("vod_play_url")
     )
 
-    /** 兼容字段值为数字 / 布尔 / 字符串的写法；缺失或 null 返回空串。 */
-    private fun JsonObject.optString(key: String): String {
-        val prim = (this[key] as? JsonPrimitive) ?: return ""
-        if (prim is JsonNull) return ""
-        return prim.contentOrNull.orEmpty()
-    }
-
     /** 兼容 Int / "500" / true 等写法；缺失或 null 返回 null。 */
     private fun JsonObject.optInt(key: String): Int? {
         val prim = (this[key] as? JsonPrimitive) ?: return null
@@ -284,7 +336,4 @@ class Type4Api(
 
     /** pic 以 // 开头补 https:。 */
     private fun String.fixPic(): String = if (startsWith("//")) "https:$this" else this
-
-    private fun String.stripHtml(): String =
-        replace(Regex("<[^>]+>"), "").replace("&nbsp;", " ").trim()
 }

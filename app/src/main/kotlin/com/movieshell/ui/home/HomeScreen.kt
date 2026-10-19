@@ -217,23 +217,27 @@ fun HomeScreen(
         }.getOrDefault(emptyList())
     }
 
-    /** 当前数据源的分类列表 */
+    /**
+     * 当前数据源的分类内容。
+     * v0.110.0：异常返回 null（调用方判失败，给可见反馈+重试），不再吞成 emptyList；
+     * 空列表=规则真没内容（非失败）。唯一调用方 loadDrpyCategory。
+     */
     suspend fun engineCategory(
         tid: String,
         pg: Int,
         filter: Map<String, String> = emptyMap()
-    ): List<ModelVod> {
+    ): List<ModelVod>? {
         val s = subSite
         // v0.44.0：订阅路径也要透传筛选（之前丢了，drpy 筛选点了没效果）
         if (s != null) return runCatching { subRepo.category(s, tid, pg, filter).second }
-            .getOrDefault(emptyList())
+            .getOrNull()
         return runCatching {
             // v0.44.0：订阅路径也要透传筛选（之前丢了，drpy 筛选点了没效果）
             // v0.48.0：本地 drpy 同样漏传 filter（v0.44.0 宣称生效实际没传），补上
             if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.category(tid, pg, filter)
             else if (SourceStateStore.activePyRule() != null) PySourceManager.category(tid, pg, filter)
             else emptyList()
-        }.getOrDefault(emptyList())
+        }.getOrNull()
     }
 
     /** v0.44.0：当前源是否为 drpy（订阅站或本地规则）。 */
@@ -275,6 +279,8 @@ fun HomeScreen(
     val drpyLoading by vm.isLoading.collectAsState()
     // v0.58：切分类 loading 标记（null=空闲；非 null=正在加载该分类，旧列表保留不闪空）
     val loadingCat by vm.loadingCategoryId.collectAsState()
+    // v0.110.0：分类内容加载失败标记（超时/规则异常），UI 给内联错误+重试
+    val failedCat by vm.failedCategoryId.collectAsState()
     // v0.44.0：二级筛选升级为多组 Map（key->value），空=未选（用规则默认）。
     // v0.31.2 的教训：rememberSaveable 存 Map 有坑，用 List<String> 存 "key\u0001value" 编码。
     // tab 切回时选中态不丢；切分类时清空（不同分类的筛选组不同）。
@@ -670,6 +676,7 @@ fun HomeScreen(
         val myGen = contentGen
         // 选中态立即更新，不等网络（之前是网络回来才设，连点时选中和内容错位，看着像"换了分类内容不变"）
         vm.selectCategory(index)
+        vm.clearCategoryFailed(index) // v0.110.0：新一轮加载先清旧的失败标记
         setFilters(filters)
         LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId}) filter=$filters")
         // v0.44.0：drpy 分类首次选中时懒加载筛选组（PY 的筛选 homeContent 已带，不重复拉）
@@ -700,12 +707,18 @@ fun HomeScreen(
             vm.isLoading.value = true
             try {
                 // v0.17.3：加超时，避免 PY 卡死导致无响应
-                val list = withTimeoutOrNull(30_000) {
+                // v0.110.0：null=超时/规则异常（失败，给可见反馈）；emptyList=规则真没内容（非失败）
+                val netList = withTimeoutOrNull(30_000) {
                     engineCategory(cat.typeId, 1, filters)
-                } ?: emptyList()
+                }
                 if (myGen != contentGen) return@launch // 已被更新的点击取代，丢弃
-                if (list.isEmpty()) {
-                    LogBus.w("UI", "分类 ${cat.typeName} 返回空（可能超时或规则异常）")
+                val list = netList ?: emptyList()
+                if (netList == null) {
+                    // v0.110.0：失败只记日志+标失败态，不再静默写空缓存让转圈卡死（审查报告第 10 条）
+                    LogBus.w("UI", "分类 ${cat.typeName} 加载失败（超时/规则异常），给可见重试")
+                    vm.markCategoryFailed(index)
+                } else if (list.isEmpty()) {
+                    LogBus.i("UI", "分类 ${cat.typeName} 规则返回空（非失败）")
                 } else {
                     LogBus.i("UI", "分类 ${cat.typeName} 加载 ${list.size} 条")
                     // v0.52.0：分类内容落盘，下次秒回
@@ -1112,6 +1125,16 @@ fun HomeScreen(
                                             if (index == 0) loadHome() else loadDrpyCategory(index)
                                         },
                                     )
+                                }
+                            }
+                        }
+                        // v0.110.0：分类内容加载失败（超时/规则异常）给内联错误+重试，
+                        // 口径照抄 v0.29.0 分类行的"分类加载失败，点击重试"；
+                        // 之前失败后顶部细条转圈卡死、无任何反馈（审查报告第 10 条）
+                        if (failedCat != null && failedCat == selectedCategory) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                TextButton(onClick = { loadDrpyCategory(selectedCategory, filterMap) }) {
+                                    Text("该分类加载失败，点击重试")
                                 }
                             }
                         }

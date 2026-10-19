@@ -45,7 +45,6 @@ class QuickJsDrpyEngine(
 
     private var quickJs: QuickJs? = null
     private var ruleJs: String? = null
-    private var homeCache: JSONObject? = null
 
     /**
      * v0.99.0：进行中的网络请求。bridge 在 JS 线程调用 request()，release() 可能在任意线程，
@@ -56,6 +55,8 @@ class QuickJsDrpyEngine(
     companion object {
         private const val TAG = "QuickJsDrpy"
         private const val JS_TIMEOUT_MS = 15_000L
+        /** v0.110.0：home 缓存窗口 60s（原 10s）。规则标识 = 引擎实例本身，切源建新实例。 */
+        private const val HOME_CACHE_MS = 60_000L
         /** v0.109.0 P0-1：query() 单次返回元素上限，防超大页面 JSON 爆炸。 */
         private const val MAX_QUERY_ELEMENTS = 5000
 
@@ -73,7 +74,10 @@ class QuickJsDrpyEngine(
 
     override fun loadRule(js: String) {
         ruleJs = js
-        homeCache = null
+        // v0.110.0：换规则即失效 home 缓存，避免旧规则的 home 串给新规则；
+        // 与 closeEngine 的失效逻辑一致（清 sharedHomeJson）。
+        sharedHomeJson = null
+        sharedHomeAt = 0L
         // v0.99.0 P0-3：切源强制重建——旧上下文跑的是老规则，post 到 JS 线程关闭，
         // 下次 ensureEngine 新建实例并 evaluate 新规则（单线程 FIFO 保序）。
         jsDispatcher.dispatch(EmptyCoroutineContext, Runnable { closeEngine() })
@@ -88,7 +92,9 @@ class QuickJsDrpyEngine(
         pendingCalls.clear()
         runCatching { quickJs?.close() }
         quickJs = null
-        homeCache = null
+        // 切源/释放时缓存一并失效（与 loadRule 一致），旧规则 home 不得复用。
+        sharedHomeJson = null
+        sharedHomeAt = 0L
     }
 
     /** 调用方保证在 jsDispatcher 线程内（经 evalForJson 进入）。 */
@@ -115,7 +121,7 @@ class QuickJsDrpyEngine(
     /**
      * v0.50.0 修：shim.js 只导出了 __drpyHome/__drpyCategory，根本没有 __drpyCategories，
      * 之前这里永远报 "'__drpyCategories' is not defined"（被 evalForJson 吞掉返回空）。
-     * 改走 __drpyHome 的 class 数组；与 home() 共享一次调用（10s 窗口，学 PyApi）。
+     * 改走 __drpyHome 的 class 数组；与 home() 共享一次调用（60s 窗口，学 PyApi）。
      */
     override suspend fun categories(): List<CategoryType> = withContext(Dispatchers.IO) {
         val json = sharedHomeJson() ?: return@withContext emptyList()
@@ -130,7 +136,7 @@ class QuickJsDrpyEngine(
     private suspend fun sharedHomeJson(): String? = withContext(Dispatchers.IO) {
         val now = android.os.SystemClock.elapsedRealtime()
         val cached = sharedHomeJson
-        if (cached != null && now - sharedHomeAt < 10_000) return@withContext cached
+        if (cached != null && now - sharedHomeAt < HOME_CACHE_MS) return@withContext cached
         val json = evalForJson("(function(){return __drpyHome();})()")
         if (json != null) {
             sharedHomeJson = json

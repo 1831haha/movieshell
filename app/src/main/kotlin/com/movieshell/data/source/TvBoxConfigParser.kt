@@ -79,13 +79,18 @@ object TvBoxConfigParser {
             .map { it.trim() }
             .filter { it.isNotEmpty() && !it.startsWith("//") && !it.startsWith("#") }
             .mapNotNull { line ->
-                val sep = when {
-                    line.contains("\$") -> "\$"
-                    line.contains(",") -> ","
-                    else -> ""
+                // v0.110.0：分隔符取 $ 与 , 中首次出现位置更靠左的；只含一种时退化为旧行为；
+                // 两种都不含则整行当 URL（名字用域名兜底）。旧逻辑无条件优先 $，URL 查询串里
+                // 带 $ 时会把有效子仓行切废（如 名字,http://host/x?a$b 会被整行丢弃）。
+                val dollarAt = line.indexOf('$')
+                val commaAt = line.indexOf(',')
+                val sep: String? = when {
+                    dollarAt >= 0 && (commaAt < 0 || dollarAt < commaAt) -> "\$"
+                    commaAt >= 0 -> ","
+                    else -> null
                 }
-                val name = if (sep.isEmpty()) "" else line.substringBefore(sep).trim()
-                val url = if (sep.isEmpty()) line else line.substringAfter(sep).trim()
+                val name = if (sep == null) "" else line.substringBefore(sep).trim()
+                val url = if (sep == null) line else line.substringAfter(sep).trim()
                 if (!url.startsWith("http://") && !url.startsWith("https://")) {
                     return@mapNotNull null
                 }

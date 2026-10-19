@@ -53,6 +53,24 @@ class HomeViewModel(
     val loadingCategoryId = MutableStateFlow<Int?>(null)
 
     /**
+     * v0.110.0：分类内容加载失败的分类 id（超时/规则异常），null=无失败。
+     * 失败后 loadingCategoryId 同步清掉（不再转圈），UI 据此给内联错误+重试；
+     * 之前失败只写空缓存，顶部细条转圈卡死、用户无任何反馈（审查报告第 10 条）。
+     */
+    val failedCategoryId = MutableStateFlow<Int?>(null)
+
+    /** 标记某分类内容加载失败：停掉它的转圈，UI 切失败态 */
+    fun markCategoryFailed(catId: Int) {
+        failedCategoryId.value = catId
+        if (loadingCategoryId.value == catId) loadingCategoryId.value = null
+    }
+
+    /** 发起新一轮分类加载时，清掉该分类的旧失败标记 */
+    fun clearCategoryFailed(catId: Int) {
+        if (failedCategoryId.value == catId) failedCategoryId.value = null
+    }
+
+    /**
      * 要点2改：当前展示列表——不再是纯派生。切分类时：
      * - 有缓存：立刻切到缓存；
      * - 无缓存：保留旧列表（不闪空），等网络回来再替换。
@@ -72,8 +90,11 @@ class HomeViewModel(
                 if (!target.isNullOrEmpty()) {
                     _displayVideos.value = target
                     if (loadingCategoryId.value == catId) loadingCategoryId.value = null
-                } else if (catId != 0) {
-                    // 无缓存：保留旧列表，标记正在加载（UI 显示顶部细条/骨架屏）
+                    // v0.110.0：有数据了，失败标记同步清除
+                    if (failedCategoryId.value == catId) failedCategoryId.value = null
+                } else if (catId != 0 && failedCategoryId.value != catId) {
+                    // 无缓存：保留旧列表，标记正在加载（UI 显示顶部细条/骨架屏）；
+                    // v0.110.0：已标记失败的不再转圈，失败态走 failedCategoryId（UI 给内联重试）
                     loadingCategoryId.value = catId
                 }
                 // catId==0 且推荐为空：首页加载中，保持旧展示不动
@@ -114,6 +135,7 @@ class HomeViewModel(
     fun clearDisplay() {
         _displayVideos.value = emptyList()
         loadingCategoryId.value = null
+        failedCategoryId.value = null
     }
 
     /** 切分类：只换 selectedCategoryId（写回 SavedStateHandle），展示层按缓存情况决定切不切 */

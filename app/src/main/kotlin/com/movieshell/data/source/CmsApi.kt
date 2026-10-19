@@ -13,10 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import okhttp3.Cookie
@@ -29,6 +26,7 @@ import okhttp3.Request
 import org.xmlpull.v1.XmlPullParser
 import java.io.IOException
 import java.io.StringReader
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
@@ -83,15 +81,43 @@ class CmsApi(
             .addInterceptor(simpleLogInterceptor)
             .build()
 
-        /** 内存 CookieJar：host → cookies，需要登录态的源保持会话 */
+        /**
+         * 内存 CookieJar：host → cookies，需要登录态的源保持会话。
+         * v0.110.0：synchronized + mutableMapOf → ConcurrentHashMap，读写无锁；
+         * host 维度 LRU 上限 200（超限淘汰最久未用，见 SniffPlayHeaders 同款 200 上限），
+         * 进程单例不再无限增长。
+         * saveFromResponse 语义不变：整 host 覆盖（含空列表照存）；
+         * loadForRequest 语义不变：命中返回该 host cookies、无则空列表。
+         */
         private val memoryCookieJar = object : CookieJar {
-            private val store = mutableMapOf<String, List<Cookie>>()
+            private data class Entry(val cookies: List<Cookie>, @Volatile var lastUsed: Long)
+
+            private val store = ConcurrentHashMap<String, Entry>()
+            private val maxHosts = 200
+
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-                synchronized(store) { store[url.host] = cookies }
+                store[url.host] = Entry(cookies, System.currentTimeMillis())
+                if (store.size > maxHosts) evictOldest()
             }
 
-            override fun loadForRequest(url: HttpUrl): List<Cookie> =
-                synchronized(store) { store[url.host].orEmpty() }
+            override fun loadForRequest(url: HttpUrl): List<Cookie> {
+                val e = store[url.host] ?: return emptyList()
+                e.lastUsed = System.currentTimeMillis()
+                return e.cookies
+            }
+
+            /** 淘汰最久未用的 host（近似 LRU；只在超限写入时触发，扫描成本可忽略）。 */
+            private fun evictOldest() {
+                var oldestKey: String? = null
+                var oldestTime = Long.MAX_VALUE
+                for ((host, e) in store) {
+                    if (e.lastUsed < oldestTime) {
+                        oldestTime = e.lastUsed
+                        oldestKey = host
+                    }
+                }
+                oldestKey?.let { store.remove(it) }
+            }
         }
 
         /** UA 拦截器：没带 UA 的请求统一补浏览器 UA，不覆盖调用方显式设置的 */
@@ -108,6 +134,10 @@ class CmsApi(
          * 重试拦截器：IO 异常（超时/断连）最多重试 2 次；HTTP 错误码不重试。
          * 注意：Interceptor 是阻塞上下文，这里不能用协程 delay，只做小睡退避。
          * v0.109.0：加指数退避（500ms→1s），之前无间隔连发 3 次容易把对面打成限流。
+         * v0.110.0 评估结论：保留 Thread.sleep——Interceptor.proceed 是同步阻塞 API，
+         * OkHttp 自身 retryOnConnectionFailure 同样阻塞 dispatcher 线程；默认 64 并发、
+         * 单 call 最坏阻塞 0.5s+1s=1.5s（3 次尝试，远低于 callTimeout 60s），耗尽概率
+         * 可忽略。改成 delay 要把整条调用链改成挂起结构，代价大于收益。
          */
         private val retryInterceptor = Interceptor { chain ->
             var lastError: IOException? = null
@@ -284,8 +314,7 @@ class CmsApi(
         first.toVodDetail()
     }.getOrDefault(VodDetail(vodId = vodId))
 
-    private fun JsonObject.listArray(): JsonArray =
-        (this["list"] as? JsonArray) ?: JsonArray(emptyList())
+    // listArray / optString / stripHtml 见顶层 JsonHelpers.kt（与 Type4Api 共用）
 
     private fun JsonObject.toVod(): Vod = Vod(
         vodId = optString("vod_id"),
@@ -309,16 +338,6 @@ class CmsApi(
         vodPlayFrom = optString("vod_play_from"),
         vodPlayUrl = optString("vod_play_url")
     )
-
-    /** 兼容字段值为数字 / 布尔 / 字符串的写法；缺失或 null 返回空串。 */
-    private fun JsonObject.optString(key: String): String {
-        val prim = (this[key] as? JsonPrimitive) ?: return ""
-        if (prim is JsonNull) return ""
-        return prim.contentOrNull.orEmpty()
-    }
-
-    private fun String.stripHtml(): String =
-        replace(Regex("<[^>]+>"), "").replace("&nbsp;", " ").trim()
 
     // ---------------- 内部：XML(type=0) 解析 ----------------
     //
