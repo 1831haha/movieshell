@@ -9,9 +9,9 @@ import com.movieshell.data.model.FilterOption
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
-import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import okhttp3.Call
@@ -22,6 +22,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import kotlin.coroutines.EmptyCoroutineContext
 
 /**
@@ -55,12 +56,15 @@ class QuickJsDrpyEngine(
         private const val JS_TIMEOUT_MS = 15_000L
 
         /**
-         * v0.99.0：全 App 共享的 JS 单线程。QuickJS 的 JSContext 只能绑一个线程，
+         * v0.99.1：全 App 共享的 JS 单线程。QuickJS 的 JSContext 只能绑一个线程，
          * 所有 evaluate 强制走这里，杜绝多线程并发进 JNI 导致 SIGSEGV。
+         * newSingleThreadContext 在新版 kotlinx.coroutines 已移除，改用
+         * Executors 单线程 + asCoroutineDispatcher（官方推荐替代）。
          * 生命周期与 App 一致，不关闭。
          */
-        @OptIn(DelicateCoroutinesApi::class)
-        val jsDispatcher = newSingleThreadContext("quickjs-worker")
+        val jsDispatcher = Executors.newSingleThreadExecutor { r ->
+            Thread(r, "quickjs-worker").apply { isDaemon = true }
+        }.asCoroutineDispatcher()
     }
 
     override fun loadRule(js: String) {
