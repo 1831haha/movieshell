@@ -7,6 +7,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.net.URI
 import java.util.UUID
 
 /**
@@ -58,7 +59,29 @@ object MusicSourceStore {
         }.onFailure { LogBus.w(TAG, "音乐源添加失败：${it.message}") }
     }
 
-    /** 内置源拒绝删除。 */
+    /** v0.103.0：本地 .js 文件导入——拷贝到 filesDir/lx_sources/<uuid>.js，url 用 file:// scheme。 */
+    suspend fun addLocal(context: Context, name: String, srcFile: File): MusicSource? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val dir = File(context.filesDir, "lx_sources")
+                if (!dir.isDirectory) dir.mkdirs()
+                val dest = File(dir, "${UUID.randomUUID()}.js")
+                srcFile.copyTo(dest, overwrite = true)
+                val source = MusicSource(
+                    name = name,
+                    url = "file://${dest.absolutePath}",
+                    enabled = true,
+                )
+                add(context, source)
+                source
+            }.onFailure { LogBus.w(TAG, "本地音源导入失败：${it.message}") }
+                .getOrNull()
+        }
+
+    /**
+     * 内置源拒绝删除。url 以 file:// 开头时顺手删对应本地文件
+     * （runCatching 包住，删不掉不报错）。
+     */
     suspend fun remove(context: Context, id: String) = withContext(Dispatchers.IO) {
         runCatching {
             val cur = list(context).toMutableList()
@@ -66,6 +89,10 @@ object MusicSourceStore {
             if (target.builtin) {
                 LogBus.w(TAG, "内置源不可删除：${target.name}")
                 return@runCatching
+            }
+            if (target.url.startsWith("file://")) {
+                runCatching { File(URI(target.url)).delete() }
+                    .onFailure { LogBus.w(TAG, "本地脚本删除失败：${it.message}") }
             }
             cur.remove(target)
             writeAll(fileOf(context), cur)

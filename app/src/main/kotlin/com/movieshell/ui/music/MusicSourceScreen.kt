@@ -1,6 +1,8 @@
 package com.movieshell.ui.music
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -56,6 +58,7 @@ import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * v0.100.0 音乐源管理页：洛雪音源（脚本 URL）增删改查 + 测试解析。
@@ -79,6 +82,52 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         scope.launch { sources = MusicSourceStore.list(context) }
     }
     LaunchedEffect(Unit) { reload() }
+
+    // v0.103.0：本地 .js 文件导入。mime 传 */*（很多文件管理器给 .js 报奇怪 mime），
+    // 选完后校验扩展名或内容头含 EVENT_NAMES/globalThis.lx，不对则 Toast。
+    val jsImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use {
+                        it.readBytes().toString(Charsets.UTF_8)
+                    }
+                }.getOrNull()
+            }
+            val looksJs = uri.path.orEmpty().endsWith(".js", ignoreCase = true) ||
+                text.orEmpty().contains("EVENT_NAMES") ||
+                text.orEmpty().contains("globalThis.lx")
+            if (text.isNullOrBlank() || !looksJs) {
+                Toast.makeText(context, "不是有效的洛雪音源脚本", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val tmp = withContext(Dispatchers.IO) {
+                runCatching {
+                    val f = File.createTempFile("lx_import", ".js", context.cacheDir)
+                    f.writeText(text)
+                    f
+                }.getOrNull()
+            }
+            if (tmp == null) {
+                Toast.makeText(context, "导入失败：无法读取文件", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val displayName = uri.lastPathSegment?.takeIf { it.isNotBlank() }
+                ?.removeSuffix(".js") ?: "本地音源"
+            val added = MusicSourceStore.addLocal(context, displayName, tmp)
+            runCatching { tmp.delete() }
+            if (added != null) {
+                Toast.makeText(context, "已导入 ${added.name}", Toast.LENGTH_SHORT).show()
+                showAdd = false
+                reload()
+            } else {
+                Toast.makeText(context, "导入失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     fun doTest(source: MusicSource) {
         val urlId = MusicPlayer.state.value.track?.urlId
@@ -229,6 +278,13 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                 placeholder = "脚本 URL，如 https://…/lx-source.js",
                 modifier = Modifier.fillMaxWidth(),
             )
+            Spacer(Modifier.height(10.dp))
+            TextButton(
+                onClick = { jsImportLauncher.launch("*/*") },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("从本地文件导入（.js）", fontSize = 14.sp)
+            }
         }
     }
 

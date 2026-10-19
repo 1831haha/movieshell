@@ -12,6 +12,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.File
+import java.net.URI
 import kotlin.coroutines.EmptyCoroutineContext
 
 /**
@@ -115,7 +117,24 @@ class LxMusicSourceEngine(context: Context) {
 
     // ---------------- 内部：网络 ----------------
 
+    /**
+     * v0.103.0：支持 file:// scheme——读本地脚本文件。
+     * 以 file:// 开头的 url 改走 File(URI(url)).readText()（判空/判存在），
+     * 失败返回 null 走现有日志分支；http(s) 逻辑不动。
+     */
     private suspend fun downloadText(url: String): String? = withContext(Dispatchers.IO) {
+        if (url.startsWith("file://")) {
+            return@withContext runCatching {
+                val f = File(URI(url))
+                if (!f.isFile) {
+                    LogBus.w(TAG, "本地脚本不存在: $url")
+                    return@withContext null
+                }
+                f.readText().takeIf { it.isNotBlank() }
+            }.onFailure {
+                LogBus.w(TAG, "本地脚本读取失败: $url ${it.message}")
+            }.getOrNull()
+        }
         runCatching {
             val req = Request.Builder().url(url).get().build()
             http.newCall(req).execute().use { resp ->
