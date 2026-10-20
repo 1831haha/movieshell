@@ -71,6 +71,51 @@ object MusicPlayer {
     private val _badges = MutableStateFlow<Map<String, Pair<String, String>>>(emptyMap())
     val badges: StateFlow<Map<String, Pair<String, String>>> = _badges
 
+    /**
+     * v0.125.0 补充A：播放页海报匹配结果（track.id → 封面图地址；空串=匹配过没
+     * 找到，不重复搜）。v0.123.0 时匹配挂在播放页的 composition scope 上，用户
+     * 一切歌词视图/离页，组合销毁就把协程取消（日志实锤 "The coroutine scope
+     * left the composition"）、结果没落缓存；现挪到播放器自身 scope 里跑，
+     * 页面只读本表，页面进出不影响匹配完成与缓存。
+     */
+    private val _matchedArt = MutableStateFlow<Map<String, String>>(emptyMap())
+    val matchedArt: StateFlow<Map<String, String>> = _matchedArt
+    private val artMatchInFlight = mutableSetOf<String>()
+
+    private fun ensureMatchedArt(track: MusicApi.Track) {
+        val id = track.id
+        if (_matchedArt.value.containsKey(id)) return
+        synchronized(artMatchInFlight) { if (!artMatchInFlight.add(id)) return }
+        scope.launch {
+            try {
+                // 有自带封面且能解析出图就不必匹配（顺手把结果记下防重复进）
+                val own = if (track.picId.isBlank()) "" else {
+                    runCatching { MusicApi.picImageUrl(track.picId) }.getOrDefault("")
+                }
+                if (own.isNotBlank()) {
+                    _matchedArt.value = _matchedArt.value + (id to own)
+                    return@launch
+                }
+                val q = if (track.artist.isBlank() || track.artist == "本地") {
+                    track.name
+                } else {
+                    "${track.name} ${track.artist}"
+                }
+                val found = runCatching {
+                    val hit = MusicApi.search(q, count = 5)
+                        .firstOrNull { it.picId.isNotBlank() }
+                        ?: return@runCatching ""
+                    MusicApi.picImageUrl(hit.picId)
+                }.onFailure {
+                    LogBus.w("MusicPlayer", "海报匹配失败：${it.message}")
+                }.getOrDefault("")
+                _matchedArt.value = _matchedArt.value + (id to found)
+            } finally {
+                synchronized(artMatchInFlight) { artMatchInFlight.remove(id) }
+            }
+        }
+    }
+
     private var queue: List<MusicApi.Track> = emptyList()
     private var index: Int = -1
     // v0.85.0：播放请求代际——连接 service 是异步的，旧请求回来时若已被取代则丢弃
@@ -235,6 +280,9 @@ object MusicPlayer {
             track = track, playing = false, loading = true,
             repeatMode = _state.value.repeatMode,
         )
+        // v0.125.0 补充A：无自带封面的歌在播放器 scope 里做海报匹配（切歌即触发，
+        // 与页面组合无关，匹配结果进 matchedArt 供播放页读）
+        ensureMatchedArt(track)
         scope.launch {
             // v0.81.0：本地音频直接播 content URI；在线歌曲实时取直链（不缓存）
             // v0.89.0：直链接口偶发 503，失败 1.5 秒后重试一次；封面与直链并发解析，不拖慢起播

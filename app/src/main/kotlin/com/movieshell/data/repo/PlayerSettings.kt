@@ -54,6 +54,10 @@ object PlayerSettings {
     private const val KEY_GRAVITY_ROTATE = "gravity_rotate"
     /** v0.74.0：倍速记忆 */
     private const val KEY_SPEED = "player_speed"
+    /** v0.125.0：全屏画面比例档位（0=适应 1=裁剪 2=拉伸） */
+    private const val KEY_RESIZE_MODE = "player_resize_mode"
+    /** v0.125.0：歌词颜色 ARGB（0=跟随主题色） */
+    private const val KEY_LYRIC_COLOR = "lyric_color"
 
     private val _engine = MutableStateFlow(PlayerEngine.MEDIA3)
     val engine: StateFlow<PlayerEngine> = _engine
@@ -64,6 +68,10 @@ object PlayerSettings {
     /** v0.27.7：重力感应自动横屏（默认开） */
     private val _gravityRotate = MutableStateFlow(true)
     val gravityRotate: StateFlow<Boolean> = _gravityRotate
+
+    /** v0.125.0：歌词颜色（0=跟随主题 primary，正值=ARGB 预设色） */
+    private val _lyricColor = MutableStateFlow(0)
+    val lyricColor: StateFlow<Int> = _lyricColor
 
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -78,6 +86,7 @@ object PlayerSettings {
             offsetMs = prefs.getLong(KEY_SUB_OFFSET, 0L).coerceIn(-10_000L, 10_000L),
         )
         _gravityRotate.value = prefs.getBoolean(KEY_GRAVITY_ROTATE, true)
+        _lyricColor.value = prefs.getInt(KEY_LYRIC_COLOR, 0)
     }
 
     /**
@@ -174,5 +183,27 @@ object PlayerSettings {
     fun setSpeed(context: Context, speed: Float) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putFloat(KEY_SPEED, speed).apply()
+    }
+
+    /**
+     * v0.125.0：取记忆的全屏画面比例档位（0=适应 1=裁剪 2=拉伸）。
+     * 从没选过默认 2（拉伸铺满）——v0.123/124 的裁剪铺满会切掉画面上下约两成，
+     * 用户反馈"卡边"，默认改拉伸；选过的一直按存的档位走。
+     */
+    fun getResizeMode(context: Context): Int =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_RESIZE_MODE, 2).coerceIn(0, 2)
+
+    /** v0.125.0：记忆全屏画面比例档位。 */
+    fun setResizeMode(context: Context, mode: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_RESIZE_MODE, mode.coerceIn(0, 2)).apply()
+    }
+
+    /** v0.125.0：记忆歌词颜色（0=跟随主题）。 */
+    fun setLyricColor(context: Context, color: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_LYRIC_COLOR, color).apply()
+        _lyricColor.value = color
     }
 }

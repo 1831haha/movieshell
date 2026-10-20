@@ -229,8 +229,12 @@ object MpvPlayerManager {
     }
 
     /**
-     * 画面比例：0=适应（保持原始比例），1=填充（拉伸填满），2=裁剪（等比裁剪填满），
-     * 与播放器界面「适应/填充/裁剪」三档对应。
+     * 画面比例：0=适应（保持原始比例），1=裁剪（等比裁剪填满），2=拉伸（不等比
+     * 铺满容器），与播放器界面「适应/裁剪/拉伸」三档及 Media3 的 FIT/ZOOM/FILL
+     * 一一对应（v0.125.0 起下标与界面统一，旧版 1/2 语义互换）。
+     * 拉伸的 mpv 等价实现：把 video-aspect-override 设为当前画面容器（Surface）
+     * 的宽高比——等于命令 mpv 按容器比例改写视频原始比例输出，不裁边、轻微
+     * 变形，与 RESIZE_MODE_FILL 同义；panscan 保持 0（不裁剪）。
      */
     fun setAspectMode(mode: Int) {
         executor.execute {
@@ -238,16 +242,18 @@ object MpvPlayerManager {
             runCatching {
                 when (mode) {
                     1 -> {
+                        // 裁剪：原始比例 + panscan 拉满，等比裁掉溢出边
+                        MPVLib.setPropertyString("video-aspect-override", "-1")
+                        MPVLib.setPropertyDouble("panscan", 1.0)
+                    }
+                    2 -> {
+                        // 拉伸：比例改写为容器比例，不等比铺满
                         val w = surfaceW
                         val h = surfaceH
                         val aspect = if (w > 0 && h > 0) w.toDouble() / h else 16.0 / 9.0
                         // 必须用 US locale：小数点在某些语言环境下是逗号，mpv 解析会错
                         MPVLib.setPropertyString("video-aspect-override", "%.4f".format(Locale.US, aspect))
                         MPVLib.setPropertyDouble("panscan", 0.0)
-                    }
-                    2 -> {
-                        MPVLib.setPropertyString("video-aspect-override", "-1")
-                        MPVLib.setPropertyDouble("panscan", 1.0)
                     }
                     else -> {
                         MPVLib.setPropertyString("video-aspect-override", "-1")

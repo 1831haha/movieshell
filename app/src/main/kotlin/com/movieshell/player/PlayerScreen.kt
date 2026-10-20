@@ -119,6 +119,9 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
@@ -144,10 +147,12 @@ private val SPEEDS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 // v0.65：循环模式（对标目标界面"顺序播放"按钮）
 private val PLAY_MODES = listOf("顺序播放", "单集循环", "列表循环")
 
+// v0.125.0：下标即持久化档位（PlayerSettings.resizeMode），顺序与菜单文案一致——
+// 0=适应 FIT / 1=裁剪 ZOOM / 2=拉伸 FILL；libmpv 的 setAspectMode 同下标同语义
 private val RESIZE_MODES = listOf(
     AspectRatioFrameLayout.RESIZE_MODE_FIT to "适应",
-    AspectRatioFrameLayout.RESIZE_MODE_FILL to "填充",
     AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "裁剪",
+    AspectRatioFrameLayout.RESIZE_MODE_FILL to "拉伸",
 )
 
 /** 断点续播阈值：上次进度超过 10 秒才续播 */
@@ -202,7 +207,8 @@ fun PlayerScreen(
         mutableIntStateOf(SPEEDS.indexOf(saved).takeIf { it >= 0 } ?: 2) // 默认 1.0x
     }
     var playModeIndex by remember { mutableIntStateOf(0) } // v0.65：循环模式，默认顺序播放
-    var resizeIndex by remember { mutableIntStateOf(0) } // 默认适应
+    // v0.125.0：全屏画面比例偏好（持久化恢复；首次无记录默认拉伸，见 PlayerSettings）
+    var resizeIndex by remember { mutableIntStateOf(PlayerSettings.getResizeMode(context)) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var showServiceMissingDialog by remember { mutableStateOf(false) }
     var gestureHint by remember { mutableStateOf<String?>(null) } // 手势临时指示
@@ -495,17 +501,17 @@ fun PlayerScreen(
         restoreAfterRotation()
     }
 
-    // v0.123.0：全屏画面铺满——独立播放页 / 嵌入横屏 = 全屏场景，画面 ZOOM 裁剪
-    // 少量边缘换铺满（用户反馈"横屏黑边太大"）；退出全屏恢复 FIT。与「画面比例」
-    // 菜单共用 resizeIndex，只在全屏状态/画面重建时应用一次，手动改完即生效。
+    // v0.125.0：全屏画面档位——应用值 = 全屏时用用户偏好 resizeIndex（持久化，
+    // 默认拉伸 FILL：不裁边铺满；v0.123/124 无条件 ZOOM 裁掉上下约两成被反馈
+    // "卡边"），非全屏（竖屏小窗）恒适应 FIT。resizeIndex 只由「画面比例」菜单
+    // 修改并落盘，本效应只负责应用，不再覆盖用户选择。
     val fullscreenNow = !embedded || cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
     // v0.124.0：全屏状态驱动窗口沉浸式（全出血），与上面的方向/恢复逻辑互不干涉
     LaunchedEffect(fullscreenNow) {
         if (fullscreenNow) applyImmersiveFullscreen() else restorePlayerWindow()
     }
-    LaunchedEffect(fullscreenNow, playerView, engine) {
-        val idx = if (fullscreenNow) 2 else 0 // RESIZE_MODES：0=适应 FIT，2=裁剪 ZOOM
-        resizeIndex = idx
+    LaunchedEffect(fullscreenNow, playerView, engine, resizeIndex) {
+        val idx = if (fullscreenNow) resizeIndex else 0
         if (engine == PlayerEngine.MEDIA3) {
             playerView?.resizeMode = RESIZE_MODES[idx].first
         } else {
@@ -1317,11 +1323,9 @@ fun PlayerScreen(
                             onClick = {
                                 showMoreMenu = false
                                 resizeIndex = (resizeIndex + 1) % RESIZE_MODES.size
-                                if (engine == PlayerEngine.MEDIA3) {
-                                    playerView?.resizeMode = RESIZE_MODES[resizeIndex].first
-                                } else {
-                                    MpvPlayerManager.setAspectMode(resizeIndex)
-                                }
+                                // v0.125.0：落盘持久化；实际应用由 resizeIndex 的
+                                // LaunchedEffect 统一处理（全屏用新档位，小窗恒 FIT）
+                                PlayerSettings.setResizeMode(context, resizeIndex)
                             },
                         )
                     }
@@ -1473,8 +1477,12 @@ fun PlayerScreen(
                         color = Color.White,
                         style = SoftType.Caption,
                     )
-                    Slider(
+                    // v0.125.0：进度条抽成 PlayerSeekBar 组件（内部关掉 48dp 最小
+                    // 交互高度、行高压到 28dp），进度线贴到按钮行正上方、落在视频
+                    // 底边附近（用户反馈"进度条太高卡视角"）；拖动行为不变。
+                    PlayerSeekBar(
                         value = (if (scrubbing) scrubPos else pos).toFloat(),
+                        valueRange = 0f..dur.coerceAtLeast(1L).toFloat(),
                         onValueChange = {
                             scrubPos = it.toLong()
                             scrubbing = true
@@ -1483,60 +1491,7 @@ fun PlayerScreen(
                             EngineHost.seekTo(scrubPos)
                             scrubbing = false
                         },
-                        valueRange = 0f..dur.coerceAtLeast(1L).toFloat(),
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color.White,
-                            activeTrackColor = Color(0xFF2196F3),
-                            inactiveTrackColor = Color.White.copy(alpha = 0.3f),
-                        ),
-                        // v0.84.0：3dp 细进度线 + 小圆点，少遮挡画面
-                        // （触摸区域由 minimumInteractiveComponentSize 保底，不影响拖动）
-                        track = { sliderState ->
-                            val fraction = sliderState.valueRange.let { r ->
-                                val span = r.endInclusive - r.start
-                                if (span <= 0f) 0f
-                                else ((sliderState.value - r.start) / span).coerceIn(0f, 1f)
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(20.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Canvas(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(3.dp),
-                                ) {
-                                    val y = size.height / 2f
-                                    val w = 3.dp.toPx()
-                                    drawLine(
-                                        color = Color.White.copy(alpha = 0.25f),
-                                        start = Offset(0f, y),
-                                        end = Offset(size.width, y),
-                                        strokeWidth = w,
-                                        cap = StrokeCap.Round,
-                                    )
-                                    drawLine(
-                                        color = Color(0xFF2196F3).copy(alpha = 0.9f),
-                                        start = Offset(0f, y),
-                                        end = Offset(size.width * fraction, y),
-                                        strokeWidth = w,
-                                        cap = StrokeCap.Round,
-                                    )
-                                }
-                            }
-                        },
-                        // v0.108.0 B2：进度条 thumb 小圆球跟随主题色（之前硬编码白色）
-                        thumb = {
-                            Box(
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary),
-                            )
-                        },
                     )
                     Text(
                         text = fmtTime(dur),
@@ -1900,6 +1855,85 @@ private fun adjustVolume(context: Context, up: Boolean): Int {
 private fun fmtTime(ms: Long): String {
     val s = (ms / 1000).toInt().coerceAtLeast(0)
     return String.format(Locale.US, "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+}
+
+/**
+ * v0.125.0：播放器进度条——抽成组件是为了在内部关掉 Material3 的 48dp 最小
+ * 交互高度（LocalMinimumInteractiveComponentSize），把行高压到 28dp，让进度线
+ * 贴近视频底边（用户反馈"进度条太高卡视角"）。weight 等 RowScope 修饰由调用
+ * 方通过 modifier 传进来，组件内部不需要 RowScope。绘制沿用 v0.84.0 的
+ * 3dp 细线 + 主题色小圆点 thumb，拖动行为与旧内联实现一致（28dp 仍可正常拖）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlayerSeekBar(
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    CompositionLocalProvider(
+        LocalMinimumInteractiveComponentSize provides Dp.Unspecified,
+    ) {
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            valueRange = valueRange,
+            modifier = modifier.height(28.dp),
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = Color(0xFF2196F3),
+                inactiveTrackColor = Color.White.copy(alpha = 0.3f),
+            ),
+            track = { sliderState ->
+                val fraction = sliderState.valueRange.let { r ->
+                    val span = r.endInclusive - r.start
+                    if (span <= 0f) 0f
+                    else ((sliderState.value - r.start) / span).coerceIn(0f, 1f)
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp),
+                    ) {
+                        val y = size.height / 2f
+                        val w = 3.dp.toPx()
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.25f),
+                            start = Offset(0f, y),
+                            end = Offset(size.width, y),
+                            strokeWidth = w,
+                            cap = StrokeCap.Round,
+                        )
+                        drawLine(
+                            color = Color(0xFF2196F3).copy(alpha = 0.9f),
+                            start = Offset(0f, y),
+                            end = Offset(size.width * fraction, y),
+                            strokeWidth = w,
+                            cap = StrokeCap.Round,
+                        )
+                    }
+                }
+            },
+            // v0.108.0 B2：thumb 小圆球跟随主题色（之前硬编码白色）
+            thumb = {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            },
+        )
+    }
 }
 
 /** 读取当前进度并写入历史记录（v0.20.0：走 EngineHost，双引擎统一） */

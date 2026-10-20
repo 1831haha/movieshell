@@ -2,7 +2,11 @@ package com.movieshell.data.repo
 
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DEFAULT_UA_WEBKIT
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONArray
@@ -173,16 +177,52 @@ object MusicApi {
      *
      * types=pic 实际返回 {"url": "https://p2.music.126.net/...jpg"}（包一层，不是直出图片），
      * 这里解析一次；结果进内存缓存，列表滚动不反复请求；失败返回 ""。
+     *
+     * v0.125.0 补充B：真机日志里同一 id 几分钟内被重复请求十余次——成功结果本就
+     * 缓存（v0.89.0 起），重复的全是没进缓存的：GD 503（约五成）与 200 但 url 为
+     * 空，加上多行同时组合时的并发重复。这里收敛为全 App 一处取图入口：
+     * ①成功结果按 source:id 缓存（只存 URL 字符串，图片本体走 Coil 磁盘缓存）；
+     * ②同一 id 的在途请求合并成一次（Deferred 表），并发调用共享结果；
+     * ③失败/空结果不缓存结果，但记 30 秒退避窗，避免列表重组时无间隔反复打
+     * 接口，退避过后照常重试。
      */
     private val picCache = mutableMapOf<String, String>()
+    private val picInFlight = mutableMapOf<String, Deferred<String>>()
+    private val picFailAt = mutableMapOf<String, Long>()
+    private const val PIC_FAIL_BACKOFF_MS = 30_000L
+    private val picScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     suspend fun picImageUrl(picId: String): String {
         if (picId.isBlank()) return ""
-        synchronized(picCache) { picCache[picId]?.let { return it } }
-        val url = runCatching {
-            JSONObject(get("$BASE?types=pic&source=$SOURCE&id=$picId")).optString("url")
-        }.getOrDefault("")
-        if (url.isNotBlank()) synchronized(picCache) { picCache[picId] = url }
+        val key = "$SOURCE:$picId"
+        synchronized(picCache) { picCache[key]?.let { return it } }
+        val deferred: Deferred<String>
+        synchronized(picInFlight) {
+            val existing = picInFlight[key]
+            if (existing != null) {
+                deferred = existing
+            } else {
+                val lastFail = synchronized(picFailAt) { picFailAt[key] } ?: 0L
+                if (System.currentTimeMillis() - lastFail < PIC_FAIL_BACKOFF_MS) return ""
+                deferred = picScope.async {
+                    runCatching {
+                        JSONObject(get("$BASE?types=pic&source=$SOURCE&id=$picId"))
+                            .optString("url")
+                    }.getOrDefault("")
+                }
+                picInFlight[key] = deferred
+            }
+        }
+        val url = deferred.await()
+        synchronized(picInFlight) {
+            if (picInFlight[key] === deferred) picInFlight.remove(key)
+        }
+        if (url.isNotBlank()) {
+            synchronized(picCache) { picCache[key] = url }
+            synchronized(picFailAt) { picFailAt.remove(key) }
+        } else {
+            synchronized(picFailAt) { picFailAt[key] = System.currentTimeMillis() }
+        }
         return url
     }
 }
