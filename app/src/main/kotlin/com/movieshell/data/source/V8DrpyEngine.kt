@@ -10,6 +10,7 @@ import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -55,6 +56,8 @@ class V8DrpyEngine(
         private const val JS_TIMEOUT_MS = 15_000L
         /** v0.110.0：home 缓存窗口 60s（原 10s）。规则标识 = 引擎实例本身，切源建新实例。 */
         private const val HOME_CACHE_MS = 60_000L
+        /** v0.135.0：home 首调为空时重试前的等待，给规则未完成的异步取数留落地时间。 */
+        private const val HOME_RETRY_DELAY_MS = 1_200L
         /** v0.109.0 P0-1：query() 单次返回元素上限，防超大页面 JSON 爆炸。 */
         private const val MAX_QUERY_ELEMENTS = 5000
     }
@@ -67,6 +70,7 @@ class V8DrpyEngine(
         // v0.110.0：换规则即失效 home 缓存，避免旧规则的 home 串给新规则。
         sharedHomeJson = null
         sharedHomeAt = 0L
+        homeFallbackCache = null
         // isolate.close() 线程安全、即时生效；下次调用时用新规则重建会话。
         runCatching { session?.close() }
         session = null
@@ -135,8 +139,50 @@ class V8DrpyEngine(
 
     override suspend fun home(): List<Vod> = withContext(Dispatchers.IO) {
         val json = sharedHomeJson() ?: return@withContext emptyList()
-        parseVodList(json)
+        val list = parseVodList(json)
+        // 有数据直接返回；规则报错（error 字段）保持原口径交空，不进兜底
+        if (list.isNotEmpty() || homeHasError(json)) return@withContext list
+        // v0.135.0：调用成功但推荐为空 → 两级兜底（见 homeFallback）
+        homeFallback()
     }
+
+    /**
+     * v0.135.0：home 推荐为空时的两级兜底，仅在「__drpyHome 调用成功但 list 为空」
+     * 时触发（规则报错/引导失败在 home() 已按原口径交空，不进这里）。
+     * 背景：老同步写法规则在 V8 下首页取数有竞态，首调常返回空 list，要等分类调用
+     * 把规则内部状态跑热后二调才有数据（真机实证「全部空白、切分类才出、切回又有」）；
+     * PyApi 早有同类兜底（homeContent 无推荐改调 homeVideoContent），drpy 这边补齐。
+     * 一级：清共享缓存，延迟 [HOME_RETRY_DELAY_MS] 后重调一次 __drpyHome，list 与
+     * class 都以第二次为准（categories() 的共享缓存随之刷新）。
+     * 二级：重试仍空且有分类时，用第一个分类的第一页顶上。分类走 category() 直调
+     * eval、不经 home()，不会递归触发本兜底；分类失败/为空就交空。
+     * 兜底结果按 sharedHomeAt 世代缓存：同一份 home JSON 世代内重复调 home() 直接
+     * 复用，不重复付重试与分类的代价；缓存过期重拉后仍为空才会重新兜底。
+     */
+    private suspend fun homeFallback(): List<Vod> {
+        homeFallbackCache?.let { (at, list) ->
+            if (at == sharedHomeAt) return list
+        }
+        LogBus.i(TAG, "home 首调推荐为空，清缓存重试一次")
+        sharedHomeJson = null
+        sharedHomeAt = 0L
+        delay(HOME_RETRY_DELAY_MS)
+        val json = sharedHomeJson() ?: return emptyList()
+        var list = parseVodList(json)
+        if (list.isEmpty() && !homeHasError(json)) {
+            val firstCat = parseCategoriesFromHome(json).firstOrNull()
+            if (firstCat != null) {
+                list = category(firstCat.typeId, 1, emptyMap())
+                LogBus.i(TAG, "home 无推荐，用第一分类顶上：${firstCat.typeName} ${list.size} 条")
+            }
+        }
+        homeFallbackCache = sharedHomeAt to list
+        return list
+    }
+
+    /** __drpyHome 返回 {"error":...} 表示规则自身报错（shim 的 errJson 契约）。 */
+    private fun homeHasError(json: String): Boolean =
+        runCatching { JSONObject(json).has("error") }.getOrDefault(false)
 
     /**
      * v0.50.0 修：shim.js 只导出了 __drpyHome/__drpyCategory，根本没有 __drpyCategories，
@@ -151,6 +197,10 @@ class V8DrpyEngine(
     private var sharedHomeJson: String? = null
     @Volatile
     private var sharedHomeAt: Long = 0L
+
+    /** v0.135.0：home 兜底结果（sharedHomeAt 世代 → 列表），见 homeFallback。 */
+    @Volatile
+    private var homeFallbackCache: Pair<Long, List<Vod>>? = null
 
     private suspend fun sharedHomeJson(): String? {
         val now = android.os.SystemClock.elapsedRealtime()
