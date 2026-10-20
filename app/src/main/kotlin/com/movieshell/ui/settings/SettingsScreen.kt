@@ -87,6 +87,7 @@ import com.movieshell.data.repo.CloudSyncManager
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.SubRefreshStore
+import com.movieshell.data.source.JsRuntime
 import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
@@ -794,6 +795,30 @@ fun SettingsScreen(
                     subtitle = "每一版的更新内容",
                     onClick = onChangelogClick,
                 )
+                // v0.114.0：JS 引擎（V8）状态——WebView 过旧时 JS 源会被禁用并给出原因，
+                // 点按执行一次真实连接检测（首次使用 JS 源前也能提前知道结果）
+                run {
+                    var jsTick by remember { mutableStateOf(0) }
+                    val jsSubtitle = remember(jsTick) {
+                        when {
+                            JsRuntime.jsSourcesSupported -> "V8 引擎可用，JS 源正常"
+                            JsRuntime.lastDisableReason != null ->
+                                "JS 源已禁用：" + JsRuntime.lastDisableReason
+                            else -> "未检测，点按检测"
+                        }
+                    }
+                    SettingsRow(
+                        icon = Icons.Filled.Memory,
+                        title = "JS 引擎状态",
+                        subtitle = jsSubtitle,
+                        onClick = {
+                            scope.launch {
+                                runCatching { JsRuntime.sandbox() }
+                                jsTick++
+                            }
+                        },
+                    )
+                }
             }
             Spacer(Modifier.height(16.dp))
         }

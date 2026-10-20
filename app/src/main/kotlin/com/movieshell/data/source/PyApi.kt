@@ -250,12 +250,6 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
         )
     }
 
-    private fun JsonObject.optString(key: String): String {
-        val prim = (this[key] as? JsonPrimitive) ?: return ""
-        if (prim is JsonNull) return ""
-        return prim.contentOrNull.orEmpty()
-    }
-
     companion object {
         private const val TAG = "PyApi"
     }
