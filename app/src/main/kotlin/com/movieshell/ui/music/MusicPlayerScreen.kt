@@ -224,7 +224,7 @@ fun MusicPlayerScreen(
                     // 封面模式：大封面（保留旋转动画）+ 歌名/歌手
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         // 封面（v0.89.0：旋转只作用在这两处；封面地址走 picImageUrl 解析）
-                        val artUrl = rememberArtworkUrl(track.picId)
+                        val artUrl = rememberArtworkUrl(track.picId, track.source)
                         // v0.123.0 起：没自带封面时按歌名+歌手匹配回填；
                         // v0.125.0 补充A：匹配已挪到 MusicPlayer（切歌时在其 scope
                         // 里跑），这里只读结果表，页面组合销毁不再取消匹配
@@ -605,12 +605,18 @@ fun MusicPlayerScreen(
     }
 
     // v0.108.0 B1：音源切换弹窗——点选后仅用该源重解析当前歌曲并播放
+    // v0.126.0：同弹窗带平台区（目标=当前歌曲，本地歌不给平台区）
     if (showSourceDialog) {
         MusicSourcePickerDialog(
             onDismiss = { showSourceDialog = false },
             onManageSources = {
                 showSourceDialog = false
                 onOpenMusicSource()
+            },
+            platformTrack = track?.takeIf { !it.isLocal },
+            onPickPlatform = { code ->
+                showSourceDialog = false
+                MusicPlayer.playOnPlatform(context, code)
             },
             onPick = { src ->
                 showSourceDialog = false
@@ -624,7 +630,10 @@ fun MusicPlayerScreen(
 /** v0.108.0 B1：音源选择——列出已启用音乐源；暂无可用源时给空态提示。
  *  v0.117.0：列表页复用本弹窗（internal），新增"自动"选项（showAutoOption）。
  *  v0.121.0：重做为品牌卡片风——每个选项一行：名称 + 一句话人话说明 + 当前选中打勾；
- *  底部加"管理音源与 Cookie →"入口（用户反馈"黑乎乎看不懂、不知道 cookie 在哪"）。 */
+ *  底部加"管理音源与 Cookie →"入口（用户反馈"黑乎乎看不懂、不知道 cookie 在哪"）。
+ *  v0.126.0：新增「平台」区（与音源=脚本维度并存）——platformTrack 非空时渲染五家
+ *  平台单选行，当前歌曲平台打勾；点选回调 onPickPlatform 由调用方接
+ *  MusicPlayer.playOnPlatform 做跨平台同曲匹配。本地歌曲不传（无平台可切）。 */
 @Composable
 internal fun MusicSourcePickerDialog(
     onDismiss: () -> Unit,
@@ -635,6 +644,9 @@ internal fun MusicSourcePickerDialog(
     selectedId: String? = null,
     // v0.121.0："管理音源与 Cookie →"入口回调
     onManageSources: () -> Unit = {},
+    // v0.126.0：平台区的目标歌曲（null=不渲染平台区）与平台点选回调
+    platformTrack: MusicApi.Track? = null,
+    onPickPlatform: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     var sources by remember { mutableStateOf<List<MusicSource>>(emptyList()) }
@@ -673,6 +685,31 @@ internal fun MusicSourcePickerDialog(
                         else "你的 LX 脚本，可在音源管理里配 Cookie 解锁更高音质",
                         selected = s.id == selectedId,
                         onClick = { onPick(s) },
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+            }
+            if (platformTrack != null) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "平台（当前歌曲）",
+                    fontSize = 13.sp,
+                    color = Color(0xFF8A93B2),
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+                Spacer(Modifier.height(6.dp))
+                val curPlatform = MusicApi.normalizeSource(platformTrack.source)
+                    .ifBlank { "wy" }
+                MusicApi.PLATFORM_CODES.forEach { code ->
+                    SourceOptionRow(
+                        name = MusicApi.platformLabel(code) ?: code,
+                        desc = if (code == curPlatform) {
+                            "当前歌曲的来源平台"
+                        } else {
+                            "按歌名+歌手匹配同一首歌，用该平台解析"
+                        },
+                        selected = code == curPlatform,
+                        onClick = { onPickPlatform(code) },
                     )
                     Spacer(Modifier.height(6.dp))
                 }

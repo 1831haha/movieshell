@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicHistoryStore
+import com.movieshell.data.repo.PlayerSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CancellationException
@@ -94,7 +95,8 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
                 _searchHistory.value = MusicHistoryStore.searchHistory(getApplication())
                 // 注意：runCatching 会吞 CancellationException，这里显式重抛，
                 // 否则旧慢请求被取消后仍会走到 onFailure 把 _tracks 清空覆盖新结果
-                runCatching { MusicApi.search(q) }
+                // v0.126.0：按持久化的所选平台搜索（PlayerSettings.musicPlatform）
+                runCatching { MusicApi.search(q, platform = PlayerSettings.musicPlatform.value) }
                     .onSuccess { _tracks.value = it }
                     .onFailure {
                         if (it is CancellationException) throw it

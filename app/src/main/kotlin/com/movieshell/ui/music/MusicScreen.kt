@@ -65,6 +65,7 @@ import coil.compose.AsyncImage
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.data.repo.MusicApi
+import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.player.MusicPlayer
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
@@ -222,6 +223,12 @@ fun MusicScreen(
                 MusicPlayer.setPreferredSource(null)
                 Toast.makeText(context, "已切回自动音源", Toast.LENGTH_SHORT).show()
             },
+            // v0.126.0：平台区目标沿用本弹窗既有语义=当前在播歌曲（无在播/本地歌不渲染）
+            platformTrack = MusicPlayer.state.value.track?.takeIf { !it.isLocal },
+            onPickPlatform = { code ->
+                showSourcePicker = false
+                MusicPlayer.playOnPlatform(context, code)
+            },
             onPick = { src ->
                 showSourcePicker = false
                 MusicPlayer.setPreferredSource(src.id)
@@ -359,13 +366,14 @@ private fun folderOf(t: MusicApi.Track): String {
 /**
  * v0.89.0：封面真实地址（pic 接口返回 {"url":...} 包一层，需异步解析一次，MusicApi 侧带内存缓存）。
  * 解析中/失败返回 ""，调用处回退 MusicNote 占位。
+ * v0.126.0：带平台参数（LX code），有曲目上下文的调用处传曲目自身平台。
  */
 @Composable
-internal fun rememberArtworkUrl(picId: String): String {
-    var url by remember(picId) { mutableStateOf("") }
-    LaunchedEffect(picId) {
+internal fun rememberArtworkUrl(picId: String, platform: String = "wy"): String {
+    var url by remember(picId, platform) { mutableStateOf("") }
+    LaunchedEffect(picId, platform) {
         url = if (picId.isBlank()) "" else withContext(Dispatchers.IO) {
-            runCatching { MusicApi.picImageUrl(picId) }.getOrDefault("")
+            runCatching { MusicApi.picImageUrl(picId, platform) }.getOrDefault("")
         }
     }
     return url
@@ -461,6 +469,29 @@ private fun OnlineTab(
                 Icon(Icons.Filled.PlaylistAdd, contentDescription = "歌单导入")
             }
         }
+        // v0.126.0：搜索平台切换（单选、持久化到 PlayerSettings）。GD 实例实测仅
+        // netease 可用，其余平台 chip 置灰不可选——只对 GD 支持的平台开放搜索，
+        // 不假装能搜；GD 放开后改 MusicApi.GD_SUPPORTED_PLATFORMS 即点亮。
+        val musicPlatform by PlayerSettings.musicPlatform.collectAsState()
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(MusicApi.PLATFORM_CODES) { code ->
+                FilterChip(
+                    selected = musicPlatform == code,
+                    enabled = code in MusicApi.GD_SUPPORTED_PLATFORMS,
+                    onClick = {
+                        PlayerSettings.setMusicPlatform(context, code)
+                        // 切换平台后用当前关键词重新搜索
+                        if (query.isNotBlank()) onSearch(query)
+                    },
+                    label = { Text(MusicApi.platformLabel(code) ?: code) },
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
         // v0.82.0：风格快捷搜索
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
@@ -973,7 +1004,7 @@ internal fun TrackRow(
     onClick: () -> Unit,
 ) {
     // v0.89.0：封面走 picImageUrl 解析后的真实地址（接口包一层 {"url":...}）
-    val artUrl = rememberArtworkUrl(track.picId)
+    val artUrl = rememberArtworkUrl(track.picId, track.source)
     AppCard(
         modifier = Modifier
             .fillMaxWidth()

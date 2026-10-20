@@ -16,15 +16,54 @@ import java.net.URLEncoder
 /**
  * v0.79.0：在线音乐 API（GD Studio 聚合接口，2026-10-17 实测可用）。
  *
- * - 搜索：GET {BASE}?types=search&source=netease&name={q}&count={n}&pages={p}
- * - 播放地址：GET {BASE}?types=url&source=netease&id={url_id} → {"url": "..."}
- * - 封面：GET {BASE}?types=pic&source=netease&id={pic_id} → {"url": "真实图片地址"}
+ * - 搜索：GET {BASE}?types=search&source={GD源}&name={q}&count={n}&pages={p}
+ * - 播放地址：GET {BASE}?types=url&source={GD源}&id={url_id} → {"url": "..."}
+ * - 封面：GET {BASE}?types=pic&source={GD源}&id={pic_id} → {"url": "真实图片地址"}
  *   （v0.89.0 实测：并非直接返回图片，而是包一层 {"url":...}，须经 picImageUrl 解析一次）
+ *
+ * v0.126.0：平台口径收敛——全 App 统一用 LX 平台 code（wy/tx/kw/kg/mg），
+ * LX code 与 GD source 字符串的映射只在本对象一处（[gdSourceOf]）；旧数据里的
+ * 别名（qq/wyy/netease/中文名）经 [normalizeSource] 归一。2026-10-20 实测：
+ * GD 实例仅 netease 可用，tencent/kuwo/kugou/migu 均返回 source not supported，
+ * 故搜索/取链/封面/歌词只对 [GD_SUPPORTED_PLATFORMS] 内的平台真正出数据，
+ * 其余平台的 LX 解析（脚本按平台取直链）不受此限。
  */
 object MusicApi {
     private const val TAG = "MusicApi"
     private const val BASE = "https://music-api.gdstudio.xyz/api.php"
-    private const val SOURCE = "netease"
+
+    /** v0.126.0：LX 平台 code 全集（搜索 chip 与切换平台弹窗的枚举真源）。 */
+    val PLATFORM_CODES = listOf("wy", "tx", "kw", "kg", "mg")
+
+    /** v0.126.0：LX code → GD source 字符串，唯一映射处。 */
+    private val GD_SOURCE = mapOf(
+        "wy" to "netease",
+        "tx" to "tencent",
+        "kw" to "kuwo",
+        "kg" to "kugou",
+        "mg" to "migu",
+    )
+
+    /** v0.126.0 实测：GD 实例实际能出数据的平台（其余 source 被服务端拒绝）。 */
+    val GD_SUPPORTED_PLATFORMS = setOf("wy")
+
+    /**
+     * v0.126.0：平台 code 归一——LX code 原样，别名（qq/wyy/netease）与中文名
+     * 映射到 LX code；认不出返回空串（旧数据兼容：已存 Track 的 source 可能是
+     * 别名或中文，读取侧一律先过这里再用）。
+     */
+    fun normalizeSource(code: String): String = when (code.trim().lowercase()) {
+        "wy", "wyy", "netease", "网易云", "网易云音乐" -> "wy"
+        "tx", "qq", "腾讯", "qq音乐" -> "tx"
+        "kw", "kuwo", "酷我", "酷我音乐" -> "kw"
+        "kg", "kugou", "酷狗", "酷狗音乐" -> "kg"
+        "mg", "migu", "咪咕", "咪咕音乐" -> "mg"
+        else -> ""
+    }
+
+    /** v0.126.0：LX code → GD source 字符串；认不出的 code 回退 netease。 */
+    fun gdSourceOf(lxCode: String): String =
+        GD_SOURCE[normalizeSource(lxCode)] ?: "netease"
 
     // v0.81.0：@Serializable 以便本地音乐/收藏持久化；localUri 存本地音频的 content URI
     // v0.123.0：source=来源平台 code（wy/tx/kg/kw/mg），列表行常驻来源 chip 用；
@@ -43,14 +82,35 @@ object MusicApi {
         val isLocal: Boolean get() = localUri.isNotBlank()
     }
 
-    /** v0.123.0：平台 code → 中文名，全 App 一处真源（LxCookieKit 亦委托此处）；未知返回 null。 */
-    fun platformLabel(code: String): String? = when (code.lowercase()) {
-        "tx", "qq" -> "QQ音乐"
-        "wy", "wyy", "netease" -> "网易云音乐"
+    /** v0.123.0：平台 code → 中文名，全 App 一处真源（LxCookieKit 亦委托此处）；未知返回 null。
+     *  v0.126.0：别名归一收敛到 [normalizeSource]，本函数只管 code → 中文名。 */
+    fun platformLabel(code: String): String? = when (normalizeSource(code)) {
+        "tx" -> "QQ音乐"
+        "wy" -> "网易云音乐"
         "kw" -> "酷我音乐"
         "kg" -> "酷狗音乐"
         "mg" -> "咪咕音乐"
         else -> null
+    }
+
+    /**
+     * v0.126.0：跨平台同曲匹配——候选里先挑「歌名归一相等且歌手有交集」的，
+     * 其次「歌名归一相等」的第一条；都没有返回 null。
+     * 歌名归一 = 小写、去空白、剥掉括号后缀（Live/Remix 等版本标注）。
+     */
+    fun pickSameSong(origin: Track, candidates: List<Track>): Track? {
+        fun normName(s: String): String = s.lowercase()
+            .replace(Regex("\\s"), "")
+            .substringBefore("(").substringBefore("（").trim()
+        fun artistTokens(s: String): Set<String> =
+            s.split("、", ",", "，", "/", "&")
+                .map { it.trim().lowercase() }.filter { it.isNotBlank() }.toSet()
+        val on = normName(origin.name)
+        if (on.isBlank()) return null
+        val oa = artistTokens(origin.artist)
+        val nameEq = candidates.filter { normName(it.name) == on }
+        return nameEq.firstOrNull { artistTokens(it.artist).intersect(oa).isNotEmpty() }
+            ?: nameEq.firstOrNull()
     }
 
     // v0.112.0 B1：纯短 GET（搜索/播放地址/封面），每次请求显式带 UA 头，
@@ -68,10 +128,23 @@ object MusicApi {
         }
     }
 
-    /** 搜索歌曲 */
-    suspend fun search(query: String, page: Int = 1, count: Int = 20): List<Track> {
+    /**
+     * 搜索歌曲。v0.126.0：加平台参数（LX code，内部经 [gdSourceOf] 换算 GD source）；
+     * GD 不支持的平台直接返回空表并记日志（服务端会拒绝，不白跑一趟请求）。
+     */
+    suspend fun search(
+        query: String,
+        page: Int = 1,
+        count: Int = 20,
+        platform: String = "wy",
+    ): List<Track> {
+        val lx = normalizeSource(platform).ifBlank { "wy" }
+        if (lx !in GD_SUPPORTED_PLATFORMS) {
+            LogBus.w(TAG, "GD 不支持平台 $lx 的搜索，返回空")
+            return emptyList()
+        }
         val q = URLEncoder.encode(query, "UTF-8")
-        val body = get("$BASE?types=search&source=$SOURCE&name=$q&count=$count&pages=$page")
+        val body = get("$BASE?types=search&source=${gdSourceOf(lx)}&name=$q&count=$count&pages=$page")
         val tracks = mutableListOf<Track>()
         runCatching {
             val arr = JSONArray(body)
@@ -87,8 +160,8 @@ object MusicApi {
                     album = o.optString("album"),
                     picId = o.optString("pic_id"),
                     urlId = o.optString("url_id"),
-                    // GD Studio 写死 netease 源，来源如实标 wy
-                    source = "wy",
+                    // v0.126.0：来源标实际搜索平台（LX code），不再恒 wy
+                    source = lx,
                 )
             }
         }.onFailure {
@@ -104,7 +177,8 @@ object MusicApi {
         val id = Regex("[?&]id=(\\d+)").find(idOrUrl)?.groupValues?.get(1)
             ?: Regex("[0-9]+").find(idOrUrl)?.value
             ?: throw IllegalStateException("没识别出歌单 ID")
-        val body = get("$BASE?types=playlist&source=$SOURCE&id=$id")
+        // 歌单导入仍是网易云歌单（GD playlist 仅 netease），源写 gdSourceOf("wy")
+        val body = get("$BASE?types=playlist&source=${gdSourceOf("wy")}&id=$id")
         val tracks = mutableListOf<Track>()
         val name = runCatching {
             val root = JSONObject(body)
@@ -138,11 +212,14 @@ object MusicApi {
     /** v0.83.0：单行歌词 */
     data class LyricLine(val timeMs: Long, val text: String)
 
-    /** v0.83.0：拉歌词（LRC）并解析；无歌词返回空列表。 */
+    /** v0.83.0：拉歌词（LRC）并解析；无歌词返回空列表。
+     *  v0.126.0：按曲目自身平台取词（GD 不支持的平台直接空表，不发注定失败的请求）。 */
     suspend fun lyric(track: Track): List<LyricLine> {
         val lid = track.urlId.ifBlank { return emptyList() }
+        val lx = normalizeSource(track.source).ifBlank { "wy" }
+        if (lx !in GD_SUPPORTED_PLATFORMS) return emptyList()
         val body = runCatching {
-            get("$BASE?types=lyric&source=$SOURCE&id=$lid")
+            get("$BASE?types=lyric&source=${gdSourceOf(lx)}&id=$lid")
         }.getOrNull() ?: return emptyList()
         val raw = runCatching { JSONObject(body).optString("lyric") }.getOrDefault("")
         if (raw.isBlank()) return emptyList()
@@ -164,9 +241,13 @@ object MusicApi {
         return lines.sortedBy { it.timeMs }
     }
 
-    /** 取可播放地址（url_id → 直链） */
-    suspend fun playUrl(urlId: String): String {
-        val body = get("$BASE?types=url&source=$SOURCE&id=$urlId")
+    /** 取可播放地址（url_id → 直链）。v0.126.0：按平台（LX code）取链。 */
+    suspend fun playUrl(urlId: String, platform: String = "wy"): String {
+        val lx = normalizeSource(platform).ifBlank { "wy" }
+        if (lx !in GD_SUPPORTED_PLATFORMS) {
+            throw IllegalStateException("GD 不支持平台 $lx 取链")
+        }
+        val body = get("$BASE?types=url&source=${gdSourceOf(lx)}&id=$urlId")
         val url = runCatching { JSONObject(body).optString("url") }.getOrDefault("")
         if (url.isBlank()) throw IllegalStateException("未取到播放地址")
         return url
@@ -192,9 +273,12 @@ object MusicApi {
     private const val PIC_FAIL_BACKOFF_MS = 30_000L
     private val picScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    suspend fun picImageUrl(picId: String): String {
+    /** v0.126.0：封面按平台（LX code）解析；缓存键含 GD source，跨平台同 id 不串图。 */
+    suspend fun picImageUrl(picId: String, platform: String = "wy"): String {
         if (picId.isBlank()) return ""
-        val key = "$SOURCE:$picId"
+        val lx = normalizeSource(platform).ifBlank { "wy" }
+        if (lx !in GD_SUPPORTED_PLATFORMS) return ""
+        val key = "${gdSourceOf(lx)}:$picId"
         synchronized(picCache) { picCache[key]?.let { return it } }
         val deferred: Deferred<String>
         synchronized(picInFlight) {
@@ -206,7 +290,7 @@ object MusicApi {
                 if (System.currentTimeMillis() - lastFail < PIC_FAIL_BACKOFF_MS) return ""
                 deferred = picScope.async {
                     runCatching {
-                        JSONObject(get("$BASE?types=pic&source=$SOURCE&id=$picId"))
+                        JSONObject(get("$BASE?types=pic&source=${gdSourceOf(lx)}&id=$picId"))
                             .optString("url")
                     }.getOrDefault("")
                 }

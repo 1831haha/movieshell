@@ -47,7 +47,7 @@ internal fun MiniPlayer(
     val context = LocalContext.current
     val current = playState.track ?: return
     // v0.89.0：封面走 picImageUrl 解析后的真实地址
-    val artUrl = rememberArtworkUrl(current.picId)
+    val artUrl = rememberArtworkUrl(current.picId, current.source)
     AppCard(
         modifier = Modifier
             .fillMaxWidth()

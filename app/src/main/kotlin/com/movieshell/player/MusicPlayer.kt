@@ -88,9 +88,11 @@ object MusicPlayer {
         synchronized(artMatchInFlight) { if (!artMatchInFlight.add(id)) return }
         scope.launch {
             try {
+                // v0.126.0：封面/匹配搜索都按曲目自身平台走（GD 不支持的平台自然空）
+                val plat = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
                 // 有自带封面且能解析出图就不必匹配（顺手把结果记下防重复进）
                 val own = if (track.picId.isBlank()) "" else {
-                    runCatching { MusicApi.picImageUrl(track.picId) }.getOrDefault("")
+                    runCatching { MusicApi.picImageUrl(track.picId, plat) }.getOrDefault("")
                 }
                 if (own.isNotBlank()) {
                     _matchedArt.value = _matchedArt.value + (id to own)
@@ -102,10 +104,10 @@ object MusicPlayer {
                     "${track.name} ${track.artist}"
                 }
                 val found = runCatching {
-                    val hit = MusicApi.search(q, count = 5)
+                    val hit = MusicApi.search(q, count = 5, platform = plat)
                         .firstOrNull { it.picId.isNotBlank() }
                         ?: return@runCatching ""
-                    MusicApi.picImageUrl(hit.picId)
+                    MusicApi.picImageUrl(hit.picId, plat)
                 }.onFailure {
                     LogBus.w("MusicPlayer", "海报匹配失败：${it.message}")
                 }.getOrDefault("")
@@ -270,6 +272,61 @@ object MusicPlayer {
         playAt(context, index)
     }
 
+    /**
+     * v0.126.0：跨平台同曲匹配缓存——(原 track.id, 目标平台 LX code) → 换平台后的
+     * Track（显示信息沿用原曲，source/urlId/picId 换成目标平台的）。进程内缓存，
+     * 切回/再切同首歌免重复搜；原曲自身也按 (id, 原平台) 登记一份，切回零搜索。
+     */
+    private val platformMatches = mutableMapOf<Pair<String, String>, MusicApi.Track>()
+
+    /**
+     * v0.126.0：把当前歌曲切到目标平台播放（与「切换音源」的脚本维度并存，互不影响）。
+     * 按 歌名+歌手 在目标平台搜同曲（[MusicApi.pickSameSong] 挑选），命中则把队列
+     * 当前项换成目标平台版本重播——playAt 会按新 source 走该平台的 LX 解析。
+     * 未命中提示「该平台没有找到这首歌」并保持原播放。不做自动跨平台级联兜底。
+     */
+    fun playOnPlatform(context: Context, platformCode: String) {
+        val cur = _state.value.track
+        if (cur == null || cur.isLocal) {
+            toast("当前没有可切换平台的歌曲")
+            return
+        }
+        val target = MusicApi.normalizeSource(platformCode)
+        val current = MusicApi.normalizeSource(cur.source).ifBlank { "wy" }
+        if (target.isBlank() || target == current) {
+            toast("当前已是${MusicApi.platformLabel(current) ?: current}")
+            return
+        }
+        appCtx = context.applicationContext
+        scope.launch {
+            val key = cur.id to target
+            if (!platformMatches.containsKey(cur.id to current)) {
+                platformMatches[cur.id to current] = cur
+            }
+            val matched = platformMatches[key] ?: run {
+                val candidates = runCatching {
+                    MusicApi.search("${cur.name} ${cur.artist}", count = 10, platform = target)
+                }.getOrDefault(emptyList())
+                val hit = MusicApi.pickSameSong(cur, candidates)
+                if (hit == null) {
+                    LogBus.w("MusicPlayer", "跨平台匹配未命中：${cur.name} → $target")
+                    toast("该平台没有找到这首歌")
+                    return@launch
+                }
+                cur.copy(source = target, urlId = hit.urlId, picId = hit.picId)
+                    .also { platformMatches[key] = it }
+            }
+            val qi = queue.indexOfFirst { it.id == cur.id }
+            if (qi >= 0) {
+                queue = queue.toMutableList().also { it[qi] = matched }
+                playAt(context, qi)
+            } else {
+                playList(context, listOf(matched), 0)
+            }
+            toast("已切换到${MusicApi.platformLabel(target) ?: target}")
+        }
+    }
+
     private fun playAt(context: Context, i: Int) {
         if (i !in queue.indices) return
         index = i
@@ -288,18 +345,20 @@ object MusicPlayer {
             // v0.89.0：直链接口偶发 503，失败 1.5 秒后重试一次；封面与直链并发解析，不拖慢起播
             // v0.100.0：在线歌曲先走启用的 LX 音乐源解析（内置 huibq 纯 HTTP / 用户脚本），
             // 全部失败再回退 MusicApi.playUrl（GD Studio）
+            // v0.126.0：整条解析链按曲目自身平台走（LX 取档/解析/huibq/GD 兜底同口径）
+            val platform = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
             val mediaDeferred = async {
                 if (track.isLocal) {
                     Resolved(track.localUri, "本地文件", "")
                 } else {
-                    resolveLxUrl(context.applicationContext, track.urlId)
+                    resolveLxUrl(context.applicationContext, track.urlId, platform)
                         ?: try {
-                            MusicApi.playUrl(track.urlId).takeIf { it.isNotBlank() }
+                            MusicApi.playUrl(track.urlId, platform).takeIf { it.isNotBlank() }
                                 ?.let { Resolved(it, "GD Studio", "") }
                         } catch (e: Exception) {
                             LogBus.w("MusicPlayer", "取直链失败，重试一次：${track.name}（${e.message}）")
                             delay(1500)
-                            runCatching { MusicApi.playUrl(track.urlId) }.getOrNull()
+                            runCatching { MusicApi.playUrl(track.urlId, platform) }.getOrNull()
                                 ?.takeIf { it.isNotBlank() }
                                 ?.let { Resolved(it, "GD Studio", "") }
                         }
@@ -307,7 +366,7 @@ object MusicPlayer {
             }
             val artDeferred = async {
                 if (track.picId.isBlank()) "" else {
-                    runCatching { MusicApi.picImageUrl(track.picId) }.getOrDefault("")
+                    runCatching { MusicApi.picImageUrl(track.picId, platform) }.getOrDefault("")
                 }
             }
             val resolved = mediaDeferred.await()
@@ -363,12 +422,19 @@ object MusicPlayer {
      * 调用方回退 MusicApi.playUrl。只换直链来源，不碰播放链路；本地歌曲不走这里。
      * v0.117.0：返回 Resolved（三件套）；首选项源（setPreferredSource）排到最前，
      * 失败仍回落到默认顺序，保证不卡死。
-     * v0.124.0：逐档试的档位改按平台（wy）取脚本自报 qualitys——引擎侧 getQualityIds
+     * v0.124.0：逐档试的档位改按平台取脚本自报 qualitys——引擎侧 getQualityIds
      * 修好对象形状解析后，flac/flac24bit 等高档第一次真能进尝试序列（此前恒空、恒走
      * 兜底 320k→128k）。App 无手动音质上限设置，默认即最高档策略；逐档只在上一档
      * 明确失败（脚本返回空/报错）时才降，成功即停，不拖慢正常起播。
+     * v0.126.0：平台不再写死 wy——按曲目自身平台（LX code）取档/解析，huibq 内置源
+     * 同口径拼 url 路径；songId 必须是该平台自己的歌曲 id（跨平台切换时由
+     * [playOnPlatform] 先匹配换 id），拿网易 id 去别的平台解析注定失败，不在此兜底。
      */
-    private suspend fun resolveLxUrl(appContext: Context, songId: String): Resolved? {
+    private suspend fun resolveLxUrl(
+        appContext: Context,
+        songId: String,
+        platform: String,
+    ): Resolved? {
         if (songId.isBlank()) return null
         // v0.108.0 B1：一次性消费手动指定的源；该源不存在/已禁用时 sources 为空，
         // 自然回落为调用方 MusicApi.playUrl（GD Studio）兜底
@@ -394,15 +460,15 @@ object MusicPlayer {
                 LxMusicSourceEngine.BUILTIN_QUALITIES
             } else {
                 runCatching { engine.loadScript(s.url) }.getOrDefault(false)
-                // v0.124.0：按平台取档（播放恒走 wy），别把 tx 独占档拿来对 wy 空试
-                LxMusicSourceEngine.sortHighToLow(engine.getQualityIds(s.url, "wy"))
+                // v0.126.0：按曲目平台取档，别把某平台独占档拿来对别的平台空试
+                LxMusicSourceEngine.sortHighToLow(engine.getQualityIds(s.url, platform))
                     .ifEmpty { listOf("320k", "128k") }
             }
             var reason = "解析失败"
             for (q in qualities) {
                 val url = runCatching {
-                    if (s.builtin) resolveBuiltinHuibq("wy", songId, q)
-                    else engine.resolveMusicUrl(s.url, "wy", songId, q)
+                    if (s.builtin) resolveBuiltinHuibq(platform, songId, q)
+                    else engine.resolveMusicUrl(s.url, platform, songId, q)
                 }.getOrNull()?.takeIf { it.isNotBlank() }
                 if (url != null) {
                     LogBus.i("MusicPlayer", "LX 解析成功：${s.name} $q")

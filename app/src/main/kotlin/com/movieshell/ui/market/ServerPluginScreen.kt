@@ -62,6 +62,8 @@ import java.io.File
  * 服务插件页（v0.120.0 C3）：已装服务插件的启动/停止/日志/卸载 + 文件安装 + 环境自检。
  * 包规范见 xiaying-plugins/SERVER_PLUGIN_SPEC.md；卡片与弹窗走 AppCard / TechDialog，
  * 文字颜色走 MaterialTheme（弹窗体内容区由 TechDialog 固定浅色）。
+ * v0.126.0：顶部加「示例插件」卡——内置 demo-service-plugin.zip 一键安装
+ * （走 install 全套校验），装好后用列表行既有「启动」一键启动。
  */
 @Composable
 fun ServerPluginScreen(onBack: () -> Unit = {}) {
@@ -76,8 +78,36 @@ fun ServerPluginScreen(onBack: () -> Unit = {}) {
     var uninstallFor by remember { mutableStateOf<ServicePluginManager.PluginInfo?>(null) }
     var selfCheck by remember { mutableStateOf<ServicePluginManager.SelfCheck?>(null) }
     var checking by remember { mutableStateOf(false) }
+    // v0.126.0：内置示例插件一键安装中标志
+    var installingDemo by remember { mutableStateOf(false) }
 
     fun reload() { tick++ }
+
+    // v0.126.0：内置示例插件（assets/demo-service-plugin.zip）一键安装——
+    // 拷到 cacheDir 后走 ServicePluginManager.install 全部既有校验，不开后门
+    fun installDemo() {
+        if (installingDemo) return
+        installingDemo = true
+        scope.launch {
+            val msg = withContext(Dispatchers.IO) {
+                runCatching {
+                    val tmp = File.createTempFile("demo_svc_", ".zip", context.cacheDir)
+                    try {
+                        context.assets.open("demo-service-plugin.zip").use { s ->
+                            tmp.outputStream().use { s.copyTo(it) }
+                        }
+                        ServicePluginManager.install(context, tmp)
+                        "示例服务已安装，在下方列表点「启动」即可运行"
+                    } finally {
+                        tmp.delete()
+                    }
+                }.getOrElse { "安装失败：${it.message}" }
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            installingDemo = false
+            reload()
+        }
+    }
     LaunchedEffect(tick) {
         plugins = withContext(Dispatchers.IO) { ServicePluginManager.installedPlugins(context) }
     }
@@ -164,6 +194,47 @@ fun ServerPluginScreen(onBack: () -> Unit = {}) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // v0.126.0：示例插件卡（列表之上）——未装给一键安装，装好引导去列表启动
+            item {
+                val demoInstalled = plugins.any { it.id == "hello-service" }
+                AppCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "示例插件",
+                            style = SoftType.CardTitle,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "内置一个最小服务插件「示例服务」：装好后在本页列表点「启动」，" +
+                                "它会在本机端口提供探活页并持续输出日志，先摸清服务插件的安装与运行。",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (demoInstalled) {
+                                Text(
+                                    "已安装 · 到下方列表点「启动」",
+                                    style = SoftType.Caption,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            } else {
+                                TextButton(
+                                    onClick = { installDemo() },
+                                    enabled = !installingDemo,
+                                ) {
+                                    Text(if (installingDemo) "安装中…" else "一键安装")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if (plugins.isEmpty()) {
                 item {
                     EmptyState(

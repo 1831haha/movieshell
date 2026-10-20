@@ -58,6 +58,8 @@ object PlayerSettings {
     private const val KEY_RESIZE_MODE = "player_resize_mode"
     /** v0.125.0：歌词颜色 ARGB（0=跟随主题色） */
     private const val KEY_LYRIC_COLOR = "lyric_color"
+    /** v0.126.0：音乐在线搜索平台（LX code，默认 wy） */
+    private const val KEY_MUSIC_PLATFORM = "music_search_platform"
 
     private val _engine = MutableStateFlow(PlayerEngine.MEDIA3)
     val engine: StateFlow<PlayerEngine> = _engine
@@ -73,6 +75,10 @@ object PlayerSettings {
     private val _lyricColor = MutableStateFlow(0)
     val lyricColor: StateFlow<Int> = _lyricColor
 
+    /** v0.126.0：音乐在线搜索平台（LX code，归一后取值，认不出回 wy） */
+    private val _musicPlatform = MutableStateFlow("wy")
+    val musicPlatform: StateFlow<String> = _musicPlatform
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         _engine.value = runCatching {
@@ -87,6 +93,9 @@ object PlayerSettings {
         )
         _gravityRotate.value = prefs.getBoolean(KEY_GRAVITY_ROTATE, true)
         _lyricColor.value = prefs.getInt(KEY_LYRIC_COLOR, 0)
+        _musicPlatform.value = MusicApi.normalizeSource(
+            prefs.getString(KEY_MUSIC_PLATFORM, "wy").orEmpty(),
+        ).ifBlank { "wy" }
     }
 
     /**
@@ -198,6 +207,14 @@ object PlayerSettings {
     fun setResizeMode(context: Context, mode: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putInt(KEY_RESIZE_MODE, mode.coerceIn(0, 2)).apply()
+    }
+
+    /** v0.126.0：记忆音乐搜索平台（LX code，归一后落盘）。 */
+    fun setMusicPlatform(context: Context, code: String) {
+        val lx = MusicApi.normalizeSource(code).ifBlank { "wy" }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_MUSIC_PLATFORM, lx).apply()
+        _musicPlatform.value = lx
     }
 
     /** v0.125.0：记忆歌词颜色（0=跟随主题）。 */
