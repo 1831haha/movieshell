@@ -1,6 +1,9 @@
 package com.movieshell.ui.music
 
 import android.widget.Toast
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -109,6 +112,8 @@ import kotlinx.coroutines.launch
  * chip、真实功能操作行（收藏/换源/音质展示/歌词）、细进度条、渐变大圆
  * 播放钮、播放列表弹窗；去掉 v0.125.0 的毛玻璃控制面板盒子。页面恒为
  * 深色氛围底，文字一律固定浅色，不随主题明暗翻转。
+ * v0.130.0：恢复 v0.89.0 的封面旋转（9 秒一圈匀速、暂停停在当前角度），
+ * 只作用于大封面与无封面占位，氛围背景不转。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -151,6 +156,17 @@ fun MusicPlayerScreen(
     var showQueueDialog by remember { mutableStateOf(false) }
     val sleepRemaining by SleepTimer.remainingMs.collectAsState()
     val sleepArmed by SleepTimer.afterEpisodeArmed.collectAsState()
+    // v0.89.0 的封面旋转，v0.130.0 恢复：只转大封面，参数沿用旧实现
+    // （9 秒一圈匀速；暂停时 LaunchedEffect key 变化自动取消，停在当前
+    // 角度；angle 不按曲目 key，切歌不重置）
+    val angle = remember { Animatable(0f) }
+    LaunchedEffect(playState.playing) {
+        if (playState.playing) {
+            while (true) {
+                angle.animateTo(angle.value + 360f, tween(9000, easing = LinearEasing))
+            }
+        }
+    }
 
     LaunchedEffect(track?.id) {
         val t = track ?: return@LaunchedEffect
@@ -259,7 +275,8 @@ fun MusicPlayerScreen(
                                     contentDescription = null,
                                     modifier = Modifier
                                         .size(side)
-                                        .clip(RoundedCornerShape(20.dp)),
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .graphicsLayer { rotationZ = angle.value },
                                     contentScale = ContentScale.Crop,
                                 )
                             } else {
@@ -267,6 +284,7 @@ fun MusicPlayerScreen(
                                     modifier = Modifier
                                         .size(side)
                                         .clip(RoundedCornerShape(20.dp))
+                                        .graphicsLayer { rotationZ = angle.value }
                                         .background(Color.White.copy(alpha = 0.06f))
                                         .border(
                                             1.dp,
