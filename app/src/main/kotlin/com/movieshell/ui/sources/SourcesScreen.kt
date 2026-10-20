@@ -1727,6 +1727,9 @@ private fun SubscriptionInfoLines(
     cache: SubCache?,
     refreshStatus: SubRefreshStore.SubStatus?,
 ) {
+    // v0.115.0 修：本函数是多子节点发射器，必须自带 Column——v0.108.0 起收起卡片
+    // 把它套在 Box（裁剪）里，Box 会把 Row/Text 全部叠在同一位置，文字互相重叠
+    Column {
     val soft = LocalSoftExtra.current
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -1812,6 +1815,7 @@ private fun SubscriptionInfoLines(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
     }
 }
 
