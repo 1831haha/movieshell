@@ -457,7 +457,8 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             onDismissRequest = { cookieTarget = null },
             title = "Cookie 配置",
             subtitle = cookieSrc.name,
-            confirmText = if (cookieSlots.isNotEmpty()) "保存" else null,
+            // v0.119.2：confirmText 不可空（传 null 编译错）；无配置项时按钮已由 onConfirm=null 隐藏
+            confirmText = "保存",
             onConfirm = if (cookieSlots.isNotEmpty()) ::saveCookie else null,
             dismissText = "关闭",
         ) {
