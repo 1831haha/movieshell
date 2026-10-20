@@ -104,6 +104,7 @@ import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubRefreshStore
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.TrashStore
+import com.movieshell.data.repo.WarehouseSync
 import com.movieshell.data.repo.WebSourceManager
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
@@ -141,6 +142,8 @@ class SourceEntry(
     enabled: Boolean = true,
     note: String = "",
     group: String = "",
+    /** v0.122.0：多仓自动子仓的父仓 URL；空串=顶层订阅 */
+    val parentUrl: String = "",
 ) {
     var enabled by mutableStateOf(enabled)
     var note by mutableStateOf(note)
@@ -387,7 +390,7 @@ fun SourcesScreen(
         SourceGroup(
             id = "api", name = "接口站源", icon = Icons.Filled.Language,
             entries = ApiSourceStore.load(context)
-                .map { SourceEntry(it.name, it.url, it.enabled, it.note, it.group) }
+                .map { SourceEntry(it.name, it.url, it.enabled, it.note, it.group, it.parentUrl) }
                 .toMutableStateList(),
         )
     }
@@ -396,7 +399,19 @@ fun SourcesScreen(
     fun persistApiGroup() {
         ApiSourceStore.save(
             context,
-            apiGroup.entries.map { ApiSource(it.name, it.detail, it.enabled, it.note, it.group) },
+            apiGroup.entries.map {
+                ApiSource(it.name, it.detail, it.enabled, it.note, it.group, it.parentUrl)
+            },
+        )
+    }
+
+    /** v0.122.0：多仓同步直接改了 ApiSourceStore，UI 列表从存储重读对齐 */
+    fun reloadApiGroup() {
+        apiGroup.entries.clear()
+        apiGroup.entries.addAll(
+            ApiSourceStore.load(context).map {
+                SourceEntry(it.name, it.url, it.enabled, it.note, it.group, it.parentUrl)
+            },
         )
     }
 
@@ -410,8 +425,8 @@ fun SourcesScreen(
     /** 点播页当前源的完整 site key（"sub:…"），null=未设置 */
     var currentSubSiteKey by remember { mutableStateOf<String?>(null) }
 
-    /** 解析订阅：下载 TVBox JSON，展开站点并落盘 */
-    fun parseSubscription(subUrl: String) {
+    /** 解析订阅：下载 TVBox JSON，展开站点并落盘。quiet=true 不弹结果 Toast（多仓子仓自动解析用，避免连环弹） */
+    fun parseSubscription(subUrl: String, quiet: Boolean = false) {
         if (subParsing[subUrl] == true) return
         // v0.9.0：用进程级 scope，用户切走页面刷新也要跑完
         //（composable scope 会在组合离开时取消，报 scope left the composition）
@@ -424,26 +439,48 @@ fun SourcesScreen(
                     subCaches[subUrl] = cache
                     // v0.43.0：多仓 Toast 单独文案
                     if (cache.warehouses.isNotEmpty()) {
-                        Toast.makeText(
-                            context,
-                            "多仓解析完成：${cache.warehouses.size} 个子仓",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                        // v0.122.0：多仓展开为独立子仓订阅——同步增删后对齐 UI 列表，
+                        // 新增子仓静默自动解析展开（子仓本身又是多仓时 WarehouseSync
+                        // 按 parentUrl 拦截，只展开一层）
+                        val parentEntry = apiGroup.entries.firstOrNull { it.detail == subUrl }
+                        if (parentEntry != null) {
+                            val added = WarehouseSync.syncChildren(
+                                context,
+                                ApiSource(
+                                    parentEntry.name, subUrl, parentEntry.enabled,
+                                    parentEntry.note, parentEntry.group, parentEntry.parentUrl,
+                                ),
+                                cache.warehouses,
+                            )
+                            reloadApiGroup()
+                            added.forEach { parseSubscription(it, quiet = true) }
+                        }
+                        if (!quiet) {
+                            Toast.makeText(
+                                context,
+                                "多仓解析完成：${cache.warehouses.size} 个子仓",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
                         return@onSuccess
                     }
-                    val ok = cache.sites.count { it.kind != SubSiteStore.KIND_UNSUPPORTED }
-                    val bad = cache.sites.size - ok
-                    Toast.makeText(
-                        context,
-                        "解析完成：${cache.sites.size} 个站点，$ok 个可用" +
-                            if (bad > 0) "，$bad 个不支持" else "",
-                        Toast.LENGTH_LONG,
-                    ).show()
+                    if (!quiet) {
+                        val ok = cache.sites.count { it.kind != SubSiteStore.KIND_UNSUPPORTED }
+                        val bad = cache.sites.size - ok
+                        Toast.makeText(
+                            context,
+                            "解析完成：${cache.sites.size} 个站点，$ok 个可用" +
+                                if (bad > 0) "，$bad 个不支持" else "",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
                 }
                 .onFailure { e ->
                     // v0.46.0：手动刷新失败也记，"已失效" badge 及时更新
                     SubRefreshStore.recordResult(context, subUrl, false)
-                    Toast.makeText(context, "解析失败：${e.message}", Toast.LENGTH_LONG).show()
+                    if (!quiet) {
+                        Toast.makeText(context, "解析失败：${e.message}", Toast.LENGTH_LONG).show()
+                    }
                 }
             subParsing[subUrl] = false
         }
@@ -464,6 +501,10 @@ fun SourcesScreen(
         // v0.24.0：软删除进回收站
         TrashStore.trashSubscription(context, entry.name, entry.detail)
         apiGroup.entries.remove(entry)
+        // v0.122.0：删父仓连带删其自动子仓（随父删，记录+缓存一起清）；
+        // 删的若是子仓本身，removeChildren 按它的 URL 找不到子记录，无副作用
+        WarehouseSync.removeChildren(context, entry.detail)
+        apiGroup.entries.removeAll { it.parentUrl == entry.detail }
         SubSiteStore.removeCache(context, entry.detail)
         currentSubSiteKey = SubSiteStore.currentSiteKey(context)
         persistApiGroup()

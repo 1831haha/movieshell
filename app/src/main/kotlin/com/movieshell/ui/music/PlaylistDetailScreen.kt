@@ -65,6 +65,7 @@ fun PlaylistDetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val playState by MusicPlayer.state.collectAsState()
+    val badges by MusicPlayer.badges.collectAsState() // v0.122.0：来源/音质徽标（与在线页同口径）
     var playlist by remember { mutableStateOf<MusicPlaylist?>(null) }
     var loading by remember { mutableStateOf(true) }
     var deleteTarget by remember { mutableStateOf<MusicApi.Track?>(null) }
@@ -219,6 +220,7 @@ fun PlaylistDetailScreen(
                                         Box(modifier = Modifier.weight(1f)) {
                                             TrackRow(
                                                 track = track,
+                                                badge = badges[track.urlId],
                                                 isCurrent = isCur,
                                                 isPlaying = isCur && playState.playing,
                                                 onClick = { toggle() },
@@ -235,6 +237,7 @@ fun PlaylistDetailScreen(
                                         Box(modifier = Modifier.weight(1f)) {
                                             TrackRow(
                                                 track = track,
+                                                badge = badges[track.urlId],
                                                 isCurrent = isCur,
                                                 isPlaying = isCur && playState.playing,
                                                 onClick = {},
@@ -268,6 +271,7 @@ fun PlaylistDetailScreen(
                                 }
                                 else -> TrackRow(
                                     track = track,
+                                    badge = badges[track.urlId],
                                     isCurrent = isCur,
                                     isPlaying = isCur && playState.playing,
                                     onDeleteClick = { deleteTarget = track },

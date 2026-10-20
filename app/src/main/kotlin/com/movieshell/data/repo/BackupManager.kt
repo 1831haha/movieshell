@@ -24,6 +24,8 @@ data class ApiSource(
     val enabled: Boolean = true,
     val note: String = "",
     val group: String = "",
+    /** v0.122.0：多仓自动展开出的子仓记录其父仓 URL；空串=用户自加的顶层订阅 */
+    val parentUrl: String = "",
 )
 
 /**
@@ -63,7 +65,8 @@ object ApiSourceStore {
                     ?: true
                 val note = o["note"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 val group = o["group"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                ApiSource(name, url, enabled, note, group)
+                val parentUrl = o["parentUrl"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                ApiSource(name, url, enabled, note, group, parentUrl)
             }
         } catch (e: Exception) {
             Log.w(TAG, "读取 $FILE_NAME 失败，返回空列表", e)
@@ -98,6 +101,7 @@ object ApiSourceStore {
                         put("enabled", s.enabled)
                         put("note", s.note)
                         put("group", s.group)
+                        put("parentUrl", s.parentUrl)
                     }
                 }
             }
@@ -145,6 +149,7 @@ object BackupManager {
                         put("enabled", s.enabled)
                         put("note", s.note)
                         put("group", s.group)
+                        put("parentUrl", s.parentUrl)
                     }
                 }
             }
@@ -182,7 +187,8 @@ object BackupManager {
                     ?: true
                 val note = o["note"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 val group = o["group"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                ApiSource(name, url, enabled, note, group)
+                val parentUrl = o["parentUrl"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                ApiSource(name, url, enabled, note, group, parentUrl)
             }.orEmpty()
             ApiSourceStore.save(context, apiSources)
 

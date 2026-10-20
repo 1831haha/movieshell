@@ -12,6 +12,7 @@ import androidx.work.WorkerParameters
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.SubRefreshStore
 import com.movieshell.data.repo.SubSiteStore
+import com.movieshell.data.repo.WarehouseSync
 import kotlinx.coroutines.delay
 import java.util.concurrent.TimeUnit
 
@@ -36,11 +37,18 @@ class SubRefreshWorker(
         var okCount = 0
         for (sub in subs) {
             if (isStopped) break
-            val ok = runCatching { SubSiteStore.refresh(ctx, sub.url) }
-                .map { it.isSuccess }
-                .getOrDefault(false)
+            // v0.122.0：刷新出多仓时同步子仓订阅记录（新增/消失对齐，子仓下次自动刷新会带上）
+            val cache = runCatching { SubSiteStore.refresh(ctx, sub.url) }.getOrNull()
+            val ok = cache?.isSuccess == true
+            if (ok) {
+                cache?.getOrNull()?.let {
+                    if (it.warehouses.isNotEmpty()) {
+                        WarehouseSync.syncChildren(ctx, sub, it.warehouses)
+                    }
+                }
+                okCount++
+            }
             SubRefreshStore.recordResult(ctx, sub.url, ok)
-            if (ok) okCount++
             Log.i(TAG, "订阅刷新${if (ok) "成功" else "失败"}：${sub.name}")
             delay(2000) // 礼貌间隔，别把订阅站打爆
         }
