@@ -60,6 +60,7 @@ import com.movieshell.data.source.LxCookieKit
 import com.movieshell.data.source.LxMusicSourceEngine
 import com.movieshell.data.source.resolveBuiltinHuibq
 import com.movieshell.player.MusicPlayer
+import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
@@ -349,15 +350,31 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                 }
             }
             items(sources, key = { it.id }) { source ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                // v0.103.0：档次 chips——内置 huibq 用自报两档（v0.106.0：走引擎共享声明）；
+                // 自定义源取脚本 inited 自报的 qualitys；加载中"…", 失败/无数据"未知"
+                val labels: List<String>? = when {
+                    source.builtin -> LxMusicSourceEngine.BUILTIN_QUALITIES.map(::qualityLabel)
+                    !source.enabled -> null
+                    else -> {
+                        val ids = qualityOf[source.id]
+                        when {
+                            ids == null -> listOf("…")
+                            ids.isEmpty() -> listOf("未知")
+                            else -> ids.sortedBy { qualityRank(it) }
+                                .map(::qualityLabel)
+                                .distinct()
+                        }
+                    }
+                }
+                // v0.127.0：行重做为统一骨架卡片（内置/非内置同构，三行对齐成列）：
+                // 一行 源名+内置徽标+开关；二行 地址小字+操作组右对齐；三行 音质 chips。
+                // 测试/Cookie/开关/删除的逻辑与原先完全一致，只重排布局。
+                AppCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = source.name,
@@ -366,7 +383,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
+                                modifier = Modifier.weight(1f),
                             )
                             if (source.builtin) {
                                 Spacer(Modifier.width(6.dp))
@@ -382,35 +399,62 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                                         .padding(horizontal = 8.dp, vertical = 2.dp),
                                 )
                             }
-                        }
-                        if (source.url.isNotBlank()) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = source.url,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                            Spacer(Modifier.width(8.dp))
+                            Switch(
+                                checked = source.enabled,
+                                onCheckedChange = { enabled ->
+                                    scope.launch {
+                                        MusicSourceStore.setEnabled(context, source.id, enabled)
+                                        reload()
+                                    }
+                                },
                             )
                         }
-                        // v0.103.0：档次 chips——内置 huibq 用自报两档（v0.106.0：走引擎共享声明）；
-                        // 自定义源取脚本 inited 自报的 qualitys；加载中"…", 失败/无数据"未知"
-                        val labels: List<String>? = when {
-                            source.builtin -> LxMusicSourceEngine.BUILTIN_QUALITIES.map(::qualityLabel)
-                            !source.enabled -> null
-                            else -> {
-                                val ids = qualityOf[source.id]
-                                when {
-                                    ids == null -> listOf("…")
-                                    ids.isEmpty() -> listOf("未知")
-                                    else -> ids.sortedBy { qualityRank(it) }
-                                        .map(::qualityLabel)
-                                        .distinct()
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = if (source.builtin) "内置音源" else source.url,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    .copy(alpha = 0.7f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { doTest(source) }) {
+                                Text("测试", fontSize = 13.sp)
+                            }
+                            // v0.123.0：内置行也给 Cookie 按钮（原先只有非内置行有，用户在
+                            // huibq 行找不到入口直呼"没有 cookie 界面"）；内置点开是免配置说明
+                            TextButton(onClick = {
+                                if (source.builtin) {
+                                    builtinCookieTip = source
+                                } else {
+                                    openCookie(source)
+                                }
+                            }) {
+                                Text("Cookie", fontSize = 13.sp)
+                            }
+                            if (!source.builtin) {
+                                IconButton(onClick = {
+                                    scope.launch {
+                                        MusicSourceStore.remove(context, source.id)
+                                        reload()
+                                    }
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Delete,
+                                        contentDescription = "删除音乐源",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp),
+                                    )
                                 }
                             }
                         }
                         if (!labels.isNullOrEmpty()) {
-                            Spacer(Modifier.height(6.dp))
+                            Spacer(Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 labels.forEach { label ->
                                     Text(
@@ -428,41 +472,6 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                                     )
                                 }
                             }
-                        }
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = { doTest(source) }) {
-                        Text("测试", fontSize = 13.sp)
-                    }
-                    // v0.123.0：内置行也给 Cookie 按钮（原先只有非内置行有，用户在
-                    // huibq 行找不到入口直呼"没有 cookie 界面"）；内置点开是免配置说明
-                    TextButton(onClick = {
-                        if (source.builtin) builtinCookieTip = source else openCookie(source)
-                    }) {
-                        Text("Cookie", fontSize = 13.sp)
-                    }
-                    Switch(
-                        checked = source.enabled,
-                        onCheckedChange = { enabled ->
-                            scope.launch {
-                                MusicSourceStore.setEnabled(context, source.id, enabled)
-                                reload()
-                            }
-                        },
-                    )
-                    if (!source.builtin) {
-                        IconButton(onClick = {
-                            scope.launch {
-                                MusicSourceStore.remove(context, source.id)
-                                reload()
-                            }
-                        }) {
-                            Icon(
-                                imageVector = Icons.Filled.Delete,
-                                contentDescription = "删除音乐源",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
-                            )
                         }
                     }
                 }

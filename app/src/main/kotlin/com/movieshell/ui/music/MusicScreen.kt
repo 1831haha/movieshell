@@ -247,12 +247,8 @@ fun MusicScreen(
 private val GENRE_CHIPS = listOf("古风", "流行", "民谣", "摇滚", "纯音乐", "DJ")
 
 // v0.82.0：推荐歌单（网易云官方榜单，一点即导入）
-private val RECOMMENDED_PLAYLISTS = listOf(
-    "热歌榜" to "3778678",
-    "新歌榜" to "3779629",
-    "飙升榜" to "19723756",
-    "原创榜" to "2884035",
-)
+// v0.127.0：推荐榜单改由 MusicApi.charts(平台) 按所选平台下发（数据层收敛），
+// 原写死在本文件的网易四榜已移入 MusicApi.WY_CHARTS。
 
 // v0.95：榜单专属配色
 private val CHART_ACCENTS = mapOf(
@@ -469,9 +465,10 @@ private fun OnlineTab(
                 Icon(Icons.Filled.PlaylistAdd, contentDescription = "歌单导入")
             }
         }
-        // v0.126.0：搜索平台切换（单选、持久化到 PlayerSettings）。GD 实例实测仅
-        // netease 可用，其余平台 chip 置灰不可选——只对 GD 支持的平台开放搜索，
-        // 不假装能搜；GD 放开后改 MusicApi.GD_SUPPORTED_PLATFORMS 即点亮。
+        // v0.126.0：搜索平台切换（单选、持久化到 PlayerSettings）。
+        // v0.127.0：五家全点亮——wy 走 GD，其余四家走 PlatformMusicApi 各家
+        // 原生接口（逐家实测），可选口径看 MusicApi.SEARCHABLE_PLATFORMS；
+        // 切换后搜索结果与下方榜单都跟随平台刷新，不再一成不变。
         val musicPlatform by PlayerSettings.musicPlatform.collectAsState()
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
@@ -481,7 +478,7 @@ private fun OnlineTab(
             items(MusicApi.PLATFORM_CODES) { code ->
                 FilterChip(
                     selected = musicPlatform == code,
-                    enabled = code in MusicApi.GD_SUPPORTED_PLATFORMS,
+                    enabled = code in MusicApi.SEARCHABLE_PLATFORMS,
                     onClick = {
                         PlayerSettings.setMusicPlatform(context, code)
                         // 切换平台后用当前关键词重新搜索
@@ -489,6 +486,37 @@ private fun OnlineTab(
                     },
                     label = { Text(MusicApi.platformLabel(code) ?: code) },
                 )
+            }
+        }
+        // v0.127.0：推荐榜单跟随所选平台（MusicApi.charts 分发到各家原生接口）
+        var charts by remember { mutableStateOf<List<MusicApi.ChartEntry>>(emptyList()) }
+        LaunchedEffect(musicPlatform) {
+            charts = runCatching { MusicApi.charts(musicPlatform) }
+                .getOrDefault(emptyList())
+        }
+        // 点榜单 → 拉该平台榜单曲目并回填列表（与歌单导入同一通路）
+        fun loadChart(entry: MusicApi.ChartEntry) {
+            if (importingPlaylist) return
+            importingPlaylist = true
+            scope.launch {
+                runCatching { MusicApi.chartTracks(musicPlatform, entry.id) }
+                    .onSuccess { list ->
+                        if (list.isEmpty()) {
+                            Toast.makeText(
+                                context, "榜单暂时拉不到，稍后再试",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        } else {
+                            playlistName = entry.name
+                            onTracksLoaded(list)
+                        }
+                    }
+                    .onFailure {
+                        Toast.makeText(
+                            context, "榜单加载失败：${it.message}", Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                importingPlaylist = false
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -591,21 +619,31 @@ private fun OnlineTab(
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                     Spacer(Modifier.height(8.dp))
-                    // v0.95：四榜改 2x2 长方形小卡片（横向，宽>高），按压缩放回弹
+                    // v0.95：榜单改 2x2 长方形小卡片（横向，宽>高），按压缩放回弹
+                    // v0.127.0：榜单内容改按所选平台下发（charts state），不再写死网易四榜
+                    if (charts.isEmpty()) {
+                        Text(
+                            text = "该平台暂无榜单",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    }
                     Column(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        RECOMMENDED_PLAYLISTS.chunked(2).forEach { row ->
+                        charts.chunked(2).forEach { row ->
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                row.forEach { (name, id) ->
+                                row.forEach { entry ->
                                     ChartCard(
-                                        name = name,
+                                        name = entry.name,
                                         importing = importingPlaylist,
-                                        onClick = { importPlaylist(id) },
+                                        onClick = { loadChart(entry) },
                                         modifier = Modifier.weight(1f),
                                     )
                                 }
+                                if (row.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
                     }

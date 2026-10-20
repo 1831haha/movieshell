@@ -76,7 +76,13 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {}) {
+fun PluginMarketScreen(
+    onBack: () -> Unit = {},
+    onDetail: (String) -> Unit = {},
+    // v0.127.0：插件中心页签嵌入模式——不渲染自己的顶栏（中心页统一顶栏），
+    // 标题/刷新降为内容区首行；独立路由进来时行为不变。
+    embedded: Boolean = false,
+) {
     val context = LocalContext.current
     val sources by PluginStore.marketSources.collectAsState()
     val activeIdx by PluginStore.activeMarketIdx.collectAsState()
@@ -166,15 +172,17 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
 
     Scaffold(
         topBar = {
-            TabTopBar(
-                title = info?.name ?: "插件市场",
-                onBack = onBack,
-                actions = {
-                    IconButton(onClick = { reload() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                    }
-                },
-            )
+            if (!embedded) {
+                TabTopBar(
+                    title = info?.name ?: "插件市场",
+                    onBack = onBack,
+                    actions = {
+                        IconButton(onClick = { reload() }) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "刷新")
+                        }
+                    },
+                )
+            }
         },
     ) { inner ->
         Column(
@@ -183,6 +191,22 @@ fun PluginMarketScreen(onBack: () -> Unit = {}, onDetail: (String) -> Unit = {})
                 .padding(inner)
                 .padding(horizontal = SoftDimens.PagePadding),
         ) {
+            if (embedded) {
+                // v0.127.0：嵌入模式的内容区首行——市场名 + 刷新（替代原顶栏）
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = info?.name ?: "插件市场",
+                        style = SoftType.CardTitle,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = { reload() }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "刷新")
+                    }
+                }
+            }
             // v0.29.0：市场顶部显示仓库链接（点文本复制，图标按钮浏览器打开）
             RepoLinkRow()
             Spacer(Modifier.height(8.dp))

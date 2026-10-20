@@ -116,9 +116,8 @@ import com.movieshell.ui.live.LiveScreen
 import com.movieshell.ui.log.LogBubbleOverlay
 import com.movieshell.ui.changelog.ChangelogScreen
 import com.movieshell.ui.manual.ManualScreen
+import com.movieshell.ui.market.PluginCenterScreen
 import com.movieshell.ui.market.PluginDetailScreen
-import com.movieshell.ui.market.PluginMarketScreen
-import com.movieshell.ui.market.ServerPluginScreen
 import com.movieshell.ui.market.PyDepGuideOverlay
 import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.search.SearchScreen
@@ -554,18 +553,33 @@ class MainActivity : ComponentActivity() {
                                 onBack = { navController.popBackStack() },
                             )
                         }
-                        // v0.22.0：插件市场页；v0.23.0：插件详情页
-                        composable("market") {
-                            PluginMarketScreen(
+                        // v0.127.0：插件中心（插件/服务/市场三页签）统一入口；
+                        // 旧路由 market / service_plugins 兼容跳转到对应页签，不留死入口
+                        composable(
+                            "plugin_center/{tab}",
+                            arguments = listOf(
+                                navArgument("tab") { type = NavType.IntType; defaultValue = 0 },
+                            ),
+                        ) { entry ->
+                            PluginCenterScreen(
+                                initialTab = entry.arguments?.getInt("tab") ?: 0,
                                 onBack = { navController.popBackStack() },
                                 onDetail = { id -> navController.navigate("market_detail/$id") },
                             )
                         }
-                        // v0.120.0：服务插件管理页
+                        composable("market") {
+                            LaunchedEffect(Unit) {
+                                navController.navigate("plugin_center/2") {
+                                    popUpTo("market") { inclusive = true }
+                                }
+                            }
+                        }
                         composable("service_plugins") {
-                            ServerPluginScreen(
-                                onBack = { navController.popBackStack() },
-                            )
+                            LaunchedEffect(Unit) {
+                                navController.navigate("plugin_center/1") {
+                                    popUpTo("service_plugins") { inclusive = true }
+                                }
+                            }
                         }
                         composable("market_detail/{id}") { entry ->
                             PluginDetailScreen(
@@ -581,10 +595,8 @@ class MainActivity : ComponentActivity() {
                                 onSourcesClick = { navController.navigate("sources") },
                                 // v0.78.2：解析接口子页面
                                 onParseSettingsClick = { navController.navigate("parse_settings") },
-                                // v0.79.0：实验室功能搬进设置
-                                onMarketClick = { navController.navigate("market") },
-                                // v0.120.0：服务插件页
-                                onServicePluginClick = { navController.navigate("service_plugins") },
+                                // v0.127.0：插件中心单入口（原插件市场/服务插件合并）
+                                onPluginCenterClick = { navController.navigate("plugin_center/0") },
                                 onSniffPatternsClick = { navController.navigate("sniff_patterns") },
                                 // v0.80.0：快捷宫格-观看历史
                                 onHistoryClick = { navController.navigate("history") },

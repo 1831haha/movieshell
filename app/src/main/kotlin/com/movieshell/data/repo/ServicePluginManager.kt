@@ -58,6 +58,23 @@ object ServicePluginManager {
         val desiredRunning: Boolean,
     )
 
+    /**
+     * v0.127.0：启动配置只读视图（服务卡「配置」区呈现用）。全部按安装后的真实
+     * 绝对路径拼装：commandLine 与 startLocked 的 ProcessBuilder 入参同口径
+     * （args 里的 ${PORT} 已替换为注册表实际分配端口），不写占位符。
+     */
+    data class LaunchInfo(
+        val desc: String,
+        val commandLine: String,
+        val workDirPath: String,
+        val command: String,
+        val args: List<String>,
+        /** 端口策略文案：固定 N / 自动分配（实际 M）。 */
+        val portSpec: String,
+        val healthPath: String,
+        val envKeys: List<String>,
+    )
+
     data class CheckItem(val name: String, val ok: Boolean, val detail: String)
     data class SelfCheck(val items: List<CheckItem>) {
         val allOk: Boolean get() = items.all { it.ok }
@@ -440,6 +457,41 @@ object ServicePluginManager {
     /** 环形缓冲日志（最近 200 行）。 */
     fun logs(id: String): List<String> = synchronized(lock) {
         running[id]?.logs?.toList().orEmpty()
+    }
+
+    /**
+     * v0.127.0：读已装服务的启动配置（server.json + 注册表实际端口）拼成只读视图；
+     * 未安装/配置损坏返回 null。desc 取 server.json 的 desc/description（可选字段，
+     * 规范不强制），缺失时由 UI 用兜底文案。
+     */
+    fun describeLaunch(context: Context, id: String): LaunchInfo? = synchronized(lock) {
+        runCatching {
+            val reg = loadRegistry(context)
+            val entry = reg[id] ?: return@runCatching null
+            val spec = readInstalledSpec(context, id)
+            val root = File(installRoot(context), id)
+            val workDir = safeDst(root, spec.workDir)
+            val exe = File(workDir, spec.command)
+            val resolvedArgs = spec.args.map { it.replace("\${PORT}", entry.port.toString()) }
+            val raw = runCatching {
+                JSONObject(File(root, "server.json").readText())
+            }.getOrNull()
+            LaunchInfo(
+                desc = raw?.optString("desc")?.ifBlank { null }
+                    ?: raw?.optString("description").orEmpty(),
+                commandLine = (listOf(exe.absolutePath) + resolvedArgs).joinToString(" "),
+                workDirPath = workDir.absolutePath,
+                command = spec.command,
+                args = resolvedArgs,
+                portSpec = if (spec.port > 0) {
+                    "固定 ${spec.port}（实际 ${entry.port}）"
+                } else {
+                    "自动分配（实际 ${entry.port}）"
+                },
+                healthPath = spec.healthPath,
+                envKeys = spec.env.keys.sorted(),
+            )
+        }.getOrNull()
     }
 
     // ---------------- 环境自检 ----------------

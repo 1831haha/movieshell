@@ -1,5 +1,7 @@
 package com.movieshell.ui.market
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,11 +16,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
@@ -66,7 +70,11 @@ import java.io.File
  * （走 install 全套校验），装好后用列表行既有「启动」一键启动。
  */
 @Composable
-fun ServerPluginScreen(onBack: () -> Unit = {}) {
+fun ServerPluginScreen(
+    onBack: () -> Unit = {},
+    // v0.127.0：插件中心页签嵌入模式——不渲染自己的顶栏，自检/上传降为内容区首行
+    embedded: Boolean = false,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -78,6 +86,12 @@ fun ServerPluginScreen(onBack: () -> Unit = {}) {
     var uninstallFor by remember { mutableStateOf<ServicePluginManager.PluginInfo?>(null) }
     var selfCheck by remember { mutableStateOf<ServicePluginManager.SelfCheck?>(null) }
     var checking by remember { mutableStateOf(false) }
+    // v0.127.0：服务卡启动配置（describeLaunch 只读视图）+ 配置展开态 + 探活通过集
+    var launchInfos by remember {
+        mutableStateOf<Map<String, ServicePluginManager.LaunchInfo>>(emptyMap())
+    }
+    var expandedId by remember { mutableStateOf<String?>(null) }
+    var webReady by remember { mutableStateOf<Set<String>>(emptySet()) }
     // v0.126.0：内置示例插件一键安装中标志
     var installingDemo by remember { mutableStateOf(false) }
 
@@ -110,6 +124,14 @@ fun ServerPluginScreen(onBack: () -> Unit = {}) {
     }
     LaunchedEffect(tick) {
         plugins = withContext(Dispatchers.IO) { ServicePluginManager.installedPlugins(context) }
+    }
+    // v0.127.0：插件列表变化后同步读各服务的启动配置（命令行/路径/配置项呈现用）
+    LaunchedEffect(plugins) {
+        launchInfos = withContext(Dispatchers.IO) {
+            plugins.mapNotNull { p ->
+                ServicePluginManager.describeLaunch(context, p.id)?.let { p.id to it }
+            }.toMap()
+        }
     }
 
     // 从文件安装：选 zip → 拷临时文件 → ServicePluginManager.install
@@ -158,35 +180,37 @@ fun ServerPluginScreen(onBack: () -> Unit = {}) {
         }
     }
 
+    fun runSelfCheck() {
+        if (checking) return
+        checking = true
+        scope.launch {
+            selfCheck = withContext(Dispatchers.IO) {
+                ServicePluginManager.runSelfCheck(context)
+            }
+            checking = false
+        }
+    }
+
     Scaffold(
         topBar = {
-            TabTopBar(
-                title = "服务插件",
-                onBack = onBack,
-                actions = {
-                    IconButton(
-                        onClick = {
-                            if (checking) return@IconButton
-                            checking = true
-                            scope.launch {
-                                selfCheck = withContext(Dispatchers.IO) {
-                                    ServicePluginManager.runSelfCheck(context)
-                                }
-                                checking = false
+            if (!embedded) {
+                TabTopBar(
+                    title = "服务插件",
+                    onBack = onBack,
+                    actions = {
+                        IconButton(onClick = { runSelfCheck() }) {
+                            if (checking) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            } else {
+                                Icon(Icons.Filled.BugReport, contentDescription = "环境自检")
                             }
-                        },
-                    ) {
-                        if (checking) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                        } else {
-                            Icon(Icons.Filled.BugReport, contentDescription = "环境自检")
                         }
-                    }
-                    IconButton(onClick = { zipPicker.launch("application/zip") }) {
-                        Icon(Icons.Filled.Upload, contentDescription = "从文件安装")
-                    }
-                },
-            )
+                        IconButton(onClick = { zipPicker.launch("application/zip") }) {
+                            Icon(Icons.Filled.Upload, contentDescription = "从文件安装")
+                        }
+                    },
+                )
+            }
         },
     ) { padding ->
         LazyColumn(
@@ -194,6 +218,23 @@ fun ServerPluginScreen(onBack: () -> Unit = {}) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (embedded) {
+                // v0.127.0：嵌入模式的内容区首行——环境自检 / 从文件安装（替代原顶栏）
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = { runSelfCheck() }, enabled = !checking) {
+                            Text(if (checking) "自检中…" else "环境自检")
+                        }
+                        TextButton(onClick = { zipPicker.launch("application/zip") }) {
+                            Text("从文件安装")
+                        }
+                    }
+                }
+            }
             // v0.126.0：示例插件卡（列表之上）——未装给一键安装，装好引导去列表启动
             item {
                 val demoInstalled = plugins.any { it.id == "hello-service" }
@@ -246,37 +287,105 @@ fun ServerPluginScreen(onBack: () -> Unit = {}) {
                 }
             }
             items(plugins, key = { it.id }) { p ->
+                val info = launchInfos[p.id]
+                val statusText = when (p.status) {
+                    ServicePluginManager.Status.RUNNING -> "运行中"
+                    ServicePluginManager.Status.ERROR -> "异常（进程非 0 退出）"
+                    ServicePluginManager.Status.STOPPED -> "已停止"
+                }
                 AppCard(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val dotColor = when (p.status) {
-                            ServicePluginManager.Status.RUNNING -> Color(0xFF4CAF50)
-                            ServicePluginManager.Status.ERROR -> Color(0xFFE53935)
-                            ServicePluginManager.Status.STOPPED -> Color(0xFF9E9E9E)
-                        }
-                        Box(
-                            modifier = Modifier.size(10.dp).clip(CircleShape).background(dotColor),
-                        )
-                        Spacer(Modifier.size(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        // v0.127.0：第一行——状态点 + 名 + 端口 chip + 版本（仿 DS 服务卡结构）
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val dotColor = when (p.status) {
+                                ServicePluginManager.Status.RUNNING -> Color(0xFF4CAF50)
+                                ServicePluginManager.Status.ERROR -> Color(0xFFE53935)
+                                ServicePluginManager.Status.STOPPED -> Color(0xFF9E9E9E)
+                            }
+                            Box(
+                                modifier = Modifier.size(10.dp)
+                                    .clip(CircleShape).background(dotColor),
+                            )
+                            Spacer(Modifier.size(10.dp))
                             Text(
                                 p.name,
                                 style = SoftType.CardTitle,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
                             )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        MaterialTheme.colorScheme.surfaceVariant,
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            ) {
+                                Text(
+                                    ":${p.port}",
+                                    style = SoftType.Caption,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Spacer(Modifier.size(6.dp))
                             Text(
-                                "端口 ${p.port} · v${p.version} · " + when (p.status) {
-                                    ServicePluginManager.Status.RUNNING -> "运行中"
-                                    ServicePluginManager.Status.ERROR -> "异常（进程非 0 退出）"
-                                    ServicePluginManager.Status.STOPPED -> "已停止"
-                                },
+                                "v${p.version}",
                                 style = SoftType.Caption,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        }
+                        // 第二行：一句话作用（server.json 的 desc，缺失用兜底文案）
+                        Text(
+                            info?.desc?.ifBlank { null } ?: "本地 HTTP 服务",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                        // 第三行：状态行
+                        Text(
+                            "状态：$statusText · 127.0.0.1:${p.port}",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                        // 命令行行 + 工作目录行（真实绝对路径，端口已替换为实际分配值）
+                        if (info != null) {
+                            Text(
+                                info.commandLine,
+                                style = SoftType.Caption,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                            Text(
+                                info.workDirPath,
+                                style = SoftType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        // v0.127.0：启动配置只读展开区（server.json 关键项，路径为安装后真实路径）
+                        if (expandedId == p.id && info != null) {
+                            Spacer(Modifier.height(8.dp))
+                            ConfigRow("启动命令", info.command)
+                            ConfigRow(
+                                "参数",
+                                info.args.joinToString(" ").ifBlank { "（无）" },
+                            )
+                            ConfigRow("端口策略", info.portSpec)
+                            ConfigRow("健康检查", info.healthPath)
+                            ConfigRow("工作目录", info.workDirPath)
+                            if (info.envKeys.isNotEmpty()) {
+                                ConfigRow("环境变量", info.envKeys.joinToString("、"))
+                            }
                         }
                     }
                     Row(
@@ -299,6 +408,40 @@ fun ServerPluginScreen(onBack: () -> Unit = {}) {
                                 }
                             }
                         }) { Text("日志") }
+                        TextButton(onClick = {
+                            scope.launch {
+                                val ok = ServicePluginManager.healthCheck(context, p.id)
+                                if (ok) {
+                                    webReady = webReady + p.id
+                                    Toast.makeText(
+                                        context, "探活通过：服务可达", Toast.LENGTH_SHORT,
+                                    ).show()
+                                } else {
+                                    webReady = webReady - p.id
+                                    Toast.makeText(
+                                        context, "探活失败：服务未响应", Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            }
+                        }) { Text("探活") }
+                        // 打开 Web 首页：只在探活通过且运行中时给（与 healthCheck 同口径地址）
+                        if (p.id in webReady &&
+                            p.status == ServicePluginManager.Status.RUNNING
+                        ) {
+                            TextButton(onClick = {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(
+                                            Intent.ACTION_VIEW,
+                                            Uri.parse("http://127.0.0.1:${p.port}/"),
+                                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }
+                            }) { Text("打开") }
+                        }
+                        TextButton(onClick = {
+                            expandedId = if (expandedId == p.id) null else p.id
+                        }) { Text(if (expandedId == p.id) "收起" else "配置") }
                         TextButton(onClick = { uninstallFor = p }) { Text("卸载") }
                     }
                 }
@@ -381,5 +524,27 @@ fun ServerPluginScreen(onBack: () -> Unit = {}) {
                 }
             }
         }
+    }
+}
+
+/** v0.127.0：服务卡「配置」展开区的一行（标签固定宽 + 等宽值），全卡各行同口径对齐。 */
+@Composable
+private fun ConfigRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            label,
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(72.dp),
+        )
+        Text(
+            value,
+            style = SoftType.Caption,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.weight(1f),
+        )
     }
 }

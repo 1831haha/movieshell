@@ -25,8 +25,10 @@ import java.net.URLEncoder
  * LX code 与 GD source 字符串的映射只在本对象一处（[gdSourceOf]）；旧数据里的
  * 别名（qq/wyy/netease/中文名）经 [normalizeSource] 归一。2026-10-20 实测：
  * GD 实例仅 netease 可用，tencent/kuwo/kugou/migu 均返回 source not supported，
- * 故搜索/取链/封面/歌词只对 [GD_SUPPORTED_PLATFORMS] 内的平台真正出数据，
- * 其余平台的 LX 解析（脚本按平台取直链）不受此限。
+ * 故 GD 路径（取链/封面/歌词）只对 [GD_SUPPORTED_PLATFORMS] 内的平台出数据。
+ * v0.127.0：搜索/榜单不再靠 GD——wy 走 GD，其余四家走 [PlatformMusicApi]
+ * 各自的公开接口（逐家实测），[SEARCHABLE_PLATFORMS] 五家全点亮；
+ * 播放直链仍由 LX 脚本按曲目平台解析，不受 GD 限制。
  */
 object MusicApi {
     private const val TAG = "MusicApi"
@@ -46,6 +48,24 @@ object MusicApi {
 
     /** v0.126.0 实测：GD 实例实际能出数据的平台（其余 source 被服务端拒绝）。 */
     val GD_SUPPORTED_PLATFORMS = setOf("wy")
+
+    /**
+     * v0.127.0：搜索/榜单真正可用的平台全集——wy 走 GD，tx/kw/kg/mg 走
+     * [PlatformMusicApi] 原生接口（2026-10-20 逐家实测全通）。搜索 chip 的
+     * 可选口径只看这里，不再被 GD 的支持面误伤。
+     */
+    val SEARCHABLE_PLATFORMS = PLATFORM_CODES.toSet()
+
+    /** v0.127.0：榜单条目（在线页「推荐歌单」按平台渲染的数据源）。 */
+    data class ChartEntry(val id: String, val name: String, val coverUrl: String = "")
+
+    /** v0.127.0：网易云榜单（原在线页写死的四榜，收敛到数据层与各家同口径）。 */
+    private val WY_CHARTS = listOf(
+        ChartEntry("3778678", "热歌榜"),
+        ChartEntry("3779629", "新歌榜"),
+        ChartEntry("19723756", "飙升榜"),
+        ChartEntry("2884035", "原创榜"),
+    )
 
     /**
      * v0.126.0：平台 code 归一——LX code 原样，别名（qq/wyy/netease）与中文名
@@ -129,8 +149,9 @@ object MusicApi {
     }
 
     /**
-     * 搜索歌曲。v0.126.0：加平台参数（LX code，内部经 [gdSourceOf] 换算 GD source）；
-     * GD 不支持的平台直接返回空表并记日志（服务端会拒绝，不白跑一趟请求）。
+     * 搜索歌曲（全 App 唯一分发入口）。v0.126.0：加平台参数（LX code）。
+     * v0.127.0：wy 走 GD；tx/kw/kg/mg 分发到 [PlatformMusicApi] 各家原生接口，
+     * 搜哪家出哪家的歌与该平台自己的 id，内容跟随平台切换。
      */
     suspend fun search(
         query: String,
@@ -139,6 +160,7 @@ object MusicApi {
         platform: String = "wy",
     ): List<Track> {
         val lx = normalizeSource(platform).ifBlank { "wy" }
+        if (lx != "wy") return PlatformMusicApi.search(lx, query, page, count)
         if (lx !in GD_SUPPORTED_PLATFORMS) {
             LogBus.w(TAG, "GD 不支持平台 $lx 的搜索，返回空")
             return emptyList()
@@ -169,6 +191,19 @@ object MusicApi {
         }
         LogBus.i(TAG, "音乐搜索「$query」：${tracks.size} 条")
         return tracks
+    }
+
+    /** v0.127.0：按平台取榜单列表（在线页内容跟随所选平台）。 */
+    suspend fun charts(platform: String): List<ChartEntry> {
+        val lx = normalizeSource(platform).ifBlank { "wy" }
+        return if (lx == "wy") WY_CHARTS else PlatformMusicApi.charts(lx)
+    }
+
+    /** v0.127.0：按平台取榜单曲目；wy 复用网易歌单解析，其余走各家原生接口。 */
+    suspend fun chartTracks(platform: String, chartId: String): List<Track> {
+        val lx = normalizeSource(platform).ifBlank { "wy" }
+        return if (lx == "wy") playlist(chartId).second
+        else PlatformMusicApi.chartTracks(lx, chartId)
     }
 
     /** v0.82.0：歌单导入——网易云歌单 ID/链接 → 歌单名 + 曲目列表。 */
@@ -273,9 +308,12 @@ object MusicApi {
     private const val PIC_FAIL_BACKOFF_MS = 30_000L
     private val picScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** v0.126.0：封面按平台（LX code）解析；缓存键含 GD source，跨平台同 id 不串图。 */
+    /** v0.126.0：封面按平台（LX code）解析；缓存键含 GD source，跨平台同 id 不串图。
+     *  v0.127.0：picId 本身就是完整图片地址时直通（PlatformMusicApi 各家直出封面
+     *  URL 存 picId，不经 GD 二次解析）。 */
     suspend fun picImageUrl(picId: String, platform: String = "wy"): String {
         if (picId.isBlank()) return ""
+        if (picId.startsWith("http://") || picId.startsWith("https://")) return picId
         val lx = normalizeSource(platform).ifBlank { "wy" }
         if (lx !in GD_SUPPORTED_PLATFORMS) return ""
         val key = "${gdSourceOf(lx)}:$picId"
