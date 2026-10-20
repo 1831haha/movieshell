@@ -53,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -71,6 +72,7 @@ import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
+import com.movieshell.ui.components.goldTitleColor
 import com.movieshell.ui.theme.SoftType
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
@@ -209,6 +211,12 @@ fun MusicScreen(
         MusicSourcePickerDialog(
             onDismiss = { showSourcePicker = false },
             showAutoOption = true,
+            // v0.121.0：当前首选源打勾（null=自动）
+            selectedId = MusicPlayer.preferredSourceId(),
+            onManageSources = {
+                showSourcePicker = false
+                onOpenMusicSource()
+            },
             onPickAuto = {
                 showSourcePicker = false
                 MusicPlayer.setPreferredSource(null)
@@ -917,21 +925,36 @@ private fun FavTab() {
     }
 }
 
-/** v0.117.0：歌曲来源/音质小徽标——灰底小字，跟内容色自适应（禁硬编码） */
+/** v0.117.0：歌曲来源/音质小徽标；v0.121.0：音质按档次着色（无损/母带=金、高清=蓝、流畅/标准=灰），来源中性 */
 @Composable
-private fun BadgeChip(text: String) {
+private fun BadgeChip(text: String, tint: Color) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(4.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(tint.copy(alpha = 0.16f))
             .padding(horizontal = 5.dp, vertical = 1.dp),
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = tint,
             maxLines = 1,
         )
+    }
+}
+
+/** v0.121.0：音质文本 → 徽标色，明度自适应（浅底深字/深底浅字） */
+@Composable
+private fun qualityChipColor(quality: String): Color {
+    val lightBg = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    return when {
+        quality.contains("无损") || quality.contains("母带") || quality.contains("超高清") ||
+            listOf("flac", "hires", "atmos", "master").any {
+                quality.contains(it, ignoreCase = true)
+            } -> goldTitleColor()
+        quality.contains("高清") || quality.contains("320k") ->
+            if (lightBg) Color(0xFF1D4ED8) else Color(0xFF60A5FA)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 }
 
@@ -1004,8 +1027,16 @@ internal fun TrackRow(
                 if (badge != null) {
                     Spacer(Modifier.height(3.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        BadgeChip(text = badge.first)
-                        if (badge.second.isNotBlank()) BadgeChip(text = badge.second)
+                        BadgeChip(
+                            text = badge.first,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (badge.second.isNotBlank()) {
+                            BadgeChip(
+                                text = badge.second,
+                                tint = qualityChipColor(badge.second),
+                            )
+                        }
                     }
                 }
             }

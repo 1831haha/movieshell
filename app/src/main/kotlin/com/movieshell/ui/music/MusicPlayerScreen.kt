@@ -45,6 +45,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.goldTitleColor
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,12 +60,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.movieshell.data.repo.LogBus
@@ -83,7 +87,11 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MusicPlayerScreen(onBack: () -> Unit = {}) {
+fun MusicPlayerScreen(
+    onBack: () -> Unit = {},
+    // v0.121.0：切换音源弹窗底部「管理音源与 Cookie →」入口
+    onOpenMusicSource: () -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val playState by MusicPlayer.state.collectAsState()
@@ -245,22 +253,21 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
                             overflow = TextOverflow.Ellipsis,
                         )
                         // v0.117.0：当前曲目的真实解析来源与音质（解析成功后才有值）
+                        // v0.121.0：改徽标 chips——与列表行同口径，音质按档次着色，更醒目
                         if (playState.resolvedSource.isNotBlank()) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = buildString {
-                                    append("音源：")
-                                    append(playState.resolvedSource)
-                                    if (playState.resolvedQuality.isNotBlank()) {
-                                        append(" · 音质：")
-                                        append(playState.resolvedQuality)
-                                    }
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Spacer(Modifier.height(6.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                ResolvedBadge(text = "音源 · ${playState.resolvedSource}")
+                                if (playState.resolvedQuality.isNotBlank()) {
+                                    ResolvedBadge(
+                                        text = playState.resolvedQuality,
+                                        tint = musicQualityTint(playState.resolvedQuality),
+                                    )
+                                }
+                            }
                         }
                     }
                 } else {
@@ -432,6 +439,10 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
     if (showSourceDialog) {
         MusicSourcePickerDialog(
             onDismiss = { showSourceDialog = false },
+            onManageSources = {
+                showSourceDialog = false
+                onOpenMusicSource()
+            },
             onPick = { src ->
                 showSourceDialog = false
                 Toast.makeText(context, "正在用「${src.name}」重新解析", Toast.LENGTH_SHORT).show()
@@ -442,13 +453,19 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
 }
 
 /** v0.108.0 B1：音源选择——列出已启用音乐源；暂无可用源时给空态提示。
- *  v0.117.0：列表页复用本弹窗（internal），新增"自动"选项（showAutoOption）。 */
+ *  v0.117.0：列表页复用本弹窗（internal），新增"自动"选项（showAutoOption）。
+ *  v0.121.0：重做为品牌卡片风——每个选项一行：名称 + 一句话人话说明 + 当前选中打勾；
+ *  底部加"管理音源与 Cookie →"入口（用户反馈"黑乎乎看不懂、不知道 cookie 在哪"）。 */
 @Composable
 internal fun MusicSourcePickerDialog(
     onDismiss: () -> Unit,
     onPick: (MusicSource) -> Unit,
     showAutoOption: Boolean = false,
     onPickAuto: () -> Unit = {},
+    // v0.121.0：当前选中（null=自动；播放页一次性选择不持久化，传 null 即无打勾）
+    selectedId: String? = null,
+    // v0.121.0："管理音源与 Cookie →"入口回调
+    onManageSources: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var sources by remember { mutableStateOf<List<MusicSource>>(emptyList()) }
@@ -464,10 +481,13 @@ internal fun MusicSourcePickerDialog(
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             if (showAutoOption) {
-                TextButton(
+                SourceOptionRow(
+                    name = "自动",
+                    desc = "按音源管理里的启用顺序逐个试",
+                    selected = selectedId == null,
                     onClick = onPickAuto,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("自动（按启用顺序）") }
+                )
+                Spacer(Modifier.height(6.dp))
             }
             if (sources.isEmpty()) {
                 Text(
@@ -478,13 +498,109 @@ internal fun MusicSourcePickerDialog(
                 )
             } else {
                 sources.forEach { s ->
-                    TextButton(
+                    SourceOptionRow(
+                        name = s.name,
+                        desc = if (s.builtin) "内置免费线路，免配置"
+                        else "你的 LX 脚本，可在音源管理里配 Cookie 解锁更高音质",
+                        selected = s.id == selectedId,
                         onClick = { onPick(s) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(s.name) }
+                    )
+                    Spacer(Modifier.height(6.dp))
                 }
             }
+            TextButton(
+                onClick = onManageSources,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "管理音源与 Cookie →",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
+    }
+}
+
+/** v0.121.0：切换音源选项行——名称 + 人话说明 + 选中打勾（TechDialog 内容区恒深色，用固定浅色系） */
+@Composable
+private fun SourceOptionRow(
+    name: String,
+    desc: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                else Color.White.copy(alpha = 0.04f),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = desc,
+                fontSize = 12.sp,
+                color = Color(0xFF8A93B2),
+            )
+        }
+        if (selected) {
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                Icons.Filled.CheckCircle,
+                contentDescription = "当前选中",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+/** v0.121.0：播放页来源/音质徽标（与列表行同口径：来源中性、音质按档次着色） */
+@Composable
+private fun ResolvedBadge(
+    text: String,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(tint.copy(alpha = 0.16f))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = tint,
+            maxLines = 1,
+        )
+    }
+}
+
+/** v0.121.0：音质文本 → 徽标色（与 MusicScreen.kt qualityChipColor 同口径，明度自适应） */
+@Composable
+private fun musicQualityTint(quality: String): Color {
+    val lightBg = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    return when {
+        quality.contains("无损") || quality.contains("母带") || quality.contains("超高清") ||
+            listOf("flac", "hires", "atmos", "master").any {
+                quality.contains(it, ignoreCase = true)
+            } -> goldTitleColor()
+        quality.contains("高清") || quality.contains("320k") ->
+            if (lightBg) Color(0xFF1D4ED8) else Color(0xFF60A5FA)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 }
 

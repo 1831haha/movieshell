@@ -74,6 +74,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.DropdownMenu
@@ -396,13 +397,26 @@ fun PlayerScreen(
 
     /**
      * v0.96.1：方向变化后若在播状态丢了→无缝恢复（双引擎通用）。
-     * 先轻量 resume（暂停态可直接恢复）；真停了（IDLE）则按原地址/原进度重播，
-     * 直播没有进度概念，startPositionMs≈0 即从直播边缘继续。
+     * v0.121.0：直播走 resume-only 策略——直播没有进度概念，旋转时 Media3 只是
+     *   surface 重建短暂缓冲，老逻辑 1.6s 内没恢复就 EngineHost.play 重拉流，
+     *   这就是真机"横屏断流"（同一 m3u8 被重播 4 次）的触发点。直播绝不重拉流，
+     *   resume 后等 3s；真停了留给用户手动点（点播的无缝重播逻辑不动）。
      */
     fun restoreAfterRotation() {
         if (!rotateWasPlaying || EngineHost.isPlayingNow()) return
         scope.launch {
             EngineHost.resume()
+            if (isLive) {
+                repeat(6) {
+                    delay(500)
+                    if (EngineHost.isPlayingNow()) {
+                        LogBus.i("Player", "横屏后直播 resume 恢复成功")
+                        return@launch
+                    }
+                }
+                LogBus.w("Player", "横屏后直播仍未恢复（未重拉流），等待用户手动操作")
+                return@launch
+            }
             delay(900)
             if (EngineHost.isPlayingNow()) {
                 LogBus.i("Player", "横屏后 resume 恢复成功")
@@ -1126,6 +1140,19 @@ fun PlayerScreen(
                 }) {
                     Icon(Icons.Filled.Cast, contentDescription = "投屏", tint = Color.White)
                 }
+                // v0.121.0：嵌入模式横屏入口——用户反馈详情页"没有切横屏的按钮"（底栏全屏键
+                // 在窄屏上会被挤出可视区）。点播跳独立播放页，直播原地旋转（与底栏逻辑一致）。
+                if (embedded) {
+                    IconButton(onClick = {
+                        if (isLive) toggleEmbeddedLandscape() else onFullscreen()
+                    }) {
+                        Icon(
+                            Icons.Filled.ScreenRotation,
+                            contentDescription = "横屏",
+                            tint = Color.White,
+                        )
+                    }
+                }
                 // 更多菜单：字幕/选集/定时/跳过设置/画面比例收敛到这里
                 Box {
                     IconButton(onClick = { showMoreMenu = true }) {
@@ -1424,7 +1451,8 @@ fun PlayerScreen(
                         )
                     }
                     // v0.69.1：嵌入模式去掉重复的时间文本（进度条行已有），收窄底部黑边
-                    if (!embedded) {
+                    // v0.121.0：直播无进度概念，时间文本也隐藏（用户反馈"直播不需要进度条"）
+                    if (!embedded && !isLive) {
                         Text(
                             text = "${fmtTime(if (scrubbing) scrubPos else pos)} / ${fmtTime(dur)}",
                             color = Color.White,
@@ -1464,21 +1492,24 @@ fun PlayerScreen(
                             )
                         }
                     }
-                    TextButton(
-                        onClick = {
-                            speedIndex = (speedIndex + 1) % SPEEDS.size
-                            EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
-                            // v0.74.0：倍速记忆
-                            PlayerSettings.setSpeed(context, SPEEDS[speedIndex])
-                        },
-                        modifier = Modifier.height(SoftDimens.TouchTarget),
-                    ) {
-                        // 目标界面样式：1.0X（大写 X）
-                        Text(
-                            "${SPEEDS[speedIndex]}X",
-                            color = Color.White,
-                            style = SoftType.Body,
-                        )
+                    // v0.121.0：直播隐藏倍速（用户反馈"直播不需要倍速"；直播流也不允许变速）
+                    if (!isLive) {
+                        TextButton(
+                            onClick = {
+                                speedIndex = (speedIndex + 1) % SPEEDS.size
+                                EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
+                                // v0.74.0：倍速记忆
+                                PlayerSettings.setSpeed(context, SPEEDS[speedIndex])
+                            },
+                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                        ) {
+                            // 目标界面样式：1.0X（大写 X）
+                            Text(
+                                "${SPEEDS[speedIndex]}X",
+                                color = Color.White,
+                                style = SoftType.Body,
+                            )
+                        }
                     }
                     if (!isLive) {
                         TextButton(

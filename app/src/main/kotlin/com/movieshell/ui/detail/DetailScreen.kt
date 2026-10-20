@@ -537,8 +537,12 @@ fun DetailScreen(
                     // v0.78.2：卡片与播放器同宽（去横向边距），顶部圆角 20dp 做衔接过渡
                     item {
                         AppCard(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                            // v0.121.0：卡片收窄——左右留 12dp 边距、四角圆角（用户反馈"右边太空、卡片太宽"），
+                            // 不再与播放器等宽贴边（覆盖 v0.78.2 的同宽衔接）
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp),
+                            shape = RoundedCornerShape(20.dp),
                         ) {
                             Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
                                 // 第一行：海报缩略图 + 标题 + 标签 + 收藏
@@ -563,15 +567,16 @@ fun DetailScreen(
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis,
                                         )
-                                        Spacer(Modifier.height(6.dp))
+                                        Spacer(Modifier.height(4.dp))
                                         Row(verticalAlignment = Alignment.CenterVertically) {
+                                            // v0.121.0：空字段不渲染 chip（之前年份/地区为空时是两个灰点）
                                             MetaChip("${vod.episodes}集")
-                                            MetaChip(vod.year)
-                                            MetaChip(vod.area)
+                                            if (vod.year.isNotBlank()) MetaChip(vod.year)
+                                            if (vod.area.isNotBlank()) MetaChip(vod.area)
                                         }
                                         // v0.84.0：源胶囊上移到缩略图右边（紧凑版）
                                         if (playLines.isNotEmpty()) {
-                                            Spacer(Modifier.height(6.dp))
+                                            Spacer(Modifier.height(4.dp))
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Surface(
                                                     shape = RoundedCornerShape(12.dp),
@@ -646,7 +651,7 @@ fun DetailScreen(
                                 // v0.84.0：源 pill 已上移到缩略图右边，这里删除
                                 // 第三行：主演（v0.87.0：演员名可点，跳搜索找其作品）+ 简介（可展开）；v0.84.0：收窄
                                 if (vod.actors.isNotBlank()) {
-                                    Spacer(Modifier.height(6.dp))
+                                    Spacer(Modifier.height(4.dp))
                                     val actorNames = vod.actors.split("、", "/", "，", ",", " ")
                                         .map { it.trim() }
                                         .filter { it.isNotEmpty() }
@@ -674,7 +679,7 @@ fun DetailScreen(
                                         },
                                     )
                                 }
-                                Spacer(Modifier.height(6.dp))
+                                Spacer(Modifier.height(4.dp))
                                 // v0.86.0：简介标签与内容同一行（"简介："加粗前缀+正文流排），点击展开/收起
                                 Row(
                                     verticalAlignment = Alignment.Top,
@@ -703,7 +708,7 @@ fun DetailScreen(
                                     )
                                 }
                                 // 第四行：操作图标（复制链接 / 下载 / 刷新 / 字幕）
-                                Spacer(Modifier.height(8.dp))
+                                Spacer(Modifier.height(6.dp))
                                 // v0.69.1：操作图标下方加炫彩小字
                                 val rainbowBrush = remember {
                                     Brush.linearGradient(

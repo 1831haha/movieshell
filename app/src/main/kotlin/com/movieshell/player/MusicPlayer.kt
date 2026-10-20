@@ -91,6 +91,9 @@ object MusicPlayer {
         preferredSourceId = sourceId
     }
 
+    /** v0.121.0：切换音源弹窗打勾用（null=自动）。 */
+    fun preferredSourceId(): String? = preferredSourceId
+
     /**
      * v0.109.0 B4①：引擎复用——之前 resolveLxUrl 每首歌 `new LxMusicSourceEngine`
      * 再 `release()`，实例级的脚本缓存（engines map，按 scriptUrl）永远架空，

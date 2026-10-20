@@ -502,6 +502,10 @@ class MainActivity : ComponentActivity() {
                         composable("music_player") {
                             MusicPlayerScreen(
                                 onBack = { navController.popBackStack() },
+                                // v0.121.0：切换音源弹窗底部「管理音源与 Cookie →」
+                                onOpenMusicSource = {
+                                    navController.navigate("music_source")
+                                },
                             )
                         }
                         composable("book_source") {
