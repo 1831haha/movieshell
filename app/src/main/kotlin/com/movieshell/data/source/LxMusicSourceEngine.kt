@@ -12,6 +12,7 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.URI
@@ -22,12 +23,13 @@ import java.net.URI
  * LX 脚本是纯 URL 解析器：输入（平台 source + 歌曲 id + 音质），输出可播放直链。
  * 脚本跑在 `globalThis.lx` 运行时上，由本类提供 shim：
  * - `EVENT_NAMES = { inited: 'inited', request: 'request' }`
- * - `request(url, options)`：真 async——返回 Promise，宿主 OkHttp 经 MessagePort RPC
- *   异步执行（v0.113.0 前 QuickJS 版是 JS 线程同步阻塞，A2 的另一个源头）
+ * - `request(url, options[, callback])`：真 async——返回 Promise（带 callback 时按
+ *   LX 协议回调 (err, resp)），宿主 OkHttp 经 MessagePort RPC 异步执行
  * - `on(eventName, handler)` / `send(eventName, data)`：脚本侧监听注册与事件上报；
  *   `inited` 事件经 MessagePort 单向直达宿主（[CompletableDeferred] 等待），
  *   不再有 QuickJS 版的"写全局变量 + host 轮询"（旧轮询曾把 JS 线程冻结 3-15s）
- * - `utils = {}`（空对象，脚本用到的子方法缺失时不崩）、`env = { platform: 'android' }`、`version = '1.0.0'`
+ * - `utils.crypto.md5`（接 host.js 的纯 JS 同步 md5，聚合类脚本签名要用）、`env = { platform: 'android' }`、`version = '1.0.0'`；
+ *   `utils.crypto.aesEncrypt`/`utils.buffer` 未提供，需要它们的个别后端会自行失败、脚本多后端兜底
  * - `currentScriptInfo.rawScript`（v0.118.0）：注入脚本文本本身——墨澜/聚合类脚本靠它
  *   解析头部 `/*! ... */` 块里的 @tx_cookie/@wy_cookie 声明（[LxCookieKit] 写回同处）
  * - `console.*`：由 [JsSession] 的 setConsoleCallback 直通 LogBus（V8 isolate 自带 console 对象）
@@ -95,8 +97,11 @@ class LxMusicSourceEngine(context: Context) {
      * 解析直链：按 scriptUrl 取缓存实例（未加载则先 loadScript），在 JS 侧 await
      * request 事件取 musicUrl，15s 硬截止，失败返回 null。
      *
-     * 调用参数固定为 `{action:'musicUrl', source, info:{songmid: songId}, quality}`，
-     * 其中 songId 直接用 Track.urlId（网易 id，可当 wy 平台 songId 用）。
+     * 调用参数按 LX 标准协议组装（v0.124.0）：`{action:'musicUrl', source,
+     * info:{musicInfo:{songmid,id}, type: quality}}`——脚本读的是 info.musicInfo 与
+     * info.type；旧的自造形状（info 只有 songmid、音质放顶层 quality）会让墨澜/聚合
+     * 类脚本取到 undefined 直接抛错。顶层 quality 与 info.songmid 一并保留作兼容。
+     * songId 直接用 Track.urlId（网易 id，可当 wy 平台 songId 用）。
      */
     suspend fun resolveMusicUrl(
         scriptUrl: String,
@@ -119,12 +124,26 @@ class LxMusicSourceEngine(context: Context) {
         }
         return try {
             // 归一化在 JS 侧一次完成（字符串/.url/data.url），V8 等 Promise 结算
+            val musicInfo = JSONObject()
+                .put("songmid", songId)
+                .put("id", songId)
+            val arg = JSONObject()
+                .put("action", "musicUrl")
+                .put("source", source)
+                .put(
+                    "info",
+                    JSONObject()
+                        .put("musicInfo", musicInfo)
+                        .put("type", quality)
+                        .put("songmid", songId),
+                )
+                .put("quality", quality)
             val callJs = """
                 (async function(){
                   try {
                     var ls = (globalThis.lx && globalThis.lx.__listeners && globalThis.lx.__listeners['request']) || [];
                     if (!ls.length) return '';
-                    var arg = {action:'musicUrl', source:${JSONObject.quote(source)}, info:{songmid:${JSONObject.quote(songId)}}, quality:${JSONObject.quote(quality)}};
+                    var arg = $arg;
                     var r = await ls[0](arg);
                     if (typeof r === 'string') return r;
                     if (r && typeof r.url === 'string') return r.url;
@@ -169,23 +188,31 @@ class LxMusicSourceEngine(context: Context) {
     }
 
     /**
-     * v0.103.0：取某脚本 inited 上报的音质 id 列表。
-     *
-     * 从 engines 锁内只读该 scriptUrl 的 initedJson（createEngine 里存的 payload），
-     * 解析 `sources[].qualitys[].id` 展平去重（兼容 qualitys 条目为字符串的写法）；
-     * 脚本未加载过 / 无 inited / 解析失败返回空 list。
-     * 只读 map + 解析 JSON，任一线程可调。
+     * v0.103.0：取某脚本 inited 上报的音质 id 列表（全部平台展平去重，管理页 chips 用）。
+     * v0.124.0：[getQualityIds] 的按平台重载才是播放/测试的取档口径，本函数只做展示。
      */
-    fun getQualityIds(scriptUrl: String): List<String> {
+    fun getQualityIds(scriptUrl: String): List<String> = parseQualityIds(scriptUrl, null)
+
+    /**
+     * v0.124.0：取某脚本 inited 上报的**指定平台**音质 id 列表（播放逐档试用）。
+     *
+     * 真凶修复：LX 协议里 inited 的 `sources` 是以平台为键的**对象**
+     * （`{wy:{qualitys:["128k","320k","flac"]}, tx:{...}}`，墨澜/聚合脚本实文本已核），
+     * 旧实现按 JSONArray 解析永远拿到空——播放只能走兜底 320k→128k，flac 以上从没
+     * 请求过，这才是"DS 能听高音质、这里不行"的根子。兼容个别脚本的数组形状与
+     * qualitys 条目为 `{id}` 对象的写法。脚本未加载 / 无 inited / 解析失败返回空 list。
+     */
+    fun getQualityIds(scriptUrl: String, source: String): List<String> =
+        parseQualityIds(scriptUrl, source)
+
+    private fun parseQualityIds(scriptUrl: String, onlySource: String?): List<String> {
         val initedJson = synchronized(enginesLock) {
             engines[scriptUrl]?.initedJson
         } ?: return emptyList()
         if (initedJson.isBlank()) return emptyList()
         return runCatching {
             val seen = LinkedHashSet<String>()
-            val sources = JSONObject(initedJson).optJSONArray("sources")
-            for (i in 0 until (sources?.length() ?: 0)) {
-                val qualitys = sources?.optJSONObject(i)?.optJSONArray("qualitys")
+            fun collect(qualitys: JSONArray?) {
                 for (j in 0 until (qualitys?.length() ?: 0)) {
                     val id = when (val q = qualitys?.opt(j)) {
                         is JSONObject -> q.optString("id")
@@ -193,6 +220,22 @@ class LxMusicSourceEngine(context: Context) {
                         else -> ""
                     }
                     if (id.isNotBlank()) seen.add(id)
+                }
+            }
+            when (val sources = JSONObject(initedJson).opt("sources")) {
+                is JSONObject -> {
+                    if (onlySource != null) {
+                        collect(sources.optJSONObject(onlySource)?.optJSONArray("qualitys"))
+                    } else {
+                        sources.keys().forEach { key ->
+                            collect(sources.optJSONObject(key)?.optJSONArray("qualitys"))
+                        }
+                    }
+                }
+                is JSONArray -> {
+                    for (i in 0 until sources.length()) {
+                        collect(sources.optJSONObject(i)?.optJSONArray("qualitys"))
+                    }
                 }
             }
             seen.toList()
@@ -353,7 +396,16 @@ class LxMusicSourceEngine(context: Context) {
             EVENT_NAMES: { inited: 'inited', request: 'request' },
             version: '1.0.0',
             env: { platform: 'android' },
-            utils: {},
+            utils: {
+              crypto: {
+                // host.js 在引导序列里先于本 shim 注入纯 JS 同步 md5（__hMd5）
+                md5: function(str) {
+                  try { return globalThis.__hMd5 ? globalThis.__hMd5(String(str)) : ''; }
+                  catch(e) { return ''; }
+                }
+              },
+              buffer: {}
+            },
             currentScriptInfo: { rawScript: __LX_RAW_SCRIPT__ },
             __listeners: listeners,
             on: function(eventName, handler) {
@@ -365,11 +417,23 @@ class LxMusicSourceEngine(context: Context) {
                 catch(e) { __hsend('inited', String(data)); }
               }
             },
-            request: async function(url, options) {
-              var raw = await __hrpc({ kind: 'httpx', url: String(url), options: JSON.stringify(options || {}) });
-              var res = {};
-              try { res = JSON.parse(raw); } catch(e) { res = { status: -1, body: '', headers: {} }; }
-              return { statusCode: res.status, body: res.body, headers: res.headers || {} };
+            request: function(url, options, callback) {
+              var p = (async function() {
+                var raw = await __hrpc({ kind: 'httpx', url: String(url), options: JSON.stringify(options || {}) });
+                var res = {};
+                try { res = JSON.parse(raw); } catch(e) { res = { status: -1, body: '', headers: {} }; }
+                return { statusCode: res.status, body: res.body, headers: res.headers || {} };
+              })();
+              // v0.124.0：LX 协议的 request 支持回调式 (url, options, (err, resp)=>{})，
+              // 墨澜/聚合类脚本的 httpFetch 正是回调式——旧 shim 只返 Promise、回调
+              // 永不触发，脚本内所有后端请求都挂死到 15s 超时被 evict。
+              if (typeof callback === 'function') {
+                p.then(
+                  function(res) { callback(null, res); },
+                  function(err) { callback(err || new Error('request failed'), null); }
+                );
+              }
+              return p;
             }
           };
         })();

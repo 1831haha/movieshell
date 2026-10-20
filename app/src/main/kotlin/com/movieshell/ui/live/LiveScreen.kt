@@ -233,9 +233,11 @@ fun LiveScreen(
         },
     ) { inner ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(inner),
+            // v0.124.0：横屏全屏时不套 Scaffold 的 inner padding——它含状态栏/导航栏
+            // insets，播放器容器被夹小一圈，ZOOM 只能在小容器里裁、黑边依旧；
+            // 窗口层全出血在 PlayerScreen 的 applyImmersiveFullscreen 一并处理
+            modifier = if (fullscreenPlayer) Modifier.fillMaxSize()
+            else Modifier.fillMaxSize().padding(inner),
         ) {
             // 顶部 16:9 播放器；v0.96.2：横屏全屏时占满（PlayerScreen 调用点唯一，不重建播放器）
             val playing = selected

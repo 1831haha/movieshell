@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.media.AudioManager
+import android.os.Build
 import android.util.Rational
 import android.widget.Toast
 import com.movieshell.data.model.PlayLine
@@ -25,6 +26,7 @@ import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
@@ -122,6 +124,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.util.Consumer
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -203,6 +206,8 @@ fun PlayerScreen(
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var showServiceMissingDialog by remember { mutableStateOf(false) }
     var gestureHint by remember { mutableStateOf<String?>(null) } // 手势临时指示
+    // v0.124.0：本播放器是否已把窗口切进沉浸式全出血（恢复时凭它守卫，没动过不恢复）
+    var immersiveApplied by remember { mutableStateOf(false) }
     var showSkipSettings by remember { mutableStateOf(false) } // v0.16.3：按剧片头片尾设置
     // v0.19.0
     var playUrl by remember { mutableStateOf(url) } // 实际播放地址（切线路/重试时更新）
@@ -268,22 +273,55 @@ fun PlayerScreen(
     val currentPlayUrl by rememberUpdatedState(playUrl)
     val currentTitle by rememberUpdatedState(title)
 
-    // 沉浸式全屏 + 退出时保存进度、清理播放会话
-    DisposableEffect(Unit) {
-        PlaySession.playerVisible = true
-        val window = (context as? Activity)?.window
-        val controller = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
-        // v0.84.0：嵌入模式（直播页顶部）不碰系统栏/方向——之前一切 tab
-        // 嵌入播放器被销毁，onDispose 里的 show(systemBars()) 会把手机底部导航栏弹出来
-        if (!embedded) {
-            controller?.hide(WindowInsetsCompat.Type.systemBars())
-            controller?.systemBarsBehavior =
+    /**
+     * v0.124.0：全屏真全出血的窗口层所有权（黑边第二轮真凶定位）——v0.123.0 只把
+     * resizeMode 换成 ZOOM，但容器没占满物理屏：①窗口从没设 edge-to-edge/cutout
+     * 模式，横屏时窗口被挖孔与系统栏 insets 挤出黑带；②嵌入直播横屏从不
+     * 隐藏系统栏；③LiveScreen 的 Scaffold inner padding 又在容器外圈套了 insets
+     * （该处在 LiveScreen 改）。这里统一：进入全屏（独立页恒全屏 / 嵌入横屏）时
+     * decor 不避让系统栏 + cutout SHORT_EDGES + 隐藏系统栏，一次设齐；退出恢复。
+     * 由 fullscreenNow 的 LaunchedEffect 驱动，本函数只管"设"，恢复走 restorePlayerWindow。
+     */
+    fun applyImmersiveFullscreen() {
+        val window = (context as? Activity)?.window ?: return
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
-        onDispose {
-            if (!embedded) {
-                controller?.show(WindowInsetsCompat.Type.systemBars())
+        immersiveApplied = true
+    }
+
+    /** v0.124.0：恢复窗口默认状态；没进过沉浸式（immersiveApplied=false）时是 no-op。 */
+    fun restorePlayerWindow() {
+        if (!immersiveApplied) return
+        immersiveApplied = false
+        val window = (context as? Activity)?.window ?: return
+        WindowInsetsControllerCompat(window, window.decorView)
+            .show(WindowInsetsCompat.Type.systemBars())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
             }
+        }
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+    }
+
+    // 退出时保存进度、清理播放会话（沉浸式窗口驱动见 fullscreenNow 的 LaunchedEffect；
+    // 离页时 restorePlayerWindow 有守卫——嵌入竖屏从没动过窗口，不会重现 v0.84.0
+    // 「切 tab 把手机底部导航栏弹出来」的问题）
+    DisposableEffect(Unit) {
+        PlaySession.playerVisible = true
+        onDispose {
+            restorePlayerWindow()
             savePlayerProgress(
                 context, currentTitle, currentPlayUrl, isLive,
                 vodId, PlaySession.episodeIndex,
@@ -461,6 +499,10 @@ fun PlayerScreen(
     // 少量边缘换铺满（用户反馈"横屏黑边太大"）；退出全屏恢复 FIT。与「画面比例」
     // 菜单共用 resizeIndex，只在全屏状态/画面重建时应用一次，手动改完即生效。
     val fullscreenNow = !embedded || cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
+    // v0.124.0：全屏状态驱动窗口沉浸式（全出血），与上面的方向/恢复逻辑互不干涉
+    LaunchedEffect(fullscreenNow) {
+        if (fullscreenNow) applyImmersiveFullscreen() else restorePlayerWindow()
+    }
     LaunchedEffect(fullscreenNow, playerView, engine) {
         val idx = if (fullscreenNow) 2 else 0 // RESIZE_MODES：0=适应 FIT，2=裁剪 ZOOM
         resizeIndex = idx

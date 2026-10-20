@@ -278,7 +278,8 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     } else {
                         runCatching { lxEngine.loadScript(source.url) }
                             .getOrElse { e -> if (e is CancellationException) throw e else false }
-                        LxMusicSourceEngine.sortHighToLow(lxEngine.getQualityIds(source.url))
+                        // v0.124.0：与播放同口径按平台（wy）取档，不拿别平台独占档空试
+                        LxMusicSourceEngine.sortHighToLow(lxEngine.getQualityIds(source.url, "wy"))
                             .ifEmpty { listOf("320k", "128k") }
                     }
                     val results = ArrayList<String>()

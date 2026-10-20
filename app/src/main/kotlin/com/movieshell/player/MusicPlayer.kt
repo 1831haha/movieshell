@@ -315,6 +315,10 @@ object MusicPlayer {
      * 调用方回退 MusicApi.playUrl。只换直链来源，不碰播放链路；本地歌曲不走这里。
      * v0.117.0：返回 Resolved（三件套）；首选项源（setPreferredSource）排到最前，
      * 失败仍回落到默认顺序，保证不卡死。
+     * v0.124.0：逐档试的档位改按平台（wy）取脚本自报 qualitys——引擎侧 getQualityIds
+     * 修好对象形状解析后，flac/flac24bit 等高档第一次真能进尝试序列（此前恒空、恒走
+     * 兜底 320k→128k）。App 无手动音质上限设置，默认即最高档策略；逐档只在上一档
+     * 明确失败（脚本返回空/报错）时才降，成功即停，不拖慢正常起播。
      */
     private suspend fun resolveLxUrl(appContext: Context, songId: String): Resolved? {
         if (songId.isBlank()) return null
@@ -342,7 +346,8 @@ object MusicPlayer {
                 LxMusicSourceEngine.BUILTIN_QUALITIES
             } else {
                 runCatching { engine.loadScript(s.url) }.getOrDefault(false)
-                LxMusicSourceEngine.sortHighToLow(engine.getQualityIds(s.url))
+                // v0.124.0：按平台取档（播放恒走 wy），别把 tx 独占档拿来对 wy 空试
+                LxMusicSourceEngine.sortHighToLow(engine.getQualityIds(s.url, "wy"))
                     .ifEmpty { listOf("320k", "128k") }
             }
             var reason = "解析失败"
