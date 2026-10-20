@@ -1,24 +1,43 @@
-/* drpy shim 自测：在 node 里跑 assets/drpy/shim.js + 真实规则。
- * __bridge 用 node fetch 做桩（走 https_proxy 环境变量，node 24 需 NODE_USE_ENV_PROXY=1）。
+/* drpy shim 自测：在 node 里跑 assets/jsbridge/host.js + assets/drpy/shim.js + 真实规则。
+ * v0.112.0：shim 真 async 化后走 __hrpc 基元（原 __bridge 已删）。
+ * __hrpc 用 node fetch/zlib 做桩（走 https_proxy 环境变量，node 24 需 NODE_USE_ENV_PROXY=1）。
+ * query 桩返回 '[]'：node 没有 jsoup，HTML 抓取类规则无法在 node 侧全量自测（API 类规则不受影响）。
  * 用法：RULE=/path/to/rule.js node test.js
  */
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
+const crypto = require('crypto');
 
 const SHIM = path.resolve(__dirname, '../../app/src/main/assets/drpy/shim.js');
 const RULE = process.env.RULE || '/home/hatch/workspace/tvx-push/spider/js/sp002.js';
 
-globalThis.__bridge = {
-    http: async (url, headersJson, method, body) => {
-        const headers = JSON.parse(headersJson || '{}');
-        const m = (method || 'GET').toUpperCase();
-        const opts = { method: m, headers };
-        if ((m === 'POST' || m === 'PUT' || m === 'PATCH') && body) opts.body = body;
-        const res = await fetch(url, opts);
-        return await res.text();
+// 必须在 eval shim 之前保存原生 fetch：shim 会把 globalThis.fetch 覆盖成 drpy 语义
+//（返回 Promise<string>），桩里若再调它就无限递归。Android 宿主走 OkHttp，无此问题。
+const nativeFetch = globalThis.fetch;
+
+globalThis.__hrpc = async (payload) => {
+    switch (payload.kind) {
+        case 'http': {
+            const headers = JSON.parse(payload.headers || '{}');
+            const m = (payload.method || 'GET').toUpperCase();
+            const opts = { method: m, headers };
+            if ((m === 'POST' || m === 'PUT' || m === 'PATCH') && payload.body) opts.body = payload.body;
+            const res = await nativeFetch(payload.url, opts);
+            return await res.text();
+        }
+        case 'query':
+            return '[]'; // node 无 jsoup，HTML 查询桩置空
+        case 'gunzip':
+            return zlib.gunzipSync(Buffer.from(payload.data, 'base64')).toString('utf8');
+        default:
+            throw new Error('unknown rpc kind: ' + payload.kind);
     }
 };
+globalThis.__hsend = () => {};
+globalThis.__hB64Decode = (s) => Buffer.from(String(s), 'base64').toString('utf8');
+globalThis.__hMd5 = (s) => crypto.createHash('md5').update(String(s), 'utf8').digest('hex');
 globalThis.log = (...a) => console.log('[rule-log]', ...a);
 
 // 间接 eval：var rule 落到全局，shim 的 globalThis 函数能读到

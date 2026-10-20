@@ -32,9 +32,9 @@
     native <methods>;
 }
 
-# ---------- QuickJS ----------
--keep class app.cash.quickjs.** { *; }
--dontwarn app.cash.quickjs.**
+# ---------- Guava（javascriptengine 的 ListenableFuture 依赖） ----------
+-dontwarn com.google.common.**
+-dontwarn com.google.j2objc.**
 
 # ---------- WebView JS 桥（DrpyBridge.JsBridge，JS 经反射回调） ----------
 -keepattributes JavascriptInterface

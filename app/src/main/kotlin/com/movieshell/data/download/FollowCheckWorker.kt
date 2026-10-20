@@ -18,7 +18,7 @@ import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.source.PyApi
-import com.movieshell.data.source.QuickJsDrpyEngine
+import com.movieshell.data.source.V8DrpyEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -93,11 +93,11 @@ class FollowCheckWorker(
                 val f = File(StoragePaths.jsDir(context), item.sourceKey)
                 if (!f.isFile) return null
                 val js = f.readText()
-                // loadRule 必须主线程：抛到主线程执行后挂起等结果（失败返回 null）
-                val detail = suspendCancellableCoroutine<QuickJsDrpyEngine?> { cont ->
+                // v0.113.0：V8 isolate 线程安全，loadRule 无线程亲和要求；维持主线程派发无妨
+                val detail = suspendCancellableCoroutine<V8DrpyEngine?> { cont ->
                     Handler(Looper.getMainLooper()).post {
                         try {
-                            val engine = QuickJsDrpyEngine(context)
+                            val engine = V8DrpyEngine(context)
                             engine.loadRule(js)
                             cont.resume(engine)
                         } catch (e: Throwable) {
@@ -108,7 +108,7 @@ class FollowCheckWorker(
                 try {
                     SiteRepository().parseEpisodes(detail.detail(item.vodId)).size.takeIf { it > 0 }
                 } finally {
-                    // v0.109.0：追剧检查用完即释放 native 上下文（release 切到 JS 单线程关闭，任意线程可调）
+                    // v0.113.0：追剧检查用完即释放（release 即时终止 isolate，任意线程可调）
                     detail.release()
                 }
             }

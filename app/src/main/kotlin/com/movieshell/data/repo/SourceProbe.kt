@@ -4,7 +4,7 @@ import android.content.Context
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DEFAULT_UA
 import com.movieshell.data.source.PyApi
-import com.movieshell.data.source.QuickJsDrpyEngine
+import com.movieshell.data.source.V8DrpyEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -22,13 +22,16 @@ import java.util.concurrent.TimeoutException
  * 站源批量探活（v0.24.0；v0.86.0 硬超时重写）。
  *
  * 对每个已启用源调一次 home()，不碰全局激活状态：
- * JS 用全新 QuickJsDrpyEngine 实例加载该文件；PY 用 PyApi.home(绝对路径)；
+ * JS 用全新 V8DrpyEngine 实例加载该文件；PY 用 PyApi.home(绝对路径)；
  * 网页源/订阅走 HTTP GET。结果：正常（≤3s）/ 缓慢（3~8s）/ 失败（记 LogBus）。
  *
- * v0.86.0：withTimeoutOrNull 是协作式取消——probePy 卡在 Chaquopy JNI、
- * probeJs 卡在 QuickJS native 时超时永远不返回，一个卡住 awaitAll 整体卡死。
- * 改为有界线程池 + Future.get(8s) 硬超时，超时 cancel(true) 后记失败；
- * 泄漏的线程是 daemon，随进程退出回收。并发用 Semaphore(6) 限流。
+ * v0.86.0：withTimeoutOrNull 是协作式取消——probePy 卡在 Chaquopy JNI 时超时永远
+ * 不返回，一个卡住 awaitAll 整体卡死。改为有界线程池 + Future.get(8s) 硬超时，
+ * 超时 cancel(true) 后记失败；泄漏的线程是 daemon，随进程退出回收。并发用 Semaphore(6) 限流。
+ *
+ * v0.113.0：probeJs 的 V8DrpyEngine 持独立 V8 isolate（WebView 独立进程），
+ * engine.release() 即时终止 isolate；即便规则死循环也不会卡宿主线程（isolate 内部
+ * 卡死由 15s 硬截止兜底终止）。cancel(true) 之后的 release() 真正生效。
  */
 object SourceProbe {
 
@@ -53,15 +56,15 @@ object SourceProbe {
 
     /** 注意：阻塞式调用方须包在 withContext(Dispatchers.IO) 里 */
     fun probeJs(context: Context, file: File): Result {
-        val engine = QuickJsDrpyEngine(context.applicationContext)
+        val engine = V8DrpyEngine(context.applicationContext)
         return try {
             guarded(onTimeout = { runCatching { engine.release() } }) {
                 engine.loadRule(file.readText())
                 runBlocking { engine.home() }
             }
         } finally {
-            // v0.109.0：探活用完即释放 native 上下文（release 切到 JS 单线程关闭，任意线程可调）
-            // release 幂等（dispatcher 已 null 直接返回），超时回调里调过也安全，重复调无害
+            // v0.113.0：探活用完即释放（release 即时终止 isolate，任意线程可调）；
+            // release 幂等，超时回调里调过也安全，重复调无害
             runCatching { engine.release() }
         }
     }

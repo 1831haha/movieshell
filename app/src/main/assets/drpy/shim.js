@@ -1,14 +1,18 @@
-/* drpy 规则执行垫片（movieshell WebView 引擎用）。
- * 在 WebView 全局作用域 evaluate，本文件 + 规则源码拼在一起执行。
- * 规则侧只用到：全局 request(url, options)（同步，drpy 语义）、setResult(d)、
+/* drpy 规则执行垫片（movieshell V8 引擎用）。
+ * 在 androidx.javascriptengine 的 V8 isolate 里 evaluate，本文件 + 规则源码按序执行。
+ * v0.113.0 A1–A5：真 async 化——request()/fetch()/post()/pdfh()/pdfa() 全部返回
+ * Promise（V8 无 DOM、JS 无法同步调宿主，宿主能力一律经 MessagePort RPC 往返，
+ * 宿主网络请求在 isolate 之外异步执行，JS 线程零阻塞）。规则侧需 await 这些调用。
+ * 本地可同步完成的保留同步：md5/base64Decode 由 host.js 纯 JS 实现；
+ * gzip 解压、HTML 查询（jsoup）、HTTP 走 __hrpc。
+ * 规则侧只用到：全局 request(url, options)（Promise<string>，drpy 语义）、setResult(d)、
  * this.input / this.HOST / this.KEY / this.MY_PAGE（函数形态）或裸变量 input/KEY…
  *（"js:" 字符串形态），以及导出的 __drpyHome/__drpyCategory/__drpyDetail/
- * __drpySearch/__drpyPlay/__drpyFilters（全部返回 JSON 字符串）。
+ * __drpySearch/__drpyPlay/__drpyFilters（全部返回 JSON 字符串的 Promise）。
  * 筛选支持（drpy2 语义）：rule.filter_url 里的 {{fl.键名}} 占位符按筛选值渲染后拼进
- * url 的 fyfilter 处（无 fyfilter 标记时追加到 url 末尾）；无筛选值时按规则默认值
- *（filter_def[tid]，再取 filter 分组首项）或空字符串渲染；gzip+base64 的 filter 字符串自动解开。
+ * url 的 fyfilter 处（无 fyfilter 标记时追加到 url 末尾）；gzip+base64 的 filter 字符串自动解开。
  * 已知不支持：rule.lazy 返回非对象时的复杂嗅探、jsDelivr 远程依赖。
- * HTML 解析：pdfh/pdfa 经 __bridge.query（Kotlin 侧 jsoup 桥）实现，支持 drpy && 链式、
+ * HTML 解析：pdfh/pdfa 经 __hrpc{kind:'query'}（Kotlin 侧 jsoup），支持 drpy && 链式、
  * :eq(n)/:gt(n)/:lt(n) 等伪类（jsoup 原生支持，直接透传选择器）。
  */
 (function () {
@@ -80,13 +84,9 @@ function makeCtx(rule, extra) {
 
 /* ---------- drpy 筛选（filter_url / fyfilter / {{fl.键名}}） ---------- */
 
-/** base64(gzip JSON) → JSON 字符串；失败抛错，调用方吞掉走空筛选。 */
+/** base64(gzip JSON) → JSON 字符串；gzip 解压交宿主（V8 无 DecompressionStream）。 */
 async function ungzipB64(b64) {
-    var bin = atob(String(b64).trim());
-    var bytes = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    var ds = new DecompressionStream('gzip');
-    return await new Response(new Blob([bytes]).stream().pipeThrough(ds)).text();
+    return String(await globalThis.__hGunzipB64(b64));
 }
 
 /**
@@ -136,14 +136,26 @@ async function buildFilterMap(tid, selected) {
     return fl;
 }
 
-/* ---------- 全局 request：转调 Java 桥（同步，drpy 语义） ---------- */
-globalThis.request = function (url, options) {
+/* ---------- 全局 request：宿主 RPC（真 async，drpy 语义） ----------
+ * 宿主 http handler 返回 body 文本；失败/异常 resolve 为 ''（与旧契约一致，不 reject）。 */
+globalThis.request = async function (url, options) {
     options = options || {};
     var method = String(options.method || 'GET').toUpperCase();
     var body = options.body == null ? '' : String(options.body);
     var headers = buildHeaders(typeof rule !== 'undefined' ? rule : null, options.headers);
-    var resp = globalThis.__bridge.http(String(url), JSON.stringify(headers), method, body);
-    return resp == null ? '' : String(resp);
+    try {
+        var resp = await globalThis.__hrpc({
+            kind: 'http',
+            url: String(url),
+            headers: JSON.stringify(headers),
+            method: method,
+            body: body,
+        });
+        return resp == null ? '' : String(resp);
+    } catch (e) {
+        log('request 失败: ' + url + ' ' + (e && e.message));
+        return '';
+    }
 };
 
 /* drpy2 的 $js.toString(fn)：把函数转成 "js:" 字符串章节。 */
@@ -201,41 +213,41 @@ globalThis.MOBILE_UA = MOBILE_UA;
 globalThis.IOS_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 globalThis.rule_fetch_params = { headers: {} };
 globalThis.fetch_params = globalThis.rule_fetch_params;
-/** drpy 语义的同步 fetch（覆盖 WebView 原生异步 fetch）。 */
+/** drpy 语义的 async fetch（Promise<string>）。 */
 globalThis.fetch = function (url, params) {
     return request(url, params || {});
 };
-/** drpy 语义的同步 post。 */
+/** drpy 语义的 async post（Promise<string>）。 */
 globalThis.post = function (url, params) {
     params = params || {};
     params.method = 'POST';
     return request(url, params);
 };
 
-/* ---------- pdfh/pdfa：经 __bridge.query（jsoup 桥）的实现（drpy && 链式写法） ----------
- * QuickJS 没有 DOMParser，CSS 查询全部走 Kotlin 侧 jsoup。
+/* ---------- pdfh/pdfa：经 __hrpc{kind:'query'}（jsoup 桥）的实现（drpy && 链式写法） ----------
+ * v0.113.0：V8 无 DOM 且无法同步调宿主，pdfh/pdfa 返回 Promise（规则需 await）。
  * 元素对象：{__el: 1, text, html, outer, attrs}；字符串输入直接当 HTML 传。
  * jsoup 原生支持 :eq(n)/:gt(n)/:lt(n)/:first/:last 等伪类，选择器直接透传。 */
-function _q(src, sel) {
+async function _q(src, sel) {
     try {
         sel = String(sel);
         if (src && typeof src === 'object' && src.__el) {
             if (sel.trim() === '') return [src];
-            var inner = JSON.parse(globalThis.__bridge.query(src.outer, sel));
+            var inner = JSON.parse(await globalThis.__hrpc({ kind: 'query', html: String(src.outer), sel: sel }));
             if (!Array.isArray(inner)) return [];
             inner.forEach(function (el) { el.__el = 1; });
             return inner;
         }
-        var arr = JSON.parse(globalThis.__bridge.query(String(src == null ? '' : src), sel));
+        var arr = JSON.parse(await globalThis.__hrpc({ kind: 'query', html: String(src == null ? '' : src), sel: sel }));
         if (!Array.isArray(arr)) return [];
         arr.forEach(function (el) { el.__el = 1; });
         return arr;
     } catch (e) { return []; }
 }
 /** 把 HTML 字符串或元素对象归一成根元素（对应旧 _asRoot 的 Document 角色）。 */
-function _ctx(src) {
+async function _ctx(src) {
     if (src && typeof src === 'object' && src.__el) return src;
-    var list = _q(src, '');
+    var list = await _q(src, '');
     return list[0] || null;
 }
 function _pick(el, op) {
@@ -245,27 +257,30 @@ function _pick(el, op) {
     var a = el.attrs || {};
     return a[op] != null ? String(a[op]) : '';
 }
-/** pdfh(html|el, 'a.b&&c&&Text')：链式下钻取文本/属性。 */
-globalThis.pdfh = function (html, parse) {
+/** pdfh(html|el, 'a.b&&c&&Text')：链式下钻取文本/属性。Promise<string>。 */
+globalThis.pdfh = async function (html, parse) {
     try {
         var parts = String(parse).split('&&');
-        var cur = _ctx(html);
+        var cur = await _ctx(html);
         for (var i = 0; i < parts.length - 1; i++) {
-            var one = _q(cur, parts[i]);
+            var one = await _q(cur, parts[i]);
             cur = one[0] || null;
             if (!cur) return '';
         }
         return _pick(cur, parts[parts.length - 1]);
     } catch (e) { return ''; }
 };
-/** pdfa(html|el, 'a.b&&c&&Text')：链式下钻取数组。 */
-globalThis.pdfa = function (html, parse) {
+/** pdfa(html|el, 'a.b&&c&&Text')：链式下钻取数组。Promise<string[]>。 */
+globalThis.pdfa = async function (html, parse) {
     try {
         var parts = String(parse).split('&&');
-        var cur = [_ctx(html)].filter(function (x) { return x != null; });
+        var root = await _ctx(html);
+        var cur = root ? [root] : [];
         for (var i = 0; i < parts.length - 1; i++) {
             var next = [];
-            cur.forEach(function (c) { next = next.concat(_q(c, parts[i])); });
+            for (var j = 0; j < cur.length; j++) {
+                next = next.concat(await _q(cur[j], parts[i]));
+            }
             cur = next;
         }
         var last = parts[parts.length - 1];
@@ -285,7 +300,7 @@ globalThis.jsp = {
  * drpy 列表模板：'容器;条目;标题;图;描述;链接'（6 段）或
  * '条目;标题;图;描述;链接'（5 段，无容器）。
  */
-function runListTemplate(tpl, ctx) {
+async function runListTemplate(tpl, ctx) {
     var parts = String(tpl).split(';');
     var hasContainer = parts.length >= 6;
     var itemSel = hasContainer ? parts[1] : parts[0];
@@ -293,22 +308,26 @@ function runListTemplate(tpl, ctx) {
     var imgSel = hasContainer ? parts[3] : parts[2];
     var descSel = hasContainer ? parts[4] : parts[3];
     var urlSel = hasContainer ? parts[5] : parts[4];
-    var html = request(ctx.input);
+    var html = await request(ctx.input);
     var items = [];
     if (hasContainer && parts[0]) {
-        _q(html, parts[0]).forEach(function (c) {
-            items = items.concat(_q(c, itemSel));
+        var containers = await _q(html, parts[0]);
+        for (var i = 0; i < containers.length; i++) {
+            items = items.concat(await _q(containers[i], itemSel));
+        }
+    }
+    if (items.length === 0) items = await _q(html, itemSel);
+    var out = [];
+    for (var k = 0; k < items.length; k++) {
+        var el = items[k];
+        out.push({
+            url: await pdfh(el, urlSel),
+            title: await pdfh(el, titleSel),
+            img: await pdfh(el, imgSel),
+            desc: await pdfh(el, descSel)
         });
     }
-    if (items.length === 0) items = _q(html, itemSel);
-    return items.map(function (el) {
-        return {
-            url: pdfh(el, urlSel),
-            title: pdfh(el, titleSel),
-            img: pdfh(el, imgSel),
-            desc: pdfh(el, descSel)
-        };
-    });
+    return out;
 }
 var _sectionResult;
 globalThis.setResult = function (d) { _sectionResult = d; };
@@ -345,12 +364,15 @@ function getPath(obj, path) {
  * drpy class_parse 字符串模板：'列表选择器;标题解析;链接解析;链接正则'
  * 例：'.stui-header__menu li:gt(0):lt(7);a&&Text;a&&href;/(\d+).html'
  */
-function parseClassTemplate(tpl, baseUrl) {
+async function parseClassTemplate(tpl, baseUrl) {
     var parts = String(tpl).split(';');
-    var html = request(baseUrl);
-    return _q(html, parts[0]).map(function (el) {
-        var name = pdfh(el, parts[1] || '');
-        var url = pdfh(el, parts[2] || '');
+    var html = await request(baseUrl);
+    var els = await _q(html, parts[0]);
+    var out = [];
+    for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        var name = await pdfh(el, parts[1] || '');
+        var url = await pdfh(el, parts[2] || '');
         var tid = url;
         if (parts[3]) {
             try {
@@ -358,14 +380,15 @@ function parseClassTemplate(tpl, baseUrl) {
                 if (m) tid = m[1] || m[0];
             } catch (e) {}
         }
-        return { type_id: str(tid), type_name: str(name) };
-    }).filter(function (c) { return c.type_name; });
+        out.push({ type_id: str(tid), type_name: str(name) });
+    }
+    return out.filter(function (c) { return c.type_name; });
 }
 
 /** drpy 'json:路径;标题;图;描述;链接' 简写：拉 input 取 JSON 按路径映射列表。 */
-function runJsonTemplate(tpl, ctx) {
+async function runJsonTemplate(tpl, ctx) {
     var parts = tpl.slice(5).split(';');
-    var json = JSON.parse(request(ctx.input));
+    var json = JSON.parse(await request(ctx.input));
     var arr = getPath(json, parts[0]);
     if (!Array.isArray(arr)) return [];
     return arr.map(function (it) {
@@ -379,20 +402,14 @@ function runJsonTemplate(tpl, ctx) {
     });
 }
 
-/* base64 解码（规则 lazy 常用）。 */
+/* base64 解码（规则 lazy 常用）：host.js 纯 JS 实现（V8 无 atob/TextDecoder）。 */
 globalThis.base64Decode = function (s) {
-    try {
-        var bin = atob(String(s).replace(/-/g, '+').replace(/_/g, '/'));
-        var bytes = new Uint8Array(bin.length);
-        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        return new TextDecoder().decode(bytes);
-    } catch (e) { return ''; }
+    return globalThis.__hB64Decode(String(s));
 };
 
-/* md5（规则 lazy 常用）：转调 Java 桥同步计算。 */
+/* md5（规则 lazy 常用）：host.js 纯 JS 同步实现（替代旧宿主 MessageDigest 桥）。 */
 globalThis.md5 = function (s) {
-    try { return String(globalThis.__bridge.md5(String(s))); }
-    catch (e) { return ''; }
+    return globalThis.__hMd5(String(s));
 };
 
 /* drpy2 全局数组 d：规则往里 push，框架收集。 */
@@ -406,13 +423,13 @@ async function runSection(section, ctx) {
         r = await section.call(ctx);
     } else if (typeof section === 'string') {
         if (section.indexOf('json:') === 0) {
-            r = runJsonTemplate(section, ctx);
+            r = await runJsonTemplate(section, ctx);
         } else if (section === '*') {
             r = undefined; // '*'=走默认，二阶段暂不支持，保持空不崩
         } else if (/^js:/.test(section) || section.indexOf(';') < 0) {
             r = await makeJsRunner(section.replace(/^js:/, ''))(ctx);
         } else {
-            r = runListTemplate(section, ctx); // '容器;条目;标题;图;描述;链接' 列表模板
+            r = await runListTemplate(section, ctx); // '容器;条目;标题;图;描述;链接' 列表模板
         }
     }
     if (r === undefined && Array.isArray(globalThis.d) && globalThis.d.length > 0) r = globalThis.d;
@@ -467,7 +484,7 @@ globalThis.__drpyHome = async function () {
         if (rule.class_parse) {
             if (typeof rule.class_parse === 'string' && rule.class_parse.indexOf('js:') !== 0) {
                 // v0.11.1：class_parse 字符串模板（'选择器;标题;链接;正则'），在 homeUrl 页面上解析
-                cls = parseClassTemplate(rule.class_parse, homeInput).map(normClass);
+                cls = (await parseClassTemplate(rule.class_parse, homeInput)).map(normClass);
             } else {
                 var cr = await runSection(rule.class_parse, makeCtx(rule));
                 var arr = (cr && cr['class']) ? cr['class'] : (Array.isArray(cr) ? cr : []);
@@ -584,14 +601,10 @@ globalThis.__drpyPlay = async function (flag, id) {
         needRule();
         var fn = rule.播放 || rule.lazy;
         if (fn) {
-            var pinput = str(id);
-            // v0.11.1：lazy 形态的 input 按 drpy 语义用 detailUrl 渲染（含 fyid），
-            // 规则内的正则（如 /(\d+)/）才能命中；有独立"播放"章节时保持传裸 id
-            if (!rule.播放 && rule.lazy && rule.detailUrl) {
-                var rendered = absUrl(rule.host, rule.detailUrl, { id: id });
-                if (rendered && rendered !== pinput) pinput = rendered;
-            }
-            var ctx = makeCtx(rule, { input: pinput, flag: flag });
+            // drpy 语义：lazy 的 input 是播放条目 id/URL 原值（vod_play_url "$" 右侧原样），
+            // 不做 detailUrl 渲染——detailUrl 只在 detail 阶段拼 vod_id 用。
+            // 渲染会破坏 m3u8/mp4 直链判断（规则 lazy: input.indexOf('.m3u8')）。
+            var ctx = makeCtx(rule, { input: str(id), flag: flag });
             var r = await runSection(fn, ctx);
             // v0.11.1：lazy 形态直接改写 input 为 {jx,url,parse,header} 对象交结果
             if (r == null && ctx.input && typeof ctx.input === 'object') r = ctx.input;

@@ -9,7 +9,7 @@ import com.movieshell.data.model.VodDetail
  * drpy JS 规则引擎接口。
  *
  * v0.109.0：从已删除的 DrpyBridge.kt（WebView 实现，v0.16.0 后零引用）中抽出——
- * 接口本身被 QuickJsDrpyEngine/LxMusicSourceEngine 及各 SourceManager 广泛实现/引用，误删会导致全仓编译失败。
+ * 接口本身被 V8DrpyEngine 及各 SourceManager 广泛实现/引用，误删会导致全仓编译失败。
  *
  * drpy 规则形如 `var rule = {host, homeUrl, url, detailUrl, searchUrl,
  * 推荐(), 一级(), 二级(), 搜索(), 播放(), class_parse(), headers}`，

@@ -13,7 +13,7 @@ import com.movieshell.data.model.isSubSite
 import com.movieshell.data.source.ChaquopyEngine
 import com.movieshell.data.source.DrpyEngine
 import com.movieshell.data.source.PyApi
-import com.movieshell.data.source.QuickJsDrpyEngine
+import com.movieshell.data.source.V8DrpyEngine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -97,7 +97,7 @@ private object EmptyDrpyEngine : DrpyEngine {
 
 /**
  * 订阅 drpy 站的引擎适配器：每次调用都经 SubDrpyPool 拿到该站的
- * QuickJsDrpyEngine（已载入该站规则）再执行；池负责复用与 LRU 淘汰。
+ * V8DrpyEngine（已载入该站规则）再执行；池负责复用与 LRU 淘汰。
  */
 private class PooledDrpyEngine(
     private val siteKey: String,
@@ -134,8 +134,8 @@ private class PooledDrpyEngine(
 }
 
 /**
- * drpy 引擎池：订阅站多、WebView 重，池上限 3 个，按最近使用淘汰。
- * Semaphore 保证同时最多 3 个站并发执行，避免 WebView 爆炸。
+ * drpy 引擎池：订阅站多、V8 isolate 不共享线程，池上限 3 个，按最近使用淘汰。
+ * Semaphore 保证同时最多 3 个站并发执行，控制 isolate 资源占用。
  */
 private object SubDrpyPool {
     private const val TAG = "SubDrpyPool"
@@ -145,7 +145,7 @@ private object SubDrpyPool {
     private val semaphore = Semaphore(MAX_ENGINES)
 
     /** LinkedHashMap 插入序：每次取用后 remove 再 put，队首即最久未用。 */
-    private val engines = LinkedHashMap<String, QuickJsDrpyEngine>()
+    private val engines = LinkedHashMap<String, V8DrpyEngine>()
 
     suspend fun <T> withEngine(
         siteKey: String,
@@ -164,7 +164,7 @@ private object SubDrpyPool {
                             Log.i(TAG, "淘汰引擎: $oldest")
                         }
                     }
-                    QuickJsDrpyEngine(SubSiteEngines.requireContext()).also {
+                    V8DrpyEngine(SubSiteEngines.requireContext()).also {
                         it.loadRule(ruleFile.readText())
                     }
                 }

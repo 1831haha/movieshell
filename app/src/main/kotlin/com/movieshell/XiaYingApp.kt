@@ -5,6 +5,7 @@ import com.movieshell.data.novel.NovelMigration
 import com.movieshell.data.novel.NovelUpdateWorker
 import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.source.JsRuntime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -19,6 +20,8 @@ class XiaYingApp : Application() {
         super.onCreate()
         CrashHandler.install(this)
         LogBus.readLastCrash(this)
+        // v0.113.0：V8 sandbox 上下文注入（进程级单例，首次用 JS 源时才真正连接）
+        JsRuntime.init(this)
         // v0.85.0：小说自动追更（每天一次，KEEP 防重复入队）
         NovelUpdateWorker.schedule(this)
         // v0.95.0：小说旧数据一次性备份（.bak），后台跑不阻塞启动

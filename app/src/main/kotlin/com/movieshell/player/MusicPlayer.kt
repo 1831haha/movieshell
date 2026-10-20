@@ -71,7 +71,7 @@ object MusicPlayer {
     /**
      * v0.109.0 B4①：引擎复用——之前 resolveLxUrl 每首歌 `new LxMusicSourceEngine`
      * 再 `release()`，实例级的脚本缓存（engines map，按 scriptUrl）永远架空，
-     * 每首歌都重下载、重建 QuickJs 上下文。引擎实例与 QuickJs 上下文按 scriptUrl
+     * 每首歌都重下载、重建 JS 上下文。引擎实例与 V8 isolate 按 scriptUrl
      * 绑定，不存在"单例 + 每次 loadScript 重载"的必要；选型：按持有者生命周期复用——
      * MusicPlayer（object 单例）持有一个引擎实例，随 MusicPlayer.release() 释放；
      * MusicSourceScreen 本就 remember 复用自己的实例。两者互不 release，

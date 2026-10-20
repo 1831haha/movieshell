@@ -7,7 +7,7 @@ import com.movieshell.data.model.FilterGroup
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.source.DrpyEngine
-import com.movieshell.data.source.QuickJsDrpyEngine
+import com.movieshell.data.source.V8DrpyEngine
 import java.io.File
 
 /**
@@ -17,7 +17,7 @@ import java.io.File
  *   拷贝到 StoragePaths.jsDir()（/storage/emulated/0/xiaying/js/)。
  * - listRules()：扫描 StoragePaths.jsDir()（/storage/emulated/0/xiaying/js/) 下的 js 文件。
  * - setActiveRule(name)：主线程；null=清空；切换时为该规则创建/复用
- *   QuickJsDrpyEngine 并 loadRule。
+ *   V8DrpyEngine 并 loadRule。
  * - 无 active rule 时所有 suspend 函数返回空（不抛异常）。
  * - engine：给 SiteRepository 用的 DrpyEngine 适配器，委托给当前 active 引擎。
  */
@@ -32,7 +32,7 @@ object DrpySourceManager {
     private var appContext: Context? = null
     private var initialized = false
 
-    private var engine: QuickJsDrpyEngine? = null
+    private var engine: V8DrpyEngine? = null
     private var activeName: String? = null
 
     /** init：主线程，幂等；首次把 assets/drpy/ 下规则拷贝到 StoragePaths.jsDir()（/storage/emulated/0/xiaying/js/)。 */
@@ -81,7 +81,7 @@ object DrpySourceManager {
 
     /**
      * 切换 active 规则。主线程调用；name=null 时清空。
-     * 同名重复调用直接复用；切换时销毁旧引擎、为新规则建 QuickJsDrpyEngine 并 loadRule。
+     * 同名重复调用直接复用；切换时销毁旧引擎、为新规则建 V8DrpyEngine 并 loadRule。
      */
     fun setActiveRule(name: String?) {
         if (name == activeName) return
@@ -103,7 +103,7 @@ object DrpySourceManager {
             val ctx = appContext ?: return
             // v0.112.0 D2：删重复 release——旧引擎已在函数开头 try/catch 里释放并置空，
             // 此处的 engine?.release() 恒为 no-op。保留开头那一次。
-            engine = QuickJsDrpyEngine(ctx).also { it.loadRule(js) }
+            engine = V8DrpyEngine(ctx).also { it.loadRule(js) }
             activeName = name
             Log.i(TAG, "active 规则: $name")
         } catch (e: Exception) {

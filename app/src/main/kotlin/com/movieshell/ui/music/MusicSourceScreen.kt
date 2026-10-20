@@ -81,7 +81,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
     var testMsg by remember { mutableStateOf<String?>(null) }
     /** v0.109.0 A6：测试协程句柄——testing 期间允许用户取消（返回键/点外部） */
     var testJob by remember { mutableStateOf<Job?>(null) }
-    // v0.100.0：页面退出时释放引擎，避免 QuickJs 实例泄漏
+    // v0.100.0：页面退出时释放引擎，避免 JS 引擎实例泄漏
     DisposableEffect(lxEngine) {
         onDispose {
             // v0.109.0 A6：在飞的测试协程先取消，再释引擎

@@ -14,8 +14,9 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 178
-        versionName = "0.112.0"
+        versionCode = 179
+        versionName = "0.113.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -154,6 +155,16 @@ dependencies {
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
 
-    // v0.16.0：QuickJS 替代 WebView 跑 drpy（对标 DsPlayer，更快更兼容）
-    implementation("app.cash.quickjs:quickjs-android:0.9.2")
+    // v0.113.0：V8 引擎真机冒烟测试（instrumentation 直跑引擎，绕开 UI）
+    androidTestImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.1")
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
+
+    // v0.113.0：JS 规则改用 V8 真 async 引擎（替代 app.cash.quickjs）。
+    // 引擎由设备 WebView 提供，isolate 内的 await 是天然事件循环，宿主网络请求不再阻塞 JS 线程。
+    implementation("androidx.javascriptengine:javascriptengine:1.1.1")
+    // javascriptengine 的异步 API 全部返回 ListenableFuture，显式声明确保编译期可见。
+    implementation("com.google.guava:guava:33.2.1-android")
 }
