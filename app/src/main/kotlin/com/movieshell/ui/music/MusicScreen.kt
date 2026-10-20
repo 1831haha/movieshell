@@ -130,7 +130,7 @@ fun MusicScreen(
     // v0.84.0：搜索历史
     val searchHistory by vm.searchHistory.collectAsState()
 
-    // v0.82.0：接受显式 query（风格 chips 点后直接搜，不等 state 落定）；键盘收起在 composable 侧
+    // v0.82.0：接受显式 query（历史记录点后直接搜，不等 state 落定）；键盘收起在 composable 侧
     fun doSearch(q0: String = query) {
         keyboard?.hide()
         vm.doSearch(q0)
@@ -139,6 +139,37 @@ fun MusicScreen(
     var tab by remember { mutableIntStateOf(0) } // v0.81.0：0=在线 1=本地 2=收藏；v0.84.0：3=歌单
     // v0.117.0：列表页切换音源弹窗
     var showSourcePicker by remember { mutableStateOf(false) }
+    // v0.128.0：歌单导入入口挪到标题行，状态与导入逻辑随之上提到本屏
+    //（原在 OnlineTab 搜索行内）；弹窗仍在本屏底部渲染，逻辑零改动。
+    val scope = rememberCoroutineScope()
+    var showPlaylistDialog by remember { mutableStateOf(false) }
+    var playlistInput by remember { mutableStateOf("") }
+    var playlistName by remember { mutableStateOf<String?>(null) }
+    var importingPlaylist by remember { mutableStateOf(false) }
+
+    // v0.82.0：歌单导入共用逻辑
+    fun importPlaylist(input: String) {
+        val inp = input.trim()
+        if (inp.isBlank() || importingPlaylist) return
+        importingPlaylist = true
+        scope.launch {
+            runCatching { MusicApi.playlist(inp) }
+                .onSuccess { (name, list) ->
+                    playlistName = name
+                    vm.setTracks(list)
+                    Toast.makeText(
+                        context, "已导入歌单「$name」（${list.size} 首）",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                .onFailure {
+                    Toast.makeText(
+                        context, "导入失败：${it.message}", Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            importingPlaylist = false
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -158,6 +189,20 @@ fun MusicScreen(
                         Spacer(Modifier.width(4.dp))
                         Text("切换音源")
                     }
+                    // v0.128.0：歌单导入按钮挪到标题行（原在在线页搜索行内，仅在线页签显示，
+                    // 沿用既有弹窗与导入逻辑）
+                    if (tab == 0) {
+                        IconButton(
+                            onClick = { showPlaylistDialog = true },
+                            modifier = Modifier.size(40.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.PlaylistAdd,
+                                contentDescription = "歌单导入",
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
                     IconButton(onClick = onOpenMusicSource, modifier = Modifier.size(40.dp)) {
                         Icon(
                             imageVector = Icons.Filled.LibraryMusic,
@@ -174,6 +219,34 @@ fun MusicScreen(
                 .fillMaxSize()
                 .padding(inner),
         ) {
+            // v0.128.0：搜索框紧贴标题行下方（原在 OnlineTab 内、页签之下），仅在线页签显示
+            if (tab == 0) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AppTextField(
+                        value = query,
+                        onValueChange = { vm.setQuery(it) },
+                        modifier = Modifier.weight(1f),
+                        placeholder = "搜歌名 / 歌手",
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = {
+                            keyboard?.hide()
+                            doSearch(query)
+                        }),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(onClick = {
+                        keyboard?.hide()
+                        doSearch(query)
+                    }) {
+                        Icon(Icons.Filled.Search, contentDescription = "搜索")
+                    }
+                }
+            }
             CapsuleTabBar(
                 titles = listOf("在线", "本地", "收藏", "歌单"),
                 selected = tab,
@@ -182,7 +255,8 @@ fun MusicScreen(
             if (tab == 0) {
                 OnlineTab(
                     query = query,
-                    onQueryChange = { vm.setQuery(it) },
+                    playlistName = playlistName,
+                    onPlaylistNameChange = { playlistName = it },
                     tracks = tracks,
                     searching = searching,
                     searched = searched,
@@ -241,10 +315,39 @@ fun MusicScreen(
             },
         )
     }
+
+    // v0.82.0：歌单导入弹窗；v0.84.0：换科技感 TechDialog（v0.128.0：随入口上提到本屏）
+    if (showPlaylistDialog) {
+        TechDialog(
+            onDismissRequest = { showPlaylistDialog = false },
+            title = "歌单导入",
+            subtitle = "粘贴网易云歌单链接或 ID，一键导入整单歌曲",
+            confirmText = if (importingPlaylist) "导入中…" else "导入",
+            onConfirm = {
+                importPlaylist(playlistInput)
+                playlistInput = ""
+                showPlaylistDialog = false
+            },
+            confirmEnabled = !importingPlaylist,
+        ) {
+            TechTextField(
+                value = playlistInput,
+                onValueChange = { playlistInput = it },
+                placeholder = "歌单链接或 ID",
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
 }
 
-// v0.82.0：风格快捷
-private val GENRE_CHIPS = listOf("古风", "流行", "民谣", "摇滚", "纯音乐", "DJ")
+// v0.128.0：平台行短标签（五等分紧凑分段用；内部 code 与 MusicApi.platformLabel 全称口径不动）
+private val PLATFORM_SHORT_LABELS = mapOf(
+    "wy" to "网易",
+    "tx" to "QQ",
+    "kw" to "酷我",
+    "kg" to "酷狗",
+    "mg" to "咪咕",
+)
 
 // v0.82.0：推荐歌单（网易云官方榜单，一点即导入）
 // v0.127.0：推荐榜单改由 MusicApi.charts(平台) 按所选平台下发（数据层收敛），
@@ -379,7 +482,9 @@ internal fun rememberArtworkUrl(picId: String, platform: String = "wy"): String 
 @Composable
 private fun OnlineTab(
     query: String,
-    onQueryChange: (String) -> Unit,
+    // v0.128.0：歌单名由 MusicScreen 持有（歌单导入已上提），榜单加载经回调回写
+    playlistName: String?,
+    onPlaylistNameChange: (String?) -> Unit,
     tracks: List<MusicApi.Track>,
     searching: Boolean,
     searched: Boolean,
@@ -393,41 +498,13 @@ private fun OnlineTab(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val keyboard = LocalSoftwareKeyboardController.current
     val playState by MusicPlayer.state.collectAsState()
     val badges by MusicPlayer.badges.collectAsState() // v0.117.0：来源/音质徽标
     var favIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    // v0.82.0：歌单导入
-    var showPlaylistDialog by remember { mutableStateOf(false) }
-    var playlistInput by remember { mutableStateOf("") }
-    var playlistName by remember { mutableStateOf<String?>(null) }
-    var importingPlaylist by remember { mutableStateOf(false) }
+    // v0.128.0：榜单加载忙碌标记（原与歌单导入共用 importingPlaylist，导入上提后本页独立持有）
+    var importingChart by remember { mutableStateOf(false) }
     // v0.84.0：加到歌单
     var addToPlaylistTrack by remember { mutableStateOf<MusicApi.Track?>(null) }
-
-    // v0.82.0：歌单导入共用逻辑
-    fun importPlaylist(input: String) {
-        val inp = input.trim()
-        if (inp.isBlank() || importingPlaylist) return
-        importingPlaylist = true
-        scope.launch {
-            runCatching { MusicApi.playlist(inp) }
-                .onSuccess { (name, list) ->
-                    playlistName = name
-                    onTracksLoaded(list)
-                    Toast.makeText(
-                        context, "已导入歌单「$name」（${list.size} 首）",
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                }
-                .onFailure {
-                    Toast.makeText(
-                        context, "导入失败：${it.message}", Toast.LENGTH_SHORT,
-                    ).show()
-                }
-            importingPlaylist = false
-        }
-    }
 
     LaunchedEffect(Unit) {
         favIds = withContext(Dispatchers.IO) {
@@ -436,46 +513,19 @@ private fun OnlineTab(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AppTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f),
-                placeholder = "搜歌名 / 歌手",
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = {
-                    keyboard?.hide()
-                    onSearch(query)
-                }),
-            )
-            Spacer(Modifier.width(8.dp))
-            IconButton(onClick = {
-                keyboard?.hide()
-                onSearch(query)
-            }) {
-                Icon(Icons.Filled.Search, contentDescription = "搜索")
-            }
-            // v0.82.0：歌单导入
-            IconButton(onClick = { showPlaylistDialog = true }) {
-                Icon(Icons.Filled.PlaylistAdd, contentDescription = "歌单导入")
-            }
-        }
         // v0.126.0：搜索平台切换（单选、持久化到 PlayerSettings）。
         // v0.127.0：五家全点亮——wy 走 GD，其余四家走 PlatformMusicApi 各家
         // 原生接口（逐家实测），可选口径看 MusicApi.SEARCHABLE_PLATFORMS；
         // 切换后搜索结果与下方榜单都跟随平台刷新，不再一成不变。
+        // v0.128.0：改一行五等分紧凑分段（Row + weight，不横滑）+ 短标签，切换逻辑零改动。
         val musicPlatform by PlayerSettings.musicPlatform.collectAsState()
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(MusicApi.PLATFORM_CODES) { code ->
+            MusicApi.PLATFORM_CODES.forEach { code ->
                 FilterChip(
                     selected = musicPlatform == code,
                     enabled = code in MusicApi.SEARCHABLE_PLATFORMS,
@@ -484,7 +534,8 @@ private fun OnlineTab(
                         // 切换平台后用当前关键词重新搜索
                         if (query.isNotBlank()) onSearch(query)
                     },
-                    label = { Text(MusicApi.platformLabel(code) ?: code) },
+                    label = { Text(PLATFORM_SHORT_LABELS[code] ?: code, maxLines = 1) },
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -496,8 +547,8 @@ private fun OnlineTab(
         }
         // 点榜单 → 拉该平台榜单曲目并回填列表（与歌单导入同一通路）
         fun loadChart(entry: MusicApi.ChartEntry) {
-            if (importingPlaylist) return
-            importingPlaylist = true
+            if (importingChart) return
+            importingChart = true
             scope.launch {
                 runCatching { MusicApi.chartTracks(musicPlatform, entry.id) }
                     .onSuccess { list ->
@@ -507,7 +558,7 @@ private fun OnlineTab(
                                 Toast.LENGTH_SHORT,
                             ).show()
                         } else {
-                            playlistName = entry.name
+                            onPlaylistNameChange(entry.name)
                             onTracksLoaded(list)
                         }
                     }
@@ -516,26 +567,7 @@ private fun OnlineTab(
                             context, "榜单加载失败：${it.message}", Toast.LENGTH_SHORT,
                         ).show()
                     }
-                importingPlaylist = false
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        // v0.82.0：风格快捷搜索
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(GENRE_CHIPS) { genre ->
-                FilterChip(
-                    selected = false,
-                    onClick = {
-                        onQueryChange(genre)
-                        keyboard?.hide()
-                        onSearch(genre)
-                    },
-                    label = { Text(genre) },
-                )
+                importingChart = false
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -638,7 +670,7 @@ private fun OnlineTab(
                                 row.forEach { entry ->
                                     ChartCard(
                                         name = entry.name,
-                                        importing = importingPlaylist,
+                                        importing = importingChart,
                                         onClick = { loadChart(entry) },
                                         modifier = Modifier.weight(1f),
                                     )
@@ -683,29 +715,6 @@ private fun OnlineTab(
                     }
                 }
             }
-        }
-    }
-
-    // v0.82.0：歌单导入弹窗；v0.84.0：换科技感 TechDialog
-    if (showPlaylistDialog) {
-        TechDialog(
-            onDismissRequest = { showPlaylistDialog = false },
-            title = "歌单导入",
-            subtitle = "粘贴网易云歌单链接或 ID，一键导入整单歌曲",
-            confirmText = if (importingPlaylist) "导入中…" else "导入",
-            onConfirm = {
-                importPlaylist(playlistInput)
-                playlistInput = ""
-                showPlaylistDialog = false
-            },
-            confirmEnabled = !importingPlaylist,
-        ) {
-            TechTextField(
-                value = playlistInput,
-                onValueChange = { playlistInput = it },
-                placeholder = "歌单链接或 ID",
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 

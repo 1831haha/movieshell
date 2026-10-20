@@ -478,7 +478,10 @@ fun ServerPluginScreen(
         TechDialog(
             onDismissRequest = { uninstallFor = null },
             title = "卸载 ${p.name}？",
-            subtitle = "将停止进程并删除 filesDir/server_plugins/${p.id}/ 全部文件，此操作不可恢复。",
+            subtitle = "将停止进程并删除 ${
+                launchInfos[p.id]?.let { File(it.workDirPath).parentFile?.absolutePath }
+                    ?: "该服务工作目录"
+            } 全部文件，此操作不可恢复。",
             confirmText = "卸载",
             onConfirm = {
                 uninstallFor = null

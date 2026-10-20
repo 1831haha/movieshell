@@ -25,6 +25,7 @@ import java.io.File
  * - jar/      预留（v0.8.0 spider jar 缓存）
  * - backup/   备份文件默认导出位置
  * - log/      运行日志导出位置
+ * - service/  服务插件工作目录（v0.128.0，见 serviceDir()，含回退口径）
  *
  * app-state JSON（api_sources.json、sub_sites.json、搜索历史、收藏、设置、主题）
  * 继续留在私有 filesDir，不在此管理。
@@ -102,6 +103,35 @@ object StoragePaths {
     /** v0.22.0：server 插件安装根目录（xiaying/plugins/<id>/） */
     fun pluginsDir(context: Context): File =
         File(baseDir(context), "plugins").also { it.mkdirs() }
+
+    @Volatile
+    private var serviceFallbackLogged = false
+
+    /**
+     * v0.128.0：服务插件工作目录根（xiaying/service/<id>/）。
+     *
+     * 服务脚本改经 /system/bin/sh 解释执行后不再依赖私有目录的 exec 权限，
+     * 工作目录迁到公开目录方便用户直接管理脚本与数据。公共存储不可用
+     * （目录建不了/不可写，如未授予所有文件访问权限）时回退旧私有根
+     * filesDir/server_plugins，App 照常用、不崩。根目录解析只此一处，
+     * ServicePluginManager 的安装/启动/卸载/自检全部走这里，不许散落硬编码。
+     */
+    fun serviceDir(context: Context): File {
+        val pub = File(publicRoot(), "service")
+        val usable = runCatching {
+            pub.mkdirs()
+            pub.isDirectory && pub.canWrite()
+        }.getOrDefault(false)
+        if (usable) return pub
+        if (!serviceFallbackLogged) {
+            serviceFallbackLogged = true
+            LogBus.w(
+                TAG,
+                "公共服务目录不可用（${pub.absolutePath}），回退私有目录 filesDir/server_plugins",
+            )
+        }
+        return File(context.filesDir, "server_plugins").also { it.mkdirs() }
+    }
 
     /** v0.25.0：崩溃日志目录（xiaying/crash/crash_yyyyMMdd_HHmmss_SSS.txt，只留最近 20 个） */
     fun crashDir(context: Context): File =

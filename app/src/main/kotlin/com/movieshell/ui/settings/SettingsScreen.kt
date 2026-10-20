@@ -527,12 +527,7 @@ fun SettingsScreen(
                                 }
                             }
                         }
-                    }
-                    // v0.87.1：炫彩渐变主题（非单色）：渐变面跟随换色，主色取锚点
-                    Spacer(Modifier.height(10.dp))
-                    Text(text = "炫彩渐变", style = SoftType.Body)
-                    Spacer(Modifier.height(8.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // v0.87.1：炫彩渐变主题（非单色）：渐变面跟随换色，主色取锚点
                         items(ThemeStore.GRADIENT_OPTIONS) { preset ->
                             val key = "g:${preset.id}"
                             val isSelected = key == themeKey

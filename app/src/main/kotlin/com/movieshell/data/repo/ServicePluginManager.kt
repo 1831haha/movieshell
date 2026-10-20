@@ -23,9 +23,13 @@ import kotlin.concurrent.thread
  * 服务型插件管理器（v0.120.0 C2：框架管道，不含 PHP 本体）。
  *
  * - 包规范见 xiaying-plugins/SERVER_PLUGIN_SPEC.md（server.json v1）。
- * - 安装：zip → zip-slip 防护解压到 filesDir/server_plugins/<id>/ → server.json 解析 →
+ * - 安装：zip → zip-slip 防护解压到服务根目录（StoragePaths.serviceDir()，
+ *   v0.128.0 起为公开目录 xiaying/service，公共存储不可用时回退
+ *   filesDir/server_plugins）→ server.json 解析 →
  *   command 可执行文件 sha256（优先）/md5 校验 → 注册表登记。
- * - 运行：ProcessBuilder（workingDirectory=workDir，env + PORT/SERVICE_PORT），
+ * - 运行：ProcessBuilder（workingDirectory=workDir，env + PORT/SERVICE_PORT）；
+ *   command 为 .sh 脚本时经 /system/bin/sh 解释执行（Android 16 对 App 私有
+ *   目录 noexec，直接 exec 脚本 exit=126），原生二进制仍直接执行。
  *   stdout/stderr 合并进每插件 200 行环形缓冲 + LogBus(tag=ServicePlugin)。
  * - 端口：port=0 从 29578 起自动分配；保留端口（DS 占用 + 常见端口）拒绝；冲突顺延。
  * - 注册表 filesDir/server_plugins_registry.json 只存期望态；Process 只在内存。
@@ -101,8 +105,81 @@ object ServicePluginManager {
 
     // ---------------- 目录 ----------------
 
-    private fun installRoot(context: Context): File =
-        File(context.filesDir, "server_plugins").also { it.mkdirs() }
+    /** v0.128.0 前的旧服务根（私有目录）；仅迁移源与回退时用，别处不许引用。 */
+    private fun legacyRoot(context: Context): File =
+        File(context.filesDir, "server_plugins")
+
+    /** 已完成迁移的目标根绝对路径；根解析变化（权限授予后切到公开目录）时再跑一次。 */
+    @Volatile
+    private var migratedToRoot: String? = null
+
+    private val migrationLock = Any()
+
+    /**
+     * 服务根目录唯一入口：解析口径在 StoragePaths.serviceDir()（公开目录
+     * xiaying/service，不可用回退私有旧根），本函数在此之上挂旧目录迁移。
+     * 安装/启动/停止/卸载/日志路径/describeLaunch/自检全部走这里，不各算各的。
+     */
+    private fun installRoot(context: Context): File {
+        val root = StoragePaths.serviceDir(context)
+        ensureMigrated(context, root)
+        return root
+    }
+
+    /**
+     * v0.128.0 旧安装迁移（幂等）：新根不是私有旧根、且旧根下还有已装服务时，
+     * 逐个把服务目录搬到新根。顺序：先整目录复制 → 校验目标 server.json 存在
+     * → 才删旧目录；复制失败保留旧目录、下次再试，不丢数据。注册表只存
+     * id/name/version/port/desiredRunning、不存任何路径，工作目录全由
+     * installRoot() 现算，故搬完目录即生效，无需改注册表。正在运行的服务
+     * 跳过（其进程已加载脚本，下次走新根的入口自然带过去）。
+     */
+    private fun ensureMigrated(context: Context, newRoot: File) {
+        if (migratedToRoot == newRoot.absolutePath) return
+        synchronized(migrationLock) {
+            if (migratedToRoot == newRoot.absolutePath) return
+            val oldRoot = legacyRoot(context)
+            if (oldRoot.canonicalPath == newRoot.canonicalPath) {
+                migratedToRoot = newRoot.absolutePath
+                return
+            }
+            val children = runCatching { oldRoot.listFiles() }.getOrNull()
+                ?.filter { it.isDirectory }
+                .orEmpty()
+            if (children.isEmpty()) {
+                migratedToRoot = newRoot.absolutePath
+                return
+            }
+            var allMoved = true
+            for (src in children) {
+                if (synchronized(lock) { running.containsKey(src.name) }) {
+                    allMoved = false
+                    continue
+                }
+                val dst = File(newRoot, src.name)
+                val moved = runCatching {
+                    if (!dst.exists()) {
+                        check(src.copyRecursively(dst)) { "复制返回 false" }
+                    }
+                    // 目标完整（源有 server.json 则目标也必须有）才删源
+                    if (File(src, "server.json").exists()) {
+                        check(File(dst, "server.json").isFile) { "目标缺 server.json" }
+                    }
+                    src.deleteRecursively()
+                    true
+                }.getOrElse {
+                    LogBus.w(TAG, "服务 ${src.name} 迁移失败，保留旧目录：${it.message}")
+                    false
+                }
+                if (!moved) allMoved = false
+            }
+            if (allMoved) {
+                runCatching { oldRoot.delete() }
+                migratedToRoot = newRoot.absolutePath
+                LogBus.i(TAG, "服务工作目录已迁移到 ${newRoot.absolutePath}")
+            }
+        }
+    }
 
     private fun registryFile(context: Context): File =
         File(context.filesDir, "server_plugins_registry.json")
@@ -324,6 +401,19 @@ object ServicePluginManager {
 
     // ---------------- 启动 / 停止 ----------------
 
+    /**
+     * 实际进程命令行（startLocked 与 describeLaunch 共用，保证展示与执行一致）：
+     * exe 恒为解包后位于服务 workDir 内的 command 文件；.sh 脚本经
+     * /system/bin/sh 解释执行（绕开私有目录 noexec），其余（原生二进制等）
+     * 保持直接执行不变。
+     */
+    private fun launchCommand(exe: File, args: List<String>): List<String> =
+        if (exe.name.endsWith(".sh", ignoreCase = true)) {
+            listOf("/system/bin/sh", exe.absolutePath) + args
+        } else {
+            listOf(exe.absolutePath) + args
+        }
+
     fun start(context: Context, id: String) {
         synchronized(lock) { startLocked(context, id) }
     }
@@ -341,7 +431,7 @@ object ServicePluginManager {
 
         val port = entry.port
         val pb = ProcessBuilder(
-            listOf(exe.absolutePath) + spec.args.map { it.replace("\${PORT}", port.toString()) },
+            launchCommand(exe, spec.args.map { it.replace("\${PORT}", port.toString()) }),
         )
         pb.directory(workDir)
         pb.redirectErrorStream(true)
@@ -441,6 +531,7 @@ object ServicePluginManager {
     // ---------------- 查询 ----------------
 
     fun installedPlugins(context: Context): List<PluginInfo> = synchronized(lock) {
+        installRoot(context) // 触发 v0.128.0 旧工作目录迁移（幂等，见 ensureMigrated）
         val reg = loadRegistry(context)
         reg.values.map { e ->
             PluginInfo(
@@ -479,7 +570,7 @@ object ServicePluginManager {
             LaunchInfo(
                 desc = raw?.optString("desc")?.ifBlank { null }
                     ?: raw?.optString("description").orEmpty(),
-                commandLine = (listOf(exe.absolutePath) + resolvedArgs).joinToString(" "),
+                commandLine = launchCommand(exe, resolvedArgs).joinToString(" "),
                 workDirPath = workDir.absolutePath,
                 command = spec.command,
                 args = resolvedArgs,
@@ -498,7 +589,9 @@ object ServicePluginManager {
 
     /**
      * C4 自检（短、安全、可重复跑）：
-     * 1. 私有目录 exec：filesDir 写 echo 小脚本 → chmod +x → 真实执行；
+     * 1. 服务目录 sh 执行：服务根目录（StoragePaths.serviceDir()）写 echo
+     *    小脚本 → /system/bin/sh 解释执行（与服务脚本的实际启动方式一致；
+     *    v0.128.0 前查的是私有目录直接 exec，Android 16 noexec 恒失败，已改）；
      * 2. 当前 ABI：Build.SUPPORTED_ABIS；
      * 3. 首个可用端口：BASE_PORT 起探测；
      * 4. 私有目录可写：建临时文件写删。
@@ -516,36 +609,35 @@ object ServicePluginManager {
         }.getOrElse { false to it.message.orEmpty() }
         items.add(CheckItem("私有目录可写", writeOk, writeDetail))
 
-        // 1. 私有目录 exec（唯一走 shell 的一项）
+        // 1. 服务目录 sh 执行：在服务根目录写测试脚本，经 /system/bin/sh
+        // 解释执行验证（与 .sh 服务的实际启动方式同一条路）
         var execOk = false
         var execDetail = ""
-        if (writeOk) {
-            val dir = context.filesDir.absolutePath.replace("'", "")
-            val script = "D='$dir'; " +
-                "printf '#!/system/bin/sh\\necho SVC_EXEC_OK\\n' > \"\$D/svc_selfcheck.sh\" && " +
-                "chmod 700 \"\$D/svc_selfcheck.sh\" && " +
-                "\"\$D/svc_selfcheck.sh\""
-            runCatching {
-                val proc = ProcessBuilder("/system/bin/sh", "-c", script)
+        runCatching {
+            val svcRoot = installRoot(context)
+            val scriptFile = File(svcRoot, "svc_selfcheck.sh")
+            try {
+                scriptFile.writeText("#!/system/bin/sh\necho SVC_EXEC_OK\n")
+                val proc = ProcessBuilder("/system/bin/sh", scriptFile.absolutePath)
                     .redirectErrorStream(true)
                     .start()
                 val out = proc.inputStream.readBytes().toString(Charsets.UTF_8)
                 val done = proc.waitFor(10, TimeUnit.SECONDS)
                 val code = if (done) proc.exitValue() else -1
                 if (!done) proc.destroyForcibly()
-                File(context.filesDir, "svc_selfcheck.sh").delete()
                 if (done && code == 0 && out.contains("SVC_EXEC_OK")) {
-                    execOk = true; execDetail = "脚本执行成功并回显 SVC_EXEC_OK"
+                    execOk = true
+                    execDetail = "sh 解释执行成功并回显 SVC_EXEC_OK（${svcRoot.absolutePath}）"
                 } else {
                     execDetail = "exit=$code，输出：${out.take(200)}"
                 }
-            }.onFailure {
-                execDetail = it.message.orEmpty()
+            } finally {
+                scriptFile.delete()
             }
-        } else {
-            execDetail = "私有目录不可写，跳过"
+        }.onFailure {
+            execDetail = it.message.orEmpty()
         }
-        items.add(CheckItem("私有目录可执行脚本", execOk, execDetail))
+        items.add(CheckItem("服务目录可经 sh 执行脚本", execOk, execDetail))
 
         // 2. ABI
         val abis = Build.SUPPORTED_ABIS.joinToString(", ")
