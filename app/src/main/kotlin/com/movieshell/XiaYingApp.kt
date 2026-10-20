@@ -5,6 +5,7 @@ import com.movieshell.data.novel.NovelMigration
 import com.movieshell.data.novel.NovelUpdateWorker
 import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.ServicePluginManager
 import com.movieshell.data.source.JsRuntime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,5 +27,9 @@ class XiaYingApp : Application() {
         NovelUpdateWorker.schedule(this)
         // v0.95.0：小说旧数据一次性备份（.bak），后台跑不阻塞启动
         CoroutineScope(Dispatchers.IO).launch { NovelMigration.runOnce(this@XiaYingApp) }
+        // v0.132.0：拉起设了自启动的插件服务（失败只记日志，不阻塞启动）
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching { ServicePluginManager.startAutoStartServices(this@XiaYingApp) }
+        }
     }
 }

@@ -1,14 +1,20 @@
 package com.movieshell.ui.market
 
+import android.content.ClipData
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,21 +29,25 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -45,17 +55,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.ServicePluginManager
+import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -68,7 +84,10 @@ import java.io.File
  * 文字颜色走 MaterialTheme（弹窗体内容区由 TechDialog 固定浅色）。
  * v0.126.0：顶部加「示例插件」卡——内置 demo-service-plugin.zip 一键安装
  * （走 install 全套校验），装好后用列表行既有「启动」一键启动。
+ * v0.132.0：补成真管理器——列表头统计 + 新建/编辑全屏编辑器（运行时/探活/
+ * 自启动/常驻/环境变量/占位符插入）+ 配置导入导出 + 日志复制/清空。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ServerPluginScreen(
     onBack: () -> Unit = {},
@@ -94,8 +113,95 @@ fun ServerPluginScreen(
     var webReady by remember { mutableStateOf<Set<String>>(emptySet()) }
     // v0.126.0：内置示例插件一键安装中标志
     var installingDemo by remember { mutableStateOf(false) }
+    // v0.132.0：全屏编辑器状态（非空时代替列表渲染）+ 编辑中服务的运行 PID + 保存中标志
+    var editing by remember { mutableStateOf<ServicePluginManager.ServiceDef?>(null) }
+    var editingPid by remember { mutableStateOf<Long?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    // v0.132.0：导入弹窗 + 粘贴文本
+    var showImport by remember { mutableStateOf(false) }
+    var importText by remember { mutableStateOf("") }
 
     fun reload() { tick++ }
+
+    fun openNew() {
+        editingPid = null
+        editing = ServicePluginManager.blankDef()
+    }
+
+    // v0.132.0：编辑回显——serviceDef 在 IO 线程读（zip 服务也返回占位符形式）
+    fun openEdit(p: ServicePluginManager.PluginInfo) {
+        scope.launch {
+            val loaded = withContext(Dispatchers.IO) {
+                runCatching {
+                    ServicePluginManager.serviceDef(context, p.id) to
+                        ServicePluginManager.pidOf(p.id)
+                }.getOrNull()
+            }
+            val def = loaded?.first
+            if (def == null) {
+                Toast.makeText(context, "读取服务配置失败", Toast.LENGTH_SHORT).show()
+            } else {
+                editingPid = launchInfos[p.id]?.pid ?: loaded?.second
+                editing = def
+            }
+        }
+    }
+
+    // v0.132.0：保存服务定义（IO 线程）；PHP/Node 本版无运行时本体，文案单独提示
+    fun saveEditing(def: ServicePluginManager.ServiceDef) {
+        if (saving) return
+        saving = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ServicePluginManager.saveService(context, def) }
+            }
+            saving = false
+            result.onSuccess {
+                editing = null
+                editingPid = null
+                reload()
+                val msg = if (
+                    def.runtime == ServicePluginManager.RuntimeKind.PHP ||
+                    def.runtime == ServicePluginManager.RuntimeKind.NODE
+                ) {
+                    "运行时未安装，仅保存配置"
+                } else {
+                    "已保存"
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(
+                    context, it.message ?: "保存失败", Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
+    // v0.132.0：导出全部服务配置 JSON 到剪贴板（写法照 LogBubble 的复制逻辑）
+    fun doExport() {
+        scope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runCatching { ServicePluginManager.exportServicesJson(context) }
+                    .getOrNull()
+            }
+            if (text == null) {
+                Toast.makeText(context, "导出失败", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            runCatching {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                    as android.content.ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("movieshell_services", text))
+                Toast.makeText(
+                    context, "服务配置已复制到剪贴板", Toast.LENGTH_SHORT,
+                ).show()
+            }.onFailure {
+                Toast.makeText(
+                    context, "复制失败：${it.message}", Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
 
     // v0.126.0：内置示例插件（assets/demo-service-plugin.zip）一键安装——
     // 拷到 cacheDir 后走 ServicePluginManager.install 全部既有校验，不开后门
@@ -191,6 +297,20 @@ fun ServerPluginScreen(
         }
     }
 
+    BackHandler(enabled = editing != null) { editing = null }
+
+    // v0.132.0：编辑器全屏代替列表（带返回，系统返回键同效）
+    editing?.let { def ->
+        ServiceEditor(
+            initial = def,
+            pid = editingPid,
+            saving = saving,
+            onBack = { editing = null },
+            onSave = { saveEditing(it) },
+        )
+        return
+    }
+
     Scaffold(
         topBar = {
             if (!embedded) {
@@ -198,6 +318,9 @@ fun ServerPluginScreen(
                     title = "服务插件",
                     onBack = onBack,
                     actions = {
+                        TextButton(onClick = { openNew() }) { Text("新建服务") }
+                        TextButton(onClick = { doExport() }) { Text("导出") }
+                        TextButton(onClick = { showImport = true }) { Text("导入") }
                         IconButton(onClick = { runSelfCheck() }) {
                             if (checking) {
                                 CircularProgressIndicator(modifier = Modifier.size(20.dp))
@@ -218,19 +341,37 @@ fun ServerPluginScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (embedded) {
-                // v0.127.0：嵌入模式的内容区首行——环境自检 / 从文件安装（替代原顶栏）
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TextButton(onClick = { runSelfCheck() }, enabled = !checking) {
-                            Text(if (checking) "自检中…" else "环境自检")
-                        }
-                        TextButton(onClick = { zipPicker.launch("application/zip") }) {
-                            Text("从文件安装")
+            // v0.132.0：列表头——运行统计一行；embedded 时同区补齐管理入口
+            item {
+                Column {
+                    val runningCount = plugins.count {
+                        it.status == ServicePluginManager.Status.RUNNING
+                    }
+                    Text(
+                        "运行中 $runningCount · 共 ${plugins.size} 个服务",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (embedded) {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            TextButton(onClick = { openNew() }) { Text("新建服务") }
+                            TextButton(onClick = { doExport() }) { Text("导出") }
+                            TextButton(onClick = { showImport = true }) { Text("导入") }
+                            TextButton(
+                                onClick = { runSelfCheck() },
+                                enabled = !checking,
+                            ) {
+                                Text(if (checking) "自检中…" else "环境自检")
+                            }
+                            TextButton(
+                                onClick = { zipPicker.launch("application/zip") },
+                            ) {
+                                Text("从文件安装")
+                            }
                         }
                     }
                 }
@@ -336,6 +477,24 @@ fun ServerPluginScreen(
                                 style = SoftType.Caption,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            // v0.132.0：自启动小标记
+                            if (p.autoStart) {
+                                Spacer(Modifier.size(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(
+                                            MaterialTheme.colorScheme.surfaceVariant,
+                                        )
+                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                ) {
+                                    Text(
+                                        "自启动",
+                                        style = SoftType.Caption,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
                         }
                         // 第二行：一句话作用（server.json 的 desc，缺失用兜底文案）
                         Text(
@@ -373,6 +532,7 @@ fun ServerPluginScreen(
                             )
                         }
                         // v0.127.0：启动配置只读展开区（server.json 关键项，路径为安装后真实路径）
+                        // v0.132.0：补探活方式/自启动/常驻前台/运行 PID 四行
                         if (expandedId == p.id && info != null) {
                             Spacer(Modifier.height(8.dp))
                             ConfigRow("启动命令", info.command)
@@ -383,14 +543,30 @@ fun ServerPluginScreen(
                             ConfigRow("端口策略", info.portSpec)
                             ConfigRow("健康检查", info.healthPath)
                             ConfigRow("工作目录", info.workDirPath)
+                            ConfigRow(
+                                "探活方式",
+                                when (info.healthMode) {
+                                    "PROCESS" -> "仅进程"
+                                    "TCP" -> "TCP"
+                                    "HTTP" -> "HTTP"
+                                    else -> info.healthMode
+                                },
+                            )
+                            ConfigRow("自启动", if (info.autoStart) "开" else "关")
+                            ConfigRow("常驻前台", if (info.resident) "开" else "关")
+                            if (info.pid != null) {
+                                ConfigRow("进程 PID", info.pid.toString())
+                            }
                             if (info.envKeys.isNotEmpty()) {
                                 ConfigRow("环境变量", info.envKeys.joinToString("、"))
                             }
                         }
                     }
-                    Row(
+                    // v0.132.0：按钮行改 FlowRow 右对齐（加「编辑」后窄屏自动换行不溢出）
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                         horizontalArrangement = Arrangement.End,
+                        verticalArrangement = Arrangement.spacedBy(0.dp),
                     ) {
                         TextButton(
                             onClick = { toggle(p) },
@@ -439,6 +615,7 @@ fun ServerPluginScreen(
                                 }
                             }) { Text("打开") }
                         }
+                        TextButton(onClick = { openEdit(p) }) { Text("编辑") }
                         TextButton(onClick = {
                             expandedId = if (expandedId == p.id) null else p.id
                         }) { Text(if (expandedId == p.id) "收起" else "配置") }
@@ -449,7 +626,7 @@ fun ServerPluginScreen(
         }
     }
 
-    // 日志弹窗：环形缓冲最近 50 行
+    // 日志弹窗：环形缓冲最近 50 行；v0.132.0 顶部加复制/清空
     logFor?.let { p ->
         TechDialog(
             onDismissRequest = { logFor = null },
@@ -457,6 +634,34 @@ fun ServerPluginScreen(
             subtitle = "最近 ${logLines.size} 行（进程未运行时为空）",
             dismissText = "关闭",
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = {
+                    runCatching {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                            as android.content.ClipboardManager
+                        cm.setPrimaryClip(
+                            ClipData.newPlainText(
+                                "movieshell_log", logLines.joinToString("\n"),
+                            ),
+                        )
+                        Toast.makeText(
+                            context, "日志已复制到剪贴板", Toast.LENGTH_SHORT,
+                        ).show()
+                    }.onFailure {
+                        Toast.makeText(
+                            context, "复制失败：${it.message}", Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }) { Text("复制") }
+                TextButton(onClick = {
+                    ServicePluginManager.clearLogs(p.id)
+                    logLines = emptyList()
+                    Toast.makeText(context, "日志已清空", Toast.LENGTH_SHORT).show()
+                }) { Text("清空") }
+            }
             Column(
                 modifier = Modifier.fillMaxWidth().height(320.dp)
                     .verticalScroll(rememberScrollState()),
@@ -470,6 +675,49 @@ fun ServerPluginScreen(
                     }
                 }
             }
+        }
+    }
+
+    // v0.132.0：导入弹窗——粘贴导出的 JSON，重名自动改名不覆盖（后端规则，文案写明）
+    if (showImport) {
+        TechDialog(
+            onDismissRequest = { showImport = false },
+            title = "导入服务配置",
+            subtitle = "重名服务自动改名加后缀（-2、-3…），不会覆盖已有服务",
+            confirmText = "导入",
+            onConfirm = {
+                if (importText.isBlank()) {
+                    Toast.makeText(context, "请先粘贴 JSON", Toast.LENGTH_SHORT).show()
+                    return@TechDialog
+                }
+                val text = importText
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching {
+                            ServicePluginManager.importServicesJson(context, text)
+                        }
+                    }
+                    result.onSuccess { summary ->
+                        showImport = false
+                        importText = ""
+                        Toast.makeText(context, summary, Toast.LENGTH_LONG).show()
+                        reload()
+                    }.onFailure {
+                        Toast.makeText(
+                            context, it.message ?: "导入失败", Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            },
+        ) {
+            TechTextField(
+                value = importText,
+                onValueChange = { importText = it },
+                placeholder = "粘贴导出的服务配置 JSON",
+                singleLine = false,
+                minLines = 6,
+                modifier = Modifier.fillMaxWidth().height(180.dp),
+            )
         }
     }
 
@@ -549,5 +797,358 @@ private fun ConfigRow(label: String, value: String) {
             fontFamily = FontFamily.Monospace,
             modifier = Modifier.weight(1f),
         )
+    }
+}
+
+/** v0.132.0：编辑器字段小标签（与卡片同口径的 Caption + 次级色）。 */
+@Composable
+private fun FieldLabel(text: String) {
+    Text(
+        text,
+        style = SoftType.Caption,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/**
+ * v0.132.0：服务全屏编辑器——基本配置 + 高级折叠区（可执行文件/工作目录/
+ * 环境变量/探活方式）+ 占位符 chip 插入最近聚焦字段。字段组件照全屏页表单
+ * 现成口径用 AppTextField；保存由宿主在 IO 线程调 saveService 并回列表。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ServiceEditor(
+    initial: ServicePluginManager.ServiceDef,
+    pid: Long?,
+    saving: Boolean,
+    onBack: () -> Unit,
+    onSave: (ServicePluginManager.ServiceDef) -> Unit,
+) {
+    val context = LocalContext.current
+    var name by remember(initial) { mutableStateOf(initial.name) }
+    var desc by remember(initial) { mutableStateOf(initial.desc) }
+    var portText by remember(initial) {
+        mutableStateOf(if (initial.port > 0) initial.port.toString() else "")
+    }
+    var runtime by remember(initial) { mutableStateOf(initial.runtime) }
+    var argsText by remember(initial) { mutableStateOf(initial.args.joinToString(" ")) }
+    var autoStart by remember(initial) { mutableStateOf(initial.autoStart) }
+    var resident by remember(initial) { mutableStateOf(initial.resident) }
+    var command by remember(initial) { mutableStateOf(initial.command) }
+    var workDir by remember(initial) { mutableStateOf(initial.workDir) }
+    val envList = remember(initial) {
+        mutableStateListOf<Pair<String, String>>().apply { addAll(initial.env) }
+    }
+    var healthMode by remember(initial) { mutableStateOf(initial.healthMode) }
+    var healthPath by remember(initial) { mutableStateOf(initial.healthPath) }
+    var advanced by remember(initial) { mutableStateOf(false) }
+    // 占位符插入目标：command / workDir / args / env:<下标>，默认 command
+    var insertTarget by remember(initial) { mutableStateOf("command") }
+
+    fun insertPlaceholder(ph: String) {
+        when {
+            insertTarget == "workDir" -> workDir += ph
+            insertTarget == "args" -> argsText += ph
+            insertTarget.startsWith("env:") -> {
+                val idx = insertTarget.removePrefix("env:").toIntOrNull()
+                if (idx != null && idx in envList.indices) {
+                    val pair = envList[idx]
+                    envList[idx] = pair.first to (pair.second + ph)
+                }
+            }
+            else -> command += ph
+        }
+    }
+
+    fun doSave() {
+        if (name.isBlank()) {
+            Toast.makeText(context, "名称不能为空", Toast.LENGTH_SHORT).show()
+            return
+        }
+        onSave(
+            initial.copy(
+                name = name.trim(),
+                desc = desc.trim(),
+                port = portText.toIntOrNull() ?: 0,
+                runtime = runtime,
+                command = command.trim(),
+                args = argsText.trim()
+                    .split(Regex("\\s+"))
+                    .filter { it.isNotBlank() },
+                workDir = workDir.trim(),
+                env = envList
+                    .filter { it.first.isNotBlank() }
+                    .map { it.first.trim() to it.second },
+                healthMode = healthMode,
+                healthPath = healthPath.trim(),
+                autoStart = autoStart,
+                resident = resident,
+            ),
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            TabTopBar(
+                title = if (initial.id.isBlank()) "新建服务" else "编辑服务",
+                onBack = onBack,
+            )
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                "基本配置",
+                style = SoftType.CardTitle,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            FieldLabel("名称（必填）")
+            AppTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = "服务名称",
+                modifier = Modifier.fillMaxWidth(),
+            )
+            FieldLabel("描述")
+            AppTextField(
+                value = desc,
+                onValueChange = { desc = it },
+                placeholder = "一句话说明这个服务是做什么的",
+                modifier = Modifier.fillMaxWidth(),
+            )
+            FieldLabel("端口")
+            AppTextField(
+                value = portText,
+                onValueChange = { v -> portText = v.filter { it.isDigit() } },
+                placeholder = "如 29580",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "0 或留空 = 自动分配（从 29578 起找空闲端口）",
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FieldLabel("运行时")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                FilterChip(
+                    selected = runtime == ServicePluginManager.RuntimeKind.SCRIPT,
+                    onClick = { runtime = ServicePluginManager.RuntimeKind.SCRIPT },
+                    label = { Text("脚本") },
+                )
+                FilterChip(
+                    selected = runtime == ServicePluginManager.RuntimeKind.PHP,
+                    onClick = {
+                        runtime = ServicePluginManager.RuntimeKind.PHP
+                        if (command.isBlank()) command = "__plugin:php__/bin/php"
+                    },
+                    label = { Text("PHP") },
+                )
+                FilterChip(
+                    selected = runtime == ServicePluginManager.RuntimeKind.NODE,
+                    onClick = {
+                        runtime = ServicePluginManager.RuntimeKind.NODE
+                        if (command.isBlank()) command = "__plugin:nodejs__/bin/node"
+                    },
+                    label = { Text("Node") },
+                )
+                FilterChip(
+                    selected = runtime == ServicePluginManager.RuntimeKind.CUSTOM,
+                    onClick = { runtime = ServicePluginManager.RuntimeKind.CUSTOM },
+                    label = { Text("自定义") },
+                )
+            }
+            FieldLabel("启动参数")
+            AppTextField(
+                value = argsText,
+                onValueChange = { argsText = it },
+                placeholder = "多个参数以空格分隔",
+                modifier = Modifier.fillMaxWidth()
+                    .onFocusChanged { if (it.isFocused) insertTarget = "args" },
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "自启动",
+                    style = SoftType.Body,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(checked = autoStart, onCheckedChange = { autoStart = it })
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "常驻前台",
+                    style = SoftType.Body,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "下一版生效",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(8.dp))
+                Switch(checked = resident, onCheckedChange = { resident = it })
+            }
+            FieldLabel("占位符（点按插入到最近聚焦的字段末尾）")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                listOf(
+                    "__filesDir__",
+                    "__sdcard__",
+                    "__pkg__",
+                    "__plugin:hello-service__",
+                ).forEach { ph ->
+                    AppChip(
+                        text = ph,
+                        selected = false,
+                        small = true,
+                        onClick = { insertPlaceholder(ph) },
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .clickable { advanced = !advanced }
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "高级配置",
+                    style = SoftType.CardTitle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    if (advanced) "收起" else "展开",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            if (advanced) {
+                FieldLabel("可执行文件")
+                AppTextField(
+                    value = command,
+                    onValueChange = { command = it },
+                    placeholder = "如 server.sh 或 __plugin:php__/bin/php",
+                    modifier = Modifier.fillMaxWidth()
+                        .onFocusChanged { if (it.isFocused) insertTarget = "command" },
+                )
+                FieldLabel("工作目录")
+                AppTextField(
+                    value = workDir,
+                    onValueChange = { workDir = it },
+                    placeholder = "如 __plugin:hello-service__",
+                    modifier = Modifier.fillMaxWidth()
+                        .onFocusChanged { if (it.isFocused) insertTarget = "workDir" },
+                )
+                FieldLabel("环境变量")
+                envList.forEachIndexed { idx, pair ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AppTextField(
+                            value = pair.first,
+                            onValueChange = { v ->
+                                envList[idx] = v to envList[idx].second
+                            },
+                            placeholder = "KEY",
+                            modifier = Modifier.weight(1f),
+                        )
+                        AppTextField(
+                            value = pair.second,
+                            onValueChange = { v ->
+                                envList[idx] = envList[idx].first to v
+                            },
+                            placeholder = "VALUE",
+                            modifier = Modifier.weight(1f)
+                                .onFocusChanged {
+                                    if (it.isFocused) insertTarget = "env:$idx"
+                                },
+                        )
+                        TextButton(onClick = { envList.removeAt(idx) }) {
+                            Text("删除")
+                        }
+                    }
+                }
+                TextButton(onClick = { envList.add("" to "") }) {
+                    Text("添加变量")
+                }
+                FieldLabel("探活方式")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    FilterChip(
+                        selected = healthMode == ServicePluginManager.HealthMode.PROCESS,
+                        onClick = {
+                            healthMode = ServicePluginManager.HealthMode.PROCESS
+                        },
+                        label = { Text("仅进程") },
+                    )
+                    FilterChip(
+                        selected = healthMode == ServicePluginManager.HealthMode.TCP,
+                        onClick = { healthMode = ServicePluginManager.HealthMode.TCP },
+                        label = { Text("TCP") },
+                    )
+                    FilterChip(
+                        selected = healthMode == ServicePluginManager.HealthMode.HTTP,
+                        onClick = {
+                            healthMode = ServicePluginManager.HealthMode.HTTP
+                        },
+                        label = { Text("HTTP") },
+                    )
+                }
+                FieldLabel("HTTP 路径")
+                if (healthMode == ServicePluginManager.HealthMode.HTTP) {
+                    AppTextField(
+                        value = healthPath,
+                        onValueChange = { healthPath = it },
+                        placeholder = "如 /healthz",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    Text(
+                        healthPath.ifBlank { "（未设置）" } + "（仅 HTTP 探活时可编辑）",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (pid != null) {
+                    ConfigRow("进程 PID", pid.toString())
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = onBack) { Text("取消") }
+                Spacer(Modifier.width(8.dp))
+                AppButton(
+                    text = if (saving) "保存中…" else "保存",
+                    onClick = { doSave() },
+                    enabled = !saving,
+                )
+            }
+        }
     }
 }
