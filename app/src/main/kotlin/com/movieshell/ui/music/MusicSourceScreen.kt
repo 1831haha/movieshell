@@ -668,7 +668,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
  * v0.103.0：音质 id → 档次中文标签；未知 id 直接显示原文。
  * 有自带的用自带的——优先用脚本 inited 自报的 qualitys id 进这个映射。
  */
-private fun qualityLabel(id: String): String = when (id) {
+internal fun qualityLabel(id: String): String = when (id) {
     "128k" -> "流畅"
     "192k" -> "标准"
     "320k" -> "高清"

@@ -1,21 +1,21 @@
 package com.movieshell.ui.music
 
 import android.widget.Toast
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,30 +25,36 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Subject
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
-import com.movieshell.ui.components.TechDialog
-import com.movieshell.ui.components.goldTitleColor
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -59,31 +65,38 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import coil.compose.AsyncImage
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.MusicApi
-import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.MusicSource
 import com.movieshell.data.repo.MusicSourceStore
 import com.movieshell.data.repo.MusicStore
+import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.player.MusicPlayer
 import com.movieshell.player.SleepTimer
 import com.movieshell.ui.components.TabTopBar
+import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.goldTitleColor
+import com.movieshell.ui.theme.LocalBrandGradient
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import kotlinx.coroutines.launch
@@ -91,6 +104,11 @@ import kotlinx.coroutines.launch
 /**
  * v0.83.0：全屏播放页——大封面 / 歌词滚动跟随 / 进度条拖动 / 播放模式。
  * v0.91.0：中间内容区单击在封面模式与歌词模式间切换（网易云式）。
+ * v0.129.0：按主流播放器版式整体重做——封面模糊氛围背景（无封面走品牌
+ * 渐变）、近屏宽大封面、歌名炫彩渐变字、歌手行带平台徽标 + 解析来源
+ * chip、真实功能操作行（收藏/换源/音质展示/歌词）、细进度条、渐变大圆
+ * 播放钮、播放列表弹窗；去掉 v0.125.0 的毛玻璃控制面板盒子。页面恒为
+ * 深色氛围底，文字一律固定浅色，不随主题明暗翻转。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,6 +127,13 @@ fun MusicPlayerScreen(
     val lyricColorInt by PlayerSettings.lyricColor.collectAsState()
     val track = playState.track
 
+    // v0.129.0：封面地址提到组合顶层——氛围背景与大封面共用一份结果
+    // （自带封面走 picImageUrl 解析，无自带封面读 MusicPlayer 的匹配回填表）
+    val artUrl = rememberArtworkUrl(track?.picId.orEmpty(), track?.source ?: "wy")
+    val shownArt = artUrl.ifBlank {
+        track?.let { matchedArtMap[it.id] }.orEmpty()
+    }
+
     var lyrics by remember { mutableStateOf<List<MusicApi.LyricLine>>(emptyList()) }
     var lyricLoading by remember { mutableStateOf(false) }
     var isFav by remember { mutableStateOf(false) }
@@ -122,17 +147,10 @@ fun MusicPlayerScreen(
     var showLyricColors by remember { mutableStateOf(false) }
     // v0.108.0 B1：音源切换弹窗
     var showSourceDialog by remember { mutableStateOf(false) }
+    // v0.129.0：播放列表弹窗
+    var showQueueDialog by remember { mutableStateOf(false) }
     val sleepRemaining by SleepTimer.remainingMs.collectAsState()
     val sleepArmed by SleepTimer.afterEpisodeArmed.collectAsState()
-    // v0.89.0：封面旋转（只转封面；暂停时 LaunchedEffect key 变化自动取消即停）
-    val angle = remember { Animatable(0f) }
-    LaunchedEffect(playState.playing) {
-        if (playState.playing) {
-            while (true) {
-                angle.animateTo(angle.value + 360f, tween(9000, easing = LinearEasing))
-            }
-        }
-    }
 
     LaunchedEffect(track?.id) {
         val t = track ?: return@LaunchedEffect
@@ -162,254 +180,232 @@ fun MusicPlayerScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TabTopBar(
-                title = "正在播放",
-                onBack = onBack,
-                actions = {
-                    // v0.85.0：定时中显示剩余时间小胶囊
-                    if (sleepRemaining > 0 || sleepArmed) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                        ) {
-                            Text(
-                                text = if (sleepRemaining > 0) fmtMs(sleepRemaining) else "播完停",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
-                    // v0.108.0 B1：手动切换音源（已启用音乐源列表，点选重解析当前歌曲）
-                    IconButton(onClick = { showSourceDialog = true }) {
-                        Icon(Icons.Filled.SwapHoriz, contentDescription = "切换音源")
-                    }
-                    IconButton(onClick = { showSleepDialog = true }) {
-                        Icon(Icons.Filled.Timer, contentDescription = "定时关闭")
-                    }
-                },
-            )
-        },
-    ) { inner ->
-        if (track == null) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(inner),
-                contentAlignment = Alignment.Center,
-            ) { Text("还没有播放歌曲", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            return@Scaffold
-        }
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(inner)
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Spacer(Modifier.height(16.dp))
-            // v0.91.0：中间内容区单击切换封面/歌词（网易云式）；进度条与控制区不在此 Box 内，不冲突
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() },
-                    ) { showLyrics = !showLyrics },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (!showLyrics) {
-                    // 封面模式：大封面（保留旋转动画）+ 歌名/歌手
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        // 封面（v0.89.0：旋转只作用在这两处；封面地址走 picImageUrl 解析）
-                        val artUrl = rememberArtworkUrl(track.picId, track.source)
-                        // v0.123.0 起：没自带封面时按歌名+歌手匹配回填；
-                        // v0.125.0 补充A：匹配已挪到 MusicPlayer（切歌时在其 scope
-                        // 里跑），这里只读结果表，页面组合销毁不再取消匹配
-                        val shownArt = artUrl.ifBlank {
-                            matchedArtMap[track.id].orEmpty()
-                        }
-                        if (shownArt.isNotBlank()) {
-                            AsyncImage(
-                                model = shownArt,
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(240.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .graphicsLayer { rotationZ = angle.value },
-                                contentScale = ContentScale.Crop,
-                            )
-                        } else {
+    Box(modifier = Modifier.fillMaxSize()) {
+        PlayerAtmosphere(artUrl = shownArt)
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TabTopBar(
+                    title = "正在播放",
+                    onBack = onBack,
+                    actions = {
+                        // v0.85.0：定时中显示剩余时间小胶囊
+                        if (sleepRemaining > 0 || sleepArmed) {
                             Box(
                                 modifier = Modifier
-                                    .size(240.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .graphicsLayer { rotationZ = angle.value },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    Icons.Filled.MusicNote,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(96.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            text = track.name,
-                            style = MaterialTheme.typography.titleLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = track.artist,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        // v0.117.0：当前曲目的真实解析来源与音质（解析成功后才有值）
-                        // v0.121.0：改徽标 chips——与列表行同口径，音质按档次着色，更醒目
-                        if (playState.resolvedSource.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                ResolvedBadge(text = "音源 · ${playState.resolvedSource}")
-                                if (playState.resolvedQuality.isNotBlank()) {
-                                    ResolvedBadge(
-                                        text = playState.resolvedQuality,
-                                        tint = musicQualityTint(playState.resolvedQuality),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // 歌词模式：歌词占满中间区域（滚动跟随/当前行高亮保留）
-                    // v0.125.0：右上角调色板入口换歌词颜色——高亮行=选定色、
-                    // 普通行=选定色低透明度；选 0（默认）回落主题色口径。
-                    val lyricBase = if (lyricColorInt != 0) Color(lyricColorInt) else null
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        when {
-                            lyricLoading -> Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center,
-                            ) { CircularProgressIndicator(modifier = Modifier.size(28.dp)) }
-                            lyrics.isEmpty() -> Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center,
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
                             ) {
                                 Text(
-                                    "暂无歌词",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    text = if (sleepRemaining > 0) fmtMs(sleepRemaining) else "播完停",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
                                 )
                             }
-                            else -> LazyColumn(
-                                state = listState,
-                                modifier = Modifier.fillMaxSize(),
-                                // v0.89.0：行距 10.dp→14.dp，当前行加粗，呼吸感
-                                verticalArrangement = Arrangement.spacedBy(14.dp),
-                            ) {
-                                itemsIndexed(lyrics) { i, line ->
-                                    Text(
-                                        text = line.text,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        textAlign = TextAlign.Center,
-                                        fontWeight = if (i == curIdx) FontWeight.Bold else null,
-                                        style = if (i == curIdx) {
-                                            MaterialTheme.typography.bodyLarge
-                                        } else {
-                                            MaterialTheme.typography.bodyMedium
-                                        },
-                                        color = if (i == curIdx) {
-                                            lyricBase ?: MaterialTheme.colorScheme.primary
-                                        } else {
-                                            lyricBase?.copy(alpha = 0.45f)
-                                                ?: MaterialTheme.colorScheme.onSurfaceVariant
-                                                    .copy(alpha = 0.7f)
-                                        },
+                        }
+                        // v0.108.0 B1：手动切换音源（已启用音乐源列表，点选重解析当前歌曲）
+                        IconButton(onClick = { showSourceDialog = true }) {
+                            Icon(Icons.Filled.SwapHoriz, contentDescription = "切换音源")
+                        }
+                        IconButton(onClick = { showSleepDialog = true }) {
+                            Icon(Icons.Filled.Timer, contentDescription = "定时关闭")
+                        }
+                    },
+                )
+            },
+        ) { inner ->
+            if (track == null) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(inner),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "还没有播放歌曲",
+                        color = Color.White.copy(alpha = 0.7f),
+                    )
+                }
+                return@Scaffold
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(inner)
+                    .padding(horizontal = 24.dp),
+            ) {
+                Spacer(Modifier.height(8.dp))
+                // v0.91.0：中间内容区单击切换封面/歌词（网易云式）；标题行以下
+                // 的固定区不在此 Box 内，不冲突
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                        ) { showLyrics = !showLyrics },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (!showLyrics) {
+                        // 封面模式：近屏宽大方封面（边长取内容区宽高较小值）
+                        BoxWithConstraints(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            val side = minOf(maxWidth, maxHeight)
+                            if (shownArt.isNotBlank()) {
+                                AsyncImage(
+                                    model = shownArt,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(side)
+                                        .clip(RoundedCornerShape(20.dp)),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(side)
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(Color.White.copy(alpha = 0.06f))
+                                        .border(
+                                            1.dp,
+                                            Color.White.copy(alpha = 0.10f),
+                                            RoundedCornerShape(20.dp),
+                                        ),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        Icons.Filled.MusicNote,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(96.dp),
+                                        tint = Color.White.copy(alpha = 0.45f),
                                     )
                                 }
                             }
                         }
-                        // 色板入口：子级 clickable 自行消费点击，不触发外层封面/歌词切换
-                        Column(
-                            modifier = Modifier.align(Alignment.TopEnd).zIndex(1f),
-                            horizontalAlignment = Alignment.End,
-                        ) {
-                            IconButton(onClick = { showLyricColors = !showLyricColors }) {
-                                Icon(
-                                    Icons.Filled.Palette,
-                                    contentDescription = "歌词颜色",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            if (showLyricColors) {
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .background(LocalSoftExtra.current.glass)
-                                        .border(
-                                            SoftDimens.BorderWidth,
-                                            LocalSoftExtra.current.border,
-                                            RoundedCornerShape(20.dp),
-                                        )
-                                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
+                    } else {
+                        // 歌词模式：歌词占满中间区域（滚动跟随/当前行高亮保留）
+                        // v0.125.0：右上角调色板入口换歌词颜色——高亮行=选定色、
+                        // 普通行=选定色低透明度；选 0（默认）回落主题色口径。
+                        // v0.129.0：页面恒深色氛围底，未选色时普通行改固定浅色，
+                        // 不再读随主题变的日间低对比色。
+                        val lyricBase = if (lyricColorInt != 0) Color(lyricColorInt) else null
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            when {
+                                lyricLoading -> Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center,
+                                ) { CircularProgressIndicator(modifier = Modifier.size(28.dp)) }
+                                lyrics.isEmpty() -> Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center,
                                 ) {
-                                    LYRIC_COLOR_PRESETS.forEach { preset ->
-                                        val selected = lyricColorInt == preset
-                                        val dotColor = if (preset == 0) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            Color(preset)
-                                        }
-                                        Box(
-                                            modifier = Modifier
-                                                .size(26.dp)
-                                                .clip(CircleShape)
-                                                .background(dotColor)
-                                                .border(
-                                                    width = if (selected) 2.dp else 1.dp,
-                                                    color = if (selected) {
-                                                        MaterialTheme.colorScheme.primary
-                                                    } else {
-                                                        Color.Gray.copy(alpha = 0.45f)
-                                                    },
-                                                    shape = CircleShape,
-                                                )
-                                                .clickable {
-                                                    PlayerSettings.setLyricColor(
-                                                        context, preset,
+                                    Text(
+                                        "暂无歌词",
+                                        color = Color.White.copy(alpha = 0.6f),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                }
+                                else -> LazyColumn(
+                                    state = listState,
+                                    modifier = Modifier.fillMaxSize(),
+                                    // v0.89.0：行距 14.dp，当前行加粗，呼吸感
+                                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                                ) {
+                                    itemsIndexed(lyrics) { i, line ->
+                                        Text(
+                                            text = line.text,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            textAlign = TextAlign.Center,
+                                            fontWeight = if (i == curIdx) FontWeight.Bold else null,
+                                            style = if (i == curIdx) {
+                                                MaterialTheme.typography.bodyLarge
+                                            } else {
+                                                MaterialTheme.typography.bodyMedium
+                                            },
+                                            color = if (i == curIdx) {
+                                                lyricBase ?: MaterialTheme.colorScheme.primary
+                                            } else {
+                                                lyricBase?.copy(alpha = 0.45f)
+                                                    ?: Color.White.copy(alpha = 0.55f)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            // 色板入口：子级 clickable 自行消费点击，不触发外层封面/歌词切换
+                            Column(
+                                modifier = Modifier.align(Alignment.TopEnd).zIndex(1f),
+                                horizontalAlignment = Alignment.End,
+                            ) {
+                                IconButton(onClick = { showLyricColors = !showLyricColors }) {
+                                    Icon(
+                                        Icons.Filled.Palette,
+                                        contentDescription = "歌词颜色",
+                                        tint = Color.White.copy(alpha = 0.8f),
+                                    )
+                                }
+                                if (showLyricColors) {
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .background(LocalSoftExtra.current.glass)
+                                            .border(
+                                                SoftDimens.BorderWidth,
+                                                LocalSoftExtra.current.border,
+                                                RoundedCornerShape(20.dp),
+                                            )
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        LYRIC_COLOR_PRESETS.forEach { preset ->
+                                            val selected = lyricColorInt == preset
+                                            val dotColor = if (preset == 0) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                Color(preset)
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(26.dp)
+                                                    .clip(CircleShape)
+                                                    .background(dotColor)
+                                                    .border(
+                                                        width = if (selected) 2.dp else 1.dp,
+                                                        color = if (selected) {
+                                                            MaterialTheme.colorScheme.primary
+                                                        } else {
+                                                            Color.Gray.copy(alpha = 0.45f)
+                                                        },
+                                                        shape = CircleShape,
                                                     )
-                                                    showLyricColors = false
-                                                },
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            when {
-                                                selected -> Icon(
-                                                    Icons.Filled.Check,
-                                                    contentDescription = "当前颜色",
-                                                    modifier = Modifier.size(15.dp),
-                                                    tint = if (dotColor.luminance() > 0.5f) {
-                                                        Color.Black
-                                                    } else {
-                                                        Color.White
+                                                    .clickable {
+                                                        PlayerSettings.setLyricColor(
+                                                            context, preset,
+                                                        )
+                                                        showLyricColors = false
                                                     },
-                                                )
-                                                preset == 0 -> Text(
-                                                    "默",
-                                                    fontSize = 10.sp,
-                                                    color = MaterialTheme.colorScheme.onPrimary,
-                                                )
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                when {
+                                                    selected -> Icon(
+                                                        Icons.Filled.Check,
+                                                        contentDescription = "当前颜色",
+                                                        modifier = Modifier.size(15.dp),
+                                                        tint = if (dotColor.luminance() > 0.5f) {
+                                                            Color.Black
+                                                        } else {
+                                                            Color.White
+                                                        },
+                                                    )
+                                                    preset == 0 -> Text(
+                                                        "默",
+                                                        fontSize = 10.sp,
+                                                        color = MaterialTheme.colorScheme.onPrimary,
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -418,30 +414,108 @@ fun MusicPlayerScreen(
                         }
                     }
                 }
-            }
-            Spacer(Modifier.height(12.dp))
-            // v0.125.0：底部控制区重做——进度条+时间+控制行收进一块毛玻璃面板
-            // （与全 App 玻璃风同令牌：glass 底 + 微光描边圆角），按钮三级分层：
-            // 播放/暂停=中央主按钮（72dp 实心品牌色圆底）；上一首/下一首=次级
-            // （54dp 半透明圆底）；循环/收藏=三级裸图标。各容器尺寸固定，
-            // 播放/加载/暂停三态切换不跳动。只动视觉层级，播放逻辑不变。
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(LocalSoftExtra.current.glass)
-                    .border(
-                        SoftDimens.BorderWidth,
-                        LocalSoftExtra.current.border,
-                        RoundedCornerShape(24.dp),
+                Spacer(Modifier.height(14.dp))
+                // v0.129.0：歌名炫彩渐变字（主题炫彩渐变 Brush 作文字色，
+                // 与 DetailScreen 的 brush 文字同写法）
+                Text(
+                    text = track.name,
+                    style = TextStyle(
+                        brush = Brush.horizontalGradient(LocalBrandGradient.current),
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(6.dp))
+                // 歌手行：歌手名 + 平台徽标 + 解析来源 chip（来源读 MusicPlayer
+                // 的 resolvedSource——实际出链的音源名，切歌时 playAt 已重置，
+                // 解析未成功不残留上一首）
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = track.artist,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                // 进度条
+                    if (!track.isLocal) {
+                        MusicApi.platformLabel(
+                            MusicApi.normalizeSource(track.source),
+                        )?.let { label ->
+                            ResolvedBadge(text = label, tint = PlayerChipTint)
+                        }
+                    }
+                    if (playState.resolvedSource.isNotBlank()) {
+                        ResolvedBadge(
+                            text = "来源：${playState.resolvedSource}",
+                            tint = PlayerChipTint,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+                // 操作行：只放真实功能（收藏/换源/音质展示/歌词开关）
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    PlayerOpItem(
+                        icon = if (isFav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                        label = "收藏",
+                        tint = if (isFav) Color(0xFFFF6B81) else PlayerIconTint,
+                        onClick = {
+                            scope.launch {
+                                isFav = MusicStore.toggleFav(context, track)
+                            }
+                        },
+                    )
+                    PlayerOpItem(
+                        icon = Icons.Filled.SwapHoriz,
+                        label = "换源",
+                        tint = PlayerIconTint,
+                        onClick = { showSourceDialog = true },
+                    )
+                    // 当前音质：App 无手动音质设置，只展示不点击
+                    PlayerOpItem(
+                        icon = Icons.Filled.Tune,
+                        label = if (playState.resolvedQuality.isNotBlank()) {
+                            qualityLabel(playState.resolvedQuality)
+                        } else {
+                            "音质"
+                        },
+                        tint = if (playState.resolvedQuality.isNotBlank()) {
+                            musicQualityTint(playState.resolvedQuality)
+                        } else {
+                            PlayerIconTint
+                        },
+                        onClick = null,
+                    )
+                    PlayerOpItem(
+                        icon = Icons.Filled.Subject,
+                        label = "歌词",
+                        tint = if (showLyrics) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            PlayerIconTint
+                        },
+                        onClick = { showLyrics = !showLyrics },
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                // 进度条：与视频侧 PlayerSeekBar 同款式细条（3dp 线 + 小圆点
+                // thumb），已播段走品牌炫彩渐变；两端时间固定浅色
                 val shown = if (dragging) dragPos else pos
                 val dur = playState.durationMs.coerceAtLeast(1L)
-                Slider(
+                MusicSeekBar(
                     value = shown.toFloat().coerceIn(0f, dur.toFloat()),
+                    valueRange = 0f..dur.toFloat(),
                     onValueChange = {
                         dragging = true
                         dragPos = it.toLong()
@@ -450,39 +524,28 @@ fun MusicPlayerScreen(
                         dragging = false
                         MusicPlayer.seekTo(dragPos)
                     },
-                    valueRange = 0f..dur.toFloat(),
                     modifier = Modifier.fillMaxWidth(),
-                    // v0.108.0 B2：竖线 pill thumb 改小圆球，跟随主题色
-                    thumb = {
-                        Box(
-                            modifier = Modifier
-                                .size(14.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary),
-                        )
-                    },
                 )
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = fmtMs(shown),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color.White.copy(alpha = 0.6f),
                     )
                     Spacer(Modifier.weight(1f))
                     Text(
                         text = fmtMs(playState.durationMs),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color.White.copy(alpha = 0.6f),
                     )
                 }
-                Spacer(Modifier.height(10.dp))
-                // 控制行：三级层级（主按钮居中）
+                Spacer(Modifier.height(12.dp))
+                // 控制行：播放模式 / 上一首 / 渐变大圆播放钮 / 下一首 / 播放列表
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    // 三级：循环模式（裸图标）
                     IconButton(
                         onClick = { MusicPlayer.cycleRepeatMode() },
                         modifier = Modifier.size(44.dp),
@@ -495,17 +558,14 @@ fun MusicPlayerScreen(
                             },
                             contentDescription = "播放模式",
                             modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = PlayerIconTint,
                         )
                     }
-                    // 次级：上一首（半透明圆底）
                     Box(
                         modifier = Modifier
-                            .size(54.dp)
+                            .size(56.dp)
                             .clip(CircleShape)
-                            .background(
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f),
-                            )
+                            .background(Color.White.copy(alpha = 0.08f))
                             .clickable { MusicPlayer.prev(context) },
                         contentAlignment = Alignment.Center,
                     ) {
@@ -513,40 +573,40 @@ fun MusicPlayerScreen(
                             Icons.Filled.SkipPrevious,
                             contentDescription = "上一首",
                             modifier = Modifier.size(32.dp),
+                            tint = Color.White,
                         )
                     }
-                    // 主按钮：播放/暂停（72dp 实心品牌色圆底，容器固定不跳动）
+                    // 主按钮：76dp 主题炫彩渐变实心圆（容器固定，三态不跳动）
                     Box(
                         modifier = Modifier
-                            .size(72.dp)
+                            .size(76.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
+                            .background(
+                                Brush.linearGradient(LocalBrandGradient.current),
+                            )
                             .clickable { MusicPlayer.toggle() },
                         contentAlignment = Alignment.Center,
                     ) {
                         if (playState.loading) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(34.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
+                                color = Color.White,
                             )
                         } else {
                             Icon(
                                 if (playState.playing) Icons.Filled.Pause
                                 else Icons.Filled.PlayArrow,
                                 contentDescription = if (playState.playing) "暂停" else "播放",
-                                modifier = Modifier.size(42.dp),
-                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(44.dp),
+                                tint = Color.White,
                             )
                         }
                     }
-                    // 次级：下一首（半透明圆底）
                     Box(
                         modifier = Modifier
-                            .size(54.dp)
+                            .size(56.dp)
                             .clip(CircleShape)
-                            .background(
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f),
-                            )
+                            .background(Color.White.copy(alpha = 0.08f))
                             .clickable { MusicPlayer.next(context) },
                         contentAlignment = Alignment.Center,
                     ) {
@@ -554,28 +614,23 @@ fun MusicPlayerScreen(
                             Icons.Filled.SkipNext,
                             contentDescription = "下一首",
                             modifier = Modifier.size(32.dp),
+                            tint = Color.White,
                         )
                     }
-                    // 三级：收藏（裸图标）
                     IconButton(
-                        onClick = {
-                            scope.launch {
-                                isFav = MusicStore.toggleFav(context, track)
-                            }
-                        },
+                        onClick = { showQueueDialog = true },
                         modifier = Modifier.size(44.dp),
                     ) {
                         Icon(
-                            if (isFav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                            contentDescription = "收藏",
+                            Icons.Filled.QueueMusic,
+                            contentDescription = "播放列表",
                             modifier = Modifier.size(24.dp),
-                            tint = if (isFav) Color(0xFFFF6B81)
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = PlayerIconTint,
                         )
                     }
                 }
+                Spacer(Modifier.height(20.dp))
             }
-            Spacer(Modifier.height(16.dp))
         }
     }
 
@@ -624,6 +679,264 @@ fun MusicPlayerScreen(
                 MusicPlayer.playWithSource(context, src.id)
             },
         )
+    }
+
+    // v0.129.0：播放列表弹窗——读 MusicPlayer.queueState，点选跳播
+    if (showQueueDialog) {
+        MusicQueueDialog(
+            onDismiss = { showQueueDialog = false },
+            onPick = { i ->
+                showQueueDialog = false
+                MusicPlayer.playQueueItem(context, i)
+            },
+        )
+    }
+}
+
+/** v0.129.0：播放页恒深色氛围底上的固定浅色（图标/次要文字、徽标字色）。 */
+private val PlayerIconTint = Color.White.copy(alpha = 0.85f)
+private val PlayerChipTint = Color(0xFFE9EBF5)
+
+/**
+ * v0.129.0：氛围背景——当前封面放大高斯模糊 + 深色蒙版压出层次；
+ * 无封面时用品牌炫彩渐变（低透明度）铺在深色基底上，再罩同一层蒙版，
+ * 保证标题区文字对比度。模糊在低版本系统上自动退化为原图 + 蒙版。
+ */
+@Composable
+private fun PlayerAtmosphere(artUrl: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF07070D)),
+    ) {
+        if (artUrl.isNotBlank()) {
+            AsyncImage(
+                model = artUrl,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = 1.25f
+                        scaleY = 1.25f
+                    }
+                    .blur(48.dp),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            LocalBrandGradient.current.map { it.copy(alpha = 0.32f) },
+                        ),
+                    ),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.38f),
+                            Color.Black.copy(alpha = 0.68f),
+                            Color.Black.copy(alpha = 0.88f),
+                        ),
+                    ),
+                ),
+        )
+    }
+}
+
+/**
+ * v0.129.0：音乐细进度条——与视频侧 PlayerScreen 的 PlayerSeekBar 同款式
+ * （关掉 Material3 的 48dp 最小交互高度、3dp 圆头细线、12dp 小圆点 thumb），
+ * 已播段改走品牌炫彩渐变。视频侧那份是 private 且色板为视频定制，故此处
+ * 按同规格独立实现，不互相牵连。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MusicSeekBar(
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val brand = LocalBrandGradient.current
+    CompositionLocalProvider(
+        LocalMinimumInteractiveComponentSize provides Dp.Unspecified,
+    ) {
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            valueRange = valueRange,
+            modifier = modifier.height(28.dp),
+            track = { sliderState ->
+                val fraction = sliderState.valueRange.let { r ->
+                    val span = r.endInclusive - r.start
+                    if (span <= 0f) 0f
+                    else ((sliderState.value - r.start) / span).coerceIn(0f, 1f)
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp),
+                    ) {
+                        val y = size.height / 2f
+                        val w = 3.dp.toPx()
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.25f),
+                            start = Offset(0f, y),
+                            end = Offset(size.width, y),
+                            strokeWidth = w,
+                            cap = StrokeCap.Round,
+                        )
+                        if (fraction > 0f) {
+                            drawLine(
+                                brush = Brush.horizontalGradient(brand),
+                                start = Offset(0f, y),
+                                end = Offset(size.width * fraction, y),
+                                strokeWidth = w,
+                                cap = StrokeCap.Round,
+                            )
+                        }
+                    }
+                }
+            },
+            thumb = {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(Color.White),
+                )
+            },
+        )
+    }
+}
+
+/** v0.129.0：操作行单项——图标 + 小字标签；onClick 为 null 时纯展示（如当前音质）。 */
+@Composable
+private fun PlayerOpItem(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    onClick: (() -> Unit)?,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .then(
+                if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
+            )
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            modifier = Modifier.size(24.dp),
+            tint = tint,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            color = tint,
+            maxLines = 1,
+        )
+    }
+}
+
+/** v0.129.0：播放列表弹窗——TechDialog 恒深色，文字用固定浅色系（与切换音源弹窗同口径）。 */
+@Composable
+private fun MusicQueueDialog(
+    onDismiss: () -> Unit,
+    onPick: (Int) -> Unit,
+) {
+    val queueState by MusicPlayer.queueState.collectAsState()
+    TechDialog(
+        onDismissRequest = onDismiss,
+        title = "播放列表",
+    ) {
+        if (queueState.tracks.isEmpty()) {
+            Text(
+                "队列是空的",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF8A93B2),
+                modifier = Modifier.padding(vertical = 12.dp),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp),
+            ) {
+                itemsIndexed(queueState.tracks) { i, t ->
+                    val current = i == queueState.currentIndex
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (current) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                                } else {
+                                    Color.Transparent
+                                },
+                            )
+                            .clickable { onPick(i) }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = t.name,
+                                fontSize = 14.sp,
+                                fontWeight = if (current) {
+                                    FontWeight.SemiBold
+                                } else {
+                                    FontWeight.Normal
+                                },
+                                color = if (current) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    Color.White
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = t.artist,
+                                fontSize = 12.sp,
+                                color = Color(0xFF8A93B2),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        if (current) {
+                            Spacer(Modifier.width(8.dp))
+                            Icon(
+                                Icons.Filled.MusicNote,
+                                contentDescription = "正在播放",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

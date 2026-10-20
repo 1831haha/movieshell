@@ -65,6 +65,19 @@ object MusicPlayer {
     val state: StateFlow<State> = _state
 
     /**
+     * v0.129.0：播放队列只读快照（列表 + 当前下标），供播放页「播放列表」弹窗展示。
+     * 队列本体仍由 queue/index 持有，这里只是它们的同步镜像，写入点只有
+     * playAt（切歌/起播）与 stop（清空），别在别处改。
+     */
+    data class QueueState(
+        val tracks: List<MusicApi.Track> = emptyList(),
+        val currentIndex: Int = -1,
+    )
+
+    private val _queueState = MutableStateFlow(QueueState())
+    val queueState: StateFlow<QueueState> = _queueState
+
+    /**
      * v0.117.0：本机已解析歌曲徽标缓存（urlId → 音源+音质）。列表行按 track.urlId 取，
      * 已播过的歌保留徽标，不必每首重新解析。
      */
@@ -330,6 +343,7 @@ object MusicPlayer {
     private fun playAt(context: Context, i: Int) {
         if (i !in queue.indices) return
         index = i
+        _queueState.value = QueueState(queue, i)
         val track = queue[i]
         val gen = ++playGen
         // v0.89.0：保留播放模式（之前每次切歌都重置回 ALL）
@@ -587,12 +601,18 @@ object MusicPlayer {
     /** v0.85.0：供 MusicService 通知栏上下首——队列多于一首才露出按钮 */
     internal fun hasPrev(): Boolean = queue.size > 1
 
+    /** v0.129.0：播放列表弹窗点选跳播（点当前曲目不重播）。 */
+    fun playQueueItem(context: Context, i: Int) {
+        if (i in queue.indices && i != index) playAt(context, i)
+    }
+
     fun stop() {
         progressJob?.cancel()
         controller?.stop()
         _state.value = State(repeatMode = _state.value.repeatMode)
         queue = emptyList()
         index = -1
+        _queueState.value = QueueState()
     }
 
     /** 切 tab/退后台不自动停；App 退出时 MainActivity.onDestroy 可调 release */
