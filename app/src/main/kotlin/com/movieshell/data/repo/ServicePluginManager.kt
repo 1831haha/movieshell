@@ -122,6 +122,16 @@ object ServicePluginManager {
     )
 
     data class CheckItem(val name: String, val ok: Boolean, val detail: String)
+
+    /** v0.136.0：原生二进制双目录探针中单个目录的四格结果（直执/linker64）。 */
+    private data class NativeDirProbe(
+        val directOk: Boolean,
+        val directMsg: String,
+        val linkerOk: Boolean,
+        val linkerMsg: String,
+    ) {
+        val anyOk: Boolean get() = directOk || linkerOk
+    }
     data class SelfCheck(val items: List<CheckItem>) {
         val allOk: Boolean get() = items.all { it.ok }
     }
@@ -1178,6 +1188,60 @@ object ServicePluginManager {
         summary
     }
 
+    // ---------------- v0.136.0：示例服务一键生成 ----------------
+
+    /** 示例服务清单：id → 展示名，顺序即生成与「已全部存在」提示的列举顺序。 */
+    val EXAMPLE_SERVICES: List<Pair<String, String>> = listOf(
+        "hello-service" to "示例服务",
+        "t4-php" to "T4-PHP",
+    )
+
+    /**
+     * 已存在的示例服务展示名：按 id 或同名判存（与 importServicesJson 的
+     * 重名口径一致）——存在即由调用方跳过生成，绝不覆盖用户改过的同名服务。
+     */
+    fun existingExampleNames(context: Context): List<String> = synchronized(lock) {
+        val reg = loadRegistry(context)
+        EXAMPLE_SERVICES.filter { (id, name) ->
+            reg.containsKey(id) || reg.values.any { it.name == name }
+        }.map { it.second }
+    }
+
+    /**
+     * 示例「T4-PHP」的定义：与 xiaying-plugins 的 examples/t4-php.service.json
+     * 同一份内容，经 defToJson 拼成导入格式后走 importServicesJson 单一路径
+     * 落注册表，不另开创建通道。PHP 运行时未上架前生成只是配置：点启动时
+     * expandPlaceholders 会明确报 __plugin:php__ 未安装，不假装能跑。
+     */
+    fun importT4PhpExample(context: Context): String {
+        val def = ServiceDef(
+            id = "t4-php",
+            name = "T4-PHP",
+            desc = "PHP 站点源 Web 服务（T4 形态）：用 PHP 内置服务器跑 t4_demo 站点目录，" +
+                "打开服务地址可看状态页，/config.php 输出的 T4 源列表可直接添加为侠影的订阅地址。" +
+                "前置条件：先装 PHP 运行时插件（待上架；未上架前导入了也启动不了，App 会明确报 " +
+                "__plugin:php__ 未安装）。与 DsPlayer 的 T4-PHP 是同一套服务、刻意用不同端口" +
+                "（DS 19978 / 侠影 29578），两边同时装也不冲突；不建议改成 19978 与 DS 抢同一端口。" +
+                "t4_demo 目录在公共存储 xiaying/php/t4_demo 下，PHP 脚本放进该目录即可被服务到。",
+            version = "1.0.0",
+            custom = true,
+            runtime = RuntimeKind.PHP,
+            port = BASE_PORT,
+            command = "__plugin:php__/bin/php",
+            args = listOf("-S", "127.0.0.1:\${PORT}", "-t", "__sdcard__/php/t4_demo"),
+            workDir = "__sdcard__/php/t4_demo",
+            env = emptyList(),
+            healthMode = HealthMode.HTTP,
+            healthPath = "/",
+            autoStart = true,
+            resident = false,
+        )
+        val text = JSONObject()
+            .put("services", JSONArray().put(defToJson(def)))
+            .toString()
+        return importServicesJson(context, text)
+    }
+
     /**
      * App 启动完成后拉起 autoStart 的服务（XiaYingApp.onCreate 后台调用）：
      * 逐个尝试，失败只记 LogBus，绝不阻塞/拖垮启动。
@@ -1205,9 +1269,11 @@ object ServicePluginManager {
      * 2. 当前 ABI：Build.SUPPORTED_ABIS；
      * 3. 首个可用端口：BASE_PORT 起探测；
      * 4. 私有目录可写：建临时文件写删；
-     * 5. 原生二进制执行（v0.132.0，为 P1 PHP/Node 运行时探路）：把系统
-     *    toybox 复制到服务目录，分别试直接执行与 linker64 执行，结果
-     *    分别记进明细——哪条通决定运行时二进制的启动方式。
+     * 5. 原生二进制执行（v0.132.0 起探路，v0.136.0 扩双目录）：把系统
+     *    toybox 分别复制到共享服务目录与私有目录，各试直接执行与
+     *    linker64 执行，四格结果分列记进明细。只探共享目录不足以定论
+     *    （v0.134.0 真机实测共享目录两路皆挂）——DS 的 PHP 运行时正是
+     *    从私有目录 spawn 的；任一格通该项即不算全 FAIL，明细写清哪条通。
      */
     suspend fun runSelfCheck(context: Context): SelfCheck = withContext(Dispatchers.IO) {
         val items = mutableListOf<CheckItem>()
@@ -1261,53 +1327,80 @@ object ServicePluginManager {
             .onSuccess { items.add(CheckItem("首个可用端口", true, "$it（自 $BASE_PORT 起）")) }
             .onFailure { items.add(CheckItem("首个可用端口", false, it.message.orEmpty())) }
 
-        // 5. 原生二进制执行探路（v0.132.0）：系统二进制复制到服务目录后，
-        // 直接执行与 linker64 两条路分别试，明细节分别记录供 P1 定路线
+        // 5. 原生二进制执行探路（v0.136.0 双目录）：同一系统二进制分别复制到
+        // 共享服务目录与私有目录，各试直执/linker64，四格分列；任一格通即有
+        // 可用路线，该项不算全 FAIL（启动策略不在自检里改，路线下版再定）
         var nativeOk = false
         var nativeDetail = ""
         runCatching {
-            val svcRoot = installRoot(context)
             val candidates = listOf("/system/bin/toybox", "/system/bin/true", "/system/bin/linker64")
             val srcPath = candidates.firstOrNull { File(it).isFile }
                 ?: throw IllegalStateException("候选系统二进制都不存在")
-            val probe = File(svcRoot, "svc_native_probe")
-            try {
-                File(srcPath).copyTo(probe, overwrite = true)
-                runCatching { probe.setExecutable(true) }
-                val probeArgs = when {
-                    srcPath.endsWith("toybox") -> listOf("true")
-                    srcPath.endsWith("linker64") -> listOf("/system/bin/true")
-                    else -> emptyList()
-                }
-                fun tryRun(cmd: List<String>): Pair<Boolean, String> = runCatching {
-                    val p = ProcessBuilder(cmd)
-                        .redirectErrorStream(true)
-                        .directory(svcRoot)
-                        .start()
-                    val out = p.inputStream.readBytes().toString(Charsets.UTF_8).trim()
-                    val done = p.waitFor(5, TimeUnit.SECONDS)
-                    if (!done) {
-                        p.destroyForcibly()
-                        false to "超时"
-                    } else {
-                        (p.exitValue() == 0) to
-                            "exit=${p.exitValue()} ${out.take(80)}".trim()
-                    }
-                }.getOrElse { false to (it.message ?: "异常") }
-                val (dOk, dMsg) = tryRun(listOf(probe.absolutePath) + probeArgs)
-                val linkerPath = "/system/bin/linker64"
-                val (lOk, lMsg) = if (File(linkerPath).isFile) {
-                    tryRun(listOf(linkerPath, probe.absolutePath) + probeArgs)
-                } else {
-                    false to "linker64 不存在"
-                }
-                nativeOk = dOk || lOk
-                nativeDetail = "源 $srcPath 已复制到服务目录；" +
-                    "直接执行：${if (dOk) "通" else "挂"}（$dMsg）；" +
-                    "linker64：${if (lOk) "通" else "挂"}（$lMsg）"
-            } finally {
-                probe.delete()
+            val probeArgs = when {
+                srcPath.endsWith("toybox") -> listOf("true")
+                srcPath.endsWith("linker64") -> listOf("/system/bin/true")
+                else -> emptyList()
             }
+            fun tryRun(dir: File, cmd: List<String>): Pair<Boolean, String> = runCatching {
+                val p = ProcessBuilder(cmd)
+                    .redirectErrorStream(true)
+                    .directory(dir)
+                    .start()
+                val out = p.inputStream.readBytes().toString(Charsets.UTF_8).trim()
+                val done = p.waitFor(5, TimeUnit.SECONDS)
+                if (!done) {
+                    p.destroyForcibly()
+                    false to "超时"
+                } else {
+                    (p.exitValue() == 0) to
+                        "exit=${p.exitValue()} ${out.take(80)}".trim()
+                }
+            }.getOrElse { false to (it.message ?: "异常") }
+
+            fun probeDir(dir: File): NativeDirProbe {
+                dir.mkdirs()
+                val probe = File(dir, "svc_native_probe")
+                try {
+                    File(srcPath).copyTo(probe, overwrite = true)
+                    runCatching { probe.setExecutable(true) }
+                    val (dOk, dMsg) = tryRun(dir, listOf(probe.absolutePath) + probeArgs)
+                    val linkerPath = "/system/bin/linker64"
+                    val (lOk, lMsg) = if (File(linkerPath).isFile) {
+                        tryRun(dir, listOf(linkerPath, probe.absolutePath) + probeArgs)
+                    } else {
+                        false to "linker64 不存在"
+                    }
+                    return NativeDirProbe(dOk, dMsg, lOk, lMsg)
+                } finally {
+                    probe.delete()
+                }
+            }
+
+            val shared = probeDir(installRoot(context))
+            val privDir = File(context.filesDir, "svc_native_probe_dir")
+            val priv = try {
+                probeDir(privDir)
+            } finally {
+                runCatching { privDir.delete() }
+            }
+            nativeOk = shared.anyOk || priv.anyOk
+            fun cell(ok: Boolean, msg: String) = "${if (ok) "通" else "挂"}（$msg）"
+            val routes = mutableListOf<String>()
+            if (shared.directOk) routes += "共享目录直执"
+            if (shared.linkerOk) routes += "共享目录 linker64"
+            if (priv.directOk) routes += "私有目录直执"
+            if (priv.linkerOk) routes += "私有目录 linker64"
+            val routeSuffix = if (routes.isEmpty()) {
+                "；四路皆不通"
+            } else {
+                "；可用路线：${routes.joinToString("、")}"
+            }
+            nativeDetail = "源 $srcPath；" +
+                "共享服务目录：直执${cell(shared.directOk, shared.directMsg)}，" +
+                "linker64${cell(shared.linkerOk, shared.linkerMsg)}；" +
+                "私有目录：直执${cell(priv.directOk, priv.directMsg)}，" +
+                "linker64${cell(priv.linkerOk, priv.linkerMsg)}" +
+                routeSuffix
         }.onFailure {
             nativeDetail = it.message.orEmpty()
         }

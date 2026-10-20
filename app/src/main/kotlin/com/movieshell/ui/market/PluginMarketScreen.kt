@@ -1,5 +1,6 @@
 package com.movieshell.ui.market
 
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -165,10 +166,20 @@ fun PluginMarketScreen(
     fun reload() {
         reloadTick++
     }
+    // v0.136.0：各市场最近一次成功拉取的时刻（elapsedRealtime）与已消费的
+    // reloadTick——拉取 effect 靠这两者做新鲜度收敛（见 effect 内注释）
+    val fetchedAt = remember { mutableMapOf<String, Long>() }
+    var consumedReloadTick by remember { mutableStateOf(0) }
 
     // v0.134.0：多源并发拉取——先给缺失的 url 补磁盘缓存（切源/启停后秒显），
     // 再 coroutineScope + async 并发 fetchRemote，逐个完成即增量并入 infosByUrl；
     // 全部失败且无缓存走旧错误态，部分失败只 Toast、保留已显示的缓存。
+    // v0.136.0：新鲜度收敛——v0.134.0 时管理弹窗每次变更（开关/改名/增删）
+    // 都经 onChanged 无条件 reload()，effect 对全部启用市场整表重拉：真机日志
+    // 20 秒内连拉 6 轮（加市场时新市场刚被 validateMarket 拉过又立刻重拉）。
+    // 现改为：本轮只拉「从未成功拉过、或距上次成功拉取已超
+    // MARKET_REFETCH_MIN_MS」的市场；手动刷新（刷新按钮/错误重试，reloadTick
+    // 变化）仍强制全量；管理变更只重读缓存种子（onChanged），不再触发重拉。
     LaunchedEffect(enabledSources.map { it.url }, reloadTick) {
         error = null
         val missing = enabledSources.filter { it.url !in infosByUrl }
@@ -179,16 +190,31 @@ fun PluginMarketScreen(
             if (seeded.isNotEmpty()) infosByUrl = infosByUrl + seeded
         }
         if (enabledSources.isEmpty()) {
+            consumedReloadTick = reloadTick
+            firstLoadDone = true
+            return@LaunchedEffect
+        }
+        val forced = reloadTick != consumedReloadTick
+        consumedReloadTick = reloadTick
+        val now = SystemClock.elapsedRealtime()
+        val targets = enabledSources.filter { src ->
+            val last = fetchedAt[src.url]
+            forced || last == null || now - last >= MARKET_REFETCH_MIN_MS
+        }
+        if (targets.isEmpty()) {
             firstLoadDone = true
             return@LaunchedEffect
         }
         var failCount = 0
         var firstError: String? = null
         coroutineScope {
-            val jobs = enabledSources.map { src ->
+            val jobs = targets.map { src ->
                 async {
                     runCatching { PluginMarket.fetchRemote(context, src.url) }
-                        .onSuccess { infosByUrl = infosByUrl + (src.url to it) }
+                        .onSuccess {
+                            fetchedAt[src.url] = SystemClock.elapsedRealtime()
+                            infosByUrl = infosByUrl + (src.url to it)
+                        }
                         .onFailure { e ->
                             if (e is CancellationException) throw e
                             failCount++
@@ -445,14 +471,14 @@ fun PluginMarketScreen(
             infosByUrl = infosByUrl,
             onDismiss = { showManage = false },
             onChanged = {
-                // 数据变更后：重读各启用源缓存种子 + 触发一轮并发拉取
+                // v0.136.0：数据变更后只重读各启用源缓存种子（增删/改址立即反映
+                // 到归并列表）；是否补拉由 effect 的新鲜度收敛决定（新地址从未
+                // 拉过会被拉一次，已拉过的在间隔内不重拉），不再无条件整表重拉
                 infosByUrl = PluginStore.marketSources.value.filter { it.enabled }
                     .mapNotNull { src ->
                         PluginMarket.loadCached(context, src.url)?.let { src.url to it }
                     }
                     .toMap()
-                firstLoadDone = false
-                reload()
             },
         )
     }
@@ -541,6 +567,9 @@ private fun PluginCard(
     }
 }
 
+/** v0.136.0：同一市场两次网络拉取的最小间隔（会话内新鲜度收敛，手动刷新除外）。 */
+private const val MARKET_REFETCH_MIN_MS = 60_000L
+
 /** 添加/编辑市场表单的编辑目标：null=未打开，Add=新增，Edit=编辑既有市场。 */
 private sealed interface MarketEditTarget {
     data object Add : MarketEditTarget
@@ -549,7 +578,8 @@ private sealed interface MarketEditTarget {
 
 /**
  * v0.134.0：管理市场底部弹窗——市场注册表的增删改/启停 + GitHub 加速代理。
- * 数据变更统一走 onChanged 回到市场页重 seed 缓存并重新拉取。
+ * 数据变更统一走 onChanged 回到市场页重 seed 缓存；是否补拉由市场页
+ * effect 的新鲜度收敛决定（v0.136.0），变更不再无条件整表重拉。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

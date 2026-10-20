@@ -87,6 +87,9 @@ import java.io.File
  * （走 install 全套校验），装好后用列表行既有「启动」一键启动。
  * v0.132.0：补成真管理器——列表头统计 + 新建/编辑全屏编辑器（运行时/探活/
  * 自启动/常驻/环境变量/占位符插入）+ 配置导入导出 + 日志复制/清空。
+ * v0.136.0：「示例插件」大卡撤掉，改头部小字「示例」入口（与新建/导入/导出
+ * 同排、置于最前）：一键生成示例服务 + T4-PHP 两个示例，已存在的跳过，
+ * 全部已存在时逐名提示（仿 DS）。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -112,8 +115,8 @@ fun ServerPluginScreen(
     }
     var expandedId by remember { mutableStateOf<String?>(null) }
     var webReady by remember { mutableStateOf<Set<String>>(emptySet()) }
-    // v0.126.0：内置示例插件一键安装中标志
-    var installingDemo by remember { mutableStateOf(false) }
+    // v0.136.0：「示例」一键生成进行中标志
+    var generatingExamples by remember { mutableStateOf(false) }
     // v0.132.0：全屏编辑器状态（非空时代替列表渲染）+ 编辑中服务的运行 PID + 保存中标志
     var editing by remember { mutableStateOf<ServicePluginManager.ServiceDef?>(null) }
     var editingPid by remember { mutableStateOf<Long?>(null) }
@@ -204,28 +207,54 @@ fun ServerPluginScreen(
         }
     }
 
-    // v0.126.0：内置示例插件（assets/demo-service-plugin.zip）一键安装——
-    // 拷到 cacheDir 后走 ServicePluginManager.install 全部既有校验，不开后门
-    fun installDemo() {
-        if (installingDemo) return
-        installingDemo = true
+    // v0.136.0：「示例」一键生成（仿 DS 服务页头部小字入口）——
+    // hello-service 走内置演示包安装（assets/demo-service-plugin.zip 拷临时文件后
+    // 过 ServicePluginManager.install 全部既有校验，不开后门）；T4-PHP 走
+    // ServicePluginManager.importT4PhpExample（importServicesJson 单一路径）。
+    // 已存在的按 id/同名判存跳过、不覆盖；全部已存在时逐名提示。
+    fun generateExamples() {
+        if (generatingExamples) return
+        generatingExamples = true
         scope.launch {
             val msg = withContext(Dispatchers.IO) {
                 runCatching {
-                    val tmp = File.createTempFile("demo_svc_", ".zip", context.cacheDir)
-                    try {
-                        context.assets.open("demo-service-plugin.zip").use { s ->
-                            tmp.outputStream().use { s.copyTo(it) }
+                    val existing = ServicePluginManager.existingExampleNames(context)
+                    if (existing.size == ServicePluginManager.EXAMPLE_SERVICES.size) {
+                        "示例已全部存在：${existing.joinToString(" / ")}"
+                    } else {
+                        val created = mutableListOf<String>()
+                        if ("示例服务" !in existing) {
+                            val tmp = File.createTempFile(
+                                "demo_svc_", ".zip", context.cacheDir,
+                            )
+                            try {
+                                context.assets.open("demo-service-plugin.zip").use { s ->
+                                    tmp.outputStream().use { s.copyTo(it) }
+                                }
+                                ServicePluginManager.install(context, tmp)
+                            } finally {
+                                tmp.delete()
+                            }
+                            created += "示例服务"
                         }
-                        ServicePluginManager.install(context, tmp)
-                        "示例服务已安装，在下方列表点「启动」即可运行"
-                    } finally {
-                        tmp.delete()
+                        if ("T4-PHP" !in existing) {
+                            ServicePluginManager.importT4PhpExample(context)
+                            created += "T4-PHP"
+                        }
+                        buildString {
+                            append("已生成示例：${created.joinToString(" / ")}")
+                            if (existing.isNotEmpty()) {
+                                append("（${existing.joinToString(" / ")}已存在，跳过）")
+                            }
+                            if ("T4-PHP" in created) {
+                                append("；T4-PHP 待 PHP 运行时上架后可启动")
+                            }
+                        }
                     }
-                }.getOrElse { "安装失败：${it.message}" }
+                }.getOrElse { "生成示例失败：${it.message}" }
             }
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-            installingDemo = false
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            generatingExamples = false
             reload()
         }
     }
@@ -319,6 +348,12 @@ fun ServerPluginScreen(
                     title = "服务插件",
                     onBack = onBack,
                     actions = {
+                        TextButton(
+                            onClick = { generateExamples() },
+                            enabled = !generatingExamples,
+                        ) {
+                            Text(if (generatingExamples) "生成中…" else "示例")
+                        }
                         TextButton(onClick = { openNew() }) { Text("新建服务") }
                         TextButton(onClick = { doExport() }) { Text("导出") }
                         TextButton(onClick = { showImport = true }) { Text("导入") }
@@ -359,6 +394,12 @@ fun ServerPluginScreen(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
+                            TextButton(
+                                onClick = { generateExamples() },
+                                enabled = !generatingExamples,
+                            ) {
+                                Text(if (generatingExamples) "生成中…" else "示例")
+                            }
                             TextButton(onClick = { openNew() }) { Text("新建服务") }
                             TextButton(onClick = { doExport() }) { Text("导出") }
                             TextButton(onClick = { showImport = true }) { Text("导入") }
@@ -377,54 +418,13 @@ fun ServerPluginScreen(
                     }
                 }
             }
-            // v0.126.0：示例插件卡（列表之上）——未装给一键安装，装好引导去列表启动
-            item {
-                val demoInstalled = plugins.any { it.id == "hello-service" }
-                AppCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            "示例插件",
-                            style = SoftType.CardTitle,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "内置一个最小服务插件「示例服务」：装好后在本页列表点「启动」，" +
-                                "它会在本机端口提供探活页并持续输出日志，先摸清服务插件的安装与运行。",
-                            style = SoftType.Caption,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            if (demoInstalled) {
-                                Text(
-                                    "已安装 · 到下方列表点「启动」",
-                                    style = SoftType.Caption,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            } else {
-                                TextButton(
-                                    onClick = { installDemo() },
-                                    enabled = !installingDemo,
-                                ) {
-                                    Text(if (installingDemo) "安装中…" else "一键安装")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
             if (plugins.isEmpty()) {
                 item {
                     EmptyState(
                         kind = EmptyKind.Empty,
                         icon = Icons.Filled.Dns,
                         title = "还没有服务插件",
-                        hint = "点右上角上传按钮，从文件安装一个带 server.json 的 zip 包",
+                        hint = "点上方「示例」一键生成示例服务，或从文件安装带 server.json 的 zip 包",
                     )
                 }
             }
