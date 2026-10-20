@@ -2,8 +2,8 @@ package com.movieshell.ui.market
 
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,28 +14,37 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,21 +67,29 @@ import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.LoadingSkeleton
+import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 插件市场页（v0.23.0）。
- * - 顶部切换市场源（可增删，设置→插件管理）
  * - 分类过滤：全部 / 环境 / 应用
  * - 搜索过滤；不支持的 type 默认隐藏（设置里可开"显示不兼容插件"，置灰禁装）
  * - 卡片点击进详情页；卡片上可直接安装/更新/卸载
  *
  * v0.27.0 Soft Tech 换皮：卡片走 AppCard，筛选走 AppChip，搜索走 AppTextField，
  * 三态走 EmptyState / LoadingSkeleton。过滤与按钮状态机逻辑零变更。
+ * v0.134.0：多市场归并——注册表里启用的市场并发拉取、按插件 id 去重
+ * （注册表顺序在前者胜出），头部信息条汇总市场/插件/可更新数，市场增删改
+ * 与 GitHub 加速代理收敛到「管理市场」底部弹窗（仿 DS 多源管理）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,22 +102,47 @@ fun PluginMarketScreen(
 ) {
     val context = LocalContext.current
     val sources by PluginStore.marketSources.collectAsState()
-    val activeIdx by PluginStore.activeMarketIdx.collectAsState()
     val showIncompatible by PluginStore.showIncompatible.collectAsState()
+    val enabledSources = remember(sources) { sources.filter { it.enabled } }
 
     var query by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("") } // ""=全部 env/app
-    // v0.79.0：三级秒开——首帧同步读内存缓存→磁盘缓存（几 KB 文件，主线程可接受），
-    // 列表第一帧就可见；LaunchedEffect 只负责后台静默刷新。用户"每次进去都看不到"到此为止。
-    var info by remember {
-        val url = PluginStore.marketUrl.value
-        mutableStateOf<MarketInfo?>(
-            PluginMarket.lastInfoFor(url) ?: PluginMarket.loadCached(context, url)
+    // v0.134.0：搜索行默认收起（信息条搜索图标切换）；状态筛选 0 全部/1 可更新/2 已安装/3 未安装
+    var searchOpen by remember { mutableStateOf(false) }
+    var statusFilter by remember { mutableStateOf(0) }
+    var archFilter by remember { mutableStateOf("") }
+    var showManage by remember { mutableStateOf(false) }
+    // v0.134.0：按市场地址存各自的 MarketInfo，归并时按注册表顺序合并去重。
+    // remember 初值同步读磁盘缓存填入（秒开，与旧版缓存优先口径一致）。
+    var infosByUrl by remember {
+        PluginStore.init(context)
+        mutableStateOf(
+            PluginStore.marketSources.value.filter { it.enabled }
+                .mapNotNull { src ->
+                    PluginMarket.loadCached(context, src.url)?.let { src.url to it }
+                }
+                .toMap(),
         )
     }
-    var loading by remember { mutableStateOf(info == null) }
+    // v0.134.0：首轮拉取是否结束（loading 只在 merged 为空且首轮未完成时成立）
+    var firstLoadDone by remember { mutableStateOf(false) }
     // v0.96.1：加载超过 8 秒还没回来→提示"正在走镜像"，免得用户以为卡死（之前三张骨架屏干转被当成加载不出来）
     var loadingSlow by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var installedTick by remember { mutableStateOf(0) }
+    var busyId by remember { mutableStateOf<String?>(null) }
+    // v0.27.2：一键安装进度弹窗态
+    var installProgress by remember { mutableStateOf<InstallProgressUi?>(null) }
+
+    val installedMap = remember(installedTick) {
+        PluginStore.listInstalled().associateBy { it.id }
+    }
+    // v0.134.0：多源归并——注册表顺序在前者胜出，插件自带 sourceMarket 标来源
+    val merged = remember(infosByUrl, sources) {
+        enabledSources.flatMap { infosByUrl[it.url]?.plugins.orEmpty() }
+            .distinctBy { it.id }
+    }
+    val loading = merged.isEmpty() && !firstLoadDone
     LaunchedEffect(loading) {
         loadingSlow = false
         if (loading) {
@@ -108,49 +150,75 @@ fun PluginMarketScreen(
             loadingSlow = true
         }
     }
-    var error by remember { mutableStateOf<String?>(null) }
-    var installedTick by remember { mutableStateOf(0) }
-    var busyId by remember { mutableStateOf<String?>(null) }
-    // v0.27.2：一键安装进度弹窗态
-    var installProgress by remember { mutableStateOf<InstallProgressUi?>(null) }
+    val installedCount = merged.count { installedMap.containsKey(it.id) }
+    val updatableCount = merged.count { p ->
+        installedMap[p.id]?.let { PluginMarket.isNewer(p.version, it.version) } == true
+    }
+    // v0.134.0：架构筛选选项由数据派生——全是单一架构时不渲染这一行（有意为之）
+    val archOptions = remember(merged) {
+        merged.flatMap { it.abis }.distinct().sorted()
+    }
 
     // v0.27.4：市场拉取走 LaunchedEffect（跟随组合生命周期，离开页面自动取消；
-    // 刷新按钮只递增 reloadTick，上一轮未完成会被自动取消——根治
-    // "The coroutine scope left the composition"（之前 reload() 里 scope.launch，
-    // 快速连点刷新/切走页面时旧协程在已离开组合的 scope 里恢复就报这个错）
+    // 刷新按钮只递增 reloadTick，上一轮未完成会被自动取消）
     var reloadTick by remember { mutableStateOf(0) }
     fun reload() {
         reloadTick++
     }
 
-    // v0.45.0：缓存秒开 + 后台对冲刷新。进场先读磁盘缓存（有则秒显、不转圈），
-    // 再后台拉新；拉新失败但有缓存时只 toast、不清空列表——"偶尔加载不出来"到此为止。
-    suspend fun fetchMarket() {
+    // v0.134.0：多源并发拉取——先给缺失的 url 补磁盘缓存（切源/启停后秒显），
+    // 再 coroutineScope + async 并发 fetchRemote，逐个完成即增量并入 infosByUrl；
+    // 全部失败且无缓存走旧错误态，部分失败只 Toast、保留已显示的缓存。
+    LaunchedEffect(enabledSources.map { it.url }, reloadTick) {
         error = null
-        val url = PluginStore.marketUrl.value
-        try {
-            PluginStore.init(context)
-            val cached = PluginMarket.loadCached(context, url)
-            // 切市场时先换上新缓存（或清空），旧市场的列表不串台
-            info = cached
-            loading = cached == null
-            info = PluginMarket.fetchRemote(context, url)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            LogBus.e("PluginMarket", "市场拉取失败：${e.message}")
-            if (info == null) {
-                error = e.message ?: e.toString()
-                // v0.25.0：超时/失败给明确中文 Toast，不只记日志
-                Toast.makeText(context, "插件市场加载失败：${e.message}", Toast.LENGTH_LONG).show()
-            } else {
-                Toast.makeText(context, "市场刷新失败，已显示缓存", Toast.LENGTH_SHORT).show()
+        val missing = enabledSources.filter { it.url !in infosByUrl }
+        if (missing.isNotEmpty()) {
+            val seeded = missing.mapNotNull { src ->
+                PluginMarket.loadCached(context, src.url)?.let { src.url to it }
             }
-        } finally {
-            loading = false
+            if (seeded.isNotEmpty()) infosByUrl = infosByUrl + seeded
+        }
+        if (enabledSources.isEmpty()) {
+            firstLoadDone = true
+            return@LaunchedEffect
+        }
+        var failCount = 0
+        var firstError: String? = null
+        coroutineScope {
+            val jobs = enabledSources.map { src ->
+                async {
+                    runCatching { PluginMarket.fetchRemote(context, src.url) }
+                        .onSuccess { infosByUrl = infosByUrl + (src.url to it) }
+                        .onFailure { e ->
+                            if (e is CancellationException) throw e
+                            failCount++
+                            if (firstError == null) {
+                                firstError = e.message ?: e.toString()
+                            }
+                            LogBus.e("PluginMarket", "市场拉取失败(${src.name})：${e.message}")
+                        }
+                }
+            }
+            jobs.forEach { it.await() }
+        }
+        firstLoadDone = true
+        val mergedNow = enabledSources
+            .flatMap { infosByUrl[it.url]?.plugins.orEmpty() }
+            .distinctBy { it.id }
+        if (failCount > 0) {
+            if (mergedNow.isEmpty()) {
+                error = firstError
+                // v0.25.0：超时/失败给明确中文 Toast，不只记日志
+                Toast.makeText(context, "插件市场加载失败：$firstError", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(
+                    context,
+                    "$failCount 个市场刷新失败，已显示缓存",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
         }
     }
-    LaunchedEffect(activeIdx, reloadTick) { fetchMarket() }
 
     /** 带进度条的一键安装（列表页/详情页共用流程）。 */
     fun doInstall(p: MarketPlugin) {
@@ -166,21 +234,13 @@ fun PluginMarketScreen(
             if (!ok) LogBus.e("PluginMarket", "安装失败已 toast：${p.id}")
         }
     }
-    val installedMap = remember(installedTick) {
-        PluginStore.listInstalled().associateBy { it.id }
-    }
 
     Scaffold(
         topBar = {
             if (!embedded) {
                 TabTopBar(
-                    title = info?.name ?: "插件市场",
+                    title = "插件市场",
                     onBack = onBack,
-                    actions = {
-                        IconButton(onClick = { reload() }) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                        }
-                    },
                 )
             }
         },
@@ -191,51 +251,100 @@ fun PluginMarketScreen(
                 .padding(inner)
                 .padding(horizontal = SoftDimens.PagePadding),
         ) {
-            if (embedded) {
-                // v0.127.0：嵌入模式的内容区首行——市场名 + 刷新（替代原顶栏）
-                Row(
+            // v0.134.0：头部信息条（embedded 与否都渲染）——汇总数 + 刷新 + 管理 + 搜索开关
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val countsText = "${sources.size} 个市场 · ${merged.size} 个插件" +
+                    if (updatableCount > 0) " · $updatableCount 个可更新" else ""
+                Text(
+                    text = countsText,
+                    style = SoftType.Body,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { reload() }) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "刷新")
+                }
+                TextButton(onClick = { showManage = true }) { Text("管理") }
+                IconButton(onClick = { searchOpen = !searchOpen }) {
+                    Icon(Icons.Filled.Search, contentDescription = "搜索")
+                }
+            }
+            if (searchOpen) {
+                AppTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = "搜索插件",
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = info?.name ?: "插件市场",
-                        style = SoftType.CardTitle,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(onClick = { reload() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                    }
-                }
+                )
+                Spacer(Modifier.height(8.dp))
             }
-            // v0.29.0：市场顶部显示仓库链接（点文本复制，图标按钮浏览器打开）
-            RepoLinkRow()
+            // v0.134.0：状态筛选 chips（数字随 merged/安装态实时派生）
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppChip(text = "全部", selected = statusFilter == 0, onClick = { statusFilter = 0 })
+                AppChip(
+                    text = "可更新 $updatableCount",
+                    selected = statusFilter == 1,
+                    onClick = { statusFilter = 1 },
+                )
+                AppChip(
+                    text = "已安装 $installedCount",
+                    selected = statusFilter == 2,
+                    onClick = { statusFilter = 2 },
+                )
+                AppChip(
+                    text = "未安装 ${merged.size - installedCount}",
+                    selected = statusFilter == 3,
+                    onClick = { statusFilter = 3 },
+                )
+            }
             Spacer(Modifier.height(8.dp))
-            if (sources.size > 1) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(sources.size) { i ->
-                        AppChip(
-                            text = sources[i].name,
-                            selected = i == activeIdx,
-                            onClick = { PluginStore.setActiveMarket(context, i) },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
-            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AppChip(text = "全部", selected = category.isEmpty(), onClick = { category = "" })
                 AppChip(text = "环境", selected = category == "env", onClick = { category = "env" })
                 AppChip(text = "应用", selected = category == "app", onClick = { category = "app" })
             }
-            Spacer(Modifier.height(8.dp))
-            AppTextField(
-                value = query,
-                onValueChange = { query = it },
-                placeholder = "搜索插件",
-                modifier = Modifier.fillMaxWidth(),
-            )
+            // v0.134.0：架构筛选——仅当归并结果含 2 种以上架构时才渲染这一行
+            if (archOptions.size >= 2) {
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppChip(
+                        text = "全部架构",
+                        selected = archFilter.isEmpty(),
+                        onClick = { archFilter = "" },
+                    )
+                    archOptions.forEach { abi ->
+                        AppChip(
+                            text = abi,
+                            selected = archFilter == abi,
+                            onClick = { archFilter = abi },
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(8.dp))
             when {
+                sources.isEmpty() -> {
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.Store,
+                        title = "还没有市场",
+                        hint = "添加一个市场地址后即可浏览插件",
+                        actionText = "添加市场",
+                        onAction = { showManage = true },
+                    )
+                }
+                enabledSources.isEmpty() -> {
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.Store,
+                        title = "市场全部已停用",
+                        hint = "在管理里开启至少一个市场",
+                        actionText = "管理市场",
+                        onAction = { showManage = true },
+                    )
+                }
                 loading -> {
                     Column(verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing)) {
                         // v0.96.1：加载态给明确文案，骨架屏不再"无声干转"
@@ -266,7 +375,7 @@ fun PluginMarketScreen(
                     )
                 }
                 else -> {
-                    val shown = (info?.plugins.orEmpty())
+                    val shown = merged
                         .filter { showIncompatible || it.isSupported() }
                         .filter { category.isEmpty() || it.category == category }
                         .filter {
@@ -274,6 +383,19 @@ fun PluginMarketScreen(
                                 it.name.contains(query, true) ||
                                 it.id.contains(query, true) ||
                                 it.desc.contains(query, true)
+                        }
+                        .filter { p ->
+                            when (statusFilter) {
+                                1 -> installedMap[p.id]?.let {
+                                    PluginMarket.isNewer(p.version, it.version)
+                                } == true
+                                2 -> installedMap.containsKey(p.id)
+                                3 -> !installedMap.containsKey(p.id)
+                                else -> true
+                            }
+                        }
+                        .filter {
+                            archFilter.isEmpty() || it.abis.isEmpty() || archFilter in it.abis
                         }
                     if (shown.isEmpty()) {
                         EmptyState(
@@ -316,6 +438,23 @@ fun PluginMarketScreen(
                 }
             }
         }
+    }
+    if (showManage) {
+        ManageMarketsSheet(
+            sources = sources,
+            infosByUrl = infosByUrl,
+            onDismiss = { showManage = false },
+            onChanged = {
+                // 数据变更后：重读各启用源缓存种子 + 触发一轮并发拉取
+                infosByUrl = PluginStore.marketSources.value.filter { it.enabled }
+                    .mapNotNull { src ->
+                        PluginMarket.loadCached(context, src.url)?.let { src.url to it }
+                    }
+                    .toMap()
+                firstLoadDone = false
+                reload()
+            },
+        )
     }
     // v0.27.2：一键安装进度弹窗（全局覆盖在页面上）
     InstallProgressDialog(installProgress)
@@ -402,48 +541,258 @@ private fun PluginCard(
     }
 }
 
-/** v0.29.0：市场顶部仓库链接行——点文本复制，点图标浏览器打开。 */
+/** 添加/编辑市场表单的编辑目标：null=未打开，Add=新增，Edit=编辑既有市场。 */
+private sealed interface MarketEditTarget {
+    data object Add : MarketEditTarget
+    data class Edit(val source: PluginStore.MarketSource) : MarketEditTarget
+}
+
+/**
+ * v0.134.0：管理市场底部弹窗——市场注册表的增删改/启停 + GitHub 加速代理。
+ * 数据变更统一走 onChanged 回到市场页重 seed 缓存并重新拉取。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RepoLinkRow() {
+private fun ManageMarketsSheet(
+    sources: List<PluginStore.MarketSource>,
+    infosByUrl: Map<String, MarketInfo>,
+    onDismiss: () -> Unit,
+    onChanged: () -> Unit,
+) {
     val context = LocalContext.current
-    val repoUrl = "https://github.com/1831haha/xiaying-plugins"
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    val scope = rememberCoroutineScope()
+    var editTarget by remember { mutableStateOf<MarketEditTarget?>(null) }
+    var deleteFor by remember { mutableStateOf<PluginStore.MarketSource?>(null) }
+    var validating by remember { mutableStateOf(false) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(
+            topStart = SoftDimens.CardCorner,
+            topEnd = SoftDimens.CardCorner,
+        ),
+        containerColor = MaterialTheme.colorScheme.surface,
     ) {
-        Text(
-            text = repoUrl,
-            style = SoftType.Caption,
-            color = MaterialTheme.colorScheme.primary,
-            maxLines = 1,
+        Column(
             modifier = Modifier
-                .weight(1f)
-                .clickable {
-                    val cm = context.getSystemService(android.content.ClipboardManager::class.java)
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("repo", repoUrl))
-                    Toast.makeText(context, "仓库链接已复制", Toast.LENGTH_SHORT).show()
-                },
-        )
-        IconButton(
-            onClick = {
-                runCatching {
-                    context.startActivity(
-                        android.content.Intent(
-                            android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse(repoUrl),
-                        ),
-                    )
-                }
-            },
-            modifier = Modifier.size(32.dp),
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Icon(
-                Icons.Filled.Search,
-                contentDescription = "浏览器打开",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "管理市场", style = SoftType.CardTitle)
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { editTarget = MarketEditTarget.Add }) {
+                    Icon(Icons.Filled.Add, contentDescription = "添加市场")
+                }
+            }
+            sources.forEach { src ->
+                AppCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = src.name, style = SoftType.Body)
+                                Text(
+                                    text = src.url,
+                                    style = SoftType.Caption,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = src.enabled,
+                                onCheckedChange = {
+                                    PluginStore.setMarketEnabled(context, src.id, it)
+                                    onChanged()
+                                },
+                            )
+                            var menuOpen by remember { mutableStateOf(false) }
+                            Box {
+                                IconButton(onClick = { menuOpen = true }) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                                }
+                                DropdownMenu(
+                                    expanded = menuOpen,
+                                    onDismissRequest = { menuOpen = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("编辑名称/地址") },
+                                        onClick = {
+                                            menuOpen = false
+                                            editTarget = MarketEditTarget.Edit(src)
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("复制地址") },
+                                        onClick = {
+                                            menuOpen = false
+                                            val cm = context.getSystemService(
+                                                android.content.ClipboardManager::class.java,
+                                            )
+                                            cm.setPrimaryClip(
+                                                android.content.ClipData.newPlainText(
+                                                    "market", src.url,
+                                                ),
+                                            )
+                                            Toast.makeText(
+                                                context, "地址已复制", Toast.LENGTH_SHORT,
+                                            ).show()
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                "删除市场",
+                                                color = MaterialTheme.colorScheme.error,
+                                            )
+                                        },
+                                        onClick = {
+                                            menuOpen = false
+                                            deleteFor = src
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        // 副行：插件数（内存或现读缓存）+ 缓存时间，缺失部分不拼
+                        val pluginCount = infosByUrl[src.url]?.plugins?.size
+                            ?: PluginMarket.loadCached(context, src.url)?.plugins?.size
+                        val cachedAt = PluginMarket.cacheUpdatedAt(context, src.url)
+                        val subText = when {
+                            pluginCount == null && cachedAt == null -> "暂无缓存"
+                            else -> listOfNotNull(
+                                pluginCount?.let { "$it 个插件" },
+                                cachedAt?.let {
+                                    "缓存于 " + SimpleDateFormat(
+                                        "HH:mm", Locale.CHINA,
+                                    ).format(Date(it))
+                                },
+                            ).joinToString(" · ")
+                        }
+                        Text(
+                            text = subText,
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            Text(
+                text = "停用的市场不参与拉取与归并；删除仅移除列表项与缓存。",
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // GitHub 加速代理：单一入口、全 App 生效（数据层按域作用于拉取与下载）
+            Text(text = "GitHub 加速代理（作用于 GitHub 域直链）", style = SoftType.CardTitle)
+            val githubProxy by PluginStore.githubProxy.collectAsState()
+            AppTextField(
+                value = githubProxy,
+                onValueChange = { PluginStore.setGithubProxy(context, it) },
+                placeholder = "如 https://gh-proxy.com/，留空 = 直连",
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                text = "仅作用于 raw.githubusercontent.com 与 github.com 域的市场拉取与插件下载，存在一处、全 App 生效。",
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+
+    // 添加/编辑表单：先本地协议校验，再试拉校验市场地址，成功才落注册表
+    editTarget?.let { target ->
+        val isAdd = target is MarketEditTarget.Add
+        val editing = (target as? MarketEditTarget.Edit)?.source
+        var nameInput by remember(target) { mutableStateOf(editing?.name ?: "") }
+        var urlInput by remember(target) { mutableStateOf(editing?.url ?: "") }
+        TechDialog(
+            onDismissRequest = { if (!validating) editTarget = null },
+            title = if (isAdd) "添加市场" else "编辑市场",
+            confirmText = if (validating) "校验中…" else "保存",
+            confirmEnabled = !validating,
+            onConfirm = {
+                val url = urlInput.trim()
+                if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                    Toast.makeText(
+                        context, "地址要以 http:// 或 https:// 开头", Toast.LENGTH_SHORT,
+                    ).show()
+                    return@TechDialog
+                }
+                validating = true
+                scope.launch {
+                    runCatching { PluginMarket.validateMarket(url) }
+                        .onSuccess {
+                            val ok = if (isAdd) {
+                                PluginStore.addMarketSource(context, nameInput, url)
+                            } else {
+                                PluginStore.updateMarketSource(
+                                    context, editing!!.id, nameInput, url,
+                                )
+                            }
+                            validating = false
+                            if (!ok) {
+                                Toast.makeText(
+                                    context,
+                                    if (isAdd) "该地址已在列表中"
+                                    else "名称/地址为空或地址已被其他市场占用",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            } else {
+                                if (editing != null && editing.url != url) {
+                                    PluginMarket.deleteCache(context, editing.url)
+                                }
+                                editTarget = null
+                                onChanged()
+                            }
+                        }
+                        .onFailure { e ->
+                            validating = false
+                            Toast.makeText(
+                                context, "保存失败：${e.message}", Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                }
+            },
+            dismissText = "取消",
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                AppTextField(
+                    value = nameInput,
+                    onValueChange = { nameInput = it },
+                    placeholder = "名称",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                AppTextField(
+                    value = urlInput,
+                    onValueChange = { urlInput = it },
+                    placeholder = "market.json 地址",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "可添加 DsPlayer 官方市场（实验性）：${PluginStore.DSPLAYER_MARKET_URL}",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+
+    // 删除确认：删注册表条目 + 本地缓存，列表插件随归并结果消失
+    deleteFor?.let { src ->
+        TechDialog(
+            onDismissRequest = { deleteFor = null },
+            title = "删除市场？",
+            subtitle = "将删除「${src.name}」及其本地缓存，列表里的插件会随之消失。",
+            confirmText = "删除",
+            onConfirm = {
+                deleteFor = null
+                PluginStore.removeMarketSource(context, src.id)
+                PluginMarket.deleteCache(context, src.url)
+                onChanged()
+            },
+            dismissText = "取消",
+        ) {}
     }
 }

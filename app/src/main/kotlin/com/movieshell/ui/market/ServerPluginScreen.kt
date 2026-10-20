@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -811,6 +812,32 @@ private fun FieldLabel(text: String) {
 }
 
 /**
+ * v0.134.0：编辑器分段卡——AppCard 包一段字段，卡内 14dp 内边距、段内 8dp 间距；
+ * title 非空时段首一行 CardTitle。仅布局收敛，字段逻辑不经此组件。
+ */
+@Composable
+private fun EditorSection(
+    title: String?,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (title != null) {
+                Text(
+                    title,
+                    style = SoftType.CardTitle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            content()
+        }
+    }
+}
+
+/**
  * v0.132.0：服务全屏编辑器——基本配置 + 高级折叠区（可执行文件/工作目录/
  * 环境变量/探活方式）+ 占位符 chip 插入最近聚焦字段。字段组件照全屏页表单
  * 现成口径用 AppTextField；保存由宿主在 IO 线程调 saveService 并回列表。
@@ -898,14 +925,10 @@ private fun ServiceEditor(
         Column(
             modifier = Modifier.fillMaxSize().padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                "基本配置",
-                style = SoftType.CardTitle,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            EditorSection(title = "基本配置") {
             FieldLabel("名称（必填）")
             AppTextField(
                 value = name,
@@ -973,6 +996,8 @@ private fun ServiceEditor(
                 modifier = Modifier.fillMaxWidth()
                     .onFocusChanged { if (it.isFocused) insertTarget = "args" },
             )
+            }
+            EditorSection(title = null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1003,7 +1028,13 @@ private fun ServiceEditor(
                 Spacer(Modifier.width(8.dp))
                 Switch(checked = resident, onCheckedChange = { resident = it })
             }
-            FieldLabel("占位符（点按插入到最近聚焦的字段末尾）")
+            }
+            EditorSection(title = "占位符") {
+            Text(
+                "点按插入到最近聚焦的字段末尾",
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -1022,6 +1053,8 @@ private fun ServiceEditor(
                     )
                 }
             }
+            }
+            EditorSection(title = null) {
             Row(
                 modifier = Modifier.fillMaxWidth()
                     .clickable { advanced = !advanced }
@@ -1135,7 +1168,7 @@ private fun ServiceEditor(
                     ConfigRow("进程 PID", pid.toString())
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,

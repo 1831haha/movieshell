@@ -77,6 +77,7 @@ object PluginMarket {
         val category: String,
         val minApp: String,
         val abis: List<String>,
+        val sourceMarket: String = "",
     ) {
         /** 是否可在本机安装：type 支持且 platforms 含 android（缺省视为支持）。 */
         fun isSupported(): Boolean =
@@ -114,13 +115,48 @@ object PluginMarket {
         lastInfoMap[url] = info
     }
 
-    /** 详情页用：从最近一次拉取结果里按 id 取。 */
-    fun cached(id: String): MarketPlugin? = lastList.firstOrNull { it.id == id }
+    /** 详情页用：按 id 累积最近见过的插件（多市场归并后 lastList 只剩最后一家，详情靠这个查）。 */
+    private val lastById = mutableMapOf<String, MarketPlugin>()
+
+    @Synchronized
+    private fun rememberPlugins(list: List<MarketPlugin>) {
+        list.forEach { p ->
+            val old = lastById[p.id]
+            lastById[p.id] = if (p.sourceMarket.isBlank() && !old?.sourceMarket.isNullOrBlank()) {
+                p.copy(sourceMarket = old!!.sourceMarket)
+            } else {
+                p
+            }
+        }
+    }
+
+    /** 给插件打来源市场名：优先注册表里的名称，未注册则用市场自报名称。 */
+    private fun stamp(url: String, info: MarketInfo): MarketInfo =
+        info.copy(plugins = info.plugins.map { it.copy(sourceMarket = PluginStore.nameOfSource(url) ?: info.name) })
+
+    /** 详情页用：先查按 id 累积的记录，再查最近一次拉取结果兜底。 */
+    fun cached(id: String): MarketPlugin? = lastById[id] ?: lastList.firstOrNull { it.id == id }
+
+    /** 添加/编辑市场保存前试拉校验：内部即 fetch（拉取+解析+plugins 数组校验），成功才允许保存。 */
+    suspend fun validateMarket(url: String): MarketInfo = fetch(url)
+
+    fun deleteCache(context: Context, url: String) {
+        runCatching { cacheFile(context, url).delete() }
+            .onFailure { LogBus.w(TAG, "市场缓存删除失败：${it.message}") }
+    }
+
+    fun cacheUpdatedAt(context: Context, url: String): Long? {
+        val f = cacheFile(context, url)
+        return if (f.exists()) f.lastModified() else null
+    }
 
     /** 拉取市场（v0.123.0：多镜像串行首成即停；无磁盘缓存，引导页等轻量调用方用）。 */
     suspend fun fetch(url: String): MarketInfo = withContext(Dispatchers.IO) {
         val (body, effectiveUrl) = fetchBodySequential(url)
-        parseMarket(effectiveUrl, body).also { lastList = it.plugins }
+        stamp(url, parseMarket(effectiveUrl, body)).also {
+            lastList = it.plugins
+            rememberPlugins(it.plugins)
+        }
     }
 
     /**
@@ -133,8 +169,9 @@ object PluginMarket {
         val text = f.readText()
         val nl = text.indexOf('\n')
         if (nl < 0) return null
-        parseMarket(text.substring(0, nl), text.substring(nl + 1))
+        stamp(url, parseMarket(text.substring(0, nl), text.substring(nl + 1)))
             .also { lastList = it.plugins }
+            .also { rememberPlugins(it.plugins) }
             .also { rememberInfo(url, it) }
     }.getOrNull()
 
@@ -146,8 +183,9 @@ object PluginMarket {
             f.parentFile?.mkdirs()
             f.writeText("$effectiveUrl\n$body")
         }.onFailure { LogBus.w(TAG, "市场缓存写入失败：${it.message}") }
-        parseMarket(effectiveUrl, body)
+        stamp(url, parseMarket(effectiveUrl, body))
             .also { lastList = it.plugins }
+            .also { rememberPlugins(it.plugins) }
             .also { rememberInfo(url, it) }
     }
 
@@ -199,7 +237,8 @@ object PluginMarket {
      * 浪费流量且拖慢；串行首成即停，单个镜像 10 秒超时，弱网最长多等一个镜像的时间。）
      */
     private suspend fun fetchBodySequential(url: String): Pair<String, String> {
-        val urls = mirrorUrls(url)
+        val proxied = PluginStore.applyGithubProxy(url)
+        val urls = (if (proxied != url) listOf(proxied) else emptyList()) + mirrorUrls(url)
         var lastErr: Throwable? = null
         for (u in urls) {
             try {
@@ -281,7 +320,7 @@ object PluginMarket {
         var warn: String? = null
         try {
             progress?.onStage(InstallStage.Downloading, 0, plugin.size)
-            download(plugin.url, tmp, progress, plugin.size)
+            download(PluginStore.applyGithubProxy(plugin.url), tmp, progress, plugin.size)
             progress?.onStage(InstallStage.Verifying, 0, 0)
             verifyMd5(tmp, plugin.md5, plugin.id)
             progress?.onStage(InstallStage.Installing, 0, 0)

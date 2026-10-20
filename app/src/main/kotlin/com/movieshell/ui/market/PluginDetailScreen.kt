@@ -123,6 +123,13 @@ fun PluginDetailScreen(pluginId: String, onBack: () -> Unit = {}) {
                         style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (plugin.sourceMarket.isNotBlank()) {
+                        Text(
+                            text = "来自：${plugin.sourceMarket}",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))

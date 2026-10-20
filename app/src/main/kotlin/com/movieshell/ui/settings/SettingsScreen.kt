@@ -32,7 +32,6 @@ import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -56,7 +55,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -102,7 +100,6 @@ import com.movieshell.data.repo.ThemeStore
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.theme.LocalBrandGradient
 import com.movieshell.ui.theme.LocalSoftExtra
@@ -167,10 +164,9 @@ fun SettingsScreen(
     var showClearCacheDialog by remember { mutableStateOf(false) }
     // v0.78.2：解析接口已搬进子页面（ParseSettingsScreen），本页只留入口
     // v0.23.0：插件市场源（多源）+ 显示不兼容插件开关
+    // v0.134.0：市场增删改收敛到插件中心「市场 → 管理」，本页只留市场数展示
     val marketSources by PluginStore.marketSources.collectAsState()
-    val activeMarketIdx by PluginStore.activeMarketIdx.collectAsState()
     val showIncompatible by PluginStore.showIncompatible.collectAsState()
-    var showMarketSourcesDialog by remember { mutableStateOf(false) }
     // v0.26.0：追剧更新检测开关 + 下载并行数
     var followCheckEnabled by remember { mutableStateOf(FollowStore.isCheckEnabled(context)) }
     // v0.46.0：订阅自动刷新开关
@@ -622,9 +618,8 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Store,
                     title = "插件市场源",
-                    subtitle = marketSources.getOrNull(activeMarketIdx)?.name
-                        ?: PluginStore.DEFAULT_MARKET_NAME,
-                    onClick = { showMarketSourcesDialog = true },
+                    subtitle = "已添加 ${marketSources.size} 个市场，在插件中心 → 市场 → 管理中维护",
+                    onClick = onPluginCenterClick,
                 )
                 SettingsRow(
                     icon = Icons.Filled.Visibility,
@@ -839,85 +834,6 @@ fun SettingsScreen(
                 }
             },
         )
-    }
-    // v0.23.0：插件市场源管理（增删 + 切换当前源）
-    if (showMarketSourcesDialog) {
-        var nameInput by remember { mutableStateOf("") }
-        var urlInput by remember { mutableStateOf("") }
-        TechDialog(
-            onDismissRequest = { showMarketSourcesDialog = false },
-            title = "插件市场源",
-            confirmText = "添加",
-            onConfirm = {
-                if (!PluginStore.addMarketSource(context, nameInput, urlInput)) {
-                    Toast.makeText(context, "名称/地址为空或地址已存在", Toast.LENGTH_SHORT).show()
-                } else {
-                    nameInput = ""
-                    urlInput = ""
-                }
-            },
-            dismissText = "关闭",
-        ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    marketSources.forEachIndexed { i, s ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = (if (i == activeMarketIdx) "● " else "") + s.name,
-                                    style = SoftType.Body,
-                                )
-                                Text(
-                                    text = s.url,
-                                    style = SoftType.Caption,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                )
-                            }
-                            if (i != activeMarketIdx) {
-                                AppButton(
-                                    text = "切换",
-                                    onClick = { PluginStore.setActiveMarket(context, i) },
-                                    variant = AppButtonVariant.Ghost,
-                                )
-                            }
-                            if (marketSources.size > 1) {
-                                IconButton(onClick = {
-                                    PluginStore.removeMarketSource(context, i)
-                                }) {
-                                    Icon(
-                                        Icons.Filled.Delete,
-                                        contentDescription = "删除",
-                                        tint = MaterialTheme.colorScheme.error,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    AppTextField(
-                        value = nameInput,
-                        onValueChange = { nameInput = it },
-                        placeholder = "名称",
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    AppTextField(
-                        value = urlInput,
-                        onValueChange = { urlInput = it },
-                        placeholder = "market.json 地址",
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "可添加 DsPlayer 官方市场（实验性）：\n${PluginStore.DSPLAYER_MARKET_URL}",
-                        style = SoftType.Caption,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-        }
     }
     if (showClearCacheDialog) {
         TechDialog(

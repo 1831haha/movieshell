@@ -103,9 +103,15 @@ private fun InstalledPluginsBody(onDetail: (String) -> Unit) {
 
     LaunchedEffect(tick) {
         PluginStore.init(context)
-        // 市场缓存只为补简介/图标/更新态，取不到不影响已装列表本身
-        val cached = PluginMarket.loadCached(context, PluginStore.marketUrl.value)
-        marketById = cached?.plugins.orEmpty().associateBy { it.id }
+        // 市场缓存只为补简介/图标/更新态，取不到不影响已装列表本身；
+        // v0.134.0：多市场归并——各启用源缓存按注册表顺序合并，同 id 先到者胜出
+        val byId = mutableMapOf<String, PluginMarket.MarketPlugin>()
+        PluginStore.marketSources.value.filter { it.enabled }.forEach { src ->
+            PluginMarket.loadCached(context, src.url)?.plugins?.forEach { p ->
+                byId.putIfAbsent(p.id, p)
+            }
+        }
+        marketById = byId
         plugins = withContext(Dispatchers.IO) { PluginStore.listInstalled() }
     }
 
