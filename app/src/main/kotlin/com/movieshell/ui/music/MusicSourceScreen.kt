@@ -4,7 +4,9 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,7 +19,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -446,7 +450,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         }
     }
 
-    // v0.118.0：Cookie 配置弹窗——输入框由脚本头部 @xxx_cookie 声明动态生成
+    // v0.119.0：Cookie 配置弹窗精修——状态概览卡 + 平台玻璃卡 + 剪贴板快捷操作
     val cookieSrc = cookieTarget
     if (cookieSrc != null) {
         TechDialog(
@@ -481,29 +485,31 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     )
                 }
                 else -> {
-                    Text(
-                        text = "粘贴对应平台登录后的 Cookie，保存后脚本自动重载",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                    )
+                    val filled = cookieSlots.count { cookieValues[it.key].orEmpty().isNotBlank() }
+                    CookieStatusCard(filled = filled, total = cookieSlots.size)
                     Spacer(Modifier.height(10.dp))
-                    cookieSlots.forEach { slot ->
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                    ) {
+                        cookieSlots.forEach { slot ->
+                            CookieSlotCard(
+                                slot = slot,
+                                value = cookieValues[slot.key].orEmpty(),
+                                onValueChange = { cookieValues[slot.key] = it },
+                            )
+                            Spacer(Modifier.height(10.dp))
+                        }
                         Text(
-                            text = "${slot.label} Cookie",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            text = "Cookie 仅写入本机脚本文件，不会上传到任何服务器。",
+                            fontSize = 11.sp,
+                            color = Color(0xFF8A93B2),
                         )
-                        Spacer(Modifier.height(4.dp))
-                        TechTextField(
-                            value = cookieValues[slot.key].orEmpty(),
-                            onValueChange = { cookieValues[slot.key] = it },
-                            placeholder = "粘贴 ${slot.label} 的 Cookie",
-                            singleLine = false,
-                            minLines = 2,
-                            modifier = Modifier.fillMaxWidth(),
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = "获取方式：电脑浏览器登录对应平台官网 → F12 → 网络 → 复制请求头里的 Cookie。",
+                            fontSize = 11.sp,
+                            color = Color(0xFF8A93B2),
                         )
-                        Spacer(Modifier.height(10.dp))
                     }
                 }
             }
@@ -564,3 +570,147 @@ private fun qualityLabel(id: String): String = when (id) {
 
 /** 档次排序权重（v0.106.0：收敛到 LxMusicSourceEngine 单一口径，防两处打架） */
 private fun qualityRank(id: String): Int = LxMusicSourceEngine.qualityRank(id)
+
+/** v0.119.0：Cookie 弹窗玻璃卡片通用底 */
+private val cookieCardModifier: Modifier
+    get() = Modifier
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(14.dp))
+        .background(Color.White.copy(alpha = 0.05f))
+        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+        .padding(12.dp)
+
+/** v0.119.0：Cookie 配置状态概览卡——已配 x / n + 作用说明 */
+@Composable
+private fun CookieStatusCard(filled: Int, total: Int) {
+    val done = total > 0 && filled == total
+    val accent = if (done) Color(0xFF4ADE80) else Color(0xFFD9C39A)
+    Row(
+        modifier = cookieCardModifier,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(accent),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "已配置 $filled / $total",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = if (done) "各平台将以登录态解析，可解锁会员与无损音质"
+                else "粘贴各平台登录后的 Cookie，解锁会员与无损音质",
+                fontSize = 12.sp,
+                color = Color(0xFF8A93B2),
+            )
+        }
+    }
+}
+
+/** v0.119.0：已填写/未填写状态徽标 */
+@Composable
+private fun CookieStatusPill(filled: Boolean) {
+    val c = if (filled) Color(0xFF4ADE80) else Color(0xFF8A93B2)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(c.copy(alpha = 0.14f))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(c),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = if (filled) "已填写" else "未填写",
+            fontSize = 11.sp,
+            color = c,
+        )
+    }
+}
+
+/** v0.119.0：单个平台 Cookie 卡片——名称 + 状态徽标 + 作用说明 + 多行输入 + 剪贴板快捷操作 */
+@Composable
+private fun CookieSlotCard(
+    slot: LxCookieKit.CookieSlot,
+    value: String,
+    onValueChange: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val filled = value.isNotBlank()
+    Column(modifier = cookieCardModifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = slot.label,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+            )
+            Spacer(Modifier.weight(1f))
+            CookieStatusPill(filled = filled)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = cookieDesc(slot.key),
+            fontSize = 12.sp,
+            color = Color(0xFF8A93B2),
+        )
+        Spacer(Modifier.height(8.dp))
+        TechTextField(
+            value = value,
+            onValueChange = onValueChange,
+            placeholder = "粘贴 ${slot.label} 的 Cookie",
+            singleLine = false,
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (filled) {
+                TextButton(onClick = { onValueChange("") }) {
+                    Text("清空", fontSize = 12.sp)
+                }
+            }
+            TextButton(
+                onClick = {
+                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    val text = cm.primaryClip?.getItemAt(0)
+                        ?.coerceToText(context)?.toString().orEmpty()
+                    if (text.isNotBlank()) {
+                        onValueChange(text)
+                    } else {
+                        Toast.makeText(context, "剪贴板是空的", Toast.LENGTH_SHORT).show()
+                    }
+                },
+            ) {
+                Text("从剪贴板粘贴", fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+/** v0.119.0：各平台 Cookie 作用说明 */
+private fun cookieDesc(key: String): String = when (key) {
+    "tx", "qq" -> "QQ 音乐登录态：解锁会员曲目、无损与母带音质"
+    "wy", "wyy", "netease" -> "网易云音乐登录态：解锁 VIP 曲目完整版、无损音质"
+    "kw" -> "酷我音乐登录态：提升解析成功率与音质"
+    "kg" -> "酷狗音乐登录态：提升解析成功率与音质"
+    "mg" -> "咪咕音乐登录态：提升解析成功率与音质"
+    else -> "该平台登录态 Cookie"
+}
