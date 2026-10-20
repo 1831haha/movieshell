@@ -926,8 +926,11 @@ fun SourcesScreen(
         val effectiveFilter =
             if (subGroupFilter.isNotBlank() && subGroups.none { it == subGroupFilter }) ""
             else subGroupFilter
-        val visibleSubs = if (effectiveFilter.isBlank()) apiGroup.entries
-        else apiGroup.entries.filter { it.group.trim() == effectiveFilter }
+        // v0.133.0：同一 URL 可重复入列（手动添加不查重、备份恢复不去重；
+        // WarehouseSync 只防自己新增子仓），渲染前按 URL 去重，防 LazyGrid key 撞车
+        val visibleSubs = (if (effectiveFilter.isBlank()) apiGroup.entries
+        else apiGroup.entries.filter { it.group.trim() == effectiveFilter })
+            .distinctBy { it.detail }
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),
@@ -1197,7 +1200,9 @@ fun SourcesScreen(
     /** v0.90.0：批量检测 tab——后台 Worker 跑，读 SourceProbeStore 展示上次结果 + 实时进度 */
     @Composable
     fun ProbeTab() {
-        val records = probeReport.records
+        // v0.133.0：重复订阅会让探活任务同 kind+name 成对出现，渲染前去重防 key 撞车
+        //（与 SourceProbeStore.map 的 associateBy 口径一致，计数随之按去重后计）
+        val records = probeReport.records.distinctBy { "${it.kind}:${it.name}" }
         val ok = records.count { it.status == "OK" }
         val slow = records.count { it.status == "SLOW" }
         val fail = records.count { it.status == "FAIL" }

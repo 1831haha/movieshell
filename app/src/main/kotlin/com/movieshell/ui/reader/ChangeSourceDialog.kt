@@ -207,7 +207,7 @@ fun ChangeSourceDialog(
                                         },
                                     )
                                 }
-                                items(group.books, key = { "b_${group.key}_${it.remoteId}" }) { book ->
+                                items(group.books.distinctBy { it.remoteId }, key = { "b_${group.key}_${it.remoteId}" }) { book ->
                                     val key = group.key + book.remoteId
                                     AppCard(
                                         modifier = Modifier.fillMaxWidth()

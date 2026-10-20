@@ -762,7 +762,8 @@ fun ReaderScreen(
                         .fillMaxWidth()
                         .heightIn(max = 380.dp),
                 ) {
-                    items(bookmarks, key = { it.createdAt }) { b ->
+                    // v0.133.0：createdAt 是毫秒时间戳非强唯一，key 复合章节与偏移兜底防同毫秒撞车
+                    items(bookmarks, key = { "${it.createdAt}_${it.chapterIndex}_${it.charOffset}" }) { b ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,

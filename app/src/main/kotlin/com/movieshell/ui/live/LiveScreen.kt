@@ -346,9 +346,10 @@ fun LiveScreen(
                     contentPadding = PaddingValues(vertical = 8.dp, horizontal = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
+                    // v0.133.0：频道 id 由 sourceKey 与 url 拼接，同源重复条目或同名订阅可撞，加下标复合
                     items(
                         items = groupChannels.withIndex().toList(),
-                        key = { it.value.id },
+                        key = { "${it.index}_${it.value.id}" },
                     ) { (idx, ch) ->
                         ChannelCell(
                             index = idx + 1,
@@ -369,9 +370,10 @@ fun LiveScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    // v0.133.0：同中列，源列表来自全量频道按名过滤，重复频道条目同样加下标复合
                     items(
                         items = sources.withIndex().toList(),
-                        key = { it.value.id },
+                        key = { "${it.index}_${it.value.id}" },
                     ) { (idx, ch) ->
                         SourceButton(
                             label = "源${idx + 1}",
@@ -901,7 +903,8 @@ fun LiveManageScreen(onBack: () -> Unit) {
                     )
                 }
             }
-            items(sources, key = { it.url }) { s ->
+            // v0.133.0：订阅源写侧按 url 查重，但持久化文件读侧无去重，渲染前兜底防同 url 撞 key
+            items(sources.distinctBy { it.url }, key = { it.url }) { s ->
                 AppCard(
                     modifier = Modifier
                         .fillMaxWidth()

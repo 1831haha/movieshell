@@ -594,7 +594,8 @@ private fun OnlineTab(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(searchHistory, key = { it }) { h ->
+                // v0.133.0：历史词以词本身为 key，文件读侧无去重，渲染前 distinct 兜底防同词撞 key
+                items(searchHistory.distinct(), key = { it }) { h ->
                     AppCard(
                         modifier = Modifier.clickable { onHistorySearch(h) },
                     ) {
@@ -695,7 +696,9 @@ private fun OnlineTab(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    itemsIndexed(tracks, key = { _, t -> t.id }) { idx, track ->
+                    // v0.133.0：搜索与导入歌单均来自外部数据，同 id 重复曲目可真实出现；
+                    // key 用 id 加下标复合（不去重，播放下标须与原列表对齐）
+                    itemsIndexed(tracks, key = { idx, t -> "${t.id}_$idx" }) { idx, track ->
                         val isFav = track.id in favIds
                         TrackRow(
                             track = track,
@@ -1234,7 +1237,8 @@ private fun PlaylistTab(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(playlists, key = { it.id }) { pl ->
+                    // v0.133.0：歌单 id 为毫秒时间戳拼接，非强唯一，渲染前 distinctBy 兜底
+                    items(playlists.distinctBy { it.id }, key = { it.id }) { pl ->
                         AppCard(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1414,7 +1418,8 @@ internal fun AddToPlaylistDialog(
                     }
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(playlists, key = { it.id }) { pl ->
+                        // v0.133.0：同 PlaylistTab，歌单 id 非强唯一，渲染前 distinctBy 兜底
+                        items(playlists.distinctBy { it.id }, key = { it.id }) { pl ->
                             AppCard(
                                 modifier = Modifier
                                     .fillMaxWidth()

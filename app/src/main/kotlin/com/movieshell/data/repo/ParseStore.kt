@@ -64,6 +64,9 @@ object ParseStore {
             if (raw.isBlank()) emptyList()
             else json.decodeFromString(ListSerializer(ParseConfig.serializer()), raw)
         }.getOrDefault(emptyList())
+            // 读侧按 url 去重：url 是解析线路的业务主键（merged 同口径），
+            // 旧文件若存有同 url 两条，设置页按 url 做 lazy key 会撞车崩溃
+            .distinctBy { it.url.trim() }
     }
 
     private fun persist(context: Context, list: List<ParseConfig>) {
@@ -78,13 +81,19 @@ object ParseStore {
         }.onFailure { LogBus.w("ParseStore", "自定义解析持久化失败：${it.message}") }
     }
 
-    /** 新增一条（name/url 非空，type 只认 0/1）。 */
+    /** 新增一条（name/url 非空，type 只认 0/1）；同 url 已存在时原地更新名称/类型，不追加重复条。 */
     fun add(context: Context, name: String, url: String, type: Int) {
         load(context)
         val n = name.trim()
         val u = url.trim()
         if (n.isEmpty() || u.isEmpty()) return
-        persist(context, _custom.value + ParseConfig(name = n, url = u, type = type.coerceIn(0, 1)))
+        val entry = ParseConfig(name = n, url = u, type = type.coerceIn(0, 1))
+        val cur = _custom.value
+        val idx = cur.indexOfFirst { it.url.trim() == u }
+        persist(
+            context,
+            if (idx >= 0) cur.toMutableList().also { it[idx] = entry } else cur + entry,
+        )
         LogBus.i("ParseStore", "新增自定义解析：$n")
     }
 

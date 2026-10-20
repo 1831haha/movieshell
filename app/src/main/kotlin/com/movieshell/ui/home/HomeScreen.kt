@@ -892,7 +892,8 @@ fun HomeScreen(
 
     val filtered: List<Vod> = when {
         drpyReady -> remember(shuffleSeed, drpyUiList) {
-            val base = drpyUiList!!
+            // 同一站首页/分类数据无去重保证，重复 vodId 会让网格 lazy key 撞车，先按 id 去重
+            val base = drpyUiList!!.distinctBy { it.id }
             if (shuffleSeed == 0) base
             else base.drop(shuffleSeed % base.size) + base.take(shuffleSeed % base.size)
         }
@@ -1021,7 +1022,7 @@ fun HomeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 contentPadding = PaddingValues(end = 4.dp),
                             ) {
-                                items(watchHistory, key = { it.url }) { h ->
+                                items(watchHistory.distinctBy { it.url }, key = { it.url }) { h ->
                                     val progress = if (h.durationMs > 0) {
                                         (h.positionMs.toFloat() / h.durationMs).coerceIn(0f, 1f)
                                     } else 0f

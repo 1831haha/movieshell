@@ -39,7 +39,9 @@ object SearchHistoryStore {
                 val s: String = prim.content.trim()
                 if (s.isNotEmpty()) out.add(s)
             }
-            out
+            // 读侧去重保序：写侧 add 虽去重，旧文件/并发写仍可能留重复，
+            // 原样返回会让 UI 的 raw-string lazy key 撞车崩溃（"debug" 实锤）
+            out.distinct()
         } catch (e: Exception) {
             Log.w(TAG, "读取历史失败", e)
             emptyList()

@@ -185,7 +185,7 @@ fun NovelSearchScreen(
                                 }) { Text("清空", fontSize = 13.sp) }
                             }
                         }
-                        items(history, key = { "h_$it" }) { h ->
+                        items(history.distinct(), key = { "h_$it" }) { h ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
@@ -235,7 +235,7 @@ fun NovelSearchScreen(
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
-                    items(group.books, key = { "${group.key}_${it.remoteId}" }) { item ->
+                    items(group.books.distinctBy { it.remoteId }, key = { "${group.key}_${it.remoteId}" }) { item ->
                         AppCard {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(14.dp),

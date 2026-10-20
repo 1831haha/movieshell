@@ -142,7 +142,8 @@ fun OnlineSubtitleSearchDialog(
             }
             results.isNotEmpty() -> {
                 LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
-                    items(results, key = { it.sid }) { item ->
+                    // v0.133.0：sid 只在来源内唯一（下载文件名同为来源加 sid 口径），key 带 sourceId 复合
+                    items(results, key = { "${it.sourceId}_${it.sid}" }) { item ->
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()

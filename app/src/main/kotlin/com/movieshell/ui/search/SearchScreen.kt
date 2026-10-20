@@ -213,7 +213,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                         )
                     }
                 } else {
-                    items(history, key = { it }) { h ->
+                    items(history.distinct(), key = { it }) { h ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -322,7 +322,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                 )
                             }
                         }
-                        val uiVods = group.vods.map { it.toUiVod() }
+                        val uiVods = group.vods.map { it.toUiVod() }.distinctBy { it.id }
                         items(uiVods, key = { "vod:${group.site.key}:${it.id}" }) { vod ->
                             AppCard(
                                 onClick = { goDetail(group.site, vod.id, onVodClick) },

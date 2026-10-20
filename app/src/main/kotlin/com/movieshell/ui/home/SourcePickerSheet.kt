@@ -185,7 +185,9 @@ fun SourcePickerSheet(
                 ),
             )
         }
-        list
+        // v0.133.0：id 全带前缀不会裸撞，但同一订阅被重复添加或多仓展开重复时，
+        // sub 条目会以同 url 加同 site key 的全串重复，构建时按 id 去重兜底
+        list.distinctBy { it.id }
     }
 
     // 类型筛选 chips：只出现实际存在的类型，顺序固定

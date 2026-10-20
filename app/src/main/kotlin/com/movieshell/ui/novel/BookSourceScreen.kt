@@ -485,7 +485,10 @@ fun BookSourceScreen(
                         ).show()
                         return@launch
                     }
-                    urlPreview = parsed
+                    // v0.133.0：外部订阅文件可含同址重复条目（http 与 https、同址尾斜杠
+                    // 归一化后 key 相同），预览渲染前按 key 去重防 LazyColumn key 撞车；
+                    // 勾选态本来就按 key 记，去重不丢信息
+                    urlPreview = parsed.distinctBy { it.key }
                     urlChecked = parsed.map { it.key }.toSet()
                     showUrlImport = false
                 }

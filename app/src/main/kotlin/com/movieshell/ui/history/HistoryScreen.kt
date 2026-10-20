@@ -122,7 +122,8 @@ fun HistoryScreen(
         else kindFiltered.filter { it.title.contains(query, ignoreCase = true) }
     }
     val groups = remember(filtered) {
-        filtered.groupBy { dayFmt.format(Date(it.timestamp)) }
+        // 分组前全局按 url 去重：同 url 重复条目即使跨天分组，lazy key 也会撞车
+        filtered.distinctBy { it.url }.groupBy { dayFmt.format(Date(it.timestamp)) }
             .toSortedMap(compareByDescending { it })
     }
 

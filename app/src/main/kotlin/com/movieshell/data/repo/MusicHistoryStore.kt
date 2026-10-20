@@ -28,12 +28,14 @@ object MusicHistoryStore {
 
     private fun readStrings(f: File): List<String> = runCatching {
         if (!f.isFile) return emptyList()
-        json.decodeFromString(ListSerializer(String.serializer()), f.readText())
+        // 读侧去重保序：旧文件/并发写留下的重复词会让 UI 的 raw-string lazy key 撞车
+        json.decodeFromString(ListSerializer(String.serializer()), f.readText()).distinct()
     }.onFailure { Log.w(TAG, "读取失败：${f.name}", it) }.getOrDefault(emptyList())
 
     private fun readTracks(f: File): List<Track> = runCatching {
         if (!f.isFile) return emptyList()
-        json.decodeFromString(ListSerializer(Track.serializer()), f.readText())
+        // 读侧按 id 去重保序：同曲重复记录会让 UI 的 lazy key 撞车
+        json.decodeFromString(ListSerializer(Track.serializer()), f.readText()).distinctBy { it.id }
     }.onFailure { Log.w(TAG, "读取失败：${f.name}", it) }.getOrDefault(emptyList())
 
     // ---- 搜索历史 ----
