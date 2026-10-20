@@ -70,6 +70,41 @@ class V8DrpyEngine(
         // isolate.close() 线程安全、即时生效；下次调用时用新规则重建会话。
         runCatching { session?.close() }
         session = null
+        // v0.116.0：老同步规则 async 兼容提示——启发式扫描，未 await 的调用只会静默空数据
+        warnIfLegacySyncRule(js)
+    }
+
+    /**
+     * v0.116.0：扫描规则里疑似未加 await 的 async 调用（request/fetch/post/pdfh/pdfa/pd）。
+     * 老同步写法 `var html = request(url)` 在 V8 下拿到的是 Promise 对象、数据全空且无报错，
+     * 排障极痛。启发式：同一行 `await` 之后出现才算合规；function 定义、同名遮蔽、行尾注释
+     * 粗略排除。只报 Warning 不拦截（疑似，不是定罪）。
+     */
+    private fun warnIfLegacySyncRule(js: String) {
+        val call = Regex("""(?<![\w$.])(request|fetch|post|pdfh|pdfa|pd)\s*\(""")
+        var count = 0
+        js.lines().forEachIndexed { idx, raw ->
+            var line = raw.trimStart()
+            if (line.startsWith("//")) return@forEachIndexed
+            line = line.substringBefore("//") // 粗略去行尾注释（字符串里的 // 误伤可接受）
+            for (m in call.findAll(line)) {
+                val name = m.groupValues[1]
+                if (Regex("""\bfunction\s+$name\s*\(""").containsMatchIn(line)) continue // 自带定义
+                // await 直接修饰合法；async 函数里 return 一个 Promise 也合法（自动吸收）
+                val before = line.substring(maxOf(0, m.range.first - 9), m.range.first)
+                    .trimEnd()
+                if (before.endsWith("await") || before.endsWith("return")) continue
+                count++
+                if (count <= 5) LogBus.d(TAG, "疑似未 await：第 ${idx + 1} 行 `$name(`")
+            }
+        }
+        if (count > 0) {
+            LogBus.w(
+                TAG,
+                "规则疑似老同步写法：$count 处 async 调用未加 await，" +
+                    "数据可能静默为空（对照改法：写源技能 drpy-v8-async-rules §2）",
+            )
+        }
     }
 
     /** 惰性建会话：注册宿主 RPC（http/query/gunzip）→ bootstrap host.js + shim + 规则。 */
