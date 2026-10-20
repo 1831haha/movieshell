@@ -55,10 +55,21 @@ object MusicPlayer {
         val positionMs: Long = 0L,
         val durationMs: Long = 0L,
         val repeatMode: RepeatMode = RepeatMode.ALL,
+        // v0.117.0：当前曲目的真实解析来源（音源名）与音质档（LX 档次 id，如 320k/flac）；
+        // 列表行徽标、播放页展示都读它
+        val resolvedSource: String = "",
+        val resolvedQuality: String = "",
     )
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state
+
+    /**
+     * v0.117.0：本机已解析歌曲徽标缓存（urlId → 音源+音质）。列表行按 track.urlId 取，
+     * 已播过的歌保留徽标，不必每首重新解析。
+     */
+    private val _badges = MutableStateFlow<Map<String, Pair<String, String>>>(emptyMap())
+    val badges: StateFlow<Map<String, Pair<String, String>>> = _badges
 
     private var queue: List<MusicApi.Track> = emptyList()
     private var index: Int = -1
@@ -67,6 +78,18 @@ object MusicPlayer {
     // v0.108.0 B1：手动切换音源的一次性指定源 id——resolveLxUrl 消费后清零，
     // 后续切歌仍按默认顺序（启用源列表顺序）解析
     private var forcedSourceId: String? = null
+
+    /**
+     * v0.117.0：列表页「切换音源」设置的首选源 id（null=自动，按启用顺序）。
+     * 与 forcedSourceId 的区别：forced 是播放页一次性指定（消费即清），
+     * preferred 持续生效，resolveLxUrl 排它最先试、失败回落默认顺序。
+     */
+    @Volatile
+    private var preferredSourceId: String? = null
+
+    fun setPreferredSource(sourceId: String?) {
+        preferredSourceId = sourceId
+    }
 
     /**
      * v0.109.0 B4①：引擎复用——之前 resolveLxUrl 每首歌 `new LxMusicSourceEngine`
@@ -216,15 +239,18 @@ object MusicPlayer {
             // 全部失败再回退 MusicApi.playUrl（GD Studio）
             val mediaDeferred = async {
                 if (track.isLocal) {
-                    track.localUri
+                    Resolved(track.localUri, "本地文件", "")
                 } else {
                     resolveLxUrl(context.applicationContext, track.urlId)
                         ?: try {
-                            MusicApi.playUrl(track.urlId)
+                            MusicApi.playUrl(track.urlId).takeIf { it.isNotBlank() }
+                                ?.let { Resolved(it, "GD Studio", "") }
                         } catch (e: Exception) {
                             LogBus.w("MusicPlayer", "取直链失败，重试一次：${track.name}（${e.message}）")
                             delay(1500)
                             runCatching { MusicApi.playUrl(track.urlId) }.getOrNull()
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let { Resolved(it, "GD Studio", "") }
                         }
                 }
             }
@@ -233,14 +259,24 @@ object MusicPlayer {
                     runCatching { MusicApi.picImageUrl(track.picId) }.getOrDefault("")
                 }
             }
-            val mediaUri = mediaDeferred.await()
-            if (mediaUri.isNullOrBlank()) {
+            val resolved = mediaDeferred.await()
+            if (resolved == null || resolved.url.isBlank()) {
                 artDeferred.cancel()
                 LogBus.e("MusicPlayer", "取播放地址失败：${track.name}")
                 _state.value = _state.value.copy(loading = false)
                 toast("取不到播放地址，请重试")
                 return@launch
             }
+            // v0.117.0：记下本曲的真实来源与音质（列表徽标 + 播放页展示用）；
+            // gen 已过期（用户已切歌）时别把旧歌的来源盖到新歌上
+            if (gen == playGen) {
+                _badges.value = _badges.value + (track.urlId to (resolved.source to resolved.quality))
+                _state.value = _state.value.copy(
+                    resolvedSource = resolved.source,
+                    resolvedQuality = resolved.quality,
+                )
+            }
+            val mediaUri = resolved.url
             val artworkUrl = artDeferred.await()
             withController(context) { c ->
                 if (gen != playGen) return@withController
@@ -262,22 +298,37 @@ object MusicPlayer {
     }
 
     /**
+     * v0.117.0：解析结果三件套——直链、实际出数据的音源名、音质档 id（LX 档次）。
+     * GD Studio 兜底时音质未知，quality 为空。
+     */
+    private data class Resolved(val url: String, val source: String, val quality: String)
+
+    /**
      * v0.100.0：按顺序尝试启用的 LX 音乐源。内置源走纯 HTTP（huibq 模板），用户添加的
      * 脚本 URL 走 LxMusicSourceEngine。
      * v0.106.0：按该源实际档次从高到低试——内置 huibq 用自报两档（192k→128k）；
      * 脚本源先 loadScript 再读 inited 上报的 qualitys 降序试（未知 id 沉底）；
      * 脚本未上报档次时兜底 320k→128k（老行为）。单个失败换下一个，全部失败返回 null，
      * 调用方回退 MusicApi.playUrl。只换直链来源，不碰播放链路；本地歌曲不走这里。
+     * v0.117.0：返回 Resolved（三件套）；首选项源（setPreferredSource）排到最前，
+     * 失败仍回落到默认顺序，保证不卡死。
      */
-    private suspend fun resolveLxUrl(appContext: Context, songId: String): String? {
+    private suspend fun resolveLxUrl(appContext: Context, songId: String): Resolved? {
         if (songId.isBlank()) return null
         // v0.108.0 B1：一次性消费手动指定的源；该源不存在/已禁用时 sources 为空，
         // 自然回落为调用方 MusicApi.playUrl（GD Studio）兜底
         val forced = forcedSourceId.also { forcedSourceId = null }
+        val preferred = preferredSourceId
         val sources = runCatching { MusicSourceStore.list(appContext) }
             .getOrDefault(emptyList())
             .filter { it.enabled }
-            .let { list -> if (forced != null) list.filter { it.id == forced } else list }
+            .let { list ->
+                when {
+                    forced != null -> list.filter { it.id == forced }
+                    preferred != null -> list.sortedBy { if (it.id == preferred) 0 else 1 }
+                    else -> list
+                }
+            }
         if (sources.isEmpty()) return null
         // v0.109.0 B4①：复用 MusicPlayer 生命周期内的引擎实例，不再每首歌 new+release
         val engine = getOrCreateLxEngine(appContext)
@@ -296,7 +347,7 @@ object MusicPlayer {
                 }.getOrNull()?.takeIf { it.isNotBlank() }
                 if (url != null) {
                     LogBus.i("MusicPlayer", "LX 解析成功：${s.name} $q")
-                    return url
+                    return Resolved(url, s.name, q)
                 }
             }
         }

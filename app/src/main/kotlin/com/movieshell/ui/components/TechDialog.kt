@@ -19,10 +19,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -92,7 +94,12 @@ fun TechDialog(
                     )
                 }
                 Spacer(Modifier.height(12.dp))
-                content()
+                // v0.117.0：弹窗体恒深色 #171B28，但 content 槽没做颜色保护——
+                // 调用方的裸 Text 在亮色主题下拿到 onSurface 深色，深底深字看不见
+                // （真机实锤：存储权限弹窗正文全黑）。整个内容区固定浅色，一次修全。
+                CompositionLocalProvider(LocalContentColor provides Color(0xFFAEB6D4)) {
+                    content()
+                }
                 Spacer(Modifier.height(16.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),

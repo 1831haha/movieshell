@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -133,6 +134,8 @@ fun MusicScreen(
     }
 
     var tab by remember { mutableIntStateOf(0) } // v0.81.0：0=在线 1=本地 2=收藏；v0.84.0：3=歌单
+    // v0.117.0：列表页切换音源弹窗
+    var showSourcePicker by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -141,6 +144,17 @@ fun MusicScreen(
             TabTopBar(
                 title = "音乐",
                 actions = {
+                    // v0.117.0：列表页切换音源（设首选源，下一首生效；有在播歌曲时立即重解析）
+                    IconButton(
+                        onClick = { showSourcePicker = true },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.SwapHoriz,
+                            contentDescription = "切换音源",
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                     IconButton(onClick = onOpenMusicSource, modifier = Modifier.size(40.dp)) {
                         Icon(
                             imageVector = Icons.Filled.LibraryMusic,
@@ -188,6 +202,29 @@ fun MusicScreen(
                 PlaylistTab(onOpenPlaylist = onOpenPlaylist)
             }
         }
+    }
+
+    // v0.117.0：列表页切换音源——选定后记为首选源（下一首生效）；有在播歌曲时立即重解析
+    if (showSourcePicker) {
+        MusicSourcePickerDialog(
+            onDismiss = { showSourcePicker = false },
+            showAutoOption = true,
+            onPickAuto = {
+                showSourcePicker = false
+                MusicPlayer.setPreferredSource(null)
+                Toast.makeText(context, "已切回自动音源", Toast.LENGTH_SHORT).show()
+            },
+            onPick = { src ->
+                showSourcePicker = false
+                MusicPlayer.setPreferredSource(src.id)
+                if (MusicPlayer.state.value.track != null) {
+                    Toast.makeText(context, "正在用「${src.name}」重新解析", Toast.LENGTH_SHORT).show()
+                    MusicPlayer.playWithSource(context, src.id)
+                } else {
+                    Toast.makeText(context, "默认音源：${src.name}（下一首生效）", Toast.LENGTH_SHORT).show()
+                }
+            },
+        )
     }
 }
 
@@ -346,6 +383,7 @@ private fun OnlineTab(
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val playState by MusicPlayer.state.collectAsState()
+    val badges by MusicPlayer.badges.collectAsState() // v0.117.0：来源/音质徽标
     var favIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     // v0.82.0：歌单导入
     var showPlaylistDialog by remember { mutableStateOf(false) }
@@ -552,6 +590,7 @@ private fun OnlineTab(
                         val isFav = track.id in favIds
                         TrackRow(
                             track = track,
+                            badge = badges[track.urlId],
                             isCurrent = playState.track?.id == track.id,
                             isPlaying = playState.track?.id == track.id && playState.playing,
                             isFav = isFav,
@@ -609,6 +648,7 @@ private fun LocalTab() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val playState by MusicPlayer.state.collectAsState()
+    val badges by MusicPlayer.badges.collectAsState() // v0.117.0：来源/音质徽标
     var locals by remember { mutableStateOf<List<MusicApi.Track>>(emptyList()) }
     // v0.84.0：加到歌单
     var addToPlaylistTrack by remember { mutableStateOf<MusicApi.Track?>(null) }
@@ -722,6 +762,7 @@ private fun LocalTab() {
                             itemsIndexed(locals, key = { _, t -> t.id }) { idx, track ->
                                 TrackRow(
                                     track = track,
+                                    badge = badges[track.urlId],
                                     isCurrent = playState.track?.id == track.id,
                                     isPlaying = playState.track?.id == track.id && playState.playing,
                                     onDeleteClick = {
@@ -778,6 +819,7 @@ private fun LocalTab() {
                                     itemsIndexed(glist, key = { _, t -> t.id }) { idx, track ->
                                         TrackRow(
                                             track = track,
+                                            badge = badges[track.urlId],
                                             isCurrent = playState.track?.id == track.id,
                                             isPlaying = playState.track?.id == track.id &&
                                                 playState.playing,
@@ -817,6 +859,7 @@ private fun FavTab() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val playState by MusicPlayer.state.collectAsState()
+    val badges by MusicPlayer.badges.collectAsState() // v0.117.0：来源/音质徽标
     var favs by remember { mutableStateOf<List<MusicApi.Track>>(emptyList()) }
     // v0.84.0：加到歌单
     var addToPlaylistTrack by remember { mutableStateOf<MusicApi.Track?>(null) }
@@ -847,6 +890,7 @@ private fun FavTab() {
                 itemsIndexed(favs, key = { _, t -> t.id }) { idx, track ->
                     TrackRow(
                         track = track,
+                        badge = badges[track.urlId],
                         isCurrent = playState.track?.id == track.id,
                         isPlaying = playState.track?.id == track.id && playState.playing,
                         isFav = true,
@@ -875,11 +919,31 @@ private fun FavTab() {
 
 /** v0.84.0：改为 internal，供歌单详情页/历史页复用。 */
 @Composable
+/** v0.117.0：歌曲来源/音质小徽标——灰底小字，跟内容色自适应（禁硬编码） */
+@Composable
+private fun BadgeChip(text: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+    }
+}
+
 internal fun TrackRow(
     track: MusicApi.Track,
     isCurrent: Boolean,
     isPlaying: Boolean,
     isFav: Boolean = false,
+    // v0.117.0：已解析徽标（音源名 to 音质档）；未解析过的歌为 null 不显示
+    badge: Pair<String, String>? = null,
     onFavClick: (() -> Unit)? = null,
     onDeleteClick: (() -> Unit)? = null,
     onPlaylistClick: (() -> Unit)? = null, // v0.84.0：加到歌单
@@ -936,6 +1000,14 @@ internal fun TrackRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // v0.117.0：真实解析来源与音质徽标（播过才有，数据来自 MusicPlayer.badges）
+                if (badge != null) {
+                    Spacer(Modifier.height(3.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        BadgeChip(text = badge.first)
+                        if (badge.second.isNotBlank()) BadgeChip(text = badge.second)
+                    }
+                }
             }
             onFavClick?.let {
                 IconButton(onClick = it) {

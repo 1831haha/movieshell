@@ -244,6 +244,24 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        // v0.117.0：当前曲目的真实解析来源与音质（解析成功后才有值）
+                        if (playState.resolvedSource.isNotBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = buildString {
+                                    append("音源：")
+                                    append(playState.resolvedSource)
+                                    if (playState.resolvedQuality.isNotBlank()) {
+                                        append(" · 音质：")
+                                        append(playState.resolvedQuality)
+                                    }
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 } else {
                     // 歌词模式：歌词占满中间区域（滚动跟随/当前行高亮保留）
@@ -423,11 +441,14 @@ fun MusicPlayerScreen(onBack: () -> Unit = {}) {
     }
 }
 
-/** v0.108.0 B1：音源选择——列出已启用音乐源；暂无可用源时给空态提示。 */
+/** v0.108.0 B1：音源选择——列出已启用音乐源；暂无可用源时给空态提示。
+ *  v0.117.0：列表页复用本弹窗（internal），新增"自动"选项（showAutoOption）。 */
 @Composable
-private fun MusicSourcePickerDialog(
+internal fun MusicSourcePickerDialog(
     onDismiss: () -> Unit,
     onPick: (MusicSource) -> Unit,
+    showAutoOption: Boolean = false,
+    onPickAuto: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var sources by remember { mutableStateOf<List<MusicSource>>(emptyList()) }
@@ -442,6 +463,12 @@ private fun MusicSourcePickerDialog(
         title = "切换音源",
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
+            if (showAutoOption) {
+                TextButton(
+                    onClick = onPickAuto,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("自动（按启用顺序）") }
+            }
             if (sources.isEmpty()) {
                 Text(
                     "暂无可用的音乐源",
