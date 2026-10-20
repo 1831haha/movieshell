@@ -917,8 +917,6 @@ private fun FavTab() {
     }
 }
 
-/** v0.84.0：改为 internal，供歌单详情页/历史页复用。 */
-@Composable
 /** v0.117.0：歌曲来源/音质小徽标——灰底小字，跟内容色自适应（禁硬编码） */
 @Composable
 private fun BadgeChip(text: String) {
@@ -937,6 +935,8 @@ private fun BadgeChip(text: String) {
     }
 }
 
+/** v0.84.0：改为 internal，供歌单详情页/历史页复用。 */
+@Composable
 internal fun TrackRow(
     track: MusicApi.Track,
     isCurrent: Boolean,
