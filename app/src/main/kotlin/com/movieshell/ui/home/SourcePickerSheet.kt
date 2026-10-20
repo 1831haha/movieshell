@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -34,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +55,7 @@ import coil.compose.AsyncImage
 import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.SubCurrent
@@ -65,6 +68,7 @@ import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -94,20 +98,71 @@ fun SourcePickerSheet(
     var pyActiveName by remember { mutableStateOf<String?>(null) }
     var subSites by remember { mutableStateOf<List<Pair<ApiSource, SubSiteRecord>>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var refreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    /**
+     * 只读重读全部状态（本地规则重扫目录 + 订阅只读缓存，不走网络），
+     * 首载与刷新后共用；返回按 PickerItem id 口径去重后的总源数。
+     */
+    suspend fun reloadFromCache(): Int = withContext(Dispatchers.IO) {
+        cur = SubSiteStore.getCurrent(context)
+        val newDrpy = DrpySourceManager.listRules()
+        val newPy = PySourceManager.listRules()
+        drpyRules = newDrpy
+        pyRules = newPy
+        drpyActiveName = DrpySourceManager.activeRuleName()
+        pyActiveName = PySourceManager.activeRuleName()
+        val newSubSites = ApiSourceStore.load(context).filter { it.enabled }.flatMap { sub ->
+            val sites = SubSiteStore.getCached(context, sub.url)?.sites.orEmpty()
+            sites.map { sub to it }
+        }
+        subSites = newSubSites
+        val ids = HashSet<String>()
+        newDrpy.forEach { ids += "local-drpy:${it.name}" }
+        newPy.forEach { ids += "local-py:${it.name}" }
+        newSubSites.forEach { (sub, rec) -> ids += "sub:${sub.url}:${rec.key}" }
+        ids.size
+    }
 
     LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            cur = SubSiteStore.getCurrent(context)
-            drpyRules = DrpySourceManager.listRules()
-            pyRules = PySourceManager.listRules()
-            drpyActiveName = DrpySourceManager.activeRuleName()
-            pyActiveName = PySourceManager.activeRuleName()
-            subSites = ApiSourceStore.load(context).filter { it.enabled }.flatMap { sub ->
-                val sites = SubSiteStore.getCached(context, sub.url)?.sites.orEmpty()
-                sites.map { sub to it }
-            }
-        }
+        reloadFromCache()
         loading = false
+    }
+
+    /**
+     * 标题行刷新按钮：逐个 enabled 订阅走 SubSiteStore.refresh（现成单一入口，
+     * 失败不写缓存、旧列表天然保留，单个失败不中断其余），最后统一只读重读。
+     * 不关弹窗、不改当前选中源。
+     */
+    fun onRefreshClick() {
+        if (refreshing || loading) return
+        refreshing = true
+        scope.launch {
+            var subTotal = 0
+            var failCount = 0
+            withContext(Dispatchers.IO) {
+                val subs = ApiSourceStore.load(context).filter { it.enabled }
+                subTotal = subs.size
+                subs.forEach { sub ->
+                    val ok = runCatching { SubSiteStore.refresh(context, sub.url) }
+                        .getOrNull()?.isSuccess == true
+                    if (!ok) failCount++
+                }
+            }
+            val total = reloadFromCache()
+            refreshing = false
+            LogBus.i(
+                "SourcePicker",
+                "换源弹窗刷新：订阅 $subTotal 个，失败 $failCount 个，共 $total 个源",
+            )
+            Toast.makeText(
+                context,
+                if (failCount == 0) "已刷新，共 $total 个源"
+                else "已刷新，共 $total 个源；$failCount 个订阅刷新失败，已保留旧列表",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
     }
 
     fun pickLocal(isDrpy: Boolean, name: String) {
@@ -230,6 +285,24 @@ fun SourcePickerSheet(
                 style = SoftType.Caption,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = { onRefreshClick() },
+                enabled = !refreshing && !loading,
+            ) {
+                if (refreshing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = "刷新源",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
         // 搜索框：按源名过滤
         OutlinedTextField(
