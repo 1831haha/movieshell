@@ -28,6 +28,8 @@ import java.net.URI
  *   `inited` 事件经 MessagePort 单向直达宿主（[CompletableDeferred] 等待），
  *   不再有 QuickJS 版的"写全局变量 + host 轮询"（旧轮询曾把 JS 线程冻结 3-15s）
  * - `utils = {}`（空对象，脚本用到的子方法缺失时不崩）、`env = { platform: 'android' }`、`version = '1.0.0'`
+ * - `currentScriptInfo.rawScript`（v0.118.0）：注入脚本文本本身——墨澜/聚合类脚本靠它
+ *   解析头部 `/*! ... */` 块里的 @tx_cookie/@wy_cookie 声明（[LxCookieKit] 写回同处）
  * - `console.*`：由 [JsSession] 的 setConsoleCallback 直通 LogBus（V8 isolate 自带 console 对象）
  *
  * 每个脚本实例一条私有 [JsSession]（独立 V8 isolate），脚本卡死只影响它自己；
@@ -138,6 +140,12 @@ class LxMusicSourceEngine(context: Context) {
         runCatching { inst.session.close() }
     }
 
+    /** v0.118.0：脚本内容变更（cookie 写回）后公开剔除，下次调用按新脚本重建。 */
+    fun evictScript(scriptUrl: String) {
+        val inst = synchronized(enginesLock) { engines.remove(scriptUrl) } ?: return
+        runCatching { inst.session.close() }
+    }
+
     /**
      * v0.103.0：取某脚本 inited 上报的音质 id 列表。
      *
@@ -237,7 +245,9 @@ class LxMusicSourceEngine(context: Context) {
                 listOf(
                     "globalThis.__PORT_NAME = ${JSONObject.quote(portName)};",
                     hostJs,
-                    LX_SHIM,
+                    // v0.118.0：注入脚本文本供 currentScriptInfo.rawScript——
+                    // 墨澜/聚合类脚本靠它解析头部 @tx_cookie/@wy_cookie 声明
+                    LX_SHIM.replace("__LX_RAW_SCRIPT__", JSONObject.quote(script)),
                     script,
                 ),
             )
@@ -322,6 +332,7 @@ class LxMusicSourceEngine(context: Context) {
             version: '1.0.0',
             env: { platform: 'android' },
             utils: {},
+            currentScriptInfo: { rawScript: __LX_RAW_SCRIPT__ },
             __listeners: listeners,
             on: function(eventName, handler) {
               (listeners[eventName] = listeners[eventName] || []).push(handler);

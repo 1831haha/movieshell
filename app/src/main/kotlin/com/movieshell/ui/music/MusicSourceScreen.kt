@@ -50,6 +50,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.repo.MusicSource
 import com.movieshell.data.repo.MusicSourceStore
+import com.movieshell.data.source.CmsApi
+import com.movieshell.data.source.LxCookieKit
 import com.movieshell.data.source.LxMusicSourceEngine
 import com.movieshell.data.source.resolveBuiltinHuibq
 import com.movieshell.player.MusicPlayer
@@ -62,7 +64,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.Request
 import java.io.File
+import java.net.URI
+import java.util.UUID
 
 /**
  * v0.100.0 音乐源管理页：洛雪音源（脚本 URL）增删改查 + 测试解析。
@@ -94,6 +99,76 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         scope.launch { sources = MusicSourceStore.list(context) }
     }
     LaunchedEffect(Unit) { reload() }
+
+    // v0.118.0：Cookie 配置——扫描脚本头部 @xxx_cookie 声明动态生成输入框；
+    // 保存写回脚本头部，远端脚本先转存本地副本（file://）再改
+    var cookieTarget by remember { mutableStateOf<MusicSource?>(null) }
+    var cookieSlots by remember { mutableStateOf<List<LxCookieKit.CookieSlot>>(emptyList()) }
+    val cookieValues = remember { mutableStateMapOf<String, String>() }
+    var cookieText by remember { mutableStateOf<String?>(null) }
+    var cookieLoading by remember { mutableStateOf(false) }
+
+    fun readScriptText(url: String): String? = runCatching {
+        if (url.startsWith("file://")) {
+            File(URI(url)).takeIf { it.isFile }?.readText()
+        } else {
+            CmsApi.defaultClient().newCall(Request.Builder().url(url).get().build())
+                .execute().use { resp -> if (resp.isSuccessful) resp.body?.string() else null }
+        }
+    }.getOrNull()
+
+    fun openCookie(source: MusicSource) {
+        cookieTarget = source
+        cookieSlots = emptyList()
+        cookieValues.clear()
+        cookieText = null
+        cookieLoading = true
+        scope.launch {
+            val text = withContext(Dispatchers.IO) { readScriptText(source.url) }
+            cookieLoading = false
+            cookieText = text
+            if (text != null) {
+                val slots = LxCookieKit.scan(text)
+                cookieSlots = slots
+                slots.forEach { cookieValues[it.key] = it.current }
+            }
+        }
+    }
+
+    fun saveCookie() {
+        val src = cookieTarget ?: return
+        val base = cookieText ?: return
+        scope.launch {
+            var newText = base
+            cookieSlots.forEach { slot ->
+                newText = LxCookieKit.apply(newText, slot.key, cookieValues[slot.key].orEmpty())
+            }
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (src.url.startsWith("file://")) {
+                        File(URI(src.url)).writeText(newText)
+                    } else {
+                        val dir = File(context.filesDir, "lx_sources")
+                        if (!dir.isDirectory) dir.mkdirs()
+                        val dest = File(dir, "${UUID.randomUUID()}.js")
+                        dest.writeText(newText)
+                        MusicSourceStore.add(
+                            context,
+                            src.copy(url = "file://${dest.absolutePath}"),
+                        )
+                    }
+                }.isSuccess
+            }
+            lxEngine.evictScript(src.url)
+            cookieTarget = null
+            reload()
+            Toast.makeText(
+                context,
+                if (ok) "Cookie 已保存，脚本已重载" else "保存失败",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
 
     // v0.103.0：档次 chips——进入管理页对启用的自定义源并发 loadScript
     //（引擎内已有 15s 超时，不另起超时），成功后读 inited 上报的 qualitys；
@@ -293,6 +368,11 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     TextButton(onClick = { doTest(source) }) {
                         Text("测试", fontSize = 13.sp)
                     }
+                    if (!source.builtin) {
+                        TextButton(onClick = { openCookie(source) }) {
+                            Text("Cookie", fontSize = 13.sp)
+                        }
+                    }
                     Switch(
                         checked = source.enabled,
                         onCheckedChange = { enabled ->
@@ -362,6 +442,70 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("从本地文件导入（.js）", fontSize = 14.sp)
+            }
+        }
+    }
+
+    // v0.118.0：Cookie 配置弹窗——输入框由脚本头部 @xxx_cookie 声明动态生成
+    val cookieSrc = cookieTarget
+    if (cookieSrc != null) {
+        TechDialog(
+            onDismissRequest = { cookieTarget = null },
+            title = "Cookie 配置",
+            subtitle = cookieSrc.name,
+            confirmText = if (cookieSlots.isNotEmpty()) "保存" else null,
+            onConfirm = if (cookieSlots.isNotEmpty()) ::saveCookie else null,
+            dismissText = "关闭",
+        ) {
+            when {
+                cookieLoading -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+                cookieText == null -> {
+                    Text(
+                        text = "脚本读取失败，无法配置",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                cookieSlots.isEmpty() -> {
+                    Text(
+                        text = "该脚本未声明 Cookie 配置项（头部无 @xxx_cookie 注释）",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                else -> {
+                    Text(
+                        text = "粘贴对应平台登录后的 Cookie，保存后脚本自动重载",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    cookieSlots.forEach { slot ->
+                        Text(
+                            text = "${slot.label} Cookie",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        TechTextField(
+                            value = cookieValues[slot.key].orEmpty(),
+                            onValueChange = { cookieValues[slot.key] = it },
+                            placeholder = "粘贴 ${slot.label} 的 Cookie",
+                            singleLine = false,
+                            minLines = 2,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
             }
         }
     }
