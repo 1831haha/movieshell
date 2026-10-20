@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -145,6 +146,7 @@ fun SettingsScreen(
     onSourcesClick: () -> Unit = {}, // v0.36.0：站源管理入口（tab 删除后搬进设置）
     onParseSettingsClick: () -> Unit = {}, // v0.78.2：解析接口子页面入口
     onMarketClick: () -> Unit = {}, // v0.79.0：插件市场（实验室 tab 删除，入口搬进设置）
+    onServicePluginClick: () -> Unit = {}, // v0.120.0：服务插件（框架管理器）
     onSniffPatternsClick: () -> Unit = {}, // v0.79.0：嗅探正则管理（实验室 tab 删除，入口搬进设置）
     onHistoryClick: () -> Unit = {}, // v0.80.0：快捷宫格-观看历史
     onFavoritesClick: () -> Unit = {}, // v0.86.0：快捷宫格-我的收藏
@@ -424,6 +426,12 @@ fun SettingsScreen(
                     label = "插件市场",
                     icon = Icons.Filled.Store,
                     onClick = onMarketClick,
+                    modifier = Modifier.weight(1f),
+                )
+                QuickEntry(
+                    label = "服务插件",
+                    icon = Icons.Filled.Dns,
+                    onClick = onServicePluginClick,
                     modifier = Modifier.weight(1f),
                 )
                 QuickEntry(

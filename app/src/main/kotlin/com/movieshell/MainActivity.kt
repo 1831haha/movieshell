@@ -118,6 +118,7 @@ import com.movieshell.ui.changelog.ChangelogScreen
 import com.movieshell.ui.manual.ManualScreen
 import com.movieshell.ui.market.PluginDetailScreen
 import com.movieshell.ui.market.PluginMarketScreen
+import com.movieshell.ui.market.ServerPluginScreen
 import com.movieshell.ui.market.PyDepGuideOverlay
 import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.search.SearchScreen
@@ -556,6 +557,12 @@ class MainActivity : ComponentActivity() {
                                 onDetail = { id -> navController.navigate("market_detail/$id") },
                             )
                         }
+                        // v0.120.0：服务插件管理页
+                        composable("service_plugins") {
+                            ServerPluginScreen(
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
                         composable("market_detail/{id}") { entry ->
                             PluginDetailScreen(
                                 pluginId = entry.arguments?.getString("id").orEmpty(),
@@ -572,6 +579,8 @@ class MainActivity : ComponentActivity() {
                                 onParseSettingsClick = { navController.navigate("parse_settings") },
                                 // v0.79.0：实验室功能搬进设置
                                 onMarketClick = { navController.navigate("market") },
+                                // v0.120.0：服务插件页
+                                onServicePluginClick = { navController.navigate("service_plugins") },
                                 onSniffPatternsClick = { navController.navigate("sniff_patterns") },
                                 // v0.80.0：快捷宫格-观看历史
                                 onHistoryClick = { navController.navigate("history") },

@@ -332,6 +332,8 @@ object MusicPlayer {
         if (sources.isEmpty()) return null
         // v0.109.0 B4①：复用 MusicPlayer 生命周期内的引擎实例，不再每首歌 new+release
         val engine = getOrCreateLxEngine(appContext)
+        // v0.120.0：逐源收集失败原因，全部失败时透传到日志并给用户可见提示
+        val failures = ArrayList<String>()
         for (s in sources) {
             val qualities: List<String> = if (s.builtin) {
                 LxMusicSourceEngine.BUILTIN_QUALITIES
@@ -340,6 +342,7 @@ object MusicPlayer {
                 LxMusicSourceEngine.sortHighToLow(engine.getQualityIds(s.url))
                     .ifEmpty { listOf("320k", "128k") }
             }
+            var reason = "解析失败"
             for (q in qualities) {
                 val url = runCatching {
                     if (s.builtin) resolveBuiltinHuibq("wy", songId, q)
@@ -349,9 +352,14 @@ object MusicPlayer {
                     LogBus.i("MusicPlayer", "LX 解析成功：${s.name} $q")
                     return Resolved(url, s.name, q)
                 }
+                // 内置源失败原因不深挖（返回 null 无细分信息），脚本源读引擎诊断字段
+                reason = if (s.builtin) "内置线路解析失败"
+                else engine.lastFailureReason.ifBlank { "解析失败" }
             }
+            failures += "${s.name}：$reason"
         }
-        LogBus.w("MusicPlayer", "LX 源全部解析失败，回退 GD Studio")
+        LogBus.w("MusicPlayer", "LX 源全部解析失败，回退 GD Studio：${failures.joinToString("；")}")
+        toast("LX 解析失败，已回退备用线路")
         return null
     }
 

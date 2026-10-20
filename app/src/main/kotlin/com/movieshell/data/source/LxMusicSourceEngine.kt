@@ -51,6 +51,13 @@ class LxMusicSourceEngine(context: Context) {
     private val enginesLock = Any()
 
     /**
+     * v0.120.0：最近一次 resolveMusicUrl 的失败原因（短中文诊断，不记敏感值）。
+     * 每次调用入口清零；引擎按持有者生命周期复用、并发串行，按调用覆盖即可。
+     */
+    var lastFailureReason: String = ""
+        private set
+
+    /**
      * v0.109.0 B4②：loadScript check-then-act 并发双建修复。下载（IO 密集）不占锁；
      * 建引擎前在 Mutex 内二次确认——下载期间若已有并发协程先建好，直接复用。
      */
@@ -97,9 +104,19 @@ class LxMusicSourceEngine(context: Context) {
         songId: String,
         quality: String,
     ): String? {
-        if (scriptUrl.isBlank() || songId.isBlank()) return null
-        if (!loadScript(scriptUrl)) return null
-        val inst = synchronized(enginesLock) { engines[scriptUrl] } ?: return null
+        lastFailureReason = ""
+        if (scriptUrl.isBlank() || songId.isBlank()) {
+            lastFailureReason = "参数为空"
+            return null
+        }
+        if (!loadScript(scriptUrl)) {
+            lastFailureReason = "脚本加载失败"
+            return null
+        }
+        val inst = synchronized(enginesLock) { engines[scriptUrl] } ?: run {
+            lastFailureReason = "脚本实例为空"
+            return null
+        }
         return try {
             // 归一化在 JS 侧一次完成（字符串/.url/data.url），V8 等 Promise 结算
             val callJs = """
@@ -117,16 +134,21 @@ class LxMusicSourceEngine(context: Context) {
                 })()
             """.trimIndent()
             val result = inst.session.eval(callJs, JS_TIMEOUT_MS)
-            result.takeIf { it.isNotBlank() && it.startsWith("http") }
+            val url = result.takeIf { it.isNotBlank() && it.startsWith("http") }
+            if (url == null) lastFailureReason = "脚本返回空结果"
+            url
         } catch (e: JsSessionTimeoutException) {
+            lastFailureReason = "解析超时"
             LogBus.w(TAG, "resolveMusicUrl 超时（isolate 已终止）: $source/$songId")
             evict(scriptUrl, inst)
             null
         } catch (e: JsSessionClosedException) {
+            lastFailureReason = "解析会话已失效"
             LogBus.w(TAG, "resolveMusicUrl 会话不可用: ${e.message}")
             evict(scriptUrl, inst)
             null
         } catch (e: Exception) {
+            lastFailureReason = "解析异常：${e.message ?: "未知错误"}"
             LogBus.w(TAG, "resolveMusicUrl 失败: ${e.message}")
             null
         }

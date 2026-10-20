@@ -66,6 +66,7 @@ import com.movieshell.ui.components.goldTitleColor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
@@ -250,18 +251,35 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         testJob?.cancel()
         val job = scope.launch {
             try {
-                val url = withContext(Dispatchers.IO) {
-                    runCatching {
-                        if (source.builtin) {
-                            // v0.106.0：按内置源自报的最高档测试
-                            resolveBuiltinHuibq("wy", urlId, LxMusicSourceEngine.BUILTIN_QUALITIES.first())
-                        } else {
-                            lxEngine.resolveMusicUrl(source.url, "wy", urlId, "320k")
-                        }
-                    }.getOrElse { e -> if (e is CancellationException) throw e else null }
+                // v0.120.0：逐档串行试——内置按引擎自报档次（192k→128k），自定义按脚本
+                // inited 自报音质降序（无自报兜底 320k→128k）；每档记 ✓/✗，取消时 break
+                val (summary, firstUrl) = withContext(Dispatchers.IO) {
+                    val qualities: List<String> = if (source.builtin) {
+                        LxMusicSourceEngine.BUILTIN_QUALITIES
+                    } else {
+                        runCatching { lxEngine.loadScript(source.url) }
+                            .getOrElse { e -> if (e is CancellationException) throw e else false }
+                        LxMusicSourceEngine.sortHighToLow(lxEngine.getQualityIds(source.url))
+                            .ifEmpty { listOf("320k", "128k") }
+                    }
+                    val results = ArrayList<String>()
+                    var first: String? = null
+                    for (q in qualities) {
+                        if (!isActive) break
+                        val url = runCatching {
+                            if (source.builtin) resolveBuiltinHuibq("wy", urlId, q)
+                            else lxEngine.resolveMusicUrl(source.url, "wy", urlId, q)
+                        }.getOrElse { e -> if (e is CancellationException) throw e else null }
+                        val ok = !url.isNullOrBlank()
+                        if (ok && first == null) first = url
+                        results += "$q ${if (ok) "✓" else "✗"}"
+                    }
+                    results.joinToString(" / ") to first
                 }
-                testMsg = if (url.isNullOrBlank()) "解析失败"
-                else "解析成功：\n${url.take(80)}"
+                // 取消中途退出时不回填结果（testing 由 finally 的身份守卫落，不会误开新弹窗）
+                if (!isActive) return@launch
+                testMsg = if (firstUrl.isNullOrBlank()) "$summary\n解析失败"
+                else "$summary\n解析成功：\n${firstUrl.take(80)}"
             } finally {
                 // 只有"我仍是当前测试"时才落 testing：旧任务的 finally 不能误关新测试的弹窗；
                 // 用户主动取消时 onDismissRequest 已直接把 testing 置 false 立刻关弹窗
