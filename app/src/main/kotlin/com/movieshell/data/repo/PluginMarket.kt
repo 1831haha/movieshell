@@ -6,9 +6,7 @@ import com.movieshell.data.repo.PluginStore.InstalledPlugin
 import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
@@ -97,7 +95,7 @@ object PluginMarket {
 
     /**
      * v0.25.0：市场索引拉取专用客户端（索引小，15s 超时；下载走上面的 http 长超时）。
-     * v0.45.0：对冲层另有 10 秒单镜像超时，这里的 30 秒 callTimeout 只做兜底。
+     * v0.45.0：拉取层另有 10 秒单镜像超时，这里的 30 秒 callTimeout 只做兜底。
      * v0.112.0 B1：索引拉取并入进程级共享单例。
      */
     private val marketHttp = CmsApi.defaultClient()
@@ -119,9 +117,9 @@ object PluginMarket {
     /** 详情页用：从最近一次拉取结果里按 id 取。 */
     fun cached(id: String): MarketPlugin? = lastList.firstOrNull { it.id == id }
 
-    /** 拉取市场（v0.45.0：多镜像对冲重写；无磁盘缓存，引导页等轻量调用方用）。 */
+    /** 拉取市场（v0.123.0：多镜像串行首成即停；无磁盘缓存，引导页等轻量调用方用）。 */
     suspend fun fetch(url: String): MarketInfo = withContext(Dispatchers.IO) {
-        val (body, effectiveUrl) = fetchBodyHedged(url)
+        val (body, effectiveUrl) = fetchBodySequential(url)
         parseMarket(effectiveUrl, body).also { lastList = it.plugins }
     }
 
@@ -140,9 +138,9 @@ object PluginMarket {
             .also { rememberInfo(url, it) }
     }.getOrNull()
 
-    /** v0.45.0：拉远端（多镜像对冲）并写磁盘缓存，供市场页后台刷新用。 */
+    /** v0.45.0：拉远端并写磁盘缓存，供市场页后台刷新用（拉取口径见 fetchBodySequential）。 */
     suspend fun fetchRemote(context: Context, url: String): MarketInfo = withContext(Dispatchers.IO) {
-        val (body, effectiveUrl) = fetchBodyHedged(url)
+        val (body, effectiveUrl) = fetchBodySequential(url)
         runCatching {
             val f = cacheFile(context, url)
             f.parentFile?.mkdirs()
@@ -196,41 +194,30 @@ object PluginMarket {
     }
 
     /**
-     * v0.45.0：市场索引拉取重写——多镜像对冲。
-     * 4 个镜像同时请求，谁先成功用谁（单个 10 秒超时）；HTTP 错误码视为该镜像失败、
-     * 继续等其他镜像；全部失败才抛中文错。旧的"串行主备 + 每地址 30 秒"在弱网下
-     * 最长转 2 分钟才报错，是"偶尔加载不出来"的病根之一。
+     * v0.123.0：市场索引拉取——多镜像串行尝试，第一个成功立即返回，后面的不再请求。
+     * （v0.45.0 曾做并发对冲：真机日志显示 4 个镜像全被请求、全都返回 200 才出结果，
+     * 浪费流量且拖慢；串行首成即停，单个镜像 10 秒超时，弱网最长多等一个镜像的时间。）
      */
-    private suspend fun fetchBodyHedged(url: String): Pair<String, String> = coroutineScope {
+    private suspend fun fetchBodySequential(url: String): Pair<String, String> {
         val urls = mirrorUrls(url)
-        val ch = Channel<Result<Pair<String, String>>>(Channel.UNLIMITED)
-        val jobs = urls.map { u ->
-            launch(Dispatchers.IO) {
-                // v0.109.0：runCatching 会吞 CancellationException（withTimeout 的取消/
-                // 外层页面退出），取消必须透传，否则对冲子协程取消不掉
-                val result = try {
-                    Result.success(withTimeout(10_000) { getBody(u) } to u)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
-                ch.send(result)
-            }
-        }
         var lastErr: Throwable? = null
-        repeat(urls.size) {
-            val r = ch.receive()
-            if (r.isSuccess) {
-                val (body, won) = r.getOrThrow()
-                if (won != urls[0]) LogBus.i(TAG, "市场拉取经镜像成功：$won")
-                jobs.forEach { it.cancel() }
-                return@coroutineScope body to won
+        for (u in urls) {
+            try {
+                val body = withTimeout(10_000) { getBody(u) }
+                if (u != urls[0]) LogBus.i(TAG, "市场拉取经镜像成功：$u")
+                return body to u
+            } catch (e: TimeoutCancellationException) {
+                // 单镜像超时 = 该镜像失败，继续下一个（它是 CancellationException
+                // 子类，必须排在透传分支前面拦下，否则首个镜像慢就整单失败）
+                lastErr = e
+                LogBus.w(TAG, "市场镜像超时：$u")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                lastErr = e
+                LogBus.w(TAG, "市场镜像失败：$u ${e.message}")
             }
-            lastErr = r.exceptionOrNull()
-            LogBus.w(TAG, "市场镜像失败：${r.exceptionOrNull()?.message}")
         }
-        jobs.forEach { it.cancel() }
         throw IllegalStateException(
             "市场拉取失败：${urls.size} 个镜像都连不上（${lastErr?.message}），请检查网络后重试",
         )

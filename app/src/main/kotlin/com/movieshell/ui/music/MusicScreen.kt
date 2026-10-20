@@ -147,15 +147,15 @@ fun MusicScreen(
                 title = "音乐",
                 actions = {
                     // v0.117.0：列表页切换音源（设首选源，下一首生效；有在播歌曲时立即重解析）
-                    IconButton(
-                        onClick = { showSourcePicker = true },
-                        modifier = Modifier.size(40.dp),
-                    ) {
+                    // v0.123.0：纯图标用户认不出（反馈"没有切换音源按钮"），改图标+文字按钮
+                    TextButton(onClick = { showSourcePicker = true }) {
                         Icon(
                             imageVector = Icons.Filled.SwapHoriz,
                             contentDescription = "切换音源",
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(18.dp),
                         )
+                        Spacer(Modifier.width(4.dp))
+                        Text("切换音源")
                     }
                     IconButton(onClick = onOpenMusicSource, modifier = Modifier.size(40.dp)) {
                         Icon(
@@ -1023,19 +1023,33 @@ internal fun TrackRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // v0.117.0：真实解析来源与音质徽标（播过才有，数据来自 MusicPlayer.badges）
-                if (badge != null) {
+                // v0.123.0：来源平台 chip 常驻（点播前就有，数据来自 track 自带元信息，
+                // 无来源信息不显示、不编造）；与 v0.117.0 的解析徽标（播过才有）并排，
+                // 来源中性色在前，解析音源/音质照旧在后
+                val sourceLabel = when {
+                    track.isLocal -> "本地"
+                    else -> MusicApi.platformLabel(track.source)
+                }
+                if (sourceLabel != null || badge != null) {
                     Spacer(Modifier.height(3.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        BadgeChip(
-                            text = badge.first,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (badge.second.isNotBlank()) {
+                        if (sourceLabel != null) {
                             BadgeChip(
-                                text = badge.second,
-                                tint = qualityChipColor(badge.second),
+                                text = sourceLabel,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        }
+                        if (badge != null) {
+                            BadgeChip(
+                                text = badge.first,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (badge.second.isNotBlank()) {
+                                BadgeChip(
+                                    text = badge.second,
+                                    tint = qualityChipColor(badge.second),
+                                )
+                            }
                         }
                     }
                 }

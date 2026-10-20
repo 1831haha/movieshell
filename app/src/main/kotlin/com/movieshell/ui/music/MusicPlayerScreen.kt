@@ -211,9 +211,38 @@ fun MusicPlayerScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         // 封面（v0.89.0：旋转只作用在这两处；封面地址走 picImageUrl 解析）
                         val artUrl = rememberArtworkUrl(track.picId)
-                        if (artUrl.isNotBlank()) {
+                        // v0.123.0：没自带封面（本地导入歌/picId 为空/解析不出图）时，
+                        // 按歌名+歌手搜一次匹配第一条的封面回填，不阻塞播放；
+                        // 结果按 track.id 进程内缓存，同一首不重复搜（失败也记空）
+                        var matchedArt by remember(track.id) {
+                            mutableStateOf(matchedArtCache[track.id].orEmpty())
+                        }
+                        LaunchedEffect(track.id, artUrl) {
+                            if (artUrl.isNotBlank() ||
+                                matchedArtCache.containsKey(track.id)
+                            ) {
+                                return@LaunchedEffect
+                            }
+                            val q = if (track.artist.isBlank() || track.artist == "本地") {
+                                track.name
+                            } else {
+                                "${track.name} ${track.artist}"
+                            }
+                            val found = runCatching {
+                                val hit = MusicApi.search(q, count = 5)
+                                    .firstOrNull { it.picId.isNotBlank() }
+                                    ?: return@runCatching ""
+                                MusicApi.picImageUrl(hit.picId)
+                            }.onFailure {
+                                LogBus.w("MusicPlayer", "海报匹配失败：${it.message}")
+                            }.getOrDefault("")
+                            matchedArtCache[track.id] = found
+                            matchedArt = found
+                        }
+                        val shownArt = artUrl.ifBlank { matchedArt }
+                        if (shownArt.isNotBlank()) {
                             AsyncImage(
-                                model = artUrl,
+                                model = shownArt,
                                 contentDescription = null,
                                 modifier = Modifier
                                     .size(240.dp)
@@ -634,6 +663,9 @@ private fun MusicSleepTimerDialog(
             }
         }
     }
+
+/** v0.123.0：播放页海报匹配缓存（track.id → 封面图地址；空串=匹配过但没找到，不重复搜）。 */
+private val matchedArtCache = mutableMapOf<String, String>()
 
 private fun fmtMs(ms: Long): String {
     val s = (ms / 1000).toInt().coerceAtLeast(0)

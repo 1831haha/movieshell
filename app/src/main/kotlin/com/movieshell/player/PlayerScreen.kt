@@ -118,6 +118,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.util.Consumer
@@ -234,6 +235,8 @@ fun PlayerScreen(
     var autoSwitching by remember { mutableStateOf(false) } // playUrl 变化来自自动重试
     // v0.21.0：同地址已试过的内核（防 Media3↔libmpv 乒乓）
     val triedEngines = remember { mutableSetOf<PlayerEngine>() }
+    // v0.123.0：同一内核重拉流重试计数（补充B：IO 错误先同内核自愈，≤2 次）
+    val sameEngineRetries = remember { mutableIntStateOf(0) }
     var lastHeaders by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     // v0.96.1：横屏不断流——翻转前快照播放状态，方向变化后若停播则无缝恢复（双引擎通用）
     var rotateWasPlaying by remember { mutableStateOf(false) }
@@ -454,6 +457,20 @@ fun PlayerScreen(
         restoreAfterRotation()
     }
 
+    // v0.123.0：全屏画面铺满——独立播放页 / 嵌入横屏 = 全屏场景，画面 ZOOM 裁剪
+    // 少量边缘换铺满（用户反馈"横屏黑边太大"）；退出全屏恢复 FIT。与「画面比例」
+    // 菜单共用 resizeIndex，只在全屏状态/画面重建时应用一次，手动改完即生效。
+    val fullscreenNow = !embedded || cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
+    LaunchedEffect(fullscreenNow, playerView, engine) {
+        val idx = if (fullscreenNow) 2 else 0 // RESIZE_MODES：0=适应 FIT，2=裁剪 ZOOM
+        resizeIndex = idx
+        if (engine == PlayerEngine.MEDIA3) {
+            playerView?.resizeMode = RESIZE_MODES[idx].first
+        } else {
+            MpvPlayerManager.setAspectMode(idx)
+        }
+    }
+
     // 播放 / 切集：先保存上一集进度，再播新地址（带断点续播）
     // playUrl 为空表示暂无可播放地址，不启动播放器
     // magnet: 地址不直接播，走 MagnetPlayer 探测本机转播服务后再起播；
@@ -485,6 +502,7 @@ fun PlayerScreen(
             // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
             EngineHost.setEngineOverride(null)
             triedEngines.clear()
+            sameEngineRetries.intValue = 0
             lastUrl?.let { prev ->
                 savePlayerProgress(
                     context, title, prev, isLive,
@@ -657,6 +675,15 @@ fun PlayerScreen(
                 val target =
                     if (EngineHost.engine() == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV
                     else PlayerEngine.MEDIA3
+                // v0.123.0：手动切 libmpv 前先查插件在不在，没装别把用户带进黑屏
+                if (target == PlayerEngine.LIBMPV && !MpvPluginLoader.isInstalled(context)) {
+                    Toast.makeText(
+                        context,
+                        "libmpv 插件未安装，请先到插件市场安装",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@launch
+                }
                 EngineHost.stop()
                 EngineHost.setEngineOverride(null)
                 PlayerSettings.setEngine(context, target)
@@ -740,15 +767,35 @@ fun PlayerScreen(
     // v0.19.0：播放错误 -> 按线路顺序自动重试（同集换线路）；
     // 全部线路试完仍失败才 Snackbar 提示。无 PlaySession（嗅探页直进）时保持原行为。
     // v0.20.0：错误回调走 EngineHost，Media3/libmpv 双引擎统一消息字符串。
+    // v0.123.0（补充B）：恢复顺序重排——①当前内核重拉同一地址（≤2 次，直播 IO
+    // 抖动多半自愈，别一出错就换内核）②换内核（目标不可用直接跳过：libmpv 未安装/
+    // 初始化失败过不许切，v0.122.0 真机实锤切过去后黑屏死胡同）③换线路。
     DisposableEffect(Unit) {
         EngineHost.setOnErrorListener { msg ->
-            // v0.21.0：播放失败先自动换内核（同地址只换一次，静默不持久化）；
-            // 双内核都失败才走下面的线路重试。
-            // v0.25.0：换内核本身抛异常 → Toast 降级走线路重试，绝不崩。
+            if (sameEngineRetries.intValue < 2) {
+                sameEngineRetries.intValue++
+                LogBus.i(
+                    "Player",
+                    "播放失败，当前内核重拉重试 ${sameEngineRetries.intValue}/2：$msg",
+                )
+                scope.launch {
+                    delay(600)
+                    val ok = playCurrentUrl(
+                        if (isLive) 0L else EngineHost.currentPosition()
+                    )
+                    if (!ok) tryNextLine(msg)
+                }
+                return@setOnErrorListener
+            }
             val cur = EngineHost.engine()
             val other =
                 if (cur == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV else PlayerEngine.MEDIA3
-            if (other !in triedEngines) {
+            val otherUsable = other == PlayerEngine.MEDIA3 ||
+                (MpvPluginLoader.isInstalled(context) && !MpvPlayerManager.initFailed)
+            if (!otherUsable) {
+                LogBus.w("Player", "跳过自动换内核：$other 不可用（未安装或初始化失败过）")
+            }
+            if (otherUsable && other !in triedEngines) {
                 triedEngines.add(cur)
                 triedEngines.add(other)
                 try {
@@ -756,6 +803,7 @@ fun PlayerScreen(
                     EngineHost.stop()
                     EngineHost.setEngineOverride(other)
                     val pos = EngineHost.currentPosition()
+                    sameEngineRetries.intValue = 0 // 新内核重新给同内核重试机会
                     scope.launch {
                         val ok = playCurrentUrl(pos)
                         if (ok) {
@@ -1041,6 +1089,7 @@ fun PlayerScreen(
                 },
                 modifier = Modifier
                     .align(Alignment.Center)
+                    .zIndex(1f)
                     .size(76.dp)
                     .background(Color.Black.copy(alpha = 0.45f), CircleShape),
             ) {
@@ -1072,6 +1121,9 @@ fun PlayerScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // v0.123.0：控制层显式置于手势层之上（zIndex 分层），防横屏时 tap 被
+                    // 全屏手势层会话抢走、按钮点了没反应（用户反馈横屏返回/暂停失效）
+                    .zIndex(1f)
                     .let { if (embedded) it else it.statusBarsPadding() }
                     .background(Color.Black),
             ) {
@@ -1082,7 +1134,17 @@ fun PlayerScreen(
                     .padding(horizontal = 4.dp, vertical = if (embedded) 0.dp else 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = {
+                    // v0.123.0：嵌入直播横屏时返回 = 退出横屏（LiveScreen 传的 onBack 是
+                    // 空实现，横屏下点了一点反应都没有，正是"返回键失效"的实锤之一）
+                    if (embedded && isLive &&
+                        cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
+                    ) {
+                        toggleEmbeddedLandscape()
+                    } else {
+                        onBack()
+                    }
+                }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
                 }
                 Text(
@@ -1251,6 +1313,7 @@ fun PlayerScreen(
                 },
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
+                    .zIndex(1f)
                     .padding(end = 16.dp)
                     .size(56.dp)
                     .background(Color.Black.copy(alpha = 0.5f), CircleShape),
@@ -1266,6 +1329,7 @@ fun PlayerScreen(
             Column(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
+                    .zIndex(1f)
                     .padding(end = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -1349,6 +1413,7 @@ fun PlayerScreen(
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .zIndex(1f)
                     .fillMaxWidth()
                     // v0.84.0：半透明，少遮挡画面；用户反馈再调低一点
                     .background(Color.Black.copy(alpha = 0.3f))
@@ -1575,15 +1640,19 @@ fun PlayerScreen(
                             )
                         }
                     }
-                    IconButton(onClick = {
-                        // v0.65：嵌入模式点全屏 → 跳独立播放页（详情页传入回调）
-                        if (embedded) onFullscreen() else toggleOrientation()
-                    }) {
-                        Icon(
-                            Icons.Filled.Fullscreen,
-                            contentDescription = "全屏",
-                            tint = Color.White,
-                        )
+                    // v0.123.0：嵌入直播已有上面的横屏按钮，通用全屏按钮不再重复渲染
+                    // （之前两个 ⛶ 并排，用户反馈"有两个全屏按钮"就是这里）
+                    if (!(embedded && isLive)) {
+                        IconButton(onClick = {
+                            // v0.65：嵌入模式点全屏 → 跳独立播放页（详情页传入回调）
+                            if (embedded) onFullscreen() else toggleOrientation()
+                        }) {
+                            Icon(
+                                Icons.Filled.Fullscreen,
+                                contentDescription = "全屏",
+                                tint = Color.White,
+                            )
+                        }
                     }
                 }
             }

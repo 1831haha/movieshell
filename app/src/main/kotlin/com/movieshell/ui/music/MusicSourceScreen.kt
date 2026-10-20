@@ -113,30 +113,48 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
     val cookieValues = remember { mutableStateMapOf<String, String>() }
     var cookieText by remember { mutableStateOf<String?>(null) }
     var cookieLoading by remember { mutableStateOf(false) }
+    // v0.123.0：读脚本/扫描失败原因——弹窗必须显示，不许静默空白（用户反馈点不开）
+    var cookieError by remember { mutableStateOf<String?>(null) }
+    // v0.123.0：内置源 Cookie 说明弹窗（内置行也要有 Cookie 入口，点开讲清免配置）
+    var builtinCookieTip by remember { mutableStateOf<MusicSource?>(null) }
 
-    fun readScriptText(url: String): String? = runCatching {
+    /** v0.123.0：失败带原因抛出（原先吞成 null，弹窗只剩一句"读取失败"没下文）。 */
+    fun readScriptText(url: String): String {
         if (url.startsWith("file://")) {
-            File(URI(url)).takeIf { it.isFile }?.readText()
-        } else {
-            CmsApi.defaultClient().newCall(Request.Builder().url(url).get().build())
-                .execute().use { resp -> if (resp.isSuccessful) resp.body?.string() else null }
+            val f = File(URI(url))
+            if (!f.isFile) throw IllegalStateException("本地脚本文件不存在（可能已被清理）")
+            return f.readText()
         }
-    }.getOrNull()
+        return CmsApi.defaultClient().newCall(Request.Builder().url(url).get().build())
+            .execute().use { resp ->
+                if (!resp.isSuccessful) throw IllegalStateException("下载脚本失败：HTTP ${resp.code}")
+                resp.body?.string()?.takeIf { it.isNotBlank() }
+                    ?: throw IllegalStateException("脚本内容为空")
+            }
+    }
 
     fun openCookie(source: MusicSource) {
         cookieTarget = source
         cookieSlots = emptyList()
         cookieValues.clear()
         cookieText = null
+        cookieError = null
         cookieLoading = true
         scope.launch {
-            val text = withContext(Dispatchers.IO) { readScriptText(source.url) }
+            val result = withContext(Dispatchers.IO) {
+                runCatching { readScriptText(source.url) }
+            }
             cookieLoading = false
-            cookieText = text
-            if (text != null) {
-                val slots = LxCookieKit.scan(text)
+            result.onSuccess { text ->
+                cookieText = text
+                val slots = runCatching { LxCookieKit.scan(text) }
+                    .onFailure { cookieError = "扫描脚本声明失败：${it.message}" }
+                    .getOrDefault(emptyList())
                 cookieSlots = slots
                 slots.forEach { cookieValues[it.key] = it.current }
+            }.onFailure {
+                cookieText = null
+                cookieError = it.message ?: "未知错误"
             }
         }
     }
@@ -415,10 +433,12 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     TextButton(onClick = { doTest(source) }) {
                         Text("测试", fontSize = 13.sp)
                     }
-                    if (!source.builtin) {
-                        TextButton(onClick = { openCookie(source) }) {
-                            Text("Cookie", fontSize = 13.sp)
-                        }
+                    // v0.123.0：内置行也给 Cookie 按钮（原先只有非内置行有，用户在
+                    // huibq 行找不到入口直呼"没有 cookie 界面"）；内置点开是免配置说明
+                    TextButton(onClick = {
+                        if (source.builtin) builtinCookieTip = source else openCookie(source)
+                    }) {
+                        Text("Cookie", fontSize = 13.sp)
                     }
                     Switch(
                         checked = source.enabled,
@@ -516,17 +536,32 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                 }
                 cookieText == null -> {
                     Text(
-                        text = "脚本读取失败，无法配置",
+                        text = "脚本读取失败：${cookieError ?: "未知原因"}",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 cookieSlots.isEmpty() -> {
-                    Text(
-                        text = "该脚本未声明 Cookie 配置项（头部无 @xxx_cookie 注释）",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Column {
+                        Text(
+                            text = cookieError
+                                ?: "该脚本未声明 Cookie 配置项（头部无 @xxx_cookie 注释）。" +
+                                    "只有墨澜类带声明的脚本才能在这里填 Cookie。",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        // v0.123.0：0 声明时把脚本提到的平台列出来，不让用户对着空弹窗猜
+                        val sniffed = cookieText?.let { LxCookieKit.sniffPlatforms(it) }
+                            .orEmpty()
+                        if (sniffed.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "脚本里提到的平台：${sniffed.joinToString("、")}",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
                 else -> {
                     val filled = cookieSlots.count { cookieValues[it.key].orEmpty().isNotBlank() }
@@ -557,6 +592,26 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     }
                 }
             }
+        }
+    }
+
+    // v0.123.0：内置源 Cookie 说明（免配置，讲清 Cookie 入口在脚本类音源那一行）
+    builtinCookieTip?.let { src ->
+        TechDialog(
+            onDismissRequest = { builtinCookieTip = null },
+            title = "Cookie 配置",
+            subtitle = src.name,
+            confirmText = "知道了",
+            onConfirm = { builtinCookieTip = null },
+            dismissText = null,
+        ) {
+            Text(
+                text = "内置源是免费线路，免配置，不需要填 Cookie。\n" +
+                    "需要 Cookie 的是洛雪脚本类音源（如墨澜聚合）：在它们那一行点「Cookie」，" +
+                    "填各平台登录 Cookie 可解锁会员 / 无损音质。",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 

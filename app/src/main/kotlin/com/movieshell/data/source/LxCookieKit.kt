@@ -86,12 +86,18 @@ object LxCookieKit {
         }
     }
 
-    private fun labelOf(key: String): String = when (key) {
-        "tx", "qq" -> "QQ音乐"
-        "wy", "wyy", "netease" -> "网易云音乐"
-        "kw" -> "酷我音乐"
-        "kg" -> "酷狗音乐"
-        "mg" -> "咪咕音乐"
-        else -> key
-    }
+    /** v0.123.0：平台名映射收敛到 MusicApi.platformLabel 一处真源，这里只兜底原样返回。 */
+    private fun labelOf(key: String): String =
+        com.movieshell.data.repo.MusicApi.platformLabel(key) ?: key
+
+    /**
+     * v0.123.0：从脚本文本嗅探提到的平台（sources 定义里的 'tx': {...} 之类键、
+     * EVENT 上报的 source 字段），返回中文名列表。Cookie 弹窗扫到 0 个声明时展示，
+     * 让用户至少知道这个脚本覆盖哪些平台，而不是面对一句"未声明"摸不着头脑。
+     */
+    fun sniffPlatforms(scriptText: String): List<String> =
+        listOf("tx", "wy", "kg", "kw", "mg").filter { c ->
+            Regex("""['"]$c['"]\s*:""").containsMatchIn(scriptText) ||
+                Regex("""source\s*[:=]\s*['"]$c['"]""").containsMatchIn(scriptText)
+        }.map { labelOf(it) }
 }

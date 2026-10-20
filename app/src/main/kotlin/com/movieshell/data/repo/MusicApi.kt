@@ -23,6 +23,8 @@ object MusicApi {
     private const val SOURCE = "netease"
 
     // v0.81.0：@Serializable 以便本地音乐/收藏持久化；localUri 存本地音频的 content URI
+    // v0.123.0：source=来源平台 code（wy/tx/kg/kw/mg），列表行常驻来源 chip 用；
+    // 带默认值，旧收藏/歌单 JSON 缺字段读作空串（不显示，不编造）
     @kotlinx.serialization.Serializable
     data class Track(
         val id: String,
@@ -32,8 +34,19 @@ object MusicApi {
         val picId: String,
         val urlId: String,
         val localUri: String = "",
+        val source: String = "",
     ) {
         val isLocal: Boolean get() = localUri.isNotBlank()
+    }
+
+    /** v0.123.0：平台 code → 中文名，全 App 一处真源（LxCookieKit 亦委托此处）；未知返回 null。 */
+    fun platformLabel(code: String): String? = when (code.lowercase()) {
+        "tx", "qq" -> "QQ音乐"
+        "wy", "wyy", "netease" -> "网易云音乐"
+        "kw" -> "酷我音乐"
+        "kg" -> "酷狗音乐"
+        "mg" -> "咪咕音乐"
+        else -> null
     }
 
     // v0.112.0 B1：纯短 GET（搜索/播放地址/封面），每次请求显式带 UA 头，
@@ -70,6 +83,8 @@ object MusicApi {
                     album = o.optString("album"),
                     picId = o.optString("pic_id"),
                     urlId = o.optString("url_id"),
+                    // GD Studio 写死 netease 源，来源如实标 wy
+                    source = "wy",
                 )
             }
         }.onFailure {
@@ -106,6 +121,7 @@ object MusicApi {
                     album = al?.optString("name").orEmpty(),
                     picId = al?.optString("pic_str").orEmpty(),
                     urlId = sid,
+                    source = "wy",
                 )
             }
             pl.optString("name").ifBlank { "歌单 $id" }
