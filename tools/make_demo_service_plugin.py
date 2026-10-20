@@ -52,7 +52,7 @@ heartbeat() {
 }
 
 if command -v nc >/dev/null 2>&1; then
-  FIFO="./.hello_resp_fifo"
+  FIFO="${TMPDIR:-.}/.hello_resp_fifo"
   rm -f "$FIFO"
   if mkfifo "$FIFO" 2>/dev/null; then
     echo "[hello-service] 使用 nc 在 127.0.0.1:$PORT 提供 HTTP（/healthz 探活）"

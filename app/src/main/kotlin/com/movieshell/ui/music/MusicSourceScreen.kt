@@ -259,7 +259,9 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
     }
 
     fun doTest(source: MusicSource) {
-        val urlId = MusicPlayer.state.value.track?.urlId
+        // v0.131.0：当前曲目本体顺手留住——测试解析与播放同口径透传 musicInfo 歌名/歌手/专辑
+        val curTrack = MusicPlayer.state.value.track
+        val urlId = curTrack?.urlId
         if (urlId.isNullOrBlank()) {
             Toast.makeText(context, "先播放一首歌再测试", Toast.LENGTH_SHORT).show()
             return
@@ -289,7 +291,12 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                         if (!isActive) break
                         val url = runCatching {
                             if (source.builtin) resolveBuiltinHuibq("wy", urlId, q)
-                            else lxEngine.resolveMusicUrl(source.url, "wy", urlId, q)
+                            else lxEngine.resolveMusicUrl(
+                                source.url, "wy", urlId, q,
+                                name = curTrack?.name.orEmpty(),
+                                singer = curTrack?.artist.orEmpty(),
+                                albumName = curTrack?.album.orEmpty(),
+                            )
                         }.getOrElse { e -> if (e is CancellationException) throw e else null }
                         val ok = !url.isNullOrBlank()
                         if (ok && first == null) first = url

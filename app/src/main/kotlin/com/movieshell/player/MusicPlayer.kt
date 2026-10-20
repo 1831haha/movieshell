@@ -16,12 +16,15 @@ import com.movieshell.data.repo.MusicHistoryStore
 import com.movieshell.data.repo.MusicSourceStore
 import com.movieshell.data.source.LxMusicSourceEngine
 import com.movieshell.data.source.resolveBuiltinHuibq
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -135,6 +138,9 @@ object MusicPlayer {
     private var index: Int = -1
     // v0.85.0：播放请求代际——连接 service 是异步的，旧请求回来时若已被取代则丢弃
     private var playGen = 0
+    // v0.131.0：当前解析协程句柄——切歌先 cancel 上一首未完成的解析，避免多代
+    // 解析并发共用同一 V8 会话互踩、各自重试并重复上报失败
+    private var playJob: Job? = null
     // v0.108.0 B1：手动切换音源的一次性指定源 id——resolveLxUrl 消费后清零，
     // 后续切歌仍按默认顺序（启用源列表顺序）解析
     private var forcedSourceId: String? = null
@@ -342,6 +348,8 @@ object MusicPlayer {
 
     private fun playAt(context: Context, i: Int) {
         if (i !in queue.indices) return
+        // v0.131.0：切歌即取消上一首未完成的解析（见 playJob 声明处）
+        playJob?.cancel()
         index = i
         _queueState.value = QueueState(queue, i)
         val track = queue[i]
@@ -354,7 +362,7 @@ object MusicPlayer {
         // v0.125.0 补充A：无自带封面的歌在播放器 scope 里做海报匹配（切歌即触发，
         // 与页面组合无关，匹配结果进 matchedArt 供播放页读）
         ensureMatchedArt(track)
-        scope.launch {
+        playJob = scope.launch {
             // v0.81.0：本地音频直接播 content URI；在线歌曲实时取直链（不缓存）
             // v0.89.0：直链接口偶发 503，失败 1.5 秒后重试一次；封面与直链并发解析，不拖慢起播
             // v0.100.0：在线歌曲先走启用的 LX 音乐源解析（内置 huibq 纯 HTTP / 用户脚本），
@@ -365,10 +373,12 @@ object MusicPlayer {
                 if (track.isLocal) {
                     Resolved(track.localUri, "本地文件", "")
                 } else {
-                    resolveLxUrl(context.applicationContext, track.urlId, platform)
+                    resolveLxUrl(context.applicationContext, track)
                         ?: try {
                             MusicApi.playUrl(track.urlId, platform).takeIf { it.isNotBlank() }
                                 ?.let { Resolved(it, "GD Studio", "") }
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             LogBus.w("MusicPlayer", "取直链失败，重试一次：${track.name}（${e.message}）")
                             delay(1500)
@@ -386,6 +396,8 @@ object MusicPlayer {
             val resolved = mediaDeferred.await()
             if (resolved == null || resolved.url.isBlank()) {
                 artDeferred.cancel()
+                // v0.131.0：失败只报一次——已切歌的旧代静默退出，不记日志不 toast 不动 state
+                if (gen != playGen) return@launch
                 LogBus.e("MusicPlayer", "取播放地址失败：${track.name}")
                 _state.value = _state.value.copy(loading = false)
                 toast("取不到播放地址，请重试")
@@ -443,12 +455,17 @@ object MusicPlayer {
      * v0.126.0：平台不再写死 wy——按曲目自身平台（LX code）取档/解析，huibq 内置源
      * 同口径拼 url 路径；songId 必须是该平台自己的歌曲 id（跨平台切换时由
      * [playOnPlatform] 先匹配换 id），拿网易 id 去别的平台解析注定失败，不在此兜底。
+     * v0.131.0：改收 Track 本体——songId/platform 在内部从 track 派生，脚本侧
+     * musicInfo 补传 name/artist/album（interval 无时长字段传空串），缺字段会让
+     * 部分后端（如 mg 星海）直接拒绝解析。并发治理同版：循环头与收尾 ensureActive，
+     * 被切歌取消时 CE 穿出、不再记「全部失败」也不 toast。
      */
     private suspend fun resolveLxUrl(
         appContext: Context,
-        songId: String,
-        platform: String,
+        track: MusicApi.Track,
     ): Resolved? {
+        val songId = track.urlId
+        val platform = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
         if (songId.isBlank()) return null
         // v0.108.0 B1：一次性消费手动指定的源；该源不存在/已禁用时 sources 为空，
         // 自然回落为调用方 MusicApi.playUrl（GD Studio）兜底
@@ -470,6 +487,7 @@ object MusicPlayer {
         // v0.120.0：逐源收集失败原因，全部失败时透传到日志并给用户可见提示
         val failures = ArrayList<String>()
         for (s in sources) {
+            currentCoroutineContext().ensureActive()
             val qualities: List<String> = if (s.builtin) {
                 LxMusicSourceEngine.BUILTIN_QUALITIES
             } else {
@@ -480,9 +498,14 @@ object MusicPlayer {
             }
             var reason = "解析失败"
             for (q in qualities) {
+                currentCoroutineContext().ensureActive()
                 val url = runCatching {
                     if (s.builtin) resolveBuiltinHuibq(platform, songId, q)
-                    else engine.resolveMusicUrl(s.url, platform, songId, q)
+                    else engine.resolveMusicUrl(
+                        s.url, platform, songId, q,
+                        name = track.name, singer = track.artist,
+                        albumName = track.album, interval = "",
+                    )
                 }.getOrNull()?.takeIf { it.isNotBlank() }
                 if (url != null) {
                     LogBus.i("MusicPlayer", "LX 解析成功：${s.name} $q")
@@ -494,6 +517,7 @@ object MusicPlayer {
             }
             failures += "${s.name}：$reason"
         }
+        currentCoroutineContext().ensureActive()
         LogBus.w("MusicPlayer", "LX 源全部解析失败，回退 GD Studio：${failures.joinToString("；")}")
         toast("LX 解析失败，已回退备用线路")
         return null

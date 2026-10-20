@@ -2,6 +2,7 @@ package com.movieshell.data.source
 
 import android.content.Context
 import com.movieshell.data.repo.LogBus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -102,12 +103,22 @@ class LxMusicSourceEngine(context: Context) {
      * info.type；旧的自造形状（info 只有 songmid、音质放顶层 quality）会让墨澜/聚合
      * 类脚本取到 undefined 直接抛错。顶层 quality 与 info.songmid 一并保留作兼容。
      * songId 直接用 Track.urlId（网易 id，可当 wy 平台 songId 用）。
+     *
+     * v0.131.0：musicInfo 补全脚本实读字段——name（或 songName）、singer、
+     * interval、albumName（或 album）、source（平台 code）随歌透传，缺了会让
+     * mg 星海等后端回「需要name+singer」；kg 额外 put hash=songId、kw 额外
+     * put rid=songId（两平台多个后端优先读这两个字段）。无数据的字段传空串，
+     * 字段要在、值可空。
      */
     suspend fun resolveMusicUrl(
         scriptUrl: String,
         source: String,
         songId: String,
         quality: String,
+        name: String = "",
+        singer: String = "",
+        albumName: String = "",
+        interval: String = "",
     ): String? {
         lastFailureReason = ""
         if (scriptUrl.isBlank() || songId.isBlank()) {
@@ -127,6 +138,13 @@ class LxMusicSourceEngine(context: Context) {
             val musicInfo = JSONObject()
                 .put("songmid", songId)
                 .put("id", songId)
+                .put("name", name)
+                .put("singer", singer)
+                .put("albumName", albumName)
+                .put("interval", interval)
+                .put("source", source)
+            if (source == "kg") musicInfo.put("hash", songId)
+            if (source == "kw") musicInfo.put("rid", songId)
             val arg = JSONObject()
                 .put("action", "musicUrl")
                 .put("source", source)
@@ -156,6 +174,8 @@ class LxMusicSourceEngine(context: Context) {
             val url = result.takeIf { it.isNotBlank() && it.startsWith("http") }
             if (url == null) lastFailureReason = "脚本返回空结果"
             url
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: JsSessionTimeoutException) {
             lastFailureReason = "解析超时"
             LogBus.w(TAG, "resolveMusicUrl 超时（isolate 已终止）: $source/$songId")

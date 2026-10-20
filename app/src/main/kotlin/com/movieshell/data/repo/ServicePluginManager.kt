@@ -439,6 +439,12 @@ object ServicePluginManager {
         env.putAll(spec.env)
         env["PORT"] = port.toString()
         env["SERVICE_PORT"] = port.toString()
+        // 共享存储建不了 FIFO/套接字文件，服务应把这类文件放 TMPDIR（私有目录）
+        if (!spec.env.containsKey("TMPDIR")) {
+            val tmpDir = File(context.filesDir, "service_tmp")
+            runCatching { tmpDir.mkdirs() }
+            env["TMPDIR"] = tmpDir.absolutePath
+        }
         val proc = runCatching { pb.start() }
             .getOrElse { throw IllegalStateException("进程启动失败：${it.message}") }
 
