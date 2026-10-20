@@ -844,7 +844,17 @@ object ServicePluginManager {
     fun pidOf(id: String): Long? = synchronized(lock) {
         val h = running[id] ?: return@synchronized null
         if (!h.process.isAlive) return@synchronized null
-        runCatching { h.process.pid() }.getOrNull()
+        // java.lang.Process#pid() 是 Java 9 API，android.jar 编译期不可见：反射取，取不到返回 null
+        runCatching {
+            val m = h.process.javaClass.methods
+                .firstOrNull { it.name == "pid" && it.parameterCount == 0 }
+                ?: return@runCatching null
+            m.isAccessible = true
+            when (val v = m.invoke(h.process)) {
+                is Number -> v.toLong()
+                else -> null
+            }
+        }.getOrNull()
     }
 
     /**
@@ -1049,7 +1059,7 @@ object ServicePluginManager {
         // 自定义服务：工作目录先建好（展开失败只记日志，启动时还会再报）
         if (existing?.custom != false) {
             runCatching {
-                val wdRaw = def.workDir.ifBlank { "__plugin:$id__" }
+                val wdRaw = def.workDir.ifBlank { "__plugin:${id}__" }
                 val wd = File(expandPlaceholders(context, wdRaw))
                 val target = if (wd.isAbsolute) wd else File(File(installRoot(context), id), wdRaw)
                 target.mkdirs()
