@@ -422,7 +422,7 @@ object PluginMarket {
                 /**
                  * v0.137.0：runtime=运行时插件（如 php）。包内 bin/+lib/ 原样解到私有
                  * runtime/<id>/（native 载荷只能从私有目录执行，见 env/player 前例），
-                 * 服务启动时经 linker64 + --library-path 加载，不走共享存储。
+                 * 服务启动时经 linker64 + LD_LIBRARY_PATH 加载，不走共享存储。
                  */
                 "runtime" -> {
                     val root = File(StoragePaths.runtimeDir(context), plugin.id)

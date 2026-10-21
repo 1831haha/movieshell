@@ -75,6 +75,7 @@ import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -233,7 +234,7 @@ fun ServerPluginScreen(
                                 append("（${existing.joinToString(" / ")}已存在，跳过）")
                             }
                             if ("T4-PHP" in created) {
-                                append("；T4-PHP 待 PHP 运行时上架后可启动")
+                                append("；T4-PHP 需先在市场安装 PHP 运行时再启动")
                             }
                         }
                     }
@@ -246,6 +247,14 @@ fun ServerPluginScreen(
     }
     LaunchedEffect(tick) {
         plugins = withContext(Dispatchers.IO) { ServicePluginManager.installedPlugins(context) }
+    }
+    // v0.138.0：启动中轮询——STARTING 是 5 秒宽限窗内的过渡态，仍有
+    // STARTING 时每秒刷新一次，直到翻绿（运行中）或翻红（异常）才停。
+    LaunchedEffect(plugins) {
+        while (plugins.any { it.status == ServicePluginManager.Status.STARTING }) {
+            delay(1000)
+            reload()
+        }
     }
     // v0.127.0：插件列表变化后同步读各服务的启动配置（命令行/路径/配置项呈现用）
     LaunchedEffect(plugins) {
@@ -287,7 +296,9 @@ fun ServerPluginScreen(
         scope.launch {
             val msg = withContext(Dispatchers.IO) {
                 runCatching {
-                    if (p.status == ServicePluginManager.Status.RUNNING) {
+                    if (p.status == ServicePluginManager.Status.RUNNING ||
+                        p.status == ServicePluginManager.Status.STARTING
+                    ) {
                         ServicePluginManager.stop(context, p.id)
                         "${p.name} 已停止"
                     } else {
@@ -420,6 +431,7 @@ fun ServerPluginScreen(
                     ServicePluginManager.Status.RUNNING -> "运行中"
                     ServicePluginManager.Status.ERROR -> "异常（进程非 0 退出）"
                     ServicePluginManager.Status.STOPPED -> "已停止"
+                    ServicePluginManager.Status.STARTING -> "启动中"
                 }
                 AppCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
@@ -429,6 +441,7 @@ fun ServerPluginScreen(
                                 ServicePluginManager.Status.RUNNING -> Color(0xFF4CAF50)
                                 ServicePluginManager.Status.ERROR -> Color(0xFFE53935)
                                 ServicePluginManager.Status.STOPPED -> Color(0xFF9E9E9E)
+                                ServicePluginManager.Status.STARTING -> Color(0xFFFFC107)
                             }
                             Box(
                                 modifier = Modifier.size(10.dp)
@@ -560,7 +573,9 @@ fun ServerPluginScreen(
                             enabled = busyId == null,
                         ) {
                             Text(
-                                if (p.status == ServicePluginManager.Status.RUNNING) "停止" else "启动",
+                                if (p.status == ServicePluginManager.Status.RUNNING ||
+                                    p.status == ServicePluginManager.Status.STARTING
+                                ) "停止" else "启动",
                             )
                         }
                         TextButton(onClick = {

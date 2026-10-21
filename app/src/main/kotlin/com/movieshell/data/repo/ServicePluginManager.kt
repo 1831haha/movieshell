@@ -53,7 +53,10 @@ object ServicePluginManager {
 
     private val ID_RE = Regex("^[a-z0-9._-]+$")
 
-    enum class Status { RUNNING, STOPPED, ERROR }
+    enum class Status { RUNNING, STOPPED, ERROR, STARTING }
+
+    /** v0.138.0：启动中宽限窗——进程活着但未满该时长时显示黄灯，满后转绿灯。 */
+    private const val STARTING_GRACE_MS = 5000L
 
     data class PluginInfo(
         val id: String,
@@ -170,6 +173,7 @@ object ServicePluginManager {
         val logs: ArrayDeque<String> = ArrayDeque(),
         @Volatile var exitCode: Int? = null,
         @Volatile var userStopped: Boolean = false,
+        val startedAtMs: Long = System.currentTimeMillis(),
     )
 
     private val lock = Any()
@@ -764,20 +768,25 @@ object ServicePluginManager {
             env["TMPDIR"] = tmpDir.absolutePath
         }
         // v0.132.0：非脚本走「直接 exec → linker64 回退」策略（startProcess 单一入口）
-        // v0.137.0：php 运行时回退时加 --library-path（依赖库不在系统路径里）；
-        // 直执在私有目录也会被 SELinux 拦，故回退是常态而非异常。
+        // v0.138.0：php 依赖库改走 LD_LIBRARY_PATH 环境变量——v0.137.0 的
+        // --library-path 独立参数被本机 linker64 拒收（把它当待运行程序路径，
+        // 报 expected absolute path，进程 code=1 退出）；且直执路径同样缺库
+        // 路径，环境变量两路都通。直执在私有目录也会被 SELinux 拦，
+        // 故回退是常态而非异常。
         val isScript = exe.name.endsWith(".sh", ignoreCase = true)
         val linker = File("/system/bin/linker64")
         val phpLibDir = phpLibDirFor(exe)
-        val altCmd = if (!isScript && linker.isFile) {
-            if (phpLibDir != null) {
-                listOf(
-                    linker.absolutePath, "--library-path", phpLibDir.absolutePath,
-                    exe.absolutePath,
-                ) + resolvedArgs
+        if (phpLibDir != null) {
+            val prev = env["LD_LIBRARY_PATH"]
+                ?: System.getenv("LD_LIBRARY_PATH").orEmpty()
+            env["LD_LIBRARY_PATH"] = if (prev.isBlank()) {
+                phpLibDir.absolutePath
             } else {
-                listOf(linker.absolutePath, exe.absolutePath) + resolvedArgs
+                phpLibDir.absolutePath + ":" + prev
             }
+        }
+        val altCmd = if (!isScript && linker.isFile) {
+            listOf(linker.absolutePath, exe.absolutePath) + resolvedArgs
         } else {
             null
         }
@@ -852,6 +861,8 @@ object ServicePluginManager {
     fun statusOf(context: Context, id: String): Status = synchronized(lock) {
         val h = running[id]
         return when {
+            h != null && h.process.isAlive &&
+                System.currentTimeMillis() - h.startedAtMs < STARTING_GRACE_MS -> Status.STARTING
             h != null && h.process.isAlive -> Status.RUNNING
             h != null && !h.userStopped && h.exitCode != null && h.exitCode != 0 -> Status.ERROR
             else -> Status.STOPPED
