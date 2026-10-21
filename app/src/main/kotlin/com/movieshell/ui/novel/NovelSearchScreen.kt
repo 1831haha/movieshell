@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -24,8 +25,9 @@ import androidx.compose.material.icons.filled.Source
 import androidx.compose.material3.Button
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.goldTitleColor
+import com.movieshell.ui.components.StatusRing
+import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.TechDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -137,6 +139,8 @@ fun NovelSearchScreen(
                 onValueChange = { vm.setKeyword(it) },
                 placeholder = { Text("书名 / 作者") },
                 singleLine = true,
+                // v0.139.0：搜索框改胶囊圆角，与系统干净风格对齐
+                shape = RoundedCornerShape(50),
                 modifier = Modifier.weight(1f),
             )
             IconButton(onClick = { vm.doSearch() }, modifier = Modifier.padding(start = 4.dp)) {
@@ -147,7 +151,8 @@ fun NovelSearchScreen(
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
+                    // v0.139.0：加载圈统一为 StatusRing（跑马灯圆环 + 黄色状态点）
+                    StatusRing(state = StatusRingState.Loading, diameter = 44.dp)
                     Spacer(Modifier.height(8.dp))
                     Text("正在搜索 $totalEnabled 个书源…", fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -194,7 +199,7 @@ fun NovelSearchScreen(
                                         vm.setKeyword(h)
                                         vm.doSearch()
                                     }
-                                    .padding(vertical = 6.dp),
+                                    .padding(vertical = 8.dp),
                             ) {
                                 Icon(
                                     Icons.Filled.History,

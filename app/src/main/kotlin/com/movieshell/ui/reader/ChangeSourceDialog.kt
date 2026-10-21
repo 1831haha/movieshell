@@ -48,6 +48,8 @@ import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.StatusRing
+import com.movieshell.ui.components.StatusRingState
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -183,7 +185,10 @@ fun ChangeSourceDialog(
                         searching -> Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
-                        ) { CircularProgressIndicator() }
+                        ) {
+                            // 整区加载圈统一为 StatusRing（跑马灯圆环 + 黄色状态点）
+                            StatusRing(state = StatusRingState.Loading, diameter = 40.dp)
+                        }
                         !searched || groups.isEmpty() -> Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,

@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -70,6 +69,8 @@ import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
+import com.movieshell.ui.components.StatusRing
+import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
@@ -437,15 +438,15 @@ fun ServerPluginScreen(
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                         // v0.127.0：第一行——状态点 + 名 + 端口 chip + 版本（仿 DS 服务卡结构）
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            val dotColor = when (p.status) {
-                                ServicePluginManager.Status.RUNNING -> Color(0xFF4CAF50)
-                                ServicePluginManager.Status.ERROR -> Color(0xFFE53935)
-                                ServicePluginManager.Status.STOPPED -> Color(0xFF9E9E9E)
-                                ServicePluginManager.Status.STARTING -> Color(0xFFFFC107)
-                            }
-                            Box(
-                                modifier = Modifier.size(10.dp)
-                                    .clip(CircleShape).background(dotColor),
+                            // v0.139.0：状态点升级为统一 StatusRing（跑马灯圆环 + 中央状态点）
+                            StatusRing(
+                                state = when (p.status) {
+                                    ServicePluginManager.Status.RUNNING -> StatusRingState.Ready
+                                    ServicePluginManager.Status.STARTING -> StatusRingState.Loading
+                                    ServicePluginManager.Status.ERROR -> StatusRingState.Failed
+                                    ServicePluginManager.Status.STOPPED -> StatusRingState.Idle
+                                },
+                                diameter = 22.dp,
                             )
                             Spacer(Modifier.size(10.dp))
                             Text(

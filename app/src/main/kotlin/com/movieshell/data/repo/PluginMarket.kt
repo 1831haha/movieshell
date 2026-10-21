@@ -420,12 +420,14 @@ object PluginMarket {
                     }
                 }
                 /**
-                 * v0.137.0：runtime=运行时插件（如 php）。包内 bin/+lib/ 原样解到私有
-                 * runtime/<id>/（native 载荷只能从私有目录执行，见 env/player 前例），
-                 * 服务启动时经 linker64 + LD_LIBRARY_PATH 加载，不走共享存储。
+                 * v0.137.0：runtime=运行时插件（如 php）。包内文件原样解到私有
+                 * runtime/<id>/（native 载荷只能从私有目录执行）。
+                 * v0.139.0：先清旧目录再解，避免旧版残留（如动态版 lib 目录的 so 文件近 80MB）；
+                 * 静态单文件直接运行，动态文件走 ServicePluginManager 的 linker64 回退。
                  */
                 "runtime" -> {
                     val root = File(StoragePaths.runtimeDir(context), plugin.id)
+                    root.deleteRecursively()
                     entries.forEach { e ->
                         val dst = safeDst(root, e.name)
                         dst.parentFile?.mkdirs()
@@ -595,6 +597,14 @@ object PluginMarket {
         }
         return false
     }
+
+    /**
+     * v0.139.0：运行时插件是否可更新——版本号更新，或同为 runtime 但版本不同
+     * （换构建路线时版本号可能回落，如动态版 8.5.1 → 静态版 8.3.35，仍应视为可更新）。
+     */
+    fun isUpdatable(plugin: MarketPlugin, installedVersion: String?): Boolean =
+        installedVersion != null && (isNewer(plugin.version, installedVersion) ||
+            (plugin.type == "runtime" && plugin.version != installedVersion))
 
     /** 人性化大小：1.2 MB / 340 KB。 */
     fun formatSize(bytes: Long): String = when {

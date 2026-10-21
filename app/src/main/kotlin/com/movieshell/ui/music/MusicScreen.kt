@@ -62,6 +62,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.movieshell.ui.components.StatusRing
+import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.data.repo.MusicApi
@@ -642,7 +644,10 @@ private fun OnlineTab(
                 searching -> Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
-                ) { CircularProgressIndicator() }
+                ) {
+                    // 搜索区加载圈统一为 StatusRing（跑马灯圆环 + 黄色状态点）
+                    StatusRing(state = StatusRingState.Loading, diameter = 40.dp)
+                }
                 !searched -> Column(modifier = Modifier.fillMaxSize()) {
                     Spacer(Modifier.height(8.dp))
                     Text(

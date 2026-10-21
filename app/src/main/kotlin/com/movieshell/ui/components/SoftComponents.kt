@@ -331,7 +331,8 @@ fun SoftBottomDock(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(24.dp)
+    // v0.139.0：胶囊优化——真胶囊圆角（50）+ 微光描边，与毛玻璃卡片同口径
+    val shape = RoundedCornerShape(50)
     val unselected = Color(0xFF9AA4B2)
     val accent = Color(0xFF4DD0E1) // v0.36.0：青色强调色（mockup 风格），固定
     Surface(
@@ -343,7 +344,8 @@ fun SoftBottomDock(
                 shape = shape,
                 ambientColor = accent.copy(alpha = 0.10f),
                 spotColor = Color.Black.copy(alpha = 0.35f),
-            ),
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.08f), shape),
         shape = shape,
         color = Color(0xFF1E242F),
         tonalElevation = 0.dp,
@@ -359,7 +361,7 @@ fun SoftBottomDock(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(50))
                         .background(
                             if (selected) accent.copy(alpha = 0.18f)
                             else Color.Transparent

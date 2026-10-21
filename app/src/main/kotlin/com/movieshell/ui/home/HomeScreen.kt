@@ -161,6 +161,8 @@ fun HomeScreen(
     onFollowClick: () -> Unit = {},
     // v0.35.0：小说书架入口
     onBookshelfClick: () -> Unit = {},
+    // v0.139.0：首页空态“去添加站源”入口（站源管理在设置页）
+    onManageSources: () -> Unit = {},
     // v0.75.0：继续观看——带集数进详情页（默认走 onVodClick）
     onContinueWatch: (vodId: String, title: String, episodeIndex: Int) -> Unit =
         { v, t, _ -> onVodClick(v, t) },
@@ -1104,7 +1106,9 @@ fun HomeScreen(
                             kind = EmptyKind.Empty,
                             icon = Icons.Filled.Movie,
                             title = "暂无首页内容",
-                            hint = "去站源页管理源",
+                            hint = "先添加并启用站源，首页就有推荐了",
+                            actionText = "去添加站源",
+                            onAction = onManageSources,
                         )
                     }
                 } else {

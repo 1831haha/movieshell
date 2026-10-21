@@ -140,7 +140,7 @@ private fun InstalledPluginsBody(onDetail: (String) -> Unit) {
         }
         items(plugins, key = { it.id }) { p ->
             val mp = marketById[p.id]
-            val hasUpdate = mp != null && PluginMarket.isNewer(mp.version, p.version)
+            val hasUpdate = mp != null && PluginMarket.isUpdatable(mp, p.version)
             val desc = mp?.desc?.lineSequence()?.firstOrNull()?.trim()
                 ?.ifBlank { null } ?: installedFallbackDesc(p)
             AppCard(modifier = Modifier.fillMaxWidth()) {

@@ -149,8 +149,7 @@ fun PluginActionButtons(
     onInstall: () -> Unit,
     onUninstall: () -> Unit,
 ) {
-    val hasUpdate = installedVersion != null &&
-        PluginMarket.isNewer(plugin.version, installedVersion)
+    val hasUpdate = PluginMarket.isUpdatable(plugin, installedVersion)
     val blocked = !plugin.isSupported()
     val needApp = plugin.needsNewerApp()
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

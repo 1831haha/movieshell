@@ -337,6 +337,8 @@ class MainActivity : ComponentActivity() {
                                 onFollowClick = { navController.navigate("follow") },
                                 // v0.35.0：小说书架
                                 onBookshelfClick = { navController.navigate("bookshelf") },
+                                // v0.139.0：首页空态去站源管理（管理入口在设置页）
+                                onManageSources = { navController.navigateTab("settings") },
                                 // v0.75.0：继续观看——带集数进详情页
                                 onContinueWatch = { vodId, title, episode ->
                                     navController.navigate(

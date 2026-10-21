@@ -153,7 +153,7 @@ fun PluginMarketScreen(
     }
     val installedCount = merged.count { installedMap.containsKey(it.id) }
     val updatableCount = merged.count { p ->
-        installedMap[p.id]?.let { PluginMarket.isNewer(p.version, it.version) } == true
+        installedMap[p.id]?.let { PluginMarket.isUpdatable(p, it.version) } == true
     }
     // v0.134.0：架构筛选选项由数据派生——全是单一架构时不渲染这一行（有意为之）
     val archOptions = remember(merged) {
@@ -413,7 +413,7 @@ fun PluginMarketScreen(
                         .filter { p ->
                             when (statusFilter) {
                                 1 -> installedMap[p.id]?.let {
-                                    PluginMarket.isNewer(p.version, it.version)
+                                    PluginMarket.isUpdatable(p, it.version)
                                 } == true
                                 2 -> installedMap.containsKey(p.id)
                                 3 -> !installedMap.containsKey(p.id)
@@ -495,8 +495,7 @@ private fun PluginCard(
     onInstall: () -> Unit,
     onUninstall: () -> Unit,
 ) {
-    val hasUpdate = installedVersion != null &&
-        PluginMarket.isNewer(plugin.version, installedVersion)
+    val hasUpdate = PluginMarket.isUpdatable(plugin, installedVersion)
     AppCard(
         modifier = Modifier
             .fillMaxWidth()

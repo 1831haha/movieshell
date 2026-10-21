@@ -62,6 +62,8 @@ import com.movieshell.data.repo.SubCurrent
 import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.StatusRing
+import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.siteLogoUrl
 import com.movieshell.ui.theme.LocalBrandGradient
 import com.movieshell.ui.theme.LocalSoftExtra
@@ -358,7 +360,8 @@ fun SourcePickerSheet(
         // 4 列小图标卡片网格
         if (loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                // 整区加载圈统一为 StatusRing（跑马灯圆环 + 黄色状态点）
+                StatusRing(state = StatusRingState.Loading, diameter = 40.dp)
             }
         } else if (visible.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +49,8 @@ import com.movieshell.data.repo.MusicPlaylist
 import com.movieshell.player.MusicPlayer
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
+import com.movieshell.ui.components.StatusRing
+import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import kotlinx.coroutines.launch
@@ -137,7 +138,10 @@ fun PlaylistDetailScreen(
                 loading -> Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
-                ) { CircularProgressIndicator() }
+                ) {
+                    // 整页加载圈统一为 StatusRing（跑马灯圆环 + 黄色状态点）
+                    StatusRing(state = StatusRingState.Loading, diameter = 40.dp)
+                }
                 playlist == null -> Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
