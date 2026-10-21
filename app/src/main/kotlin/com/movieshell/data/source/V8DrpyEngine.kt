@@ -9,6 +9,8 @@ import com.movieshell.data.model.FilterOption
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.StoragePaths
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -66,7 +68,28 @@ class V8DrpyEngine(
         appContext.assets.open(path).bufferedReader().readText()
 
     override fun loadRule(js: String) {
-        ruleJs = js
+        // v0.140.0：import 内联展开（见 RuleImportExpander）。规则与 lib 文件
+        // 都在 StoragePaths.jsDir()（xiaying/js/）下，相对路径按该目录解析；
+        // canonical 路径校验防 ../ 逃出规则目录。
+        val expanded = RuleImportExpander.expand(js) { spec ->
+            runCatching {
+                val dir = StoragePaths.jsDir(appContext)
+                val f = File(dir, spec)
+                if (f.canonicalPath.startsWith(dir.canonicalPath) && f.isFile) f.readText() else null
+            }.getOrNull()
+        }
+        if (expanded.inlined.isNotEmpty()) {
+            LogBus.i(TAG, "import 已内联：${expanded.inlined.joinToString()}（规则目录 xiaying/js/）")
+        }
+        if (expanded.missing.isNotEmpty()) {
+            LogBus.e(
+                TAG,
+                "import 找不到文件，已跳过（请把文件放进 xiaying/js/）：" +
+                    expanded.missing.joinToString(),
+            )
+        }
+        expanded.warnings.forEach { LogBus.w(TAG, it) }
+        ruleJs = expanded.js
         // v0.110.0：换规则即失效 home 缓存，避免旧规则的 home 串给新规则。
         sharedHomeJson = null
         sharedHomeAt = 0L

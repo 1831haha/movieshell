@@ -73,10 +73,34 @@ fun extLooksLikeImageUrl(ext: String): Boolean {
 }
 
 /**
+ * 从 http(s) URL 里取 host（去端口、去路径/参数），非 URL 返回 null。
+ * 供订阅站源（api 是接口 URL）与本地规则（文件头里的 host/首个 URL）取站点域用。
+ */
+fun hostFromUrl(url: String): String? {
+    val u = url.trim()
+    if (!u.startsWith("http://") && !u.startsWith("https://")) return null
+    val host = u.substringAfter("://").substringBefore("/").substringBefore("?").substringBefore("#")
+    return host.ifBlank { null }
+}
+
+/**
+ * v0.140.0：站点 favicon（图标第四级）。
+ * 直接取站点根目录的 favicon.ico，不走第三方图标服务（避免无图标站点被
+ * 通用占位图盖住首字）。Coil 解不了真 ICO 格式时加载失败，调用方
+ * 的首字底层自然露出，不崩。
+ */
+fun faviconUrlForHost(host: String): String? {
+    val h = host.trim().lowercase().substringBefore(":").substringBefore("/").substringBefore(" ")
+    if (h.isEmpty()) return null
+    return "https://$h/favicon.ico"
+}
+
+/**
  * 站源 logo 三级 fallback：
  * ① ext 是图片 URL → 直接用；
  * ② 内置图标表按 key/name 匹配；
  * ③ 返回 null，调用方兜底画首字色块 + 主题渐变。
+ * v0.140.0 补充④（调用方做，不进本函数）：站点 host 的 favicon.ico。
  */
 fun siteLogoUrl(key: String, name: String, ext: String?): String? {
     if (!ext.isNullOrBlank() && extLooksLikeImageUrl(ext)) return ext.trim()

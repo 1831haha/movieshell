@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -58,13 +57,17 @@ import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SourceStateStore
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubCurrent
 import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
+import com.movieshell.ui.components.faviconUrlForHost
+import com.movieshell.ui.components.hostFromUrl
 import com.movieshell.ui.components.siteLogoUrl
+import java.io.File
 import com.movieshell.ui.theme.LocalBrandGradient
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
@@ -85,6 +88,10 @@ import kotlinx.coroutines.withContext
  * 本地规则（DrpySourceManager/PySourceManager）+ 订阅站源（ApiSourceStore/SubSiteStore）。
  * 点选卡片：调现有切换逻辑 → onChanged（HomeScreen.refreshDrpyState(fromUserSwitch=true)
  * 即时重载首页）→ onDismiss 关弹窗，三者都发生。
+ *
+ * v0.140.0：图标由圆形改方形紧凑布局（44dp 圆角方块、间距收紧）；
+ * 图标匹配加第四级：站点 host 的 favicon.ico（本地规则读文件头取 host，
+ * 订阅站源取 api 的 host），取不到或加载失败仍回退首字。
  */
 @Composable
 fun SourcePickerSheet(
@@ -96,6 +103,8 @@ fun SourcePickerSheet(
     var cur by remember { mutableStateOf<SubCurrent?>(null) }
     var drpyRules by remember { mutableStateOf<List<DrpySourceManager.RuleInfo>>(emptyList()) }
     var pyRules by remember { mutableStateOf<List<PySourceManager.RuleInfo>>(emptyList()) }
+    var drpyHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
+    var pyHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     var drpyActiveName by remember { mutableStateOf<String?>(null) }
     var pyActiveName by remember { mutableStateOf<String?>(null) }
     var subSites by remember { mutableStateOf<List<Pair<ApiSource, SubSiteRecord>>>(emptyList()) }
@@ -120,6 +129,9 @@ fun SourcePickerSheet(
             sites.map { sub to it }
         }
         subSites = newSubSites
+        // v0.140.0：本地规则的站点 host（文件头取，IO 线程做，不阻塞主线程）
+        drpyHosts = newDrpy.associate { it.name to ruleFileHost(StoragePaths.jsDir(context), it.name) }
+        pyHosts = newPy.associate { it.name to ruleFileHost(StoragePaths.pyDir(context), it.name) }
         val ids = HashSet<String>()
         newDrpy.forEach { ids += "local-drpy:${it.name}" }
         newPy.forEach { ids += "local-py:${it.name}" }
@@ -192,16 +204,18 @@ fun SourcePickerSheet(
     }
 
     // 统一条目：本地 drpy 规则 / 本地 py 规则 / 订阅站点
-    val items: List<PickerItem> = remember(cur, drpyRules, pyRules, drpyActiveName, pyActiveName, subSites) {
+    val items: List<PickerItem> = remember(cur, drpyRules, pyRules, drpyHosts, pyHosts, drpyActiveName, pyActiveName, subSites) {
         val list = mutableListOf<PickerItem>()
         drpyRules.forEach { rule ->
             val name = rule.title.ifBlank { rule.name }
+            val host = drpyHosts[rule.name]
             list.add(
                 PickerItem(
                     id = "local-drpy:${rule.name}",
                     name = name,
                     kind = SubSiteStore.KIND_DRPY,
-                    logoUrl = siteLogoUrl(rule.name, name, null),
+                    logoUrl = siteLogoUrl(rule.name, name, null)
+                        ?: host?.let { faviconUrlForHost(it) },
                     isCurrent = cur == null && rule.name == drpyActiveName,
                     onPick = { pickLocal(true, rule.name) },
                 ),
@@ -209,12 +223,14 @@ fun SourcePickerSheet(
         }
         pyRules.forEach { rule ->
             val name = rule.title.ifBlank { rule.name }
+            val host = pyHosts[rule.name]
             list.add(
                 PickerItem(
                     id = "local-py:${rule.name}",
                     name = name,
                     kind = SubSiteStore.KIND_PY,
-                    logoUrl = siteLogoUrl(rule.name, name, null),
+                    logoUrl = siteLogoUrl(rule.name, name, null)
+                        ?: host?.let { faviconUrlForHost(it) },
                     isCurrent = cur == null && rule.name == pyActiveName,
                     onPick = { pickLocal(false, rule.name) },
                 ),
@@ -229,7 +245,8 @@ fun SourcePickerSheet(
                     id = "sub:${sub.url}:${rec.key}",
                     name = name,
                     kind = rec.kind,
-                    logoUrl = siteLogoUrl(rec.key, name, rec.ext),
+                    logoUrl = siteLogoUrl(rec.key, name, rec.ext)
+                        ?: hostFromUrl(rec.api)?.let { faviconUrlForHost(it) },
                     isCurrent = c != null && c.subUrl == sub.url && c.siteKey == rec.key,
                     unsupportedReason = if (unsupported) rec.reason else null,
                     onPick = {
@@ -377,10 +394,10 @@ fun SourcePickerSheet(
                 contentPadding = PaddingValues(
                     start = SoftDimens.PagePadding,
                     end = SoftDimens.PagePadding,
-                    bottom = 24.dp,
+                    bottom = 16.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 items(visible, key = { it.id }) { item ->
@@ -411,7 +428,7 @@ private data class PickerItem(
     val onPick: () -> Unit,
 )
 
-/** 4 列网格里的单个源卡片：图标 + 名。 */
+/** 4 列网格里的单个源卡片：图标 + 名。v0.140.0：方形紧凑（圆角收至 14dp，间距收紧）。 */
 @Composable
 private fun SourceGridCard(item: PickerItem) {
     val brandColors = LocalBrandGradient.current
@@ -423,23 +440,23 @@ private fun SourceGridCard(item: PickerItem) {
                     Modifier
                         .background(
                             Brush.linearGradient(brandColors),
-                            RoundedCornerShape(18.dp),
+                            RoundedCornerShape(14.dp),
                         )
                         .padding(1.5.dp)
                 } else Modifier,
             )
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(LocalSoftExtra.current.glass)
             .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
             .clickable(onClick = item.onPick)
-            .padding(vertical = 12.dp, horizontal = 4.dp),
+            .padding(vertical = 8.dp, horizontal = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            SourceLogo(logoUrl = item.logoUrl, name = item.name, size = 52.dp)
+            SourceLogo(logoUrl = item.logoUrl, name = item.name, size = 44.dp)
             Text(
                 text = item.name,
                 style = SoftType.Caption,
@@ -462,9 +479,10 @@ private fun SourceGridCard(item: PickerItem) {
 }
 
 /**
- * 源图标：有 logoUrl（ext 图片 / 内置表）走 Coil 加载；
+ * 源图标：有 logoUrl（ext 图片 / 内置表 / 站点 favicon）走 Coil 加载；
  * 失败或无 logo 时回退首字色块 + 主题渐变。
  * 失败回退零成本：首字始终画在底层，AsyncImage 成功才盖住（不依赖 Coil 回调 API）。
+ * v0.140.0：圆形改方形（12dp 圆角方块，与卡片圆角语言一致）。
  */
 @Composable
 private fun SourceLogo(logoUrl: String?, name: String, size: Dp) {
@@ -475,7 +493,7 @@ private fun SourceLogo(logoUrl: String?, name: String, size: Dp) {
     Box(
         modifier = Modifier
             .size(size)
-            .clip(CircleShape)
+            .clip(RoundedCornerShape(12.dp))
             .background(Brush.linearGradient(brandColors)),
         contentAlignment = Alignment.Center,
     ) {
@@ -492,8 +510,36 @@ private fun SourceLogo(logoUrl: String?, name: String, size: Dp) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(CircleShape),
+                    .clip(RoundedCornerShape(12.dp)),
             )
         }
     }
+}
+
+/** 代码托管/静态资源域名不算站点域，首个 URL 回退时跳过这些。 */
+private val NON_SITE_HOSTS = setOf(
+    "github.com", "raw.githubusercontent.com", "gitee.com", "gitcode.com",
+    "cdn.jsdelivr.net", "unpkg.com", "cdnjs.cloudflare.com",
+)
+
+/**
+ * v0.140.0：读规则文件头（16KB）取站点 host。
+ * `host = 'https://...'` / `host: 'https://...'` 优先，否则取首个
+ * 非代码托管 URL 的 host；都没有返回 null（调用方回退首字）。
+ * 只读文件头、不扫全文，130 个源在 IO 线程一次读完也轻。
+ */
+private fun ruleFileHost(dir: File, name: String): String? {
+    val head = runCatching {
+        File(dir, name).bufferedReader().use { r ->
+            val buf = CharArray(16 * 1024)
+            val n = r.read(buf)
+            if (n <= 0) "" else String(buf, 0, n)
+        }
+    }.getOrNull() ?: return null
+    Regex("""host\s*[:=]\s*['"]https?://([^/'"\s]+)""").find(head)?.let {
+        return it.groupValues[1]
+    }
+    return Regex("""https?://([^/'"\s]+)""").findAll(head)
+        .map { it.groupValues[1].lowercase() }
+        .firstOrNull { it !in NON_SITE_HOSTS }
 }
