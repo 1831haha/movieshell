@@ -39,7 +39,7 @@ object PluginMarket {
     /** 侠影可安装的 type；apk/import 等默认隐藏（设置里可开"显示不兼容插件"仅查看）。 */
     // v0.29.0：player=播放器引擎插件（libmpv 的 .so ZIP 包）
     // v0.30.0：subtitle=字幕搜索插件（DEX，经 DexClassLoader 动态加载）
-    private val INSTALLABLE_TYPES = setOf("source", "server", "live", "env", "player", "subtitle")
+    private val INSTALLABLE_TYPES = setOf("source", "server", "live", "env", "player", "subtitle", "runtime")
 
     /** v0.27.2：一键安装三段进度（下载→校验→安装），供安装进度条 UI 用。 */
     enum class InstallStage { Downloading, Verifying, Installing }
@@ -420,6 +420,20 @@ object PluginMarket {
                     }
                 }
                 /**
+                 * v0.137.0：runtime=运行时插件（如 php）。包内 bin/+lib/ 原样解到私有
+                 * runtime/<id>/（native 载荷只能从私有目录执行，见 env/player 前例），
+                 * 服务启动时经 linker64 + --library-path 加载，不走共享存储。
+                 */
+                "runtime" -> {
+                    val root = File(StoragePaths.runtimeDir(context), plugin.id)
+                    entries.forEach { e ->
+                        val dst = safeDst(root, e.name)
+                        dst.parentFile?.mkdirs()
+                        zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
+                        installed.add(e.name)
+                    }
+                }
+                /**
                  * v0.27.2：env=环境依赖包。包内 pylibs/ 下的内容解到私有 filesDir/pylibs/
                  * （必须私有：native .so 只能从私有目录 dlopen），ChaquopyEngine 已把该
                  * 目录加入 sys.path，规则 import 即用。卸载时按记录删除。
@@ -511,6 +525,9 @@ object PluginMarket {
             ?: throw IllegalStateException("未安装：$id")
         when (rec.type) {
             "server" -> File(StoragePaths.pluginsDir(context), id).deleteRecursively()
+            // v0.137.0：runtime 插件卸载删私有安装目录（服务页共享安装的拷备由
+            // ServicePluginManager 下次解析 php 占位时按来源存亡自行清理）
+            "runtime" -> File(StoragePaths.runtimeDir(context), id).deleteRecursively()
             "live" -> rec.files.forEach { File(StoragePaths.liveDir(context), it).delete() }
             "env" -> {
                 val dir = StoragePaths.pyLibsDir(context)

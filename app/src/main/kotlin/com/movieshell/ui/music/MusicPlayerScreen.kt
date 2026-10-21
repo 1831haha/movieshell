@@ -8,6 +8,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,6 +69,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -77,6 +79,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -148,6 +151,8 @@ fun MusicPlayerScreen(
     var showSleepDialog by remember { mutableStateOf(false) }
     // v0.91.0：中间内容区单击切换——封面模式 / 歌词模式（网易云式）
     var showLyrics by rememberSaveable { mutableStateOf(false) }
+    // v0.137.0：左滑切歌词/右滑回封面的累计横向位移（像素，阈值 60）
+    var swipeAccum by remember { mutableStateOf(0f) }
     // v0.125.0：歌词色板展开态（歌词模式右上角调色板入口）
     var showLyricColors by remember { mutableStateOf(false) }
     // v0.108.0 B1：音源切换弹窗
@@ -256,6 +261,20 @@ fun MusicPlayerScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        // v0.137.0：左滑切歌词、右滑回封面（点按切换保留）
+                        .pointerInput(Unit) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    if (swipeAccum < -60f) showLyrics = true
+                                    else if (swipeAccum > 60f) showLyrics = false
+                                    swipeAccum = 0f
+                                },
+                                onDragCancel = { swipeAccum = 0f },
+                            ) { change, dragAmount ->
+                                change.consume()
+                                swipeAccum += dragAmount
+                            }
+                        }
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() },
@@ -275,7 +294,7 @@ fun MusicPlayerScreen(
                                     contentDescription = null,
                                     modifier = Modifier
                                         .size(side)
-                                        .clip(RoundedCornerShape(20.dp))
+                                        .clip(CircleShape)
                                         .graphicsLayer { rotationZ = angle.value },
                                     contentScale = ContentScale.Crop,
                                 )
@@ -283,13 +302,13 @@ fun MusicPlayerScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(side)
-                                        .clip(RoundedCornerShape(20.dp))
+                                        .clip(CircleShape)
                                         .graphicsLayer { rotationZ = angle.value }
                                         .background(Color.White.copy(alpha = 0.06f))
                                         .border(
                                             1.dp,
                                             Color.White.copy(alpha = 0.10f),
-                                            RoundedCornerShape(20.dp),
+                                            CircleShape,
                                         ),
                                     contentAlignment = Alignment.Center,
                                 ) {
@@ -1041,6 +1060,7 @@ internal fun MusicSourcePickerDialog(
                         },
                         selected = code == curPlatform,
                         onClick = { onPickPlatform(code) },
+                        enabled = code != curPlatform,
                     )
                     Spacer(Modifier.height(6.dp))
                 }
@@ -1060,12 +1080,14 @@ internal fun MusicSourcePickerDialog(
 }
 
 /** v0.121.0：切换音源选项行——名称 + 人话说明 + 选中打勾（TechDialog 内容区恒深色，用固定浅色系） */
+// v0.137.0：enabled=false 时置灰且不可点（当前平台行用，点了没反应不如明示）
 @Composable
 private fun SourceOptionRow(
     name: String,
     desc: String,
     selected: Boolean,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
@@ -1075,7 +1097,8 @@ private fun SourceOptionRow(
                 if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
                 else Color.White.copy(alpha = 0.04f),
             )
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.5f)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

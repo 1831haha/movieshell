@@ -215,9 +215,10 @@ fun BookSourceScreen(
         }
         Spacer(Modifier.height(8.dp))
         // v0.86.0：第二行导入操作——四个均分，图标+文字单行不断行
+        // v0.137.0：间距 8→6dp，配合 ImportAction 缩小，360dp 下四钮不省略
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             ImportAction(
                 icon = Icons.Filled.ContentPaste,
@@ -625,13 +626,13 @@ private fun RowScope.ImportAction(
     FilledTonalButton(
         onClick = onClick,
         modifier = Modifier.weight(1f),
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(4.dp))
+        Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(2.dp))
         Text(
             label,
-            fontSize = 12.sp,
+            fontSize = 11.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )

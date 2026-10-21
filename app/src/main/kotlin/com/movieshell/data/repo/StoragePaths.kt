@@ -104,6 +104,10 @@ object StoragePaths {
     fun pluginsDir(context: Context): File =
         File(baseDir(context), "plugins").also { it.mkdirs() }
 
+    /** v0.137.0：runtime 型插件安装根（私有：native 载荷只能从私有目录执行）。 */
+    fun runtimeDir(context: Context): File =
+        File(context.filesDir, "runtime").also { it.mkdirs() }
+
     @Volatile
     private var serviceFallbackLogged = false
 

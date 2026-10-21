@@ -88,8 +88,9 @@ import java.io.File
  * v0.132.0：补成真管理器——列表头统计 + 新建/编辑全屏编辑器（运行时/探活/
  * 自启动/常驻/环境变量/占位符插入）+ 配置导入导出 + 日志复制/清空。
  * v0.136.0：「示例插件」大卡撤掉，改头部小字「示例」入口（与新建/导入/导出
- * 同排、置于最前）：一键生成示例服务 + T4-PHP 两个示例，已存在的跳过，
+ * 同排、置于最前）：一键生成 T4-PHP 示例，已存在的跳过，
  * 全部已存在时逐名提示（仿 DS）。
+ * v0.137.0：生成列表去掉示例服务，只留 T4-PHP。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -208,10 +209,9 @@ fun ServerPluginScreen(
     }
 
     // v0.136.0：「示例」一键生成（仿 DS 服务页头部小字入口）——
-    // hello-service 走内置演示包安装（assets/demo-service-plugin.zip 拷临时文件后
-    // 过 ServicePluginManager.install 全部既有校验，不开后门）；T4-PHP 走
-    // ServicePluginManager.importT4PhpExample（importServicesJson 单一路径）。
+    // T4-PHP 走 ServicePluginManager.importT4PhpExample（importServicesJson 单一路径）。
     // 已存在的按 id/同名判存跳过、不覆盖；全部已存在时逐名提示。
+    // v0.137.0：生成列表去掉示例服务，只留 T4-PHP。
     fun generateExamples() {
         if (generatingExamples) return
         generatingExamples = true
@@ -223,20 +223,6 @@ fun ServerPluginScreen(
                         "示例已全部存在：${existing.joinToString(" / ")}"
                     } else {
                         val created = mutableListOf<String>()
-                        if ("示例服务" !in existing) {
-                            val tmp = File.createTempFile(
-                                "demo_svc_", ".zip", context.cacheDir,
-                            )
-                            try {
-                                context.assets.open("demo-service-plugin.zip").use { s ->
-                                    tmp.outputStream().use { s.copyTo(it) }
-                                }
-                                ServicePluginManager.install(context, tmp)
-                            } finally {
-                                tmp.delete()
-                            }
-                            created += "示例服务"
-                        }
                         if ("T4-PHP" !in existing) {
                             ServicePluginManager.importT4PhpExample(context)
                             created += "T4-PHP"
@@ -424,7 +410,7 @@ fun ServerPluginScreen(
                         kind = EmptyKind.Empty,
                         icon = Icons.Filled.Dns,
                         title = "还没有服务插件",
-                        hint = "点上方「示例」一键生成示例服务，或从文件安装带 server.json 的 zip 包",
+                        hint = "点上方「示例」一键生成 T4-PHP 示例，或从文件安装带 server.json 的 zip 包",
                     )
                 }
             }

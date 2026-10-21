@@ -394,6 +394,11 @@ object ServicePluginManager {
     fun expandPlaceholders(context: Context, raw: String): String {
         var out = PLUGIN_TOKEN_RE.replace(raw) { m ->
             val pid = m.groupValues[1]
+            if (pid == "php") {
+                // v0.137.0：php 运行时不走服务目录——市场 runtime 型装在私有
+                // runtime/php；服务页 zip 安装的才在服务目录（共享存储时首次解析拷私有）。
+                return@replace phpUsableDir(context).absolutePath
+            }
             val dir = File(installRoot(context), pid)
             if (!dir.isDirectory) {
                 throw IllegalStateException(
@@ -406,6 +411,68 @@ object ServicePluginManager {
         out = out.replace("__sdcard__", StoragePaths.publicRoot().absolutePath)
         out = out.replace("__pkg__", context.packageName)
         return out
+    }
+
+    // ---------------- v0.137.0：PHP 运行时插件（市场 runtime 型，id=php） ----------------
+    //
+    // 落点：市场安装在私有 filesDir/runtime/php；服务页 zip 安装在服务目录
+    // serviceDir/php（共享存储时首次解析拷私有，linker64 无法从共享存储映射
+    // 是 v0.136.0 自检实测结论）。未安装时抛与原口径完全一致的报错，
+    // T4-PHP 在 php 未安装时的启动行为不变。
+
+    private const val PHP_COPY_DIR = "php-runtime-copy"
+
+    /** php 运行时可用目录：私有安装直接用，共享安装先拷私有，源没了清旧拷。 */
+    private fun phpUsableDir(context: Context): File {
+        val runtimeDir = File(StoragePaths.runtimeDir(context), "php")
+        if (File(runtimeDir, "bin/php").isFile) return runtimeDir
+        val svcDir = File(installRoot(context), "php")
+        if (File(svcDir, "bin/php").isFile) {
+            if (isUnderFilesDir(context, svcDir)) return svcDir
+            return ensurePhpPrivateCopy(context, svcDir)
+        }
+        runCatching { File(context.filesDir, PHP_COPY_DIR).deleteRecursively() }
+        throw IllegalStateException(
+            "占位符 __plugin:php__ 展开失败：服务/插件 php 未安装",
+        )
+    }
+
+    private fun isUnderFilesDir(context: Context, dir: File): Boolean {
+        val base = context.filesDir.absolutePath
+        val path = dir.absolutePath
+        return path == base || path.startsWith("$base/")
+    }
+
+    /** 共享安装拷私有（来源标记 gate：源 php 的路径+mtime+体积不变则跳过）。 */
+    private fun ensurePhpPrivateCopy(context: Context, srcDir: File): File {
+        val dst = File(context.filesDir, PHP_COPY_DIR)
+        val srcPhp = File(srcDir, "bin/php")
+        val stamp = "${srcDir.absolutePath}|${srcPhp.lastModified()}|${srcPhp.length()}"
+        val marker = File(dst, ".source")
+        if (File(dst, "bin/php").isFile &&
+            runCatching { marker.readText() }.getOrDefault("") == stamp
+        ) {
+            return dst
+        }
+        dst.deleteRecursively()
+        File(dst, "bin").mkdirs()
+        File(dst, "lib").mkdirs()
+        srcPhp.copyTo(File(dst, "bin/php"), overwrite = true)
+        runCatching { File(dst, "bin/php").setExecutable(true) }
+        File(srcDir, "lib").listFiles()
+            ?.filter { it.isFile }
+            ?.forEach { it.copyTo(File(dst, "lib/${it.name}"), overwrite = true) }
+        runCatching { marker.writeText(stamp) }
+        return dst
+    }
+
+    /** php 可执行文件对应的依赖库目录（bin/php + 同级 lib/ 结构时返回，否则 null）。 */
+    private fun phpLibDirFor(exe: File): File? {
+        if (exe.name != "php") return null
+        val binDir = exe.parentFile ?: return null
+        if (binDir.name != "bin") return null
+        val libDir = File(binDir.parentFile ?: return null, "lib")
+        return libDir.takeIf { it.isDirectory }
     }
 
     // ---------------- v0.132.0：有效启动参数（注册表定义 / server.json 二选一） ----------------
@@ -697,10 +764,20 @@ object ServicePluginManager {
             env["TMPDIR"] = tmpDir.absolutePath
         }
         // v0.132.0：非脚本走「直接 exec → linker64 回退」策略（startProcess 单一入口）
+        // v0.137.0：php 运行时回退时加 --library-path（依赖库不在系统路径里）；
+        // 直执在私有目录也会被 SELinux 拦，故回退是常态而非异常。
         val isScript = exe.name.endsWith(".sh", ignoreCase = true)
         val linker = File("/system/bin/linker64")
+        val phpLibDir = phpLibDirFor(exe)
         val altCmd = if (!isScript && linker.isFile) {
-            listOf(linker.absolutePath, exe.absolutePath) + resolvedArgs
+            if (phpLibDir != null) {
+                listOf(
+                    linker.absolutePath, "--library-path", phpLibDir.absolutePath,
+                    exe.absolutePath,
+                ) + resolvedArgs
+            } else {
+                listOf(linker.absolutePath, exe.absolutePath) + resolvedArgs
+            }
         } else {
             null
         }
@@ -1189,10 +1266,11 @@ object ServicePluginManager {
     }
 
     // ---------------- v0.136.0：示例服务一键生成 ----------------
+    // v0.137.0：示例服务（hello-service 演示包）退出生成列表，只留 T4-PHP；
+    // 已装的示例服务不受影响，用户自己点卸载。市场 hello-service 包不动。
 
     /** 示例服务清单：id → 展示名，顺序即生成与「已全部存在」提示的列举顺序。 */
     val EXAMPLE_SERVICES: List<Pair<String, String>> = listOf(
-        "hello-service" to "示例服务",
         "t4-php" to "T4-PHP",
     )
 
@@ -1359,14 +1437,20 @@ object ServicePluginManager {
 
             fun probeDir(dir: File): NativeDirProbe {
                 dir.mkdirs()
-                val probe = File(dir, "svc_native_probe")
+                // v0.137.0：toybox 靠 argv[0] 的 basename 认 applet，探针叫
+                // svc_native_probe 时它报 Unknown command，是探针假阴性不是路不通：
+                // 源是 toybox 或 true 时探针就叫 true、空参跑，加载成功即 exit=0；
+                // 源是 linker64 时保持原逻辑（跑它去加载系统 true）。
+                val toyboxLike = srcPath.endsWith("toybox") || srcPath.endsWith("true")
+                val probe = File(dir, if (toyboxLike) "true" else "svc_native_probe")
+                val runArgs = if (toyboxLike) emptyList() else probeArgs
                 try {
                     File(srcPath).copyTo(probe, overwrite = true)
                     runCatching { probe.setExecutable(true) }
-                    val (dOk, dMsg) = tryRun(dir, listOf(probe.absolutePath) + probeArgs)
+                    val (dOk, dMsg) = tryRun(dir, listOf(probe.absolutePath) + runArgs)
                     val linkerPath = "/system/bin/linker64"
                     val (lOk, lMsg) = if (File(linkerPath).isFile) {
-                        tryRun(dir, listOf(linkerPath, probe.absolutePath) + probeArgs)
+                        tryRun(dir, listOf(linkerPath, probe.absolutePath) + runArgs)
                     } else {
                         false to "linker64 不存在"
                     }
