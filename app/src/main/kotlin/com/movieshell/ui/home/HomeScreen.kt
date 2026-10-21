@@ -894,9 +894,10 @@ fun HomeScreen(
     // v0.53.0：drpyList 恒不为 null（currentVideos 派生），空列表=无数据
     val drpyUiList: List<Vod>? = drpyList.takeIf { it.isNotEmpty() }?.map { it.toUiVod() }
     val drpyReady = drpyUiList != null
-    val chipLabels: List<String> =
-        if (drpyCats.isNotEmpty()) listOf("全部") + drpyCats.map { it.typeName }
-        else listOf("全部")
+    // v0.144.0：首格"全部"是 App 拼的（index==0 走首页推荐流，与规则无关），
+    // 用户要求整个删掉：分类行只剩规则自己的分类；推荐流仍是默认首页
+    // （selectedCategory==0 时无格高亮），进分类后下拉刷新回推荐。
+    val chipLabels: List<String> = drpyCats.map { it.typeName }
 
     val filtered: List<Vod> = when {
         drpyReady -> remember(shuffleSeed, drpyUiList) {
@@ -1133,12 +1134,14 @@ fun HomeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 chipLabels.forEachIndexed { index, label ->
+                                    // v0.144.0：首格"全部"已删，格下标与分类序号错一位：
+                                    // 第 index 格对应第 index+1 个分类（loadDrpyCategory 按 1 计）。
                                     AppChip(
                                         text = label,
-                                        selected = selectedCategory == index,
+                                        selected = selectedCategory == index + 1,
                                         onClick = {
                                             // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
-                                            if (index == 0) loadHome() else loadDrpyCategory(index)
+                                            loadDrpyCategory(index + 1)
                                         },
                                     )
                                 }
