@@ -73,8 +73,13 @@ object SourceProbe {
         runBlocking { PyApi().home(file.absolutePath) }
     }
 
-    /** v0.148.0 瘦身：PHP 探活——零端口方向下无服务可探，执行等 Phase 3 CLI 引擎；一律 Unsupported，不计失败。 */
-    fun probePhp(name: String): Result = Result.Unsupported
+    /** v0.151.0：PHP 探活——CLI 跑一次首页：php 未装记 Unsupported（不计失败），
+     *  脚本出 JSON 记成功，否则记失败原因。调用方在 guarded 的 8 秒硬超时内跑。 */
+    fun probePhp(context: Context, name: String): Result {
+        if (!PhpCliEngine.isPhpInstalled(context)) return Result.Unsupported
+        val list = runBlocking { PhpCliEngine.home(context, name) }
+        return if (list.isNotEmpty()) Result.Ok(0) else Result.Fail("PHP 首页无数据")
+    }
 
     fun probeHttp(url: String): Result = guarded(label = url) {
         val req = Request.Builder()
@@ -158,7 +163,7 @@ object SourceProbe {
         }
         PhpSourceManager.rulesDir(context).listFiles { f -> PhpSourceManager.isSourceFile(f) }.orEmpty()
             .sortedBy { it.name }
-            .forEach { f -> tasks += ProbeTask("php", f.name, f.name) { probePhp(f.name) } }
+            .forEach { f -> tasks += ProbeTask("php", f.name, f.name) { probePhp(context, f.name) } }
         WebSourceManager.listSites().forEach { s ->
             if (SourceStateStore.isRuleEnabled("web", s.fileName)) {
                 tasks += ProbeTask("web", s.fileName, s.fileName) { probeHttp(s.url) }

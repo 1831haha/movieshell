@@ -7,10 +7,13 @@ import com.movieshell.data.model.ParseConfig
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.isCmsSite
 import com.movieshell.data.model.isJavaSpider
+import com.movieshell.data.model.isPhpSite
 import com.movieshell.data.model.isPySite
 import com.movieshell.data.model.isType4Site
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.PhpCliEngine
+import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
@@ -39,6 +42,8 @@ suspend fun resolvePlayUrl(
                 if (DrpySourceManager.hasActiveRule()) DrpySourceManager.playUrl(flag, epUrl)
                 else if (PySourceManager.hasActiveRule())
                     finishPyPlay(context, null) { PySourceManager.playRaw(flag, epUrl) }
+                else if (PhpSourceManager.activeRuleName() != null)
+                    finishPyPlay(context, null) { PhpCliEngine.playRaw(context, flag, epUrl) }
                 else ""
             // CMS 站：vod_play_url 里就是直链，直接播
             // v0.21.0：防盗链兜底——CMS 直链默认带站点 Referer（经 SniffPlayHeaders 透传）
@@ -68,6 +73,14 @@ suspend fun resolvePlayUrl(
                 }
                 r.url
             }
+            // PHP 站（CLI）：playerContent 拿播放 JSON；parse=1 走解析线路
+            subSite.isPhpSite() ->
+                finishPyPlay(context, subSite) {
+                    PhpCliEngine.playRaw(
+                        context, flag, epUrl,
+                        PhpCliEngine.scriptNameForSite(subSite.key, subSite.api),
+                    )
+                }
             // Java spider 站：playerContent 拿播放 JSON；parse=1 走解析线路
             subSite.isJavaSpider() -> {
                 val r = SiteRepository().spiderPlayWithParses(

@@ -631,7 +631,7 @@ fun SourcesScreen(
         Toast.makeText(context, "已切换为 $name", Toast.LENGTH_SHORT).show()
     }
 
-    /** PHP 规则选中：执行等 Phase 3 CLI 引擎，当前版本选中仅记状态、不出内容。 */
+    /** PHP 规则选中：v0.151.0 起走 CLI 引擎，选中后首页/详情/播放直接出内容。 */
     fun selectPhpRule(name: String) {
         PhpSourceManager.setActiveRule(name)
         SourceStateStore.saveActiveRule(context, TAB_PHP, name)

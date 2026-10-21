@@ -107,6 +107,8 @@ import com.movieshell.data.repo.PlaylistStore
 import com.movieshell.data.repo.FollowItem
 import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.PhpCliEngine
+import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.StoragePaths
@@ -148,12 +150,13 @@ fun DetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // ---- drpy / PY 规则接入（drpy 优先，其次 PY） ----
+    // ---- drpy / PY / PHP 规则接入（drpy 优先，其次 PY，再次 PHP CLI） ----
     // v0.5.1：从订阅站源点进来时带站点上下文（DetailSiteHolder），详情/播放按站走引擎；
     // 否则走本地规则旧逻辑。
     val subSite = remember { DetailSiteHolder.site }
     val drpyActive = remember {
-        DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule()
+        DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule() ||
+            PhpSourceManager.activeRuleName() != null
     }
     var detailLoading by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<VodDetail?>(null) }
@@ -169,6 +172,7 @@ fun DetailScreen(
                     } else if (drpyActive) {
                         if (DrpySourceManager.hasActiveRule()) DrpySourceManager.detail(vodId)
                         else if (PySourceManager.hasActiveRule()) PySourceManager.detail(vodId)
+                        else if (PhpSourceManager.activeRuleName() != null) PhpCliEngine.detail(context, vodId)
                         else VodDetail(vodId = vodId)
                     } else {
                         null
@@ -232,6 +236,9 @@ fun DetailScreen(
             PySourceManager.hasActiveRule() ->
                 PySourceManager.activeRuleName()?.removeSuffix(".py")
                     ?.ifBlank { "PY规则" } ?: "PY规则"
+            PhpSourceManager.activeRuleName() != null ->
+                PhpSourceManager.activeRuleName()?.removeSuffix(".php")
+                    ?.ifBlank { "PHP规则" } ?: "PHP规则"
             else -> "站源"
         }
     }
@@ -267,6 +274,7 @@ fun DetailScreen(
             subSite != null -> "sub"
             DrpySourceManager.hasActiveRule() -> "drpy"
             PySourceManager.hasActiveRule() -> "py"
+            PhpSourceManager.activeRuleName() != null -> "php"
             else -> "sub"
         }
     }
@@ -274,6 +282,7 @@ fun DetailScreen(
         subSite?.key.orEmpty().ifBlank {
             DrpySourceManager.activeRuleName().orEmpty()
                 .ifBlank { PySourceManager.activeRuleName().orEmpty() }
+                .ifBlank { PhpSourceManager.activeRuleName().orEmpty() }
         }.ifBlank { sourceName }
     }
     val followId = remember(vodId, followSourceKey) { FollowStore.idOf(followSourceKey, vodId) }

@@ -67,7 +67,7 @@ private val MANUAL_SECTIONS = listOf(
             "网页源：✅ 可用，站源页「网页源」tab 点「添加」录入网站，点击激活，内置嗅探抓 m3u8 / mp4 直链播放。",
             "磁力 magnet：✅ 可用，需要本机装好转播服务并启动。",
             "type=4 PHP 站：✅ v0.6 起支持——api 是 PHP 脚本的 HTTP 地址，详见下面「type=4 PHP 站」一节。",
-            "本地 PHP 规则文件（php: 分组导入的 .php）：❌ 仍不支持执行——手机上没有 PHP 解释器，只能导入保存。",
+            "本地 PHP 规则文件（php: 分组导入的 .php）：✅ v0.151.0 起走 CLI 引擎执行——有请求才跑 php，跑完退出，不占端口；前置是插件市场装好 php 运行时，未装时返回空结果。",
         ),
     ),
     ManualSection(
@@ -149,7 +149,7 @@ private val MANUAL_SECTIONS = listOf(
         title = "文件存放路径总表",
         points = listOf(
             "根目录：/storage/emulated/0/xiaying/（文件管理器直接进）。没开「所有文件访问权限」时退到 App 私有 filesDir/xiaying/，App 照常用。",
-            "视频源——本地规则：js/ 放 drpy 规则（.js）；py/ 放影视 PY 规则（.py）；php/ 放 PHP 规则（.php，只能存不能执行）；web/ 放网页源配置（.json）。",
+            "视频源——本地规则：js/ 放 drpy 规则（.js）；py/ 放影视 PY 规则（.py）；php/ 放 PHP 规则（.php，v0.151.0 起 CLI 执行）；web/ 放网页源配置（.json）。",
             "视频源——订阅：订阅地址列表和解析出的站点缓存存在 App 私有目录（api_sources.json / sub_sites.json），文件管理器看不到，站源页管理就行；订阅自带的 spider jar 自动下到 jar/（手别删，删了下次用会重新下）。",
             "视频源——直播：装的直播插件在 live/（如 live/cctv-live.json），实验室里安装/更新就是在管这些文件。",
             "小说源：PY 书源文件在 py/book/（.py），和影视 PY 规则分开存放，互不干扰；书源页右上角 + 号「导入本地PY」就是往这里加。",

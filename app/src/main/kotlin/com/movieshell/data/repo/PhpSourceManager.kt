@@ -9,8 +9,8 @@ import java.io.File
  *
  * 只管文件：规则目录扫描、选中态、删除/恢复的目录映射。
  * 不执行：零端口方向下 PHP 不再走本地服务（v0.148.0 曾接的 T4-PHP 服务
- * 接线已随瘦身拆除）；执行等 Phase 3 的 CLI 引擎（有请求才跑 php，跑完
- * 退出，无端口无常驻），当前版本选中 PHP 规则仅记状态、不出内容。
+ * 接线已随瘦身拆除）；执行走 v0.151.0 的 PhpCliEngine（有请求才跑 php，跑完
+ * 退出，无端口无常驻），未装 php 插件时返回空结果。
  *
  * 目录约定（用户 T4 包 README）：站点源放 t4_demo 根目录；t4_demo/php/
  * 子目录是独立服务脚本（不进源列表）；`_` 开头是内部依赖；index.php
@@ -30,6 +30,9 @@ object PhpSourceManager {
     private var initialized = false
 
     private var activeName: String? = null
+
+    /** init 时存下的 applicationContext（供无 context 的聚合层复用，如 SiteRepository）。 */
+    fun appContext(): Context? = appContext
 
     /** 规则目录（单一入口）：xiaying/php/t4_demo/。 */
     fun rulesDir(context: Context): File =

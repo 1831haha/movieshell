@@ -479,6 +479,55 @@ object ServicePluginManager {
         return libDir.takeIf { it.isDirectory }
     }
 
+    /** 一次性 CLI 运行结果：exitCode=-1 表示超时被杀，output 是 stdout 与 stderr 合并后的全文。 */
+    data class CliResult(val exitCode: Int, val output: String)
+
+    /**
+     * v0.151.0：一次性 CLI 运行（零端口 Phase 3，PHP 引擎用）。
+     * 与常驻服务共用同一条执行策略：直接 exec 失败回退 /system/bin/linker64，
+     * php 依赖库走 LD_LIBRARY_PATH（v0.138.0 的教训，不用 --library-path 参数）。
+     * 不占端口、不留常驻进程、不写服务日志缓冲，超时杀进程。
+     * 阻塞调用，只能在 Dispatchers.IO 上调；失败抛 IllegalStateException。
+     */
+    fun runCliOnce(
+        context: Context,
+        command: List<String>,
+        workDir: File,
+        timeoutMs: Long = 30_000L,
+    ): CliResult {
+        val exe = File(command.firstOrNull().orEmpty())
+        if (!exe.isFile) throw IllegalStateException("可执行文件不存在：${exe.absolutePath}")
+        val env = mutableMapOf<String, String>()
+        phpLibDirFor(exe)?.let { libDir ->
+            val prev = System.getenv("LD_LIBRARY_PATH").orEmpty()
+            env["LD_LIBRARY_PATH"] = if (prev.isBlank()) libDir.absolutePath
+            else libDir.absolutePath + ":" + prev
+        }
+        val tmpDir = File(context.filesDir, "service_tmp").also { it.mkdirs() }
+        env["TMPDIR"] = tmpDir.absolutePath
+        val linker = File("/system/bin/linker64")
+        val altCmd = if (linker.isFile) listOf(linker.absolutePath) + command else null
+        val notes = mutableListOf<String>()
+        val proc = startProcess(command, altCmd, workDir, env, notes)
+        notes.forEach { LogBus.i(TAG, "[cli] $it") }
+        val out = StringBuilder()
+        val reader = thread(name = "cli-reader", isDaemon = true) {
+            runCatching {
+                BufferedReader(InputStreamReader(proc.inputStream)).forEachLine { line ->
+                    synchronized(out) { out.append(line).append('\n') }
+                }
+            }
+        }
+        val finished = proc.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+        if (!finished) {
+            runCatching { proc.destroyForcibly() }
+            reader.join(1000)
+            return CliResult(-1, out.toString())
+        }
+        reader.join(2000)
+        return CliResult(proc.exitValue(), out.toString())
+    }
+
     // ---------------- v0.132.0：有效启动参数（注册表定义 / server.json 二选一） ----------------
 
     private data class EffectiveLaunch(

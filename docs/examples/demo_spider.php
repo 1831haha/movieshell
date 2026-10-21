@@ -3,8 +3,8 @@
 // 复制到手机 xiaying/php/t4_demo/ 目录。
 // 依赖：同目录必须有 spider.php（BaseSpider 框架）和 HtmlParser.php，
 // 本文件只 require spider.php，spider.php 自己会 require HtmlParser.php。
-// 零端口方向：PHP 不再走常驻服务（原 29578 服务访问方式作废），执行等 Phase 3
-// 的 CLI 引擎；当前版本不执行 PHP，本文件仅作源写法参考。
+// 零端口方向：PHP 不再走常驻服务（原 29578 服务访问方式作废），v0.151.0 起
+// 走 CLI 引擎执行：有请求才跑 php，跑完退出；本文件可直接放到 t4_demo 目录真跑。
 // 查询约定（CLI 引擎到来后同样按此约定传参）：
 //   首页：  demo_spider.php（不带参数）
 //   分类：  demo_spider.php?ac=videolist&t=1&pg=1

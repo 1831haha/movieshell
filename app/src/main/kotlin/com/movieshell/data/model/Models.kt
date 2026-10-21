@@ -158,7 +158,7 @@ data class CategoryType(
 
 // ---------------- 站源类型判定（Repository / UI 共用，v0.5.1 统一口径） ----------------
 
-/** PhpSourceManager 合成站源：key 前缀 "php:"（手机端无 PHP 解释器，不执行）。 */
+/** PhpSourceManager 合成站源：key 前缀 "php:"（v0.151.0 起走 PhpCliEngine 执行）。 */
 fun Site.isPhpSite(): Boolean = key.startsWith("php:", ignoreCase = true)
 
 /**
