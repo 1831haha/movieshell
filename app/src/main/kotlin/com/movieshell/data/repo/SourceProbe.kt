@@ -44,7 +44,7 @@ object SourceProbe {
         data class Ok(val ms: Long) : Result
         data class Slow(val ms: Long) : Result
         data class Fail(val reason: String) : Result
-        /** PHP 本地规则：手机端无解释器，不探 */
+        /** PHP 本地规则：服务未运行时不探（不计失败）；服务运行时走 probePhp */
         object Unsupported : Result
     }
 
@@ -72,6 +72,9 @@ object SourceProbe {
     fun probePy(context: Context, file: File): Result = guarded(label = file.name) {
         runBlocking { PyApi().home(file.absolutePath) }
     }
+
+    /** v0.148.0 瘦身：PHP 探活——零端口方向下无服务可探，执行等 Phase 3 CLI 引擎；一律 Unsupported，不计失败。 */
+    fun probePhp(name: String): Result = Result.Unsupported
 
     fun probeHttp(url: String): Result = guarded(label = url) {
         val req = Request.Builder()
@@ -145,14 +148,17 @@ object SourceProbe {
             }
         }
         PySourceManager.listRules().forEach { r ->
-            if (SourceStateStore.isRuleEnabled("py", r.name)) {
+            // v0.148.0：无 Spider 子类的 py 文件（如 _bridge.py 桥接文件）不计入检测
+            if (SourceStateStore.isRuleEnabled("py", r.name) && !r.name.startsWith("_") &&
+                PySourceManager.hasSpiderSubclass(r.name)
+            ) {
                 val f = File(StoragePaths.pyDir(context), r.name)
                 tasks += ProbeTask("py", r.name, r.name) { probePy(context, f) }
             }
         }
-        StoragePaths.phpDir(context).listFiles { f -> f.isFile }.orEmpty()
+        PhpSourceManager.rulesDir(context).listFiles { f -> PhpSourceManager.isSourceFile(f) }.orEmpty()
             .sortedBy { it.name }
-            .forEach { f -> tasks += ProbeTask("php", f.name, f.name) { Result.Unsupported } }
+            .forEach { f -> tasks += ProbeTask("php", f.name, f.name) { probePhp(f.name) } }
         WebSourceManager.listSites().forEach { s ->
             if (SourceStateStore.isRuleEnabled("web", s.fileName)) {
                 tasks += ProbeTask("web", s.fileName, s.fileName) { probeHttp(s.url) }

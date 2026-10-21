@@ -41,6 +41,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
@@ -57,7 +58,7 @@ fun fileProviderAuthority(context: Context) = "${context.packageName}.fileprovid
 fun previewKindDir(context: Context, kind: String): File = when (kind) {
     "js" -> StoragePaths.jsDir(context)
     "py" -> StoragePaths.pyDir(context)
-    "php" -> StoragePaths.phpDir(context)
+    "php" -> PhpSourceManager.rulesDir(context)
     "web" -> StoragePaths.webDir(context)
     else -> File(context.filesDir, kind)
 }

@@ -139,7 +139,7 @@ fun SourcePickerSheet(
         // v0.140.0：本地规则的站点 host（文件头取，IO 线程做，不阻塞主线程）
         drpyHosts = newDrpy.associate { it.name to ruleFileHost(StoragePaths.jsDir(context), it.name) }
         pyHosts = newPy.associate { it.name to ruleFileHost(StoragePaths.pyDir(context), it.name) }
-        phpHosts = newPhp.associate { it.name to ruleFileHost(StoragePaths.phpDir(context), it.name) }
+        phpHosts = newPhp.associate { it.name to ruleFileHost(PhpSourceManager.rulesDir(context), it.name) }
         val ids = HashSet<String>()
         newDrpy.forEach { ids += "local-drpy:${it.name}" }
         newPy.forEach { ids += "local-py:${it.name}" }
@@ -343,7 +343,7 @@ fun SourcePickerSheet(
             )
             Spacer(Modifier.padding(4.dp))
             Text(
-                text = "共 ${visible.size} 个源",
+                text = if (loading) "加载中…" else "共 ${visible.size} 个源",
                 style = SoftType.Caption,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

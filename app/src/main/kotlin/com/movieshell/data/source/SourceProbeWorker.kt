@@ -67,8 +67,9 @@ class SourceProbeWorker(
                         .build(),
                 )
                 .build()
+            // v0.148.0：KEEP——已在跑时再点开始不重开（只看进度）；想重跑先点取消
             WorkManager.getInstance(context)
-                .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, req)
+                .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.KEEP, req)
         }
 
         fun cancel(context: Context) {

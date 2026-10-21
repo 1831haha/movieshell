@@ -671,7 +671,7 @@ object PluginMarket {
     private fun ruleDir(context: Context, engine: String): File = when (engine) {
         "py" -> StoragePaths.pyDir(context)
         "js" -> StoragePaths.jsDir(context)
-        "php" -> StoragePaths.phpDir(context)
+        "php" -> PhpSourceManager.rulesDir(context)
         else -> throw IllegalStateException("不支持的源引擎：$engine")
     }
 

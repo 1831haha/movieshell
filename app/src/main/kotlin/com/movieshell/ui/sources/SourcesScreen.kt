@@ -164,7 +164,7 @@ class SourceGroup(
 private fun targetDir(context: Context, dirName: String): File = when (dirName) {
     "drpy" -> StoragePaths.jsDir(context)
     "py" -> StoragePaths.pyDir(context)
-    "php" -> StoragePaths.phpDir(context)
+    "php" -> PhpSourceManager.rulesDir(context)
     "web" -> StoragePaths.webDir(context)
     else -> File(context.filesDir, dirName)
 }
@@ -224,9 +224,10 @@ private fun listLocalFolderEntries(
     dirName: String,
     desc: String,
     activeName: String? = null,
+    filter: ((File) -> Boolean)? = null,
 ): List<SourceEntry> {
     val dir = targetDir(context, dirName)
-    return dir.listFiles { f -> f.isFile }
+    return dir.listFiles { f -> f.isFile && (filter?.invoke(f) ?: true) }
         .orEmpty()
         .sortedBy { it.name }
         .map { f -> SourceEntry(f.name, "$desc · ${f.length() / 1024} KB", enabled = f.name == activeName) }
@@ -537,7 +538,7 @@ fun SourcesScreen(
     fun refreshPhpEntries() {
         phpEntries.clear()
         phpEntries.addAll(
-            listLocalFolderEntries(context, "php", "PHP 规则", PhpSourceManager.activeRuleName()),
+            listLocalFolderEntries(context, "php", "PHP 规则", PhpSourceManager.activeRuleName(), PhpSourceManager::isSourceFile),
         )
     }
 
@@ -630,16 +631,12 @@ fun SourcesScreen(
         Toast.makeText(context, "已切换为 $name", Toast.LENGTH_SHORT).show()
     }
 
-    /** PHP 规则选中：仅做选中标记（手机端无 PHP 解释器，不可执行），如实 Toast。 */
+    /** PHP 规则选中：执行等 Phase 3 CLI 引擎，当前版本选中仅记状态、不出内容。 */
     fun selectPhpRule(name: String) {
         PhpSourceManager.setActiveRule(name)
         SourceStateStore.saveActiveRule(context, TAB_PHP, name)
         refreshPhpEntries()
-        Toast.makeText(
-            context,
-            "已选中 $name：${PhpSourceManager.UNSUPPORTED_REASON}",
-            Toast.LENGTH_LONG,
-        ).show()
+        Toast.makeText(context, "已选中 $name", Toast.LENGTH_SHORT).show()
     }
 
     fun activateWeb(site: WebSourceManager.WebSite) {
@@ -710,7 +707,7 @@ fun SourcesScreen(
         val dir = when (item.kind) {
             TAB_JS -> StoragePaths.jsDir(context)
             TAB_PY -> StoragePaths.pyDir(context)
-            TAB_PHP -> StoragePaths.phpDir(context)
+            TAB_PHP -> PhpSourceManager.rulesDir(context)
             else -> StoragePaths.webDir(context)
         }
         TrashStore.trashFile(context, item.kind, File(dir, item.fileName), item.displayName)
@@ -791,8 +788,8 @@ fun SourcesScreen(
                         refreshPhpEntries()
                         Toast.makeText(
                             context,
-                            "已保存到PHP文件夹，${PhpSourceManager.UNSUPPORTED_REASON}",
-                            Toast.LENGTH_LONG,
+                            "已保存到PHP文件夹",
+                            Toast.LENGTH_SHORT,
                         ).show()
                     }
                     "web" -> {
@@ -1242,8 +1239,7 @@ fun SourcesScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AppButton(
                         text = if (probeRunning) "检测中 $probeDone/$probeTotal…" else "开始检测",
-                        onClick = { startProbe() },
-                        enabled = !probeRunning,
+                        onClick = { if (probeRunning) showProbeDialog = true else startProbe() },
                         modifier = Modifier.weight(1f),
                         variant = AppButtonVariant.Primary,
                     )

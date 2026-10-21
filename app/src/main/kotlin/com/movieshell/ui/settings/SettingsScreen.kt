@@ -120,6 +120,7 @@ import androidx.compose.ui.unit.sp
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.FavoriteStore
+import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.SubSiteStore
@@ -236,6 +237,8 @@ fun SettingsScreen(
     var histCount by remember { mutableIntStateOf(0) }
     var subCount by remember { mutableIntStateOf(0) }
     var localCount by remember { mutableIntStateOf(0) }
+    // v0.148.0：统计加载完成前不显示 0（0 和“真没有”分不出来）
+    var statsLoaded by remember { mutableStateOf(false) }
     var currentSourceName by remember { mutableStateOf("未设置") }
     // v0.82.0：背景底图
     var showBgMenu by remember { mutableStateOf(false) }
@@ -253,9 +256,9 @@ fun SettingsScreen(
         }
     }
     LaunchedEffect(Unit) {
-        BackgroundStore.load(context)
+        runCatching { BackgroundStore.load(context) }
         // v0.101.0：缓存占用（视频 m3u8 分片 + Coil 图片磁盘缓存）
-        cacheSize = refreshCacheSize(context)
+        cacheSize = runCatching { refreshCacheSize(context) }.getOrDefault(cacheSize)
         // v0.147.0：统计失败不再静默回 0（之前 0 和“真没有”分不出来），记日志方便定位
         favCount = runCatching { FavoriteStore.list(context).size }
             .onFailure { LogBus.w("SettingsStats", "收藏统计失败：${it.message}") }
@@ -268,7 +271,8 @@ fun SettingsScreen(
             .getOrDefault(0)
         localCount = runCatching {
             withContext(Dispatchers.IO) {
-                DrpySourceManager.listRules().size + PySourceManager.listRules().size
+                DrpySourceManager.listRules().size + PySourceManager.listRules().size +
+                    PhpSourceManager.listRules().size
             }
         }.onFailure { LogBus.w("SettingsStats", "本地统计失败：${it.message}") }
             .getOrDefault(0)
@@ -285,6 +289,7 @@ fun SettingsScreen(
                 "未设置"
             }
         }.getOrDefault("未设置")
+        statsLoaded = true
     }
 
     // v0.80.0：设置页按 DsPlayer「我的」重设计——信息卡 + 快捷宫格 + 主题卡 + 功能分组
@@ -370,20 +375,20 @@ fun SettingsScreen(
                     Row(modifier = Modifier.fillMaxWidth()) {
                         ProfileStat(
                             label = "收藏",
-                            value = "$favCount",
+                            value = if (statsLoaded) "$favCount" else "…",
                             modifier = Modifier.weight(1f),
                             onClick = onFavoritesClick,
                         )
                         ProfileStat(
                             label = "历史",
-                            value = "$histCount",
+                            value = if (statsLoaded) "$histCount" else "…",
                             modifier = Modifier.weight(1f),
                             onClick = onHistoryClick,
                         )
                         ProfileStat(
                             label = "源",
-                            value = "${subCount + localCount}",
-                            sub = "订阅$subCount 本地$localCount",
+                            value = if (statsLoaded) "${subCount + localCount}" else "…",
+                            sub = if (statsLoaded) "订阅$subCount 本地$localCount" else "统计中…",
                             modifier = Modifier.weight(1f),
                             onClick = onSourcesClick,
                         )

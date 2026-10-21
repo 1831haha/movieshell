@@ -128,7 +128,7 @@ object TrashStore {
     private fun kindDir(context: Context, kind: String): File = when (kind) {
         "js" -> StoragePaths.jsDir(context)
         "py" -> StoragePaths.pyDir(context)
-        "php" -> StoragePaths.phpDir(context)
+        "php" -> PhpSourceManager.rulesDir(context)
         else -> StoragePaths.webDir(context)
     }
 }

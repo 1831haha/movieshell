@@ -96,7 +96,7 @@ class SiteRepository(
     /** 首页推荐/最新：PHP / 小说漫画站明确不支持，返回空；csp_ 站走 SpiderEngine。 */
     suspend fun home(site: Site): List<Vod> {
         LogBus.i(TAG, "home site=${site.name}")
-        val r = if (site.isPhpSite()) emptyList() // PHP 需 PHP 解释器，手机端暂不支持执行
+        val r = if (site.isPhpSite()) emptyList() // v0.148.0 瘦身：PHP 执行等 Phase 3 CLI 引擎，当前版本不执行
         else if (site.isJavaSpider()) logged("spider.home ${site.name}") { SpiderEngine.home(site) }.orEmpty()
         else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
         else if (site.isType4Site()) logged("type4.home ${site.name}") { type4Api.home(site) }.orEmpty()
@@ -119,7 +119,7 @@ class SiteRepository(
         filter: Map<String, String> = emptyMap()
     ): Pair<List<CategoryType>, List<Vod>> {
         LogBus.i(TAG, "category site=${site.name} tid=$tid pg=$pg")
-        val r = if (site.isPhpSite()) emptyList<CategoryType>() to emptyList() // PHP 暂不支持执行
+        val r = if (site.isPhpSite()) emptyList<CategoryType>() to emptyList() // v0.148.0 瘦身：PHP 执行等 Phase 3 CLI 引擎，当前版本不执行
         else if (site.isJavaSpider()) logged("spider.category ${site.name}") { SpiderEngine.category(site, tid, pg) }
             .orEmptyCategory()
         else if (site.isType4Site()) logged("type4.category ${site.name}") { type4Api.category(site, tid, pg) }
@@ -148,7 +148,7 @@ class SiteRepository(
     /** 详情。 */
     suspend fun detail(site: Site, vodId: String): VodDetail {
         LogBus.i(TAG, "detail site=${site.name} id=$vodId")
-        val r = if (site.isPhpSite()) VodDetail(vodId = vodId) // PHP 暂不支持执行
+        val r = if (site.isPhpSite()) VodDetail(vodId = vodId) // v0.148.0 瘦身：PHP 执行等 Phase 3 CLI 引擎，当前版本不执行
         else if (site.isJavaSpider()) logged("spider.detail ${site.name}") { SpiderEngine.detail(site, vodId) }
             ?: VodDetail(vodId = vodId)
         else if (site.isType4Site()) logged("type4.detail ${site.name}") { type4Api.detail(site, vodId) }
@@ -174,7 +174,7 @@ class SiteRepository(
     suspend fun search(site: Site, wd: String): List<Vod> {
         if (!site.searchable || wd.isBlank()) return emptyList()
         LogBus.i(TAG, "search site=${site.name} wd=$wd")
-        val r = if (site.isPhpSite()) emptyList() // PHP 暂不支持执行
+        val r = if (site.isPhpSite()) emptyList() // v0.148.0 瘦身：PHP 执行等 Phase 3 CLI 引擎，当前版本不执行
         else if (site.isJavaSpider()) logged("spider.search ${site.name}") { SpiderEngine.search(site, wd) }.orEmpty()
         else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
         else if (site.isType4Site()) logged("type4.search ${site.name}") { type4Api.search(site, wd) }.orEmpty()
@@ -228,8 +228,6 @@ class SiteRepository(
     suspend fun pyPlay(flag: String, id: String): String =
         runCatching { pyEngine?.play(flag, id) }.getOrNull().orEmpty()
 
-    /** PHP 播放：手机端无 PHP 解释器，暂不支持，返回空串。 */
-    suspend fun phpPlay(flag: String, id: String): String = ""
 
     /**
      * type=4 播放：GET {api}?ac=play&flag={flag}&id={id}，返回 (直链, parse 标记, header)。

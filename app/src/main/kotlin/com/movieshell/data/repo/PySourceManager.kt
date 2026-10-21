@@ -224,6 +224,12 @@ object PySourceManager {
         return StoragePaths.pyDir(ctx)
     }
 
+    /** 是否含 Spider 子类（桥接/工具类 py 文件没有，不计入检测）。 */
+    fun hasSpiderSubclass(name: String): Boolean {
+        val ctx = appContext ?: return false
+        return extractTitle(File(StoragePaths.pyDir(ctx), name)) != null
+    }
+
     /** 从规则源码里抠类名/中文名（class XxxSpider / # 注释），抠不到返回 null。 */
     private fun extractTitle(file: File): String? {
         return try {
