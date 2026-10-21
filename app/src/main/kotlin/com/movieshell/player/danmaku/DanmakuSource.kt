@@ -245,6 +245,8 @@ object DanmakuSettings {
     private const val KEY_ALPHA = "danmaku_alpha" // 0-100
     private const val KEY_SPEED = "danmaku_speed" // 0=慢 1=中 2=快
     private const val KEY_AREA = "danmaku_area" // 0=全屏 1=上半屏
+    // v0.150.0：弹幕行高（对标 DS danmakuLineHeight）0=紧凑 1=标准 2=宽松
+    private const val KEY_LINE_HEIGHT = "danmaku_line_height"
 
     private val _enabled = MutableStateFlow(false)
     val enabled: StateFlow<Boolean> = _enabled
@@ -258,6 +260,8 @@ object DanmakuSettings {
     val speed: StateFlow<Int> = _speed
     private val _area = MutableStateFlow(0)
     val area: StateFlow<Int> = _area
+    private val _lineHeight = MutableStateFlow(1)
+    val lineHeight: StateFlow<Int> = _lineHeight
 
     fun init(context: Context) {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -266,6 +270,7 @@ object DanmakuSettings {
         _alpha.value = p.getInt(KEY_ALPHA, 100)
         _speed.value = p.getInt(KEY_SPEED, 1)
         _area.value = p.getInt(KEY_AREA, 0)
+        _lineHeight.value = p.getInt(KEY_LINE_HEIGHT, 1)
     }
 
     fun setEnabled(context: Context, on: Boolean) {
@@ -296,6 +301,12 @@ object DanmakuSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putInt(KEY_AREA, _area.value).apply()
     }
+    fun setLineHeight(context: Context, v: Int) {
+        _lineHeight.value = v.coerceIn(0, 2)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_LINE_HEIGHT, _lineHeight.value).apply()
+    }
+
 
     /** 字号 px（对应小/中/大） */
     fun fontPx(): Float = when (_textSize.value) {

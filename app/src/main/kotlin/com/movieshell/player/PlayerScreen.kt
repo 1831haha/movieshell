@@ -937,11 +937,13 @@ fun PlayerScreen(
     // v0.16.2：按源取片尾；v0.19.0：下一集走 PlaySession（播放器内线路/选集）
     // v0.20.0：进度/时长走 EngineHost，双引擎统一
     // v0.21.0：定时关闭「播完本集」布防时，集尾暂停而非切下一集
-    LaunchedEffect(playUrl, sleepArmed) {
+    // v0.150.0：v0.65 的循环模式按钮此前只换文案、从不生效，本版让它真正管事；
+    // 同时补上 DS 的 autoNextEpisode：没设片尾跳过时，自然播完也自动下一集，
+    // 不再播完就停在黑屏上。定时关闭优先级最高，任何模式都不越过它。
+    LaunchedEffect(playUrl, sleepArmed, playModeIndex) {
         // v0.24.0：直播无“集”概念，跳过片尾下一集/播完暂停逻辑
         if (isLive) return@LaunchedEffect
         val skipOutro = PlayerSettings.getSkipOutroFor(context, vodId)
-        if (skipOutro <= 0 && !sleepArmed) return@LaunchedEffect
         while (true) {
             delay(1000)
             val dur = EngineHost.duration()
@@ -955,15 +957,35 @@ fun PlayerScreen(
                 }
                 break
             }
-            if (skipOutro > 0 && pos >= dur - skipOutro * 1000L) {
-                val nextIdx = PlaySession.episodeIndex + 1
-                val hasNext = PlaySession.currentLine()?.episodes?.getOrNull(nextIdx) != null
-                if (hasNext) {
-                    switchEpisode(PlaySession.lineIndex, nextIdx)
-                } else {
-                    EngineHost.pause()
+            // 有片尾跳过时提前触发，否则自然播完（留 1 秒余量，防时长抖动）才触发
+            val endAt = if (skipOutro > 0) dur - skipOutro * 1000L else dur - 1000L
+            if (pos < endAt) continue
+            val nextIdx = PlaySession.episodeIndex + 1
+            val hasNext = PlaySession.currentLine()?.episodes?.getOrNull(nextIdx) != null
+            when (playModeIndex) {
+                1 -> {
+                    // 单集循环：回到开头继续播，不切集、不 break——下次到结尾会再触发
+                    EngineHost.seekTo(0L)
+                    EngineHost.resume()
+                    LogBus.i("Player", "单集循环：回到开头重播")
+                    delay(2000)
                 }
-                break
+                2 -> {
+                    // 列表循环：有下一集就切，没有就回到第一集
+                    if (hasNext) switchEpisode(PlaySession.lineIndex, nextIdx)
+                    else if (PlaySession.currentLine()?.episodes?.isNotEmpty() == true) {
+                        switchEpisode(PlaySession.lineIndex, 0)
+                    } else {
+                        EngineHost.pause()
+                    }
+                    break
+                }
+                else -> {
+                    // 顺序播放：有下一集就切，没有就暂停
+                    if (hasNext) switchEpisode(PlaySession.lineIndex, nextIdx)
+                    else EngineHost.pause()
+                    break
+                }
             }
         }
     }
@@ -1707,6 +1729,7 @@ fun PlayerScreen(
             val alphaV by ds.alpha.collectAsState()
             val speedIdx by ds.speed.collectAsState()
             val areaIdx by ds.area.collectAsState()
+            val lineHeightIdx by ds.lineHeight.collectAsState()
             TechDialog(
                 onDismissRequest = { showDanmakuSettings = false },
                 title = "弹幕设置",
@@ -1754,6 +1777,19 @@ fun PlayerScreen(
                                 androidx.compose.material3.FilterChip(
                                     selected = areaIdx == i,
                                     onClick = { ds.setArea(context, i) },
+                                    label = { androidx.compose.material3.Text(label) },
+                                    modifier = Modifier.padding(end = 8.dp),
+                                )
+                            }
+                        }
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                        // 行高（v0.150.0：对标 DS danmakuLineHeight）
+                        androidx.compose.material3.Text("行高", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                        androidx.compose.foundation.layout.Row {
+                            listOf("紧凑", "标准", "宽松").forEachIndexed { i, label ->
+                                androidx.compose.material3.FilterChip(
+                                    selected = lineHeightIdx == i,
+                                    onClick = { ds.setLineHeight(context, i) },
                                     label = { androidx.compose.material3.Text(label) },
                                     modifier = Modifier.padding(end = 8.dp),
                                 )

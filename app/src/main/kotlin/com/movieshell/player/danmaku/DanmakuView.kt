@@ -41,6 +41,7 @@ fun DanmakuOverlay(
     val alphaVal by DanmakuSettings.alpha.collectAsState()
     val speedIdx by DanmakuSettings.speed.collectAsState()
     val areaIdx by DanmakuSettings.area.collectAsState()
+    val lineHeightIdx by DanmakuSettings.lineHeight.collectAsState()
 
     // 帧时钟：约 30fps 重绘
     var frameMs by remember { mutableLongStateOf(0L) }
@@ -82,7 +83,7 @@ fun DanmakuOverlay(
     Canvas(modifier = modifier.fillMaxSize()) {
         if (!enabled) return@Canvas
         val now = positionMs
-        layout.draw(this, now, frameMs, paint, strokePaint, scrollMs, areaIdx)
+        layout.draw(this, now, frameMs, paint, strokePaint, scrollMs, areaIdx, when (lineHeightIdx) { 0 -> 70f; 2 -> 120f; else -> 90f })
     }
 }
 
@@ -115,11 +116,13 @@ private class DanmakuLayout(private val all: List<Danmaku>) {
         strokePaint: android.graphics.Paint,
         scrollMs: Long,
         area: Int,
+        trackPx: Float = 90f,
     ) {
         val h = scope.size.height
         // v0.56：区域限制——上半屏时只用上半部分轨道
+        // v0.150.0：行高跟随弹幕设置（紧凑 70 / 标准 90 / 宽松 120）
         val usableH = if (area == 1) h * 0.5f else h
-        trackCount = maxOf(4, (usableH / 90f).toInt()) // 每轨道约 90px
+        trackCount = maxOf(4, (usableH / trackPx).toInt())
 
         val start = windowStart(nowMs, scrollMs)
         var drawn = 0
