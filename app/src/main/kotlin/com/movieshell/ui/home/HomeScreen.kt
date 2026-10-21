@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -106,6 +105,8 @@ import com.movieshell.ui.components.PosterCard
 import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
 import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.components.StatusRing
+import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.settings.SettingsRow
 import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.FlowingGlowBackground
@@ -989,11 +990,16 @@ fun HomeScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
                             ) {
-                                Icon(
-                                    imageVector = Icons.Filled.SwapHoriz,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(16.dp),
+                                // v0.141.0：换源图标改状态环（跑马灯＋状态点），与首页加载态联动：
+                                // 加载中→黄灯旋转；已选源且有数据→绿；已选源但空→红；未选源/未加载过→灰
+                                StatusRing(
+                                    state = when {
+                                        drpyLoading || loadingCat != null -> StatusRingState.Loading
+                                        sourceLabel == "选择站源" || contentGen == 0 -> StatusRingState.Idle
+                                        drpyReady -> StatusRingState.Ready
+                                        else -> StatusRingState.Failed
+                                    },
+                                    diameter = 20.dp,
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(

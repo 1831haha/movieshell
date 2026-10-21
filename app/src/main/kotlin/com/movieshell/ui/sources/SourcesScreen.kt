@@ -1115,7 +1115,8 @@ fun SourcesScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            // v0.141.0：卡片缩成单行后行距同步收紧
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
         // ===== 本地源 =====
         item {
@@ -1175,7 +1176,7 @@ fun SourcesScreen(
             items(localItems.chunked(2)) { pair ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     pair.forEach { item ->
                         FileCard(
@@ -1633,64 +1634,57 @@ private fun FileCard(
             .alpha(if (item.enabled) 1f else 0.45f)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                ) {
-                    Text(
-                        text = badgeLabel,
-                        color = MaterialTheme.colorScheme.primary,
-                        style = SoftType.Caption,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
-                }
-                if (item.isPinned) {
-                    Spacer(Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Filled.PushPin,
-                        contentDescription = "已置顶",
-                        tint = MaterialTheme.colorScheme.tertiary,
-                        modifier = Modifier.size(14.dp),
-                    )
-                }
-                Spacer(Modifier.weight(1f))
-                ProbeDot(item.probe)
-                if (item.isActive) {
-                    Icon(
-                        imageVector = Icons.Filled.Check,
-                        contentDescription = "当前使用",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
+        // v0.141.0：尽量小的单行紧凑卡——徽标＋名＋探活点＋当前勾＋开关一行排完，
+        // 详情行与两行名全部去掉，名用小字单行省略；单击激活/长按菜单/开关启停都不变
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+            ) {
+                Text(
+                    text = badgeLabel,
+                    color = MaterialTheme.colorScheme.primary,
+                    style = SoftType.Caption,
+                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                )
             }
-            Spacer(Modifier.height(8.dp))
+            if (item.isPinned) {
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Filled.PushPin,
+                    contentDescription = "已置顶",
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+            Spacer(Modifier.width(6.dp))
             Text(
                 text = item.displayName,
-                style = SoftType.CardTitle,
+                style = SoftType.Caption,
                 fontWeight = if (item.isActive) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.height(40.dp),
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = item.detail,
-                    style = SoftType.Caption,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                // v0.24.0：源级启停（禁用后首页/搜索/检测跳过该源）
-                Switch(
-                    checked = item.enabled,
-                    onCheckedChange = { onToggleEnabled(item, it) },
+            Spacer(Modifier.width(4.dp))
+            ProbeDot(item.probe)
+            if (item.isActive) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "当前使用",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
                 )
             }
+            Spacer(Modifier.width(2.dp))
+            // v0.24.0：源级启停（禁用后首页/搜索/检测跳过该源）
+            Switch(
+                checked = item.enabled,
+                onCheckedChange = { onToggleEnabled(item, it) },
+            )
         }
     }
 }
