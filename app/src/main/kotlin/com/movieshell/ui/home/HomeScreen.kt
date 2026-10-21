@@ -592,8 +592,13 @@ fun HomeScreen(
         contentGen += 1
         val myGen = contentGen
         categoryJob?.cancel()
-        // 抓当前展示值，供"全失败且无缓存"判定（语义与旧版一致：之前展示中的也算有数据）
-        val prevVods = drpyList
+        // v0.143.0：抓当前展示值，供"全失败且无缓存"判定（语义与旧版一致：之前展示中的也算有数据）。
+        // 一定读 VM 的真值，不要读 drpyList——drpyList 是上次组合的快照：换源时
+        // refreshDrpyState 已同步清掉 VM（clearDisplay），但组合还没重组，快照里还是旧源内容；
+        // 新源一旦返回空/失败，最终 apply 就会把旧源内容"复活"回首页，造成"换了源内容没换"
+        // 且无任何失败提示（旧内容非空，homeError/recommendEmpty 全不触发、状态环还是绿灯）。
+        // 同源下拉刷新时 VM 真值就是本源内容，失败保留展示的语义不变。
+        val prevVods = vm.currentVideos.value
         vm.isLoading.value = true
         homeError = null
         recommendStale = false
