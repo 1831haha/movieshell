@@ -58,7 +58,7 @@ object SourceProbe {
     fun probeJs(context: Context, file: File): Result {
         val engine = V8DrpyEngine(context.applicationContext)
         return try {
-            guarded(onTimeout = { runCatching { engine.release() } }) {
+            guarded(label = file.name, onTimeout = { runCatching { engine.release() } }) {
                 engine.loadRule(file.readText())
                 runBlocking { engine.home() }
             }
@@ -69,11 +69,11 @@ object SourceProbe {
         }
     }
 
-    fun probePy(context: Context, file: File): Result = guarded {
+    fun probePy(context: Context, file: File): Result = guarded(label = file.name) {
         runBlocking { PyApi().home(file.absolutePath) }
     }
 
-    fun probeHttp(url: String): Result = guarded {
+    fun probeHttp(url: String): Result = guarded(label = url) {
         val req = Request.Builder()
             .url(url)
             .header("User-Agent", DEFAULT_UA)
@@ -92,16 +92,18 @@ object SourceProbe {
      * cancel 引擎在途的网络 call（release 幂等），中断不到引擎线程的
      * future.cancel(true) 之后再调。
      */
-    private fun guarded(onTimeout: () -> Unit = {}, block: () -> Any?): Result {
+    // v0.142.0：label 透传到超时日志——此前 130 个源批量检测时满屏只有
+    // "探活超时"四个字、连哪个源超时都看不出，没法定位（2026-10-21 日志实测）。
+    private fun guarded(label: String = "", onTimeout: () -> Unit = {}, block: () -> Any?): Result {
         semaphore.acquire()
         try {
-            return hardTimeout(onTimeout, block)
+            return hardTimeout(label, onTimeout, block)
         } finally {
             semaphore.release()
         }
     }
 
-    private fun hardTimeout(onTimeout: () -> Unit = {}, block: () -> Any?): Result {
+    private fun hardTimeout(label: String = "", onTimeout: () -> Unit = {}, block: () -> Any?): Result {
         val start = System.currentTimeMillis()
         val future = pool.submit(Callable<Any?> { block() })
         return try {
@@ -111,7 +113,7 @@ object SourceProbe {
         } catch (e: TimeoutException) {
             onTimeout()
             future.cancel(true)
-            LogBus.e("Probe", "探活超时")
+            LogBus.e("Probe", "探活超时" + if (label.isNotBlank()) "：${label.take(80)}" else "")
             Result.Fail("8秒超时无响应")
         } catch (e: Exception) {
             // ExecutionException 包一层，cause 才是真实原因

@@ -6,6 +6,7 @@ import androidx.annotation.VisibleForTesting
 import androidx.javascriptengine.JavaScriptSandbox
 import com.google.common.util.concurrent.ListenableFuture
 import com.movieshell.data.repo.LogBus
+import kotlinx.coroutines.CancellationException
 
 /**
  * v0.113.0 A1–A5：进程级 V8 sandbox 单例（androidx.javascriptengine）。
@@ -118,7 +119,7 @@ object JsRuntime {
         return connect()
     }
 
-    /** 连接（惰性单例）。失败时清掉 future 允许重试。 */
+    /** 连接（惰性单例）。底层失败时清掉 future 允许重试。 */
     private suspend fun connect(): JavaScriptSandbox? {
         val future = synchronized(lock) {
             sandboxFuture ?: JavaScriptSandbox
@@ -127,8 +128,18 @@ object JsRuntime {
         }
         return try {
             future.awaitJs()
+        } catch (e: CancellationException) {
+            // v0.142.0：等待者被取消（探活 8 秒超时最常见）绝不能清共享 future——
+            // 底层绑定不受协程取消影响、仍会跑完并占住服务；清掉它等于把已绑定的
+            // sandbox 丢成孤儿，下一次 createConnectedInstanceAsync 必报
+            // "Binding to already bound service"，且此后每次都报、V8 永久死掉
+            // （2026-10-21 14:35:46 取消 → 14:37:01 已绑定 → 首页 0 分类的实测链）。
+            // 只把取消原样抛给调用方，future 留给后来者复用。
+            throw e
         } catch (e: Throwable) {
-            synchronized(lock) { sandboxFuture = null }
+            // 只有底层 future 本身失败才丢弃，且只丢弃自己等的那一个，
+            // 防止迟到的失败把后来者新建的 future 误清。
+            synchronized(lock) { if (sandboxFuture === future) sandboxFuture = null }
             lastDisableReason = "V8 sandbox 进程连接失败（${e.message?.take(40)}），重试或升级 WebView"
             LogBus.e(TAG, "V8 sandbox 连接失败: ${e.message}")
             null
