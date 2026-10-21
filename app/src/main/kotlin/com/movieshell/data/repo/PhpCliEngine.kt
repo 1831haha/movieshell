@@ -39,12 +39,14 @@ object PhpCliEngine {
 
     private const val TAG = "PhpCli"
 
-    private const val BOOTSTRAP = """<?php
-parse_str($_SERVER['argv'][1] ?? '', $_GET);
-$_REQUEST = $_GET;
-$_SERVER['QUERY_STRING'] = $_SERVER['argv'][1] ?? '';
-include $_SERVER['argv'][2];
-"""
+    // 注意：Kotlin 字符串里 $ 会触发模板插值，所以 PHP 的 $ 必须写成 \$；
+    // 原 v0.151.0 用三引号原样写 $_SERVER/$_GET/$_REQUEST，编译器把它当变量名报 Unresolved reference。
+    private const val BOOTSTRAP =
+        "<?php\n" +
+            "parse_str(\$_SERVER['argv'][1] ?? '', \$_GET);\n" +
+            "\$_REQUEST = \$_GET;\n" +
+            "\$_SERVER['QUERY_STRING'] = \$_SERVER['argv'][1] ?? '';\n" +
+            "include \$_SERVER['argv'][2];\n"
 
     /** php 插件是否已装（bin/php 在位）。 */
     fun isPhpInstalled(context: Context? = null): Boolean = runCatching {
@@ -56,7 +58,7 @@ include $_SERVER['argv'][2];
     /** 规则文件：rulesDir/<name>，且必须是源文件（排除 index/config/spider/HtmlParser/`_` 开头）。 */
     fun scriptFile(context: Context, name: String?): File? {
         if (name.isNullOrBlank()) return null
-        val f = File(PhpSourceManager.rulesDir(ctx), name)
+        val f = File(PhpSourceManager.rulesDir(context), name)
         return if (PhpSourceManager.isSourceFile(f)) f else null
     }
 
