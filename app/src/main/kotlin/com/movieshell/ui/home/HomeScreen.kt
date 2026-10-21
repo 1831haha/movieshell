@@ -540,9 +540,23 @@ fun HomeScreen(
             }
             return
         }
-        if (payload.resetSelection) {
-            vm.selectCategory(0)
+        // v0.58（用户指正）：只有 payload.cats 非空才覆盖，空就保留分类先行渲染已写入的。
+        // 注意顺序：先写分类，默认选分类才找得到第 1 个（VM 真值，不读组合快照）。
+        if (payload.cats.isNotEmpty()) {
+            vm.setCategories(payload.cats)
+        }
+        // v0.145.0：首页默认进第一个分类，不再回推荐流（推荐流不是源的分类）。
+        // reset 或当前无选中（0）且有分类 → 进第 1 个分类；reset 且无分类 → 回推荐流兜底；
+        // 非 reset 且已在某分类 → 保持浏览（下拉刷新不把用户拽出当前分类）。
+        if (payload.resetSelection || vm.selectedCategoryId.value == 0) {
             setFilters(emptyMap())
+            if (payload.cats.isNotEmpty()) {
+                // 离开推荐流视图，8s 降级立起的推荐空态一并清掉，失败改走分类内联重试。
+                recommendEmpty = false
+                loadDrpyCategory(1)
+            } else if (payload.resetSelection) {
+                vm.selectCategory(0)
+            }
         }
         // v0.50.0（用户补）：最终应用时也在前台才刷推荐区；后台回来的只留缓存（上游已写），防跳变
         // v0.53.0：写 vm.recommendCache（selectedCategory=0 时 currentVideos 自动派生）
@@ -554,17 +568,14 @@ fun HomeScreen(
             if (payload.vods != null) LogBus.i("Home", "最终 payload 应用：首页不在前台，推荐不刷 UI")
             vm.setRecommend(prevVods)
         }
-        // v0.58（用户指正）：只有 payload.cats 非空才覆盖，空就保留分类先行渲染已写入的
-        if (payload.cats.isNotEmpty()) {
-            vm.setCategories(payload.cats)
-        }
         // v0.58 补：c9d2ad8 删掉了 val cats = payload.cats.ifEmpty { prevCats } 却漏改了这一行，
         // 导致 CI 编译失败 Unresolved reference 'cats'。语义=分类失败且当前无任何分类可展示。
         catsFailed = payload.catsFailed && vm.categories.value.isEmpty()
         homeError = if (vm.currentVideos.value.isEmpty()) "加载失败，点击重试" else null
         // v0.106.0：25s 熔断/网络失败且无数据可展示时，给可见的"加载超时，点重试"入口
         //（之前只设 homeError，但它从未被渲染，用户看到的是白屏）
-        if (payload.vods == null && vm.currentVideos.value.isEmpty()) recommendEmpty = true
+        // v0.145.0：只在推荐流视图（选中 0）才给推荐空态；在分类视图失败走分类内联重试。
+        if (payload.vods == null && vm.currentVideos.value.isEmpty() && vm.selectedCategoryId.value == 0) recommendEmpty = true
     }
 
     /**
@@ -675,7 +686,8 @@ fun HomeScreen(
 
     /** v0.44.0：筛选改为多组 Map；切分类时清空（不同分类的筛选组不同）。 */
     fun loadDrpyCategory(index: Int, filters: Map<String, String> = emptyMap()) { // index >= 1，对应 drpyCats[index-1]
-        val cat = drpyCats.getOrNull(index - 1) ?: return
+        // v0.145.0：分类一律读 VM 真值，不读组合快照（换源/刚写分类后快照还滞后，143 同类教训）。
+        val cat = vm.categories.value.getOrNull(index - 1) ?: return
         // v0.31.2：单飞——快速连点时取消上一次，同一时间只有一个分类请求在跑
         // （之前每次点击都起一个协程，PY 引擎并发堆积是闪退的主因）。
         // 世代+1：旧请求的迟到结果直接丢弃，"最后一次点击赢"。
@@ -692,7 +704,7 @@ fun HomeScreen(
             scope.launch(Dispatchers.IO) {
                 val groups = runCatching { fetchDrpyFilters(cat.typeId) }.getOrNull().orEmpty()
                 if (groups.isNotEmpty()) {
-                    vm.setCategories(drpyCats.map { c ->
+                    vm.setCategories(vm.categories.value.map { c ->
                         if (c.typeId == cat.typeId) c.copy(filters = groups) else c
                     })
                     LogBus.i("UI", "分类 ${cat.typeName} 筛选加载：${groups.size} 组")
@@ -839,10 +851,14 @@ fun HomeScreen(
             if (data != null && (data.vods.isNotEmpty() || data.cats.isNotEmpty())) {
                 if (data.cats.isNotEmpty()) vm.setCategories(data.cats)
                 // v0.31.2/v0.44.0：selectedCategory/filterEntries 已由 SavedStateHandle/rememberSaveable 恢复。
-                // 之前停在某个分类就重载它（保证选中和内容一致），否则才恢复首页缓存。
-                if (selectedCategory >= 1 && drpyCats.getOrNull(selectedCategory - 1) != null) {
-                    LogBus.i("Home", "返回首页：恢复分类 ${drpyCats[selectedCategory - 1].typeName}")
-                    loadDrpyCategory(selectedCategory, filterMap)
+                // 之前停在某个分类就重载它（保证选中和内容一致），否则默认进第一个分类。
+                // v0.145.0：选中与分类一律读 VM 真值（刚写完分类后组合快照还滞后）。
+                val curSel = vm.selectedCategoryId.value
+                if (curSel >= 1 && vm.categories.value.getOrNull(curSel - 1) != null) {
+                    LogBus.i("Home", "返回首页：恢复分类 ${vm.categories.value[curSel - 1].typeName}")
+                    loadDrpyCategory(curSel, filterMap)
+                } else if (data.cats.isNotEmpty()) {
+                    loadDrpyCategory(1)
                 } else {
                     if (data.vods.isNotEmpty()) vm.setRecommend(data.vods)
                 }
@@ -1198,9 +1214,10 @@ fun HomeScreen(
     
                     // 分区标题 + 换一换（v0.39.0：mockup 风格"今日推荐"）
                     // v0.50.0：stale 时标题旁小字提示"旧内容·刷新中"
+                    // v0.145.0：进分类后标题跟当前分类走（选中 0 的推荐流视图才叫今日推荐）。
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         SectionTitle(
-                            title = "今日推荐",
+                            title = drpyCats.getOrNull(selectedCategory - 1)?.typeName ?: "今日推荐",
                             action = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (recommendStale) {
