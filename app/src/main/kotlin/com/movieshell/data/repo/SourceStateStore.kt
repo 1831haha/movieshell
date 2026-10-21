@@ -18,6 +18,8 @@ object SourceStateStore {
 
     private const val PREFS = "source_state"
     private const val KEY_DISABLED = "disabled_map"
+    private const val KEY_ACTIVE_KIND = "active_kind"
+    private const val KEY_ACTIVE_NAME = "active_name"
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -66,4 +68,55 @@ object SourceStateStore {
     /** 有激活且未被禁用的 PY 规则名，无则 null */
     fun activePyRule(): String? =
         PySourceManager.activeRuleName()?.takeIf { isRuleEnabled("py", it) }
+
+    /** 有激活且未被禁用的 PHP 规则名，无则 null（v0.147.0：换源弹窗加 PHP） */
+    fun activePhpRule(): String? =
+        PhpSourceManager.activeRuleName()?.takeIf { isRuleEnabled("php", it) }
+
+    /**
+     * v0.147.0：选中态持久化——此前 activeName 只在内存里，App 一重启就丢，
+     * 首页回空态、设置页变“未设置”。换源时记一对 (kind, name)，启动时恢复。
+     * 持久化只发生在换源/清源的调用点，不进各 Manager 的 setActiveRule，
+     * 避免清其他 kind 的 null 调用把刚记下的值冲掉。
+     */
+    fun saveActiveRule(context: Context, kind: String, name: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_ACTIVE_KIND, kind)
+            .putString(KEY_ACTIVE_NAME, name)
+            .apply()
+    }
+
+    fun clearActiveRule(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_ACTIVE_KIND)
+            .remove(KEY_ACTIVE_NAME)
+            .apply()
+    }
+
+    /**
+     * 启动恢复：仅当文件仍在且未被禁用时恢复选中态，否则清掉旧记录。
+     * 须在各 Manager init 与本 Store init 之后调（MainActivity onCreate）。
+     * Drpy 的 setActiveRule 会当场建 V8 引擎读文件，文件不存在时它自己会
+     * 放弃（activeName 保持 null），这里再加一层文件校验是双保险。
+     */
+    fun restoreActiveRule(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val kind = prefs.getString(KEY_ACTIVE_KIND, null) ?: return
+        val name = prefs.getString(KEY_ACTIVE_NAME, null) ?: return
+        val exists = when (kind) {
+            "js" -> DrpySourceManager.listRules().any { it.name == name }
+            "py" -> PySourceManager.listRules().any { it.name == name }
+            "php" -> PhpSourceManager.listRules().any { it.name == name }
+            else -> false
+        }
+        if (!exists || !isRuleEnabled(kind, name)) {
+            clearActiveRule(context)
+            return
+        }
+        when (kind) {
+            "js" -> DrpySourceManager.setActiveRule(name)
+            "py" -> PySourceManager.setActiveRule(name)
+            "php" -> PhpSourceManager.setActiveRule(name)
+        }
+    }
 }

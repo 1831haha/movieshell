@@ -337,6 +337,7 @@ fun HomeScreen(
         subSite != null -> "sub_${subSite?.key}"
         SourceStateStore.activeDrpyRule() != null -> "drpy_${DrpySourceManager.activeRuleName()}"
         SourceStateStore.activePyRule() != null -> "py_${PySourceManager.activeRuleName()}"
+        SourceStateStore.activePhpRule() != null -> "php_${SourceStateStore.activePhpRule()}"
         else -> null
     }
 
@@ -801,7 +802,8 @@ fun HomeScreen(
         subSite = cur
         lastSubKey = curKey
         val active = cur != null ||
-            SourceStateStore.activeDrpyRule() != null || SourceStateStore.activePyRule() != null
+            SourceStateStore.activeDrpyRule() != null || SourceStateStore.activePyRule() != null ||
+            SourceStateStore.activePhpRule() != null
         val changed = active != drpyActive
         drpyActive = active
         val curCacheKey = homeCacheKey()
@@ -926,11 +928,12 @@ fun HomeScreen(
         else -> emptyList() // 无数据：空列表，UI 显示空态
     }
 
-    // 站源入口行文案：订阅当前源 > 本地 drpy > 本地 PY；都没有 -> 演示数据
+    // 站源入口行文案：订阅当前源 > 本地 drpy > 本地 PY > 本地 PHP；都没有 -> 演示数据
     val sourceLabel: String = when {
         subSite != null -> subSite?.name?.ifBlank { "订阅源" } ?: "订阅源"
         SourceStateStore.activeDrpyRule() != null -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
         SourceStateStore.activePyRule() != null -> "本地·${PySourceManager.activeRuleName().orEmpty()}"
+        SourceStateStore.activePhpRule() != null -> "本地·${SourceStateStore.activePhpRule().orEmpty()}"
         else -> "选择站源"
     }
 

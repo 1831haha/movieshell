@@ -55,6 +55,7 @@ import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.StoragePaths
@@ -85,7 +86,7 @@ import kotlinx.coroutines.withContext
  * 搜索文本 × 类型筛选 × 点选切换三者联动。
  *
  * 数据源与切换逻辑复用 v0.7.1 的 SourceSwitchSheet（只改交互层）：
- * 本地规则（DrpySourceManager/PySourceManager）+ 订阅站源（ApiSourceStore/SubSiteStore）。
+ * 本地规则（DrpySourceManager/PySourceManager/PhpSourceManager）+ 订阅站源（ApiSourceStore/SubSiteStore）。
  * 点选卡片：调现有切换逻辑 → onChanged（HomeScreen.refreshDrpyState(fromUserSwitch=true)
  * 即时重载首页）→ onDismiss 关弹窗，三者都发生。
  *
@@ -103,10 +104,13 @@ fun SourcePickerSheet(
     var cur by remember { mutableStateOf<SubCurrent?>(null) }
     var drpyRules by remember { mutableStateOf<List<DrpySourceManager.RuleInfo>>(emptyList()) }
     var pyRules by remember { mutableStateOf<List<PySourceManager.RuleInfo>>(emptyList()) }
+    var phpRules by remember { mutableStateOf<List<PhpSourceManager.RuleInfo>>(emptyList()) }
     var drpyHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     var pyHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
+    var phpHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     var drpyActiveName by remember { mutableStateOf<String?>(null) }
     var pyActiveName by remember { mutableStateOf<String?>(null) }
+    var phpActiveName by remember { mutableStateOf<String?>(null) }
     var subSites by remember { mutableStateOf<List<Pair<ApiSource, SubSiteRecord>>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var refreshing by remember { mutableStateOf(false) }
@@ -120,10 +124,13 @@ fun SourcePickerSheet(
         cur = SubSiteStore.getCurrent(context)
         val newDrpy = DrpySourceManager.listRules()
         val newPy = PySourceManager.listRules()
+        val newPhp = PhpSourceManager.listRules()
         drpyRules = newDrpy
         pyRules = newPy
+        phpRules = newPhp
         drpyActiveName = DrpySourceManager.activeRuleName()
         pyActiveName = PySourceManager.activeRuleName()
+        phpActiveName = PhpSourceManager.activeRuleName()
         val newSubSites = ApiSourceStore.load(context).filter { it.enabled }.flatMap { sub ->
             val sites = SubSiteStore.getCached(context, sub.url)?.sites.orEmpty()
             sites.map { sub to it }
@@ -132,9 +139,11 @@ fun SourcePickerSheet(
         // v0.140.0：本地规则的站点 host（文件头取，IO 线程做，不阻塞主线程）
         drpyHosts = newDrpy.associate { it.name to ruleFileHost(StoragePaths.jsDir(context), it.name) }
         pyHosts = newPy.associate { it.name to ruleFileHost(StoragePaths.pyDir(context), it.name) }
+        phpHosts = newPhp.associate { it.name to ruleFileHost(StoragePaths.phpDir(context), it.name) }
         val ids = HashSet<String>()
         newDrpy.forEach { ids += "local-drpy:${it.name}" }
         newPy.forEach { ids += "local-py:${it.name}" }
+        newPhp.forEach { ids += "local-php:${it.name}" }
         newSubSites.forEach { (sub, rec) -> ids += "sub:${sub.url}:${rec.key}" }
         ids.size
     }
@@ -183,13 +192,29 @@ fun SourcePickerSheet(
         SubSiteStore.clearCurrent(context)
         if (isDrpy) {
             PySourceManager.setActiveRule(null)
+            PhpSourceManager.setActiveRule(null)
             DrpySourceManager.setActiveRule(name)
             SourceStateStore.setRuleEnabled(context, "js", name, true)
+            SourceStateStore.saveActiveRule(context, "js", name)
         } else {
             DrpySourceManager.setActiveRule(null)
+            PhpSourceManager.setActiveRule(null)
             PySourceManager.setActiveRule(name)
             SourceStateStore.setRuleEnabled(context, "py", name, true)
+            SourceStateStore.saveActiveRule(context, "py", name)
         }
+        onChanged()
+        onDismiss()
+    }
+
+    /** v0.147.0：本地 PHP 规则与 drpy/py 平齐进换源弹窗，点选即切换。 */
+    fun pickPhp(name: String) {
+        SubSiteStore.clearCurrent(context)
+        DrpySourceManager.setActiveRule(null)
+        PySourceManager.setActiveRule(null)
+        PhpSourceManager.setActiveRule(name)
+        SourceStateStore.setRuleEnabled(context, "php", name, true)
+        SourceStateStore.saveActiveRule(context, "php", name)
         onChanged()
         onDismiss()
     }
@@ -198,13 +223,15 @@ fun SourcePickerSheet(
         // 订阅优先：先清空本地规则激活态，再设订阅当前源
         DrpySourceManager.setActiveRule(null)
         PySourceManager.setActiveRule(null)
+        PhpSourceManager.setActiveRule(null)
+        SourceStateStore.clearActiveRule(context)
         SubSiteStore.setCurrent(context, sub.url, rec.key)
         onChanged()
         onDismiss()
     }
 
-    // 统一条目：本地 drpy 规则 / 本地 py 规则 / 订阅站点
-    val items: List<PickerItem> = remember(cur, drpyRules, pyRules, drpyHosts, pyHosts, drpyActiveName, pyActiveName, subSites) {
+    // 统一条目：本地 drpy 规则 / 本地 py 规则 / 本地 php 规则 / 订阅站点
+    val items: List<PickerItem> = remember(cur, drpyRules, pyRules, phpRules, drpyHosts, pyHosts, phpHosts, drpyActiveName, pyActiveName, phpActiveName, subSites) {
         val list = mutableListOf<PickerItem>()
         drpyRules.forEach { rule ->
             val name = rule.title.ifBlank { rule.name }
@@ -233,6 +260,22 @@ fun SourcePickerSheet(
                         ?: host?.let { faviconUrlForHost(it) },
                     isCurrent = cur == null && rule.name == pyActiveName,
                     onPick = { pickLocal(false, rule.name) },
+                ),
+            )
+        }
+        // v0.147.0：本地 PHP 规则与 py 平齐；kind 复用 TYPE4，走现成“PHP”筛选 chip
+        phpRules.forEach { rule ->
+            val name = rule.title.ifBlank { rule.name }
+            val host = phpHosts[rule.name]
+            list.add(
+                PickerItem(
+                    id = "local-php:${rule.name}",
+                    name = name,
+                    kind = SubSiteStore.KIND_TYPE4,
+                    logoUrl = siteLogoUrl(rule.name, name, null)
+                        ?: host?.let { faviconUrlForHost(it) },
+                    isCurrent = cur == null && rule.name == phpActiveName,
+                    onPick = { pickPhp(rule.name) },
                 ),
             )
         }

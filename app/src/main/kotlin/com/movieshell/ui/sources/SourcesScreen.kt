@@ -615,6 +615,7 @@ fun SourcesScreen(
         PySourceManager.setActiveRule(null)
         DrpySourceManager.setActiveRule(name)
         SourceStateStore.setRuleEnabled(context, TAB_JS, name, true)
+        SourceStateStore.saveActiveRule(context, TAB_JS, name)
         refreshDrpyRules()
         Toast.makeText(context, "已切换为 $name", Toast.LENGTH_SHORT).show()
     }
@@ -624,6 +625,7 @@ fun SourcesScreen(
         DrpySourceManager.setActiveRule(null)
         PySourceManager.setActiveRule(name)
         SourceStateStore.setRuleEnabled(context, TAB_PY, name, true)
+        SourceStateStore.saveActiveRule(context, TAB_PY, name)
         refreshPyRules()
         Toast.makeText(context, "已切换为 $name", Toast.LENGTH_SHORT).show()
     }
@@ -631,6 +633,7 @@ fun SourcesScreen(
     /** PHP 规则选中：仅做选中标记（手机端无 PHP 解释器，不可执行），如实 Toast。 */
     fun selectPhpRule(name: String) {
         PhpSourceManager.setActiveRule(name)
+        SourceStateStore.saveActiveRule(context, TAB_PHP, name)
         refreshPhpEntries()
         Toast.makeText(
             context,
@@ -714,12 +717,15 @@ fun SourcesScreen(
         when (item.kind) {
             TAB_JS -> if (DrpySourceManager.activeRuleName() == item.fileName) {
                 DrpySourceManager.setActiveRule(null)
+                SourceStateStore.clearActiveRule(context)
             }
             TAB_PY -> if (PySourceManager.activeRuleName() == item.fileName) {
                 PySourceManager.setActiveRule(null)
+                SourceStateStore.clearActiveRule(context)
             }
             TAB_PHP -> if (PhpSourceManager.activeRuleName() == item.fileName) {
                 PhpSourceManager.setActiveRule(null)
+                SourceStateStore.clearActiveRule(context)
             }
             TAB_WEB -> if (WebSourceManager.activeSiteName() == item.fileName) {
                 WebSourceManager.setActiveSite(null)

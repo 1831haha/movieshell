@@ -256,16 +256,22 @@ fun SettingsScreen(
         BackgroundStore.load(context)
         // v0.101.0：缓存占用（视频 m3u8 分片 + Coil 图片磁盘缓存）
         cacheSize = refreshCacheSize(context)
-        favCount = runCatching { FavoriteStore.list(context).size }.getOrDefault(0)
+        // v0.147.0：统计失败不再静默回 0（之前 0 和“真没有”分不出来），记日志方便定位
+        favCount = runCatching { FavoriteStore.list(context).size }
+            .onFailure { LogBus.w("SettingsStats", "收藏统计失败：${it.message}") }
+            .getOrDefault(0)
         histCount = runCatching { withContext(Dispatchers.IO) { HistoryStore.getHistory(context).size } }
+            .onFailure { LogBus.w("SettingsStats", "历史统计失败：${it.message}") }
             .getOrDefault(0)
         subCount = runCatching { withContext(Dispatchers.IO) { ApiSourceStore.load(context).size } }
+            .onFailure { LogBus.w("SettingsStats", "订阅统计失败：${it.message}") }
             .getOrDefault(0)
         localCount = runCatching {
             withContext(Dispatchers.IO) {
                 DrpySourceManager.listRules().size + PySourceManager.listRules().size
             }
-        }.getOrDefault(0)
+        }.onFailure { LogBus.w("SettingsStats", "本地统计失败：${it.message}") }
+            .getOrDefault(0)
         currentSourceName = runCatching {
             val cur = SubSiteStore.getCurrent(context)
             if (cur != null) {
