@@ -516,6 +516,80 @@ fun HomeScreen(
         )
     }
 
+    // v0.145.0 修：从下方挪到 applyHomePayload 之前——Kotlin 局部函数必须先声明后调用（首轮构建即挂于此）。
+    /** v0.44.0：筛选改为多组 Map；切分类时清空（不同分类的筛选组不同）。 */
+    fun loadDrpyCategory(index: Int, filters: Map<String, String> = emptyMap()) { // index >= 1，对应 drpyCats[index-1]
+        // v0.145.0：分类一律读 VM 真值，不读组合快照（换源/刚写分类后快照还滞后，143 同类教训）。
+        val cat = vm.categories.value.getOrNull(index - 1) ?: return
+        // v0.31.2：单飞——快速连点时取消上一次，同一时间只有一个分类请求在跑
+        // （之前每次点击都起一个协程，PY 引擎并发堆积是闪退的主因）。
+        // 世代+1：旧请求的迟到结果直接丢弃，"最后一次点击赢"。
+        categoryJob?.cancel()
+        contentGen += 1
+        val myGen = contentGen
+        // 选中态立即更新，不等网络（之前是网络回来才设，连点时选中和内容错位，看着像"换了分类内容不变"）
+        vm.selectCategory(index)
+        vm.clearCategoryFailed(index) // v0.110.0：新一轮加载先清旧的失败标记
+        setFilters(filters)
+        LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId}) filter=$filters")
+        // v0.44.0：drpy 分类首次选中时懒加载筛选组（PY 的筛选 homeContent 已带，不重复拉）
+        if (cat.filters.isEmpty() && isDrpySource()) {
+            scope.launch(Dispatchers.IO) {
+                val groups = runCatching { fetchDrpyFilters(cat.typeId) }.getOrNull().orEmpty()
+                if (groups.isNotEmpty()) {
+                    vm.setCategories(vm.categories.value.map { c ->
+                        if (c.typeId == cat.typeId) c.copy(filters = groups) else c
+                    })
+                    LogBus.i("UI", "分类 ${cat.typeName} 筛选加载：${groups.size} 组")
+                }
+            }
+        }
+        // v0.52.0：分类内容缓存先行——详情页返回/重进时秒回，不白屏等网络
+        // v0.53.0：写 vm.categoryCache（selectedCategory=index 时 currentVideos 自动派生）
+        val cacheKey = homeCacheKey()
+        if (cacheKey != null && filters.isEmpty()) {
+            scope.launch(Dispatchers.IO) {
+                val cached = HomeCache.loadCategoryVods(context, cacheKey, cat.typeId)
+                if (cached != null && myGen == contentGen) {
+                    vm.setCategoryVideos(index, cached.first)
+                    LogBus.i("UI", "分类 ${cat.typeName} 缓存先行：${cached.first.size} 条")
+                }
+            }
+        }
+        categoryJob = scope.launch {
+            vm.isLoading.value = true
+            try {
+                // v0.17.3：加超时，避免 PY 卡死导致无响应
+                // v0.110.0：null=超时/规则异常（失败，给可见反馈）；emptyList=规则真没内容（非失败）
+                val netList = withTimeoutOrNull(30_000) {
+                    engineCategory(cat.typeId, 1, filters)
+                }
+                if (myGen != contentGen) return@launch // 已被更新的点击取代，丢弃
+                val list = netList ?: emptyList()
+                if (netList == null) {
+                    // v0.110.0：失败只记日志+标失败态，不再静默写空缓存让转圈卡死（审查报告第 10 条）
+                    LogBus.w("UI", "分类 ${cat.typeName} 加载失败（超时/规则异常），给可见重试")
+                    vm.markCategoryFailed(index)
+                } else if (list.isEmpty()) {
+                    LogBus.i("UI", "分类 ${cat.typeName} 规则返回空（非失败）")
+                } else {
+                    LogBus.i("UI", "分类 ${cat.typeName} 加载 ${list.size} 条")
+                    // v0.52.0：分类内容落盘，下次秒回
+                    if (filters.isEmpty() && cacheKey != null) {
+                        withContext(Dispatchers.IO) {
+                            HomeCache.saveCategoryVods(context, cacheKey, cat.typeId, list)
+                        }
+                    }
+                }
+                // v0.53.0：写 vm.categoryCache；空列表也写（覆盖旧缓存，避免旧内容残留）
+                vm.setCategoryVideos(index, list)
+            } finally {
+                // 只有最新请求才清 loading，避免旧请求的 finally 把新请求的转圈灭掉
+                if (myGen == contentGen) vm.isLoading.value = false
+            }
+        }
+    }
+
     /**
      * 把单飞结果应用到当前 composition 的状态（执行方/复用方共用）。
      * - vods 为 null：网络失败且无缓存，drpyList 保持现状（prev）；
@@ -683,79 +757,6 @@ fun HomeScreen(
         }
     }
 
-
-    /** v0.44.0：筛选改为多组 Map；切分类时清空（不同分类的筛选组不同）。 */
-    fun loadDrpyCategory(index: Int, filters: Map<String, String> = emptyMap()) { // index >= 1，对应 drpyCats[index-1]
-        // v0.145.0：分类一律读 VM 真值，不读组合快照（换源/刚写分类后快照还滞后，143 同类教训）。
-        val cat = vm.categories.value.getOrNull(index - 1) ?: return
-        // v0.31.2：单飞——快速连点时取消上一次，同一时间只有一个分类请求在跑
-        // （之前每次点击都起一个协程，PY 引擎并发堆积是闪退的主因）。
-        // 世代+1：旧请求的迟到结果直接丢弃，"最后一次点击赢"。
-        categoryJob?.cancel()
-        contentGen += 1
-        val myGen = contentGen
-        // 选中态立即更新，不等网络（之前是网络回来才设，连点时选中和内容错位，看着像"换了分类内容不变"）
-        vm.selectCategory(index)
-        vm.clearCategoryFailed(index) // v0.110.0：新一轮加载先清旧的失败标记
-        setFilters(filters)
-        LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId}) filter=$filters")
-        // v0.44.0：drpy 分类首次选中时懒加载筛选组（PY 的筛选 homeContent 已带，不重复拉）
-        if (cat.filters.isEmpty() && isDrpySource()) {
-            scope.launch(Dispatchers.IO) {
-                val groups = runCatching { fetchDrpyFilters(cat.typeId) }.getOrNull().orEmpty()
-                if (groups.isNotEmpty()) {
-                    vm.setCategories(vm.categories.value.map { c ->
-                        if (c.typeId == cat.typeId) c.copy(filters = groups) else c
-                    })
-                    LogBus.i("UI", "分类 ${cat.typeName} 筛选加载：${groups.size} 组")
-                }
-            }
-        }
-        // v0.52.0：分类内容缓存先行——详情页返回/重进时秒回，不白屏等网络
-        // v0.53.0：写 vm.categoryCache（selectedCategory=index 时 currentVideos 自动派生）
-        val cacheKey = homeCacheKey()
-        if (cacheKey != null && filters.isEmpty()) {
-            scope.launch(Dispatchers.IO) {
-                val cached = HomeCache.loadCategoryVods(context, cacheKey, cat.typeId)
-                if (cached != null && myGen == contentGen) {
-                    vm.setCategoryVideos(index, cached.first)
-                    LogBus.i("UI", "分类 ${cat.typeName} 缓存先行：${cached.first.size} 条")
-                }
-            }
-        }
-        categoryJob = scope.launch {
-            vm.isLoading.value = true
-            try {
-                // v0.17.3：加超时，避免 PY 卡死导致无响应
-                // v0.110.0：null=超时/规则异常（失败，给可见反馈）；emptyList=规则真没内容（非失败）
-                val netList = withTimeoutOrNull(30_000) {
-                    engineCategory(cat.typeId, 1, filters)
-                }
-                if (myGen != contentGen) return@launch // 已被更新的点击取代，丢弃
-                val list = netList ?: emptyList()
-                if (netList == null) {
-                    // v0.110.0：失败只记日志+标失败态，不再静默写空缓存让转圈卡死（审查报告第 10 条）
-                    LogBus.w("UI", "分类 ${cat.typeName} 加载失败（超时/规则异常），给可见重试")
-                    vm.markCategoryFailed(index)
-                } else if (list.isEmpty()) {
-                    LogBus.i("UI", "分类 ${cat.typeName} 规则返回空（非失败）")
-                } else {
-                    LogBus.i("UI", "分类 ${cat.typeName} 加载 ${list.size} 条")
-                    // v0.52.0：分类内容落盘，下次秒回
-                    if (filters.isEmpty() && cacheKey != null) {
-                        withContext(Dispatchers.IO) {
-                            HomeCache.saveCategoryVods(context, cacheKey, cat.typeId, list)
-                        }
-                    }
-                }
-                // v0.53.0：写 vm.categoryCache；空列表也写（覆盖旧缓存，避免旧内容残留）
-                vm.setCategoryVideos(index, list)
-            } finally {
-                // 只有最新请求才清 loading，避免旧请求的 finally 把新请求的转圈灭掉
-                if (myGen == contentGen) vm.isLoading.value = false
-            }
-        }
-    }
 
     /** v0.29.0：分类失败重试（分类行空态的"点击重试"用，只拉分类） */
     fun loadCats() {
