@@ -167,10 +167,17 @@ class LxMusicSourceEngine(context: Context) {
                     if (r && typeof r.url === 'string') return r.url;
                     if (r && r.data && typeof r.data.url === 'string') return r.data.url;
                     return '';
-                  } catch(e) { return ''; }
+                  } catch(e) { return '__SCRIPT_ERROR__:' + (e && e.message ? e.message : String(e)); }
                 })()
             """.trimIndent()
             val result = inst.session.eval(callJs, JS_TIMEOUT_MS)
+            // v0.146.0：脚本抛错不再吞成空结果——把报错原文透传给 lastFailureReason，
+            // 调用方才能按原因提示（如"只有试听"），此前一律只剩"脚本返回空结果"。
+            if (result.startsWith("__SCRIPT_ERROR__:")) {
+                lastFailureReason = result.removePrefix("__SCRIPT_ERROR__:")
+                    .ifBlank { "脚本返回空结果" }
+                return null
+            }
             val url = result.takeIf { it.isNotBlank() && it.startsWith("http") }
             if (url == null) lastFailureReason = "脚本返回空结果"
             url

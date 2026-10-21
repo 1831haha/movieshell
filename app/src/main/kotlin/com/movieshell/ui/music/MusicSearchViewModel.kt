@@ -76,6 +76,11 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
         _searched.value = true
     }
 
+    /** v0.146.0：空关键词切平台时回榜单态——榜单跟随平台刷新，旧搜索结果不再赖着不走。 */
+    fun resetToCharts() {
+        _searched.value = false
+    }
+
     /**
      * v0.82.0：接受显式 query（风格 chips 点后直接搜，不等 state 落定）。
      * 键盘收起由调用方（composable）在调用前处理，不在这里碰 UI。

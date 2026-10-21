@@ -138,6 +138,8 @@ object MusicPlayer {
     private var index: Int = -1
     // v0.85.0：播放请求代际——连接 service 是异步的，旧请求回来时若已被取代则丢弃
     private var playGen = 0
+    // v0.146.0：上一轮 LX 解析是否撞上"只有试听"——供最终失败时给准提示（见 playAt）。
+    private var lastTrialOnly = false
     // v0.131.0：当前解析协程句柄——切歌先 cancel 上一首未完成的解析，避免多代
     // 解析并发共用同一 V8 会话互踩、各自重试并重复上报失败
     private var playJob: Job? = null
@@ -354,11 +356,9 @@ object MusicPlayer {
         _queueState.value = QueueState(queue, i)
         val track = queue[i]
         val gen = ++playGen
-        // v0.89.0：保留播放模式（之前每次切歌都重置回 ALL）
-        _state.value = State(
-            track = track, playing = false, loading = true,
-            repeatMode = _state.value.repeatMode,
-        )
+        // v0.146.0：新地址没拿到手之前不切显示态——播放页仍以控制器实际在播的
+        // 旧曲为准（旧曲在播显示暂停键），地址到手真切过去时再换显示；解析失败只提示。
+        // （此前这里立刻把 state 切到新曲 loading，旧曲还在响，标题/进度/按钮三者错位。）
         // v0.125.0 补充A：无自带封面的歌在播放器 scope 里做海报匹配（切歌即触发，
         // 与页面组合无关，匹配结果进 matchedArt 供播放页读）
         ensureMatchedArt(track)
@@ -399,13 +399,20 @@ object MusicPlayer {
                 // v0.131.0：失败只报一次——已切歌的旧代静默退出，不记日志不 toast 不动 state
                 if (gen != playGen) return@launch
                 LogBus.e("MusicPlayer", "取播放地址失败：${track.name}")
-                _state.value = _state.value.copy(loading = false)
-                toast("取不到播放地址，请重试")
+                // v0.146.0：显示态没切过新曲，这里只提示，不动 state（旧曲该播还播）。
+                // LX 链撞上试听且备用线路也没拿到时，说准"只有试听片段"而不是泛泛的失败。
+                toast(if (lastTrialOnly) "该歌曲只有试听片段" else "取不到播放地址，请重试")
                 return@launch
             }
             // v0.117.0：记下本曲的真实来源与音质（列表徽标 + 播放页展示用）；
             // gen 已过期（用户已切歌）时别把旧歌的来源盖到新歌上
             if (gen == playGen) {
+                // v0.146.0：地址到手才切显示态（见 playAt 开头）。
+                // v0.89.0：保留播放模式（之前每次切歌都重置回 ALL）
+                _state.value = State(
+                    track = track, playing = false, loading = true,
+                    repeatMode = _state.value.repeatMode,
+                )
                 _badges.value = _badges.value + (track.urlId to (resolved.source to resolved.quality))
                 _state.value = _state.value.copy(
                     resolvedSource = resolved.source,
@@ -466,6 +473,8 @@ object MusicPlayer {
     ): Resolved? {
         val songId = track.urlId
         val platform = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
+        // v0.146.0：每轮先清试听标记（源为空直接返回时也不能留上一首的值）。
+        lastTrialOnly = false
         if (songId.isBlank()) return null
         // v0.108.0 B1：一次性消费手动指定的源；该源不存在/已禁用时 sources 为空，
         // 自然回落为调用方 MusicApi.playUrl（GD Studio）兜底
@@ -518,6 +527,8 @@ object MusicPlayer {
             failures += "${s.name}：$reason"
         }
         currentCoroutineContext().ensureActive()
+        // v0.146.0：记下本轮是否撞上试听——最终失败时才能说准"只有试听片段"。
+        lastTrialOnly = failures.any { it.contains("试听") }
         LogBus.w("MusicPlayer", "LX 源全部解析失败，回退 GD Studio：${failures.joinToString("；")}")
         toast("LX 解析失败，已回退备用线路")
         return null

@@ -530,7 +530,7 @@ fun PlayerScreen(
     // v0.54：弹幕开关变化时按需加载/清空（不重进播放器也能开关）
     LaunchedEffect(danmakuEnabled) {
         if (danmakuEnabled && title.isNotBlank() && !isLive && danmakuList.isEmpty()) {
-            danmakuList = com.movieshell.player.danmaku.DanmakuSource.fetch(title)
+            danmakuList = com.movieshell.player.danmaku.DanmakuSource.fetchMerged(title)
         } else if (!danmakuEnabled) {
             danmakuList = emptyList()
         }
@@ -540,7 +540,7 @@ fun PlayerScreen(
         // v0.54：弹幕预加载（按标题搜，不阻塞播放；失败静默无弹幕）
         if (danmakuEnabled && title.isNotBlank() && !isLive) {
             launch {
-                danmakuList = com.movieshell.player.danmaku.DanmakuSource.fetch(title)
+                danmakuList = com.movieshell.player.danmaku.DanmakuSource.fetchMerged(title)
             }
         } else if (!danmakuEnabled) {
             danmakuList = emptyList()

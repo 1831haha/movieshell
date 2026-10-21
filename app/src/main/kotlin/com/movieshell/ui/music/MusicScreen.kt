@@ -270,6 +270,10 @@ fun MusicScreen(
                     onHistoryRemove = { h -> vm.removeHistory(h) },
                     onHistoryClear = { vm.clearHistory() },
                     onSearch = { q -> doSearch(q) },
+                    onResetToCharts = {
+                        vm.resetToCharts()
+                        playlistName = null
+                    },
                     onTracksLoaded = { list -> vm.setTracks(list) },
                     onPlayAt = { idx -> MusicPlayer.playList(context, tracks, idx) },
                 )
@@ -495,6 +499,7 @@ private fun OnlineTab(
     onHistoryRemove: (String) -> Unit,
     onHistoryClear: () -> Unit,
     onSearch: (String) -> Unit,
+    onResetToCharts: () -> Unit,
     onTracksLoaded: (List<MusicApi.Track>) -> Unit,
     onPlayAt: (Int) -> Unit,
 ) {
@@ -533,8 +538,10 @@ private fun OnlineTab(
                     enabled = code in MusicApi.SEARCHABLE_PLATFORMS,
                     onClick = {
                         PlayerSettings.setMusicPlatform(context, code)
-                        // 切换平台后用当前关键词重新搜索
-                        if (query.isNotBlank()) onSearch(query)
+                        // v0.146.0：空关键词切平台也要有变化——之前只有关键词非空才重搜，
+                        // 空着切平台列表还是上次旧结果、榜单区也被已搜状态藏着，看着像没反应。
+                        // 空关键词时回榜单态（榜单跟随平台刷新），有关键词时重搜。
+                        if (query.isNotBlank()) onSearch(query) else onResetToCharts()
                     },
                     label = { Text(PLATFORM_SHORT_LABELS[code] ?: code, maxLines = 1) },
                     modifier = Modifier.weight(1f),
@@ -660,8 +667,9 @@ private fun OnlineTab(
                     // v0.95：榜单改 2x2 长方形小卡片（横向，宽>高），按压缩放回弹
                     // v0.127.0：榜单内容改按所选平台下发（charts state），不再写死网易四榜
                     if (charts.isEmpty()) {
+                        // v0.146.0：咪咕无公开榜单接口，直说接口缺失，别让用户以为读取失败。
                         Text(
-                            text = "该平台暂无榜单",
+                            text = if (musicPlatform == "mg") "咪咕暂无榜单接口" else "该平台暂无榜单",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp),

@@ -38,6 +38,21 @@ object DanmakuSource {
     )
 
     /**
+     * v0.146.0：播放器弹幕钩子——内置源 + 本地 danmu-service 合并取数（唯一入口）。
+     * 两路都按 timeMs 排序后合并，再走同一套去重（同文本 3 秒内只留一条）+
+     * 密度控制（每分钟最多 60 条）；本地服务未运行/失败时只有内置源，不影响播放。
+     * 开关只有一个（DanmakuSettings.enabled），由 PlayerScreen 在开关打开时调用。
+     */
+    suspend fun fetchMerged(title: String, episode: Int = 1): List<Danmaku> = withContext(Dispatchers.IO) {
+        val builtin = fetch(title, episode)
+        val local = DanmakuLocalSource.fetch(title, episode)
+        if (local.isEmpty()) return@withContext builtin
+        (builtin + local).sortedBy { it.timeMs }
+            .let { dedup(it) }
+            .let { limitDensity(it) }
+    }
+
+    /**
      * 按标题搜弹幕。返回按 timeMs 排序的列表；搜不到/失败返回空。
      * episode 用于多集时尽量匹配对应集（弹弹play 按番剧+集数取）。
      *

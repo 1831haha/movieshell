@@ -938,6 +938,13 @@ object ServicePluginManager {
         synchronized(lock) { running[id]?.logs?.clear() }
     }
 
+    /** v0.146.0：运行中服务的实际监听端口（弹幕本地源用）；未运行返回 null。 */
+    fun portOf(id: String): Int? = synchronized(lock) {
+        val h = running[id] ?: return@synchronized null
+        if (!h.process.isAlive) return@synchronized null
+        h.port
+    }
+
     /** v0.132.0：运行中进程的 PID（编辑页/配置区只读展示）；未运行返回 null。 */
     fun pidOf(id: String): Long? = synchronized(lock) {
         val h = running[id] ?: return@synchronized null

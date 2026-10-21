@@ -9,7 +9,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -831,7 +830,7 @@ private fun EditorSection(
                 Text(
                     title,
                     style = SoftType.CardTitle,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
             content()
@@ -840,8 +839,9 @@ private fun EditorSection(
 }
 
 /**
- * v0.132.0：服务全屏编辑器——基本配置 + 高级折叠区（可执行文件/工作目录/
+ * v0.132.0：服务全屏编辑器——基本配置 + 高级配置（可执行文件/工作目录/
  * 环境变量/探活方式）+ 占位符 chip 插入最近聚焦字段。字段组件照全屏页表单
+ * v0.146.0：高级配置不再折叠、直接展示；页边距收紧、段标题用主题主色。
  * 现成口径用 AppTextField；保存由宿主在 IO 线程调 saveService 并回列表。
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -870,7 +870,6 @@ private fun ServiceEditor(
     }
     var healthMode by remember(initial) { mutableStateOf(initial.healthMode) }
     var healthPath by remember(initial) { mutableStateOf(initial.healthPath) }
-    var advanced by remember(initial) { mutableStateOf(false) }
     // 占位符插入目标：command / workDir / args / env:<下标>，默认 command
     var insertTarget by remember(initial) { mutableStateOf("command") }
 
@@ -927,8 +926,8 @@ private fun ServiceEditor(
         Column(
             modifier = Modifier.fillMaxSize().padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             EditorSection(title = "基本配置") {
             FieldLabel("名称（必填）")
@@ -1056,119 +1055,99 @@ private fun ServiceEditor(
                 }
             }
             }
-            EditorSection(title = null) {
-            Row(
+            EditorSection(title = "高级配置") {
+            FieldLabel("可执行文件")
+            AppTextField(
+                value = command,
+                onValueChange = { command = it },
+                placeholder = "如 server.sh 或 __plugin:php__/bin/php",
                 modifier = Modifier.fillMaxWidth()
-                    .clickable { advanced = !advanced }
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "高级配置",
-                    style = SoftType.CardTitle,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    if (advanced) "收起" else "展开",
-                    style = SoftType.Caption,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            if (advanced) {
-                FieldLabel("可执行文件")
-                AppTextField(
-                    value = command,
-                    onValueChange = { command = it },
-                    placeholder = "如 server.sh 或 __plugin:php__/bin/php",
-                    modifier = Modifier.fillMaxWidth()
-                        .onFocusChanged { if (it.isFocused) insertTarget = "command" },
-                )
-                FieldLabel("工作目录")
-                AppTextField(
-                    value = workDir,
-                    onValueChange = { workDir = it },
-                    placeholder = "如 __plugin:hello-service__",
-                    modifier = Modifier.fillMaxWidth()
-                        .onFocusChanged { if (it.isFocused) insertTarget = "workDir" },
-                )
-                FieldLabel("环境变量")
-                envList.forEachIndexed { idx, pair ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        AppTextField(
-                            value = pair.first,
-                            onValueChange = { v ->
-                                envList[idx] = v to envList[idx].second
+                    .onFocusChanged { if (it.isFocused) insertTarget = "command" },
+            )
+            FieldLabel("工作目录")
+            AppTextField(
+                value = workDir,
+                onValueChange = { workDir = it },
+                placeholder = "如 __plugin:hello-service__",
+                modifier = Modifier.fillMaxWidth()
+                    .onFocusChanged { if (it.isFocused) insertTarget = "workDir" },
+            )
+            FieldLabel("环境变量")
+            envList.forEachIndexed { idx, pair ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AppTextField(
+                        value = pair.first,
+                        onValueChange = { v ->
+                            envList[idx] = v to envList[idx].second
+                        },
+                        placeholder = "KEY",
+                        modifier = Modifier.weight(1f),
+                    )
+                    AppTextField(
+                        value = pair.second,
+                        onValueChange = { v ->
+                            envList[idx] = envList[idx].first to v
+                        },
+                        placeholder = "VALUE",
+                        modifier = Modifier.weight(1f)
+                            .onFocusChanged {
+                                if (it.isFocused) insertTarget = "env:$idx"
                             },
-                            placeholder = "KEY",
-                            modifier = Modifier.weight(1f),
-                        )
-                        AppTextField(
-                            value = pair.second,
-                            onValueChange = { v ->
-                                envList[idx] = envList[idx].first to v
-                            },
-                            placeholder = "VALUE",
-                            modifier = Modifier.weight(1f)
-                                .onFocusChanged {
-                                    if (it.isFocused) insertTarget = "env:$idx"
-                                },
-                        )
-                        TextButton(onClick = { envList.removeAt(idx) }) {
-                            Text("删除")
-                        }
+                    )
+                    TextButton(onClick = { envList.removeAt(idx) }) {
+                        Text("删除")
                     }
                 }
-                TextButton(onClick = { envList.add("" to "") }) {
-                    Text("添加变量")
-                }
-                FieldLabel("探活方式")
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    FilterChip(
-                        selected = healthMode == ServicePluginManager.HealthMode.PROCESS,
-                        onClick = {
-                            healthMode = ServicePluginManager.HealthMode.PROCESS
-                        },
-                        label = { Text("仅进程") },
-                    )
-                    FilterChip(
-                        selected = healthMode == ServicePluginManager.HealthMode.TCP,
-                        onClick = { healthMode = ServicePluginManager.HealthMode.TCP },
-                        label = { Text("TCP") },
-                    )
-                    FilterChip(
-                        selected = healthMode == ServicePluginManager.HealthMode.HTTP,
-                        onClick = {
-                            healthMode = ServicePluginManager.HealthMode.HTTP
-                        },
-                        label = { Text("HTTP") },
-                    )
-                }
-                FieldLabel("HTTP 路径")
-                if (healthMode == ServicePluginManager.HealthMode.HTTP) {
-                    AppTextField(
-                        value = healthPath,
-                        onValueChange = { healthPath = it },
-                        placeholder = "如 /healthz",
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                } else {
-                    Text(
-                        healthPath.ifBlank { "（未设置）" } + "（仅 HTTP 探活时可编辑）",
-                        style = SoftType.Caption,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (pid != null) {
-                    ConfigRow("进程 PID", pid.toString())
-                }
+            }
+            TextButton(onClick = { envList.add("" to "") }) {
+                Text("添加变量")
+            }
+            FieldLabel("探活方式")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                FilterChip(
+                    selected = healthMode == ServicePluginManager.HealthMode.PROCESS,
+                    onClick = {
+                        healthMode = ServicePluginManager.HealthMode.PROCESS
+                    },
+                    label = { Text("仅进程") },
+                )
+                FilterChip(
+                    selected = healthMode == ServicePluginManager.HealthMode.TCP,
+                    onClick = { healthMode = ServicePluginManager.HealthMode.TCP },
+                    label = { Text("TCP") },
+                )
+                FilterChip(
+                    selected = healthMode == ServicePluginManager.HealthMode.HTTP,
+                    onClick = {
+                        healthMode = ServicePluginManager.HealthMode.HTTP
+                    },
+                    label = { Text("HTTP") },
+                )
+            }
+            FieldLabel("HTTP 路径")
+            if (healthMode == ServicePluginManager.HealthMode.HTTP) {
+                AppTextField(
+                    value = healthPath,
+                    onValueChange = { healthPath = it },
+                    placeholder = "如 /healthz",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Text(
+                    healthPath.ifBlank { "（未设置）" } + "（仅 HTTP 探活时可编辑）",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (pid != null) {
+                ConfigRow("进程 PID", pid.toString())
             }
             }
             Row(
