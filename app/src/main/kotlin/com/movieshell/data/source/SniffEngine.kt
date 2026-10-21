@@ -21,6 +21,16 @@ import okhttp3.Request
  *    发 HEAD（失败回退 Range GET）看 Content-Type 判定。只对可疑 URL 做，
  *    不全量探测，避免把图片/接口请求都打一遍。
  * 3. iframe 剥壳：[extractIframeSrcs] 从页面 HTML 抠 iframe src，逐个走第 2 条探测。
+ *
+ * v0.149（DS 材料包 P0-2 落地，行为描述见 DS 0.9.8 changelog）：
+ * - 案例 1 词边界：/m3u8 路径规则加两道防线——静态资源不命中、主 frame 导航不命中
+ *   （见 [sniffKind]）；blob 深挖正则要求后缀后有词边界，杜绝 player.m3u8.js
+ *   被截断成 player.m3u8 的伪造候选。
+ * - 案例 3 结算验证：点选播放前带播放请求头做一次 Content-Type 验证
+ *   （见 [settlementDenied]），只拦网页/脚本类硬拒绝，含糊情况放行。
+ * - 案例 5 排序：[rankIndex] 给候选面板排序与超时最优候选定级（m3u8 最优）。
+ * - CF 真窗口检测：[isChallengePage] 只检测不绕过——本屏本身就是真 WebView，
+ *   用户手动过验证后 Cookie 自动续上。
  */
 object SniffEngine {
 
@@ -57,16 +67,23 @@ object SniffEngine {
      * - null：都不是（.ts 分片走 [isTsSegment]，不直接命中）
      *
      * v0.16.1：先查用户自定义正则（SniffPatternStore），命中即 DIRECT。
+     * v0.149（DS 案例 1/6 的结算防线）：/m3u8 路径形式是启发式规则，只对资源请求生效——
+     * ①静态资源（.js/.css/图片等）即使路径含 m3u8 段也不命中（U 酷案：m3u8 词出现在
+     * .js 资源里被误判）；②主 frame 导航 URL 不命中（/m3u8/ 路径转换器壳页本身不是流，
+     * 播它等于播一页 HTML，让位于剥壳流程：壳页加载后由 iframe/JS 链路抓里面的真流）。
+     * 真后缀直链（.m3u8/.mp4 等）不受这两条影响。
      */
-    fun sniffKind(url: String): SniffKind? {
+    fun sniffKind(url: String, isMainFrame: Boolean = false): SniffKind? {
         // 自定义正则优先
         if (matchesCustomPattern(url)) return SniffKind.DIRECT
         val lower = url.lowercase()
         if (lower.startsWith("rtmp://")) return SniffKind.RTMP
         val path = lower.substringBefore('#').substringBefore('?')
         if (DIRECT_EXTS.any { path.endsWith(it) }) return SniffKind.DIRECT
-        // DsPlayer 式：/m3u8 路径形式；排除 .html 等静态页面误伤
-        if (path.split('/').any { it == "m3u8" } && STATIC_EXTS.none { path.endsWith(it) }) {
+        // DsPlayer 式：/m3u8 路径形式；排除静态资源与主 frame 导航误伤
+        if (!isMainFrame && STATIC_EXTS.none { path.endsWith(it) } &&
+            path.split('/').any { it == "m3u8" }
+        ) {
             return SniffKind.DIRECT
         }
         if (path.endsWith(".rtmp")) return SniffKind.RTMP
@@ -240,6 +257,82 @@ object SniffEngine {
             }
         }
     }.getOrNull()
+
+    /**
+     * v0.149 案例 3 结算硬拒绝的 Content-Type：网页/脚本/样式/图片/JSON——
+     * 这类响应绝不可能是视频流（aa1.cn 案：文本截断假地址）。
+     * text/plain、octet-stream、无 CT 等含糊情况一律放行（fail-open：真 m3u8
+     * 常以 text/plain 下发，播不动播放器会自己报错），避免误杀。
+     */
+    private val SETTLEMENT_DENY_CT = setOf(
+        "text/html", "application/xhtml+xml",
+        "application/javascript", "text/javascript",
+        "application/json", "text/css",
+    )
+
+    /** 结算 Content-Type 判定（纯函数）：硬拒绝类型或图片 → true，其余（含糊/缺失）→ false */
+    fun settlementDenied(contentType: String?): Boolean {
+        val ct = contentType?.substringBefore(';')?.trim()?.lowercase() ?: return false
+        return ct in SETTLEMENT_DENY_CT || ct.startsWith("image/")
+    }
+
+    /**
+     * v0.149 案例 3 结算验证：点选播放前，用播放时将带的请求头（Referer/UA/Cookie）
+     * 做一次 HEAD（失败回退 Range GET）取 Content-Type；只有硬拒绝类型才拦下。
+     * 单次探测、无重试（点选要跟手）；探测失败/无 CT 一律放行。
+     */
+    suspend fun settlementDenied(
+        url: String,
+        client: OkHttpClient,
+        headers: Map<String, String>,
+    ): Boolean {
+        val ct = withTimeoutOrNull(SniffConfig.probeTimeoutMs) {
+            withContext(Dispatchers.IO) { fetchContentType(url, client, headers) }
+        } ?: return false
+        return settlementDenied(ct)
+    }
+
+    private fun fetchContentType(
+        url: String,
+        client: OkHttpClient,
+        headers: Map<String, String>,
+    ): String? = runCatching {
+        val builder = Request.Builder().url(url)
+            .header("User-Agent", headers["User-Agent"] ?: DEFAULT_UA_CHROME120)
+        headers["Referer"]?.let { builder.header("Referer", it) }
+        headers["Cookie"]?.let { builder.header("Cookie", it) }
+        client.newCall(builder.head().build()).execute().use { resp ->
+            if (resp.isSuccessful) resp.header("Content-Type")?.let { return it }
+        }
+        client.newCall(builder.get().header("Range", "bytes=0-0").build())
+            .execute().use { resp ->
+                if (resp.isSuccessful || resp.code == 206) resp.header("Content-Type") else null
+            }
+    }.getOrNull()
+
+    /**
+     * v0.149 案例 5 目标探测排序：候选面板展示顺序与超时最优候选的定级——
+     * m3u8 最优，mp4/mpd 次之，其余最后；同级按发现顺序。
+     */
+    fun rankIndex(url: String): Int {
+        val path = url.lowercase().substringBefore('#').substringBefore('?')
+        return when {
+            path.endsWith(".m3u8") -> 0
+            path.endsWith(".mp4") || path.endsWith(".mpd") -> 1
+            else -> 2
+        }
+    }
+
+    /**
+     * v0.149 CF 真窗口检测（只检测、不绕过）：URL 或标题含验证平台特征即判定为验证页。
+     * 本屏本身就是真 WebView，用户手动过验证后 Cookie 自动续上、嗅探继续；
+     * 全自动绕过不做（DS 0.9.8 已知限制原文同款红线）。
+     */
+    fun isChallengePage(url: String, title: String): Boolean {
+        val u = url.lowercase()
+        if ("challenge-platform" in u || "cdn-cgi/challenge" in u || "__cf_chl" in u) return true
+        return title.contains("Attention Required") || title.contains("人机验证")
+    }
 
 
     private val IFRAME_SRC =

@@ -900,6 +900,35 @@ fun PlayerScreen(
                             color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    // v0.149 DS 案例 4：源侧 Referer 导致换流后播不了时，给一条
+                    // "Referer 全链路清零"的验证式重试——只在嗅探直链带 Referer 时出现；
+                    // 点后本次会话的后续重试也沿用无 Referer 请求头（lastHeaders 已改写）
+                    if (!MagnetPlayer.isMagnet(playUrl) && lastHeaders.containsKey("Referer")) {
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                playError = null
+                                scope.launch {
+                                    try {
+                                        val pos = EngineHost.currentPosition()
+                                        val noRefHeaders = lastHeaders - "Referer"
+                                        lastHeaders = noRefHeaders
+                                        LogBus.i("Player", "清除 Referer 后重试：$playUrl")
+                                        val sub = runCatching { currentSubtitleUrl() }.getOrNull()
+                                        val ok = EngineHost.play(
+                                            context, playUrl, headers = noRefHeaders,
+                                            startPositionMs = pos, subtitleUrl = sub,
+                                        )
+                                        if (!ok) playError = PlayError.classify("重试失败")
+                                    } catch (t: Throwable) {
+                                        LogBus.e("Player", "无 Referer 重试异常：${t.message}")
+                                        playError = PlayError.classify(t.message.orEmpty())
+                                    }
+                                }
+                            },
+                        ) {
+                            androidx.compose.material3.Text("清除 Referer 后重试")
+                        }
+                    }
                 }
             }
     }

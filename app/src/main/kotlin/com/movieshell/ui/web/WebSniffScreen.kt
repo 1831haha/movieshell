@@ -1,6 +1,7 @@
 package com.movieshell.ui.web
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -98,6 +99,8 @@ private const val SEEN_URL_CAP = 300
  * 首次执行时 hook HTMLMediaElement.src 的 setter（hls.js 等库常走 el.src = xxx 赋值）；
  * 每次返回 {v:[video 地址], f:[MutationObserver 攒的新增 iframe src]}。
  * iframe 队列在 JS 侧 splice 取走，天然去重（observer 侧另有 seen 表）。
+ * v0.149 静音收口：每轮顺手静音页内全部 video/audio——嗅探页只负责抓地址，
+ * 真播放走播放器，嗅探页出声纯属打扰。
  */
 private const val JS_VIDEO_POLL = """
 (function(){
@@ -114,6 +117,7 @@ private const val JS_VIDEO_POLL = """
     }catch(e){}
   }
   try{
+    document.querySelectorAll('video,audio').forEach(function(m){ try{ m.muted=true; }catch(e){} });
     document.querySelectorAll('video').forEach(function(v){
       var s=v.currentSrc||v.src||''; if(s) out.push(s);
     });
@@ -126,6 +130,46 @@ private const val JS_VIDEO_POLL = """
     }
   }catch(e){}
   return JSON.stringify({v:out, f:fr});
+})()
+"""
+
+/**
+ * v0.149 document_start 等价注入：onPageStarted 时点先把视频钩子装上
+ * （Android 没有 document_start API，onPageStarted 是最接近的时点；
+ * 注入幂等，onPageFinished 还会再装一次兜底）。
+ */
+private const val JS_HOOK_INSTALL = """
+(function(){
+  if(!window.__xhHooked){
+    window.__xhHooked=true;
+    try{
+      var d=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'src');
+      Object.defineProperty(HTMLMediaElement.prototype,'src',{
+        set:function(v){ window.__xhLastSrc=v; if(d&&d.set) d.set.call(this,v); },
+        get:function(){ return (d&&d.get)?d.get.call(this):this.getAttribute('src'); },
+        configurable:true
+      });
+    }catch(e){}
+  }
+  return 'ok';
+})()
+"""
+
+/**
+ * v0.149 懒播放触发：点播才加载流的懒播放器，逼它一把。
+ * 只点已知播放器的大播放键 + 调 video.play()，不点通用 div、不碰广告位；
+ * 每页只触发一次（由 Kotlin 侧 lazyTriggered 布防），且只在候选为空时触发——
+ * 已有候选就不需要再惊动页面。
+ */
+private const val JS_LAZY_PLAY = """
+(function(){
+  try{
+    document.querySelectorAll('video').forEach(function(v){ try{ v.play(); }catch(e){} });
+    ['.vjs-big-play-button','.jw-display-icon-display','.play-button','[class*="play-btn"]','[class*="big-play"]'].forEach(function(sel){
+      try{ document.querySelectorAll(sel).forEach(function(el){ try{ el.click(); }catch(e){} }); }catch(e){}
+    });
+  }catch(e){}
+  return 'ok';
 })()
 """
 
@@ -166,6 +210,9 @@ private const val JS_IFRAME_OBSERVER = """
  * v0.92 blob 深挖：video 播的是 blob: 地址（MSE 方案）时，真实流地址藏在
  * JS 或页面源码里。扫 innerHTML 找媒体 URL，JS 侧正则、去重，只回传命中的地址。
  * v0.92：后缀扩到全部 DIRECT 后缀 + ts（分片只当线索）+ `/m3u8` 路径形式。
+ * v0.149 案例 1 词边界：后缀后必须跟 ?/# 或结束/引号类边界（lookahead 拦住
+ * 后续的字母/点/斜杠/横杠）——player.m3u8.js 再也不能被截断成 player.m3u8
+ * 伪造候选；第二条 /m3u8 规则扫到的地址仍走 Kotlin 侧 sniffKind 的静态资源防线。
  */
 private const val JS_BLOB_DIG = """
 (function(){
@@ -176,7 +223,7 @@ private const val JS_BLOB_DIG = """
     var m;
     while((m=re.exec(html))!==null){ var u=m[0]; if(!seen[u]){ seen[u]=1; out.push(u); } }
   }
-  grab(/https?:\/\/[^\s"'<>]+\.(m3u8|mp4|mkv|flv|avi|ts|webm|mp3|m4a|aac|mov|wmv|mpd)(\?[^\s"'<>]*)?/gi);
+  grab(/https?:\/\/[^\s"'<>]+\.(m3u8|mp4|mkv|flv|avi|ts|webm|mp3|m4a|aac|mov|wmv|mpd)([?#][^\s"'<>]*)?(?![\w./-])/gi);
   grab(/https?:\/\/[^\s"'<>]*\/m3u8([?&#\/][^\s"'<>]*)?/gi);
   return JSON.stringify(out);
 })()
@@ -268,6 +315,20 @@ private fun parseRootStringArray(json: String): List<String> {
  * v0.93：候选列表模式——各链路命中后不再首条即播，而是收集进候选列表
  * （[SniffCandidate]，按 url 去重），用户点选后才 stopLoading + onPlay；
  * hitDone 语义改为"用户已选播"。顶栏溢出菜单可调嗅探参数（[SniffConfig]）。
+ *
+ * v0.149（DS 材料包 P0-2 落地，行为描述见 DS 0.9.8 changelog；以下映射均已
+ * 按自家"候选列表、用户点选"架构改写，不照搬 DS 的自动结算）：
+ * - 拦截显式开启 + document_start 等价注入（onPageStarted 装钩子）+ 零候选时
+ *   自动重探已拦截队列一轮（DS 案例 2 的重试轮回）；
+ * - 点选播放前结算验证（DS 案例 3），只拦网页/脚本类硬拒绝；
+ * - 超时预算耗尽时只记观测统计、永不作废已有候选（DS 案例 5 的根修在本架构
+ *   下是天然成立的：候选列表模式下超时从不清空候选）；
+ * - 主 frame 导航的 /m3u8 路径形式让位于剥壳（DS 案例 6）；
+ * - 帧目标提升加载（player iframe 先探）、懒播放触发、静音收口、CF 验证页
+ *   检测提示（只提示不绕过）、player_aaaa 加密壳检测（只记日志：解密逻辑在
+ *   DS Flutter 侧 libapp.so 内、APK 里拿不到，不伪造解密）；
+ * - 候选面板按 m3u8 > mp4/mpd > 其余排序展示，并带拦截/iframe 诊断行（DSINFO 的
+ *   轻量版：只展示本屏已有统计，不另起诊断页）。
  */
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -317,6 +378,18 @@ fun WebSniffScreen(
     var adFilter by remember { mutableStateOf(SniffConfig.adFilterEnabled) }
     var menuOpen by remember { mutableStateOf(false) }
     var cfgDialog by remember { mutableStateOf<String?>(null) } // "concurrency" / "retry" / null
+    // v0.149：嗅探链路观测（DS 案例 5 要求 init/nav/pageFinished/timeout 全程 LogBus）
+    val pageFinishedCount = remember { AtomicInteger(0) }
+    // v0.149：主 frame 当前 URL（onPageStarted 更新；onLoadResource 靠它认主 frame）
+    var mainFrameUrl by remember { mutableStateOf(url) }
+    // v0.149：懒播放触发布防（每页一次，主 frame 换页时重置）
+    val lazyTriggered = remember { AtomicBoolean(false) }
+    // v0.149：验证页提示布防（同一页只提示一次）
+    var challengeToastedUrl by remember { mutableStateOf("") }
+    // v0.149：零候选自动重探布防（每个入口 URL 只自动重探一次）
+    var autoRetried by remember(url) { mutableStateOf(false) }
+    // v0.149：最近一次 iframe 剥壳扫到的 iframe 个数（候选面板诊断行用）
+    var lastIframeCount by remember { mutableIntStateOf(0) }
 
     fun rememberSeen(u: String) {
         if (u.isBlank()) return
@@ -351,6 +424,9 @@ fun WebSniffScreen(
      * v0.93：用户从候选列表点选播放（hitDone 语义改为"用户已选播"）。
      * 先把 Referer/UA/Cookie 存进 [SniffPlayHeaders]（v0.21.0：防盗链站点常要 Cookie），
      * 再 stopLoading（省流量）-> 交给播放器。全局只执行一次。
+     * v0.149 案例 3：点选后先结算验证——用播放时将带的请求头探一次 Content-Type，
+     * 返回网页/脚本类硬拒绝时拦下（aa1.cn 文本截断假地址）、解锁并把该候选从面板移除，
+     * 用户可另选；用户自定义正则命中的候选跳过验证（用户已显式背书）。
      */
     fun playCandidate(view: WebView?, candidate: SniffCandidate) {
         if (!hitDone.compareAndSet(false, true)) return
@@ -363,25 +439,40 @@ fun WebSniffScreen(
         // 之前先置位后 post，一旦 runCatching 内异常（被吞掉）或 runnable 永不执行，
         // onPlay 永不执行且 hitDone 已锁死，用户点播放没反应、再点也被拦，直接卡死
         val posted = view.post {
-            val ok = runCatching {
+            val headersBuilt = runCatching {
                 val referer = view.url.orEmpty()
                 val userAgent = runCatching { view.settings?.userAgentString }.getOrNull().orEmpty()
                 val cookie = runCatching {
                     CookieManager.getInstance().getCookie(candidate.url)
                 }.getOrNull().orEmpty()
-                val headers = buildMap {
+                buildMap {
                     if (referer.isNotBlank()) put("Referer", referer)
                     if (userAgent.isNotBlank()) put("User-Agent", userAgent)
                     if (cookie.isNotBlank()) put("Cookie", cookie)
                 }
-                SniffPlayHeaders.put(candidate.url, headers)
-                view.stopLoading()
-                onPlay(candidate.url, pageTitle.ifBlank { name })
-            }.isSuccess
-            if (!ok) {
-                // 失败解锁，候选面板也重新打开，允许用户重选
+            }.getOrNull()
+            if (headersBuilt == null) {
                 hitDone.set(false)
                 picked = false
+                return@post
+            }
+            probeScope.launch(Dispatchers.IO) {
+                val denied = !SniffEngine.matchesCustomPattern(candidate.url) &&
+                    SniffEngine.settlementDenied(candidate.url, probeClient, headersBuilt)
+                withContext(Dispatchers.Main) {
+                    if (denied) {
+                        LogBus.w("WebSniff", "结算拦截：${candidate.url.take(120)} 返回网页/脚本不是视频流")
+                        candidates.remove(candidate)
+                        candidateUrls.remove(candidate.url)
+                        hitDone.set(false)
+                        picked = false
+                        Toast.makeText(context, "该地址返回的是网页不是视频流，已拦截", Toast.LENGTH_LONG).show()
+                    } else {
+                        SniffPlayHeaders.put(candidate.url, headersBuilt)
+                        view.stopLoading()
+                        onPlay(candidate.url, pageTitle.ifBlank { name })
+                    }
+                }
             }
         }
         if (!posted) {
@@ -440,6 +531,7 @@ fun WebSniffScreen(
      * iframe 剥壳：页面加载完抠 iframe src，逐个探测直链。
      * v0.92 修：JS 返回的是 JSON.stringify 后的 src 数组，之前误用
      * [SniffEngine.extractIframeSrcs] 按 HTML 正则解析，永远拿到空列表。
+     * v0.149 帧目标提升加载：含 player 的 iframe 先探（播放器壳最可能藏真流）。
      */
     fun probeIframes(view: WebView) {
         if (hitDone.get()) return
@@ -453,7 +545,9 @@ fun WebSniffScreen(
             val srcs = parseRootStringArray(decodeJsResult(raw))
                 .map { SniffEngine.resolveUrl(base, it) }
                 .distinct()
-            for (src in srcs) {
+            lastIframeCount = srcs.size
+            val ordered = srcs.sortedWith(compareByDescending { "player" in it.lowercase() })
+            for (src in ordered) {
                 if (hitDone.get()) break
                 onUrlFound(view, src, "iframe")
             }
@@ -490,6 +584,10 @@ fun WebSniffScreen(
     /** 第 4 层：JS video hook 轮询——抓 video.currentSrc/src + hook 到的 src + 动态 iframe 队列 */
     fun pollVideoHook(view: WebView) {
         if (hitDone.get()) return
+        // v0.149 懒播放触发：候选为空时每页只触发一次（见 JS_LAZY_PLAY）
+        if (candidates.isEmpty() && !lazyTriggered.getAndSet(true)) {
+            view.evaluateJavascript(JS_LAZY_PLAY, null)
+        }
         view.evaluateJavascript(JS_VIDEO_POLL) { raw ->
             if (hitDone.get()) return@evaluateJavascript
             val decoded = decodeJsResult(raw)
@@ -765,17 +863,62 @@ fun WebSniffScreen(
                             }
                         }
                         webViewClient = object : WebViewClient() {
+                            override fun onPageStarted(
+                                view: WebView?,
+                                url: String?,
+                                favicon: Bitmap?,
+                            ) {
+                                super.onPageStarted(view, url, favicon)
+                                if (view != null && !url.isNullOrBlank()) {
+                                    mainFrameUrl = url
+                                    // v0.149 document_start 等价注入：页面脚本跑起来之前先把
+                                    // 视频钩子与 iframe 追踪装上（注入幂等，onPageFinished 再兜底一次）
+                                    view.evaluateJavascript(JS_HOOK_INSTALL, null)
+                                    view.evaluateJavascript(JS_IFRAME_OBSERVER, null)
+                                    LogBus.i("WebSniff", "导航 init $url")
+                                }
+                            }
+
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
                                 currentUrl = view?.url ?: url.orEmpty()
                                 canGoBack = view?.canGoBack() == true
                                 canGoForward = view?.canGoForward() == true
                                 if (view != null) {
-                                    // v0.92：主 frame 换页后重置 blob 深挖标记
+                                    pageFinishedCount.incrementAndGet()
+                                    // v0.149 CF 真窗口检测：只提示不绕过——本屏就是真 WebView，
+                                    // 用户手动过验证后 Cookie 自动续上、嗅探继续
                                     val mainUrl = view.url.orEmpty()
+                                    if (mainUrl.isNotBlank() &&
+                                        SniffEngine.isChallengePage(mainUrl, view.title.orEmpty()) &&
+                                        challengeToastedUrl != mainUrl
+                                    ) {
+                                        challengeToastedUrl = mainUrl
+                                        LogBus.w("WebSniff", "检测到验证页，等用户手动通过后嗅探自动继续：$mainUrl")
+                                        Toast.makeText(
+                                            context,
+                                            "检测到验证页，请手动完成验证，验证通过后嗅探自动继续",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
+                                    // v0.149 player_aaaa 加密壳检测：只记日志，不伪造解密——
+                                    // 解密逻辑在 DS Flutter 侧 libapp.so 内、APK 里拿不到；
+                                    // 解密后的地址靠视频钩子（src setter）在播放器起播时捕获
+                                    view.evaluateJavascript(
+                                        "(document.documentElement.innerHTML.indexOf('player_aaaa')>=0)?'1':'0'",
+                                    ) { raw ->
+                                        if (decodeJsResult(raw) == "1") {
+                                            LogBus.w(
+                                                "WebSniff",
+                                                "检测到 player_aaaa 加密播放器，解密逻辑不在包内，靠视频钩子捕获解密后地址",
+                                            )
+                                        }
+                                    }
+                                    // v0.92：主 frame 换页后重置 blob 深挖标记
                                     if (mainUrl.isNotBlank() && mainUrl != lastMainUrl) {
                                         lastMainUrl = mainUrl
                                         blobDug.set(false)
+                                        lazyTriggered.set(false)
                                     }
                                     // v0.92 第 3 层：动态 iframe 追踪（新页面重新注入）
                                     view.evaluateJavascript(JS_IFRAME_OBSERVER, null)
@@ -799,7 +942,9 @@ fun WebSniffScreen(
                                 val u = url.orEmpty()
                                 if (u.isEmpty() || hitDone.get()) return
                                 rememberSeen(u)
-                                when (SniffEngine.sniffKind(u)) {
+                                // v0.149 案例 6：主 frame 自身的 /m3u8 路径形式不进候选
+                                // （壳页让位于剥壳；真后缀直链不受影响）
+                                when (SniffEngine.sniffKind(u, u == mainFrameUrl)) {
                                     SniffKind.DIRECT -> addCandidate(u, "网络拦截")
                                     SniffKind.RTMP -> onRtmp(webView, u)
                                     null -> if (SniffEngine.isSuspiciousMediaUrl(u)) {
@@ -827,7 +972,8 @@ fun WebSniffScreen(
                                 }
                                 if (webView != null && reqUrl.isNotEmpty()) {
                                     rememberSeen(reqUrl)
-                                    when (SniffEngine.sniffKind(reqUrl)) {
+                                    // v0.149 案例 6：主 frame 导航的 /m3u8 路径形式不进候选
+                                    when (SniffEngine.sniffKind(reqUrl, request?.isForMainFrame == true)) {
                                         SniffKind.DIRECT -> addCandidate(reqUrl, "网络拦截")
                                         SniffKind.RTMP -> onRtmp(webView, reqUrl)
                                         null -> if (SniffEngine.isSuspiciousMediaUrl(reqUrl)) {
@@ -879,6 +1025,8 @@ fun WebSniffScreen(
             if (!picked) {
                 SniffCandidatePanel(
                     candidates = candidates,
+                    seenCount = seenUrls.size,
+                    iframeCount = lastIframeCount,
                     onPick = { c -> playCandidate(webViewRef, c) },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -991,7 +1139,26 @@ fun WebSniffScreen(
         retryCount = SniffConfig.probeRetry
         adFilter = SniffConfig.adFilterEnabled
         delay(SNIFF_TIMEOUT_MS)
-        showTimeoutToast()
+        // v0.149 案例 5 超时观测：预算耗尽时只结算统计、永不作废已有候选——
+        // DS 荣耀案"候选已到手却被超时作废"在本架构下不可能发生：候选列表模式下
+        // 超时从不清空候选，超时后用户仍可点选；这里只记一笔观测日志供事后复盘。
+        LogBus.i(
+            "WebSniff",
+            "嗅探超时统计：已拦截 ${seenUrls.size} 个请求，候选 ${candidates.size} 条，" +
+                "页面加载 ${pageFinishedCount.get()} 次，已选播=$picked",
+        )
+        if (picked) return@LaunchedEffect
+        if (candidates.isNotEmpty()) {
+            Toast.makeText(context, "嗅探超时，已保留 ${candidates.size} 条候选，点选播放", Toast.LENGTH_LONG).show()
+        } else if (!autoRetried) {
+            // v0.149 案例 2 重试轮回：零候选时自动把已拦截队列全量再探一轮；
+            // 全灭时深度嗅探自己会 Toast，用户无需再点一次按钮
+            autoRetried = true
+            LogBus.i("WebSniff", "零候选，自动重探已拦截队列一轮")
+            runDeepSniff()
+        } else {
+            showTimeoutToast()
+        }
     }
 
     // v0.92 第 4 层：每 2 秒轮询 JS video hook（video.currentSrc/src + hook 到的
@@ -1027,13 +1194,21 @@ fun WebSniffScreen(
 /**
  * v0.93：嗅探候选列表面板——毛玻璃卡片，底部悬浮。
  * 为空时显示"嗅探中…"；有候选后列出格式徽标 + 来源 + 地址，点条目播放。
+ * v0.149：展示按 m3u8 > mp4/mpd > 其余排序（[SniffEngine.rankIndex]，同级按发现顺序）；
+ * 标题下带拦截/iframe 诊断行（DSINFO 轻量版）。
  */
 @Composable
 private fun SniffCandidatePanel(
     candidates: List<SniffCandidate>,
+    seenCount: Int,
+    iframeCount: Int,
     onPick: (SniffCandidate) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 展示排序：m3u8 最优，mp4/mpd 次之，其余最后；同级保持发现顺序
+    val ordered = candidates.withIndex()
+        .sortedWith(compareBy({ SniffEngine.rankIndex(it.value.url) }, { it.index }))
+        .map { it.value }
     AppCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1062,10 +1237,15 @@ private fun SniffCandidatePanel(
                     )
                 }
             }
-            if (candidates.isNotEmpty()) {
+            Text(
+                text = "已拦截 $seenCount 个请求 · iframe $iframeCount 个",
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (ordered.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
-                    items(candidates, key = { it.url }) { c ->
+                    items(ordered, key = { it.url }) { c ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
