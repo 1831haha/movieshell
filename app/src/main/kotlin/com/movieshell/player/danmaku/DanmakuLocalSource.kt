@@ -39,7 +39,7 @@ object DanmakuLocalSource {
             val port = ServicePluginManager.portOf(SERVICE_ID) ?: return@withContext emptyList()
             val url = "http://127.0.0.1:$port/danmaku" +
                 "?title=${java.net.URLEncoder.encode(title, "UTF-8")}&episode=$episode"
-            val body: String? = withTimeoutOrNull(15_000) {
+            val body: String = withTimeoutOrNull(15_000) {
                 val req = Request.Builder().url(url).header("User-Agent", "movieshell/1.0").build()
                 client.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) null else resp.body?.string()
