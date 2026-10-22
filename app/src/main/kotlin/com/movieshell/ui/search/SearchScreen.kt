@@ -74,6 +74,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
     val focusManager = LocalFocusManager.current
     val searching by vm.searching.collectAsState()
     val groupedResults by vm.groupedResults.collectAsState() // null=尚未搜过
+    val skippedLabel by vm.skippedLabel.collectAsState()
 
     // 搜索历史：进入页面读一次，切回页面时刷新
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -276,19 +277,32 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    EmptyState(
-                        kind = EmptyKind.Empty,
-                        icon = Icons.Filled.Search,
-                        title = "没有找到「$submitted」相关结果",
-                        actionText = "返回",
-                        onAction = { vm.backToSearch() },
-                    )
+                    // v0.162.0：全被黑名单跳过时，空结果也说明原因，别让用户对着空页猜
+                    Column(
+                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                    ) {
+                        skippedLabel?.let {
+                            Text(
+                                text = it,
+                                style = SoftType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        EmptyState(
+                            kind = EmptyKind.Empty,
+                            icon = Icons.Filled.Search,
+                            title = "没有找到「$submitted」相关结果",
+                            actionText = "返回",
+                            onAction = { vm.backToSearch() },
+                        )
+                    }
                 }
             } else {
                 val groups = groupedResults.orEmpty()
                 val total = groups.sumOf { it.vods.size }
                 Text(
-                    text = "共 $total 个结果 · ${groups.size} 个源",
+                    text = "共 $total 个结果 · ${groups.size} 个源" +
+                        (skippedLabel?.let { " · $it" } ?: ""),
                     style = SoftType.Caption,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(

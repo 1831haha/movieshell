@@ -635,6 +635,8 @@ object ServicePluginManager {
     fun install(context: Context, zip: File) {
         synchronized(lock) {
             if (!zip.exists()) throw IllegalStateException("安装包不存在")
+            // v0.162.0：解压前先过全量清单闸门（见 verifyFullManifest）
+            verifyFullManifest(zip)
             val spec: Spec
             ZipFile(zip).use { zf ->
                 val entries = zf.entries().asSequence().filter { !it.isDirectory }.toList()
@@ -708,6 +710,70 @@ object ServicePluginManager {
             throw IllegalStateException("插件包路径非法：$name")
         }
         return dst
+    }
+
+    /**
+     * v0.162.0：插件安装全量清单闸门（解压前调用，拒绝即不落盘）。
+     * - server.json 带 files 清单 → 逐文件流式哈希比对，多余/缺失/不符均拒绝；
+     *   清单键兼容两种写法：zip 内全路径（如 my-service/server.sh）或相对 workDir（如 server.sh）。
+     * - 只有旧字段 → 维持现状：sha256 优先、md5 兼容，只校验主脚本，存量插件不炸；
+     *   两者都没有 → 拒绝。
+     * 流式算哈希，不把大包整包读进内存（磁力类插件含 node_modules 时尤其重要）。
+     */
+    private fun verifyFullManifest(zip: File) {
+        ZipFile(zip).use { zf ->
+            val sj = zf.getEntry("server.json")
+                ?: throw IllegalStateException("插件包根部缺 server.json")
+            val conf = JSONObject(zf.getInputStream(sj).readBytes().toString(Charsets.UTF_8))
+            val workDir = conf.optString("workDir").trim()
+            val command = conf.optString("command").trim()
+            if (workDir.isBlank() || command.isBlank()) {
+                throw IllegalStateException("server.json 缺 workDir/command")
+            }
+            val files = conf.optJSONObject("files")
+            if (files != null && files.length() > 0) {
+                val fileKeys = files.keys().asSequence().toList()
+                val actual = zf.entries().asSequence()
+                    .filter { !it.isDirectory && it.name != "server.json" }
+                    .associate { it.name to hashStream(zf.getInputStream(it), "SHA-256") }
+                for (key in fileKeys) {
+                    val expect = files.optString(key)
+                    val got = actual[key] ?: actual["$workDir/$key"]
+                        ?: throw IllegalStateException("清单声明文件缺失：$key")
+                    if (!got.equals(expect, ignoreCase = true)) {
+                        throw IllegalStateException("文件哈希不匹配：$key")
+                    }
+                }
+                val extra = actual.keys.filter { k ->
+                    k !in fileKeys && fileKeys.none { fk -> k == fk || k == "$workDir/$fk" }
+                }
+                if (extra.isNotEmpty()) {
+                    throw IllegalStateException("存在清单外文件：${extra.take(3)}")
+                }
+                return
+            }
+            val (algo, expect) = when {
+                conf.optString("sha256").isNotBlank() -> "SHA-256" to conf.optString("sha256")
+                conf.optString("md5").isNotBlank() -> "MD5" to conf.optString("md5")
+                else -> throw IllegalStateException("server.json 无校验字段，拒绝安装")
+            }
+            val script = zf.getEntry("$workDir/$command")
+                ?: throw IllegalStateException("缺少主脚本：$workDir/$command")
+            val actual = hashStream(zf.getInputStream(script), algo)
+            if (!actual.equals(expect, ignoreCase = true)) {
+                throw IllegalStateException("主脚本哈希不匹配")
+            }
+        }
+    }
+
+    private fun hashStream(input: java.io.InputStream, algo: String): String {
+        val md = MessageDigest.getInstance(algo)
+        input.use { stream ->
+            val buf = ByteArray(8192)
+            var n: Int
+            while (stream.read(buf).also { n = it } > 0) md.update(buf, 0, n)
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
     }
 
     /** 可执行文件签名校验：sha256 优先、md5 兼容，二者都缺则拒绝安装。 */

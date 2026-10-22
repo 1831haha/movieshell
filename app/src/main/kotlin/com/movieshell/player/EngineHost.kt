@@ -62,21 +62,25 @@ object EngineHost {
         }
         // v0.152.0：RTMP 只能走 libmpv（Media3 不吃 rtmp），且不改用户持久化选择。
         // 未装插件时直接拒绝、不切内核；libmpv 初始化失败过时也不回退 Media3（回退也播不了）。
+        // v0.162.0：原生 rtp:// 同理（组播只在局域网 WiFi 下有意义，蜂窝下播不了属环境限制，
+        // 不是代码能保证的；不做 /status 探活，播了才知道）。
         val isRtmp = url.trim().startsWith("rtmp://", true)
-        if (isRtmp) {
+        val isRtp = url.trim().startsWith("rtp://", true)
+        if (isRtmp || isRtp) {
+            val proto = if (isRtmp) "RTMP" else "RTP"
             if (!MpvPluginLoader.isInstalled(context)) {
-                LogBus.w("Play", "RTMP 需 libmpv 插件，未安装已拒绝")
-                Toast.makeText(context, "RTMP 需 libmpv 插件，请先到插件市场安装", Toast.LENGTH_LONG).show()
+                LogBus.w("Play", "$proto 需 libmpv 插件，未安装已拒绝")
+                Toast.makeText(context, "$proto 需 libmpv 插件，请先到插件市场安装", Toast.LENGTH_LONG).show()
                 return false
             }
             if (MpvPlayerManager.initFailed) {
-                LogBus.w("Play", "RTMP 需 libmpv，但 libmpv 初始化失败过，已拒绝")
-                Toast.makeText(context, "libmpv 不可用，RTMP 无法播放", Toast.LENGTH_SHORT).show()
+                LogBus.w("Play", "$proto 需 libmpv，但 libmpv 初始化失败过，已拒绝")
+                Toast.makeText(context, "libmpv 不可用，$proto 无法播放", Toast.LENGTH_SHORT).show()
                 return false
             }
             if (engine() == PlayerEngine.MEDIA3) {
                 setEngineOverride(PlayerEngine.LIBMPV)
-                LogBus.i("Play", "RTMP 走 libmpv（临时覆盖，不改用户设置）")
+                LogBus.i("Play", "$proto 走 libmpv（临时覆盖，不改用户设置）")
             }
         }
         var eng = engine()
@@ -108,13 +112,13 @@ object EngineHost {
         }
     }
 
-    /** 播放地址合法性：非空 + 协议白名单（http/https/magnet/file/本地绝对路径 + v0.152.0 的 rtmp）。 */
+    /** 播放地址合法性：非空 + 协议白名单（http/https/magnet/file/本地绝对路径 + v0.152.0 的 rtmp + v0.162.0 的 rtp）。 */
     fun isPlayableUrl(url: String): Boolean {
         val u = url.trim()
         if (u.isBlank()) return false
         return u.startsWith("http://", true) || u.startsWith("https://", true) ||
             u.startsWith("magnet:", true) || u.startsWith("file://", true) ||
-            u.startsWith("rtmp://", true) || u.startsWith("/")
+            u.startsWith("rtmp://", true) || u.startsWith("rtp://", true) || u.startsWith("/")
     }
 
     /** URL 脱敏：host（日志不记完整地址）。 */

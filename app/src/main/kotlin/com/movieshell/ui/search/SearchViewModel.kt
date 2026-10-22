@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SearchHistoryStore
+import com.movieshell.data.repo.SearchSlowSourceFilter
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SiteSearchResult
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +39,10 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
     /** null=尚未搜过 */
     private val _groupedResults = MutableStateFlow<List<SiteSearchResult>?>(null)
     val groupedResults: StateFlow<List<SiteSearchResult>?> = _groupedResults
+
+    /** v0.162.0：本次搜索因黑名单跳过的源提示，null=无跳过 */
+    private val _skippedLabel = MutableStateFlow<String?>(null)
+    val skippedLabel: StateFlow<String?> = _skippedLabel
 
     // 聚合搜索 repo：drpy / PY 走当前激活规则的引擎适配器
     private val repo = SiteRepository(
@@ -85,6 +90,7 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
         refreshHistory()
         _searching.value = true
         _groupedResults.value = null
+        _skippedLabel.value = null
         // v0.109.0 A4：连续搜索取消前一次——旧慢请求后返回覆盖新结果；try/finally
         // 保证被取消时 spinner 也能落下
         searchJob?.cancel()
@@ -92,6 +98,7 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 repo.loadFromConfig(buildSearchConfigJson(getApplication()))
                 _groupedResults.value = repo.searchAll(t)
+                _skippedLabel.value = SearchSlowSourceFilter.skippedLabel()
             } finally {
                 _searching.value = false
             }

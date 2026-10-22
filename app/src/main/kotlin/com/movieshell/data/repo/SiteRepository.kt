@@ -22,12 +22,13 @@ import com.movieshell.data.source.ParseApi
 import com.movieshell.data.source.TvBoxConfigParser
 import com.movieshell.data.source.Type4Api
 import com.movieshell.data.source.Type4PlayResult
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
 
 /**
  * 聚合搜索的单站点结果分组：站点 + 该站点的搜索结果。
@@ -204,14 +205,23 @@ class SiteRepository(
      */
     suspend fun searchAll(wd: String, timeoutMs: Long = 15_000): List<SiteSearchResult> {
         if (wd.isBlank()) return emptyList()
-        val targets = getEnabledSites()
+        val all = getEnabledSites()
+        // v0.162.0：会话黑名单先过滤，跳过数记在 filter 里供结果页提示
+        val targets = all.filter { !SearchSlowSourceFilter.shouldSkip(it.key) }
+        SearchSlowSourceFilter.setLastSkipped(all.size - targets.size)
         return supervisorScope {
             targets.map { site ->
                 async {
-                    val vods = searchSemaphore.withPermit {
-                        runCatching {
-                            withTimeoutOrNull(timeoutMs) { search(site, wd) }
-                        }.getOrNull().orEmpty()
+                    val vods = try {
+                        searchSemaphore.withPermit {
+                            withTimeout(timeoutMs) { search(site, wd) }
+                        }.also { SearchSlowSourceFilter.onSuccess(site.key) }
+                    } catch (e: TimeoutCancellationException) {
+                        // v0.162.0：只有超时才计入慢源，普通失败不计
+                        SearchSlowSourceFilter.onTimeout(site.key)
+                        emptyList()
+                    } catch (e: Exception) {
+                        emptyList()
                     }
                     SiteSearchResult(site, vods)
                 }

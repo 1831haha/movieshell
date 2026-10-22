@@ -1,6 +1,7 @@
 package com.movieshell
 
 import android.app.Application
+import com.movieshell.data.maintain.CacheAutoClean
 import com.movieshell.data.novel.NovelMigration
 import com.movieshell.data.novel.NovelUpdateWorker
 import com.movieshell.data.repo.CrashHandler
@@ -25,6 +26,8 @@ class XiaYingApp : Application() {
         JsRuntime.init(this)
         // v0.85.0：小说自动追更（每天一次，KEEP 防重复入队）
         NovelUpdateWorker.schedule(this)
+        // v0.162.0：图片缓存超 1GB 时每日空闲清理一次（只清图片，不碰视频 SimpleCache）
+        CacheAutoClean.schedule(this)
         // v0.95.0：小说旧数据一次性备份（.bak），后台跑不阻塞启动
         CoroutineScope(Dispatchers.IO).launch { NovelMigration.runOnce(this@XiaYingApp) }
         // v0.132.0：拉起设了自启动的插件服务（失败只记日志，不阻塞启动）
