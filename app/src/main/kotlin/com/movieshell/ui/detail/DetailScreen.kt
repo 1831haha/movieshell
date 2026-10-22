@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -118,7 +119,6 @@ import com.movieshell.player.PlaySession
 import com.movieshell.player.PlayerScreen
 import com.movieshell.player.resolvePlayUrl
 import com.movieshell.ui.components.AppButton
-import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
@@ -390,69 +390,16 @@ fun DetailScreen(
         else -> "立即播放"
     }
 
-    Scaffold(
-        topBar = {
-            // v0.91.0：顶栏统一为 TabTopBar（与各 tab 一致；收藏已在信息区，顶栏只留追剧 + 分享占位）
-            TabTopBar(
-                title = vod?.title ?: initialTitle.ifBlank { displayTitle(vodId) },
-                onBack = onBack,
-                actions = {
-                    // v0.65：追剧开关
-                    IconButton(
-                        onClick = {
-                            scope.launch {
-                                if (following) {
-                                    if (FollowStore.unfollow(context, followId)) {
-                                        following = false
-                                        Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
-                                    }
-                                } else {
-                                    val ok = FollowStore.follow(
-                                        context,
-                                        FollowItem(
-                                            id = followId,
-                                            vodId = vodId,
-                                            name = vod?.title ?: displayTitle(vodId),
-                                            pic = detail?.vodPic.orEmpty(),
-                                            sourceType = followSourceType,
-                                            sourceKey = followSourceKey,
-                                            episodeCount = episodes.size,
-                                        ),
-                                    )
-                                    if (ok) {
-                                        following = true
-                                        Toast.makeText(context, "已追剧，有更新会提醒你", Toast.LENGTH_SHORT)
-                                            .show()
-                                    }
-                                }
-                            }
-                        },
-                    ) {
-                        Icon(
-                            imageVector = if (following) Icons.Filled.PlaylistAddCheck
-                            else Icons.Filled.PlaylistAdd,
-                            contentDescription = "追剧",
-                            tint = if (following) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                    // 占位：分享
-                    IconButton(onClick = { }) {
-                        Icon(
-                            Icons.Filled.Share,
-                            contentDescription = "分享",
-                        )
-                    }
-                },
-            )
-        },
-    ) { inner ->
+    // v0.156.0：最顶上那一栏整个去掉（标题/追剧/分享都不再占一栏），
+    // 追剧/分享收进下面简介卡片海报下方的小图标行；返回只留播放区左上角一个悬浮箭头。
+    Scaffold { inner ->
         if ((subSite != null || drpyActive) && detailLoading && detail == null) {
             // 详情加载中：骨架屏占位，不转菊花
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(inner)
+                    .statusBarsPadding()
                     .padding(SoftDimens.PagePadding),
                 verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
             ) {
@@ -485,7 +432,8 @@ fun DetailScreen(
                 onAction = { reloadDetail() },
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(inner),
+                    .padding(inner)
+                    .statusBarsPadding(),
             )
         } else {
             // vod 非空才进内容区；内层 vod 遮蔽外层可空引用，调用点零改动
@@ -499,7 +447,8 @@ fun DetailScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(inner),
+                        .padding(inner)
+                        .statusBarsPadding(),
                 ) {
                 LazyColumn(
                     state = listState,
@@ -554,18 +503,114 @@ fun DetailScreen(
                             shape = RoundedCornerShape(20.dp),
                         ) {
                             Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
-                                // 第一行：海报缩略图 + 标题 + 标签 + 收藏
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                // v0.156.0：卡片重排——海报单独放左列，下面一排小图标；
+                                // 剧名只放一行在图右，不再右上角挂收藏
+                                Row(verticalAlignment = Alignment.Top) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        if (coverUrl.isNotBlank()) {
+                                            AsyncImage(
+                                                model = coverUrl,
+                                                contentDescription = "海报",
+                                                modifier = Modifier
+                                                    .size(width = 72.dp, height = 100.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clickable { showCoverDialog = true },
+                                                contentScale = ContentScale.Crop,
+                                            )
+                                        }
+                                        Spacer(Modifier.height(6.dp))
+                                        // 海报下方小图标行：收藏 / 分享 / 追剧（顶栏右边两个功能收进这里）
+                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            // 收藏
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clickable {
+                                                        scope.launch {
+                                                            if (favorite) {
+                                                                FavoriteStore.remove(context, vodId, sourceName)
+                                                                Toast.makeText(context, "已取消收藏", Toast.LENGTH_SHORT).show()
+                                                                favorite = FavoriteStore.isFavorite(context, vodId, sourceName)
+                                                            } else {
+                                                                pickerPlaylists = PlaylistStore.list(context)
+                                                                if (pickerPlaylists.isEmpty()) {
+                                                                    favoriteAddToPlaylist(context, null)
+                                                                } else {
+                                                                    showPlaylistPicker = true
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (favorite) Icons.Filled.Favorite
+                                                    else Icons.Filled.FavoriteBorder,
+                                                    contentDescription = "收藏",
+                                                    tint = if (favorite) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
+                                            // 分享（原顶栏占位，行为不变）
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clickable { },
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Icon(
+                                                    Icons.Filled.Share,
+                                                    contentDescription = "分享",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
+                                            // 追剧（原顶栏开关）
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clickable {
+                                                        scope.launch {
+                                                            if (following) {
+                                                                if (FollowStore.unfollow(context, followId)) {
+                                                                    following = false
+                                                                    Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                            } else {
+                                                                val ok = FollowStore.follow(
+                                                                    context,
+                                                                    FollowItem(
+                                                                        id = followId,
+                                                                        vodId = vodId,
+                                                                        name = vod.title,
+                                                                        pic = detail?.vodPic.orEmpty(),
+                                                                        sourceType = followSourceType,
+                                                                        sourceKey = followSourceKey,
+                                                                        episodeCount = episodes.size,
+                                                                    ),
+                                                                )
+                                                                if (ok) {
+                                                                    following = true
+                                                                    Toast.makeText(context, "已追剧，有更新会提醒你", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (following) Icons.Filled.PlaylistAddCheck
+                                                    else Icons.Filled.PlaylistAdd,
+                                                    contentDescription = "追剧",
+                                                    tint = if (following) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
+                                        }
+                                    }
                                     if (coverUrl.isNotBlank()) {
-                                        AsyncImage(
-                                            model = coverUrl,
-                                            contentDescription = "海报",
-                                            modifier = Modifier
-                                                .size(width = 64.dp, height = 88.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .clickable { showCoverDialog = true },
-                                            contentScale = ContentScale.Crop,
-                                        )
                                         Spacer(Modifier.width(12.dp))
                                     }
                                     Column(modifier = Modifier.weight(1f)) {
@@ -573,7 +618,7 @@ fun DetailScreen(
                                             text = vod.title,
                                             style = SoftType.CardTitle,
                                             color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 2,
+                                            maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                         Spacer(Modifier.height(4.dp))
@@ -630,32 +675,7 @@ fun DetailScreen(
                                             }
                                         }
                                     }
-                                    // 收藏（从顶栏移到这里，对标目标界面右上角心形）
-                                    IconButton(onClick = {
-                                        scope.launch {
-                                            if (favorite) {
-                                                FavoriteStore.remove(context, vodId, sourceName)
-                                                Toast.makeText(context, "已取消收藏", Toast.LENGTH_SHORT).show()
-                                                favorite = FavoriteStore.isFavorite(context, vodId, sourceName)
-                                            } else {
-                                                // v0.69.0：有片单时先选片单，否则直接收藏进未分组
-                                                pickerPlaylists = PlaylistStore.list(context)
-                                                if (pickerPlaylists.isEmpty()) {
-                                                    favoriteAddToPlaylist(context, null)
-                                                } else {
-                                                    showPlaylistPicker = true
-                                                }
-                                            }
-                                        }
-                                    }) {
-                                        Icon(
-                                            imageVector = if (favorite) Icons.Filled.Favorite
-                                            else Icons.Filled.FavoriteBorder,
-                                            contentDescription = "收藏",
-                                            tint = if (favorite) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
+                                    // v0.156.0：收藏已移到海报下方小图标行，这里不再右上角挂一个
                                 }
                                 // v0.84.0：源 pill 已上移到缩略图右边，这里删除
                                 // 第三行：主演（v0.87.0：演员名可点，跳搜索找其作品）+ 简介（可展开）；v0.84.0：收窄
@@ -988,6 +1008,25 @@ fun DetailScreen(
                                 )
                             }
                         }
+                    }
+                }
+                // v0.156.0：无顶栏后，播放器没起来时（只有封面）左上角留一个悬浮返回，
+                // 播放器起来时它自带返回，这里不重复盖一层
+                if (embeddedUrl.isBlank()) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .size(32.dp)
+                            .background(Color.Black.copy(alpha = 0.55f), CircleShape),
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "返回",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp),
+                        )
                     }
                 }
                 } // Box：内容区 + 悬浮小窗
