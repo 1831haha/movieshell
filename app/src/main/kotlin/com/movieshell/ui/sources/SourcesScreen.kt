@@ -352,10 +352,22 @@ private fun ProbeResultRow(target: ProbeTarget, result: SourceProbe.Result?) {
     }
 }
 
-/** 置顶优先（按置顶顺序），其余按展示名排序 */
+/** 探活排序分：正常在前、未测/不支持居中、慢次之、失败沉底但不隐藏 */
+private fun probeRank(probe: SourceProbe.Result?): Int = when (probe) {
+    is SourceProbe.Result.Ok -> 0
+    is SourceProbe.Result.Slow -> 2
+    is SourceProbe.Result.Fail -> 3
+    else -> 1
+}
+
+/** 置顶优先（按置顶顺序，用户手动置顶不受探活影响），其余按探活分、展示名排序 */
 private fun sortWithPins(items: List<GridFileItem>, pins: List<String>): List<GridFileItem> {    val order = pins.withIndex().associate { it.value to it.index }
     return items.sortedWith(
-        compareBy({ order[it.fileName] ?: Int.MAX_VALUE }, { it.displayName.lowercase() }),
+        compareBy(
+            { order[it.fileName] ?: Int.MAX_VALUE },
+            { probeRank(it.probe) },
+            { it.displayName.lowercase() },
+        ),
     )
 }
 

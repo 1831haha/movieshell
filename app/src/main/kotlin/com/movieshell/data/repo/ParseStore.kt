@@ -26,6 +26,27 @@ object ParseStore {
     private var loaded = false
 
     /**
+     * v0.161.0：解析失败熔断（进程内，24 小时）。
+     * 只熔断“抛异常”的线路（网络超时/服务挂了），空结果不熔断——
+     * 空结果可能是该片不支持这条线，不是服务死了，熔断会误伤。
+     * 进程重启即清零，不做持久化，避免一次误判永久丢线。
+     */
+    private const val TRIP_MS = 24L * 60 * 60 * 1000
+    private val trippedUntil = mutableMapOf<String, Long>()
+
+    fun isTripped(url: String): Boolean =
+        (trippedUntil[url.trim()] ?: 0L) > System.currentTimeMillis()
+
+    fun markTripped(url: String) {
+        trippedUntil[url.trim()] = System.currentTimeMillis() + TRIP_MS
+        LogBus.w("ParseStore", "解析线路熔断 24h：$url")
+    }
+
+    fun clearTripped(url: String) {
+        trippedUntil.remove(url.trim())
+    }
+
+    /**
      * v0.78.0：预装解析线路（用户提供的 16 条）。
      * 仅在用户从未保存过（key 为 null）时 seeding；用户手动清空后不再补。
      * J1（截图截断拿不到完整地址）与 J腾讯关姐（127.0.0.1 本机服务）未收录。

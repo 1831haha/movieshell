@@ -1,7 +1,9 @@
 package com.movieshell.player
 
 import android.content.Context
+import com.movieshell.data.repo.LogBus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -30,18 +32,28 @@ object MagnetPlayer {
     /** 是否为磁力链接（忽略大小写） */
     fun isMagnet(url: String): Boolean = url.startsWith("magnet:", ignoreCase = true)
 
-    /** 2 秒超时 GET /healthz，200 即为服务可用；任何异常返回 false */
+    /**
+     * v0.161.0：/healthz 探活重试 3 次（每次 2 秒超时，间隔 1 秒），
+     * 服务刚启动、还没完全起来时不再一次就判死。
+     * 注意：17890 是 DsPlayer 占的口，壳子自己的服务管理器不会分这个口，
+     * 所以壳子拉不起 DsPlayer 的 magnet-stream——重试都失败时只能提示用户
+     * 去 DsPlayer 服务页启动，启动后再点一次播放，不要假装能自动拉起。
+     */
     suspend fun isServiceUp(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url("$SERVICE_BASE/healthz")
-                .build()
-            httpClient.newCall(request).execute().use { response ->
-                response.code == 200
-            }
-        } catch (e: Exception) {
-            false
+        repeat(3) { attempt ->
+            val ok = runCatching {
+                val request = Request.Builder()
+                    .url("$SERVICE_BASE/healthz")
+                    .build()
+                httpClient.newCall(request).execute().use { response ->
+                    response.code == 200
+                }
+            }.getOrDefault(false)
+            if (ok) return@withContext true
+            if (attempt < 2) delay(1000)
         }
+        LogBus.w("MagnetPlayer", "磁力服务 /healthz 重试 3 次均未通")
+        false
     }
 
     /** 拼出转播流地址（magnet 做 URLEncoder.encode UTF-8） */

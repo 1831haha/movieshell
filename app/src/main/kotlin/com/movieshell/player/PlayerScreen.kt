@@ -1910,7 +1910,7 @@ fun PlayerScreen(
                 },
             ) {
                 Text(
-                    "未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream 后再试",
+                    "重试 3 次仍未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream，启动后再点一次播放",
                     style = SoftType.Body,
                     color = MaterialTheme.colorScheme.onSurface,
                 )

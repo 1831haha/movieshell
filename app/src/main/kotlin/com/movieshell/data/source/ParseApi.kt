@@ -8,6 +8,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.movieshell.data.model.ParseConfig
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.ParseStore
 import com.movieshell.player.SniffPlayHeaders
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,15 +64,25 @@ class ParseApi(
         if (parses.isEmpty() || videoUrl.isBlank()) return ""
         LogBus.i(TAG, "开始解析：${parses.size} 条线路，url=$videoUrl")
         for ((index, p) in parses.withIndex()) {
+            // v0.161.0：已熔断的线直接跳过，不再连续撞死接口
+            if (ParseStore.isTripped(p.url)) {
+                LogBus.i(TAG, "第 ${index + 1} 条线路已熔断，跳过：${p.name}")
+                continue
+            }
             val hit = runCatching {
                 when (p.type) {
                     1 -> parseType1(p, videoUrl)
                     0 -> if (context != null) sniffType0(context, p, videoUrl) else ""
                     else -> ""
                 }
-            }.onFailure { LogBus.w(TAG, "第 ${index + 1} 条线路失败：${it.message}") }
+            }.onFailure {
+                // 只熔断抛异常的线；空结果（片不支持）不熔断
+                ParseStore.markTripped(p.url)
+                LogBus.w(TAG, "第 ${index + 1} 条线路失败：${it.message}")
+            }
                 .getOrDefault("")
             if (hit.isNotBlank()) {
+                ParseStore.clearTripped(p.url)
                 LogBus.i(TAG, "第 ${index + 1} 条线路成功：${p.name}")
                 return hit
             }
@@ -87,8 +98,9 @@ class ParseApi(
      * - type=0（嗅探）：GET 解析页基地址，HTTP 200 即算存活
      *   （不做完整 WebView 嗅探，那个太慢；只验域名/服务在不在）。
      */
-    suspend fun probe(parse: ParseConfig): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
+    suspend fun probe(parse: ParseConfig): Boolean {
+        val ok = withContext(Dispatchers.IO) {
+            runCatching {
             withTimeoutOrNull(10_000L) {
                 when (parse.type) {
                     1 -> {
@@ -120,7 +132,11 @@ class ParseApi(
                     }
                 }
             } ?: false
-        }.getOrDefault(false)
+            }.getOrDefault(false)
+        }
+        // v0.161.0：设置页测活通过，说明服务活了，解除熔断
+        if (ok) ParseStore.clearTripped(parse.url)
+        return ok
     }
 
     /**
