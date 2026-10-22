@@ -116,6 +116,7 @@ import com.movieshell.data.repo.StoragePaths
 import com.movieshell.player.MagnetPlayer
 import com.movieshell.player.PlayResolveScope
 import com.movieshell.player.PlaySession
+import com.movieshell.player.PicsViewerScreen
 import com.movieshell.player.PlayerScreen
 import com.movieshell.player.resolvePlayUrl
 import com.movieshell.ui.components.AppButton
@@ -324,6 +325,9 @@ fun DetailScreen(
     // v0.65：嵌入播放器状态（详情页顶部 16:9 直接播）
     var embeddedUrl by remember { mutableStateOf("") }
     var embeddedTitle by remember { mutableStateOf("") }
+    // v0.164.0：pics:// 图片集不走嵌入视频播放器，单独全屏看图（见外层 Box 末尾的覆盖层）
+    var picsUrl by remember { mutableStateOf("") }
+    var picsTitle by remember { mutableStateOf("") }
     // v0.65：当前播放的线路/集数（高亮跟随）
     var playingLine by remember { mutableIntStateOf(0) }
     var playingEp by remember { mutableIntStateOf(0) }
@@ -349,6 +353,12 @@ fun DetailScreen(
                 if (!ok) showMagnetDialog = true
             } else {
                 val link = resolvePlayUrl(context, subSite, ep)
+                // v0.164.0：pics:// 图片集直接进看图，不写视频播放会话、不进嵌入播放器
+                if (com.movieshell.player.isPicsUrl(link)) {
+                    picsTitle = "${vod?.title ?: displayTitle(vodId)} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}"
+                    picsUrl = link
+                    return@launch
+                }
                 // v0.19.0：写入播放会话，供播放器内切线路 / 失败自动重试
                 PlaySession.start(playLines, lineIndex, episodeIndex) { ctx, e ->
                     resolvePlayUrl(ctx, subSite, e)
@@ -1040,6 +1050,17 @@ fun DetailScreen(
             }
         }
     
+        // v0.164.0：pics:// 全屏看图覆盖层（在详情内容之上，返回只关看图不退详情）
+        if (picsUrl.isNotBlank()) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                PicsViewerScreen(
+                    url = picsUrl,
+                    title = picsTitle,
+                    onBack = { picsUrl = "" },
+                )
+            }
+        }
+
         // 磁力转播服务未启动提示
         if (showMagnetDialog) {
             TechDialog(

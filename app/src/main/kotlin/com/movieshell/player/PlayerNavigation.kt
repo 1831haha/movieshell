@@ -42,12 +42,22 @@ fun NavGraphBuilder.playerDestination(onBack: () -> Unit) {
             navArgument("live") { type = NavType.StringType; defaultValue = "0" },
         ),
     ) { entry ->
-        PlayerScreen(
-            url = entry.arguments?.getString("url").orEmpty(),
-            title = entry.arguments?.getString("title").orEmpty(),
-            vodId = entry.arguments?.getString("vod")?.ifBlank { null },
-            isLive = entry.arguments?.getString("live") == "1",
-            onBack = onBack,
-        )
+        val navUrl = entry.arguments?.getString("url").orEmpty()
+        // v0.164.0：pics:// 图片集不进视频播放器，独立路由也分流到看图页
+        if (isPicsUrl(navUrl)) {
+            PicsViewerScreen(
+                url = navUrl,
+                title = entry.arguments?.getString("title").orEmpty(),
+                onBack = onBack,
+            )
+        } else {
+            PlayerScreen(
+                url = navUrl,
+                title = entry.arguments?.getString("title").orEmpty(),
+                vodId = entry.arguments?.getString("vod")?.ifBlank { null },
+                isLive = entry.arguments?.getString("live") == "1",
+                onBack = onBack,
+            )
+        }
     }
 }

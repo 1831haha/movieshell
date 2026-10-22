@@ -60,6 +60,13 @@ object EngineHost {
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             return false
         }
+        // v0.164.0：pics:// 是图片集，不是视频——绝不能进 Media3/libmpv。
+        // 看图走 PicsViewerScreen（详情页分流 / playerDestination 分流），
+        // 这里只是兜底：万一有调用方直接把 pics 地址丢进来，拒绝而不是播出黑屏/报错。
+        if (isPicsUrl(url)) {
+            LogBus.w("Play", "pics:// 图片集不走视频引擎，已拒绝")
+            return false
+        }
         // v0.152.0：RTMP 只能走 libmpv（Media3 不吃 rtmp），且不改用户持久化选择。
         // 未装插件时直接拒绝、不切内核；libmpv 初始化失败过时也不回退 Media3（回退也播不了）。
         // v0.162.0：原生 rtp:// 同理（组播只在局域网 WiFi 下有意义，蜂窝下播不了属环境限制，
@@ -112,13 +119,14 @@ object EngineHost {
         }
     }
 
-    /** 播放地址合法性：非空 + 协议白名单（http/https/magnet/file/本地绝对路径 + v0.152.0 的 rtmp + v0.162.0 的 rtp）。 */
+    /** 播放地址合法性：非空 + 协议白名单（http/https/magnet/file/本地绝对路径 + v0.152.0 的 rtmp + v0.162.0 的 rtp + v0.164.0 的 pics 看图）。 */
     fun isPlayableUrl(url: String): Boolean {
         val u = url.trim()
         if (u.isBlank()) return false
         return u.startsWith("http://", true) || u.startsWith("https://", true) ||
             u.startsWith("magnet:", true) || u.startsWith("file://", true) ||
-            u.startsWith("rtmp://", true) || u.startsWith("rtp://", true) || u.startsWith("/")
+            u.startsWith("rtmp://", true) || u.startsWith("rtp://", true) ||
+            u.startsWith("pics://", true) || u.startsWith("/")
     }
 
     /** URL 脱敏：host（日志不记完整地址）。 */
