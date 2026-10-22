@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -93,6 +95,9 @@ import kotlinx.coroutines.withContext
  * v0.140.0：图标由圆形改方形紧凑布局（44dp 圆角方块、间距收紧）；
  * 图标匹配加第四级：站点 host 的 favicon.ico（本地规则读文件头取 host，
  * 订阅站源取 api 的 host），取不到或加载失败仍回退首字。
+ *
+ * v0.153.0：打开即定位到当前源——131 个源里当前源靠后时不再从头翻；
+ * 只在无搜索、无类型筛选的默认列表下定位一次（筛选会把当前源滤掉，强制定位无意义）。
  */
 @Composable
 fun SourcePickerSheet(
@@ -323,6 +328,20 @@ fun SourcePickerSheet(
         }
     }
 
+    // v0.153.0：打开即定位到当前源。网格状态 + 只定位一次的标记（弹窗每次打开都是
+    // 新组合，标记天然复位；搜索/筛选改动会取消在途滚动，标记只在滚动完成后才置位，
+    // 避免一次取消就永久丢定位）。
+    val gridState: LazyGridState = rememberLazyGridState()
+    var scrolledToCurrent by remember { mutableStateOf(false) }
+    LaunchedEffect(loading, visible) {
+        if (loading || scrolledToCurrent) return@LaunchedEffect
+        if (query.isNotBlank() || kindFilter != null) return@LaunchedEffect
+        val index = visible.indexOfFirst { it.isCurrent }
+        if (index < 0) return@LaunchedEffect
+        gridState.scrollToItem(index)
+        scrolledToCurrent = true
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -433,6 +452,7 @@ fun SourcePickerSheet(
             }
         } else {
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(4),
                 contentPadding = PaddingValues(
                     start = SoftDimens.PagePadding,
