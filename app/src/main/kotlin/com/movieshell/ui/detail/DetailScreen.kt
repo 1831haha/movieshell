@@ -28,17 +28,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -103,10 +99,6 @@ import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DownloadSettings
 import com.movieshell.data.repo.DownloadTask
 import com.movieshell.data.repo.DrpySourceManager
-import com.movieshell.data.repo.FavoriteItem
-import com.movieshell.data.repo.FavoriteStore
-import com.movieshell.data.repo.Playlist
-import com.movieshell.data.repo.PlaylistStore
 import com.movieshell.data.repo.FollowItem
 import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.LogBus
@@ -245,32 +237,7 @@ fun DetailScreen(
             else -> "站源"
         }
     }
-    var favorite by remember { mutableStateOf(false) }
-    LaunchedEffect(vodId, sourceName) {
-        favorite = FavoriteStore.isFavorite(context, vodId, sourceName)
-    }
-    // v0.69.0：收藏时选片单
-    var showPlaylistPicker by remember { mutableStateOf(false) }
-    var pickerPlaylists by remember { mutableStateOf<List<Playlist>>(emptyList()) }
-
-    /** v0.69.0：收藏进指定片单（playlistId null = 未分组）。 */
-    suspend fun favoriteAddToPlaylist(ctx: Context, playlistId: String?) {
-        FavoriteStore.add(
-            ctx,
-            FavoriteItem(
-                vodId = vodId,
-                name = vod?.title ?: displayTitle(vodId),
-                pic = detail?.vodPic.orEmpty(),
-                sourceName = sourceName,
-                savedAt = System.currentTimeMillis(),
-                subSiteKey = subSite?.key.orEmpty(),
-                playlistId = playlistId,
-            ),
-        )
-        Toast.makeText(ctx, "已收藏", Toast.LENGTH_SHORT).show()
-        favorite = FavoriteStore.isFavorite(ctx, vodId, sourceName)
-    }
-
+    // v0.168.0：收藏已去掉（与追剧重复），片单选择一并删除
     // v0.26.0：追剧
     val followSourceType = remember(subSite) {
         when {
@@ -573,113 +540,43 @@ fun DetailScreen(
                                                 contentScale = ContentScale.Crop,
                                             )
                                         }
-                                        Spacer(Modifier.height(6.dp))
-                                        // 海报下方小图标行：收藏 / 分享 / 追剧（顶栏右边两个功能收进这里）
-                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            // 收藏
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(24.dp)
-                                                    .clickable {
-                                                        scope.launch {
-                                                            if (favorite) {
-                                                                FavoriteStore.remove(context, vodId, sourceName)
-                                                                Toast.makeText(context, "已取消收藏", Toast.LENGTH_SHORT).show()
-                                                                favorite = FavoriteStore.isFavorite(context, vodId, sourceName)
-                                                            } else {
-                                                                pickerPlaylists = PlaylistStore.list(context)
-                                                                if (pickerPlaylists.isEmpty()) {
-                                                                    favoriteAddToPlaylist(context, null)
-                                                                } else {
-                                                                    showPlaylistPicker = true
-                                                                }
-                                                            }
-                                                        }
-                                                    },
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                Icon(
-                                                    imageVector = if (favorite) Icons.Filled.Favorite
-                                                    else Icons.Filled.FavoriteBorder,
-                                                    contentDescription = "收藏",
-                                                    tint = if (favorite) MaterialTheme.colorScheme.primary
-                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(18.dp),
-                                                )
-                                            }
-                                            // 分享（原顶栏占位，行为不变）
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(24.dp)
-                                                    .clickable { },
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                Icon(
-                                                    Icons.Filled.Share,
-                                                    contentDescription = "分享",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(18.dp),
-                                                )
-                                            }
-                                            // 追剧（原顶栏开关）
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(24.dp)
-                                                    .clickable {
-                                                        scope.launch {
-                                                            if (following) {
-                                                                if (FollowStore.unfollow(context, followId)) {
-                                                                    following = false
-                                                                    Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
-                                                                }
-                                                            } else {
-                                                                val ok = FollowStore.follow(
-                                                                    context,
-                                                                    FollowItem(
-                                                                        id = followId,
-                                                                        vodId = vodId,
-                                                                        name = vod.title,
-                                                                        pic = detail?.vodPic.orEmpty(),
-                                                                        sourceType = followSourceType,
-                                                                        sourceKey = followSourceKey,
-                                                                        episodeCount = episodes.size,
-                                                                    ),
-                                                                )
-                                                                if (ok) {
-                                                                    following = true
-                                                                    Toast.makeText(context, "已追剧，有更新会提醒你", Toast.LENGTH_SHORT).show()
-                                                                }
-                                                            }
-                                                        }
-                                                    },
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                Icon(
-                                                    imageVector = if (following) Icons.Filled.PlaylistAddCheck
-                                                    else Icons.Filled.PlaylistAdd,
-                                                    contentDescription = "追剧",
-                                                    tint = if (following) MaterialTheme.colorScheme.primary
-                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(18.dp),
-                                                )
-                                            }
-                                        }
                                     }
                                     if (coverUrl.isNotBlank()) {
                                         Spacer(Modifier.width(12.dp))
                                     }
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = vod.title,
-                                            style = SoftType.CardTitle,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
+                                        // v0.168.0：评分（更新至XX）移到片名后面——之前跟在源胶囊后面，
+                                        // 胶囊一行太长就被卡片边缘截掉（月鳞绮纪那例）；放标题行永不被截。
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = vod.title,
+                                                style = SoftType.CardTitle,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            if (vod.rating.isNotBlank()) {
+                                                Spacer(Modifier.width(6.dp))
+                                                Icon(
+                                                    imageVector = Icons.Filled.Star,
+                                                    contentDescription = null,
+                                                    tint = LocalSoftExtra.current.warning,
+                                                    modifier = Modifier.size(13.dp),
+                                                )
+                                                Spacer(Modifier.width(3.dp))
+                                                Text(
+                                                    text = vod.rating,
+                                                    style = SoftType.Caption,
+                                                    color = LocalSoftExtra.current.warning,
+                                                    maxLines = 1,
+                                                )
+                                            }
+                                        }
                                         Spacer(Modifier.height(4.dp))
                                         // v0.167.0：简介不再挤右列——右列宽度全看左列脸色，
                                         // 源胶囊+评分一长就把简介压成一字一行（图里那例）；改回全宽纵排，简介永不被挤。
-                                        // 集数/年份/地区 + 源胶囊 + 评分同一行，超长横滑，不挤占下面内容
+                                        // 集数/年份/地区 + 源胶囊同一行，超长横滑，不挤占下面内容（评分已移到标题行）
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -716,22 +613,6 @@ fun DetailScreen(
                                                             modifier = Modifier.size(13.dp),
                                                         )
                                                     }
-                                                }
-                                                if (vod.rating.isNotBlank()) {
-                                                    Spacer(Modifier.width(6.dp))
-                                                    Icon(
-                                                        imageVector = Icons.Filled.Star,
-                                                        contentDescription = null,
-                                                        tint = LocalSoftExtra.current.warning,
-                                                        modifier = Modifier.size(13.dp),
-                                                    )
-                                                    Spacer(Modifier.width(3.dp))
-                                                    Text(
-                                                        text = vod.rating,
-                                                        style = SoftType.Caption,
-                                                        color = LocalSoftExtra.current.warning,
-                                                        maxLines = 1,
-                                                    )
                                                 }
                                             }
                                         }
@@ -797,17 +678,41 @@ fun DetailScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                                         ) {
-                                            ActionIcon(label = "复制链接", onClick = {
-                                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE)
-                                                    as android.content.ClipboardManager
-                                                cm.setPrimaryClip(
-                                                    android.content.ClipData.newPlainText(
-                                                        "播放链接", embeddedUrl.ifBlank { playLabel }
-                                                    )
-                                                )
-                                                Toast.makeText(context, "链接已复制", Toast.LENGTH_SHORT).show()
+                                            // v0.168.0：追剧从海报下方移到这里，顶掉复制链接
+                                            ActionIcon(label = "追剧", onClick = {
+                                                scope.launch {
+                                                    if (following) {
+                                                        if (FollowStore.unfollow(context, followId)) {
+                                                            following = false
+                                                            Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    } else {
+                                                        val ok = FollowStore.follow(
+                                                            context,
+                                                            FollowItem(
+                                                                id = followId,
+                                                                vodId = vodId,
+                                                                name = vod.title,
+                                                                pic = detail?.vodPic.orEmpty(),
+                                                                sourceType = followSourceType,
+                                                                sourceKey = followSourceKey,
+                                                                episodeCount = episodes.size,
+                                                            ),
+                                                        )
+                                                        if (ok) {
+                                                            following = true
+                                                            Toast.makeText(context, "已追剧，有更新会提醒你", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                }
                                             }) {
-                                                Icon(Icons.Filled.Link, contentDescription = "复制链接")
+                                                Icon(
+                                                    imageVector = if (following) Icons.Filled.PlaylistAddCheck
+                                                    else Icons.Filled.PlaylistAdd,
+                                                    contentDescription = "追剧",
+                                                    tint = if (following) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
                                             }
                                             ActionIcon(
                                                 label = "下载",
@@ -824,7 +729,7 @@ fun DetailScreen(
                                             }
                                         }
                                     }
-                                    // v0.167.0：简介改回全宽纵排，右上角不再由演员+简介填；收藏仍在海报下方小图标行
+                                    // v0.167.0：简介改回全宽纵排，右上角不再由演员+简介填；v0.168.0：海报下方小图标行已删（收藏/分享去掉，追剧移到操作行）
                                 }
                                 // v0.157.0：主演+简介已移到海报右边那列，不再卡片下方全宽占一行
                             }
@@ -1237,37 +1142,6 @@ fun DetailScreen(
                     contentScale = ContentScale.Fit,
                 )
             }
-        }
-    }
-
-    // v0.69.0：收藏时选片单
-    if (showPlaylistPicker) {
-        TechDialog(
-            onDismissRequest = { showPlaylistPicker = false },
-            title = "收藏到片单",
-        ) {
-                Column {
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                favoriteAddToPlaylist(context, null)
-                                showPlaylistPicker = false
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("未分组", modifier = Modifier.fillMaxWidth()) }
-                    pickerPlaylists.forEach { p ->
-                        TextButton(
-                            onClick = {
-                                scope.launch {
-                                    favoriteAddToPlaylist(context, p.id)
-                                    showPlaylistPicker = false
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text(p.name, modifier = Modifier.fillMaxWidth()) }
-                    }
-                }
         }
     }
 

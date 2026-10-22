@@ -604,8 +604,6 @@ class MainActivity : ComponentActivity() {
                                 onSniffPatternsClick = { navController.navigate("sniff_patterns") },
                                 // v0.80.0：快捷宫格-观看历史
                                 onHistoryClick = { navController.navigate("history") },
-                                // v0.86.0：快捷宫格-我的收藏
-                                onFavoritesClick = { navController.navigate("favorites") },
                                 // v0.90.0：快捷宫格-我的追剧
                                 onFollowClick = { navController.navigate("follow") },
                             )

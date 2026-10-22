@@ -119,7 +119,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
-import com.movieshell.data.repo.FavoriteStore
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SourceStateStore
@@ -145,8 +144,7 @@ fun SettingsScreen(
     onPluginCenterClick: () -> Unit = {}, // v0.127.0：插件中心（插件/服务/市场三页签，原两入口合并）
     onSniffPatternsClick: () -> Unit = {}, // v0.79.0：嗅探正则管理（实验室 tab 删除，入口搬进设置）
     onHistoryClick: () -> Unit = {}, // v0.80.0：快捷宫格-观看历史
-    onFavoritesClick: () -> Unit = {}, // v0.86.0：快捷宫格-我的收藏
-    onFollowClick: () -> Unit = {}, // v0.90.0：快捷宫格-我的追剧（资料卡已可点进历史/收藏）
+    onFollowClick: () -> Unit = {}, // v0.90.0：快捷宫格-我的追剧（资料卡已可点进历史/追剧）
 ) {
     val context = LocalContext.current
     // v0.7.1：主题读持久化 ThemeStore，不再是本地假状态
@@ -232,8 +230,8 @@ fun SettingsScreen(
         }
     }
 
-    // v0.80.0：信息卡统计（收藏/历史/源），进设置页时拉一次
-    var favCount by remember { mutableIntStateOf(0) }
+    // v0.80.0：信息卡统计（追剧/历史/源），进设置页时拉一次
+    var followCount by remember { mutableIntStateOf(0) }
     var histCount by remember { mutableIntStateOf(0) }
     var subCount by remember { mutableIntStateOf(0) }
     var localCount by remember { mutableIntStateOf(0) }
@@ -260,8 +258,8 @@ fun SettingsScreen(
         // v0.101.0：缓存占用（视频 m3u8 分片 + Coil 图片磁盘缓存）
         cacheSize = runCatching { refreshCacheSize(context) }.getOrDefault(cacheSize)
         // v0.147.0：统计失败不再静默回 0（之前 0 和“真没有”分不出来），记日志方便定位
-        favCount = runCatching { FavoriteStore.list(context).size }
-            .onFailure { LogBus.w("SettingsStats", "收藏统计失败：${it.message}") }
+        followCount = runCatching { FollowStore.readSync(context).size }
+            .onFailure { LogBus.w("SettingsStats", "追剧统计失败：${it.message}") }
             .getOrDefault(0)
         histCount = runCatching { withContext(Dispatchers.IO) { HistoryStore.getHistory(context).size } }
             .onFailure { LogBus.w("SettingsStats", "历史统计失败：${it.message}") }
@@ -374,10 +372,10 @@ fun SettingsScreen(
                     Spacer(Modifier.height(12.dp))
                     Row(modifier = Modifier.fillMaxWidth()) {
                         ProfileStat(
-                            label = "收藏",
-                            value = if (statsLoaded) "$favCount" else "…",
+                            label = "追剧",
+                            value = if (statsLoaded) "$followCount" else "…",
                             modifier = Modifier.weight(1f),
-                            onClick = onFavoritesClick,
+                            onClick = onFollowClick,
                         )
                         ProfileStat(
                             label = "历史",
@@ -1090,7 +1088,7 @@ private fun SingleChoiceDialog(
 }
 
 /**
- * v0.80.0：信息卡统计项（收藏 / 历史 / 源）。
+ * v0.80.0：信息卡统计项（追剧 / 历史 / 源）。
  */
 @Composable
 private fun ProfileStat(
