@@ -513,6 +513,49 @@ fun DetailScreen(
                             shape = RoundedCornerShape(20.dp),
                         ) {
                             Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
+                                // v0.165.0：ActionIcon 定义前置（右列内调用，局部函数须先声明后调用）
+                                val rainbowBrush = remember {
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            Color(0xFF22D3EE),
+                                            Color(0xFF818CF8),
+                                            Color(0xFFE879F9),
+                                            Color(0xFFFBBF24),
+                                        ),
+                                    )
+                                }
+
+                                @Composable
+                                fun ActionIcon(
+                                    label: String,
+                                    onClick: () -> Unit,
+                                    enabled: Boolean = true,
+                                    icon: @Composable () -> Unit,
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        // v0.165.0：右列窄，改 36dp 轻触区（原 48dp IconButton 在右列会溢出）
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .clickable(enabled = enabled, onClick = onClick),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            icon()
+                                        }
+                                        Text(
+                                            text = label,
+                                            style = TextStyle(
+                                                brush = rainbowBrush,
+                                                fontSize = 10.sp,
+                                            ),
+                                            maxLines = 1,
+                                        )
+                                    }
+                                }
+
                                 // v0.156.0：卡片重排——海报单独放左列，下面一排小图标；
                                 // 剧名只放一行在图右，不再右上角挂收藏
                                 Row(verticalAlignment = Alignment.Top) {
@@ -747,80 +790,44 @@ fun DetailScreen(
                                             modifier = Modifier.size(16.dp),
                                         )
                                     }
-                                                                                }
+                                    // v0.165.0：操作行移到简介正下方（右列内）
+                                    Spacer(Modifier.height(6.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        ActionIcon(label = "复制链接", onClick = {
+                                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                                as android.content.ClipboardManager
+                                            cm.setPrimaryClip(
+                                                android.content.ClipData.newPlainText(
+                                                    "播放链接", embeddedUrl.ifBlank { playLabel }
+                                                )
+                                            )
+                                            Toast.makeText(context, "链接已复制", Toast.LENGTH_SHORT).show()
+                                        }) {
+                                            Icon(Icons.Filled.Link, contentDescription = "复制链接")
+                                        }
+                                        ActionIcon(
+                                            label = "下载",
+                                            onClick = { showDownloadDialog = true },
+                                            enabled = lineEpisodes.isNotEmpty(),
+                                        ) {
+                                            Icon(Icons.Filled.Download, contentDescription = "下载")
+                                        }
+                                        ActionIcon(label = "刷新", onClick = { reloadDetail() }) {
+                                            Icon(Icons.Filled.Refresh, contentDescription = "刷新")
+                                        }
+                                        ActionIcon(label = "字幕", onClick = { showOnlineSubtitle = true }) {
+                                            Icon(Icons.Filled.Subtitles, contentDescription = "在线字幕")
+                                        }
+                                    }
+                                    }
                                         }
                                     }
                                     // v0.159.0：收藏仍在海报下方小图标行，右上角由演员+简介填
                                 }
                                 // v0.157.0：主演+简介已移到海报右边那列，不再卡片下方全宽占一行
-                                // 第四行：操作图标（复制链接 / 下载 / 刷新 / 字幕）
-                                Spacer(Modifier.height(6.dp))
-                                // v0.69.1：操作图标下方加炫彩小字
-                                val rainbowBrush = remember {
-                                    Brush.linearGradient(
-                                        colors = listOf(
-                                            Color(0xFF22D3EE),
-                                            Color(0xFF818CF8),
-                                            Color(0xFFE879F9),
-                                            Color(0xFFFBBF24),
-                                        ),
-                                    )
-                                }
-
-                                @Composable
-                                fun ActionIcon(
-                                    label: String,
-                                    onClick: () -> Unit,
-                                    enabled: Boolean = true,
-                                    icon: @Composable () -> Unit,
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                    ) {
-                                        IconButton(onClick = onClick, enabled = enabled) {
-                                            icon()
-                                        }
-                                        Text(
-                                            text = label,
-                                            style = TextStyle(
-                                                brush = rainbowBrush,
-                                                fontSize = 10.sp,
-                                            ),
-                                            maxLines = 1,
-                                        )
-                                    }
-                                }
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    ActionIcon(label = "复制链接", onClick = {
-                                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE)
-                                            as android.content.ClipboardManager
-                                        cm.setPrimaryClip(
-                                            android.content.ClipData.newPlainText(
-                                                "播放链接", embeddedUrl.ifBlank { playLabel }
-                                            )
-                                        )
-                                        Toast.makeText(context, "链接已复制", Toast.LENGTH_SHORT).show()
-                                    }) {
-                                        Icon(Icons.Filled.Link, contentDescription = "复制链接")
-                                    }
-                                    ActionIcon(
-                                        label = "下载",
-                                        onClick = { showDownloadDialog = true },
-                                        enabled = lineEpisodes.isNotEmpty(),
-                                    ) {
-                                        Icon(Icons.Filled.Download, contentDescription = "下载")
-                                    }
-                                    ActionIcon(label = "刷新", onClick = { reloadDetail() }) {
-                                        Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                                    }
-                                    ActionIcon(label = "字幕", onClick = { showOnlineSubtitle = true }) {
-                                        Icon(Icons.Filled.Subtitles, contentDescription = "在线字幕")
-                                    }
-                                }
                             }
                         }
                         Spacer(Modifier.height(8.dp))
