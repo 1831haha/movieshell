@@ -36,6 +36,13 @@ object SearchSlowSourceFilter {
         lastSkipped = n
     }
 
+    /** v0.163.0：手动清除（结果页“重试被跳过的源”用），清掉黑名单和计次。 */
+    fun clear() {
+        failCount.clear()
+        blacklisted.clear()
+        lastSkipped = 0
+    }
+
     fun skippedLabel(): String? =
         if (lastSkipped > 0) "$lastSkipped 个源响应慢已跳过" else null
 }

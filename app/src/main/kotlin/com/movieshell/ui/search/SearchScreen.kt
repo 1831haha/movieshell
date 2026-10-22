@@ -287,6 +287,10 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                 style = SoftType.Caption,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            // v0.163.0：全被跳过时空页也给重试入口，别只剩“返回”
+                            TextButton(onClick = { vm.retrySkipped() }) {
+                                Text("重试被跳过的源")
+                            }
                         }
                         EmptyState(
                             kind = EmptyKind.Empty,
@@ -300,16 +304,29 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
             } else {
                 val groups = groupedResults.orEmpty()
                 val total = groups.sumOf { it.vods.size }
-                Text(
-                    text = "共 $total 个结果 · ${groups.size} 个源" +
-                        (skippedLabel?.let { " · $it" } ?: ""),
-                    style = SoftType.Caption,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(
-                        horizontal = SoftDimens.PagePadding,
-                        vertical = 4.dp,
-                    ),
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = SoftDimens.PagePadding,
+                            vertical = 4.dp,
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "共 $total 个结果 · ${groups.size} 个源" +
+                            (skippedLabel?.let { " · $it" } ?: ""),
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // v0.163.0：黑名单粘性问题的出口——点一下清掉黑名单、用当前词重搜
+                    if (skippedLabel != null) {
+                        TextButton(onClick = { vm.retrySkipped() }) {
+                            Text("重试被跳过的源")
+                        }
+                    }
+                }
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     groups.forEach { group ->
                         // 分组头：源名 + 条数

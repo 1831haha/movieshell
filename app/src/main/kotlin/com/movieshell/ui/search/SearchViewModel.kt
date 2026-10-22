@@ -82,6 +82,14 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
         refreshHistory()
     }
 
+    /** v0.163.0：清除会话黑名单并用当前词重搜一次（结果页“重试被跳过的源”用）。 */
+    fun retrySkipped() {
+        val t = _submitted.value
+        if (t.isBlank()) return
+        SearchSlowSourceFilter.clear()
+        doSearch(t)
+    }
+
     fun doSearch(text: String) {
         val t = text.trim()
         if (t.isEmpty()) return
