@@ -1050,7 +1050,8 @@ fun WebSniffScreen(
                     )
                 } else {
                     LazyColumn {
-                        items(results, key = { it.first }) { (u, kind) ->
+                        // v0.166.0：嗅探结果同 URL 去重，免 key 撞车（"debug" 式崩溃同类）
+                        items(results.distinctBy { it.first }, key = { it.first }) { (u, kind) ->
                             val label = if (kind == SniffKind.DIRECT) "可播" else "rtmp·走 libmpv"
                             TextButton(
                                 onClick = {

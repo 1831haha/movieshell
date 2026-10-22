@@ -311,8 +311,8 @@ fun HomeScreen(
     var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
     var phpHomeError by remember { mutableStateOf<String?>(null) } // v0.152.0：PHP 首页失败原因，透出到推荐空态
     var catsFailed by remember { mutableStateOf(false) } // v0.29.0：分类失败且为空，给重试入口
-    var recommendStale by remember { mutableStateOf(false) } // v0.50.0：展示的是过期缓存/8s降级，顶部小字提示
-    var recommendEmpty by remember { mutableStateOf(false) } // v0.50.0：8s 首屏无数据，推荐区空态+重试
+    var recommendStale by remember { mutableStateOf(false) } // v0.50.0：展示的是过期缓存/3s降级，顶部小字提示
+    var recommendEmpty by remember { mutableStateOf(false) } // v0.50.0：3s 首屏无数据，推荐区空态+重试
 
     // v0.50.0（用户补）：慢请求回来时先确认首页还在前台才刷 UI；在后台只写缓存，防推荐区跳变
     val homeLifecycle = LocalLifecycleOwner.current.lifecycle
@@ -364,7 +364,7 @@ fun HomeScreen(
      *
      * v0.50.0：三处大改——
      * - A：分类拿到立刻渲染，不等推荐（之前 coroutineScope 等两路齐才 apply）；
-     * - B：推荐 8s 首屏降级（stale 缓存/空态），25s 硬上限保留给慢规则，后台回来继续填；
+     * - B：推荐 3s 首屏降级（stale 缓存/空态）；首屏结算 5s 截断，25s 硬上限保留给慢规则后台回填；
      * - E：缓存先行即时上屏（过期也展示标 stale），返回首页永远有东西；
      * - 用户补：慢请求回来先确认前台才刷 UI，后台只写缓存，防推荐区跳变。
      */
@@ -393,28 +393,37 @@ fun HomeScreen(
             }
             if (cacheCats.isNotEmpty() && drpyCats.isEmpty()) vm.setCategories(cacheCats)
         }
-        // 2. 并发刷新（推荐/分类各 25s 熔断，互不取消）
+        // 2. 并发刷新（推荐/分类各 25s 熔断，互不取消；首屏结算只等 5s）
         var netVods: List<ModelVod>? = null
         var netCats: List<CategoryType>? = null
-        coroutineScope {
-            launch {
-                // v0.50.0 B：8s 首屏计时——推荐没回来先降级，不白屏等 25s
-                launch {
-                    delay(8_000)
-                    if (netVods != null || myGen != contentGen) return@launch
-                    // v0.106.0：drpyList 恒不为 null（currentVideos 派生），之前写 != null
-                    // 导致 8s 降级恒被跳过——25s 熔断前用户一直看白屏。改判 isNotEmpty()
-                    if (drpyList.isNotEmpty() || !isHomeForeground()) return@launch
-                    val stale = cacheVods.takeIf { it.isNotEmpty() }
-                    if (stale != null) {
-                        vm.setRecommend(stale)
-                        recommendStale = true
-                    } else {
-                        recommendEmpty = true
-                    }
-                    vm.isLoading.value = false
-                    LogBus.i("Home", "推荐 8s 未回，首屏降级（${if (stale != null) "stale缓存" else "空态"}）")
+        // v0.166.0：首屏等待队列 5s 截断——两路挂外层 scope，结算最多等 5s；
+        // 慢路不取消，25s 上限内回来照样前台补填（v0.31.1 慢规则保留）。
+        // 降级计时与推荐路平级（不当子协程），免得子协程拖住推荐路的 join。
+        scope.launch {
+            try {
+                // v0.166.0：降级 3s——推荐没回来先降级，不白屏等 5s
+                delay(3_000)
+                if (netVods != null || myGen != contentGen) return@launch
+                // v0.106.0：drpyList 恒不为 null（currentVideos 派生），之前写 != null
+                // 导致降级恒被跳过——熔断前用户一直看白屏。改判 isNotEmpty()
+                if (drpyList.isNotEmpty() || !isHomeForeground()) return@launch
+                val stale = cacheVods.takeIf { it.isNotEmpty() }
+                if (stale != null) {
+                    vm.setRecommend(stale)
+                    recommendStale = true
+                } else {
+                    recommendEmpty = true
                 }
+                vm.isLoading.value = false
+                LogBus.i("Home", "推荐 3s 未回，首屏降级（${if (stale != null) "stale缓存" else "空态"}）")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                LogBus.w("Home", "降级计时异常 ${e::class.simpleName}: ${e.message}")
+            }
+        }
+        val recJob = scope.launch {
+            try {
                 netVods = try {
                     // v0.31.1：25s 硬上限保留（真果鉴 21s）；取消单独透出不计失败
                     withTimeoutOrNull(25_000) {
@@ -434,8 +443,11 @@ fun HomeScreen(
                     if (vods.isNotEmpty()) {
                         withContext(Dispatchers.IO) { HomeCache.saveVods(context, key, vods) }
                     }
-                    // v0.50.0（用户补）：慢请求回来先看前台；在后台只写缓存，不刷推荐区
-                    if (myGen == contentGen && isHomeForeground()) {
+                    // v0.166.0：空结果不覆盖已渲染列表（22:28:09 回空刷掉 20 条的教训）
+                    if (vods.isEmpty()) {
+                        LogBus.i("Home", "推荐回空，保留已渲染列表")
+                    } else if (myGen == contentGen && isHomeForeground()) {
+                        // v0.50.0（用户补）：慢请求回来先看前台；在后台只写缓存，不刷推荐区
                         vm.setRecommend(vods)
                         recommendStale = false
                         recommendEmpty = false
@@ -444,8 +456,14 @@ fun HomeScreen(
                         LogBus.i("Home", "推荐回来了但首页不在前台，只写缓存不刷 UI")
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                LogBus.w("Home", "推荐路异常 ${e::class.simpleName}: ${e.message}")
             }
-            launch {
+        }
+        val catJob = scope.launch {
+            try {
                 // v0.50.0：打耗时+条数，区分"规则返回空"和"真超时"（之前只报超时，查不清）
                 val t0 = android.os.SystemClock.elapsedRealtime()
                 netCats = try {
@@ -483,7 +501,16 @@ fun HomeScreen(
                         LogBus.i("Home", "分类回来了但首页不在前台，只写缓存不刷 UI")
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                LogBus.w("Home", "分类路异常 ${e::class.simpleName}: ${e.message}")
             }
+        }
+        // 首屏结算最多等 5s；超时按快照结算（未回的路记 null，走缓存/失败分支），慢路回来照样补填。
+        withTimeoutOrNull(5_000) {
+            recJob.join()
+            catJob.join()
         }
         // 3. 算最终 UI 状态（语义与之前一致；early-apply 已做，这里幂等收尾）
         val netOk = netVods != null && (netVods!!.isNotEmpty() || !cacheShown)
@@ -639,7 +666,7 @@ fun HomeScreen(
         if (payload.resetSelection || vm.selectedCategoryId.value == 0) {
             setFilters(emptyMap())
             if (payload.cats.isNotEmpty()) {
-                // 离开推荐流视图，8s 降级立起的推荐空态一并清掉，失败改走分类内联重试。
+                // 离开推荐流视图，3s 降级立起的推荐空态一并清掉，失败改走分类内联重试。
                 recommendEmpty = false
                 loadDrpyCategory(1)
             } else if (payload.resetSelection) {
@@ -1133,7 +1160,7 @@ fun HomeScreen(
                 }
     
                 // v0.27.4：首页不再自动加载推荐流；无数据时干净空态（不再转圈/报错/演示数据）
-                // v0.50.0：8s 首屏无数据时给空态+重试（推荐区局部，不整页报错）
+                // v0.50.0：3s 首屏无数据时给空态+重试（推荐区局部，不整页报错）
                 if (recommendEmpty && !drpyReady) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         EmptyState(

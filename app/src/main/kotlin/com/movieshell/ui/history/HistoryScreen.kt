@@ -208,7 +208,8 @@ fun HistoryScreen(
                             ),
                         )
                     }
-                    items(list, key = { it.url }) { e ->
+                    // v0.166.0：同 URL 一天播两次会撞 key（10-20 "debug" 式崩溃同类），key 拼时间戳保唯一
+                    items(list, key = { "${it.url}@${it.timestamp}" }) { e ->
                         HistoryRow(
                             entry = e,
                             onClick = { onPlay(e) },
