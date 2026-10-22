@@ -142,7 +142,7 @@ fun SettingsScreen(
     onSourcesClick: () -> Unit = {}, // v0.36.0：站源管理入口（tab 删除后搬进设置）
     onParseSettingsClick: () -> Unit = {}, // v0.78.2：解析接口子页面入口
     onPluginCenterClick: () -> Unit = {}, // v0.127.0：插件中心（插件/服务/市场三页签，原两入口合并）
-    onSniffPatternsClick: () -> Unit = {}, // v0.79.0：嗅探正则管理（实验室 tab 删除，入口搬进设置）
+    onSniffPatternsClick: () -> Unit = {}, // v0.79.0：嗅探正则管理（v0.168.0 起入口在快捷宫格）
     onHistoryClick: () -> Unit = {}, // v0.80.0：快捷宫格-观看历史
     onFollowClick: () -> Unit = {}, // v0.90.0：快捷宫格-我的追剧（资料卡已可点进历史/追剧）
 ) {
@@ -401,10 +401,11 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // v0.168.0：我的追剧与资料卡追剧统计重复，去掉；补嗅探正则入口
                 QuickEntry(
-                    label = "我的追剧",
-                    icon = Icons.Filled.PlaylistAddCheck,
-                    onClick = onFollowClick,
+                    label = "嗅探正则",
+                    icon = Icons.Filled.Tune,
+                    onClick = onSniffPatternsClick,
                     modifier = Modifier.weight(1f),
                 )
                 QuickEntry(
@@ -611,13 +612,6 @@ fun SettingsScreen(
                         },
                     )
                 }
-                // v0.79.0：嗅探自定义正则（原实验室）
-                SettingsRow(
-                    icon = Icons.Filled.Tune,
-                    title = "嗅探正则管理",
-                    subtitle = "自定义网页嗅探的 URL 匹配规则",
-                    onClick = onSniffPatternsClick,
-                )
             }
         }
         // 5. 插件与同步
