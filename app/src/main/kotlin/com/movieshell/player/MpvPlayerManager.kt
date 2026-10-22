@@ -174,6 +174,11 @@ object MpvPlayerManager {
             return
         }
         LogBus.i("MpvPlayer", "播放: ${url.take(120)}${if (url.length > 120) "..." else ""}")
+        // v0.154.0：paused 不能只靠 mpv 的 pause 属性回调同步——mpv 默认本就不是暂停，
+        // 起播时再设 pause=false 不会触发属性变化事件，本地 paused 会一直卡在 true，
+        // 导致界面 isPlaying 恒为 false、中央大三角播着还挂着。起播即同步置 false，
+        // 回调仍保留作兜底；loadfile 失败时在 onFailure 里置回 true。
+        paused = false
         lastPositionMs = 0L
         lastDurationMs = 0L
         lastPlayHost = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
@@ -195,6 +200,7 @@ object MpvPlayerManager {
                 if (hasFile) expectEndFileCount.incrementAndGet()
                 hasFile = true
             }.onFailure {
+                paused = true
                 LogBus.e("MpvPlayer", "loadfile 失败：${it.message}")
                 mainHandler.post { errorListener?.invoke("libmpv loadfile 失败：${it.message?.take(100)}") }
             }
@@ -202,6 +208,8 @@ object MpvPlayerManager {
     }
 
     fun pause() {
+        // v0.154.0：与 play() 同理，本地状态同步置，不只等回调
+        paused = true
         executor.execute {
             runCatching { MPVLib.setPropertyBoolean("pause", true) }
                 .onFailure { LogBus.w("MpvPlayer", "pause 失败：${it.message}") }
@@ -209,6 +217,7 @@ object MpvPlayerManager {
     }
 
     fun resume() {
+        paused = false
         executor.execute {
             runCatching { MPVLib.setPropertyBoolean("pause", false) }
                 .onFailure { LogBus.w("MpvPlayer", "resume 失败：${it.message}") }
@@ -389,6 +398,8 @@ object MpvPlayerManager {
         }
         val eof = runCatching { MPVLib.getPropertyBoolean("eof-reached") }.getOrNull() == true
         if (!eof) {
+            // v0.154.0：异常结束即不在播，本地状态同步置 true，免得重试间隙界面仍显示在播
+            paused = true
             // v0.152.0：不再只回一句"libmpv 播放失败"——2026-10-22 直播案（libmpv 5 秒后断、
             // Media3 同地址能播）就卡在这里定不了根因。拼上已观测的失败画像：
             // host/后缀、播到第几秒、是否出画面、起播后多久断，日志与失败提示同文。
