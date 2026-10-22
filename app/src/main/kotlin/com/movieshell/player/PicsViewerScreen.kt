@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.movieshell.data.source.stripHtml
 import kotlinx.coroutines.launch
 
 /**
@@ -125,7 +126,8 @@ fun PicsViewerScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Color.White)
                 }
                 Text(
-                    text = title,
+                    // v0.167.0：源返回的标题常带 HTML 标签（如 <span class="post_title_topimg">(120P)</span>），只留文字
+                    text = title.stripHtml(),
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),

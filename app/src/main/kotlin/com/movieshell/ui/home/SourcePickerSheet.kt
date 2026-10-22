@@ -453,7 +453,8 @@ fun SourcePickerSheet(
         } else {
             LazyVerticalGrid(
                 state = gridState,
-                columns = GridCells.Fixed(4),
+                // v0.167.0：4 列改 5 列（6 列会把 44dp 图标挤到边，名字也没处放）
+                columns = GridCells.Fixed(5),
                 contentPadding = PaddingValues(
                     start = SoftDimens.PagePadding,
                     end = SoftDimens.PagePadding,

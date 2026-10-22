@@ -4,6 +4,7 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -675,20 +677,20 @@ fun DetailScreen(
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                         Spacer(Modifier.height(4.dp))
-                                        // v0.159.0：演员+简介移到集数/线路右边，填右上角空白；
-                                        // 集数/线路在左、演员/简介在右，右列不再上下叠高，卡片收紧
-                                        Row(verticalAlignment = Alignment.Top) {
-                                            Column {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // v0.167.0：简介不再挤右列——右列宽度全看左列脸色，
+                                        // 源胶囊+评分一长就把简介压成一字一行（图里那例）；改回全宽纵排，简介永不被挤。
+                                        // 集数/年份/地区 + 源胶囊 + 评分同一行，超长横滑，不挤占下面内容
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        ) {
                                             // v0.121.0：空字段不渲染 chip（之前年份/地区为空时是两个灰点）
                                             MetaChip("${vod.episodes}集")
                                             if (vod.year.isNotBlank()) MetaChip(vod.year)
                                             if (vod.area.isNotBlank()) MetaChip(vod.area)
-                                        }
-                                        // v0.84.0：源胶囊上移到缩略图右边（紧凑版）
-                                        if (playLines.isNotEmpty()) {
-                                            Spacer(Modifier.height(4.dp))
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                            // v0.84.0：源胶囊上移到缩略图右边（紧凑版）
+                                            if (playLines.isNotEmpty()) {
+                                                Spacer(Modifier.width(8.dp))
                                                 Surface(
                                                     shape = RoundedCornerShape(12.dp),
                                                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -704,6 +706,7 @@ fun DetailScreen(
                                                             text = playLines[safeLine].name,
                                                             style = SoftType.Caption,
                                                             color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                            maxLines = 1,
                                                         )
                                                         Spacer(Modifier.width(3.dp))
                                                         Icon(
@@ -727,105 +730,101 @@ fun DetailScreen(
                                                         text = vod.rating,
                                                         style = SoftType.Caption,
                                                         color = LocalSoftExtra.current.warning,
+                                                        maxLines = 1,
                                                     )
                                                 }
                                             }
                                         }
+                                        if (vod.actors.isNotBlank()) {
+                                            Spacer(Modifier.height(4.dp))
+                                            val actorNames = vod.actors.split("、", "/", "，", ",", " ")
+                                                .map { it.trim() }
+                                                .filter { it.isNotEmpty() }
+                                            val actorText = buildAnnotatedString {
+                                                append("主演：")
+                                                actorNames.forEachIndexed { i, name ->
+                                                    if (i > 0) append("、")
+                                                    pushStringAnnotation(tag = "actor", annotation = name)
+                                                    withStyle(
+                                                        SpanStyle(color = MaterialTheme.colorScheme.primary),
+                                                    ) { append(name) }
+                                                    pop()
+                                                }
                                             }
-                                            Spacer(Modifier.width(12.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                    if (vod.actors.isNotBlank()) {
-                                        Spacer(Modifier.height(4.dp))
-                                        val actorNames = vod.actors.split("、", "/", "，", ",", " ")
-                                            .map { it.trim() }
-                                            .filter { it.isNotEmpty() }
-                                        val actorText = buildAnnotatedString {
-                                            append("主演：")
-                                            actorNames.forEachIndexed { i, name ->
-                                                if (i > 0) append("、")
-                                                pushStringAnnotation(tag = "actor", annotation = name)
-                                                withStyle(
-                                                    SpanStyle(color = MaterialTheme.colorScheme.primary),
-                                                ) { append(name) }
-                                                pop()
-                                            }
-                                        }
-                                        ClickableText(
-                                            text = actorText,
-                                            style = SoftType.Body.copy(
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            ),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            onClick = { offset ->
-                                                actorText.getStringAnnotations("actor", offset, offset)
-                                                    .firstOrNull()?.let { onActorClick(it.item) }
-                                            },
-                                        )
-                                    }
-                                    Spacer(Modifier.height(4.dp))
-                                    Row(
-                                        verticalAlignment = Alignment.Top,
-                                        modifier = Modifier.clickable { descExpanded = !descExpanded },
-                                    ) {
-                                        Text(
-                                            text = buildAnnotatedString {
-                                                withStyle(
-                                                    SpanStyle(fontWeight = FontWeight.Bold),
-                                                ) { append("简介：") }
-                                                append(vod.desc)
-                                            },
-                                            style = SoftType.Body.copy(fontSize = 12.sp),
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            lineHeight = 16.sp,
-                                            maxLines = if (descExpanded) Int.MAX_VALUE else 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                        Icon(
-                                            imageVector = if (descExpanded) Icons.Filled.ExpandLess
-                                            else Icons.Filled.ExpandMore,
-                                            contentDescription = if (descExpanded) "收起" else "展开",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                    }
-                                    // v0.165.0：操作行移到简介正下方（右列内）
-                                    Spacer(Modifier.height(6.dp))
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        ActionIcon(label = "复制链接", onClick = {
-                                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE)
-                                                as android.content.ClipboardManager
-                                            cm.setPrimaryClip(
-                                                android.content.ClipData.newPlainText(
-                                                    "播放链接", embeddedUrl.ifBlank { playLabel }
-                                                )
+                                            ClickableText(
+                                                text = actorText,
+                                                style = SoftType.Body.copy(
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                ),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                onClick = { offset ->
+                                                    actorText.getStringAnnotations("actor", offset, offset)
+                                                        .firstOrNull()?.let { onActorClick(it.item) }
+                                                },
                                             )
-                                            Toast.makeText(context, "链接已复制", Toast.LENGTH_SHORT).show()
-                                        }) {
-                                            Icon(Icons.Filled.Link, contentDescription = "复制链接")
                                         }
-                                        ActionIcon(
-                                            label = "下载",
-                                            onClick = { showDownloadDialog = true },
-                                            enabled = lineEpisodes.isNotEmpty(),
+                                        Spacer(Modifier.height(4.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.Top,
+                                            modifier = Modifier.clickable { descExpanded = !descExpanded },
                                         ) {
-                                            Icon(Icons.Filled.Download, contentDescription = "下载")
+                                            Text(
+                                                text = buildAnnotatedString {
+                                                    withStyle(
+                                                        SpanStyle(fontWeight = FontWeight.Bold),
+                                                    ) { append("简介：") }
+                                                    append(vod.desc)
+                                                },
+                                                style = SoftType.Body.copy(fontSize = 12.sp),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                lineHeight = 16.sp,
+                                                maxLines = if (descExpanded) Int.MAX_VALUE else 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            Icon(
+                                                imageVector = if (descExpanded) Icons.Filled.ExpandLess
+                                                else Icons.Filled.ExpandMore,
+                                                contentDescription = if (descExpanded) "收起" else "展开",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(16.dp),
+                                            )
                                         }
-                                        ActionIcon(label = "刷新", onClick = { reloadDetail() }) {
-                                            Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                                        }
-                                        ActionIcon(label = "字幕", onClick = { showOnlineSubtitle = true }) {
-                                            Icon(Icons.Filled.Subtitles, contentDescription = "在线字幕")
+                                        // v0.165.0：操作行在简介正下方（v0.167.0 起全宽，不再挤右列）
+                                        Spacer(Modifier.height(6.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            ActionIcon(label = "复制链接", onClick = {
+                                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                                    as android.content.ClipboardManager
+                                                cm.setPrimaryClip(
+                                                    android.content.ClipData.newPlainText(
+                                                        "播放链接", embeddedUrl.ifBlank { playLabel }
+                                                    )
+                                                )
+                                                Toast.makeText(context, "链接已复制", Toast.LENGTH_SHORT).show()
+                                            }) {
+                                                Icon(Icons.Filled.Link, contentDescription = "复制链接")
+                                            }
+                                            ActionIcon(
+                                                label = "下载",
+                                                onClick = { showDownloadDialog = true },
+                                                enabled = lineEpisodes.isNotEmpty(),
+                                            ) {
+                                                Icon(Icons.Filled.Download, contentDescription = "下载")
+                                            }
+                                            ActionIcon(label = "刷新", onClick = { reloadDetail() }) {
+                                                Icon(Icons.Filled.Refresh, contentDescription = "刷新")
+                                            }
+                                            ActionIcon(label = "字幕", onClick = { showOnlineSubtitle = true }) {
+                                                Icon(Icons.Filled.Subtitles, contentDescription = "在线字幕")
+                                            }
                                         }
                                     }
-                                    }
-                                        }
-                                    }
-                                    // v0.159.0：收藏仍在海报下方小图标行，右上角由演员+简介填
+                                    // v0.167.0：简介改回全宽纵排，右上角不再由演员+简介填；收藏仍在海报下方小图标行
                                 }
                                 // v0.157.0：主演+简介已移到海报右边那列，不再卡片下方全宽占一行
                             }
