@@ -198,6 +198,8 @@ fun PlayerScreen(
     // v0.158.0：直播最终失败回调（同内核重拉 2 次 + 换内核之后才到这里，
     // 直播页用它自动切同名源；null 时走原错误对话框，不改点播行为）
     onLiveError: (() -> Unit)? = null,
+    // v0.160.0：直播频道自带的请求头（插件 lives 里 ua 字段，有才传；没有不编 UA/Referer）
+    liveHeaders: Map<String, String> = emptyMap(),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -577,7 +579,8 @@ fun PlayerScreen(
                     // v0.14.0：片头跳过（非续播时从 skipIntroSec 开始）
                     // v0.16.2：按源取片头（siteKey 区分源）
                     // v0.20.0：走 EngineHost，按当前内核（Media3/libmpv）起播
-                    val headers = SniffPlayHeaders.take(playUrl)
+                    // v0.160.0：直播频道自带 ua 先打底，嗅探头优先覆盖；无 ua 时不编
+                    val headers = liveHeaders + SniffPlayHeaders.take(playUrl)
                     lastHeaders = headers
                     val skipIntro = PlayerSettings.getSkipIntroFor(context, vodId)
                     val startPos = if (resumeAt > 0) resumeAt
@@ -662,6 +665,19 @@ fun PlayerScreen(
             } else {
                 playError = PlayError.classify(it)
                 errorMsg = null
+            }
+        }
+    }
+    // v0.160.0：直播 8 秒无画面切源——黑屏挂起不报错时 158 的自动切源永远触发不了，
+    // 这里只看“自起播以来有没有真正播过”：播过后用户手动暂停不触发，换地址后计时重置
+    var liveEverPlayed by remember { mutableStateOf(false) }
+    LaunchedEffect(playUrl) {
+        liveEverPlayed = false
+        if (isLive && onLiveError != null && playUrl.isNotBlank()) {
+            kotlinx.coroutines.delay(8000)
+            if (!liveEverPlayed) {
+                LogBus.i("Player", "直播 8 秒无画面，触发自动切源")
+                errorMsg = "直播 8 秒无画面"
             }
         }
     }
@@ -1510,6 +1526,7 @@ fun PlayerScreen(
             while (true) {
                 delay(500)
                 isPlaying = EngineHost.isPlayingNow()
+                if (isPlaying) liveEverPlayed = true
                 if (!scrubbing) pos = EngineHost.currentPosition()
                 dur = EngineHost.duration()
             }

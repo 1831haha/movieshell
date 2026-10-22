@@ -99,7 +99,15 @@ import java.util.Locale
 
 private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-/** 直播 Tab：DsPlayer 式布局（v0.80.0 重做）——顶部 16:9 播放器 + 节目信息卡 + 三列（分组/频道/源） */
+// v0.160.0：直播选中状态放内存单例，不放 remember——切 tab 离页重组、聚合刷新
+// 都不会丢选中频道和按台名选的源；聚合刷新本身只在 selected==null 时才取首台，
+// 所以 TRAE 说的“聚合一刷新就重置”在原代码里并不成立，真正丢状态的是离页重组
+private object LiveSelection {
+    var channelId: String? = null
+    val sourceByName = mutableMapOf<String, String>()
+}
+
+/** 直播 Tab：DsPlayer 式布局（v0.80.0 重做）——顶部 16:9 播放器 + 节目信息卡 + 两列（分组/频道）+ 播放器下方源行 */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun LiveScreen(
@@ -115,6 +123,7 @@ fun LiveScreen(
     var detailChannel by remember { mutableStateOf<LiveChannel?>(null) }
     var favOnly by remember { mutableStateOf(false) }
     // v0.79.0：顶部播放器当前频道；进场自动选中第一个
+    // v0.160.0：初值从单例恢复，离页回来也不回首台
     var selected by remember { mutableStateOf<LiveChannel?>(null) }
     // v0.80.0：左侧分组选中态
     var selectedGroup by remember { mutableStateOf<String?>(null) }
@@ -163,16 +172,33 @@ fun LiveScreen(
     LaunchedEffect(Unit) {
         if (channels.isEmpty()) doRefresh()
     }
-    // 频道列表就绪后自动选中第一个（无选中时）
+    // 频道列表就绪后自动选中第一个（无选中时）；已有选中时按 id 换成刷新后的新对象，
+    // 不回首台——聚合刷新不重置选中，离页重组靠单例恢复
     LaunchedEffect(channels) {
-        if (selected == null && channels.isNotEmpty()) {
-            selected = channels.first()
+        if (channels.isNotEmpty()) {
+            val restored = LiveSelection.channelId?.let { id ->
+                channels.firstOrNull { it.id == id }
+            }
+            if (selected == null) {
+                selected = restored ?: channels.first()
+                restored?.let { LiveSelection.channelId = it.id }
+            } else if (channels.none { it.id == selected?.id }) {
+                selected = restored ?: channels.first()
+            }
+            // 按台名选的源从单例恢复一次（切 tab 回来不丢源2）
+            if (liveSourceByName.isEmpty() && LiveSelection.sourceByName.isNotEmpty()) {
+                liveSourceByName = LiveSelection.sourceByName.toMap()
+            }
         }
     }
 
     fun playChannel(ch: LiveChannel) {
+        // v0.160.0：同台重复点不重建播放器（2 秒连点 5 台是不同台，不拦；同台才拦）
+        if (selected?.id == ch.id) return
         liveTriedIds = emptySet()
         liveSourceByName = liveSourceByName + (ch.name to ch.id)
+        LiveSelection.sourceByName[ch.name] = ch.id
+        LiveSelection.channelId = ch.id
         selected = ch
     }
 
@@ -190,6 +216,7 @@ fun LiveScreen(
             val first = filtered.firstOrNull()
             if (first != null && selected?.sourceKey != selectedLiveSource) {
                 liveTriedIds = emptySet()
+                LiveSelection.channelId = first.id
                 selected = first
             }
         }
@@ -222,7 +249,7 @@ fun LiveScreen(
             } ?: list.first()
         }
     }
-    // 同名多线路 = 源1..N（对标 DsPlayer 右列）
+    // 同名多线路 = 源1..N（v0.160.0 起放播放器下方源行，原右列已删）
     val sources = remember(channels, selected) {
         val name = selected?.name
         if (name.isNullOrBlank()) emptyList()
@@ -314,9 +341,14 @@ fun LiveScreen(
                                     Toast.LENGTH_SHORT,
                                 ).show()
                                 liveSourceByName = liveSourceByName + (next.name to next.id)
+                                LiveSelection.sourceByName[next.name] = next.id
+                                LiveSelection.channelId = next.id
                                 selected = next
                             }
                         },
+                        // v0.160.0：频道自带 ua 才传（cctv-live 目前 ua 为空，传空 map，不编 header）
+                        liveHeaders = playing.ua.takeIf { it.isNotBlank() }
+                            ?.let { mapOf("User-Agent" to it) } ?: emptyMap(),
                     )
                 } else {
                     Box(
@@ -339,6 +371,31 @@ fun LiveScreen(
             if (!fullscreenPlayer) {
             // 节目信息卡：台标 + 正在播/下一档（对标 DsPlayer）
             ProgramInfoCard(channel = playing, epg = epg, hasEpgSource = (playing?.epgUrl?.isNotBlank() == true || globalEpg.isNotBlank()))
+            // v0.160.0：同名源行移到播放器下方（原右列删掉）——源1/源2是当前台的全局切换，
+            // 不该在每个频道卡片里重复出现；卡片右上角只留星标
+            if (sources.size > 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "线路",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    sources.forEachIndexed { idx, ch ->
+                        SourceButton(
+                            label = "源${idx + 1}",
+                            selected = selected?.id == ch.id,
+                            onClick = { playChannel(ch) },
+                        )
+                    }
+                }
+            }
             // v0.158.0：直播页内换源条（DsPlayer 切换直播源对标）——全部 + 各源一键切
             if (sourceKeys.size > 1) {
                 Row(
@@ -401,7 +458,7 @@ fun LiveScreen(
                 }
                 return@Column
             }
-            // 三列：分组 | 频道 | 源
+            // v0.160.0：两列：分组 | 频道（右列源已移到播放器下方）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -444,27 +501,6 @@ fun LiveScreen(
                             onClick = { playChannel(ch) },
                             onLongClick = { detailChannel = ch },
                             onFavorite = { LiveStore.toggleFavorite(context, ch.id) },
-                        )
-                    }
-                }
-                // 右列：源（同名多线路）
-                LazyColumn(
-                    modifier = Modifier
-                        .width(64.dp)
-                        .fillMaxHeight(),
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    // v0.133.0：同中列，源列表来自全量频道按名过滤，重复频道条目同样加下标复合
-                    items(
-                        items = sources.withIndex().toList(),
-                        key = { "${it.index}_${it.value.id}" },
-                    ) { (idx, ch) ->
-                        SourceButton(
-                            label = "源${idx + 1}",
-                            selected = selected?.id == ch.id,
-                            onClick = { playChannel(ch) },
                         )
                     }
                 }
@@ -641,6 +677,7 @@ private fun ChannelCell(
 ) {
     val soft = LocalSoftExtra.current
     val shape = RoundedCornerShape(14.dp)
+    // v0.160.0：卡片压紧——上下内边距 8→4dp，台标 36→30dp，卡片右上角只留星标
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -655,7 +692,7 @@ private fun ChannelCell(
                 shape,
             )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -666,7 +703,7 @@ private fun ChannelCell(
         )
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(30.dp)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
@@ -710,11 +747,11 @@ private fun ChannelCell(
             modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
                 .background(soft.errorSoft.copy(alpha = 0.18f))
-                .padding(horizontal = 6.dp, vertical = 2.dp),
+                .padding(horizontal = 4.dp, vertical = 1.dp),
         ) {
             Text("直播", color = soft.errorSoft, style = SoftType.Caption)
         }
-        IconButton(onClick = onFavorite, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = onFavorite, modifier = Modifier.size(28.dp)) {
             Icon(
                 if (channel.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
                 contentDescription = if (channel.favorite) "取消收藏" else "收藏",
