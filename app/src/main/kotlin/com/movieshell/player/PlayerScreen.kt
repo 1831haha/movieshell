@@ -2178,6 +2178,12 @@ internal fun PlayerDialogCard(
     val cardShape = RoundedCornerShape(SoftDimens.CardCorner)
     // AlertDialog 时代按返回先关面板：内联卡片后补回同样的返回拦截
     BackHandler(onBack = onDismiss)
+    // v0.155.0：横屏全屏时屏高只有约 360dp，旧卡片（标题+400dp 内容+按钮）要 520dp+，
+    // 底下取消/保存被裁到屏外、遮罩也点不到，看着像铺满全屏还关不掉。
+    // 内容区按屏高算上限（竖屏仍封顶 400dp 不变），卡片总高不再超屏，按钮始终可见。
+    val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
+    val maxContentHeight = (screenHeightDp * 0.88f - 120.dp)
+        .coerceAtLeast(140.dp).coerceAtMost(400.dp)
     Box(Modifier.fillMaxSize()) {
         // 半透明遮罩，点击关闭
         Box(
@@ -2197,11 +2203,30 @@ internal fun PlayerDialogCard(
             tonalElevation = 0.dp,
         ) {
             Column(Modifier.padding(SoftDimens.PagePadding)) {
-                Text(title, style = SoftType.CardTitle, color = titleColor)
-                Spacer(Modifier.height(12.dp))
+                // v0.155.0：标题行右上角常驻关闭键，不用再去底下找取消、也不用硬点遮罩
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        title,
+                        style = SoftType.CardTitle,
+                        color = titleColor,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "关闭",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 Column(
                     modifier = Modifier
-                        .heightIn(max = 400.dp)
+                        .heightIn(max = maxContentHeight)
                         .verticalScroll(rememberScrollState()),
                 ) {
                     content()
@@ -2275,7 +2300,7 @@ private fun SubtitleDialog(
             style = SoftType.Caption,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         AppTextField(
             value = url,
             onValueChange = { url = it },
@@ -2288,7 +2313,7 @@ private fun SubtitleDialog(
             onClick = onOnlineSearch,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             "大小 ${size}sp",
             style = SoftType.Body,
@@ -2305,11 +2330,11 @@ private fun SubtitleDialog(
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SUB_COLORS.forEach { c ->
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(28.dp)
                         .clip(CircleShape)
                         .background(Color(c))
                         .border(
@@ -2325,7 +2350,7 @@ private fun SubtitleDialog(
                 )
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             "描边",
             style = SoftType.Body,
