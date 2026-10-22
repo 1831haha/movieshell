@@ -195,6 +195,9 @@ fun PlayerScreen(
     onFullscreen: () -> Unit = {},
     // v0.65：集数变化回调（嵌入时详情页高亮跟随）
     onEpisodeChange: (lineIndex: Int, episodeIndex: Int) -> Unit = { _, _ -> },
+    // v0.158.0：直播最终失败回调（同内核重拉 2 次 + 换内核之后才到这里，
+    // 直播页用它自动切同名源；null 时走原错误对话框，不改点播行为）
+    onLiveError: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -651,8 +654,15 @@ fun PlayerScreen(
     var playError by remember { mutableStateOf<PlayError?>(null) }
     LaunchedEffect(errorMsg) {
         errorMsg?.let {
-            playError = PlayError.classify(it)
-            errorMsg = null
+            // v0.158.0：直播页接管最终失败（自动切源），不弹原错误框；
+            // 直播页切完仍失败时由它自己给“同名源均播放失败”提示。
+            if (isLive && onLiveError != null) {
+                errorMsg = null
+                onLiveError()
+            } else {
+                playError = PlayError.classify(it)
+                errorMsg = null
+            }
         }
     }
     // v0.57：错误对话框的"重试"——按当前进度重播当前地址

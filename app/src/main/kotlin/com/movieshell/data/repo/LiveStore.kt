@@ -73,12 +73,18 @@ object LiveStore {
     private const val KEY_SOURCES = "live_sources"
     private const val KEY_MANUAL = "live_manual"
     private const val KEY_FAVS = "live_favs"
+    private const val KEY_GLOBAL_EPG = "live_global_epg"
 
     private val _channels = MutableStateFlow<List<LiveChannel>>(emptyList())
     val channels: StateFlow<List<LiveChannel>> = _channels
 
     private val _sources = MutableStateFlow<List<LiveSource>>(emptyList())
     val sources: StateFlow<List<LiveSource>> = _sources
+
+    // v0.158.0：全局节目单兜底（用户自填 XMLTV 地址，不内置任何源）；
+    // 本源无 epg 时用它查正在播/下一档，填空则不兜底。
+    private val _globalEpg = MutableStateFlow("")
+    val globalEpg: StateFlow<String> = _globalEpg
 
     private var inited = false
 
@@ -87,6 +93,16 @@ object LiveStore {
         if (inited) return
         inited = true
         _sources.value = readSources(context)
+        _globalEpg.value = prefs(context).getString(KEY_GLOBAL_EPG, "").orEmpty()
+    }
+
+    fun globalEpgUrl(context: Context): String =
+        prefs(context).getString(KEY_GLOBAL_EPG, "").orEmpty()
+
+    fun setGlobalEpgUrl(context: Context, url: String) {
+        val v = url.trim()
+        _globalEpg.value = v
+        prefs(context).edit().putString(KEY_GLOBAL_EPG, v).apply()
     }
 
     // ---------------- 订阅管理 ----------------

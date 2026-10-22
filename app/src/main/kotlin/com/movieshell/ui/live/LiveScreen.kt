@@ -11,6 +11,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -116,6 +118,11 @@ fun LiveScreen(
     var selected by remember { mutableStateOf<LiveChannel?>(null) }
     // v0.80.0：左侧分组选中态
     var selectedGroup by remember { mutableStateOf<String?>(null) }
+    // v0.158.0：直播页内换源（null=全部，DsPlayer 切换直播源对标）；
+    // 直播失败已试过的同名源 id（自动切源防循环，手动点频道/源时清空）
+    var selectedLiveSource by remember { mutableStateOf<String?>(null) }
+    var liveTriedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val globalEpg by LiveStore.globalEpg.collectAsState()
 
     // v0.96.2：横屏全屏播放（手动横屏按钮 / 物理横屏）且有在播频道时，播放器占满全屏
     val fullscreenPlayer = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE &&
@@ -162,13 +169,26 @@ fun LiveScreen(
     }
 
     fun playChannel(ch: LiveChannel) {
+        liveTriedIds = emptySet()
         selected = ch
     }
 
-    val filtered = remember(channels, query, favOnly) {
+    val filtered = remember(channels, query, favOnly, selectedLiveSource) {
         channels.filter {
-            (!favOnly || it.favorite) &&
+            (selectedLiveSource == null || it.sourceKey == selectedLiveSource) &&
+                (!favOnly || it.favorite) &&
                 (query.isBlank() || it.name.contains(query, ignoreCase = true))
+        }
+    }
+    val sourceKeys = remember(channels) { channels.map { it.sourceKey }.distinct() }
+    // v0.158.0：换源后自动播该源第一个频道（DsPlayer 切源即播该源）；全部则不动当前播放
+    LaunchedEffect(selectedLiveSource) {
+        if (selectedLiveSource != null) {
+            val first = filtered.firstOrNull()
+            if (first != null && selected?.sourceKey != selectedLiveSource) {
+                liveTriedIds = emptySet()
+                selected = first
+            }
         }
     }
     val groups = remember(filtered) {
@@ -197,12 +217,14 @@ fun LiveScreen(
         else channels.filter { it.name == name }
     }
 
-    // EPG：当前节目 + 下一档（节目信息卡用）
+    // EPG：当前节目 + 下一档（节目信息卡用）；
+    // v0.158.0：本源无 epg 时用全局兜底（用户自填，不内置源），仍无则 null
     var epg by remember { mutableStateOf<Pair<EpgFetcher.Program?, EpgFetcher.Program?>?>(null) }
-    LaunchedEffect(selected) {
+    LaunchedEffect(selected, globalEpg) {
         val ch = selected
-        epg = if (ch != null && ch.epgUrl.isNotBlank()) {
-            EpgFetcher.nowAndNext(ch.epgUrl, ch.name)
+        val src = ch?.epgUrl?.ifBlank { globalEpg }.orEmpty()
+        epg = if (ch != null && src.isNotBlank()) {
+            EpgFetcher.nowAndNext(src, ch.name)
         } else {
             null
         }
@@ -259,6 +281,29 @@ fun LiveScreen(
                         onBack = {},
                         embedded = true,
                         onFullscreen = { onFullscreenChannel(playing) },
+                        // v0.158.0：最终失败自动切同名源（同内核重拉+换内核已在播放器内走完）；
+                        // 切到其他源时把换源过滤放回全部，避免列表与在播频道对不上
+                        onLiveError = {
+                            val cur = selected
+                            val same = if (cur == null) emptyList()
+                            else channels.filter { it.name == cur.name }
+                            val tried = liveTriedIds + (cur?.id.orEmpty())
+                            val next = same.firstOrNull { it.id !in tried }
+                            if (next == null) {
+                                Toast.makeText(context, "同名源均播放失败", Toast.LENGTH_SHORT).show()
+                            } else {
+                                liveTriedIds = tried
+                                if (selectedLiveSource != null && next.sourceKey != selectedLiveSource) {
+                                    selectedLiveSource = null
+                                }
+                                Toast.makeText(
+                                    context,
+                                    "当前源播放失败，已自动切到源${same.indexOf(next) + 1}",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                selected = next
+                            }
+                        },
                     )
                 } else {
                     Box(
@@ -280,7 +325,30 @@ fun LiveScreen(
             // v0.96.2：横屏全屏只留播放器，其他 UI 隐藏
             if (!fullscreenPlayer) {
             // 节目信息卡：台标 + 正在播/下一档（对标 DsPlayer）
-            ProgramInfoCard(channel = playing, epg = epg)
+            ProgramInfoCard(channel = playing, epg = epg, hasEpgSource = (playing?.epgUrl?.isNotBlank() == true || globalEpg.isNotBlank()))
+            // v0.158.0：直播页内换源条（DsPlayer 切换直播源对标）——全部 + 各源一键切
+            if (sourceKeys.size > 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    SourceButton(
+                        label = "全部",
+                        selected = selectedLiveSource == null,
+                        onClick = { selectedLiveSource = null },
+                    )
+                    sourceKeys.forEach { key ->
+                        SourceButton(
+                            label = liveSourceLabel(key),
+                            selected = selectedLiveSource == key,
+                            onClick = { selectedLiveSource = key },
+                        )
+                    }
+                }
+            }
             // 搜索行（默认收起，点顶栏放大镜展开）
             if (showSearch) {
                 AppTextField(
@@ -418,6 +486,7 @@ fun LiveScreen(
 private fun ProgramInfoCard(
     channel: LiveChannel?,
     epg: Pair<EpgFetcher.Program?, EpgFetcher.Program?>?,
+    hasEpgSource: Boolean = true,
 ) {
     val (now, next) = epg ?: (null to null)
     AppCard(
@@ -494,7 +563,7 @@ private fun ProgramInfoCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = if (channel?.epgUrl.isNullOrBlank()) "暂无节目单" else "节目单加载中…",
+                        text = if (!hasEpgSource) "暂无节目单，可在直播订阅管理里填全局节目单地址" else "节目单加载中…",
                         style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -502,6 +571,14 @@ private fun ProgramInfoCard(
             }
         }
     }
+}
+
+// v0.158.0：直播源显示名（m3u:订阅名 / plugin:文件名 / 手动添加）
+private fun liveSourceLabel(key: String): String = when {
+    key == "manual" -> "手动添加"
+    key.startsWith("m3u:") -> key.removePrefix("m3u:")
+    key.startsWith("plugin:") -> key.removePrefix("plugin:")
+    else -> key
 }
 
 /** v0.80.0：左列分组按钮（选中=主题色药丸）。 */
@@ -679,11 +756,13 @@ private fun ChannelDetailSheet(
     val clipboard = LocalClipboardManager.current
     var epg by remember(channel.id) { mutableStateOf<Pair<EpgFetcher.Program?, EpgFetcher.Program?>?>(null) }
     var epgLoading by remember(channel.id) { mutableStateOf(false) }
+    val globalEpgDetail by LiveStore.globalEpg.collectAsState()
 
-    LaunchedEffect(channel.id) {
-        if (channel.epgUrl.isNotBlank()) {
+    LaunchedEffect(channel.id, globalEpgDetail) {
+        val src = channel.epgUrl.ifBlank { globalEpgDetail }
+        if (src.isNotBlank()) {
             epgLoading = true
-            epg = EpgFetcher.nowAndNext(channel.epgUrl, channel.name)
+            epg = EpgFetcher.nowAndNext(src, channel.name)
             epgLoading = false
         }
     }
@@ -745,7 +824,7 @@ private fun ChannelDetailSheet(
             }
             Spacer(Modifier.height(12.dp))
             // EPG：当前 + 后续（尽力展示）
-            if (channel.epgUrl.isNotBlank()) {
+            if (channel.epgUrl.isNotBlank() || globalEpgDetail.isNotBlank()) {
                 Text(
                     "节目单",
                     style = SoftType.CardTitle,
@@ -820,6 +899,8 @@ fun LiveManageScreen(onBack: () -> Unit) {
     val sources by LiveStore.sources.collectAsState()
     var showAddSub by remember { mutableStateOf(false) }
     var showAddChannel by remember { mutableStateOf(false) }
+    // v0.158.0：全局节目单兜底地址（用户自填，不内置源）
+    var globalEpgText by remember { mutableStateOf(LiveStore.globalEpgUrl(context)) }
     var refreshing by remember { mutableStateOf(false) }
 
     val filePicker = rememberLauncherForActivityResult(
@@ -896,6 +977,57 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center,
                     ) { CircularProgressIndicator(modifier = Modifier.size(24.dp)) }
+                }
+            }
+            item {
+                // v0.158.0：全局节目单兜底——本源无节目单时用它查正在播/下一档；
+                // 填 XMLTV 地址，.xml.gz 尽力解压，解析失败显示暂无节目数据
+                AppCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            "全局节目单（兜底）",
+                            style = SoftType.CardTitle,
+                        )
+                        Text(
+                            "本源无节目单时用它查正在播 / 下一档；不填则不兜底，不内置任何源",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        AppTextField(
+                            value = globalEpgText,
+                            onValueChange = { globalEpgText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = "https://…/xxx.xml",
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AppButton(
+                                text = "保存",
+                                onClick = {
+                                    LiveStore.setGlobalEpgUrl(context, globalEpgText)
+                                    Toast.makeText(
+                                        context,
+                                        if (globalEpgText.isBlank()) "已清除全局节目单地址" else "已保存全局节目单地址",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
+                                variant = AppButtonVariant.Primary,
+                            )
+                            AppButton(
+                                text = "清除",
+                                onClick = {
+                                    globalEpgText = ""
+                                    LiveStore.setGlobalEpgUrl(context, "")
+                                },
+                                variant = AppButtonVariant.Secondary,
+                            )
+                        }
+                    }
                 }
             }
             if (sources.isEmpty()) {

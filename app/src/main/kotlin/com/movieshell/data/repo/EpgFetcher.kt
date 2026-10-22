@@ -38,7 +38,16 @@ object EpgFetcher {
     suspend fun nowAndNext(epgUrl: String, channelName: String): Pair<Program?, Program?> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val xml = withTimeoutOrNull(10_000) { downloadText(epgUrl) } ?: return@runCatching null to null
+                val bytes = withTimeoutOrNull(10_000) { downloadBytes(epgUrl) } ?: return@runCatching null to null
+                // v0.158.0：.xml.gz 这类压缩包尽力解压（gzip 魔数 1f 8b），
+                // 普通 XML 直接按 UTF-8 解；解不开返回 (null, null)，不崩。
+                val xml = if (bytes.size >= 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()) {
+                    runCatching {
+                        java.util.zip.GZIPInputStream(bytes.inputStream()).readBytes().toString(Charsets.UTF_8)
+                    }.getOrNull() ?: return@runCatching null to null
+                } else {
+                    bytes.toString(Charsets.UTF_8)
+                }
                 parse(xml, channelName.trim())
             }.getOrDefault(null to null)
         }
@@ -120,14 +129,14 @@ object EpgFetcher {
         return cur?.toProgram() to next?.toProgram()
     }
 
-    private fun downloadText(url: String): String {
+    private fun downloadBytes(url: String): ByteArray {
         val req = Request.Builder()
             .url(url)
             .header("User-Agent", DEFAULT_UA_SHORT)
             .build()
         CmsApi.defaultClient().newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
-            return resp.body?.string() ?: throw IllegalStateException("空响应")
+            return resp.body?.bytes() ?: throw IllegalStateException("空响应")
         }
     }
 }
