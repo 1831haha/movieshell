@@ -674,68 +674,69 @@ fun DetailScreen(
                                                 }
                                             }
                                         }
+                                    // v0.157.0：主演+简介移到海报右边（用户2026-10-22截图要求）；
+                                    // 简介字缩小：14sp→12sp、行距19sp→16sp，窄列里不撑高，点展开/收起逻辑不变；
+                                    // 主演演员名可点跳搜索逻辑原样搬移
+                                    if (vod.actors.isNotBlank()) {
+                                        Spacer(Modifier.height(4.dp))
+                                        val actorNames = vod.actors.split("、", "/", "，", ",", " ")
+                                            .map { it.trim() }
+                                            .filter { it.isNotEmpty() }
+                                        val actorText = buildAnnotatedString {
+                                            append("主演：")
+                                            actorNames.forEachIndexed { i, name ->
+                                                if (i > 0) append("、")
+                                                pushStringAnnotation(tag = "actor", annotation = name)
+                                                withStyle(
+                                                    SpanStyle(color = MaterialTheme.colorScheme.primary),
+                                                ) { append(name) }
+                                                pop()
+                                            }
+                                        }
+                                        ClickableText(
+                                            text = actorText,
+                                            style = SoftType.Body.copy(
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            ),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            onClick = { offset ->
+                                                actorText.getStringAnnotations("actor", offset, offset)
+                                                    .firstOrNull()?.let { onActorClick(it.item) }
+                                            },
+                                        )
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.Top,
+                                        modifier = Modifier.clickable { descExpanded = !descExpanded },
+                                    ) {
+                                        Text(
+                                            text = buildAnnotatedString {
+                                                withStyle(
+                                                    SpanStyle(fontWeight = FontWeight.Bold),
+                                                ) { append("简介：") }
+                                                append(vod.desc)
+                                            },
+                                            style = SoftType.Body.copy(fontSize = 12.sp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            lineHeight = 16.sp,
+                                            maxLines = if (descExpanded) Int.MAX_VALUE else 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        Icon(
+                                            imageVector = if (descExpanded) Icons.Filled.ExpandLess
+                                            else Icons.Filled.ExpandMore,
+                                            contentDescription = if (descExpanded) "收起" else "展开",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
                                     }
                                     // v0.156.0：收藏已移到海报下方小图标行，这里不再右上角挂一个
                                 }
-                                // v0.84.0：源 pill 已上移到缩略图右边，这里删除
-                                // 第三行：主演（v0.87.0：演员名可点，跳搜索找其作品）+ 简介（可展开）；v0.84.0：收窄
-                                if (vod.actors.isNotBlank()) {
-                                    Spacer(Modifier.height(4.dp))
-                                    val actorNames = vod.actors.split("、", "/", "，", ",", " ")
-                                        .map { it.trim() }
-                                        .filter { it.isNotEmpty() }
-                                    val actorText = buildAnnotatedString {
-                                        append("主演：")
-                                        actorNames.forEachIndexed { i, name ->
-                                            if (i > 0) append("、")
-                                            pushStringAnnotation(tag = "actor", annotation = name)
-                                            withStyle(
-                                                SpanStyle(color = MaterialTheme.colorScheme.primary),
-                                            ) { append(name) }
-                                            pop()
-                                        }
-                                    }
-                                    ClickableText(
-                                        text = actorText,
-                                        style = SoftType.Body.copy(
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        ),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        onClick = { offset ->
-                                            actorText.getStringAnnotations("actor", offset, offset)
-                                                .firstOrNull()?.let { onActorClick(it.item) }
-                                        },
-                                    )
-                                }
-                                Spacer(Modifier.height(4.dp))
-                                // v0.86.0：简介标签与内容同一行（"简介："加粗前缀+正文流排），点击展开/收起
-                                Row(
-                                    verticalAlignment = Alignment.Top,
-                                    modifier = Modifier.clickable { descExpanded = !descExpanded },
-                                ) {
-                                    Text(
-                                        text = buildAnnotatedString {
-                                            withStyle(
-                                                SpanStyle(fontWeight = FontWeight.Bold),
-                                            ) { append("简介：") }
-                                            append(vod.desc)
-                                        },
-                                        style = SoftType.Body,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        lineHeight = 19.sp, // v0.84.0：收窄行距
-                                        maxLines = if (descExpanded) Int.MAX_VALUE else 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Icon(
-                                        imageVector = if (descExpanded) Icons.Filled.ExpandLess
-                                        else Icons.Filled.ExpandMore,
-                                        contentDescription = if (descExpanded) "收起" else "展开",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
+                                // v0.157.0：主演+简介已移到海报右边那列，不再卡片下方全宽占一行
                                 // 第四行：操作图标（复制链接 / 下载 / 刷新 / 字幕）
                                 Spacer(Modifier.height(6.dp))
                                 // v0.69.1：操作图标下方加炫彩小字
