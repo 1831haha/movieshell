@@ -14,7 +14,7 @@ import okhttp3.Request
  *
  * 判定：
  * 1. 后缀直判（零成本）：.m3u8/.mp4/.mkv/.flv/.avi/.webm/.mp3/.m4a/.aac/.mov/.wmv/.mpd
- *    直接命中；另认 `/m3u8` 路径形式（DsPlayer 口径）；rtmp 标"需外部播放"。
+ *    直接命中；另认 `/m3u8` 路径形式（DsPlayer 口径）；rtmp 走 libmpv（v0.152.0）。
  *    例外：.ts 是 m3u8 分片，不直接命中——只在深度嗅探/HTML 深挖里当线索
  *    （同目录拼 playlist 候选再验证）。
  * 2. 可疑 URL 探测（按需 HEAD）：无后缀但 path/query 像媒体地址的，
@@ -40,7 +40,7 @@ object SniffEngine {
     enum class SniffKind {
         /** 可直接丢给播放器：m3u8/mp4/mpd/aac */
         DIRECT,
-        /** rtmp 流：App 内播不了，标"需外部播放" */
+        /** rtmp 流：走 libmpv（v0.152.0 起 App 内可播，未装插件时 EngineHost 拒绝并提示） */
         RTMP,
     }
 

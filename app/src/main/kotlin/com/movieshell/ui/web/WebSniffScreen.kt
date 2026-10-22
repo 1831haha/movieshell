@@ -296,7 +296,7 @@ private fun parseRootStringArray(json: String): List<String> {
  *
  * 嗅探五层（判定全在 [SniffEngine]）：
  * 1. 后缀直判：shouldInterceptRequest 抓 .m3u8/.mp4/.mpd/.aac 直接命中；
- *    rtmp 标"需外部播放"（App 内播不了，只 Toast 提示一次）。
+ *    rtmp 进候选列表、点选后走 libmpv（v0.152.0；未装插件时 EngineHost 拒绝并提示）。
  * 2. 无后缀流探测：URL 可疑（path/query 含 video/play/stream 等词）时异步 HEAD
  *    看 Content-Type 判定，不阻塞原请求、不全量探测。
  * 3. iframe 剥壳 + 动态追踪：页面加载完抠所有 iframe src（v0.92 修：之前把
@@ -356,8 +356,6 @@ fun WebSniffScreen(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     // 拦截到的 URL（去重保序，供"嗅探测试"用；拦截回调在后台线程，用同步容器）
     val seenUrls = remember { java.util.Collections.synchronizedSet(LinkedHashSet<String>()) }
-    // rtmp 已提示过的 URL（一个 URL 只提示一次）
-    val rtmpToasted = remember { java.util.Collections.synchronizedSet(mutableSetOf<String>()) }
     // 嗅探测试：结果列表，null=没在测
     var testResults by remember { mutableStateOf<List<Pair<String, SniffKind>>?>(null) }
     var testing by remember { mutableStateOf(false) }
@@ -408,7 +406,7 @@ fun WebSniffScreen(
      * v0.93：候选收集——各链路命中直链后进候选列表（按 url 去重），
      * 用户点选后才播。请求头在点选播放时现取现存（[playCandidate]）。
      */
-    fun addCandidate(url: String, source: String) {
+    fun addCandidate(url: String, source: String, kind: SniffKind = SniffKind.DIRECT) {
         if (hitDone.get() || url.isBlank()) return
         // v0.94：广告地址过滤（SniffConfig 广告过滤总开关；默认开）
         if (SniffConfig.adFilterEnabled && SniffEngine.isAdUrl(url)) {
@@ -416,7 +414,7 @@ fun WebSniffScreen(
             return
         }
         if (!candidateUrls.add(url)) return
-        candidates.add(SniffCandidate(url = url, kind = SniffKind.DIRECT, source = source))
+        candidates.add(SniffCandidate(url = url, kind = kind, source = source))
         LogBus.i("WebSniff", "候选+1 [$source] ${url.take(120)}")
     }
 
@@ -482,10 +480,11 @@ fun WebSniffScreen(
     }
 
     fun onRtmp(view: WebView, rtmpUrl: String) {
-        if (!rtmpToasted.add(rtmpUrl)) return
-        view.post {
-            Toast.makeText(context, "抓到 rtmp 流，需用外部播放器打开", Toast.LENGTH_LONG).show()
-        }
+        // v0.152.0：rtmp 不再只 Toast 提示，改为进候选列表、点选后走 libmpv 播；
+        // 未装 libmpv 时 EngineHost.play 拒绝并提示去市场装，不改用户内核设置。
+        // 结算验证对 rtmp 做不了 HEAD（OkHttp 不认 rtmp 协议），fetch 失败即放行，见 settlementDenied。
+        addCandidate(rtmpUrl, "rtmp", SniffKind.RTMP)
+        LogBus.i("WebSniff", "rtmp 候选+1 ${rtmpUrl.take(120)}")
     }
 
     /** 可疑 URL 的异步 Content-Type 探测（不阻塞原请求）；命中进候选列表 */
@@ -1052,22 +1051,16 @@ fun WebSniffScreen(
                 } else {
                     LazyColumn {
                         items(results, key = { it.first }) { (u, kind) ->
-                            val label = if (kind == SniffKind.DIRECT) "可播" else "rtmp·需外部播放"
+                            val label = if (kind == SniffKind.DIRECT) "可播" else "rtmp·走 libmpv"
                             TextButton(
                                 onClick = {
                                     testResults = null
-                                    if (kind == SniffKind.DIRECT) {
-                                        playCandidate(
-                                            webViewRef,
-                                            SniffCandidate(url = u, kind = kind, source = "嗅探测试"),
-                                        )
-                                    } else {
-                                        Toast.makeText(
-                                            context,
-                                            "rtmp 流需用外部播放器打开",
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
+                                    // v0.152.0：rtmp 也走 playCandidate（结算验证对 rtmp 失败即放行，
+                                    // EngineHost.play 再按 libmpv 是否安装决定播还是提示）。
+                                    playCandidate(
+                                        webViewRef,
+                                        SniffCandidate(url = u, kind = kind, source = "嗅探测试"),
+                                    )
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
@@ -1291,9 +1284,10 @@ private fun SniffCandidatePanel(
     }
 }
 
-/** 候选条目的格式徽标：M3U8 / MP4 / …；认不出时显示"直链" */
+/** 候选条目的格式徽标：M3U8 / MP4 / RTMP / …；认不出时显示"直链" */
 private fun formatLabelOf(url: String): String {
     val l = url.lowercase()
+    if (l.startsWith("rtmp://")) return "RTMP"
     if ("m3u8" in l) return "M3U8"
     val path = l.substringBefore('#').substringBefore('?')
     val ext = path.substringAfterLast('.', "")

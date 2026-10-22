@@ -309,6 +309,7 @@ fun HomeScreen(
     // v0.53.0：drpyActive/drpyLoading/drpyCats/drpyList 已搬进 HomeViewModel（见上）。
     var drpyActive by rememberSaveable { mutableStateOf(false) }
     var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
+    var phpHomeError by remember { mutableStateOf<String?>(null) } // v0.152.0：PHP 首页失败原因，透出到推荐空态
     var catsFailed by remember { mutableStateOf(false) } // v0.29.0：分类失败且为空，给重试入口
     var recommendStale by remember { mutableStateOf(false) } // v0.50.0：展示的是过期缓存/8s降级，顶部小字提示
     var recommendEmpty by remember { mutableStateOf(false) } // v0.50.0：8s 首屏无数据，推荐区空态+重试
@@ -513,11 +514,17 @@ fun HomeScreen(
                 finalCatsFailed = false
             }
         }
+        // v0.152.0：PHP 失败原因只在"真没数据可展示"时透出；有缓存顶上时不拿失败去盖缓存。
+        val phpErrorVal = if (SourceStateStore.activePhpRule() != null &&
+            netVods.isNullOrEmpty() && netCats.isNullOrEmpty() &&
+            cacheVods.isEmpty() && cacheCats.isEmpty()
+        ) PhpCliEngine.lastError?.take(140) else null
         return HomeLoadGate.HomePayload(
             vods = finalVods,
             cats = finalCats,
             catsFailed = finalCatsFailed,
             resetSelection = netOk,
+            phpError = phpErrorVal,
         )
     }
 
@@ -610,6 +617,8 @@ fun HomeScreen(
         // 否则会出现"选中红果、内容却是首页"的错位。
         if (gen != -1 && gen != contentGen) return
         vm.isLoading.value = false
+        // v0.152.0：payload 自带 PHP 失败原因时透出；成功 payload（phpError=null）则清掉旧原因。
+        if (payload != null) phpHomeError = payload.phpError
         if (payload == null) {
             // v0.53.0：prevVods 非空（currentVideos 恒不为 null），空列表=无数据
             // v0.106.0：homeError 从未被 UI 渲染，改走 recommendEmpty 的重试空态
@@ -691,6 +700,7 @@ fun HomeScreen(
         val prevVods = vm.currentVideos.value
         vm.isLoading.value = true
         homeError = null
+        phpHomeError = null
         recommendStale = false
         recommendEmpty = false
 
@@ -1129,8 +1139,9 @@ fun HomeScreen(
                         EmptyState(
                             kind = EmptyKind.Error,
                             icon = Icons.Filled.Refresh,
-                            title = "推荐加载失败",
-                            hint = "网络超时或规则异常",
+                            // v0.152.0：PHP 失败时标题/提示给真实原因，不再只说"网络超时或规则异常"。
+                            title = if (phpHomeError != null) "PHP 运行失败" else "推荐加载失败",
+                            hint = phpHomeError ?: "网络超时或规则异常",
                             actionText = "重试",
                             onAction = { loadHome(force = true) },
                         )

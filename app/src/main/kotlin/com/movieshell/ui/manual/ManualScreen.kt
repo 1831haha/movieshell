@@ -225,7 +225,7 @@ private val MANUAL_SECTIONS = listOf(
             "MSE/blob 直链未处理：视频走 MediaSource/Blob 播的站，嗅探抓不到直链，只能手动在页面里点播放看。",
             "cheerio 类规则不支持：drpy 一级为 jsp:/json:/html 解析串（需 pdfa/pdfh/cheerio）的规则跑不起来。",
             "Cloudflare 人机验证：遇到 CF 验证页需在嗅探页里手动过验证，过了之后再抓直链。",
-            "rtmp 流需外部播放：抓到 rtmp 地址会提示，不会自动播（App 内没接 rtmp 播放器）。",
+            "rtmp 流走 libmpv：嗅到 rtmp 进候选列表、点选后用 libmpv 播，未装 libmpv 插件时提示去市场安装。",
             "m3u8 去广告：v0.18.0 起播放器内置去广告（过滤播放列表中的广告分片）；嗅探页拿到的是源站原始播放列表，不经过滤。",
             "网页源搜索/详情不走引擎：网页源只支持打开嗅探页手动找直链，不参与聚合搜索。",
         ),

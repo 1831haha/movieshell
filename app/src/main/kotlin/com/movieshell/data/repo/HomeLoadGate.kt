@@ -30,6 +30,8 @@ object HomeLoadGate {
         val catsFailed: Boolean,
         /** 网络成功时重置选中（一级分类回到"全部"） */
         val resetSelection: Boolean,
+        /** v0.152.0：PHP 首页失败原因（null=不是 PHP 失败或有数据/缓存可展示），UI 据此给可见提示而非空态 */
+        val phpError: String? = null,
     )
 
     private val lock = Any()

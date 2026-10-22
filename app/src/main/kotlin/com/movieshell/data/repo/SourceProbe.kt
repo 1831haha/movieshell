@@ -73,12 +73,15 @@ object SourceProbe {
         runBlocking { PyApi().home(file.absolutePath) }
     }
 
-    /** v0.151.0：PHP 探活——CLI 跑一次首页：php 未装记 Unsupported（不计失败），
-     *  脚本出 JSON 记成功，否则记失败原因。调用方在 guarded 的 8 秒硬超时内跑。 */
+    /** v0.152.0：PHP 探活——CLI 跑一次首页：出数据记成功，否则记失败原因
+     *  （php 未装、退出码、缺 lib/spider 等一律 Fail，不再用 Unsupported 把
+     *  失败藏进"不支持"里——2026-10-22 实测：检测显示不支持、首页 0ms 空，
+     *  用户对着空态猜了一小时，根因其实是当时装的还是 150、根本没有 CLI）。
+     *  调用方在 guarded 的 8 秒硬超时内跑。 */
     fun probePhp(context: Context, name: String): Result {
-        if (!PhpCliEngine.isPhpInstalled(context)) return Result.Unsupported
         val list = runBlocking { PhpCliEngine.home(context, name) }
-        return if (list.isNotEmpty()) Result.Ok(0) else Result.Fail("PHP 首页无数据")
+        return if (list.isNotEmpty()) Result.Ok(0)
+        else Result.Fail(PhpCliEngine.lastError?.take(60) ?: "PHP 首页无数据")
     }
 
     fun probeHttp(url: String): Result = guarded(label = url) {

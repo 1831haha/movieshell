@@ -34,6 +34,9 @@ import kotlinx.coroutines.withContext
  * display_errors 开着时警告会混进输出，取首个 '{' 到末个 '}' 之间的 JSON
  * 段解析，警告只记日志；Node CLI 不在这里，见本版 changelog（无 Android
  * Node 二进制可复用，drpy-node 的手机包是 Termux 方案，不是插件二进制）。
+ * v0.152.0：空结果不再等于"规则没数据"——最近一次失败原因记在 [lastError]，
+ * 首页与批量检测据此给可见提示（php 未装、退出码、缺 lib/spider 之类），
+ * 不再让用户对着空首页猜。
  */
 object PhpCliEngine {
 
@@ -47,6 +50,11 @@ object PhpCliEngine {
             "\$_REQUEST = \$_GET;\n" +
             "\$_SERVER['QUERY_STRING'] = \$_SERVER['argv'][1] ?? '';\n" +
             "include \$_SERVER['argv'][2];\n"
+
+    /** v0.152.0：最近一次 runQuery 的失败原因（null=最近一次成功或未跑过），供首页/检测透出。 */
+    @Volatile
+    var lastError: String? = null
+        private set
 
     /** php 插件是否已装（bin/php 在位）。 */
     fun isPhpInstalled(context: Context? = null): Boolean = runCatching {
@@ -117,12 +125,14 @@ object PhpCliEngine {
         return Triple(second.url, second.parse, second.header)
     }
 
-    /** 跑一次查询，返回提取出的 JSON 文本；php 未装、脚本不存在、超时、非 JSON 一律 null（不抛）。 */
+    /** 跑一次查询，返回提取出的 JSON 文本；php 未装、脚本不存在、超时、非 JSON 一律 null（不抛），原因记 [lastError]。 */
     suspend fun runQuery(context: Context? = null, scriptName: String?, query: String): String? =
         withContext(Dispatchers.IO) {
+            lastError = null
             runCatching {
                 val ctx = context ?: PhpSourceManager.appContext() ?: return@runCatching null
                 val script = scriptFile(ctx, scriptName ?: activeScriptName()) ?: run {
+                    lastError = "脚本不存在：${scriptName ?: activeScriptName()}"
                     LogBus.w(TAG, "PHP 脚本不存在：$scriptName")
                     return@runCatching null
                 }
@@ -135,13 +145,22 @@ object PhpCliEngine {
                     30_000L,
                 )
                 if (result.exitCode != 0) {
+                    lastError = "php 退出码 ${result.exitCode}：${firstReasonLine(result.output)}"
                     LogBus.w(TAG, "php 退出码 ${result.exitCode}：${result.output.take(500)}")
                 }
                 extractJson(result.output)
             }.onFailure { e ->
+                if (lastError == null) lastError = e.message?.take(140)
                 LogBus.e(TAG, "PHP CLI 失败：${e::class.java.simpleName}: ${e.message}")
             }.getOrNull()
         }
+
+    /** php 输出里最能说明问题的一行：含 Failed/Fatal 的行优先，否则首个非空行，截 140 字。 */
+    private fun firstReasonLine(output: String): String {
+        val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        val hit = lines.firstOrNull { "Failed" in it || "Fatal" in it } ?: lines.firstOrNull()
+        return (hit ?: "无输出").take(140)
+    }
 
     private fun ensureBootstrap(context: Context): File {
         val dir = File(context.filesDir, "php-cli").also { it.mkdirs() }
@@ -154,6 +173,7 @@ object PhpCliEngine {
         val start = output.indexOf('{')
         val end = output.lastIndexOf('}')
         if (start < 0 || end <= start) {
+            if (lastError == null) lastError = "PHP 输出无 JSON：${output.take(140)}"
             LogBus.w(TAG, "PHP 输出无 JSON：${output.take(300)}")
             return null
         }

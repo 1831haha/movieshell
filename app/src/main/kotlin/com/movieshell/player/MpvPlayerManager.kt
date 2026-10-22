@@ -1,8 +1,10 @@
 package com.movieshell.player
 
 import android.content.Context
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Surface
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.StoragePaths
@@ -52,6 +54,12 @@ object MpvPlayerManager {
     @Volatile private var lastPositionMs: Long = 0L
     @Volatile private var lastDurationMs: Long = 0L
     @Volatile private var paused = true
+    /** v0.152.0：失败诊断用——最近一次起播的 host/后缀/起播时刻（jdtech MPVLib 的
+     *  END_FILE 回调只给事件 id、不给原因，mpv 内部错误串拿不到，只能用这些
+     *  已观测到的量拼失败画像：未出画面 vs 播一段后中断、起播后多久断）。 */
+    @Volatile private var lastPlayHost: String = ""
+    @Volatile private var lastPlayExt: String = ""
+    @Volatile private var lastPlayStartMs: Long = 0L
     /**
      * v0.107.0 P0-3：我们自己 stop()/loadfile 会产生一次 END_FILE，用计数显式忽略，
      * 替代原来的 2 秒时间窗口——时间窗口会把 404/拒连的快速失败也吞掉，errorListener 永不触发。
@@ -168,6 +176,9 @@ object MpvPlayerManager {
         LogBus.i("MpvPlayer", "播放: ${url.take(120)}${if (url.length > 120) "..." else ""}")
         lastPositionMs = 0L
         lastDurationMs = 0L
+        lastPlayHost = runCatching { Uri.parse(url).host.orEmpty() }.getOrDefault("")
+        lastPlayExt = url.substringBefore("?").substringAfterLast(".", "").take(8)
+        lastPlayStartMs = SystemClock.elapsedRealtime()
         executor.execute {
             if (!initialized.get() || destroyed.get()) {
                 mainHandler.post { errorListener?.invoke("libmpv 初始化失败，请切回 Media3") }
@@ -183,7 +194,10 @@ object MpvPlayerManager {
                 // 命令发出后再计数，保证与 handleEndFile（同 executor 串行）的先后顺序
                 if (hasFile) expectEndFileCount.incrementAndGet()
                 hasFile = true
-            }.onFailure { LogBus.e("MpvPlayer", "loadfile 失败：${it.message}") }
+            }.onFailure {
+                LogBus.e("MpvPlayer", "loadfile 失败：${it.message}")
+                mainHandler.post { errorListener?.invoke("libmpv loadfile 失败：${it.message?.take(100)}") }
+            }
         }
     }
 
@@ -375,8 +389,17 @@ object MpvPlayerManager {
         }
         val eof = runCatching { MPVLib.getPropertyBoolean("eof-reached") }.getOrNull() == true
         if (!eof) {
-            LogBus.w("MpvPlayer", "播放异常结束（非自然播完），触发错误回调")
-            mainHandler.post { errorListener?.invoke("libmpv 播放失败") }
+            // v0.152.0：不再只回一句"libmpv 播放失败"——2026-10-22 直播案（libmpv 5 秒后断、
+            // Media3 同地址能播）就卡在这里定不了根因。拼上已观测的失败画像：
+            // host/后缀、播到第几秒、是否出画面、起播后多久断，日志与失败提示同文。
+            val elapsed = if (lastPlayStartMs > 0) SystemClock.elapsedRealtime() - lastPlayStartMs else 0L
+            val phase = if (lastPositionMs <= 0) "未出画面" else "播到${lastPositionMs / 1000}秒后中断"
+            val where = listOf(lastPlayHost, lastPlayExt).filter { it.isNotBlank() }.joinToString(" ")
+            val detail = "libmpv 播放失败" +
+                (if (where.isNotBlank()) "（$where" else "（") +
+                "，$phase，起播后${elapsed}ms，eof=false）"
+            LogBus.w("MpvPlayer", "播放异常结束（非自然播完）：$detail")
+            mainHandler.post { errorListener?.invoke(detail) }
         }
     }
 

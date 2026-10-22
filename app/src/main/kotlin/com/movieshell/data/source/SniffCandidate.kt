@@ -10,7 +10,7 @@ import com.movieshell.data.source.SniffEngine.SniffKind
 data class SniffCandidate(
     /** 候选直链地址 */
     val url: String,
-    /** 命中种类（候选列表里均为 DIRECT） */
+    /** 命中种类（DIRECT 直接播；RTMP 走 libmpv，v0.152.0） */
     val kind: SniffKind,
     /** 发现链路：网络拦截 / JS钩子 / iframe / blob深挖 / 深度嗅探 / 嗅探测试 */
     val source: String,

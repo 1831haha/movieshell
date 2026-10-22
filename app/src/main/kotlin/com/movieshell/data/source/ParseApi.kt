@@ -165,8 +165,7 @@ class ParseApi(
      *
      * 判定走 [SniffEngine]：后缀直判（.m3u8/.mp4/.mpd/.aac）即命中；
      * 可疑无后缀 URL 异步 HEAD 看 Content-Type（不阻塞原请求）；
-     * rtmp 只记日志不自动播（App 内播不了）。
-     *
+     * rtmp 走 libmpv（v0.152.0）：抓到即返回，不再只记日志。
      * WebView 必须在主线程创建/操作，全程 withContext(Dispatchers.Main)；
      * 超时取消时在主线程销毁 WebView，避免泄漏。
      */
@@ -211,7 +210,13 @@ class ParseApi(
                                             tryResume(reqUrl)
                                         }
                                         SniffEngine.SniffKind.RTMP -> {
-                                            LogBus.w(TAG, "type0 抓到 rtmp，需外部播放：$reqUrl")
+                                            // v0.152.0：rtmp 走 libmpv 可播，直接当嗅探结果返回；
+                                            // 不存 SniffPlayHeaders（rtmp 不走 http 请求头），
+                                            // 未装 libmpv 时 EngineHost.play 拒绝并提示。
+                                            LogBus.i(TAG, "type0 抓到 rtmp，走 libmpv：$reqUrl")
+                                            probeJob.cancel()
+                                            runCatching { view?.stopLoading() }
+                                            tryResume(reqUrl)
                                         }
                                         null -> if (SniffEngine.isSuspiciousMediaUrl(reqUrl)) {
                                             // 切 IO 做 HEAD 探测，不阻塞拦截线程
