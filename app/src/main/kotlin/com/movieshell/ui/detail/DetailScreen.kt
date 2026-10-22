@@ -622,6 +622,10 @@ fun DetailScreen(
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                         Spacer(Modifier.height(4.dp))
+                                        // v0.159.0：演员+简介移到集数/线路右边，填右上角空白；
+                                        // 集数/线路在左、演员/简介在右，右列不再上下叠高，卡片收紧
+                                        Row(verticalAlignment = Alignment.Top) {
+                                            Column {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             // v0.121.0：空字段不渲染 chip（之前年份/地区为空时是两个灰点）
                                             MetaChip("${vod.episodes}集")
@@ -674,9 +678,9 @@ fun DetailScreen(
                                                 }
                                             }
                                         }
-                                    // v0.157.0：主演+简介移到海报右边（用户2026-10-22截图要求）；
-                                    // 简介字缩小：14sp→12sp、行距19sp→16sp，窄列里不撑高，点展开/收起逻辑不变；
-                                    // 主演演员名可点跳搜索逻辑原样搬移
+                                            }
+                                            Spacer(Modifier.width(12.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
                                     if (vod.actors.isNotBlank()) {
                                         Spacer(Modifier.height(4.dp))
                                         val actorNames = vod.actors.split("、", "/", "，", ",", " ")
@@ -733,8 +737,10 @@ fun DetailScreen(
                                             modifier = Modifier.size(16.dp),
                                         )
                                     }
+                                                                                }
+                                        }
                                     }
-                                    // v0.156.0：收藏已移到海报下方小图标行，这里不再右上角挂一个
+                                    // v0.159.0：收藏仍在海报下方小图标行，右上角由演员+简介填
                                 }
                                 // v0.157.0：主演+简介已移到海报右边那列，不再卡片下方全宽占一行
                                 // 第四行：操作图标（复制链接 / 下载 / 刷新 / 字幕）

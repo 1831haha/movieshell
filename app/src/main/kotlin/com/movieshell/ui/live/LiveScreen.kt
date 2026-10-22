@@ -122,6 +122,8 @@ fun LiveScreen(
     // 直播失败已试过的同名源 id（自动切源防循环，手动点频道/源时清空）
     var selectedLiveSource by remember { mutableStateOf<String?>(null) }
     var liveTriedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // v0.159.0：按台名记住上次选的源（源1/源2）——中列点台不再永远取同名第一条（源1）
+    var liveSourceByName by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val globalEpg by LiveStore.globalEpg.collectAsState()
 
     // v0.96.2：横屏全屏播放（手动横屏按钮 / 物理横屏）且有在播频道时，播放器占满全屏
@@ -170,6 +172,7 @@ fun LiveScreen(
 
     fun playChannel(ch: LiveChannel) {
         liveTriedIds = emptySet()
+        liveSourceByName = liveSourceByName + (ch.name to ch.id)
         selected = ch
     }
 
@@ -209,6 +212,15 @@ fun LiveScreen(
     val groupChannels = remember(groups, selectedGroup) {
         val g = selectedGroup ?: groups.keys.firstOrNull()
         if (g == null) emptyList() else groups[g].orEmpty()
+    }
+    // v0.159.0：中列按台名去重，每台只显示一条——显示的是该台上次选的源，
+    // 没选过才取第一条；否则中列下面会再出现一遍同名台，点它又回源1
+    val groupChannelsDistinct = remember(groupChannels, liveSourceByName) {
+        groupChannels.groupBy { it.name }.values.map { list ->
+            liveSourceByName[list.first().name]?.let { id ->
+                list.firstOrNull { it.id == id }
+            } ?: list.first()
+        }
     }
     // 同名多线路 = 源1..N（对标 DsPlayer 右列）
     val sources = remember(channels, selected) {
@@ -301,6 +313,7 @@ fun LiveScreen(
                                     "当前源播放失败，已自动切到源${same.indexOf(next) + 1}",
                                     Toast.LENGTH_SHORT,
                                 ).show()
+                                liveSourceByName = liveSourceByName + (next.name to next.id)
                                 selected = next
                             }
                         },
@@ -421,13 +434,13 @@ fun LiveScreen(
                 ) {
                     // v0.133.0：频道 id 由 sourceKey 与 url 拼接，同源重复条目或同名订阅可撞，加下标复合
                     items(
-                        items = groupChannels.withIndex().toList(),
+                        items = groupChannelsDistinct.withIndex().toList(),
                         key = { "${it.index}_${it.value.id}" },
                     ) { (idx, ch) ->
                         ChannelCell(
                             index = idx + 1,
                             channel = ch,
-                            isPlaying = selected?.id == ch.id,
+                            isPlaying = selected?.name == ch.name,
                             onClick = { playChannel(ch) },
                             onLongClick = { detailChannel = ch },
                             onFavorite = { LiveStore.toggleFavorite(context, ch.id) },
