@@ -172,7 +172,12 @@ fun LiveScreen(
         }
     }
     val groups = remember(filtered) {
-        filtered.groupBy { it.group.ifBlank { "未分组" } }.toSortedMap()
+        val sorted = filtered.groupBy { it.group.ifBlank { "未分组" } }.toSortedMap()
+        // v0.153.0：央视频道排最前（原 toSortedMap 按字序把卫视频道排在前面），其余仍按原排序
+        val ordered = linkedMapOf<String, List<LiveChannel>>()
+        sorted.filterKeys { it.contains("央视") }.forEach { (k, v) -> ordered[k] = v }
+        sorted.filterKeys { !it.contains("央视") }.forEach { (k, v) -> ordered[k] = v }
+        ordered
     }
     val groupNames = remember(groups) { groups.keys.toList() }
     // 分组选中态：保留旧选（若仍在），否则取首个
