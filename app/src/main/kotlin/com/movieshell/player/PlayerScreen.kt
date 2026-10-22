@@ -2173,6 +2173,9 @@ internal fun PlayerDialogCard(
     onDismiss: () -> Unit,
     buttons: @Composable RowScope.() -> Unit,
     titleColor: Color = MaterialTheme.colorScheme.onSurface,
+    // v0.156.0：字幕面板要一页完整、不许拖动才看全，传 false 关掉内容区滚动；
+    // 其他面板默认仍可滚动，不受影响
+    scrollable: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val cardShape = RoundedCornerShape(SoftDimens.CardCorner)
@@ -2225,9 +2228,14 @@ internal fun PlayerDialogCard(
                 }
                 Spacer(Modifier.height(8.dp))
                 Column(
-                    modifier = Modifier
-                        .heightIn(max = maxContentHeight)
-                        .verticalScroll(rememberScrollState()),
+                    modifier = if (scrollable) {
+                        Modifier
+                            .heightIn(max = maxContentHeight)
+                            .verticalScroll(rememberScrollState())
+                    } else {
+                        // 不滚动：一页完整，内容本身必须压进 maxContentHeight，压不进就宁可被裁也不许偷偷变滚动
+                        Modifier.heightIn(max = maxContentHeight)
+                    },
                 ) {
                     content()
                 }
@@ -2294,118 +2302,187 @@ private fun SubtitleDialog(
                 },
             )
         },
+        scrollable = false,
     ) {
+        // v0.156.0：一页完整、不许拖动——每组改成标签+控件同一行，不再标签一行、控件一行堆高；
+        // 横屏（宽>高）再左右分两列，左列地址/搜索/大小/颜色，右列描边/位置/时间偏移，高度压进内容区上限。
+        val isLandscape = LocalConfiguration.current.screenWidthDp > LocalConfiguration.current.screenHeightDp
+        @Composable
+        fun Label(text: String) {
+            Text(
+                text = text,
+                style = SoftType.Body,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.width(64.dp),
+                maxLines = 1,
+            )
+        }
+        @Composable
+        fun SizeRow() {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Label("大小")
+                Slider(
+                    value = size.toFloat(),
+                    onValueChange = { size = it.toInt() },
+                    valueRange = 12f..32f,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "${size}sp",
+                    style = SoftType.Body,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.width(48.dp),
+                )
+            }
+        }
+        @Composable
+        fun ColorRow() {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Label("颜色")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SUB_COLORS.forEach { c ->
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color(c))
+                                .border(
+                                    width = if (c == color) 3.dp else 1.dp,
+                                    color = if (c == color) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        LocalSoftExtra.current.border
+                                    },
+                                    shape = CircleShape,
+                                )
+                                .clickable { color = c },
+                        )
+                    }
+                }
+            }
+        }
+        @Composable
+        fun EdgeRow() {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Label("描边")
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        SubtitleStyle.EDGE_NONE to "无",
+                        SubtitleStyle.EDGE_OUTLINE to "描边",
+                        SubtitleStyle.EDGE_SHADOW to "阴影",
+                    ).forEach { (v, label) ->
+                        AppChip(
+                            text = label,
+                            selected = edge == v,
+                            onClick = { edge = v },
+                            small = true,
+                        )
+                    }
+                }
+            }
+        }
+        @Composable
+        fun PositionRow() {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Label("位置")
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AppChip(
+                        text = "底部",
+                        selected = position == SubtitleStyle.POS_BOTTOM,
+                        onClick = { position = SubtitleStyle.POS_BOTTOM },
+                        small = true,
+                    )
+                    AppChip(
+                        text = "顶部",
+                        selected = position == SubtitleStyle.POS_TOP,
+                        onClick = { position = SubtitleStyle.POS_TOP },
+                        small = true,
+                    )
+                }
+            }
+        }
+        @Composable
+        fun TimeRow() {
+            val offsetLabel = when {
+                offsetSec > 0 -> "+${offsetSec}s"
+                offsetSec < 0 -> "${offsetSec}s"
+                else -> "0s"
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Label("时间偏移")
+                Slider(
+                    value = offsetSec.toFloat(),
+                    onValueChange = { offsetSec = it.toInt() },
+                    valueRange = -10f..10f,
+                    steps = 19,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = offsetLabel,
+                    style = SoftType.Body,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.width(44.dp),
+                    maxLines = 1,
+                )
+            }
+        }
         Text(
             text = "支持 .srt / .vtt / .ass 地址，保存后立即生效",
             style = SoftType.Caption,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(8.dp))
-        AppTextField(
-            value = url,
-            onValueChange = { url = it },
-            placeholder = "字幕地址",
-            modifier = Modifier.fillMaxWidth(),
-        )
-        // v0.28.0：在线搜索字幕（v0.49.0：SubHD 内置，常显）
-        AppButton(
-            text = "在线搜索字幕",
-            onClick = onOnlineSearch,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "大小 ${size}sp",
-            style = SoftType.Body,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Slider(
-            value = size.toFloat(),
-            onValueChange = { size = it.toInt() },
-            valueRange = 12f..32f,
-        )
-        Text(
-            "颜色",
-            style = SoftType.Body,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
         Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SUB_COLORS.forEach { c ->
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(Color(c))
-                        .border(
-                            width = if (c == color) 3.dp else 1.dp,
-                            color = if (c == color) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                LocalSoftExtra.current.border
-                            },
-                            shape = CircleShape,
-                        )
-                        .clickable { color = c },
-                )
+        if (isLandscape) {
+            Row(verticalAlignment = Alignment.Top) {
+                Column(modifier = Modifier.weight(1f)) {
+                    AppTextField(
+                        value = url,
+                        onValueChange = { url = it },
+                        placeholder = "字幕地址",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    AppButton(
+                        text = "在线搜索字幕",
+                        onClick = onOnlineSearch,
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    SizeRow()
+                    Spacer(Modifier.height(6.dp))
+                    ColorRow()
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    EdgeRow()
+                    Spacer(Modifier.height(6.dp))
+                    PositionRow()
+                    Spacer(Modifier.height(6.dp))
+                    TimeRow()
+                }
             }
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "描边",
-            style = SoftType.Body,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
-                SubtitleStyle.EDGE_NONE to "无",
-                SubtitleStyle.EDGE_OUTLINE to "描边",
-                SubtitleStyle.EDGE_SHADOW to "阴影",
-            ).forEach { (v, label) ->
-                AppChip(
-                    text = label,
-                    selected = edge == v,
-                    onClick = { edge = v },
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "位置",
-            style = SoftType.Body,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppChip(
-                text = "底部",
-                selected = position == SubtitleStyle.POS_BOTTOM,
-                onClick = { position = SubtitleStyle.POS_BOTTOM },
+        } else {
+            AppTextField(
+                value = url,
+                onValueChange = { url = it },
+                placeholder = "字幕地址",
+                modifier = Modifier.fillMaxWidth(),
             )
-            AppChip(
-                text = "顶部",
-                selected = position == SubtitleStyle.POS_TOP,
-                onClick = { position = SubtitleStyle.POS_TOP },
+            AppButton(
+                text = "在线搜索字幕",
+                onClick = onOnlineSearch,
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
             )
+            Spacer(Modifier.height(6.dp))
+            SizeRow()
+            Spacer(Modifier.height(6.dp))
+            ColorRow()
+            Spacer(Modifier.height(6.dp))
+            EdgeRow()
+            Spacer(Modifier.height(6.dp))
+            PositionRow()
+            Spacer(Modifier.height(6.dp))
+            TimeRow()
         }
-        Spacer(Modifier.height(8.dp))
-        val offsetLabel = when {
-            offsetSec > 0 -> "+${offsetSec}s（字幕延后）"
-            offsetSec < 0 -> "${offsetSec}s（字幕提前）"
-            else -> "0s（关闭偏移）"
-        }
-        Text(
-            "时间偏移 $offsetLabel",
-            style = SoftType.Body,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Slider(
-            value = offsetSec.toFloat(),
-            onValueChange = { offsetSec = it.toInt() },
-            valueRange = -10f..10f,
-            steps = 19,
-        )
     }
 }
 
