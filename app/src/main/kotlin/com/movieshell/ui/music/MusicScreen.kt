@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -187,22 +188,23 @@ fun MusicScreen(
         }
     }
 
-    // v0.177.0：音乐页顶部标题栏整行去掉——搜索框/页签直接贴顶（仅留状态栏高度），
-    // 标题栏三个功能不删，移到页签下方一排小按钮（切换音源/歌单导入/源管理）。
+    // v0.177.0：音乐页顶部标题栏整行去掉——搜索框/页签直接贴顶（仅留状态栏高度）。
+    // v0.181.0：三行并两行——第一行搜索+导入+源管理，第二行页签+音源芯片，功能一个不删。
     Scaffold {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding(),
         ) {
-            // v0.128.0：搜索框紧贴标题行下方（原在 OnlineTab 内、页签之下），仅在线页签显示
-            if (tab == 0) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+            // v0.181.0：三行并两行——第一行：搜索（仅在线）+ 歌单导入（仅在线）+ 源管理；
+            // 非在线时第一行只留右对齐的源管理，顶栏高度切页签时不跳。
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (tab == 0) {
                     AppTextField(
                         value = query,
                         onValueChange = { vm.setQuery(it) },
@@ -221,55 +223,65 @@ fun MusicScreen(
                     }) {
                         Icon(Icons.Filled.Search, contentDescription = "搜索")
                     }
+                    TextButton(
+                        onClick = { showPlaylistDialog = true },
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) {
+                        Text("歌单导入", maxLines = 1)
+                    }
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                TextButton(
+                    onClick = onOpenMusicSource,
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                ) {
+                    Text("源管理", maxLines = 1)
                 }
             }
-            CapsuleTabBar(
-                titles = listOf("在线", "本地", "收藏", "歌单"),
-                selected = tab,
-                onSelect = { tab = it },
-            )
-            // v0.180.0：音源条——以前是右对齐一排、两个功能只有无文字图标，
-            // 看着悬空还不知道当前是哪个源；改成一张卡：左边点开就是切换音源，
-            // 当前源名写在卡上，右边三个功能全带文字，不再猜图标。
-            AppCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                onClick = { showSourcePicker = true },
+            // v0.181.0：第二行：页签胶囊 + 当前音源小芯片（点开即切换音源，名字过长截断）；
+            // 原 v0.180.0 的音源大卡整行删掉，功能不删，只收进芯片。
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
+                CapsuleTabBar(
+                    titles = listOf("在线", "本地", "收藏", "歌单"),
+                    selected = tab,
+                    onSelect = { tab = it },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(4.dp))
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.SwapHoriz,
-                        contentDescription = "切换音源",
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "当前音源",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        .padding(end = 16.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                         )
+                        .border(
+                            1.dp,
+                            LocalSoftExtra.current.border,
+                            RoundedCornerShape(50),
+                        )
+                        .clickable { showSourcePicker = true }
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.SwapHoriz,
+                            contentDescription = "切换音源",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.width(4.dp))
                         Text(
                             text = currentSourceName,
                             style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 84.dp),
                         )
-                    }
-                    if (tab == 0) {
-                        TextButton(onClick = { showPlaylistDialog = true }) {
-                            Text("歌单导入", maxLines = 1)
-                        }
-                    }
-                    TextButton(onClick = onOpenMusicSource) {
-                        Text("源管理", maxLines = 1)
                     }
                 }
             }
