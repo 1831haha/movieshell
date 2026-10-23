@@ -2,6 +2,8 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -47,6 +49,11 @@ object BookshelfGroupStore {
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    /**
+     * v0.186.0：书架分组读改写同一把锁；偏好单值读写是 SharedPreferences 原子操作，不进锁。
+     */
+    private val mutex = Mutex()
+
     private fun fileOf(context: Context) = java.io.File(context.filesDir, FILE_NAME)
 
     private fun readFile(context: Context): List<BookGroup> = runCatching {
@@ -59,68 +66,84 @@ object BookshelfGroupStore {
         AtomicFile.preserveCorrupt(fileOf(context))
     }.getOrDefault(emptyList())
 
-    private fun writeFile(context: Context, groups: List<BookGroup>) {
-        runCatching {
+    private fun writeFile(context: Context, groups: List<BookGroup>): Boolean {
+        val ok = runCatching {
             // v0.170.0：原子写盘（临时文件 + fsync + 改名），写中途被杀不留截断文件
             AtomicFile.writeText(
                 fileOf(context),
                 json.encodeToString(GroupFile.serializer(), GroupFile(groups)),
             )
-        }.onFailure { LogBus.w("BookGroup", "写入失败: ${it.message}") }
+        }.onFailure { LogBus.w("BookGroup", "写入失败: ${it.message}") }.getOrDefault(false)
+        if (!ok) LogBus.w("BookGroup", "写入失败")
+        return ok
     }
 
-    suspend fun list(context: Context): List<BookGroup> = withContext(Dispatchers.IO) {
-        readFile(context)
+    suspend fun list(context: Context): List<BookGroup> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            readFile(context)
+        }
     }
 
-    suspend fun create(context: Context, name: String): BookGroup = withContext(Dispatchers.IO) {
-        val n = name.trim().take(12).ifBlank { return@withContext BookGroup("", "") }
-        val groups = readFile(context).toMutableList()
-        val g = BookGroup(id = "g${System.currentTimeMillis()}", name = n)
-        groups.add(g)
-        writeFile(context, groups)
-        g
+    suspend fun create(context: Context, name: String): BookGroup = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val n = name.trim().take(12).ifBlank { return@withContext BookGroup("", "") }
+            val groups = readFile(context).toMutableList()
+            val g = BookGroup(id = "g${System.currentTimeMillis()}", name = n)
+            groups.add(g)
+            // 写盘失败返回空分组：调用方已按 id 为空判失败并提示，不谎报已创建
+            if (writeFile(context, groups)) g else BookGroup("", "")
+        }
     }
 
-    suspend fun rename(context: Context, id: String, name: String) = withContext(Dispatchers.IO) {
-        val n = name.trim().take(12).ifBlank { return@withContext }
-        writeFile(context, readFile(context).map { if (it.id == id) it.copy(name = n) else it })
+    suspend fun rename(context: Context, id: String, name: String) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val n = name.trim().take(12).ifBlank { return@withContext }
+            writeFile(context, readFile(context).map { if (it.id == id) it.copy(name = n) else it })
+        }
     }
 
-    suspend fun delete(context: Context, id: String) = withContext(Dispatchers.IO) {
-        writeFile(context, readFile(context).filterNot { it.id == id })
+    suspend fun delete(context: Context, id: String) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            writeFile(context, readFile(context).filterNot { it.id == id })
+        }
     }
 
     /** 移入分组：增量添加，不踢出其他分组。 */
     suspend fun addNovels(context: Context, id: String, novelIds: Collection<String>) =
-        withContext(Dispatchers.IO) {
-            if (novelIds.isEmpty()) return@withContext
-            writeFile(
-                context,
-                readFile(context).map { g ->
-                    if (g.id == id) g.copy(novelIds = (g.novelIds + novelIds).distinct())
-                    else g
-                },
-            )
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                if (novelIds.isEmpty()) return@withContext
+                writeFile(
+                    context,
+                    readFile(context).map { g ->
+                        if (g.id == id) g.copy(novelIds = (g.novelIds + novelIds).distinct())
+                        else g
+                    },
+                )
+            }
         }
 
     /** 从指定分组移出。 */
     suspend fun removeNovels(context: Context, id: String, novelIds: Collection<String>) =
-        withContext(Dispatchers.IO) {
-            writeFile(
-                context,
-                readFile(context).map { g ->
-                    if (g.id == id) g.copy(novelIds = g.novelIds - novelIds.toSet()) else g
-                },
-            )
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                writeFile(
+                    context,
+                    readFile(context).map { g ->
+                        if (g.id == id) g.copy(novelIds = g.novelIds - novelIds.toSet()) else g
+                    },
+                )
+            }
         }
 
     /** 删书时调用：所有自定义分组里清掉这本书。 */
     suspend fun removeNovelEverywhere(context: Context, novelId: String) =
-        withContext(Dispatchers.IO) {
-            val groups = readFile(context)
-            if (groups.none { it.novelIds.contains(novelId) }) return@withContext
-            writeFile(context, groups.map { it.copy(novelIds = it.novelIds - novelId) })
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                val groups = readFile(context)
+                if (groups.none { it.novelIds.contains(novelId) }) return@withContext
+                writeFile(context, groups.map { it.copy(novelIds = it.novelIds - novelId) })
+            }
         }
 
     // ---------------- 偏好 ----------------

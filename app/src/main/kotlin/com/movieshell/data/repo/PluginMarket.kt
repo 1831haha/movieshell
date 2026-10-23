@@ -36,6 +36,19 @@ object PluginMarket {
     private const val TAG = "PluginMarket"
     private const val UA = "XiaYing/0.23.0"
 
+    /**
+     * v0.186.0：解压上限（H14）。条目数按实际解压的文件计，上限 2000；
+     * 解压后总字节数按实际写出的字节累计，上限 500MB，超限即中止并清暂存。
+     */
+    private const val MAX_ZIP_ENTRIES = 2000
+    private const val MAX_UNPACKED_BYTES = 500L * 1024L * 1024L
+
+    /** v0.186.0：解压预算累计器（条目数与解压后字节数，跨分支共用一个实例）。 */
+    private class UnpackBudget {
+        var entries = 0
+        var bytes = 0L
+    }
+
     /** 侠影可安装的 type；apk/import 等默认隐藏（设置里可开"显示不兼容插件"仅查看）。 */
     // v0.29.0：player=播放器引擎插件（libmpv 的 .so ZIP 包）
     // v0.30.0：subtitle=字幕搜索插件（DEX，经 DexClassLoader 动态加载）
@@ -391,9 +404,13 @@ object PluginMarket {
         val installed = mutableListOf<String>()
         var engine = plugin.engine
         var setupSummary: String? = null
+        val budget = UnpackBudget()
         ZipFile(zip).use { zf ->
             val entries = zf.entries().asSequence().filter { !it.isDirectory }.toList()
             if (entries.isEmpty()) throw IllegalStateException("插件包为空：${plugin.id}")
+            if (entries.size > MAX_ZIP_ENTRIES) {
+                throw IllegalStateException("插件包条目数超限（上限 $MAX_ZIP_ENTRIES）：${plugin.id}")
+            }
             checkManifest(zf, plugin)
             when (plugin.type) {
                 "source" -> {
@@ -403,14 +420,29 @@ object PluginMarket {
                         "py" -> ".py"; "js" -> ".js"; "php" -> ".php"
                         else -> throw IllegalStateException("不支持的源引擎：$engine")
                     }
-                    entries.filter { it.name.endsWith(ext, ignoreCase = true) }.forEach { e ->
-                        val name = File(e.name).name
-                        zf.getInputStream(e).use { input ->
-                            safeDst(dir, name).outputStream().use { input.copyTo(it) }
+                    // v0.186.0：先解暂存再整批换入（H13）。规则目录是共享目录，
+                    // 不能像 server 那样整目录改名替换，故按本插件的文件集合换入：
+                    // 暂存里校验通过后，先把旧版同插件文件备份、再把暂存文件搬入，
+                    // 换入失败时从备份还原；旧版文件集合以注册表记录为准，换版删掉
+                    // 的规则随换入一并删除，不再残留。校验失败时目标目录未动。
+                    val ruleEntries = entries.filter { it.name.endsWith(ext, ignoreCase = true) }
+                    if (ruleEntries.isEmpty()) throw IllegalStateException("插件包里没有 $ext 规则文件")
+                    val staging = stagingDir(dir)
+                    staging.deleteRecursively()
+                    staging.mkdirs()
+                    try {
+                        ruleEntries.forEach { e ->
+                            val name = File(e.name).name
+                            copyEntryBounded(zf, e, safeDst(staging, name), budget)
+                            installed.add(name)
                         }
-                        installed.add(name)
+                        val oldFiles = PluginStore.installedOf(plugin.id)
+                            ?.takeIf { it.type == "source" }?.files.orEmpty()
+                        swapFileSet(dir, staging, oldFiles, installed.toList())
+                    } catch (e: Exception) {
+                        runCatching { staging.deleteRecursively() }
+                        throw e
                     }
-                    if (installed.isEmpty()) throw IllegalStateException("插件包里没有 $ext 规则文件")
                 }
                 "server" -> {
                     val root = File(StoragePaths.pluginsDir(context), plugin.id)
@@ -424,7 +456,7 @@ object PluginMarket {
                         entries.forEach { e ->
                             val dst = safeDst(staging, e.name)
                             dst.parentFile?.mkdirs()
-                            zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
+                            copyEntryBounded(zf, e, dst, budget)
                             installed.add(e.name)
                         }
                         swapDir(root, staging)
@@ -451,7 +483,7 @@ object PluginMarket {
                         entries.forEach { e ->
                             val dst = safeDst(staging, e.name)
                             dst.parentFile?.mkdirs()
-                            zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
+                            copyEntryBounded(zf, e, dst, budget)
                             installed.add(e.name)
                         }
                         swapDir(root, staging)
@@ -467,15 +499,27 @@ object PluginMarket {
                  */
                 "env" -> {
                     val dir = StoragePaths.pyLibsDir(context)
-                    entries.filter { it.name.startsWith("pylibs/") }.forEach { e ->
-                        val rel = e.name.removePrefix("pylibs/")
-                        if (rel.isBlank()) return@forEach
-                        val dst = safeDst(dir, rel)
-                        dst.parentFile?.mkdirs()
-                        zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
-                        installed.add(rel)
+                    // v0.186.0：与 source 分支同口径，先解暂存再按本插件文件集合换入
+                    // （pylibs 是共享目录，不能整目录替换；换入失败时备份还原）。
+                    val envEntries = entries.filter { it.name.startsWith("pylibs/") }
+                        .filter { it.name.removePrefix("pylibs/").isNotBlank() }
+                    if (envEntries.isEmpty()) throw IllegalStateException("依赖包里没有 pylibs/ 内容：${plugin.id}")
+                    val staging = stagingDir(dir)
+                    staging.deleteRecursively()
+                    staging.mkdirs()
+                    try {
+                        envEntries.forEach { e ->
+                            val rel = e.name.removePrefix("pylibs/")
+                            copyEntryBounded(zf, e, safeDst(staging, rel), budget)
+                            installed.add(rel)
+                        }
+                        val oldFiles = PluginStore.installedOf(plugin.id)
+                            ?.takeIf { it.type == "env" }?.files.orEmpty()
+                        swapFileSet(dir, staging, oldFiles, installed.toList())
+                    } catch (e: Exception) {
+                        runCatching { staging.deleteRecursively() }
+                        throw e
                     }
-                    if (installed.isEmpty()) throw IllegalStateException("依赖包里没有 pylibs/ 内容：${plugin.id}")
                 }
                 /**
                  * v0.29.0：player=播放器引擎插件。包内 libs/ 下的 .so 解到私有
@@ -484,14 +528,25 @@ object PluginMarket {
                  */
                 "player" -> {
                     val dir = File(context.filesDir, "mpv-libs").also { it.mkdirs() }
-                    entries.filter { it.name.startsWith("libs/") && it.name.endsWith(".so") }.forEach { e ->
-                        val name = File(e.name).name
-                        zf.getInputStream(e).use { input ->
-                            safeDst(dir, name).outputStream().use { input.copyTo(it) }
+                    // v0.186.0：与 source 分支同口径，先解暂存再按本插件文件集合换入。
+                    val soEntries = entries.filter { it.name.startsWith("libs/") && it.name.endsWith(".so") }
+                    if (soEntries.isEmpty()) throw IllegalStateException("播放器插件包里没有 libs 目录的 so 文件：${plugin.id}")
+                    val staging = stagingDir(dir)
+                    staging.deleteRecursively()
+                    staging.mkdirs()
+                    try {
+                        soEntries.forEach { e ->
+                            val name = File(e.name).name
+                            copyEntryBounded(zf, e, safeDst(staging, name), budget)
+                            installed.add(name)
                         }
-                        installed.add(name)
+                        val oldFiles = PluginStore.installedOf(plugin.id)
+                            ?.takeIf { it.type == "player" }?.files.orEmpty()
+                        swapFileSet(dir, staging, oldFiles, installed.toList())
+                    } catch (e: Exception) {
+                        runCatching { staging.deleteRecursively() }
+                        throw e
                     }
-                    if (installed.isEmpty()) throw IllegalStateException("播放器插件包里没有 libs 目录的 so 文件：${plugin.id}")
                 }
                 /**
                  * v0.30.0：subtitle=字幕搜索插件。包内 subtitle-plugin.dex 解到私有
@@ -499,14 +554,26 @@ object PluginMarket {
                  */
                 "subtitle" -> {
                     val dir = File(context.filesDir, "subtitle-plugin").also { it.mkdirs() }
-                    entries.filter { it.name.endsWith(".dex") }.forEach { e ->
-                        val name = "subtitle-plugin.dex"
-                        zf.getInputStream(e).use { input ->
-                            safeDst(dir, name).outputStream().use { input.copyTo(it) }
+                    // v0.186.0：与 source 分支同口径，先解暂存再换入；
+                    // 目标只有一个 dex 文件，换入失败时备份还原，旧 dex 不丢。
+                    val dexEntries = entries.filter { it.name.endsWith(".dex") }
+                    if (dexEntries.isEmpty()) throw IllegalStateException("字幕插件包里没有 dex 文件：${plugin.id}")
+                    val staging = stagingDir(dir)
+                    staging.deleteRecursively()
+                    staging.mkdirs()
+                    try {
+                        dexEntries.forEach { e ->
+                            val name = "subtitle-plugin.dex"
+                            copyEntryBounded(zf, e, safeDst(staging, name), budget)
+                            installed.add(name)
                         }
-                        installed.add(name)
+                        val oldFiles = PluginStore.installedOf(plugin.id)
+                            ?.takeIf { it.type == "subtitle" }?.files.orEmpty()
+                        swapFileSet(dir, staging, oldFiles, installed.toList())
+                    } catch (e: Exception) {
+                        runCatching { staging.deleteRecursively() }
+                        throw e
                     }
-                    if (installed.isEmpty()) throw IllegalStateException("字幕插件包里没有 dex 文件：${plugin.id}")
                     com.movieshell.data.source.subtitle.SubtitlePluginLoader.reset()
                 }
                 /**
@@ -518,7 +585,7 @@ object PluginMarket {
                  * ③ 无 docs/ 也照常建目录，不算失败。
                  */
                 "setup" -> {
-                    setupSummary = applySetupDocs(context, plugin, zf, entries, installed)
+                    setupSummary = applySetupDocs(context, plugin, zf, entries, installed, budget)
                 }
                 else -> throw IllegalStateException("不支持的插件类型：${plugin.type}")
             }
@@ -563,6 +630,7 @@ object PluginMarket {
         zf: ZipFile,
         entries: List<java.util.zip.ZipEntry>,
         installed: MutableList<String>,
+        budget: UnpackBudget,
     ): String {
         val dirs = StoragePaths.setupDirs(context)
         val docsRoot = File(StoragePaths.pluginsDir(context), "${plugin.id}/docs")
@@ -572,9 +640,10 @@ object PluginMarket {
         entries.filter { it.name.startsWith("docs/") && !it.name.endsWith("/") }.forEach { e ->
             val rel = e.name.removePrefix("docs/")
             // ① 先存一份到插件自己的 docs/（重新配置的来源，卸载时随插件一起删）
+            // v0.186.0：这次解压计入解压预算；② 的文件拷贝不是解压，不重复计。
             val srcDst = safeDst(docsRoot, rel)
             srcDst.parentFile?.mkdirs()
-            zf.getInputStream(e).use { input -> srcDst.outputStream().use { input.copyTo(it) } }
+            copyEntryBounded(zf, e, srcDst, budget)
             installed.add("docs/$rel")
             // ② 再写到 xiaying 目标位置，已有不覆盖
             val dst = File(StoragePaths.baseDir(context), rel)
@@ -587,12 +656,20 @@ object PluginMarket {
         return "一键配置完成：已建好 ${dirs.size} 个目录，写入 $written 份说明，$skipped 份已有未覆盖"
     }
 
-    /** 包内 plugin.json（如有）与市场条目做 id/version 一致性校验。 */
+    /**
+     * 包内 plugin.json（如有）与市场条目做 id/version 一致性校验。
+     * v0.186.0：解析失败不再静默放行，改为拒绝安装。签名未变（仍是私有函数，
+     * 仍抛 IllegalStateException），调用链 install 经 PluginUi 捕获后记 error
+     * 日志并弹失败提示，故无需另加提示分支，也无需折中为仅记日志。
+     */
     private fun checkManifest(zf: ZipFile, plugin: MarketPlugin) {
         val e = zf.entries().asSequence().firstOrNull { it.name == "plugin.json" } ?: return
         val o = runCatching {
             JSONObject(zf.getInputStream(e).readBytes().toString(Charsets.UTF_8))
-        }.getOrNull() ?: return
+        }.getOrElse {
+            LogBus.e(TAG, "包内 plugin.json 解析失败，拒绝安装：${plugin.id}（${it.message}）")
+            throw IllegalStateException("包内 plugin.json 解析失败，拒绝安装：${plugin.id}")
+        }
         val mid = o.optString("id")
         if (mid.isNotBlank() && mid != plugin.id) {
             throw IllegalStateException("包内 id($mid)与市场条目(${plugin.id})不一致，拒绝安装")
@@ -686,7 +763,12 @@ object PluginMarket {
 
     /** 远程版本是否新于本地版本（语义版本比对；minApp 门槛复用）。 */
     fun isNewer(remote: String, local: String): Boolean {
-        val r = remote.split(".", "-"); val l = local.split(".", "-")
+        // v0.186.0：先剥 v/V 前缀再分段比对，否则 v1.2 的首段解析为 0，会被误判为不新于 1.x。
+        fun stripPrefix(v: String): String {
+            val t = v.trim()
+            return if (t.startsWith("v") || t.startsWith("V")) t.substring(1) else t
+        }
+        val r = stripPrefix(remote).split(".", "-"); val l = stripPrefix(local).split(".", "-")
         for (i in 0 until maxOf(r.size, l.size)) {
             val a = r.getOrNull(i)?.toIntOrNull() ?: 0
             val b = l.getOrNull(i)?.toIntOrNull() ?: 0
@@ -724,6 +806,12 @@ object PluginMarket {
             if (!resp.isSuccessful) throw IllegalStateException("下载失败：HTTP ${resp.code}")
             val body = resp.body ?: throw IllegalStateException("下载内容为空")
             val total = totalHint.takeIf { it > 0 } ?: body.contentLength()
+            // v0.186.0：下载截断（H14）。totalHint 即市场条目 plugin.size，本函数
+            // 此前只把它当进度 total 用、不做超限判断。市场 size 是元数据、可能滞后
+            // 于包体重建，故不按等值卡死，留 20% 宽容度；超出 120% 即视为标注失真
+            // 或内容异常，中止下载；调用方 install 的 finally 会删掉临时文件，
+            // 截断的包不会进入校验与安装。size 未标注（totalHint<=0）时沿用旧口径不限流。
+            val limit = if (totalHint > 0) totalHint + totalHint / 5 else Long.MAX_VALUE
             var done = 0L
             body.byteStream().use { input ->
                 dst.outputStream().use { out ->
@@ -733,6 +821,9 @@ object PluginMarket {
                         if (n == 0) continue
                         out.write(buf, 0, n)
                         done += n
+                        if (done > limit) {
+                            throw IllegalStateException("下载大小超出市场标注的 120%，已中止下载")
+                        }
                         progress?.onStage(InstallStage.Downloading, done, total)
                     }
                 }
@@ -796,6 +887,99 @@ object PluginMarket {
                 runCatching { backup.renameTo(root) }
                     .onFailure { LogBus.e(TAG, "旧版回滚失败，备份留在：${backup.path}") }
             }
+            throw e
+        }
+    }
+
+    /**
+     * v0.186.0：带解压预算的单条目拷贝（H14）。调用方只负责把条目解到暂存区，
+     * 本函数累计条目数与实际写出字节数，超限即抛异常，调用方清暂存目录；
+     * 暂存区里的半截文件随暂存目录一起删，不会落到目标目录。
+     */
+    private fun copyEntryBounded(
+        zf: ZipFile,
+        e: java.util.zip.ZipEntry,
+        dst: File,
+        budget: UnpackBudget,
+    ) {
+        if (++budget.entries > MAX_ZIP_ENTRIES) {
+            throw IllegalStateException("插件包解压条目数超限（上限 $MAX_ZIP_ENTRIES）")
+        }
+        dst.parentFile?.mkdirs()
+        zf.getInputStream(e).use { input ->
+            dst.outputStream().use { out ->
+                val buf = ByteArray(32 * 1024)
+                var n: Int
+                while (input.read(buf).also { n = it } >= 0) {
+                    if (n == 0) continue
+                    budget.bytes += n
+                    if (budget.bytes > MAX_UNPACKED_BYTES) {
+                        throw IllegalStateException("插件包解压后大小超限（上限 500MB）")
+                    }
+                    out.write(buf, 0, n)
+                }
+            }
+        }
+    }
+
+    /**
+     * v0.186.0：共享目录的文件集合换入（H13，source/env/player/subtitle 共用）。
+     * 规则目录、pylibs、mpv-libs 都是多插件共享目录，不能整目录改名替换，
+     * 故只换本插件的文件集合：先把目标目录里将被覆盖或删除的旧文件搬进
+     * 同父目录的备份目录，再把暂存文件搬入，最后删备份与暂存；换入中途
+     * 失败时删掉已搬入的新文件、把备份搬回，旧版与注册表不动（注册表由
+     * installZip 在整批成功后才写）。oldFiles 取自旧版注册表记录，newFiles
+     * 是本次暂存里的相对路径，两者都经 safeDst 校验防路径逃逸。
+     */
+    private fun swapFileSet(
+        dir: File,
+        staging: File,
+        oldFiles: List<String>,
+        newFiles: List<String>,
+    ) {
+        dir.mkdirs()
+        val parent = staging.parentFile
+            ?: throw IllegalStateException("暂存目录无父目录：${staging.path}")
+        val backup = File(parent, "${dir.name}.swapbak-${System.currentTimeMillis()}")
+        backup.mkdirs()
+        val movedNew = mutableListOf<String>()
+        try {
+            (oldFiles + newFiles).distinct().forEach { rel ->
+                val src = safeDst(dir, rel)
+                if (!src.isFile) return@forEach
+                val bak = safeDst(backup, rel)
+                bak.parentFile?.mkdirs()
+                if (!src.renameTo(bak)) {
+                    src.copyTo(bak, overwrite = true)
+                    src.delete()
+                }
+            }
+            staging.walkTopDown().filter { it.isFile }.forEach { f ->
+                val rel = f.relativeTo(staging).path
+                val dst = safeDst(dir, rel)
+                dst.parentFile?.mkdirs()
+                if (!f.renameTo(dst)) {
+                    f.copyTo(dst, overwrite = true)
+                    f.delete()
+                }
+                movedNew.add(rel)
+            }
+            runCatching { staging.deleteRecursively() }
+            runCatching { backup.deleteRecursively() }
+        } catch (e: Exception) {
+            movedNew.forEach { rel -> runCatching { safeDst(dir, rel).delete() } }
+            if (backup.isDirectory) {
+                backup.walkTopDown().filter { it.isFile }.forEach { f ->
+                    val rel = f.relativeTo(backup).path
+                    val dst = safeDst(dir, rel)
+                    dst.parentFile?.mkdirs()
+                    runCatching {
+                        if (!f.renameTo(dst)) f.copyTo(dst, overwrite = true)
+                    }
+                }
+            }
+            runCatching { staging.deleteRecursively() }
+            runCatching { backup.deleteRecursively() }
             throw e
         }
     }

@@ -10,9 +10,11 @@ import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.io.File
+import java.security.MessageDigest
 
 /**
  * v0.7.2：用户可管理的文件统一走公开目录。
@@ -47,7 +49,9 @@ object StoragePaths {
     const val PUBLIC_ROOT_PATH = "/storage/emulated/0/xiaying"
 
     private const val PREFS = "movieshell_prefs"
-    private const val KEY_MIGRATED = "storage_migrated_to_public_v1"
+    // v0.187.0 H15：v1 标记下未搬完的旧目录曾被误标为已迁移，换 v2 键重跑一次；
+    // 已删干净的旧目录重跑是空操作，不重复搬运。
+    private const val KEY_MIGRATED = "storage_migrated_to_public_v2"
     private const val REQ_CODE_LEGACY_STORAGE = 29078
 
     /** 公开根目录 */
@@ -202,12 +206,170 @@ object StoragePaths {
         }
     }
 
+    /** 私有回退根：无权限时 baseDir() 的取值，即 filesDir 下的 xiaying 目录。 */
+    fun privateRoot(context: Context): File = File(context.filesDir, ROOT_NAME)
+
+    /**
+     * v0.187.0 H15：把一条存量路径换算成以逻辑根 xiaying 为基准的相对路径。
+     * 只剥离已知根前缀：当前公开根、旧公开根、旧私有根、旧私有散落目录
+     * （filesDir 下的 drpy、py、php、web，其中 drpy 对应公开侧的 js）。
+     * 网络地址、已是相对路径、以及不在已知根下的绝对路径原样返回，不乱改。
+     */
+    fun toRelativePath(context: Context, stored: String): String {
+        val path = stored.trim()
+        if (path.isEmpty()) return path
+        if (path.startsWith("http://", ignoreCase = true) ||
+            path.startsWith("https://", ignoreCase = true)
+        ) return path
+        if (!path.startsWith("/")) return path
+        val roots = listOf(
+            publicRoot().absolutePath,
+            PUBLIC_ROOT_PATH,
+            privateRoot(context).absolutePath,
+        )
+        for (root in roots) {
+            val prefix = root.trimEnd('/') + "/"
+            if (path.startsWith(prefix)) return path.removePrefix(prefix)
+            if (path == root) return ""
+        }
+        val filesPrefix = context.filesDir.absolutePath.trimEnd('/') + "/"
+        if (path.startsWith(filesPrefix)) {
+            val rest = path.removePrefix(filesPrefix)
+            val first = rest.substringBefore("/")
+            val mapped = when (first) {
+                "drpy" -> "js"
+                "py", "php", "web" -> first
+                else -> null
+            }
+            if (mapped != null) {
+                val tail = rest.substringAfter("/", "")
+                return if (tail.isEmpty()) mapped else "$mapped/$tail"
+            }
+        }
+        return path
+    }
+
+    /**
+     * v0.187.0 H15：读取时把存量路径拼回当前根。
+     * 相对路径直接拼当前 baseDir；绝对路径先剥已知根再拼当前根，
+     * 权限一换根目录，同一条记录仍指向同一逻辑位置；不在已知根下
+     * 的绝对路径与网络地址原样返回。
+     */
+    fun resolveStoredPath(context: Context, stored: String): String {
+        val path = stored.trim()
+        if (path.isEmpty()) return path
+        if (path.startsWith("http://", ignoreCase = true) ||
+            path.startsWith("https://", ignoreCase = true)
+        ) return path
+        if (!path.startsWith("/")) return File(baseDir(context), path).absolutePath
+        val rel = toRelativePath(context, path)
+        if (rel != path) return File(baseDir(context), rel).absolutePath
+        return path
+    }
+
+    /**
+     * v0.187.0 H15：当前根下找不到时，另一根（公开与私有互为另一根）下
+     * 是否还有同名相对路径文件。权限切换导致当前根暂时看不到文件时，
+     * 调用方凭此不把记录误判为文件已丢失。
+     */
+    fun existsUnderOtherRoot(context: Context, stored: String): Boolean {
+        val rel = toRelativePath(context, stored)
+        if (rel.isEmpty() || rel == stored.trim()) return false
+        val other = if (baseDir(context) == publicRoot()) privateRoot(context) else publicRoot()
+        return File(other, rel).isFile
+    }
+
+    /** 流式 SHA-256（写法照 ServicePluginManager 的 hashStream，不整文件进内存）。 */
+    private fun sha256Of(file: File): String? = runCatching {
+        val md = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(8192)
+            var n: Int
+            while (input.read(buf).also { n = it } > 0) md.update(buf, 0, n)
+        }
+        md.digest().joinToString("") { "%02x".format(it) }
+    }.getOrNull()
+
+    /**
+     * 内容是否一致：长度先比，长度相等再比 SHA-256；摘要算不出来时
+     * 回退到修改时间相等才算一致。
+     */
+    private fun sameFileContent(a: File, b: File): Boolean {
+        if (a.length() != b.length()) return false
+        val ha = sha256Of(a)
+        val hb = sha256Of(b)
+        if (ha != null && hb != null) return ha == hb
+        return a.lastModified() == b.lastModified()
+    }
+
+    /**
+     * v0.187.0 H15：把 src 一项合并进 dst，目录递归合并。
+     * 返回值：1=本次复制过（目录时为子树内复制总数），0=目标已有且
+     * 内容一致或目标较新、无需复制，-1=未搬完（调用方必须保留源目录）。
+     * 判定：目标不存在才复制；目标已存在时先比内容，一致则不动；
+     * 内容不同时留较新者——源较新则覆盖，目标较新则保留目标。
+     */
+    private fun migrateEntry(src: File, dst: File): Int {
+        if (src.isDirectory) {
+            if (dst.exists() && !dst.isDirectory) {
+                LogBus.w(TAG, "迁移类型冲突，源是目录、目标是文件，已保留源：${src.absolutePath}")
+                return -1
+            }
+            dst.mkdirs()
+            if (!dst.isDirectory) return -1
+            val children = src.listFiles() ?: emptyArray()
+            var copied = 0
+            var failed = false
+            for (child in children) {
+                val r = migrateEntry(child, File(dst, child.name))
+                if (r < 0) failed = true else copied += r
+            }
+            return if (failed) -1 else copied
+        }
+        if (!src.isFile) {
+            LogBus.w(TAG, "迁移跳过非常规文件，已保留源：${src.absolutePath}")
+            return -1
+        }
+        if (dst.exists() && dst.isDirectory) {
+            LogBus.w(TAG, "迁移类型冲突，源是文件、目标是目录，已保留源：${src.absolutePath}")
+            return -1
+        }
+        if (!dst.exists()) {
+            val ok = runCatching {
+                src.copyTo(dst, overwrite = true)
+                dst.isFile && dst.length() == src.length()
+            }.getOrDefault(false)
+            return if (ok) 1 else -1
+        }
+        if (sameFileContent(src, dst)) return 0
+        if (src.lastModified() > dst.lastModified()) {
+            val ok = runCatching {
+                src.copyTo(dst, overwrite = true)
+                dst.isFile && dst.length() == src.length() &&
+                    (sha256Of(src) == null || sha256Of(dst) == null ||
+                        sha256Of(src) == sha256Of(dst))
+            }.getOrDefault(false)
+            if (!ok) {
+                LogBus.w(TAG, "较新源文件覆盖失败，已保留源：${src.absolutePath}")
+                return -1
+            }
+            LogBus.i(TAG, "较新源文件已覆盖目标：${dst.absolutePath}")
+            return 1
+        }
+        LogBus.i(TAG, "目标文件较新，保留目标、跳过旧源：${dst.absolutePath}")
+        return 0
+    }
+
     /**
      * 升级迁移：filesDir/{drpy→js, py, php, web} 搬到公开目录对应子目录。
      *
      * - 幂等：prefs 标记，搬过就直接返回 true；
      * - 无权限时返回 false（不报错，调用方用回退目录继续初始化）；
-     * - 搬运失败不删源文件，返回 false 并打日志（调用方 Toast 提示）。
+     * - 判定不再以目标存在为准：同名文件按内容 SHA-256 与修改时间
+     *   比新旧，留较新者；只有整目录全部确认已迁移（内容一致、
+     *   已覆盖较新者、或目标本就较新）才删源目录，否则整目录保留
+     *   并返回 false，下次启动重跑，不丢文件；
+     * - 本次确实搬了文件时 Toast 一次，写清旧位置与新位置。
      * @return true=已迁移（或无需迁移），false=未迁移
      */
     fun migrateFromPrivate(context: Context): Boolean {
@@ -225,20 +387,37 @@ object StoragePaths {
                 "web" to "web",
             )
             var moved = 0
+            var allSafe = true
             for ((oldName, newName) in moves) {
                 val src = File(context.filesDir, oldName)
                 if (!src.isDirectory) continue
                 val dst = File(publicRoot(), newName).also { it.mkdirs() }
-                val files = src.listFiles() ?: emptyArray()
-                for (f in files) {
-                    val target = File(dst, f.name)
-                    if (target.exists()) continue
-                    if (f.isDirectory) f.copyRecursively(target) else f.copyTo(target)
-                    moved++
+                val entries = src.listFiles() ?: emptyArray()
+                var copiedHere = 0
+                var dirSafe = true
+                for (f in entries) {
+                    val r = migrateEntry(f, File(dst, f.name))
+                    if (r < 0) dirSafe = false else copiedHere += r
                 }
-                // 目标里都有了才删源目录；有一个没搬过去就留着，不丢文件
-                if (files.all { File(dst, it.name).exists() }) {
+                if (dirSafe) {
                     src.deleteRecursively()
+                    moved += copiedHere
+                } else {
+                    allSafe = false
+                    LogBus.w(TAG, "旧目录未搬完，已保留不删除：${src.absolutePath}")
+                }
+            }
+            if (!allSafe) {
+                LogBus.w(TAG, "存储迁移未完成，旧文件保留在原处，下次启动重试")
+                return false
+            }
+            if (moved > 0) {
+                runCatching {
+                    Toast.makeText(
+                        context,
+                        "存储位置已切换：旧文件从 ${context.filesDir.absolutePath} 下的 drpy、py、php、web 迁移到 ${publicRoot().absolutePath}",
+                        Toast.LENGTH_LONG,
+                    ).show()
                 }
             }
             LogBus.i(TAG, "存储迁移完成，共搬运 $moved 个文件到 $PUBLIC_ROOT_PATH")

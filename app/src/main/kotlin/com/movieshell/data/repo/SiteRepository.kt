@@ -29,6 +29,7 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 聚合搜索的单站点结果分组：站点 + 该站点的搜索结果。
@@ -62,18 +63,60 @@ class SiteRepository(
 
         /** v0.101.0：聚合搜索并发上限，20 个源齐发会被反爬封 IP。 */
         private const val SEARCH_MAX_CONCURRENCY = 4
+
+        /**
+         * v0.187.0 H04：按站 key 记最近一次失败原因（内存态，不落盘）。
+         * 放伴生对象：调用方常新建 SiteRepository 实例，实例字段会在实例间丢原因，
+         * 伴生 map 才能让“这次调用空结果有没有原因”在不同实例间也可查。
+         * 语义是最近一次：每次入口调用先清、本次失败再记；空结果且查无原因 =
+         * 源确实没数据，空结果且有原因 = 执行失败（UI 空态展示延期，见任务说明）。
+         */
+        private val lastFailureBySite = ConcurrentHashMap<String, String>()
     }
+
+    /** 最近一次失败原因（按站）：null = 最近一次调用无失败（或未跑过）。 */
+    fun lastFailureReason(site: Site): String? = lastFailureBySite[site.key]
+
+    /** 最近一次失败原因（按站 key）。 */
+    fun lastFailureReason(siteKey: String): String? = lastFailureBySite[siteKey]
 
     /** v0.101.0：聚合搜索并发限流（与小说/音乐模块各自独立）。 */
     private val searchSemaphore = Semaphore(SEARCH_MAX_CONCURRENCY)
 
     /**
      * v0.7.2：带日志的 runCatching。失败记 LogBus.E，返回 null。
+     * v0.187.0 H04：失败同时按站 key 记进 [lastFailureBySite]，不再只记日志、
+     * 调用方仍对空结果一无所知；异常没带 message 时用类名兜底，不记空原因。
      */
-    private inline fun <T> logged(op: String, block: () -> T): T? =
+    private inline fun <T> logged(site: Site, op: String, block: () -> T): T? =
         runCatching(block)
-            .onFailure { LogBus.e(TAG, "$op 失败：${it.message}") }
+            .onFailure {
+                val reason = it.message?.takeIf { m -> m.isNotBlank() }
+                    ?: it::class.java.simpleName
+                lastFailureBySite[site.key] = reason
+                LogBus.e(TAG, "$op 失败：$reason")
+            }
             .getOrNull()
+
+    /**
+     * v0.187.0 H04：引擎“没抛异常但交了空结果”时的原因桥接。
+     * 引擎内部失败（如 V8 超时、Type4 请求失败、PHP 退出码）只写自家 lastError、
+     * 不抛异常，logged 抓不到；空结果时把对应引擎的 lastError 记进按站 map，
+     * 已有 logged 记的原因不覆盖（putIfAbsent）。非空结果不记。
+     */
+    private fun recordEngineFailureIfEmpty(site: Site, isEmpty: Boolean) {
+        if (!isEmpty) return
+        // 分支必须与 home/category/detail/search 的分流严格对齐：CMS/蜘蛛站没有
+        // lastError 载体、小说站是主动跳过，都不能误读默认 drpy 引擎的旧原因。
+        val reason = when {
+            site.isPhpSite() -> PhpCliEngine.lastError
+            site.isType4Site() -> type4Api.lastError
+            site.isPySite() -> (subOr(pyEngine) { pyEngineFor(site) } ?: pyEngine)?.lastError
+            site.isCmsSite() || site.isJavaSpider() || site.isNovelOrComic() -> null
+            else -> (subOr(drpyEngine) { drpyEngineFor(site) } ?: drpyEngine)?.lastError
+        } ?: return
+        lastFailureBySite.putIfAbsent(site.key, reason)
+    }
 
     /**
      * 从 TVBox 订阅 JSON 载入站源。
@@ -138,14 +181,16 @@ class SiteRepository(
 
     /** 首页推荐/最新：PHP 走 CLI 引擎；小说漫画站明确不支持，返回空；csp_ 站走 SpiderEngine。 */
     suspend fun home(site: Site): List<Vod> {
+        lastFailureBySite.remove(site.key)
         LogBus.i(TAG, "home site=${site.name}")
-        val r = if (site.isPhpSite()) logged("php.home ${site.name}") { PhpCliEngine.home(scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }.orEmpty()
-        else if (site.isJavaSpider()) logged("spider.home ${site.name}") { SpiderEngine.home(site) }.orEmpty()
+        val r = if (site.isPhpSite()) logged(site, "php.home ${site.name}") { PhpCliEngine.home(scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }.orEmpty()
+        else if (site.isJavaSpider()) logged(site, "spider.home ${site.name}") { SpiderEngine.home(site) }.orEmpty()
         else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
-        else if (site.isType4Site()) logged("type4.home ${site.name}") { type4Api.home(site) }.orEmpty()
-        else if (site.isCmsSite()) logged("cms.home ${site.name}") { cmsApi.home(site) }.orEmpty()
-        else if (site.isPySite()) logged("py.home ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.home() }.orEmpty()
-        else logged("drpy.home ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.home() }.orEmpty()
+        else if (site.isType4Site()) logged(site, "type4.home ${site.name}") { type4Api.home(site) }.orEmpty()
+        else if (site.isCmsSite()) logged(site, "cms.home ${site.name}") { cmsApi.home(site) }.orEmpty()
+        else if (site.isPySite()) logged(site, "py.home ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.home() }.orEmpty()
+        else logged(site, "drpy.home ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.home() }.orEmpty()
+        recordEngineFailureIfEmpty(site, r.isEmpty())
         LogBus.i(TAG, "home site=${site.name} 结果 ${r.size} 条")
         return r
     }
@@ -161,23 +206,25 @@ class SiteRepository(
         pg: Int,
         filter: Map<String, String> = emptyMap()
     ): Pair<List<CategoryType>, List<Vod>> {
+        lastFailureBySite.remove(site.key)
         LogBus.i(TAG, "category site=${site.name} tid=$tid pg=$pg")
         val r = if (site.isPhpSite()) run {
             val script = PhpCliEngine.scriptNameForSite(site.key, site.api)
-            val types = logged("php.categories ${site.name}") { PhpCliEngine.categories(scriptName = script) }.orEmpty()
+            val types = logged(site, "php.categories ${site.name}") { PhpCliEngine.categories(scriptName = script) }.orEmpty()
             if (tid.isBlank()) types to emptyList()
-            else types to (logged("php.category ${site.name}") { PhpCliEngine.category(tid = tid, pg = pg, scriptName = script) }.orEmpty())
+            else types to (logged(site, "php.category ${site.name}") { PhpCliEngine.category(tid = tid, pg = pg, scriptName = script) }.orEmpty())
         }
-        else if (site.isJavaSpider()) logged("spider.category ${site.name}") { SpiderEngine.category(site, tid, pg) }
+        else if (site.isJavaSpider()) logged(site, "spider.category ${site.name}") { SpiderEngine.category(site, tid, pg) }
             .orEmptyCategory()
-        else if (site.isType4Site()) logged("type4.category ${site.name}") { type4Api.category(site, tid, pg) }
+        else if (site.isType4Site()) logged(site, "type4.category ${site.name}") { type4Api.category(site, tid, pg) }
             .orEmptyCategory()
-        else if (site.isCmsSite()) logged("cms.category ${site.name}") { cmsApi.category(site, tid, pg) }
+        else if (site.isCmsSite()) logged(site, "cms.category ${site.name}") { cmsApi.category(site, tid, pg) }
             .orEmptyCategory()
-        else if (site.isPySite()) logged("py.categories ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.categories() }.orEmpty() to
-            logged("py.category ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
+        else if (site.isPySite()) logged(site, "py.categories ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.categories() }.orEmpty() to
+            logged(site, "py.category ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
         else emptyList<CategoryType>() to
-            logged("drpy.category ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
+            logged(site, "drpy.category ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
+        recordEngineFailureIfEmpty(site, r.second.isEmpty())
         LogBus.i(TAG, "category site=${site.name} 结果 ${r.second.size} 条")
         return r
     }
@@ -189,25 +236,37 @@ class SiteRepository(
      * drpy 站某分类的筛选定义（规则 filter 分组），给 UI 筛选器用。
      * 非 drpy 站 / 规则没配 filter 时返回空列表。
      */
-    suspend fun filters(site: Site, tid: String): List<FilterGroup> =
-        if (!site.isDrpySite()) emptyList()
-        else runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.filters(tid) }.getOrNull().orEmpty()
+    suspend fun filters(site: Site, tid: String): List<FilterGroup> {
+        if (!site.isDrpySite()) return emptyList()
+        lastFailureBySite.remove(site.key)
+        val result = runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.filters(tid) }
+            .onFailure {
+                val reason = it.message?.takeIf { m -> m.isNotBlank() } ?: it::class.java.simpleName
+                lastFailureBySite[site.key] = reason
+                LogBus.e(TAG, "drpy.filters ${site.name} 失败：$reason")
+            }
+            .getOrNull().orEmpty()
+        recordEngineFailureIfEmpty(site, result.isEmpty())
+        return result
+    }
 
     /** 详情。 */
     suspend fun detail(site: Site, vodId: String): VodDetail {
+        lastFailureBySite.remove(site.key)
         LogBus.i(TAG, "detail site=${site.name} id=$vodId")
-        val r = if (site.isPhpSite()) logged("php.detail ${site.name}") { PhpCliEngine.detail(vodId = vodId, scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }
+        val r = if (site.isPhpSite()) logged(site, "php.detail ${site.name}") { PhpCliEngine.detail(vodId = vodId, scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }
             ?: VodDetail(vodId = vodId)
-        else if (site.isJavaSpider()) logged("spider.detail ${site.name}") { SpiderEngine.detail(site, vodId) }
+        else if (site.isJavaSpider()) logged(site, "spider.detail ${site.name}") { SpiderEngine.detail(site, vodId) }
             ?: VodDetail(vodId = vodId)
-        else if (site.isType4Site()) logged("type4.detail ${site.name}") { type4Api.detail(site, vodId) }
+        else if (site.isType4Site()) logged(site, "type4.detail ${site.name}") { type4Api.detail(site, vodId) }
             ?: VodDetail(vodId = vodId)
-        else if (site.isCmsSite()) logged("cms.detail ${site.name}") { cmsApi.detail(site, vodId) }
+        else if (site.isCmsSite()) logged(site, "cms.detail ${site.name}") { cmsApi.detail(site, vodId) }
             ?: VodDetail(vodId = vodId)
-        else if (site.isPySite()) logged("py.detail ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.detail(vodId) }
+        else if (site.isPySite()) logged(site, "py.detail ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.detail(vodId) }
             ?: VodDetail(vodId = vodId)
-        else logged("drpy.detail ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.detail(vodId) }
+        else logged(site, "drpy.detail ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.detail(vodId) }
             ?: VodDetail(vodId = vodId)
+        recordEngineFailureIfEmpty(site, r.vodName.isBlank() && r.vodPlayUrl.isBlank())
         LogBus.i(TAG, "detail site=${site.name} 播放源 ${if (r.vodPlayUrl.isBlank()) "空" else "有数据"}")
         // v0.14.5：详情播放地址明细（截断）
         if (r.vodPlayUrl.isNotBlank()) {
@@ -221,15 +280,17 @@ class SiteRepository(
 
     /** 搜索；站源声明 searchable=0 时直接返回空，不发请求。非 CMS 站走 drpy/PY 引擎。 */
     suspend fun search(site: Site, wd: String): List<Vod> {
+        lastFailureBySite.remove(site.key)
         if (!site.searchable || wd.isBlank()) return emptyList()
         LogBus.i(TAG, "search site=${site.name} wd=$wd")
-        val r = if (site.isPhpSite()) logged("php.search ${site.name}") { PhpCliEngine.search(wd = wd, scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }.orEmpty()
-        else if (site.isJavaSpider()) logged("spider.search ${site.name}") { SpiderEngine.search(site, wd) }.orEmpty()
+        val r = if (site.isPhpSite()) logged(site, "php.search ${site.name}") { PhpCliEngine.search(wd = wd, scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }.orEmpty()
+        else if (site.isJavaSpider()) logged(site, "spider.search ${site.name}") { SpiderEngine.search(site, wd) }.orEmpty()
         else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
-        else if (site.isType4Site()) logged("type4.search ${site.name}") { type4Api.search(site, wd) }.orEmpty()
-        else if (site.isCmsSite()) logged("cms.search ${site.name}") { cmsApi.search(site, wd) }.orEmpty()
-        else if (site.isPySite()) logged("py.search ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.search(wd) }.orEmpty()
-        else logged("drpy.search ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.orEmpty()
+        else if (site.isType4Site()) logged(site, "type4.search ${site.name}") { type4Api.search(site, wd) }.orEmpty()
+        else if (site.isCmsSite()) logged(site, "cms.search ${site.name}") { cmsApi.search(site, wd) }.orEmpty()
+        else if (site.isPySite()) logged(site, "py.search ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.search(wd) }.orEmpty()
+        else logged(site, "drpy.search ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.orEmpty()
+        recordEngineFailureIfEmpty(site, r.isEmpty())
         LogBus.i(TAG, "search site=${site.name} 结果 ${r.size} 条")
         return r
     }
@@ -280,11 +341,15 @@ class SiteRepository(
 
     /** drpy 播放：v0.1 引擎未实现，返回空串。 */
     suspend fun drpyPlay(flag: String, id: String): String =
-        runCatching { drpyEngine?.play(flag, id) }.getOrNull().orEmpty()
+        runCatching { drpyEngine?.play(flag, id) }
+            .onFailure { LogBus.e(TAG, "drpy.play 失败：${drpyEngine?.lastError ?: it.message}") }
+            .getOrNull().orEmpty()
 
     /** PY 播放：playerContent 返回的直链 url。 */
     suspend fun pyPlay(flag: String, id: String): String =
-        runCatching { pyEngine?.play(flag, id) }.getOrNull().orEmpty()
+        runCatching { pyEngine?.play(flag, id) }
+            .onFailure { LogBus.e(TAG, "py.play 失败：${pyEngine?.lastError ?: it.message}") }
+            .getOrNull().orEmpty()
 
 
     /**
@@ -294,8 +359,21 @@ class SiteRepository(
      * header 由调用方（DetailScreen）经 SniffPlayHeaders.put 透传给播放器。
      * 任何失败返回空结果，不抛异常。
      */
-    suspend fun type4Play(site: Site, flag: String, id: String): Type4PlayResult =
-        runCatching { type4Api.play(site, flag, id) }.getOrNull() ?: Type4PlayResult()
+    suspend fun type4Play(site: Site, flag: String, id: String): Type4PlayResult {
+        lastFailureBySite.remove(site.key)
+        val result = runCatching { type4Api.play(site, flag, id) }
+            .onFailure {
+                val reason = it.message?.takeIf { m -> m.isNotBlank() } ?: it::class.java.simpleName
+                lastFailureBySite[site.key] = reason
+                LogBus.e(TAG, "type4.play ${site.name} 失败：$reason")
+            }
+            .getOrNull() ?: Type4PlayResult()
+        // 本函数恒走 type4Api，不按站类型分流，直接读它（不用通用桥接）。
+        if (result.url.isBlank()) {
+            type4Api.lastError?.let { lastFailureBySite.putIfAbsent(site.key, it) }
+        }
+        return result
+    }
 
     /**
      * type=4 的 parse=1 分流（v0.7）：Type4Api 返回 parse=1 时，用该订阅的 parses

@@ -34,6 +34,11 @@ import kotlinx.coroutines.cancelChildren
  *   并发请求的网络等待天然重叠。
  * - 同一读方法的新调用取消旧请求（切分类/切源立即生效，旧结果不再回写覆盖）。
  * - setActiveRule 时取消全部在途读请求。
+ * - v0.187.0 H03 如实说明的固有限制：上述“取消”只取消协程等待，停不掉
+ *   Chaquopy 桥上正在执行的 Python。桥调用是同步阻塞接口，不响应协程取消，
+ *   被取消请求的 Python 仍会跑到结束、只占一条 IO 线程；其结果因 Deferred
+ *   已取消而丢弃，不会回写覆盖。这不是本版能修掉的，是桥的固有限制，
+ *   不要假装取消等于停掉 Python。
  * - play 保持直调（写敏感，不参与取消）。
  */
 object PySourceManager {
@@ -61,6 +66,8 @@ object PySourceManager {
     /**
      * 最新者胜：取消该读方法的旧在途请求，执行新请求并等待。
      * 旧调用方收到 CancellationException（协程标准取消语义）。
+     * v0.187.0 H03 如实说明：这里的取消只取消协程等待，停不掉桥上正在
+     * 执行的 Python（同步阻塞接口不响应取消）；旧 Python 跑完的结果被丢弃，不回写。
      */
     private suspend fun <T> latest(slot: AtomicReference<Deferred<T>?>, block: suspend () -> T): T {
         slot.getAndSet(null)?.cancel()
@@ -114,7 +121,7 @@ object PySourceManager {
 
     fun hasActiveRule(): Boolean = activeName != null
 
-    /** 切换 active 规则。主线程调用；name=null 时清空。v0.22.0：切换时取消全部在途读请求。 */
+    /** 切换 active 规则。主线程调用；name=null 时清空。v0.22.0：切换时取消全部在途读请求。v0.187.0 H03：取消只取消等待，停不掉桥上正在执行的 Python，见类注释固有限制。 */
     fun setActiveRule(name: String?) {
         if (name == activeName) return
         readScope.coroutineContext[Job]?.cancelChildren()

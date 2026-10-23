@@ -45,6 +45,17 @@ object SourceStateStore {
     fun isRuleEnabled(kind: String, fileName: String): Boolean =
         !_disabled.value.getOrDefault(kind, emptySet()).contains(fileName)
 
+    /**
+     * v0.186.0 M20：删源清理入口——把某规则从禁用表里摘掉，不存在则无操作。
+     * 与 setRuleEnabled(enabled=true) 同写盘路径，删源与删订阅共用同一入口，
+     * 同名文件日后重新导入时旧禁用态不再复活。
+     */
+    fun removeDisabled(context: Context, kind: String, fileName: String) {
+        if (_disabled.value.getOrDefault(kind, emptySet()).contains(fileName)) {
+            setRuleEnabled(context, kind, fileName, true)
+        }
+    }
+
     fun setRuleEnabled(context: Context, kind: String, fileName: String, enabled: Boolean) {
         val map = _disabled.value.mapValues { it.value.toMutableSet() }.toMutableMap()
         val set = map.getOrPut(kind) { mutableSetOf() }

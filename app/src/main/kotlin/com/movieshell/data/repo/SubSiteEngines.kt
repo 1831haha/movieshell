@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 订阅站源的按站引擎（v0.5.1）。
@@ -135,7 +136,11 @@ private class PooledDrpyEngine(
 
 /**
  * drpy 引擎池：订阅站多、V8 isolate 不共享线程，池上限 3 个，按最近使用淘汰。
- * Semaphore 保证同时最多 3 个站并发执行，控制 isolate 资源占用。
+ * 两个上限含义不同，不可混淆：
+ * - Semaphore 限的是并发执行的调用数（block 在途数），不是引擎数；
+ * - 引擎数上限是 MAX_ENGINES，由 engines 表大小约束。
+ * 淘汰前必查在途计数：在途不为 0 的引擎绝不 release；若全部在途，宁可暂超
+ * 引擎上限建一个新引擎，也不关掉正在执行的引擎。
  */
 private object SubDrpyPool {
     private const val TAG = "SubDrpyPool"
@@ -144,8 +149,13 @@ private object SubDrpyPool {
     private val mutex = Mutex()
     private val semaphore = Semaphore(MAX_ENGINES)
 
+    /** 引擎 + 在途调用计数：取用时加一、block 结束时减一，减一用原子操作，取消时也能执行。 */
+    private class PooledEntry(val engine: V8DrpyEngine) {
+        val inFlight = AtomicInteger(0)
+    }
+
     /** LinkedHashMap 插入序：每次取用后 remove 再 put，队首即最久未用。 */
-    private val engines = LinkedHashMap<String, V8DrpyEngine>()
+    private val engines = LinkedHashMap<String, PooledEntry>()
 
     suspend fun <T> withEngine(
         siteKey: String,
@@ -153,26 +163,34 @@ private object SubDrpyPool {
         block: suspend (DrpyEngine) -> T,
     ): T {
         semaphore.acquire()
+        var entry: PooledEntry? = null
         try {
-            val engine = mutex.withLock {
+            entry = mutex.withLock {
                 val cached = engines.remove(siteKey)
                 val e = cached ?: run {
                     if (engines.size >= MAX_ENGINES) {
-                        val oldest = engines.keys.firstOrNull()
-                        if (oldest != null) {
-                            runCatching { engines.remove(oldest)?.release() }
-                            Log.i(TAG, "淘汰引擎: $oldest")
+                        val victim = engines.entries.firstOrNull { it.value.inFlight.get() == 0 }
+                        if (victim != null) {
+                            engines.remove(victim.key)
+                            runCatching { victim.value.engine.release() }
+                            Log.i(TAG, "淘汰引擎: ${victim.key}")
+                        } else {
+                            Log.w(TAG, "引擎池已满且全部在途，暂超上限建新引擎（不淘汰在途引擎）")
                         }
                     }
-                    V8DrpyEngine(SubSiteEngines.requireContext()).also {
-                        it.loadRule(ruleFile.readText())
-                    }
+                    PooledEntry(
+                        V8DrpyEngine(SubSiteEngines.requireContext()).also {
+                            it.loadRule(ruleFile.readText())
+                        },
+                    )
                 }
                 engines[siteKey] = e
+                e.inFlight.incrementAndGet()
                 e
             }
-            return block(engine)
+            return block(entry.engine)
         } finally {
+            entry?.inFlight?.decrementAndGet()
             semaphore.release()
         }
     }

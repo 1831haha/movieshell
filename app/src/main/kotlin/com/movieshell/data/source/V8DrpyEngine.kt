@@ -2,7 +2,6 @@ package com.movieshell.data.source
 
 import android.content.Context
 import android.util.Base64
-import android.util.Log
 import com.movieshell.data.model.CategoryType
 import com.movieshell.data.model.FilterGroup
 import com.movieshell.data.model.FilterOption
@@ -13,6 +12,8 @@ import com.movieshell.data.repo.StoragePaths
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -48,7 +49,27 @@ class V8DrpyEngine(
     private var ruleJs: String? = null
 
     /** 每引擎一个 V8 会话（isolate + port + RPC 分发）；bootstrap 失败/超时后置 null 重建。 */
+    @Volatile
     private var session: JsSession? = null
+
+    /**
+     * v0.187.0 H04：最近一次调用的失败原因（null = 最近一次成功或未跑过）。
+     * eval 超时/会话关闭/普通异常、引导失败、解析失败时写；eval 成功、换规则、释放时清。
+     * 规则合法返回空列表不写（空列表本身不是失败），调用方凭它区分“没数据”与“执行失败”。
+     */
+    @Volatile
+    override var lastError: String? = null
+        private set
+
+    /**
+     * 建会话串行锁：两个并发 ensureSession 只能建出一个，另一个复用它。
+     * 建会话期间 loadRule/release 若介入，epoch 变化会让本次建好的会话在发布前
+     * 被丢弃并 close，不把旧规则会话发布给新规则调用方。
+     */
+    private val sessionMutex = Mutex()
+    private val sessionFieldLock = Any()
+    @Volatile
+    private var sessionEpoch = 0
 
     private val hostJs by lazy { assetText("jsbridge/host.js") }
     private val shimJs by lazy { assetText("drpy/shim.js") }
@@ -90,13 +111,16 @@ class V8DrpyEngine(
         }
         expanded.warnings.forEach { LogBus.w(TAG, it) }
         ruleJs = expanded.js
+        lastError = null
         // v0.110.0：换规则即失效 home 缓存，避免旧规则的 home 串给新规则。
         sharedHomeJson = null
         sharedHomeAt = 0L
         homeFallbackCache = null
         // isolate.close() 线程安全、即时生效；下次调用时用新规则重建会话。
-        runCatching { session?.close() }
-        session = null
+        // epoch 先加：建会话中途换规则时，建好的旧规则会话在发布前被丢弃并 close。
+        sessionEpoch++
+        val old = synchronized(sessionFieldLock) { session.also { session = null } }
+        runCatching { old?.close() }
         // v0.116.0：老同步规则 async 兼容提示——启发式扫描，未 await 的调用只会静默空数据
         warnIfLegacySyncRule(js)
     }
@@ -134,10 +158,22 @@ class V8DrpyEngine(
         }
     }
 
-    /** 惰性建会话：注册宿主 RPC（http/query/gunzip）→ bootstrap host.js + shim + 规则。 */
-    private suspend fun ensureSession(): JsSession? {
-        session?.let { return it }
-        val rule = ruleJs ?: return null
+    /**
+     * 惰性建会话：注册宿主 RPC（http/query/gunzip）→ bootstrap host.js + shim + 规则。
+     * 串行化：并发调用在 sessionMutex 内排队，先建成的被后来者复用，不会各自
+     * bootstrap 出两个会话；失效会话只断引用，延迟回收由 JsSession 负责 close。
+     */
+    private suspend fun ensureSession(): JsSession? = sessionMutex.withLock {
+        val current = synchronized(sessionFieldLock) { session }
+        if (current != null) {
+            if (!current.isInvalid) return@withLock current
+            synchronized(sessionFieldLock) { if (session === current) session = null }
+        }
+        val rule = ruleJs ?: run {
+            lastError = "未载入规则"
+            return@withLock null
+        }
+        val epoch = sessionEpoch
         val s = JsSession(TAG)
         s.registerRpc("http") { payload -> rpcHttp(payload) }
         s.registerRpc("query") { payload -> rpcQuery(payload) }
@@ -149,15 +185,22 @@ class V8DrpyEngine(
             shimJs,
             rule,
         )
-        return if (s.bootstrap(portName, scripts)) {
-            session = s
-            LogBus.i(TAG, "V8 引擎已就绪")
-            s
-        } else {
+        if (!s.bootstrap(portName, scripts)) {
             s.close()
-            LogBus.e(TAG, "V8 引擎引导失败: ${s.lastError}")
-            null
+            val reason = "V8 引擎引导失败: ${s.lastError}"
+            lastError = reason
+            LogBus.e(TAG, reason)
+            return@withLock null
         }
+        // 建会话期间换规则或 release 过：刚建好的会话已过时，close 后不发布。
+        if (sessionEpoch != epoch || ruleJs != rule) {
+            s.close()
+            lastError = "会话在发布前已失效（换规则或释放）"
+            return@withLock null
+        }
+        synchronized(sessionFieldLock) { session = s }
+        LogBus.i(TAG, "V8 引擎已就绪")
+        s
     }
 
     override suspend fun home(): List<Vod> = withContext(Dispatchers.IO) {
@@ -242,7 +285,9 @@ class V8DrpyEngine(
         return runCatching {
             val o = JSONObject(json)
             if (o.has("error")) {
-                Log.w(TAG, "规则返回 error: ${o.optString("error")}")
+                val reason = "规则返回 error: ${o.optString("error")}"
+                lastError = reason
+                LogBus.w(TAG, reason)
                 return emptyList()
             }
             val arr = o.optJSONArray("class") ?: JSONArray()
@@ -253,6 +298,10 @@ class V8DrpyEngine(
                     typeName = c.optString("type_name"),
                 )
             }
+        }.onFailure {
+            val reason = "规则结果解析失败: ${it.message}"
+            lastError = reason
+            LogBus.w(TAG, reason)
         }.getOrDefault(emptyList())
     }
 
@@ -292,8 +341,10 @@ class V8DrpyEngine(
 
     override fun release() {
         // A5：isolate.close() 即时终止（在途 evaluate 立即失败），任意线程可调。
-        runCatching { session?.close() }
-        session = null
+        lastError = null
+        sessionEpoch++
+        val old = synchronized(sessionFieldLock) { session.also { session = null } }
+        runCatching { old?.close() }
     }
 
     /**
@@ -302,20 +353,38 @@ class V8DrpyEngine(
      * - 普通 JS 异常 → isolate 未损坏，保留会话（单次规则错误不牵连后续调用）。
      */
     private suspend fun evalForJson(expression: String): String? {
+        val s = ensureSession() ?: return null
         return try {
-            val s = ensureSession() ?: return null
             val result = s.eval(expression, JS_TIMEOUT_MS)
-            result.takeIf { it.isNotBlank() && it != "null" && it != "undefined" }
+            if (result.isBlank() || result == "null" || result == "undefined") {
+                // v0.187.0 H04：此前这里静默返回 null，调用方无法区分“规则返回空”
+                // 与“执行失败”。JS 连有效 JSON 串都没交出，按执行失败记原因。
+                val reason = "JS 执行返回空（规则无返回或返回 null）"
+                lastError = reason
+                LogBus.w(TAG, reason)
+                null
+            } else {
+                lastError = null
+                result
+            }
         } catch (e: JsSessionTimeoutException) {
-            LogBus.w(TAG, "JS 执行超时，isolate 已终止: ${e.message}")
-            session = null
+            val reason = "JS 执行超时，会话已标失效并延迟回收: ${e.message}"
+            lastError = reason
+            LogBus.w(TAG, reason)
+            // 只断开仍是本次会话的引用：其间若已建成新会话，不得把它误清。
+            // 本次会话的 close 由 JsSession 延迟回收负责，这里不再同步 close。
+            synchronized(sessionFieldLock) { if (session === s) session = null }
             null
         } catch (e: JsSessionClosedException) {
-            LogBus.w(TAG, "JS 会话不可用: ${e.message}")
-            session = null
+            val reason = "JS 会话不可用: ${e.message}"
+            lastError = reason
+            LogBus.w(TAG, reason)
+            synchronized(sessionFieldLock) { if (session === s) session = null }
             null
         } catch (e: Exception) {
-            LogBus.w(TAG, "JS 执行失败: ${e.message}")
+            val reason = "JS 执行失败: ${e.message}"
+            lastError = reason
+            LogBus.w(TAG, reason)
             null
         }
     }
@@ -406,7 +475,9 @@ class V8DrpyEngine(
         return runCatching {
             val o = JSONObject(json)
             if (o.has("error")) {
-                Log.w(TAG, "规则返回 error: ${o.optString("error")}")
+                val reason = "规则返回 error: ${o.optString("error")}"
+                lastError = reason
+                LogBus.w(TAG, reason)
                 return emptyList()
             }
             val arr = o.optJSONArray("list") ?: JSONArray()
@@ -419,6 +490,10 @@ class V8DrpyEngine(
                     vodRemarks = v.optString("vod_remarks"),
                 )
             }
+        }.onFailure {
+            val reason = "规则结果解析失败: ${it.message}"
+            lastError = reason
+            LogBus.w(TAG, reason)
         }.getOrDefault(emptyList())
     }
 
@@ -431,7 +506,9 @@ class V8DrpyEngine(
         return runCatching {
             val o = JSONObject(json)
             if (o.has("error")) {
-                Log.w(TAG, "规则返回 error: ${o.optString("error")}")
+                val reason = "规则返回 error: ${o.optString("error")}"
+                lastError = reason
+                LogBus.w(TAG, reason)
                 return emptyList()
             }
             val groups = o.optJSONArray("groups") ?: JSONArray()
@@ -450,6 +527,10 @@ class V8DrpyEngine(
                     }.filter { it.name.isNotEmpty() || it.value.isNotEmpty() },
                 )
             }.filter { it.key.isNotEmpty() && it.options.isNotEmpty() }
+        }.onFailure {
+            val reason = "规则结果解析失败: ${it.message}"
+            lastError = reason
+            LogBus.w(TAG, reason)
         }.getOrDefault(emptyList())
     }
 
@@ -464,6 +545,10 @@ class V8DrpyEngine(
                 vodPlayFrom = o.optString("vod_play_from"),
                 vodPlayUrl = o.optString("vod_play_url"),
             )
+        }.onFailure {
+            val reason = "详情解析失败: ${it.message}"
+            lastError = reason
+            LogBus.w(TAG, reason)
         }.getOrDefault(VodDetail())
     }
 
@@ -471,6 +556,10 @@ class V8DrpyEngine(
         return runCatching {
             val o = JSONObject(json)
             o.optString("url", o.optString("play_url", ""))
+        }.onFailure {
+            val reason = "播放地址解析失败: ${it.message}"
+            lastError = reason
+            LogBus.w(TAG, reason)
         }.getOrDefault("")
     }
 }

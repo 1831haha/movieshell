@@ -4,8 +4,14 @@ import android.content.Context
 import android.util.Log
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
+import com.movieshell.data.repo.LogBus
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Chaquopy 内置 Python 引擎。
@@ -18,6 +24,22 @@ import kotlinx.coroutines.withContext
 object ChaquopyEngine : PyEngine {
 
     private const val TAG = "ChaquopyEngine"
+
+    /**
+     * v0.187.0 H03：PY 桥调用超时，与 V8DrpyEngine 的 JS_TIMEOUT_MS 同档 15 秒。
+     * 常量写法照抄 V8DrpyEngine.kt 的 private const val JS_TIMEOUT_MS = 15_000L
+     * （该常量是 private，跨文件无法直接引用，故在此复写同值并注明来源）。
+     */
+    private const val PY_TIMEOUT_MS = 15_000L
+
+    /**
+     * v0.187.0 H03：桥调用专用作用域，与调用方作用域脱钩。
+     * 写法照抄 PySourceManager.kt 的 readScope（CoroutineScope + SupervisorJob + IO）。
+     * 脱钩是必须的：桥调用是同步阻塞接口，不响应协程取消，直接在调用上套
+     * withTimeout 等不到超时；只有把调用放进独立 scope 的 async、调用方只带超时等 await，
+     * 调用方才能在 15 秒时真正放行。代价见 callBridge 注释：后台 Python 停不掉。
+     */
+    private val pyCallScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
     private var appContext: Context? = null
@@ -112,28 +134,52 @@ object ChaquopyEngine : PyEngine {
         libsPathAdded = true
     }
 
-    override suspend fun invoke(rulePath: String, method: String, argsJson: String): String =
-        withContext(Dispatchers.IO) {
-            try {
-                val mod = python().getModule("pyspider_bridge")
-                mod.callAttr("call", rulePath, method, argsJson).toString()
-            } catch (e: Exception) {
-                Log.w(TAG, "invoke 失败: $method", e)
-                "{\"ok\":false,\"error\":\"" + (e.message ?: e.toString()).replace("\"", "'") + "\"}"
-            }
+    /**
+     * v0.187.0 H03：桥调用统一入口，invoke 与 bookInvoke 共用，只在此一层加超时，
+     * PyApi 层不再另加，避免双重超时。
+     * 固有限制，如实写明：超时只放行调用方，不中断正在执行的 Python。
+     * Chaquopy 桥是同步阻塞的 Java 接口，不响应协程取消，超时后也不 cancel
+     * 后台任务（cancel 同样停不掉它）；规则死循环时后台 Python 仍会跑到结束，
+     * 只占一条 IO 线程，其结果因调用方已超时而丢弃，不会回写。
+     * 超时后记规则路径与调用名，不静默：LogBus 与失败 JSON 双通道。
+     */
+    private suspend fun callBridge(
+        rulePath: String,
+        method: String,
+        argsJson: String,
+        bridgeMethod: String,
+    ): String {
+        val deferred = pyCallScope.async {
+            val mod = python().getModule("pyspider_bridge")
+            mod.callAttr(bridgeMethod, rulePath, method, argsJson).toString()
         }
+        return try {
+            withTimeoutOrNull(PY_TIMEOUT_MS) { deferred.await() } ?: run {
+                Log.w(TAG, "PY 调用超时（15 秒）: 规则=$rulePath 方法=$method")
+                LogBus.w(
+                    TAG,
+                    "PY 调用超时（15 秒）: 规则=$rulePath 方法=$method，" +
+                        "后台 Python 无法中断仍会跑到结束，结果丢弃",
+                )
+                "{\"ok\":false,\"error\":\"PY 调用超时（15 秒）:$method\"}"
+            }
+        } catch (e: CancellationException) {
+            // 调用方取消必须透出，不能被下方的 Exception 分支吞成失败 JSON，
+            // 否则 PySourceManager“旧调用方收到 CancellationException”的契约落空。
+            // 注意：这只是调用方等待的取消，桥上 Python 本身仍停不掉（见上文固有限制）。
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "PY 桥调用失败: $method", e)
+            "{\"ok\":false,\"error\":\"" + (e.message ?: e.toString()).replace("\"", "'") + "\"}"
+        }
+    }
+
+    override suspend fun invoke(rulePath: String, method: String, argsJson: String): String =
+        callBridge(rulePath, method, argsJson, "call")
 
     /** v0.64.0 书源入口：走 pyspider_bridge.book_call。 */
     override suspend fun bookInvoke(rulePath: String, method: String, argsJson: String): String =
-        withContext(Dispatchers.IO) {
-            try {
-                val mod = python().getModule("pyspider_bridge")
-                mod.callAttr("book_call", rulePath, method, argsJson).toString()
-            } catch (e: Exception) {
-                Log.w(TAG, "bookInvoke 失败: $method", e)
-                "{\"ok\":false,\"error\":\"" + (e.message ?: e.toString()).replace("\"", "'") + "\"}"
-            }
-        }
+        callBridge(rulePath, method, argsJson, "book_call")
 
     /** v0.64.0：清掉指定规则文件的桥缓存。 */
     override suspend fun resetRuleCache(rulePath: String): Unit = withContext(Dispatchers.IO) {

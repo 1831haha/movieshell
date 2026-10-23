@@ -70,6 +70,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -199,7 +200,7 @@ fun DetailScreen(
         episodes.groupBy { it.flag.ifBlank { "默认线路" } }
             .map { (name, eps) -> PlayLine(name, eps) }
     }
-    var selectedLine by remember { mutableIntStateOf(0) }
+    var selectedLine by rememberSaveable { mutableIntStateOf(0) }
     val safeLine = if (playLines.isNotEmpty()) selectedLine.coerceIn(playLines.indices) else 0
     val lineEpisodes: List<Episode> = playLines.getOrNull(safeLine)?.episodes.orEmpty()
 
@@ -221,7 +222,7 @@ fun DetailScreen(
         }
     }
 
-    var selectedEpisode by remember { mutableIntStateOf(0) }
+    var selectedEpisode by rememberSaveable { mutableIntStateOf(0) }
     // v0.77.0：跳集弹窗
     var showJumpDialog by remember { mutableStateOf(false) }
     var jumpText by remember { mutableStateOf("") }
@@ -379,13 +380,6 @@ fun DetailScreen(
             playEpisode(lineEpisodes[startEp], safeLine, startEp)
         }
     }
-    val playLabel = when {
-        lineEpisodes.isNotEmpty() ->
-            "播放 ${lineEpisodes[safeSelected].name.ifBlank { "第${safeSelected + 1}集" }}"
-        vod?.episodes?.let { it > 1 } == true -> "播放 第${selectedEpisode + 1}集"
-        else -> "立即播放"
-    }
-
     // v0.156.0：最顶上那一栏整个去掉（标题/追剧/分享都不再占一栏），
     // 追剧/分享收进下面简介卡片海报下方的小图标行；返回只留播放区左上角一个悬浮箭头。
     Scaffold { inner ->
@@ -863,7 +857,23 @@ fun DetailScreen(
                                             name = "第${i + 1}集",
                                             // v0.65：高亮跟随实际播放
                                             selected = highlightEp == i,
-                                            onClick = { selectedEpisode = i },
+                                            // v0.186.0：第二分支此前点按只改选中态、毫无反馈。
+                                            // 先按集数取已解析的真实选集、复用第一分支的
+                                            // playEpisode 直拨；取不到说明该源没有给
+                                            // 出可播地址，直接 Toast，绝不凭空编地址。
+                                            onClick = {
+                                                selectedEpisode = i
+                                                val ep = episodes.getOrNull(i)
+                                                if (ep != null) {
+                                                    playEpisode(ep, safeLine, i)
+                                                } else {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "该源未返回可播地址",
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
+                                            },
                                         )
                                     }
                                 }

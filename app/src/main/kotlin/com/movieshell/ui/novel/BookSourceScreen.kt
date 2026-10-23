@@ -162,10 +162,19 @@ fun BookSourceScreen(
                 Toast.makeText(context, "读取文件失败", Toast.LENGTH_SHORT).show()
                 return@launch
             }
+            // v0.186.0：import 返回 0 有三种含义——没识别、已存在、写盘失败；
+            // 先解析一次：有新 key 却返回 0 只可能是写盘失败（失败时内存已回滚）。
+            val parsed = BookSource.listFromJson(json)
+            val hasNew = parsed.any { p -> BookSourceManager.sources.value.none { it.key == p.key } }
             val n = BookSourceManager.import(context, json)
             Toast.makeText(
                 context,
-                if (n > 0) "导入 $n 个书源" else "没有识别出书源，检查 JSON 格式",
+                when {
+                    n > 0 -> "导入 $n 个书源"
+                    parsed.isEmpty() -> "没有识别出书源，检查 JSON 格式"
+                    hasNew -> "保存失败，书源未导入，请重试"
+                    else -> "书源已存在，无需重复导入"
+                },
                 Toast.LENGTH_SHORT,
             ).show()
         }
@@ -265,10 +274,18 @@ fun BookSourceScreen(
         OutlinedButton(
             onClick = {
                 scope.launch {
+                    // v0.186.0：restoreBuiltin 返回 false 有两种含义——已存在、写盘失败；
+                    // 调用前已有内置源才是已存在，否则就是写盘失败（失败时内存已回滚）。
+                    // 内置源 key 与 BookSourceManager 的内置 key 一致：quanben 网址去协议去尾斜杠。
+                    val hadBuiltin = BookSourceManager.sources.value.any { it.key == "www.quanben.io" }
                     val added = BookSourceManager.restoreBuiltin(context)
                     Toast.makeText(
                         context,
-                        if (added) "已恢复内置书源（全本小说网）" else "内置书源已存在，无需恢复",
+                        when {
+                            added -> "已恢复内置书源（全本小说网）"
+                            hadBuiltin -> "内置书源已存在，无需恢复"
+                            else -> "保存失败，内置书源未恢复，请重试"
+                        },
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
@@ -430,11 +447,20 @@ fun BookSourceScreen(
             confirmText = "导入",
             onConfirm = {
                 scope.launch {
+                    // v0.186.0：import 返回 0 有三种含义——没识别、已存在、写盘失败；
+                    // 先解析一次：有新 key 却返回 0 只可能是写盘失败（失败时内存已回滚）。
+                    val parsed = BookSource.listFromJson(importText)
+                    val hasNew = parsed.any { p -> BookSourceManager.sources.value.none { it.key == p.key } }
                     val n = BookSourceManager.import(context, importText)
                     showImport = false
                     Toast.makeText(
                         context,
-                        if (n > 0) "导入 $n 个书源" else "没有识别出书源，检查 JSON 格式",
+                        when {
+                            n > 0 -> "导入 $n 个书源"
+                            parsed.isEmpty() -> "没有识别出书源，检查 JSON 格式"
+                            hasNew -> "保存失败，书源未导入，请重试"
+                            else -> "书源已存在，无需重复导入"
+                        },
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
@@ -515,12 +541,18 @@ fun BookSourceScreen(
             onConfirm = {
                 scope.launch {
                     val selected = preview.filter { it.key in urlChecked }
+                    // v0.186.0：importSources 返回 0 可能是全已存在，也可能是写盘失败；
+                    // 选中里有新 key 却返回 0 只可能是写盘失败（失败时内存已回滚）。
+                    val hasNew = selected.any { s -> BookSourceManager.sources.value.none { it.key == s.key } }
                     val n = BookSourceManager.importSources(context, selected)
                     urlPreview = null
                     Toast.makeText(
                         context,
-                        if (n > 0) "导入 $n 个书源"
-                        else "所选书源都已存在，无需重复导入",
+                        when {
+                            n > 0 -> "导入 $n 个书源"
+                            hasNew -> "保存失败，书源未导入，请重试"
+                            else -> "所选书源都已存在，无需重复导入"
+                        },
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
@@ -581,7 +613,14 @@ fun BookSourceScreen(
             title = "删除书源",
             confirmText = "删除",
             onConfirm = {
-                scope.launch { BookSourceManager.remove(context, s.key) }
+                scope.launch {
+                    // v0.186.0：JSON 删除无 Boolean 返回值，写盘失败时内存回滚、
+                    // 删完 key 还在就是保存失败；成功时保持原来不弹提示。
+                    BookSourceManager.remove(context, s.key)
+                    if (BookSourceManager.sources.value.any { it.key == s.key }) {
+                        Toast.makeText(context, "删除失败：保存失败，请重试", Toast.LENGTH_SHORT).show()
+                    }
+                }
                 deleteTarget = null
             },
         ) {
@@ -596,7 +635,14 @@ fun BookSourceScreen(
             title = "删除书源",
             confirmText = "删除",
             onConfirm = {
-                scope.launch { PyBookSourceManager.remove(context, r.name) }
+                scope.launch {
+                    // v0.186.0：PY 删除返回 false 即文件删除失败，弹保存失败提示；
+                    // 成功时保持原来不弹提示。
+                    val ok = PyBookSourceManager.remove(context, r.name)
+                    if (!ok) {
+                        Toast.makeText(context, "删除失败：保存失败，请重试", Toast.LENGTH_SHORT).show()
+                    }
+                }
                 deletePyTarget = null
             },
         ) {

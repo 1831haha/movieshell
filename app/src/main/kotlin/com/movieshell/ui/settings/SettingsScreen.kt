@@ -55,6 +55,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -157,6 +158,9 @@ fun SettingsScreen(
     var showCloudDialog by remember { mutableStateOf(false) }
     var cloudWorking by remember { mutableStateOf(false) }
     var lastSyncText by remember { mutableStateOf("") }
+    // v0.186.0：云端更新的冲突确认弹窗（已有 TechDialog 机制，不新开入口）
+    var showCloudConflict by remember { mutableStateOf(false) }
+    var cloudConflictText by remember { mutableStateOf("") }
     // v0.20.0：播放器内核（Media3 默认，libmpv 可选，记忆选择）
     val engine by PlayerSettings.engine.collectAsState()
     var showEngineDialog by remember { mutableStateOf(false) }
@@ -174,29 +178,32 @@ fun SettingsScreen(
     var maxParallel by remember { mutableStateOf(DownloadStore.maxParallel(context)) }
 
     // v0.7.2：备份直接导出到 xiaying/backup/，不再弹系统文件选择器
+    // v0.186.0：exportJson 改 suspend（追剧/书架/音乐走 suspend 读接口），这里进协程
     fun exportBackup() {
-        try {
-            val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val file = File(StoragePaths.backupDir(context), "movieshell_backup_$ts.json")
-            val json = when (val r = BackupManager.exportJson(context)) {
-                is BackupManager.ExportResult.Ok -> r.json
-                is BackupManager.ExportResult.Failed -> {
-                    LogBus.e("Backup", "备份导出失败：${r.reason}")
-                    Toast.makeText(context, "导出失败：${r.reason}", Toast.LENGTH_LONG).show()
-                    return
+        scope.launch {
+            try {
+                val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                val file = File(StoragePaths.backupDir(context), "movieshell_backup_$ts.json")
+                val json = when (val r = BackupManager.exportJson(context)) {
+                    is BackupManager.ExportResult.Ok -> r.json
+                    is BackupManager.ExportResult.Failed -> {
+                        LogBus.e("Backup", "备份导出失败：${r.reason}")
+                        Toast.makeText(context, "导出失败：${r.reason}", Toast.LENGTH_LONG).show()
+                        return@launch
+                    }
                 }
+                // v0.170.0：原子写盘，写盘失败如实报错，不谎报已导出
+                if (!AtomicFile.writeText(file, json)) {
+                    LogBus.e("Backup", "备份导出失败：写盘失败")
+                    Toast.makeText(context, "导出失败：写盘失败", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                LogBus.i("Backup", "备份已导出：${file.absolutePath}")
+                Toast.makeText(context, "备份已导出：${file.absolutePath}", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                LogBus.e("Backup", "备份导出失败：${e.message}")
+                Toast.makeText(context, "导出失败：${e.message}", Toast.LENGTH_LONG).show()
             }
-            // v0.170.0：原子写盘，写盘失败如实报错，不谎报已导出
-            if (!AtomicFile.writeText(file, json)) {
-                LogBus.e("Backup", "备份导出失败：写盘失败")
-                Toast.makeText(context, "导出失败：写盘失败", Toast.LENGTH_LONG).show()
-                return
-            }
-            LogBus.i("Backup", "备份已导出：${file.absolutePath}")
-            Toast.makeText(context, "备份已导出：${file.absolutePath}", Toast.LENGTH_LONG).show()
-        } catch (e: Exception) {
-            LogBus.e("Backup", "备份导出失败：${e.message}")
-            Toast.makeText(context, "导出失败：${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -225,22 +232,25 @@ fun SettingsScreen(
         }
     }
     // 恢复仍需用户选文件，保留 picker
+    // v0.186.0：importJson 改 suspend（新段走 suspend 写接口），这里进协程
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        try {
-            val text = context.contentResolver.openInputStream(uri)?.use { input ->
-                input.readBytes().toString(Charsets.UTF_8)
-            } ?: return@rememberLauncherForActivityResult
-            when (val r = BackupManager.importJson(context, text)) {
-                is BackupManager.RestoreResult.Ok ->
-                    Toast.makeText(context, "恢复成功", Toast.LENGTH_SHORT).show()
-                is BackupManager.RestoreResult.Failed ->
-                    Toast.makeText(context, "恢复失败：${r.reason}", Toast.LENGTH_LONG).show()
+        scope.launch {
+            try {
+                val text = context.contentResolver.openInputStream(uri)?.use { input ->
+                    input.readBytes().toString(Charsets.UTF_8)
+                } ?: return@launch
+                when (val r = BackupManager.importJson(context, text)) {
+                    is BackupManager.RestoreResult.Ok ->
+                        Toast.makeText(context, "恢复成功", Toast.LENGTH_SHORT).show()
+                    is BackupManager.RestoreResult.Failed ->
+                        Toast.makeText(context, "恢复失败：${r.reason}", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "恢复失败：${e.message}", Toast.LENGTH_LONG).show()
             }
-        } catch (e: Exception) {
-            Toast.makeText(context, "恢复失败：${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -702,7 +712,7 @@ fun SettingsScreen(
                         )
                     },
                 )
-                // v0.51.0：WebDAV 云同步（订阅/设置/播放记录一键备份恢复）
+                // v0.51.0：WebDAV 云同步；v0.186.0：范围是订阅、追剧、书架、音乐、直播，不含插件与设置
                 SettingsRow(
                     icon = Icons.Filled.CloudSync,
                     title = "WebDAV 云同步",
@@ -719,7 +729,7 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Backup,
                     title = "备份与恢复",
-                    subtitle = "导出 / 导入 JSON 备份文件",
+                    subtitle = "导出 / 导入 JSON 备份文件：订阅、追剧、书架、音乐、直播（不含插件、下载、播放历史与设置）",
                     onClick = { backupExpanded = !backupExpanded },
                     trailing = {
                         Icon(
@@ -741,7 +751,7 @@ fun SettingsScreen(
                         SettingsRow(
                             icon = Icons.Filled.Restore,
                             title = "从文件恢复",
-                            subtitle = "从 JSON 备份文件恢复订阅与规则",
+                            subtitle = "从 JSON 备份文件恢复订阅、当前规则、追剧、书架、音乐、直播",
                             onClick = { importLauncher.launch("application/json") },
                         )
                     }
@@ -891,6 +901,8 @@ fun SettingsScreen(
         var urlInput by remember { mutableStateOf(cfg.url) }
         var userInput by remember { mutableStateOf(cfg.user) }
         var passInput by remember { mutableStateOf(cfg.pass) }
+        // v0.186.0：局域网 http 风险确认，默认不勾选，勾选状态随配置持久化
+        var allowLanHttp by remember { mutableStateOf(cfg.allowLanHttp) }
         TechDialog(
             onDismissRequest = { if (!cloudWorking) showCloudDialog = false },
             title = "WebDAV 云同步",
@@ -926,6 +938,22 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !cloudWorking,
                     )
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = allowLanHttp,
+                            onCheckedChange = { allowLanHttp = it },
+                            enabled = !cloudWorking,
+                        )
+                        Text(
+                            "我知道风险：允许局域网 http（密码仅 Base64 编码传输）",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                     Row(modifier = Modifier.fillMaxWidth()) {
                         AppButton(
@@ -933,7 +961,19 @@ fun SettingsScreen(
                             variant = AppButtonVariant.Ghost,
                             enabled = !cloudWorking,
                             onClick = {
-                                CloudSyncManager.saveConfig(context, urlInput, userInput, passInput)
+                                // v0.186.0：地址非法不保存、不测试，直接报校验原因
+                                if (!CloudSyncManager.saveConfig(
+                                        context, urlInput, userInput, passInput, allowLanHttp,
+                                    )
+                                ) {
+                                    Toast.makeText(
+                                        context,
+                                        CloudSyncManager.validateUrl(urlInput.trim(), allowLanHttp)
+                                            ?: "地址无效",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                    return@AppButton
+                                }
                                 cloudWorking = true
                                 scope.launch {
                                     val err = CloudSyncManager.test(context)
@@ -952,17 +992,32 @@ fun SettingsScreen(
                             text = "备份到云端",
                             enabled = !cloudWorking,
                             onClick = {
-                                CloudSyncManager.saveConfig(context, urlInput, userInput, passInput)
-                                cloudWorking = true
-                                scope.launch {
-                                    val err = CloudSyncManager.backup(context)
-                                    cloudWorking = false
-                                    lastSyncText = CloudSyncManager.lastSyncText(context)
+                                if (!CloudSyncManager.saveConfig(
+                                        context, urlInput, userInput, passInput, allowLanHttp,
+                                    )
+                                ) {
                                     Toast.makeText(
                                         context,
-                                        err ?: "备份已上传",
-                                        Toast.LENGTH_SHORT,
+                                        CloudSyncManager.validateUrl(urlInput.trim(), allowLanHttp)
+                                            ?: "地址无效",
+                                        Toast.LENGTH_LONG,
                                     ).show()
+                                    return@AppButton
+                                }
+                                cloudWorking = true
+                                scope.launch {
+                                    when (val r = CloudSyncManager.backup(context)) {
+                                        is CloudSyncManager.SyncResult.Ok ->
+                                            Toast.makeText(context, "备份已上传", Toast.LENGTH_SHORT).show()
+                                        is CloudSyncManager.SyncResult.Failed ->
+                                            Toast.makeText(context, r.reason, Toast.LENGTH_LONG).show()
+                                        is CloudSyncManager.SyncResult.Conflict -> {
+                                            cloudConflictText = r.reason
+                                            showCloudConflict = true
+                                        }
+                                    }
+                                    cloudWorking = false
+                                    lastSyncText = CloudSyncManager.lastSyncText(context)
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -974,22 +1029,63 @@ fun SettingsScreen(
                         variant = AppButtonVariant.Ghost,
                         enabled = !cloudWorking,
                         onClick = {
-                            CloudSyncManager.saveConfig(context, urlInput, userInput, passInput)
-                            cloudWorking = true
-                            scope.launch {
-                                val err = CloudSyncManager.restore(context)
-                                cloudWorking = false
-                                lastSyncText = CloudSyncManager.lastSyncText(context)
+                            if (!CloudSyncManager.saveConfig(
+                                    context, urlInput, userInput, passInput, allowLanHttp,
+                                )
+                            ) {
                                 Toast.makeText(
                                     context,
-                                    err ?: "已从云端恢复",
-                                    Toast.LENGTH_SHORT,
+                                    CloudSyncManager.validateUrl(urlInput.trim(), allowLanHttp)
+                                        ?: "地址无效",
+                                    Toast.LENGTH_LONG,
                                 ).show()
+                                return@AppButton
+                            }
+                            cloudWorking = true
+                            scope.launch {
+                                when (val r = CloudSyncManager.restore(context)) {
+                                    is CloudSyncManager.SyncResult.Ok ->
+                                        Toast.makeText(context, "已从云端恢复", Toast.LENGTH_SHORT).show()
+                                    is CloudSyncManager.SyncResult.Failed ->
+                                        Toast.makeText(context, r.reason, Toast.LENGTH_LONG).show()
+                                    is CloudSyncManager.SyncResult.Conflict ->
+                                        Toast.makeText(context, r.reason, Toast.LENGTH_LONG).show()
+                                }
+                                cloudWorking = false
+                                lastSyncText = CloudSyncManager.lastSyncText(context)
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+        }
+    }
+
+    // v0.186.0：云端更新冲突确认（已有 TechDialog 机制，不新开入口）
+    if (showCloudConflict) {
+        TechDialog(
+            onDismissRequest = { if (!cloudWorking) showCloudConflict = false },
+            title = "云端备份更新",
+            confirmText = "仍要上传",
+            dismissText = "取消",
+            onConfirm = {
+                showCloudConflict = false
+                cloudWorking = true
+                scope.launch {
+                    when (val r = CloudSyncManager.backup(context, force = true)) {
+                        is CloudSyncManager.SyncResult.Ok ->
+                            Toast.makeText(context, "备份已上传", Toast.LENGTH_SHORT).show()
+                        is CloudSyncManager.SyncResult.Failed ->
+                            Toast.makeText(context, r.reason, Toast.LENGTH_LONG).show()
+                        is CloudSyncManager.SyncResult.Conflict ->
+                            Toast.makeText(context, r.reason, Toast.LENGTH_LONG).show()
+                    }
+                    cloudWorking = false
+                    lastSyncText = CloudSyncManager.lastSyncText(context)
+                }
+            },
+        ) {
+            Text(cloudConflictText, style = SoftType.Caption)
         }
     }
 

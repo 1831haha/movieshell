@@ -30,6 +30,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -84,6 +85,15 @@ fun DownloadScreen(
     var autoDeleteWatched by remember { mutableStateOf(DownloadSettings.autoDeleteWatched(context)) }
     var autoClearDays by remember { mutableStateOf(DownloadSettings.autoClearDays(context)) }
     var lowSpaceWarn by remember { mutableStateOf(DownloadSettings.lowSpaceWarn(context)) }
+
+    // v0.186.0 M19：进入下载页时对 DONE 做一次存在性扫描（唯一扫描点，启动时不重复做）；
+    // 文件已丢的任务降级为失败态，卡片上直接显示原因，不静默
+    LaunchedEffect(Unit) {
+        val missing = DownloadStore.verifyDoneFiles(context)
+        if (missing > 0) {
+            Toast.makeText(context, "$missing 个已完成任务的本地文件已丢失，已标为失败", Toast.LENGTH_LONG).show()
+        }
+    }
 
     if (confirmDelete != null) {
         // 两个都是真实动作（删文件 / 仅移除记录），放 content 内双按钮，保留原行为

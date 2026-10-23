@@ -66,6 +66,13 @@ object PlayerManager {
     /** v0.100.0：硬解失败自动 fallback 每次播放只做一次，play() 重置 */
     private var decoderFallbackDone: Boolean = false
 
+    /**
+     * v0.186.0 第 5 组：decoderFallbackDone 按地址重置，不在每次 play() 重置。
+     * 同一地址同内核重拉不再重复触发硬解 fallback，避免 Media3 与 libmpv
+     * 来回循环；换地址时重新给一次 fallback 机会。
+     */
+    private var decoderFallbackUrl: String = ""
+
     /** v0.100.0：m3u8/ts 磁盘缓存（App 级单例；同目录建多个 SimpleCache 会抛异常） */
     @Volatile
     private var videoCache: SimpleCache? = null
@@ -84,8 +91,13 @@ object PlayerManager {
                 if (app != null && MpvPluginLoader.isInstalled(app)) {
                     Toast.makeText(app, "硬解失败，已自动切换 libmpv 重播", Toast.LENGTH_SHORT).show()
                     LogBus.i("Player", "硬解初始化失败，自动切 libmpv 重播")
-                    EngineHost.setEngineOverride(PlayerEngine.LIBMPV)
+                    // v0.186.0 第 5 组：换内核三步固定——先取断点，再显式停
+                    // ExoPlayer，最后改覆盖起播；同时把已试过的 Media3 记入
+                    // EngineHost 的 fallback 记账，播放页换内核判定不再切回它。
                     val pos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L
+                    exoPlayer?.stop()
+                    EngineHost.markEngineTriedByFallback(PlayerEngine.MEDIA3)
+                    EngineHost.setEngineOverride(PlayerEngine.LIBMPV)
                     EngineHost.play(app, lastUrl, lastHeaders, pos, lastSubtitleUrl)
                     return
                 } else if (app != null) {
@@ -151,10 +163,14 @@ object PlayerManager {
             return
         }
         // v0.100.0：记下本次播放参数，供硬解失败自动切 libmpv 重播
+        // v0.186.0 第 5 组：decoderFallbackDone 只在地址变化时重置
         lastUrl = url
         lastHeaders = headers
         lastSubtitleUrl = subtitleUrl
-        decoderFallbackDone = false
+        if (url != decoderFallbackUrl) {
+            decoderFallbackUrl = url
+            decoderFallbackDone = false
+        }
         // v0.14.5：记录播放地址（截断防刷屏）
         LogBus.i("Player", "播放: ${url.take(120)}${if (url.length > 120) "..." else ""}")
         val rest = headers.toMutableMap()

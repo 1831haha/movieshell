@@ -181,10 +181,10 @@ object SubSiteStore {
             }
             if (changed) saveAll(context, repaired)
             Log.i(TAG, "v0.8.0 spider 站修复完成，changed=$changed")
+            // v0.186.0 M21：只在成功时置标记；异常时不清标记，下次启动可重试
+            prefs.edit().putBoolean(KEY_REPAIRED_080, true).apply()
         } catch (e: Exception) {
             Log.w(TAG, "spider 站修复异常", e)
-        } finally {
-            prefs.edit().putBoolean(KEY_REPAIRED_080, true).apply()
         }
     }
 
@@ -233,11 +233,55 @@ object SubSiteStore {
     fun getParses(context: Context, subUrl: String): List<ParseConfig> =
         getCached(context, subUrl)?.parses.orEmpty()
 
+    /**
+     * v0.186.0 M20：删订阅统一跑五项清理，与站源页 deleteItem() 共用禁用态与探活入口：
+     * 文件——订阅展开时下载的 drpy/py 规则、spider ext 文件（只删缓存会残留）；
+     * 禁用态——子站启停在缓存条目 enabled 里、订阅启停在站源页删条目时消失，
+     * SourceStateStore.disabled 与站源页 pins 只针对本地规则 tab，不含订阅条目；
+     * 探活——订阅本身与展开的各子站记录；置顶——订阅无 pins 条目；
+     * active——当前源指向被删订阅时清掉。共享 spider jar 多订阅可共用，不删；
+     * 规则文件是直接删除而非进回收站（TrashStore 只记订阅元数据），恢复订阅后刷新重下。
+     */
     fun removeCache(context: Context, subUrl: String) {
+        val cache = getCached(context, subUrl) ?: getCached(context, subUrl.trim())
         val all = loadAll(context).toMutableMap()
         if (all.remove(subUrl) != null) saveAll(context, all)
         // 当前源指向被删的订阅 -> 清掉
         if (getCurrent(context)?.subUrl == subUrl) clearCurrent(context)
+        if (cache == null) return
+        val trimmedUrl = subUrl.trim()
+        cache.sites.forEach { rec ->
+            if ((rec.kind == KIND_DRPY || rec.kind == KIND_PY) && rec.api.isNotBlank()) {
+                runCatching { File(rec.api).takeIf { it.isFile }?.delete() }
+            }
+            if (rec.kind == KIND_SPIDER && rec.origExt.isNotBlank() &&
+                !rec.origExt.trimStart().startsWith("{") &&
+                !rec.origExt.startsWith("http", ignoreCase = true)
+            ) {
+                runCatching {
+                    val url = resolveUrl(URI(trimmedUrl), rec.origExt)
+                    val rawName = url.substringAfterLast("/").substringBefore("?").take(40)
+                        .replace(Regex("[^a-zA-Z0-9._-]"), "_").ifBlank { "ext.json" }
+                    val safeKey = rec.key.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(30)
+                    File(File(context.filesDir, "spider"), "ext")
+                        .let { File(it, "${safeKey}_$rawName") }
+                        .takeIf { it.isFile }?.delete()
+                }
+            }
+        }
+        // subs 目录按订阅 id 前缀扫一遍：fileNameFor 一律以 subId 开头，
+        // 同订阅的引擎文件等残留一并清掉；本地规则文件名不带此前缀，不会误伤
+        val prefix = "${subId(trimmedUrl)}_"
+        listOf(File(StoragePaths.jsDir(context), "subs"), File(StoragePaths.pyDir(context), "subs"))
+            .forEach { dir ->
+                dir.listFiles { f -> f.isFile && f.name.startsWith(prefix) }.orEmpty()
+                    .forEach { runCatching { it.delete() } }
+            }
+        val probeKeys = buildList {
+            add("sub" to trimmedUrl)
+            cache.sites.forEach { add("sub" to siteKey(trimmedUrl, it)) }
+        }
+        SourceProbeStore.removeProbes(context, probeKeys)
     }
 
     fun setSiteEnabled(context: Context, subUrl: String, siteKey: String, enabled: Boolean) {
@@ -272,8 +316,18 @@ object SubSiteStore {
         val file = File(context.filesDir, FILE_NAME)
         if (!file.isFile) return emptyMap()
         return try {
-            json.decodeFromString(SubCacheFile.serializer(), file.readText())
-                .caches.associateBy { it.subUrl }
+            val decoded = json.decodeFromString(SubCacheFile.serializer(), file.readText())
+            // v0.187.0 H15：只对 drpy/py 规则的本地 api 做根拼回——落盘
+            // 的是逻辑根相对路径，存量绝对路径先剥已知根再拼当前根；
+            // CMS、type4、spider、unsupported 的 api 是接口地址或标识，原样不动
+            val caches = decoded.caches.map { cache ->
+                cache.copy(sites = cache.sites.map { rec ->
+                    if ((rec.kind == KIND_DRPY || rec.kind == KIND_PY) && rec.api.isNotBlank()) {
+                        rec.copy(api = StoragePaths.resolveStoredPath(context, rec.api))
+                    } else rec
+                })
+            }
+            caches.associateBy { it.subUrl }
         } catch (e: Exception) {
             Log.w(TAG, "读取 $FILE_NAME 失败", e)
             // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
@@ -284,9 +338,18 @@ object SubSiteStore {
 
     private fun saveAll(context: Context, all: Map<String, SubCache>) {
         try {
+            // v0.187.0 H15：落盘前只把 drpy/py 规则的本地 api 换算成逻辑根
+            // 相对路径（如 js/subs/xxx.js），内存态仍是当前根绝对路径
+            val stored = all.values.map { cache ->
+                cache.copy(sites = cache.sites.map { rec ->
+                    if ((rec.kind == KIND_DRPY || rec.kind == KIND_PY) && rec.api.isNotBlank()) {
+                        rec.copy(api = StoragePaths.toRelativePath(context, rec.api))
+                    } else rec
+                })
+            }
             val text = json.encodeToString(
                 SubCacheFile.serializer(),
-                SubCacheFile(all.values.toList()),
+                SubCacheFile(stored),
             )
             // v0.170.0：原子写盘
             AtomicFile.writeText(File(context.filesDir, FILE_NAME), text)
@@ -477,7 +540,7 @@ object SubSiteStore {
         if (prefs.getBoolean(KEY_REPAIRED_051, false)) return@withContext
         try {
             val all = loadAll(context)
-            if (all.isEmpty()) return@withContext
+            // v0.186.0 M21：空缓存直接走到底统一置标记，不再提前 return 漏掉标记
             var changed = false
             val repaired = all.mapValues { (subUrl, cache) ->
                 val baseUri = runCatching { URI(subUrl) }.getOrNull()
@@ -498,10 +561,10 @@ object SubSiteStore {
             }
             if (changed) saveAll(context, repaired)
             Log.i(TAG, "v0.5.1 升级修复完成，changed=$changed")
+            // v0.186.0 M21：只在成功时置标记；异常时不清标记，下次启动可重试
+            prefs.edit().putBoolean(KEY_REPAIRED_051, true).apply()
         } catch (e: Exception) {
             Log.w(TAG, "升级修复异常", e)
-        } finally {
-            prefs.edit().putBoolean(KEY_REPAIRED_051, true).apply()
         }
     }
 

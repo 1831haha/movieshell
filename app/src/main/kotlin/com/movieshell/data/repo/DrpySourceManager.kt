@@ -35,6 +35,29 @@ object DrpySourceManager {
     private var engine: V8DrpyEngine? = null
     private var activeName: String? = null
 
+    /**
+     * v0.187.0 H04：管理器层捕获到的失败原因（引擎抛异常时记，成功时清）。
+     * 引擎内部失败走引擎自身的 lastError；两者互补，适配器先读引擎、再读这里。
+     */
+    @Volatile
+    private var managerLastError: String? = null
+
+    /**
+     * v0.187.0 H04：适配器读失败原因的唯一入口（适配器是嵌套对象表达式，
+     * 直接读外层私有字段不可靠，走公开函数最稳）。
+     */
+    fun adapterLastError(): String? =
+        engine?.lastError ?: managerLastError ?: if (engine == null) "无激活规则" else null
+
+    /** 引擎抛异常时把原因记下来进 LogBus，不再静默吞成空结果。 */
+    private fun recordFailure(op: String, e: Throwable) {
+        val reason = engine?.lastError
+            ?: e.message?.takeIf { it.isNotBlank() }
+            ?: e::class.java.simpleName
+        managerLastError = reason
+        LogBus.e(TAG, "drpy $op 失败：$reason")
+    }
+
     /** init：主线程，幂等；首次把 assets/drpy/ 下规则拷贝到 StoragePaths.jsDir()（/storage/emulated/0/xiaying/js/)。 */
     fun init(context: Context) {
         if (initialized) return
@@ -112,32 +135,60 @@ object DrpySourceManager {
     }
 
     suspend fun home(): List<Vod> =
-        runCatching { engine?.home() }.getOrNull().orEmpty()
+        runCatching { engine?.home() }
+            .onFailure { recordFailure("home", it) }
+            .onSuccess { managerLastError = null }
+            .getOrNull().orEmpty()
 
     suspend fun categories(): List<CategoryType> =
-        runCatching { engine?.categories() }.getOrNull().orEmpty()
+        runCatching { engine?.categories() }
+            .onFailure { recordFailure("categories", it) }
+            .onSuccess { managerLastError = null }
+            .getOrNull().orEmpty()
 
     suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod> =
-        runCatching { engine?.category(tid, pg, filter) }.getOrNull().orEmpty()
+        runCatching { engine?.category(tid, pg, filter) }
+            .onFailure { recordFailure("category", it) }
+            .onSuccess { managerLastError = null }
+            .getOrNull().orEmpty()
 
     /** 当前规则某分类的筛选定义（无筛选时空列表）。 */
     suspend fun filters(tid: String): List<FilterGroup> =
-        runCatching { engine?.filters(tid) }.getOrNull().orEmpty()
+        runCatching { engine?.filters(tid) }
+            .onFailure { recordFailure("filters", it) }
+            .onSuccess { managerLastError = null }
+            .getOrNull().orEmpty()
 
     suspend fun detail(vodId: String): VodDetail =
-        runCatching { engine?.detail(vodId) }.getOrNull() ?: VodDetail(vodId = vodId)
+        runCatching { engine?.detail(vodId) }
+            .onFailure { recordFailure("detail", it) }
+            .onSuccess { managerLastError = null }
+            .getOrNull() ?: VodDetail(vodId = vodId)
 
     suspend fun search(wd: String): List<Vod> =
-        runCatching { engine?.search(wd) }.getOrNull().orEmpty()
+        runCatching { engine?.search(wd) }
+            .onFailure { recordFailure("search", it) }
+            .onSuccess { managerLastError = null }
+            .getOrNull().orEmpty()
 
     suspend fun playUrl(flag: String, id: String): String =
-        runCatching { engine?.play(flag, id) }.getOrNull().orEmpty()
+        runCatching { engine?.play(flag, id) }
+            .onFailure { recordFailure("play", it) }
+            .onSuccess { managerLastError = null }
+            .getOrNull().orEmpty()
 
     /**
      * 给 SiteRepository 构造器用的 DrpyEngine 适配器：
      * 委托给当前 active 规则的引擎；无 active 规则时返回空结果。
      */
     val drpyEngineAdapter: DrpyEngine = object : DrpyEngine {
+        /**
+         * v0.187.0 H04：透传当前引擎的失败原因；引擎为空时说明无激活规则，
+         * 空结果不是“源没数据”而是“没选规则”，调用方据此区分。
+         */
+        override val lastError: String?
+            get() = this@DrpySourceManager.adapterLastError()
+
         override fun loadRule(js: String) {
             Log.w(TAG, "适配器不支持直接 loadRule，请走 setActiveRule(name)")
         }

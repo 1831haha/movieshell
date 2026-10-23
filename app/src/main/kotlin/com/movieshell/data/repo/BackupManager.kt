@@ -2,7 +2,15 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import android.util.Log
+import com.movieshell.data.model.Chapter
+import com.movieshell.data.model.Novel
+import com.movieshell.data.model.ReadingProgress
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.SetSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -145,12 +153,64 @@ object ApiSourceStore {
  * 备份 JSON 格式：
  * { "version": 1,
  *   "apiSources": [ {"name","url","enabled"} ],
- *   "activeRules": {"drpy": "...", "py": "...", "php": null, "web": null} }
+ *   "activeRules": {"drpy": "...", "py": "...", "php": null, "web": null},
+ *   "follow": [ 追剧条目 ],
+ *   "bookshelf": {"novels": [{"novel", "chapters"}], "groups": [...],
+ *                "progress": [...], "bookmarks": [{"novelId", "items"}]},
+ *   "music": {"local": [...], "fav": [...], "playlists": [...]},
+ *   "live": {"sources": [...], "manual": [...], "favs": [...], "globalEpg": "..."} }
  *
  * - apiSources 来自 ApiSourceStore（持久化文件，不存在则用默认订阅）；
  * - activeRules.drpy/py 读各 Manager 现有 API（内存状态）；
  * - php/web 目前没有 active 概念，固定导出 null，恢复时忽略。
+ * - v0.186.0：第 7 组扩展——追剧、书架、音乐、直播各占独立一段，
+ *   不混进 apiSources；老备份（无这四段）照常导入，缺段即跳过。
+ * - 本备份不是全量：插件、下载任务、播放历史、各项设置不在其中，
+ *   导出页与同步文案不得宣称全量。
+ * - 恢复口径与主段一致：全部校验先行，缺字段的段整单拒绝；
+ *   写盘后回读比对，任何一段失败则主段与各段一并回滚。
+ * - 恢复的近似项（公开 API 无法原样还原的字段）：追剧的 updatedAt 与
+ *   集数变化计时、书架的 addedAt、歌单的 id 与创建时间、书架分组的 id
+ *   均在恢复时重算，条目内容与归属关系不变；书架分组名恢复时截断到
+ *   12 字（与分组创建口径一致）。
  */
+/** 书架备份里的单本：元信息 + 全量章节（含正文，恢复后可直接读）。 */
+@Serializable
+private data class BookshelfNovelEntry(
+    val novel: Novel = Novel(),
+    val chapters: List<Chapter> = emptyList(),
+)
+
+/** 书架备份里的单本书签组：同书多条书签按创建时间升序排列后恢复。 */
+@Serializable
+private data class BookmarkEntry(
+    val novelId: String = "",
+    val items: List<Bookmark> = emptyList(),
+)
+
+/** 校验通过的书架段（内部用，不进备份格式）。 */
+private data class BookshelfParsed(
+    val novels: List<BookshelfNovelEntry>,
+    val groups: List<BookGroup>,
+    val progress: List<ReadingProgress>,
+    val bookmarks: List<BookmarkEntry>,
+)
+
+/** 校验通过的音乐段（内部用）。 */
+private data class MusicParsed(
+    val local: List<MusicApi.Track>,
+    val fav: List<MusicApi.Track>,
+    val playlists: List<MusicPlaylist>,
+)
+
+/** 校验通过的直播段（内部用）。 */
+private data class LiveParsed(
+    val sources: List<LiveSource>,
+    val manual: List<LiveChannel>,
+    val favs: Set<String>,
+    val globalEpg: String,
+)
+
 object BackupManager {
     private const val TAG = "BackupManager"
 
@@ -170,14 +230,22 @@ object BackupManager {
     /**
      * 导出当前配置为 JSON 字符串。
      * v0.170.0：本地订阅文件已损坏时拒绝导出——空表绝不允许再覆盖云端好备份。
+     * v0.186.0：suspend——追剧、书架、音乐三段走各 store 的 suspend 读接口；
+     * 直播段读 live_prefs（订阅、手动频道、收藏、全局节目单地址）。
      */
-    fun exportJson(context: Context): ExportResult {
+    suspend fun exportJson(context: Context): ExportResult {
         DrpySourceManager.init(context)
         PySourceManager.init(context)
         if (ApiSourceStore.isCorrupt(context)) {
             Log.w(TAG, "本地订阅文件已损坏，拒绝导出")
             return ExportResult.Failed("本地订阅文件已损坏，拒绝导出（避免覆盖云端好备份）")
         }
+        val live = readLiveSection(context)
+            ?: return ExportResult.Failed("直播配置读取失败，拒绝导出（避免覆盖云端好备份）")
+        // builder lambda 不是 suspend，suspend 段先在外面算好。
+        val followSection = encodeList(FollowStore.readSync(context), FollowItem.serializer())
+        val bookshelfSection = buildBookshelfSection(context)
+        val musicSection = buildMusicSection(context)
         val root = buildJsonObject {
             put("version", BACKUP_VERSION)
             putJsonArray("apiSources") {
@@ -198,12 +266,54 @@ object BackupManager {
                 put("php", null as String?)
                 put("web", null as String?)
             }
+            put("follow", followSection)
+            put("bookshelf", bookshelfSection)
+            put("music", musicSection)
+            put("live", live)
         }
         return ExportResult.Ok(root.toString())
     }
 
+    /** 把一列可序列化条目编码为 JSON 数组（编码异常直接抛出，由导出调用方兜底）。 */
+    private fun <T> encodeList(
+        list: List<T>,
+        serializer: kotlinx.serialization.KSerializer<T>,
+    ): kotlinx.serialization.json.JsonElement {
+        return Json.parseToJsonElement(
+            Json.encodeToString(ListSerializer(serializer), list),
+        )
+    }
+
+    private suspend fun buildBookshelfSection(context: Context): kotlinx.serialization.json.JsonElement {
+        val novels = NovelStore.list(context)
+        val entries = novels.map { novel ->
+            BookshelfNovelEntry(novel, NovelStore.chapters(context, novel.id))
+        }
+        val progress = novels.mapNotNull { ReadingProgressStore.load(context, it.id) }
+        val bookmarks = novels.mapNotNull { novel ->
+            val items = BookmarkStore.list(context, novel.id)
+            if (items.isEmpty()) null
+            else BookmarkEntry(novel.id, items.sortedBy { it.createdAt })
+        }
+        return buildJsonObject {
+            put("novels", encodeList(entries, BookshelfNovelEntry.serializer()))
+            put("groups", encodeList(BookshelfGroupStore.list(context), BookGroup.serializer()))
+            put("progress", encodeList(progress, ReadingProgress.serializer()))
+            put("bookmarks", encodeList(bookmarks, BookmarkEntry.serializer()))
+        }
+    }
+
+    private suspend fun buildMusicSection(context: Context): kotlinx.serialization.json.JsonElement {
+        return buildJsonObject {
+            put("local", encodeList(MusicStore.localList(context), MusicApi.Track.serializer()))
+            put("fav", encodeList(MusicStore.favList(context), MusicApi.Track.serializer()))
+            put("playlists", encodeList(MusicStore.playlistList(context), MusicPlaylist.serializer()))
+        }
+    }
+
     /**
-     * 从 JSON 恢复：覆盖写入接口站源文件 + 切换 drpy/py 的 active 规则。
+     * 从 JSON 恢复：覆盖写入接口站源文件 + 切换 drpy/py 的 active 规则
+     * + 恢复备份里带有的追剧、书架、音乐、直播段。
      * 规则文件在磁盘上不存在时跳过（不报错，Manager 本来也会拒绝不存在的规则）。
      *
      * v0.170.0 恢复链（四段，缺一段都不算修好）：
@@ -213,8 +323,11 @@ object BackupManager {
      * 2. 快照——恢复前先存当前订阅文件字节 + drpy/py 当前规则。
      * 3. 写盘后回读校验——原子写盘返回失败、或回读条数对不上，都算失败。
      * 4. 回滚——写盘或切规则任何一步失败，文件与规则双双还原，再返回失败原因。
+     * v0.186.0：上述口径原样扩到四个新段——新段先全部校验（缺关键字段
+     * 整单拒绝，当前数据一动不动），写盘后回读比对，任一段失败则主段
+     * 与各段一并回滚；老备份无新段时只恢复主段。
      */
-    fun importJson(context: Context, json: String): RestoreResult {
+    suspend fun importJson(context: Context, json: String): RestoreResult {
         val root = try {
             Json.parseToJsonElement(json).jsonObject
         } catch (e: Exception) {
@@ -272,18 +385,41 @@ object BackupManager {
         } catch (e: Exception) {
             return RestoreResult.Failed("备份 activeRules.py 格式不对，拒绝恢复（当前数据未动）")
         }
-        // ---- 2. 快照当前状态（回滚用） ----
+        // ---- 1b. 新段校验先行（缺段=老备份，跳过；有段但格式/字段不对=整单拒绝） ----
+        // parse* 只在段存在时调用，返回 null 即格式或关键字段不对。
+        val followItems: List<FollowItem>? = if (root["follow"] == null) null else {
+            parseFollowSection(root["follow"])
+                ?: return RestoreResult.Failed("备份追剧段格式不对，拒绝恢复（当前数据未动）")
+        }
+        val bookshelf: BookshelfParsed? = if (root["bookshelf"] == null) null else {
+            parseBookshelfSection(root["bookshelf"])
+                ?: return RestoreResult.Failed("备份书架段格式不对，拒绝恢复（当前数据未动）")
+        }
+        val music: MusicParsed? = if (root["music"] == null) null else {
+            parseMusicSection(root["music"])
+                ?: return RestoreResult.Failed("备份音乐段格式不对，拒绝恢复（当前数据未动）")
+        }
+        val live: LiveParsed? = if (root["live"] == null) null else {
+            parseLiveSection(root["live"])
+                ?: return RestoreResult.Failed("备份直播段格式不对，拒绝恢复（当前数据未动）")
+        }
+        // ---- 2. 快照当前状态（回滚用；只快照备份里带有的段） ----
         DrpySourceManager.init(context)
         PySourceManager.init(context)
         val prevBytes = ApiSourceStore.readRawBytes(context)
         val prevDrpy = DrpySourceManager.activeRuleName()
         val prevPy = PySourceManager.activeRuleName()
+        val prevFollow = if (followItems != null) FollowStore.readSync(context) else null
+        val prevBookshelf = if (bookshelf != null) snapshotBookshelf(context) else null
+        val prevMusic = if (music != null) snapshotMusic(context) else null
+        val prevLiveRaw = if (live != null) readLivePrefsRaw(context) else null
         fun rollback(): Boolean {
             var ok = ApiSourceStore.restoreRaw(context, prevBytes)
             runCatching { DrpySourceManager.setActiveRule(prevDrpy) }.onFailure { ok = false }
             runCatching { PySourceManager.setActiveRule(prevPy) }.onFailure { ok = false }
             return ok
         }
+
         // ---- 3. 写盘 + 回读校验 ----
         if (!ApiSourceStore.save(context, apiSources)) {
             return RestoreResult.Failed("写入订阅文件失败，当前数据未动")
@@ -314,8 +450,412 @@ object BackupManager {
             rollback()
             return RestoreResult.Failed("切换当前规则失败，已还原：${e.message}")
         }
+        // ---- 5. 新段写盘 + 回读比对（任一段失败则主段与已写段一并还原；
+        // 未动过的段不重写，避免公开 API 恢复重算时间戳误伤原数据） ----
+        var extraFailed = ""
+        var wroteFollow = false
+        var wroteBookshelf = false
+        var wroteMusic = false
+        var wroteLive = false
+        if (followItems != null) {
+            if (restoreFollow(context, followItems)) wroteFollow = true
+            else extraFailed = "追剧段写入失败"
+        }
+        if (extraFailed.isEmpty() && bookshelf != null) {
+            if (restoreBookshelf(context, bookshelf)) wroteBookshelf = true
+            else extraFailed = "书架段写入失败"
+        }
+        if (extraFailed.isEmpty() && music != null) {
+            if (restoreMusic(context, music)) wroteMusic = true
+            else extraFailed = "音乐段写入失败"
+        }
+        if (extraFailed.isEmpty() && live != null) {
+            if (restoreLive(context, live)) wroteLive = true
+            else extraFailed = "直播段写入失败"
+        }
+        if (extraFailed.isEmpty() && !verifyExtras(context, followItems, bookshelf, music, live)) {
+            extraFailed = "写入后校验失败（回读与备份对不上）"
+        }
+        if (extraFailed.isNotEmpty()) {
+            Log.w(TAG, "新段恢复失败，已还原：$extraFailed")
+            rollback()
+            runCatching { if (wroteFollow && prevFollow != null) restoreFollow(context, prevFollow) }
+            runCatching { if (wroteBookshelf && prevBookshelf != null) restoreBookshelf(context, prevBookshelf) }
+            runCatching { if (wroteMusic && prevMusic != null) restoreMusic(context, prevMusic) }
+            runCatching {
+                if (wroteLive && prevLiveRaw != null) {
+                    writeLivePrefsRaw(context, prevLiveRaw)
+                    val snap = decodeLivePrefs(prevLiveRaw)
+                    if (snap != null) syncLiveFlow(context, snap.first, snap.second)
+                }
+            }
+            return RestoreResult.Failed("$extraFailed，已还原")
+        }
         // php / web：当前版本无 active 概念，恢复时忽略
         return RestoreResult.Ok
+    }
+
+    // ---------- 新段：解析（只校验，不写盘；返回 null = 格式或关键字段不对） ----------
+
+    private fun <T> decodeListOrNull(
+        el: JsonElement,
+        serializer: kotlinx.serialization.KSerializer<T>,
+    ): List<T>? {
+        return runCatching {
+            Json.decodeFromString(ListSerializer(serializer), el.toString())
+        }.getOrNull()
+    }
+
+    private fun parseFollowSection(el: JsonElement): List<FollowItem>? {
+        val list = decodeListOrNull(el, FollowItem.serializer()) ?: return null
+        if (list.any { it.id.isBlank() || it.vodId.isBlank() || it.name.isBlank() }) return null
+        if (list.map { it.id }.toSet().size != list.size) return null
+        return list
+    }
+
+    private fun parseBookshelfSection(el: JsonElement): BookshelfParsed? {
+        val obj = runCatching { el.jsonObject }.getOrNull() ?: return null
+        val novelsEl = obj["novels"] ?: return null
+        val groupsEl = obj["groups"] ?: return null
+        val progressEl = obj["progress"] ?: return null
+        val bookmarksEl = obj["bookmarks"] ?: return null
+        val novels = decodeListOrNull(novelsEl, BookshelfNovelEntry.serializer()) ?: return null
+        val groups = decodeListOrNull(groupsEl, BookGroup.serializer()) ?: return null
+        val progress = decodeListOrNull(progressEl, ReadingProgress.serializer()) ?: return null
+        val bookmarks = decodeListOrNull(bookmarksEl, BookmarkEntry.serializer()) ?: return null
+        if (novels.any { it.novel.id.isBlank() || it.novel.title.isBlank() }) return null
+        if (novels.map { it.novel.id }.toSet().size != novels.size) return null
+        if (groups.any { it.id.isBlank() || it.name.isBlank() }) return null
+        if (groups.map { it.id }.toSet().size != groups.size) return null
+        if (progress.any { it.novelId.isBlank() }) return null
+        if (bookmarks.any { it.novelId.isBlank() }) return null
+        return BookshelfParsed(novels, groups, progress, bookmarks)
+    }
+
+    private fun parseMusicSection(el: JsonElement): MusicParsed? {
+        val obj = runCatching { el.jsonObject }.getOrNull() ?: return null
+        val localEl = obj["local"] ?: return null
+        val favEl = obj["fav"] ?: return null
+        val playlistsEl = obj["playlists"] ?: return null
+        val local = decodeListOrNull(localEl, MusicApi.Track.serializer()) ?: return null
+        val fav = decodeListOrNull(favEl, MusicApi.Track.serializer()) ?: return null
+        val playlists = decodeListOrNull(playlistsEl, MusicPlaylist.serializer()) ?: return null
+        if (local.any { it.id.isBlank() }) return null
+        if (fav.any { it.id.isBlank() }) return null
+        if (local.map { it.id }.toSet().size != local.size) return null
+        if (fav.map { it.id }.toSet().size != fav.size) return null
+        if (playlists.any { it.name.isBlank() }) return null
+        if (playlists.map { it.name }.toSet().size != playlists.size) return null
+        if (playlists.flatMap { it.tracks }.any { it.id.isBlank() }) return null
+        return MusicParsed(local, fav, playlists)
+    }
+
+    private fun parseLiveSection(el: JsonElement): LiveParsed? {
+        val obj = runCatching { el.jsonObject }.getOrNull() ?: return null
+        val sourcesEl = obj["sources"] ?: return null
+        val manualEl = obj["manual"] ?: return null
+        val favsEl = obj["favs"] ?: return null
+        val epgEl = obj["globalEpg"] ?: return null
+        val sources = decodeListOrNull(sourcesEl, LiveSource.serializer()) ?: return null
+        val manual = decodeListOrNull(manualEl, LiveChannel.serializer()) ?: return null
+        val favs = runCatching {
+            Json.decodeFromString(SetSerializer(String.serializer()), favsEl.toString())
+        }.getOrNull() ?: return null
+        val prim = epgEl as? kotlinx.serialization.json.JsonPrimitive ?: return null
+        if (!prim.isString) return null
+        if (sources.any { it.name.isBlank() || it.url.isBlank() }) return null
+        if (sources.any { it.type != LiveSource.M3U_URL && it.type != LiveSource.LOCAL_FILE }) return null
+        if (sources.map { it.url }.toSet().size != sources.size) return null
+        if (manual.any { it.id.isBlank() || it.name.isBlank() || it.url.isBlank() }) return null
+        if (favs.any { it.isBlank() }) return null
+        return LiveParsed(sources, manual, favs, prim.content)
+    }
+
+    // ---------- 新段：直播 prefs 直读直写 ----------
+    // LiveStore 未公开手动频道与收藏的读接口，备份只能按它落盘的键直读；
+    // 键名须与 LiveStore 保持一致，LiveStore 改键时这里必须同步改。
+
+    private const val LIVE_PREFS = "live_prefs"
+    private const val LIVE_KEY_SOURCES = "live_sources"
+    private const val LIVE_KEY_MANUAL = "live_manual"
+    private const val LIVE_KEY_FAVS = "live_favs"
+    private const val LIVE_KEY_EPG = "live_global_epg"
+
+    private fun readLivePrefsRaw(context: Context): Map<String, String?> {
+        val prefs = context.getSharedPreferences(LIVE_PREFS, Context.MODE_PRIVATE)
+        return mapOf(
+            LIVE_KEY_SOURCES to prefs.getString(LIVE_KEY_SOURCES, null),
+            LIVE_KEY_MANUAL to prefs.getString(LIVE_KEY_MANUAL, null),
+            LIVE_KEY_FAVS to prefs.getString(LIVE_KEY_FAVS, null),
+            LIVE_KEY_EPG to prefs.getString(LIVE_KEY_EPG, null),
+        )
+    }
+
+    private fun writeLivePrefsRaw(context: Context, raw: Map<String, String?>): Boolean {
+        val editor = context.getSharedPreferences(LIVE_PREFS, Context.MODE_PRIVATE).edit()
+        raw.forEach { (key, value) ->
+            if (value == null) editor.remove(key) else editor.putString(key, value)
+        }
+        return editor.commit()
+    }
+
+    /** 从 prefs 原串解出（订阅，全局节目单地址）；解不出返回 null。 */
+    private fun decodeLivePrefs(raw: Map<String, String?>): Pair<List<LiveSource>, String>? {
+        val sources = runCatching {
+            Json.decodeFromString(
+                ListSerializer(LiveSource.serializer()),
+                raw[LIVE_KEY_SOURCES] ?: "[]",
+            )
+        }.getOrNull() ?: return null
+        return sources to (raw[LIVE_KEY_EPG].orEmpty())
+    }
+
+    private fun readLiveSection(context: Context): JsonElement? {
+        LiveStore.init(context)
+        val raw = readLivePrefsRaw(context)
+        val sources = runCatching {
+            Json.decodeFromString(
+                ListSerializer(LiveSource.serializer()),
+                raw[LIVE_KEY_SOURCES] ?: "[]",
+            )
+        }.getOrNull() ?: return null
+        val manual = runCatching {
+            Json.decodeFromString(
+                ListSerializer(LiveChannel.serializer()),
+                raw[LIVE_KEY_MANUAL] ?: "[]",
+            )
+        }.getOrNull() ?: return null
+        val favs = runCatching {
+            Json.decodeFromString(
+                SetSerializer(String.serializer()),
+                raw[LIVE_KEY_FAVS] ?: "[]",
+            )
+        }.getOrNull() ?: return null
+        return buildJsonObject {
+            put("sources", encodeList(sources, LiveSource.serializer()))
+            put("manual", encodeList(manual, LiveChannel.serializer()))
+            put(
+                "favs",
+                Json.parseToJsonElement(
+                    Json.encodeToString(SetSerializer(String.serializer()), favs),
+                ),
+            )
+            put("globalEpg", raw[LIVE_KEY_EPG].orEmpty())
+        }
+    }
+
+    /** 直播内存态同步：全局节目单地址与订阅列表走公开 API，手动频道与收藏
+     * 下次直播刷新时从 prefs 读入（LiveStore 刷新即读手动频道与收藏）。 */
+    private fun syncLiveFlow(context: Context, sources: List<LiveSource>, globalEpg: String) {
+        LiveStore.init(context)
+        LiveStore.setGlobalEpgUrl(context, globalEpg)
+        LiveStore.sources.value.forEach { LiveStore.removeSource(context, it.url) }
+        sources.forEach { LiveStore.addSource(context, it.name, it.type, it.url) }
+    }
+
+    // ---------- 新段：快照 ----------
+
+    private suspend fun snapshotBookshelf(context: Context): BookshelfParsed {
+        val novels = NovelStore.list(context)
+        val entries = novels.map { BookshelfNovelEntry(it, NovelStore.chapters(context, it.id)) }
+        val progress = novels.mapNotNull { ReadingProgressStore.load(context, it.id) }
+        val bookmarks = novels.mapNotNull { novel ->
+            val items = BookmarkStore.list(context, novel.id)
+            if (items.isEmpty()) null
+            else BookmarkEntry(novel.id, items.sortedBy { it.createdAt })
+        }
+        return BookshelfParsed(entries, BookshelfGroupStore.list(context), progress, bookmarks)
+    }
+
+    private suspend fun snapshotMusic(context: Context): MusicParsed {
+        return MusicParsed(
+            MusicStore.localList(context),
+            MusicStore.favList(context),
+            MusicStore.playlistList(context),
+        )
+    }
+
+    // ---------- 新段：恢复（返回是否全部写成功；调用方负责回滚） ----------
+
+    private suspend fun restoreFollow(context: Context, items: List<FollowItem>): Boolean {
+        return try {
+            FollowStore.readSync(context).forEach { FollowStore.unfollow(context, it.id) }
+            var ok = true
+            items.asReversed().forEach { if (!FollowStore.follow(context, it)) ok = false }
+            ok
+        } catch (e: Exception) {
+            Log.w(TAG, "追剧段恢复失败", e)
+            false
+        }
+    }
+
+    private suspend fun restoreBookshelf(context: Context, parsed: BookshelfParsed): Boolean {
+        return try {
+            NovelStore.list(context).forEach { old ->
+                NovelStore.removeNovel(context, old.id)
+                ReadingProgressStore.clear(context, old.id)
+                BookmarkStore.list(context, old.id).forEach { mark ->
+                    BookmarkStore.remove(context, old.id, mark.createdAt)
+                }
+            }
+            BookshelfGroupStore.list(context).forEach { BookshelfGroupStore.delete(context, it.id) }
+            val restoredIds = parsed.novels.map { it.novel.id }.toSet()
+            var ok = true
+            parsed.novels.asReversed().forEach { entry ->
+                if (!NovelStore.addNovel(context, entry.novel, entry.chapters)) ok = false
+                NovelStore.updateProgress(context, entry.novel.id, entry.novel.lastReadChapter)
+            }
+            parsed.progress.forEach { ReadingProgressStore.save(context, it) }
+            parsed.bookmarks.forEach { group ->
+                group.items.sortedBy { it.createdAt }.forEach { mark ->
+                    BookmarkStore.add(context, group.novelId, mark)
+                }
+            }
+            parsed.groups.forEach { group ->
+                val created = BookshelfGroupStore.create(context, group.name)
+                if (created.id.isBlank()) {
+                    ok = false
+                } else {
+                    BookshelfGroupStore.addNovels(
+                        context,
+                        created.id,
+                        group.novelIds.filter { it in restoredIds },
+                    )
+                }
+            }
+            ok
+        } catch (e: Exception) {
+            Log.w(TAG, "书架段恢复失败", e)
+            false
+        }
+    }
+
+    private suspend fun restoreMusic(context: Context, parsed: MusicParsed): Boolean {
+        return try {
+            MusicStore.localList(context).forEach { MusicStore.removeLocal(context, it.id) }
+            parsed.local.asReversed().forEach { MusicStore.addLocal(context, it) }
+            val curFav = MusicStore.favList(context)
+            val wantFavIds = parsed.fav.map { it.id }.toSet()
+            curFav.filterNot { it.id in wantFavIds }.forEach { MusicStore.toggleFav(context, it) }
+            parsed.fav.filterNot { track ->
+                curFav.any { it.id == track.id }
+            }.forEach { MusicStore.toggleFav(context, it) }
+            MusicStore.playlistList(context).forEach { MusicStore.deletePlaylist(context, it.id) }
+            var ok = true
+            parsed.playlists.asReversed().forEach { playlist ->
+                val created = MusicStore.createPlaylist(context, playlist.name)
+                if (created == null) {
+                    ok = false
+                } else {
+                    playlist.tracks.forEach { track ->
+                        if (!MusicStore.addToPlaylist(context, created.id, track)) ok = false
+                    }
+                }
+            }
+            ok
+        } catch (e: Exception) {
+            Log.w(TAG, "音乐段恢复失败", e)
+            false
+        }
+    }
+
+    private fun restoreLive(context: Context, parsed: LiveParsed): Boolean {
+        return try {
+            val raw = mapOf(
+                LIVE_KEY_SOURCES to Json.encodeToString(
+                    ListSerializer(LiveSource.serializer()),
+                    parsed.sources,
+                ),
+                LIVE_KEY_MANUAL to Json.encodeToString(
+                    ListSerializer(LiveChannel.serializer()),
+                    parsed.manual,
+                ),
+                LIVE_KEY_FAVS to Json.encodeToString(
+                    SetSerializer(String.serializer()),
+                    parsed.favs,
+                ),
+                LIVE_KEY_EPG to parsed.globalEpg,
+            )
+            if (!writeLivePrefsRaw(context, raw)) return false
+            syncLiveFlow(context, parsed.sources, parsed.globalEpg)
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "直播段恢复失败", e)
+            false
+        }
+    }
+
+    // ---------- 新段：回读比对 ----------
+
+    private suspend fun verifyExtras(
+        context: Context,
+        followItems: List<FollowItem>?,
+        bookshelf: BookshelfParsed?,
+        music: MusicParsed?,
+        live: LiveParsed?,
+    ): Boolean {
+        if (followItems != null) {
+            if (FollowStore.readSync(context).map { it.id }.toSet() != followItems.map { it.id }.toSet()) {
+                return false
+            }
+        }
+        if (bookshelf != null) {
+            if (NovelStore.list(context).map { it.id }.toSet() !=
+                bookshelf.novels.map { it.novel.id }.toSet()
+            ) {
+                return false
+            }
+            if (BookshelfGroupStore.list(context).size != bookshelf.groups.size) return false
+            bookshelf.progress.forEach { want ->
+                val got = ReadingProgressStore.load(context, want.novelId) ?: return false
+                if (got.chapterIndex != want.chapterIndex || got.charOffset != want.charOffset) {
+                    return false
+                }
+            }
+        }
+        if (music != null) {
+            if (MusicStore.localList(context).map { it.id }.toSet() !=
+                music.local.map { it.id }.toSet()
+            ) {
+                return false
+            }
+            if (MusicStore.favList(context).map { it.id }.toSet() !=
+                music.fav.map { it.id }.toSet()
+            ) {
+                return false
+            }
+            if (MusicStore.playlistList(context).map { it.name }.toSet() !=
+                music.playlists.map { it.name }.toSet()
+            ) {
+                return false
+            }
+        }
+        if (live != null) {
+            val raw = readLivePrefsRaw(context)
+            val sources = runCatching {
+                Json.decodeFromString(
+                    ListSerializer(LiveSource.serializer()),
+                    raw[LIVE_KEY_SOURCES] ?: "[]",
+                )
+            }.getOrNull() ?: return false
+            val manual = runCatching {
+                Json.decodeFromString(
+                    ListSerializer(LiveChannel.serializer()),
+                    raw[LIVE_KEY_MANUAL] ?: "[]",
+                )
+            }.getOrNull() ?: return false
+            val favs = runCatching {
+                Json.decodeFromString(
+                    SetSerializer(String.serializer()),
+                    raw[LIVE_KEY_FAVS] ?: "[]",
+                )
+            }.getOrNull() ?: return false
+            if (sources != live.sources) return false
+            if (manual != live.manual) return false
+            if (favs != live.favs) return false
+            if (raw[LIVE_KEY_EPG].orEmpty() != live.globalEpg) return false
+        }
+        return true
     }
 
     /**

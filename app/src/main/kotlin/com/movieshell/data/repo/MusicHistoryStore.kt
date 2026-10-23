@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.movieshell.data.repo.MusicApi.Track
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -26,6 +28,11 @@ object MusicHistoryStore {
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    /**
+     * v0.186.0：搜索历史与播放历史两文件共用同一把锁；清空删文件也在锁内，不与写盘竞态。
+     */
+    private val mutex = Mutex()
+
     private fun readStrings(f: File): List<String> = runCatching {
         if (!f.isFile) return emptyList()
         // 读侧去重保序：旧文件/并发写留下的重复词会让 UI 的 raw-string lazy key 撞车
@@ -46,68 +53,87 @@ object MusicHistoryStore {
         AtomicFile.preserveCorrupt(f)
     }.getOrDefault(emptyList())
 
+    /** v0.186.0：写盘成败如实返回，失败记 LogBus 日志，不再静默吞掉。 */
+    private fun writeStrings(f: File, list: List<String>): Boolean {
+        val ok = runCatching {
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(f, json.encodeToString(ListSerializer(String.serializer()), list))
+        }.onFailure { Log.w(TAG, "搜索历史写入失败", it) }.getOrDefault(false)
+        if (!ok) LogBus.w(TAG, "搜索历史写入失败：${f.name}")
+        return ok
+    }
+
+    private fun writeTracks(f: File, list: List<Track>): Boolean {
+        val ok = runCatching {
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(f, json.encodeToString(ListSerializer(Track.serializer()), list))
+        }.onFailure { Log.w(TAG, "播放历史写入失败", it) }.getOrDefault(false)
+        if (!ok) LogBus.w(TAG, "播放历史写入失败：${f.name}")
+        return ok
+    }
+
     // ---- 搜索历史 ----
 
-    suspend fun searchHistory(context: Context): List<String> = withContext(Dispatchers.IO) {
-        readStrings(File(context.filesDir, SEARCH_FILE))
-    }
-
-    suspend fun addSearch(context: Context, query: String) = withContext(Dispatchers.IO) {
-        val q = query.trim()
-        if (q.isEmpty()) return@withContext
-        val f = File(context.filesDir, SEARCH_FILE)
-        val cur = (listOf(q) + readStrings(f).filterNot { it == q }).take(MAX_SEARCH)
-        runCatching {
-            // v0.170.0：原子写盘
-            AtomicFile.writeText(f, json.encodeToString(ListSerializer(String.serializer()), cur))
+    suspend fun searchHistory(context: Context): List<String> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            readStrings(File(context.filesDir, SEARCH_FILE))
         }
-            .onFailure { Log.w(TAG, "搜索历史写入失败", it) }
     }
 
-    suspend fun removeSearch(context: Context, query: String) = withContext(Dispatchers.IO) {
-        val f = File(context.filesDir, SEARCH_FILE)
-        val cur = readStrings(f).filterNot { it == query }
-        runCatching {
-            // v0.170.0：原子写盘
-            AtomicFile.writeText(f, json.encodeToString(ListSerializer(String.serializer()), cur))
+    suspend fun addSearch(context: Context, query: String) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val q = query.trim()
+            if (q.isEmpty()) return@withContext
+            val f = File(context.filesDir, SEARCH_FILE)
+            val cur = (listOf(q) + readStrings(f).filterNot { it == q }).take(MAX_SEARCH)
+            writeStrings(f, cur)
         }
-            .onFailure { Log.w(TAG, "搜索历史写入失败", it) }
     }
 
-    suspend fun clearSearch(context: Context) = withContext(Dispatchers.IO) {
-        runCatching { File(context.filesDir, SEARCH_FILE).delete() }
-            .onFailure { Log.w(TAG, "搜索历史清空失败", it) }
+    suspend fun removeSearch(context: Context, query: String) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val f = File(context.filesDir, SEARCH_FILE)
+            val cur = readStrings(f).filterNot { it == query }
+            writeStrings(f, cur)
+        }
+    }
+
+    suspend fun clearSearch(context: Context) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            runCatching { File(context.filesDir, SEARCH_FILE).delete() }
+                .onFailure { Log.w(TAG, "搜索历史清空失败", it) }
+        }
     }
 
     // ---- 播放历史 ----
 
-    suspend fun playHistory(context: Context): List<Track> = withContext(Dispatchers.IO) {
-        readTracks(File(context.filesDir, PLAY_FILE))
+    suspend fun playHistory(context: Context): List<Track> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            readTracks(File(context.filesDir, PLAY_FILE))
+        }
     }
 
     /** 播歌时调：去重后放最前。 */
-    suspend fun recordPlay(context: Context, track: Track) = withContext(Dispatchers.IO) {
-        val f = File(context.filesDir, PLAY_FILE)
-        val cur = (listOf(track) + readTracks(f).filterNot { it.id == track.id }).take(MAX_PLAY)
-        runCatching {
-            // v0.170.0：原子写盘
-            AtomicFile.writeText(f, json.encodeToString(ListSerializer(Track.serializer()), cur))
+    suspend fun recordPlay(context: Context, track: Track) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val f = File(context.filesDir, PLAY_FILE)
+            val cur = (listOf(track) + readTracks(f).filterNot { it.id == track.id }).take(MAX_PLAY)
+            writeTracks(f, cur)
         }
-            .onFailure { Log.w(TAG, "播放历史写入失败", it) }
     }
 
-    suspend fun removePlay(context: Context, id: String) = withContext(Dispatchers.IO) {
-        val f = File(context.filesDir, PLAY_FILE)
-        val cur = readTracks(f).filterNot { it.id == id }
-        runCatching {
-            // v0.170.0：原子写盘
-            AtomicFile.writeText(f, json.encodeToString(ListSerializer(Track.serializer()), cur))
+    suspend fun removePlay(context: Context, id: String) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val f = File(context.filesDir, PLAY_FILE)
+            val cur = readTracks(f).filterNot { it.id == id }
+            writeTracks(f, cur)
         }
-            .onFailure { Log.w(TAG, "播放历史写入失败", it) }
     }
 
-    suspend fun clearPlay(context: Context) = withContext(Dispatchers.IO) {
-        runCatching { File(context.filesDir, PLAY_FILE).delete() }
-            .onFailure { Log.w(TAG, "播放历史清空失败", it) }
+    suspend fun clearPlay(context: Context) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            runCatching { File(context.filesDir, PLAY_FILE).delete() }
+                .onFailure { Log.w(TAG, "播放历史清空失败", it) }
+        }
     }
 }

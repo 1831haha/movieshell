@@ -1,6 +1,7 @@
 package com.movieshell.data.novel
 
 import android.content.Context
+import android.util.Log
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -29,15 +30,26 @@ class NovelUpdateWorker(
         BookSourceManager.load(context)
         PyBookSourceManager.load(context)
         val books = NovelStore.list(context)
-        val result = NovelUpdateChecker.checkAll(context, books)
+        // v0.186.0 第 9 组：不再恒返回 success——有书可查且全部失败时返回 retry，
+        // 让 WorkManager 按退避策略补跑；有更新或无更新时才 success，且只给真更新写角标。
+        val checked = NovelUpdateChecker.checkAllDetailed(context, books)
+        val result = checked.updated
         result.forEach { (id, n) -> NovelUpdateStore.set(context, id, n) }
         if (result.isNotEmpty()) {
             Notify.novelUpdate(context, result.size, result.values.sum())
+        }
+        if (checked.checked > 0 && result.isEmpty() && checked.failed == checked.checked) {
+            Log.w(TAG, "追更全部失败（${checked.failed}/${checked.checked}），请求重试")
+            return Result.retry()
+        }
+        if (checked.failed > 0) {
+            Log.w(TAG, "追更部分失败：${checked.failed}/${checked.checked}")
         }
         return Result.success()
     }
 
     companion object {
+        private const val TAG = "NovelUpdateWorker"
         private const val WORK_NAME = "novel_update_daily"
 
         fun schedule(context: Context) {

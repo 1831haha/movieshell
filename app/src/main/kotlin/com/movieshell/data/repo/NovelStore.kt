@@ -95,6 +95,9 @@ object NovelStore {
         chapters: List<Chapter>,
     ): Boolean = withContext(Dispatchers.IO) {
         runCatching {
+            // v0.186.0 第 9 组：先查索引存在再写章节——索引不存在直接返回 false，
+            // 章节文件一动不动，不再出现章节已换、索引未换、调用方以为失败原数据还在。
+            if (readIndex(context).none { it.id == novelId }) return@runCatching false
             // v0.107.0 P0-6：追更/换源只带目录不带正文——content 为空的新章节不许覆盖
             // 已有缓存正文（按标题匹配，防源方目录乱序 graft 错章）
             val cf = chaptersFile(context, novelId)
@@ -135,6 +138,25 @@ object NovelStore {
             true
         }.onFailure { Log.w(TAG, "删除小说失败", it) }.getOrDefault(false)
     }
+
+    /**
+     * v0.186.0 第 9 组：删书唯一入口——书架页与搜索页两条删除路径共用，
+     * 清理范围一致：本体章节 + 阅读进度 + 逐条书签 + 全部分组 + 追更角标。
+     * 本体删除失败时直接返回 false，不动其余清理项，避免书还在、进度先没了。
+     * 同包内直接调用各 Store 的已有公开函数，不改那些文件。
+     */
+    suspend fun deleteNovelCascade(context: Context, id: String): Boolean =
+        withContext(Dispatchers.IO) {
+            if (!removeNovel(context, id)) return@withContext false
+            ReadingProgressStore.clear(context, id)
+            // BookmarkStore 无整书 clear，用 list 加 remove 逐条删（书架页原有写法）
+            BookmarkStore.list(context, id).forEach { bm ->
+                BookmarkStore.remove(context, id, bm.createdAt)
+            }
+            BookshelfGroupStore.removeNovelEverywhere(context, id)
+            NovelUpdateStore.clear(context, id)
+            true
+        }
 
     suspend fun chapters(context: Context, novelId: String): List<Chapter> =
         withContext(Dispatchers.IO) {

@@ -58,6 +58,20 @@ object ServicePluginManager {
     /** v0.138.0：启动中宽限窗——进程活着但未满该时长时显示黄灯，满后转绿灯。 */
     private const val STARTING_GRACE_MS = 5000L
 
+    /**
+     * v0.186.0：解压上限（H14，与 PluginMarket 同阈值）。条目数按实际解压的
+     * 文件计，上限 2000；解压后总字节数按实际写出字节累计，上限 500MB，
+     * 超限即中止并清暂存目录（install 的 catch 已清暂存）。
+     */
+    private const val MAX_ZIP_ENTRIES = 2000
+    private const val MAX_UNPACKED_BYTES = 500L * 1024L * 1024L
+
+    /** v0.186.0：解压预算累计器（条目数与解压后字节数）。 */
+    private class UnpackBudget {
+        var entries = 0
+        var bytes = 0L
+    }
+
     data class PluginInfo(
         val id: String,
         val name: String,
@@ -179,6 +193,14 @@ object ServicePluginManager {
     private val lock = Any()
     private val running = mutableMapOf<String, RunningHandle>()
 
+    /**
+     * v0.186.0：注册表损坏标记。loadRegistry 读坏时置 true、读成功或文件
+     * 不存在时清 false；saveRegistry 成功写盘后清 false。全部读写都在
+     * synchronized(lock) 内，标记只区分“上次加载是否损坏”，不做跨进程判断。
+     */
+    @Volatile
+    private var registryCorrupt = false
+
     // ---------------- 目录 ----------------
 
     /** v0.128.0 前的旧服务根（私有目录）；仅迁移源与回退时用，别处不许引用。 */
@@ -264,7 +286,10 @@ object ServicePluginManager {
 
     private fun loadRegistry(context: Context): MutableMap<String, RegistryEntry> {
         val f = registryFile(context)
-        if (!f.exists()) return mutableMapOf()
+        if (!f.exists()) {
+            registryCorrupt = false
+            return mutableMapOf()
+        }
         return runCatching {
             val arr = JSONObject(f.readText()).optJSONArray("plugins") ?: JSONArray()
             (0 until arr.length()).mapNotNull { i ->
@@ -297,13 +322,29 @@ object ServicePluginManager {
                     resident = o.optBoolean("resident", false),
                 )
             }.toMap().toMutableMap()
-        }.getOrElse {
-            LogBus.w(TAG, "注册表损坏，已重置：${it.message}")
-            mutableMapOf()
-        }
+        }.onSuccess { registryCorrupt = false }
+            .getOrElse {
+                AtomicFile.preserveCorrupt(f)
+                registryCorrupt = true
+                LogBus.w(TAG, "注册表损坏，已保全为 .corrupt.bak，本次只读空表、拒绝写回：${it.message}")
+                mutableMapOf()
+            }
     }
 
-    private fun saveRegistry(context: Context, reg: Map<String, RegistryEntry>) {
+    /**
+     * v0.186.0：改走 AtomicFile 写盘（同目录唯一后缀 tmp + fsync + 改名替换，
+     * 复用第 3 组 AtomicFile，不改其实现）。返回写盘成败，调用方忽略亦可编译。
+     * 写盘前护栏：上次加载已损坏且本次写出为空时拒绝写回并记日志，原损坏
+     * 文件与 .corrupt.bak 一并保留；损坏后写入非空表则放行（新表替换损坏文件，
+     * 旧字节仍在 .corrupt.bak 里），避免损坏态下永远无法安装或保存新服务。
+     * 主动清空不受影响：逐个卸载时每步加载均成功、标记为 false，最后一次
+     * 写 0 条是合法清空，不会被拦。
+     */
+    private fun saveRegistry(context: Context, reg: Map<String, RegistryEntry>): Boolean {
+        if (registryCorrupt && reg.isEmpty()) {
+            LogBus.w(TAG, "拒绝写回空注册表：上次加载已损坏，原文件与 .corrupt.bak 均保留")
+            return false
+        }
         val arr = JSONArray()
         reg.values.forEach { e ->
             val envArr = JSONArray()
@@ -330,9 +371,16 @@ object ServicePluginManager {
                     .put("resident", e.resident),
             )
         }
-        runCatching {
-            registryFile(context).writeText(JSONObject().put("plugins", arr).toString())
-        }.onFailure { LogBus.w(TAG, "注册表写入失败：${it.message}") }
+        val ok = AtomicFile.writeText(
+            registryFile(context),
+            JSONObject().put("plugins", arr).toString(),
+        )
+        if (ok) {
+            registryCorrupt = false
+        } else {
+            LogBus.w(TAG, "注册表写入失败")
+        }
+        return ok
     }
 
     // ---------------- server.json 解析 ----------------
@@ -659,10 +707,15 @@ object ServicePluginManager {
                 ZipFile(zip).use { zf ->
                     val entries = zf.entries().asSequence().filter { !it.isDirectory }.toList()
                     if (entries.isEmpty()) throw IllegalStateException("插件包为空")
+                    // v0.186.0：解压上限（H14），超限即抛，catch 清暂存、旧版不动。
+                    if (entries.size > MAX_ZIP_ENTRIES) {
+                        throw IllegalStateException("插件包条目数超限（上限 $MAX_ZIP_ENTRIES）")
+                    }
+                    val budget = UnpackBudget()
                     entries.forEach { e ->
                         val dst = safeDst(staging, e.name)
                         dst.parentFile?.mkdirs()
-                        zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
+                        copyEntryBounded(zf, e, dst, budget)
                     }
                 }
                 verifyExecutable(staging, spec)
@@ -714,7 +767,9 @@ object ServicePluginManager {
             stopLocked(context, id)
             File(installRoot(context), id).deleteRecursively()
             reg.remove(id)
-            saveRegistry(context, reg)
+            if (!saveRegistry(context, reg)) {
+                LogBus.w(TAG, "卸载 $id：注册表未写回（见上一条日志），服务目录已删除")
+            }
             running.remove(id)
             LogBus.i(TAG, "卸载成功：$id")
         }
@@ -755,11 +810,42 @@ object ServicePluginManager {
     }
 
     /**
+     * v0.186.0：带解压预算的单条目拷贝（H14，与 PluginMarket 同口径）。
+     * 只解到暂存区，超限即抛异常，install 的 catch 清暂存、旧版不动。
+     */
+    private fun copyEntryBounded(
+        zf: ZipFile,
+        e: java.util.zip.ZipEntry,
+        dst: File,
+        budget: UnpackBudget,
+    ) {
+        if (++budget.entries > MAX_ZIP_ENTRIES) {
+            throw IllegalStateException("插件包解压条目数超限（上限 $MAX_ZIP_ENTRIES）")
+        }
+        dst.parentFile?.mkdirs()
+        zf.getInputStream(e).use { input ->
+            dst.outputStream().use { out ->
+                val buf = ByteArray(32 * 1024)
+                var n: Int
+                while (input.read(buf).also { n = it } >= 0) {
+                    if (n == 0) continue
+                    budget.bytes += n
+                    if (budget.bytes > MAX_UNPACKED_BYTES) {
+                        throw IllegalStateException("插件包解压后大小超限（上限 500MB）")
+                    }
+                    out.write(buf, 0, n)
+                }
+            }
+        }
+    }
+
+    /**
      * v0.162.0：插件安装全量清单闸门（解压前调用，拒绝即不落盘）。
      * - server.json 带 files 清单 → 逐文件流式哈希比对，多余/缺失/不符均拒绝；
      *   清单键兼容两种写法：zip 内全路径（如 my-service/server.sh）或相对 workDir（如 server.sh）。
-     * - 只有旧字段 → 维持现状：sha256 优先、md5 兼容，只校验主脚本，存量插件不炸；
-     *   两者都没有 → 拒绝。
+     * - v0.186.0（M22）：无 files 清单的旧格式包一律拒绝安装，不再退回只验主脚本
+     *   的旧分支；市场包 MD5 本身不动、也不以换 SHA-256 冒充信任锚，签名公钥
+     *   是产品决策，本波不做。暂存后 verifyExecutable 仍做主脚本签名复核。
      * 流式算哈希，不把大包整包读进内存（磁力类插件含 node_modules 时尤其重要）。
      */
     private fun verifyFullManifest(zip: File) {
@@ -773,37 +859,30 @@ object ServicePluginManager {
                 throw IllegalStateException("server.json 缺 workDir/command")
             }
             val files = conf.optJSONObject("files")
-            if (files != null && files.length() > 0) {
-                val fileKeys = files.keys().asSequence().toList()
-                val actual = zf.entries().asSequence()
-                    .filter { !it.isDirectory && it.name != "server.json" }
-                    .associate { it.name to hashStream(zf.getInputStream(it), "SHA-256") }
-                for (key in fileKeys) {
-                    val expect = files.optString(key)
-                    val got = actual[key] ?: actual["$workDir/$key"]
-                        ?: throw IllegalStateException("清单声明文件缺失：$key")
-                    if (!got.equals(expect, ignoreCase = true)) {
-                        throw IllegalStateException("文件哈希不匹配：$key")
-                    }
-                }
-                val extra = actual.keys.filter { k ->
-                    k !in fileKeys && fileKeys.none { fk -> k == fk || k == "$workDir/$fk" }
-                }
-                if (extra.isNotEmpty()) {
-                    throw IllegalStateException("存在清单外文件：${extra.take(3)}")
-                }
-                return
+            if (files == null || files.length() == 0) {
+                throw IllegalStateException("旧格式服务插件缺 files 清单，拒绝安装：请在 server.json 补全量文件 SHA-256 清单")
             }
-            val (algo, expect) = when {
-                conf.optString("sha256").isNotBlank() -> "SHA-256" to conf.optString("sha256")
-                conf.optString("md5").isNotBlank() -> "MD5" to conf.optString("md5")
-                else -> throw IllegalStateException("server.json 无校验字段，拒绝安装")
+            val fileEntries = zf.entries().asSequence()
+                .filter { !it.isDirectory && it.name != "server.json" }.toList()
+            if (fileEntries.size > MAX_ZIP_ENTRIES) {
+                throw IllegalStateException("插件包条目数超限（上限 $MAX_ZIP_ENTRIES）")
             }
-            val script = zf.getEntry("$workDir/$command")
-                ?: throw IllegalStateException("缺少主脚本：$workDir/$command")
-            val actual = hashStream(zf.getInputStream(script), algo)
-            if (!actual.equals(expect, ignoreCase = true)) {
-                throw IllegalStateException("主脚本哈希不匹配")
+            val fileKeys = files.keys().asSequence().toList()
+            val actual = fileEntries
+                .associate { it.name to hashStream(zf.getInputStream(it), "SHA-256") }
+            for (key in fileKeys) {
+                val expect = files.optString(key)
+                val got = actual[key] ?: actual["$workDir/$key"]
+                    ?: throw IllegalStateException("清单声明文件缺失：$key")
+                if (!got.equals(expect, ignoreCase = true)) {
+                    throw IllegalStateException("文件哈希不匹配：$key")
+                }
+            }
+            val extra = actual.keys.filter { k ->
+                k !in fileKeys && fileKeys.none { fk -> k == fk || k == "$workDir/$fk" }
+            }
+            if (extra.isNotEmpty()) {
+                throw IllegalStateException("存在清单外文件：${extra.take(3)}")
             }
         }
     }

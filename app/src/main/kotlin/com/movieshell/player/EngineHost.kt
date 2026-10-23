@@ -37,6 +37,24 @@ object EngineHost {
     }
 
     /**
+     * v0.186.0 第 5 组：硬解 fallback 已试过的内核。
+     * PlayerManager 硬解切 libmpv 时记入，PlayerScreen 换内核判定时与本地
+     * triedEngines 合并判断，避免 libmpv 再失败后又切回已试过的 Media3 空转。
+     * 换地址时由 PlayerScreen 经 clearFallbackTriedEngines 清空。
+     */
+    private val fallbackTriedEngines = mutableSetOf<PlayerEngine>()
+
+    fun markEngineTriedByFallback(engine: PlayerEngine) {
+        fallbackTriedEngines.add(engine)
+    }
+
+    fun fallbackTriedEngines(): Set<PlayerEngine> = fallbackTriedEngines.toSet()
+
+    fun clearFallbackTriedEngines() {
+        fallbackTriedEngines.clear()
+    }
+
+    /**
      * 起播（v0.25.0 加固：永不抛异常）。
      * - 地址非法 → 记日志 + Toast，返回 false；
      * - libmpv 初始化曾失败 → 直接禁用该引擎回退 Media3（不走自动切换），Toast 提示；

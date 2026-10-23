@@ -3,13 +3,18 @@ package com.movieshell.data.repo
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
+import java.util.UUID
 
 /**
  * v0.170.0：共享原子写盘 + 损坏文件保全，各 JSON store 共用，不许各写一套。
  *
- * 写盘：临时文件 + fsync + 同目录改名替换。进程中途被杀只会留下一个无害的 .tmp，
+ * 写盘：临时文件 + fsync + 同目录改名替换。进程中途被杀只会留下一个无害的 tmp，
  * 正式文件要么是旧的完整版、要么是新的完整版，绝不会是写了一半的截断 JSON。
  * （防的是 App 进程死亡；断电级别的持久化还需目录 fsync，本处不做。）
+ *
+ * v0.186.0：tmp 名加随机串，两个线程同时写同一 store 时各写各的 tmp、互不截断；
+ * 改名仍是同目录 renameTo，正式文件一次只被一个完整内容替换。
+ * 被杀留下的 tmp 是无害孤儿，不在此处顺手清理——清理会误删并发写盘者的 tmp。
  *
  * 读坏：解析失败的 store 调 preserveCorrupt() 先把原文件拷一份为
  * <原名>.corrupt.bak 再按空处理——旧字节留作恢复证据，下次写盘不再是"悄悄清空"。
@@ -23,7 +28,7 @@ object AtomicFile {
         return try {
             val dir = file.parentFile ?: return false
             if (!dir.isDirectory && !dir.mkdirs()) return false
-            val tmp = File(dir, "${file.name}.tmp")
+            val tmp = File(dir, "${file.name}.${UUID.randomUUID()}.tmp")
             FileOutputStream(tmp).use { out ->
                 out.write(text.toByteArray(Charsets.UTF_8))
                 out.channel.force(true)

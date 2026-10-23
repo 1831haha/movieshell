@@ -131,6 +131,9 @@ private suspend fun finishPyPlay(
         Toast.makeText(context, "解析失败", Toast.LENGTH_LONG).show()
         return ""
     }
+    // v0.186.0：parse=1 解析出的 direct 也要再 put 一次原规则头，否则
+    // 播放器 take(direct) 命中不了、原规则头只挂在解析前 url 上。
+    if (header.isNotEmpty()) SniffPlayHeaders.put(direct, header)
     return direct
 }
 

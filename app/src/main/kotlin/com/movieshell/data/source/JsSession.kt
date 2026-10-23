@@ -13,8 +13,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import android.util.Base64
 import org.json.JSONObject
@@ -51,9 +54,10 @@ internal class JsSessionTimeoutException(message: String) : IllegalStateExceptio
  * - [eval]：evaluateJavaScriptAsync 挂起等待；表达式返回 Promise 时 Future 在 promise
  *   结算后才完成（JS_FEATURE_PROMISE_RETURN）——JS 侧 `await` 即事件循环，宿主网络
  *   请求完全不占用 JS 执行路径（A2 的根治）。
- * - 超时真中断（A4）：withTimeoutOrNull 到点后直接 close isolate。isolate 跑在 WebView
- *   提供的独立进程里，同步死循环不会卡宿主任何线程；close 终止上下文，在途 evaluate
- *   以 IsolateTerminatedException 立即失败——比 QuickJS 的"线程卡死只能隔离"干净。
+ * - 超时真中断（A4，v0.186.0 改）：eval 串行化后超时不再瞬间 close isolate，
+ *   只把会话标失效并延迟回收——失效会话不再接受新 eval，旧 isolate 在宽限期后
+ *   才 close，不连坐杀死同一 isolate 上其他在途工作（如 RPC resolve 注入）。
+ *   isolate 跑在 WebView 提供的独立进程里，同步死循环不会卡宿主任何线程。
  * - RPC：JS 侧 `__hrpc({kind,...})` 经 port 发给宿主，宿主在 IO 协程执行注册的 handler
  *   （如 OkHttp 异步请求），完成后 evaluateJavaScriptAsync 注入 `__hrpcResolve(id,ok,b64)`
  *   结算 JS 侧 Promise。全程无 JS 线程阻塞。
@@ -63,6 +67,20 @@ internal class JsSession(private val logTag: String) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
+
+    /** eval 串行锁：同一会话一次只跑一个 eval，超时不会与另一 eval 并发在途。 */
+    private val evalMutex = Mutex()
+
+    /**
+     * 延迟回收专用域：独立于 [scope]，closeIsolate 取消 [scope] 时不会连带
+     * 取消已排期的延迟回收任务（回收任务本身就是调 closeIsolate）。
+     */
+    private val reclaimScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** 超时或已关闭的会话不再接受新 eval；调用方应丢弃并重建。 */
+    @Volatile
+    var isInvalid: Boolean = false
+        private set
 
     private var isolate: JavaScriptIsolate? = null
     private var port: MessagePort? = null
@@ -100,6 +118,7 @@ internal class JsSession(private val logTag: String) {
             return false
         }
         synchronized(lock) { isolate = iso }
+        isInvalid = false
         iso.setConsoleCallback(Executor { it.run() }, object : JavaScriptConsoleCallback {
             override fun onConsoleMessage(message: JavaScriptConsoleCallback.ConsoleMessage) {
                 val text = "V8: ${message.message}"
@@ -121,10 +140,21 @@ internal class JsSession(private val logTag: String) {
         }
         synchronized(lock) { port = p }
         for (script in scripts) {
-            try {
-                iso.evaluateJavaScriptAsync(script).awaitJs()
+            // 每条脚本与 eval 同档超时（见 BOOTSTRAP_TIMEOUT_MS）；引导期会话尚未
+            // 对外发布，没有其他 eval 在途，超时可直接 closeIsolate。
+            val done = try {
+                withTimeoutOrNull(BOOTSTRAP_TIMEOUT_MS) {
+                    iso.evaluateJavaScriptAsync(script).awaitJs()
+                    true
+                }
             } catch (e: Throwable) {
                 lastError = "JS 引导失败: ${e.message}"
+                LogBus.w(logTag, lastError)
+                closeIsolate()
+                return false
+            }
+            if (done == null) {
+                lastError = "JS 引导超时(${BOOTSTRAP_TIMEOUT_MS}ms)"
                 LogBus.w(logTag, lastError)
                 closeIsolate()
                 return false
@@ -133,33 +163,52 @@ internal class JsSession(private val logTag: String) {
         return true
     }
 
-    /** evaluate 一次 JS。超时/会话已死分别抛 [JsSessionTimeoutException]/[JsSessionClosedException]。 */
+    /**
+     * evaluate 一次 JS，串行执行。超时/会话已死分别抛
+     * [JsSessionTimeoutException]/[JsSessionClosedException]。
+     * 超时时不瞬间 closeIsolate：只标失效并延迟回收，失效会话不再接受新 eval，
+     * 旧 isolate 在宽限期后才 close（见 [scheduleDelayedReclaim]）。
+     */
     suspend fun eval(expression: String, timeoutMs: Long): String {
-        val iso = synchronized(lock) { isolate } ?: throw JsSessionClosedException("JS 会话已关闭")
-        val result = try {
-            withTimeoutOrNull(timeoutMs) {
-                iso.evaluateJavaScriptAsync(expression).awaitJs()
-            }
-        } catch (e: ExecutionException) {
-            // isolate 已终止（close/崩溃）：在途 evaluate 以此失败
-            if (e.cause is IsolateTerminatedException) {
+        if (isInvalid) throw JsSessionClosedException("JS 会话已失效")
+        return evalMutex.withLock {
+            if (isInvalid) throw JsSessionClosedException("JS 会话已失效")
+            val iso = synchronized(lock) { isolate } ?: throw JsSessionClosedException("JS 会话已关闭")
+            val result = try {
+                withTimeoutOrNull(timeoutMs) {
+                    iso.evaluateJavaScriptAsync(expression).awaitJs()
+                }
+            } catch (e: ExecutionException) {
+                // isolate 已终止（close/崩溃）：在途 evaluate 以此失败
+                if (e.cause is IsolateTerminatedException) {
+                    throw JsSessionClosedException("isolate 已终止")
+                }
+                throw e
+            } catch (e: IsolateTerminatedException) {
                 throw JsSessionClosedException("isolate 已终止")
             }
-            throw e
-        } catch (e: IsolateTerminatedException) {
-            throw JsSessionClosedException("isolate 已终止")
+            if (result == null) {
+                isInvalid = true
+                scheduleDelayedReclaim()
+                throw JsSessionTimeoutException("JS 执行超时(${timeoutMs}ms)，会话已标失效")
+            }
+            result
         }
-        if (result == null) {
+    }
+
+    /** 失效会话的延迟回收：宽限期后才 close，调用方丢引用即可，不必等回收完成。 */
+    private fun scheduleDelayedReclaim() {
+        reclaimScope.launch {
+            delay(INVALID_RECLAIM_DELAY_MS)
             closeIsolate()
-            throw JsSessionTimeoutException("JS 执行超时(${timeoutMs}ms)，isolate 已终止")
         }
-        return result
     }
 
     /** 关闭 isolate：在途 evaluate 立即失败，后续 eval 抛 [JsSessionClosedException]。 */
     fun close() = closeIsolate()
 
     private fun closeIsolate() {
+        isInvalid = true
         val p = synchronized(lock) { port.also { port = null } }
         val iso = synchronized(lock) { isolate.also { isolate = null } }
         // 在途 RPC handler（网络请求/resolve 注入）随会话终止，不留孤儿协程
@@ -210,6 +259,12 @@ internal class JsSession(private val logTag: String) {
     }
 
     companion object {
+        /** 引导单条脚本超时，与 V8DrpyEngine 的 JS_TIMEOUT_MS 同档 15 秒。 */
+        internal const val BOOTSTRAP_TIMEOUT_MS = 15_000L
+
+        /** 失效会话延迟回收宽限：只给在途 RPC 注入留窗口，不阻塞新会话建立。 */
+        private const val INVALID_RECLAIM_DELAY_MS = 1_000L
+
         private val seq = AtomicLong()
 
         /** 为新会话生成一个进程内唯一的 port 名（isolate 侧 namespace 独立，前缀仅便于日志辨识）。 */

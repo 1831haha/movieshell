@@ -195,7 +195,7 @@ class MainActivity : ComponentActivity() {
         ParseStore.load(this) // v0.19.0：自定义解析接口
         // v0.7.2：存储迁移必须在各 Manager init 之前（Manager 的目录现在走 StoragePaths）
         if (!StoragePaths.migrateFromPrivate(this) && StoragePaths.hasAccess(this)) {
-            Toast.makeText(this, "文件迁移失败，旧文件保留在原处", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "文件迁移失败，旧文件保留在原处（旧位置：${filesDir.absolutePath} 下的 drpy、py、php、web，新位置：${StoragePaths.publicRoot().absolutePath}）", Toast.LENGTH_LONG).show()
         }
         PlayerManager.init(this)
         DrpySourceManager.init(this)

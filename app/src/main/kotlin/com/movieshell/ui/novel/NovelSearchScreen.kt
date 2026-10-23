@@ -283,7 +283,7 @@ fun NovelSearchScreen(
                     removeTarget = null
                     scope.launch {
                         val rid = shelfNovelId(g, it)
-                        val ok = NovelStore.removeNovel(appCtx, rid)
+                        val ok = NovelStore.deleteNovelCascade(appCtx, rid)
                         if (ok) shelfIds = shelfIds - rid
                         Toast.makeText(
                             appCtx,
@@ -293,7 +293,7 @@ fun NovelSearchScreen(
                     }
                 },
             ) {
-                Text("将从书架移除，阅读进度也会清除。")
+                Text("将从书架移除，阅读进度、书签与追更标记也会清除。")
             }
         }
     }

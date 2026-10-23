@@ -154,6 +154,103 @@ object PlayerSettings {
         LogBus.i("PlayerSettings", "剧 $vodId 字幕设为 ${url.trim().take(80)}")
     }
 
+    /**
+     * v0.186.0 M18：按源按集的新 key。
+     * 旧签名（只传 vodId）仍保留给现有调用点，改签名会断编译且播放页暂无 sourceKey 可传，
+     * 播放页迁移另起一波（见本块末尾说明）；新签名调用点一律用下面这组重载，不许新旧混写。
+     * 新 key = sourceKey + "|" + vodId + "|" + episodeIndex（不再用 32 位 hashCode，
+     * 不同源同 vodId、hash 碰撞的不同剧不再互相覆盖/误读）。
+     */
+    fun showKey(sourceKey: String?, vodId: String, episodeIndex: Int): String =
+        "${sourceKey.orEmpty()}|$vodId|$episodeIndex"
+
+    private fun legacyKey(prefix: String, vodId: String): String = prefix + vodId.hashCode()
+
+    /** v0.186.0 M18：新 key 取片头跳过秒数；新 key 无记录时把旧 key 值迁移复制过来。 */
+    fun getSkipIntroFor(context: Context, sourceKey: String?, vodId: String?, episodeIndex: Int): Int {
+        if (vodId.isNullOrBlank()) return 0
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val key = PREFIX_INTRO + showKey(sourceKey, vodId, episodeIndex)
+        if (prefs.contains(key)) return prefs.getInt(key, 0).coerceIn(0, 600)
+        val legacy = legacyKey(PREFIX_INTRO, vodId)
+        if (!prefs.contains(legacy)) return 0
+        val v = prefs.getInt(legacy, 0).coerceIn(0, 600)
+        prefs.edit().putInt(key, v).apply()
+        return v
+    }
+
+    /** v0.186.0 M18：新 key 取片尾跳过秒数；迁移口径同片头。 */
+    fun getSkipOutroFor(context: Context, sourceKey: String?, vodId: String?, episodeIndex: Int): Int {
+        if (vodId.isNullOrBlank()) return 0
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val key = PREFIX_OUTRO + showKey(sourceKey, vodId, episodeIndex)
+        if (prefs.contains(key)) return prefs.getInt(key, 0).coerceIn(0, 600)
+        val legacy = legacyKey(PREFIX_OUTRO, vodId)
+        if (!prefs.contains(legacy)) return 0
+        val v = prefs.getInt(legacy, 0).coerceIn(0, 600)
+        prefs.edit().putInt(key, v).apply()
+        return v
+    }
+
+    /** v0.186.0 M18：新 key 设片头跳过秒数；只写新 key，不动旧 key。 */
+    fun setSkipIntroFor(context: Context, sourceKey: String?, vodId: String, episodeIndex: Int, sec: Int) {
+        val v = sec.coerceIn(0, 600)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(PREFIX_INTRO + showKey(sourceKey, vodId, episodeIndex), v).apply()
+        LogBus.i("PlayerSettings", "剧 $vodId 第 $episodeIndex 集片头跳过设为 ${v}s")
+    }
+
+    /** v0.186.0 M18：新 key 设片尾跳过秒数；只写新 key，不动旧 key。 */
+    fun setSkipOutroFor(context: Context, sourceKey: String?, vodId: String, episodeIndex: Int, sec: Int) {
+        val v = sec.coerceIn(0, 600)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(PREFIX_OUTRO + showKey(sourceKey, vodId, episodeIndex), v).apply()
+        LogBus.i("PlayerSettings", "剧 $vodId 第 $episodeIndex 集片尾跳过设为 ${v}s")
+    }
+
+    /** v0.186.0 M18：新 key 取外挂字幕地址；新 key 无记录时把旧 key 值迁移复制过来。 */
+    fun getSubtitleFor(context: Context, sourceKey: String?, vodId: String?, episodeIndex: Int): String {
+        if (vodId.isNullOrBlank()) return ""
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val key = PREFIX_SUBTITLE + showKey(sourceKey, vodId, episodeIndex)
+        if (prefs.contains(key)) return prefs.getString(key, "").orEmpty()
+        val legacy = legacyKey(PREFIX_SUBTITLE, vodId)
+        if (!prefs.contains(legacy)) return ""
+        val v = prefs.getString(legacy, "").orEmpty()
+        prefs.edit().putString(key, v).apply()
+        return v
+    }
+
+    /** v0.186.0 M18：新 key 设外挂字幕地址；只写新 key，不动旧 key。 */
+    fun setSubtitleFor(context: Context, sourceKey: String?, vodId: String, episodeIndex: Int, url: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(PREFIX_SUBTITLE + showKey(sourceKey, vodId, episodeIndex), url.trim()).apply()
+        LogBus.i("PlayerSettings", "剧 $vodId 第 $episodeIndex 集字幕设为 ${url.trim().take(80)}")
+    }
+
+    /**
+     * v0.186.0 M18：设置页清理入口用——删掉全部旧形 key，返回删掉条数。
+     * 旧形判定：前缀 + 纯数字 hash（不含竖线分隔符）；新 key 一律含竖线，不会被误删。
+     * 本函数不自动调用，须由设置页清理动作显式触发并向用户说明条数，
+     * 否则仍走旧签名的调用点在清理后会丢掉按剧记忆；迁移不走本函数，
+     * 首次被新 key 读到时上面各 getter 已把旧值复制过去。
+     */
+    fun clearLegacyPerShowKeys(context: Context): Int {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefixes = listOf(PREFIX_INTRO, PREFIX_OUTRO, PREFIX_SUBTITLE)
+        val legacy = prefs.all.keys.filter { key ->
+            val prefix = prefixes.firstOrNull { key.startsWith(it) } ?: return@filter false
+            val rest = key.removePrefix(prefix)
+            rest.isNotEmpty() && rest.toIntOrNull() != null && !rest.contains("|")
+        }
+        if (legacy.isEmpty()) return 0
+        val editor = prefs.edit()
+        legacy.forEach { editor.remove(it) }
+        editor.apply()
+        LogBus.i("PlayerSettings", "清理旧字幕/跳过 key ${legacy.size} 条")
+        return legacy.size
+    }
+
     /** v0.20.0：切换播放器内核（持久化，下次打开 App 仍有效）。 */
     fun setEngine(context: Context, engine: PlayerEngine) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

@@ -7,6 +7,7 @@ import androidx.javascriptengine.JavaScriptSandbox
 import com.google.common.util.concurrent.ListenableFuture
 import com.movieshell.data.repo.LogBus
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * v0.113.0 A1–A5：进程级 V8 sandbox 单例（androidx.javascriptengine）。
@@ -28,6 +29,9 @@ import kotlinx.coroutines.CancellationException
 object JsRuntime {
 
     private const val TAG = "JsRuntime"
+
+    /** 连接等待超时，与 V8DrpyEngine 的 JS_TIMEOUT_MS 同档 15 秒。 */
+    private const val CONNECT_TIMEOUT_MS = 15_000L
 
     private var appContext: Context? = null
 
@@ -119,15 +123,25 @@ object JsRuntime {
         return connect()
     }
 
-    /** 连接（惰性单例）。底层失败时清掉 future 允许重试。 */
+    /**
+     * 连接（惰性单例）。底层失败时清掉 future 允许重试。
+     * 等待加超时：超时只放弃本次等待，不清共享 future——awaitJs 不取消底层
+     * future，绑定仍在后台继续，下一调用复用同一 future 即可拿到已绑定的
+     * sandbox，绝不重建连接（重建即报 Binding to already bound service）。
+     * 超时是暂态，不置 lastDisableReason，不把一次等不到当成设备不支持。
+     */
     private suspend fun connect(): JavaScriptSandbox? {
         val future = synchronized(lock) {
             sandboxFuture ?: JavaScriptSandbox
                 .createConnectedInstanceAsync(requireNotNull(appContext) { "JsRuntime.init 未调用" })
                 .also { sandboxFuture = it }
         }
-        return try {
-            future.awaitJs()
+        var timedOut = false
+        val sandbox = try {
+            withTimeoutOrNull(CONNECT_TIMEOUT_MS) { future.awaitJs() } ?: run {
+                timedOut = true
+                null
+            }
         } catch (e: CancellationException) {
             // v0.142.0：等待者被取消（探活 8 秒超时最常见）绝不能清共享 future——
             // 底层绑定不受协程取消影响、仍会跑完并占住服务；清掉它等于把已绑定的
@@ -144,6 +158,10 @@ object JsRuntime {
             LogBus.e(TAG, "V8 sandbox 连接失败: ${e.message}")
             null
         }
+        if (timedOut) {
+            LogBus.w(TAG, "V8 sandbox 连接等待超时(${CONNECT_TIMEOUT_MS}ms)，保留共享 future 供后来者复用")
+        }
+        return sandbox
     }
 
     /** App 退出时关闭（进程级单例，一般不需要显式调）。 */

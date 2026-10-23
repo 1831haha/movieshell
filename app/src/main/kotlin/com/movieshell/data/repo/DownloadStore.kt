@@ -226,6 +226,37 @@ object DownloadStore {
         }
     }
 
+    /**
+     * v0.186.0 M19：DONE 存在性扫描（唯一扫描点：下载页进入时调，启动时不重复做）。
+     * localPath 为空或文件已不存在（文件管理器删除、权限切换致根目录变化）时
+     * 降级为 FAILED 并写明原因，不静默失败、不删记录；返回降级条数，供下载页提示。
+     * 只动 DONE 任务；在途/暂停/失败任务不动。
+     */
+    suspend fun verifyDoneFiles(context: Context): Int = withContext(Dispatchers.IO) {
+        val missing: List<DownloadTask>
+        synchronized(lock) {
+            val all = readAll(context)
+            // v0.187.0 H15：当前根下找不到、但另一根下还有同名文件时不算
+            // 丢失（只是权限切换导致根目录暂时变了），权限恢复后仍可找回
+            missing = all.filter { it.status == DlStatus.DONE &&
+                (it.localPath.isBlank() ||
+                    (!java.io.File(it.localPath).isFile &&
+                        !StoragePaths.existsUnderOtherRoot(context, it.localPath))) }
+            if (missing.isNotEmpty()) {
+                val ids = missing.map { it.id }.toSet()
+                val rest = all.map { t ->
+                    if (t.id in ids) t.copy(status = DlStatus.FAILED, error = "本地文件已丢失") else t
+                }
+                writeAll(context, rest)
+                _tasks.value = rest
+            }
+        }
+        if (missing.isNotEmpty()) {
+            Log.w(TAG, "下载 DONE 扫描：${missing.size} 条本地文件已丢失，已降级为失败")
+        }
+        missing.size
+    }
+
     fun taskDir(context: Context, task: DownloadTask): java.io.File =
         java.io.File(StoragePaths.downloadDir(context), task.id).also { it.mkdirs() }
 
@@ -246,11 +277,23 @@ object DownloadStore {
         return runCatching { json.decodeFromString(ListSerializer(DownloadTask.serializer()), raw) }
             .onFailure { Log.w(TAG, "下载列表解析失败", it) }
             .getOrDefault(emptyList())
+            // v0.187.0 H15：落盘的是逻辑根相对路径，内存里一律拼回当前根的
+            // 绝对路径；存量绝对路径同样先剥已知根再拼当前根，换权限不错位
+            .map { t ->
+                if (t.localPath.isBlank()) t
+                else t.copy(localPath = StoragePaths.resolveStoredPath(context, t.localPath))
+            }
     }
 
     private fun writeAll(context: Context, list: List<DownloadTask>) {
+        // v0.187.0 H15：落盘前把绝对路径换算成逻辑根相对路径（如
+        // Download/xxx/index.m3u8），内存态与调用方看到的仍是绝对路径
+        val stored = list.map { t ->
+            if (t.localPath.isBlank()) t
+            else t.copy(localPath = StoragePaths.toRelativePath(context, t.localPath))
+        }
         prefs(context).edit()
-            .putString(KEY_LIST, json.encodeToString(ListSerializer(DownloadTask.serializer()), list))
+            .putString(KEY_LIST, json.encodeToString(ListSerializer(DownloadTask.serializer()), stored))
             .apply()
     }
 }

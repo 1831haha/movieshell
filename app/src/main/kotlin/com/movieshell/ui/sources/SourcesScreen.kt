@@ -518,6 +518,8 @@ fun SourcesScreen(
         // 删的若是子仓本身，removeChildren 按它的 URL 找不到子记录，无副作用
         WarehouseSync.removeChildren(context, entry.detail)
         apiGroup.entries.removeAll { it.parentUrl == entry.detail }
+        // v0.186.0 M20：removeCache 内已跑删订阅五项清理（文件/探活/active，
+        // 启停随缓存条目与本站源页条目消失）；本站源页条目由 persistApiGroup 落盘删掉
         SubSiteStore.removeCache(context, entry.detail)
         currentSubSiteKey = SubSiteStore.currentSiteKey(context)
         persistApiGroup()
@@ -740,6 +742,10 @@ fun SourcesScreen(
                 WebSourceManager.setActiveSite(null)
             }
         }
+        // v0.186.0 M20：删源五项清理之禁用态与探活，与 SubSiteStore.removeCache 共用
+        // 同一入口；同名文件日后重新导入，旧禁用态与旧探活徽标不再复活
+        SourceStateStore.removeDisabled(context, item.kind, item.fileName)
+        SourceProbeStore.removeProbe(context, item.kind, item.fileName)
         // 置顶记录同步清理
         pins[item.kind]?.let {
             it.remove(item.fileName)

@@ -16,4 +16,9 @@ data class SniffCandidate(
     val source: String,
     /** 发现时间戳（毫秒） */
     val foundAt: Long = System.currentTimeMillis(),
+    /**
+     * v0.186.0：拦截时原样存下的请求头（shouldInterceptRequest 与 Service Worker
+     * 拦截的 requestHeaders），点选播放时优先于现拼头使用；非拦截链路为空。
+     */
+    val headers: Map<String, String> = emptyMap(),
 )

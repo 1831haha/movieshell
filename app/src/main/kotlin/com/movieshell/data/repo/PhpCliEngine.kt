@@ -130,7 +130,13 @@ object PhpCliEngine {
         withContext(Dispatchers.IO) {
             lastError = null
             runCatching {
-                val ctx = context ?: PhpSourceManager.appContext() ?: return@runCatching null
+                // v0.187.0 H03：上下文缺失不再静默返回 null，显式记失败原因并记日志，
+                // 调用方据 lastError 可区分“上下文未就绪”与“规则没数据”。
+                val ctx = context ?: PhpSourceManager.appContext() ?: run {
+                    lastError = "应用上下文未就绪"
+                    LogBus.w(TAG, "PHP CLI 未跑：应用上下文未就绪")
+                    return@runCatching null
+                }
                 val script = scriptFile(ctx, scriptName ?: activeScriptName()) ?: run {
                     lastError = "脚本不存在：${scriptName ?: activeScriptName()}"
                     LogBus.w(TAG, "PHP 脚本不存在：$scriptName")

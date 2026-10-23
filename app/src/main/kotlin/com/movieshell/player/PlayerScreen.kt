@@ -10,11 +10,15 @@ import android.os.Build
 import android.util.Rational
 import android.widget.Toast
 import com.movieshell.data.model.PlayLine
+import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DownloadSettings
 import com.movieshell.data.repo.DownloadStore
+import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SubtitleStyle
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
@@ -202,6 +206,18 @@ fun PlayerScreen(
     liveHeaders: Map<String, String> = emptyMap(),
 ) {
     val context = LocalContext.current
+    // v0.186.0：本播放会话的源 key（字幕与片头片尾新 key 用）。
+    // 口径与详情页追剧用的 sourceKey 完全一致：订阅站取站点 key，否则取当前激活的
+    // drpy、PY、PHP 规则名；全空时为 null（新 key 里按空源处理，不编显示名冒充）。
+    // 只在进入播放页时快照一次：源在一次播放会话里不会变，快照保证同一会话内
+    // 读与写永远走同一个 key；集数不快照，每次调用点现取 PlaySession.episodeIndex，
+    // 切集后读写的就是新集的 key。
+    val playSourceKey = remember {
+        DetailSiteHolder.site?.key?.takeIf { it.isNotBlank() }
+            ?: DrpySourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
+            ?: PySourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
+            ?: PhpSourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
+    }
     val scope = rememberCoroutineScope()
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     // v0.109.0 A2：双引擎画面 View 引用（keepScreenOn 用，Media3/libmpv 统一）
@@ -440,7 +456,9 @@ fun PlayerScreen(
      */
     suspend fun currentSubtitleUrl(): String? {
         val raw = (sessionSubtitle
-            ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty())
+            ?: vodId?.let {
+                PlayerSettings.getSubtitleFor(context, playSourceKey, it, PlaySession.episodeIndex)
+            }.orEmpty())
             .ifBlank { null }
         return SubtitleKit.prepare(
             context, raw, lastHeaders, PlayerSettings.subtitleStyle.value.offsetMs
@@ -541,6 +559,158 @@ fun PlayerScreen(
         }
     }
 
+    // v0.107.0 P0-4：重试统一入口——magnet: 地址不直接喂 EngineHost（ExoPlayer 必失败），
+    // 重走 MagnetPlayer.playIfReady 探测本机转播服务链路。
+    // 注意声明位置：LaunchedEffect(playUrl) 的初始失败与错误回调都要调它，
+    // 局部函数没有提升，必须放在这两个调用点之前。
+    suspend fun playCurrentUrl(startPositionMs: Long): Boolean {
+        val sub = runCatching { currentSubtitleUrl() }.getOrNull()
+        return if (MagnetPlayer.isMagnet(playUrl)) {
+            MagnetPlayer.playIfReady(
+                context, magnet = playUrl, title = title,
+                startPositionMs = startPositionMs,
+            )
+        } else {
+            EngineHost.play(
+                context, playUrl, headers = lastHeaders,
+                startPositionMs = startPositionMs, subtitleUrl = sub,
+            )
+        }
+    }
+
+    /**
+     * v0.19.0：播放错误 → 按线路顺序自动重试（同集换线路）。
+     * v0.25.0：抽成独立函数，自动换内核失败时复用；全部试完仍失败才置 errorMsg。
+     * 注意声明位置：同 playCurrentUrl，初始失败链与错误回调都要调它。
+     */
+    fun tryNextLine(fallbackMsg: String) {
+        val lines = PlaySession.lines
+        val resolver = PlaySession.resolver
+        val curLine = PlaySession.lineIndex
+        if (resolver != null && lines.size > 1 && curLine !in triedLines) {
+            triedLines.add(curLine)
+            scope.launch {
+                var next = (curLine + 1) % lines.size
+                var link = ""
+                var targetLine = -1
+                var targetEpIdx = 0
+                var guard = 0
+                while (guard < lines.size && link.isBlank()) {
+                    if (next !in triedLines) {
+                        triedLines.add(next)
+                        val line = lines[next]
+                        val epIdx = PlaySession.episodeIndex
+                            .coerceIn(0, (line.episodes.size - 1).coerceAtLeast(0))
+                        val ep = line.episodes.getOrNull(epIdx)
+                        // 磁力不参与自动重试（走 MagnetPlayer 分支，无播放器错误可重试）
+                        if (ep != null && !MagnetPlayer.isMagnet(ep.url)) {
+                            val resolved = resolver(context, ep)
+                            if (resolved.isNotBlank() && resolved != playUrl) {
+                                link = resolved
+                                targetLine = next
+                                targetEpIdx = epIdx
+                            }
+                        }
+                    }
+                    next = (next + 1) % lines.size
+                    guard++
+                }
+                if (link.isNotBlank()) {
+                    PlaySession.moveTo(targetLine, targetEpIdx)
+                    // v0.175.0：自动换线路也要通知外部——之前只改了 PlaySession，
+                    // 详情页的选中线路没收到通知，Tab 和源胶囊还停在旧线路上。
+                    onEpisodeChange(targetLine, targetEpIdx)
+                    Toast.makeText(
+                        context,
+                        "已自动切换到「${lines[targetLine].name}」",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    LogBus.i("Player", "播放失败，自动换线路：${lines[targetLine].name}")
+                    autoSwitching = true
+                    playUrl = link
+                } else {
+                    errorMsg = "所有线路均播放失败"
+                }
+            }
+        } else {
+            errorMsg = fallbackMsg
+        }
+    }
+
+    /**
+     * v0.186.0 第 5 组：播放失败统一自动链，初始起播失败与播放中错误回调共用。
+     * 顺序固定：同内核重拉（≤2 次）→ 换内核 → 换线路，链耗尽才置 errorMsg
+     * （点播走错误对话框，直播经 errorMsg 效应走原 onLiveError 切源，语义不变）。
+     * 起播提交失败（playCurrentUrl 返回 false）同样计一次同内核重试，
+     * 不得直接跳步到换线路；换内核后新内核重新给同内核重试机会，
+     * 但已试过的内核不再回切。
+     * 换内核三步固定：旧引擎 currentPosition() 取断点 → stop() → 改覆盖 →
+     * 新引擎 play(pos)，不得改覆盖后才读新引擎位置当断点。
+     */
+    fun handlePlayFailure(msg: String) {
+        if (sameEngineRetries.intValue < 2) {
+            sameEngineRetries.intValue++
+            LogBus.i(
+                "Player",
+                "播放失败，当前内核重拉重试 ${sameEngineRetries.intValue}/2：$msg",
+            )
+            scope.launch {
+                delay(600)
+                val ok = playCurrentUrl(
+                    if (isLive) 0L else EngineHost.currentPosition()
+                )
+                if (!ok) handlePlayFailure(msg)
+            }
+            return
+        }
+        val cur = EngineHost.engine()
+        val other =
+            if (cur == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV else PlayerEngine.MEDIA3
+        // v0.186.0 第 5 组：RTMP 与 RTP 只能走 libmpv，与 EngineHost 强制路由一致。
+        // Media3 在此不是可用目标，直接跳过，不走“切到 Media3 又被强制改回
+        // libmpv”的空转；此时 other 视为不可用，落到换线路。
+        val isRtmpOrRtp = playUrl.trim().startsWith("rtmp://", true) ||
+            playUrl.trim().startsWith("rtp://", true)
+        val otherUsable = other != PlayerEngine.MEDIA3 || !isRtmpOrRtp
+        val otherUsableWithInstall = otherUsable && (other == PlayerEngine.MEDIA3 ||
+            (MpvPluginLoader.isInstalled(context) && !MpvPlayerManager.initFailed))
+        if (!otherUsableWithInstall) {
+            LogBus.w("Player", "跳过自动换内核：$other 不可用（未安装、初始化失败过或 RTMP/RTP 不走 Media3）")
+        }
+        val alreadyTried = triedEngines + EngineHost.fallbackTriedEngines()
+        if (otherUsableWithInstall && other !in alreadyTried) {
+            triedEngines.add(cur)
+            triedEngines.add(other)
+            try {
+                LogBus.i("Player", "播放失败，自动换内核重试：$cur → $other")
+                // 三步固定：先取旧引擎断点，再停旧引擎，再改覆盖，最后新引擎起播。
+                val pos = EngineHost.currentPosition()
+                EngineHost.stop()
+                EngineHost.setEngineOverride(other)
+                sameEngineRetries.intValue = 0 // 新内核重新给同内核重试机会
+                scope.launch {
+                    val ok = playCurrentUrl(pos)
+                    if (ok) {
+                        EngineHost.applySubtitleStyle(
+                            PlayerSettings.subtitleStyle.value, playerView
+                        )
+                    } else {
+                        handlePlayFailure(msg)
+                    }
+                }
+            } catch (t: Throwable) {
+                LogBus.e(
+                    "Player",
+                    "自动换内核异常：${t::class.java.simpleName}: ${t.message}",
+                )
+                Toast.makeText(context, "切换内核失败，尝试换线路", Toast.LENGTH_SHORT).show()
+                tryNextLine(msg)
+            }
+            return
+        }
+        tryNextLine(msg)
+    }
+
     LaunchedEffect(playUrl) {
         // v0.54：弹幕预加载（按标题搜，不阻塞播放；失败静默无弹幕）
         if (danmakuEnabled && title.isNotBlank() && !isLive) {
@@ -552,16 +722,21 @@ fun PlayerScreen(
         }
         try {
             if (!autoSwitching) triedLines.clear() else autoSwitching = false
-            // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
-            EngineHost.setEngineOverride(null)
-            triedEngines.clear()
-            sameEngineRetries.intValue = 0
+            // v0.186.0 第 5 组：先保存上一地址进度，再清自动换内核覆盖。
+            // savePlayerProgress 经 EngineHost.currentPosition() 按当前覆盖
+            // 路由读位置，先清覆盖会读成用户设置引擎的位置而非实际在播
+            // 的覆盖引擎位置，所以顺序不得颠倒。
             lastUrl?.let { prev ->
                 savePlayerProgress(
                     context, title, prev, isLive,
                     vodId, lastEpIdx,
                 )
             }
+            // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
+            EngineHost.setEngineOverride(null)
+            triedEngines.clear()
+            EngineHost.clearFallbackTriedEngines()
+            sameEngineRetries.intValue = 0
             if (playUrl.isNotBlank()) {
                 val resumeAt = HistoryStore.getProgress(context, playUrl)
                     .takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
@@ -582,7 +757,9 @@ fun PlayerScreen(
                     // v0.160.0：直播频道自带 ua 先打底，嗅探头优先覆盖；无 ua 时不编
                     val headers = liveHeaders + SniffPlayHeaders.take(playUrl)
                     lastHeaders = headers
-                    val skipIntro = PlayerSettings.getSkipIntroFor(context, vodId)
+                    val skipIntro = PlayerSettings.getSkipIntroFor(
+                        context, playSourceKey, vodId, PlaySession.episodeIndex,
+                    )
                     val startPos = if (resumeAt > 0) resumeAt
                     else if (skipIntro > 0) skipIntro * 1000L else 0L
                     // v0.19.0：外挂字幕（本次覆盖优先，否则按剧记忆）
@@ -608,7 +785,11 @@ fun PlayerScreen(
                         // v0.74.0：应用记忆的倍速
                         EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
                     } else {
-                        errorMsg = "播放启动失败，请检查地址或切换线路"
+                        // v0.186.0 第 5 组：初始起播失败同样走完整自动链
+                        // （同内核重拉 → 换内核 → 换线路），错误对话框只在
+                        // 链耗尽后由 tryNextLine 置 errorMsg 时出现；直播
+                        // 链耗尽后仍经 errorMsg 效应走原 onLiveError 切源。
+                        handlePlayFailure("播放启动失败，请检查地址或切换线路")
                     }
                 }
             }
@@ -682,22 +863,8 @@ fun PlayerScreen(
         }
     }
     // v0.57：错误对话框的"重试"——按当前进度重播当前地址
-    // v0.107.0 P0-4：重试统一入口——magnet: 地址不直接喂 EngineHost（ExoPlayer 必失败），
-    // 重走 MagnetPlayer.playIfReady 探测本机转播服务链路
-    suspend fun playCurrentUrl(startPositionMs: Long): Boolean {
-        val sub = runCatching { currentSubtitleUrl() }.getOrNull()
-        return if (MagnetPlayer.isMagnet(playUrl)) {
-            MagnetPlayer.playIfReady(
-                context, magnet = playUrl, title = title,
-                startPositionMs = startPositionMs,
-            )
-        } else {
-            EngineHost.play(
-                context, playUrl, headers = lastHeaders,
-                startPositionMs = startPositionMs, subtitleUrl = sub,
-            )
-        }
-    }
+    // v0.186.0 第 5 组：playCurrentUrl 已前移至 LaunchedEffect(playUrl) 之前，
+    // 初始失败与错误回调共用同一 handlePlayFailure 链，此处不再重复定义。
     fun retryCurrent() {
         scope.launch {
             try {
@@ -783,64 +950,6 @@ fun PlayerScreen(
         }
     }
 
-    /**
-     * v0.19.0：播放错误 → 按线路顺序自动重试（同集换线路）。
-     * v0.25.0：抽成独立函数，自动换内核失败时复用；全部试完仍失败才 Snackbar。
-     */
-    fun tryNextLine(fallbackMsg: String) {
-        val lines = PlaySession.lines
-        val resolver = PlaySession.resolver
-        val curLine = PlaySession.lineIndex
-        if (resolver != null && lines.size > 1 && curLine !in triedLines) {
-            triedLines.add(curLine)
-            scope.launch {
-                var next = (curLine + 1) % lines.size
-                var link = ""
-                var targetLine = -1
-                var targetEpIdx = 0
-                var guard = 0
-                while (guard < lines.size && link.isBlank()) {
-                    if (next !in triedLines) {
-                        triedLines.add(next)
-                        val line = lines[next]
-                        val epIdx = PlaySession.episodeIndex
-                            .coerceIn(0, (line.episodes.size - 1).coerceAtLeast(0))
-                        val ep = line.episodes.getOrNull(epIdx)
-                        // 磁力不参与自动重试（走 MagnetPlayer 分支，无播放器错误可重试）
-                        if (ep != null && !MagnetPlayer.isMagnet(ep.url)) {
-                            val resolved = resolver(context, ep)
-                            if (resolved.isNotBlank() && resolved != playUrl) {
-                                link = resolved
-                                targetLine = next
-                                targetEpIdx = epIdx
-                            }
-                        }
-                    }
-                    next = (next + 1) % lines.size
-                    guard++
-                }
-                if (link.isNotBlank()) {
-                    PlaySession.moveTo(targetLine, targetEpIdx)
-                    // v0.175.0：自动换线路也要通知外部——之前只改了 PlaySession，
-                    // 详情页的选中线路没收到通知，Tab 和源胶囊还停在旧线路上。
-                    onEpisodeChange(targetLine, targetEpIdx)
-                    Toast.makeText(
-                        context,
-                        "已自动切换到「${lines[targetLine].name}」",
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                    LogBus.i("Player", "播放失败，自动换线路：${lines[targetLine].name}")
-                    autoSwitching = true
-                    playUrl = link
-                } else {
-                    errorMsg = "所有线路均播放失败"
-                }
-            }
-        } else {
-            errorMsg = fallbackMsg
-        }
-    }
-
     // v0.19.0：播放错误 -> 按线路顺序自动重试（同集换线路）；
     // 全部线路试完仍失败才 Snackbar 提示。无 PlaySession（嗅探页直进）时保持原行为。
     // v0.20.0：错误回调走 EngineHost，Media3/libmpv 双引擎统一消息字符串。
@@ -848,60 +957,10 @@ fun PlayerScreen(
     // 抖动多半自愈，别一出错就换内核）②换内核（目标不可用直接跳过：libmpv 未安装/
     // 初始化失败过不许切，v0.122.0 真机实锤切过去后黑屏死胡同）③换线路。
     DisposableEffect(Unit) {
+        // v0.186.0 第 5 组：播放中错误回调复用 handlePlayFailure 统一链，
+        // 与初始起播失败同一顺序、同一记账，不再另写一套链。
         EngineHost.setOnErrorListener { msg ->
-            if (sameEngineRetries.intValue < 2) {
-                sameEngineRetries.intValue++
-                LogBus.i(
-                    "Player",
-                    "播放失败，当前内核重拉重试 ${sameEngineRetries.intValue}/2：$msg",
-                )
-                scope.launch {
-                    delay(600)
-                    val ok = playCurrentUrl(
-                        if (isLive) 0L else EngineHost.currentPosition()
-                    )
-                    if (!ok) tryNextLine(msg)
-                }
-                return@setOnErrorListener
-            }
-            val cur = EngineHost.engine()
-            val other =
-                if (cur == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV else PlayerEngine.MEDIA3
-            val otherUsable = other == PlayerEngine.MEDIA3 ||
-                (MpvPluginLoader.isInstalled(context) && !MpvPlayerManager.initFailed)
-            if (!otherUsable) {
-                LogBus.w("Player", "跳过自动换内核：$other 不可用（未安装或初始化失败过）")
-            }
-            if (otherUsable && other !in triedEngines) {
-                triedEngines.add(cur)
-                triedEngines.add(other)
-                try {
-                    LogBus.i("Player", "播放失败，自动换内核重试：$cur → $other")
-                    EngineHost.stop()
-                    EngineHost.setEngineOverride(other)
-                    val pos = EngineHost.currentPosition()
-                    sameEngineRetries.intValue = 0 // 新内核重新给同内核重试机会
-                    scope.launch {
-                        val ok = playCurrentUrl(pos)
-                        if (ok) {
-                            EngineHost.applySubtitleStyle(
-                                PlayerSettings.subtitleStyle.value, playerView
-                            )
-                        } else {
-                            tryNextLine(msg)
-                        }
-                    }
-                } catch (t: Throwable) {
-                    LogBus.e(
-                        "Player",
-                        "自动换内核异常：${t::class.java.simpleName}: ${t.message}",
-                    )
-                    Toast.makeText(context, "切换内核失败，尝试换线路", Toast.LENGTH_SHORT).show()
-                    tryNextLine(msg)
-                }
-                return@setOnErrorListener
-            }
-            tryNextLine(msg)
+            handlePlayFailure(msg)
         }
         onDispose { EngineHost.setOnErrorListener(null) }
     }
@@ -972,7 +1031,9 @@ fun PlayerScreen(
     LaunchedEffect(playUrl, sleepArmed, playModeIndex) {
         // v0.24.0：直播无“集”概念，跳过片尾下一集/播完暂停逻辑
         if (isLive) return@LaunchedEffect
-        val skipOutro = PlayerSettings.getSkipOutroFor(context, vodId)
+        val skipOutro = PlayerSettings.getSkipOutroFor(
+            context, playSourceKey, vodId, PlaySession.episodeIndex,
+        )
         while (true) {
             delay(1000)
             val dur = EngineHost.duration()
@@ -1832,13 +1893,19 @@ fun PlayerScreen(
         if (showSubtitleDialog) {
             SubtitleDialog(
                 initial = sessionSubtitle
-                    ?: vodId?.let { PlayerSettings.getSubtitleFor(context, it) }.orEmpty(),
+                    ?: vodId?.let {
+                        PlayerSettings.getSubtitleFor(
+                            context, playSourceKey, it, PlaySession.episodeIndex,
+                        )
+                    }.orEmpty(),
                 initialStyle = PlayerSettings.subtitleStyle.value,
                 onDismiss = { showSubtitleDialog = false },
                 onSave = { url, style ->
                     val clean = url.trim()
                     sessionSubtitle = clean.ifBlank { null }
-                    if (vodId != null) PlayerSettings.setSubtitleFor(context, vodId, clean)
+                    if (vodId != null) PlayerSettings.setSubtitleFor(
+                        context, playSourceKey, vodId, PlaySession.episodeIndex, clean,
+                    )
                     PlayerSettings.setSubtitleStyle(context, style)
                     showSubtitleDialog = false
                     replayWithSubtitle()
@@ -1892,6 +1959,8 @@ fun PlayerScreen(
         if (showSkipSettings && vodId != null) {
             SkipSettingsDialog(
                 vodId = vodId,
+                sourceKey = playSourceKey,
+                episodeIndex = PlaySession.episodeIndex,
                 onDismiss = { showSkipSettings = false },
             )
         }
@@ -2580,11 +2649,21 @@ private fun fmtSleep(ms: Long): String {
 @Composable
 private fun SkipSettingsDialog(
     vodId: String,
+    sourceKey: String?,
+    episodeIndex: Int,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    var intro by remember { mutableStateOf(PlayerSettings.getSkipIntroFor(context, vodId).toString()) }
-    var outro by remember { mutableStateOf(PlayerSettings.getSkipOutroFor(context, vodId).toString()) }
+    var intro by remember {
+        mutableStateOf(
+            PlayerSettings.getSkipIntroFor(context, sourceKey, vodId, episodeIndex).toString(),
+        )
+    }
+    var outro by remember {
+        mutableStateOf(
+            PlayerSettings.getSkipOutroFor(context, sourceKey, vodId, episodeIndex).toString(),
+        )
+    }
 
     // v0.27.0：统一卡片容器 + AppTextField
     PlayerDialogCard(
@@ -2597,8 +2676,12 @@ private fun SkipSettingsDialog(
                 onClick = {
                     val introSec = intro.toIntOrNull()?.coerceIn(0, 600) ?: 0
                     val outroSec = outro.toIntOrNull()?.coerceIn(0, 600) ?: 0
-                    PlayerSettings.setSkipIntroFor(context, vodId, introSec)
-                    PlayerSettings.setSkipOutroFor(context, vodId, outroSec)
+                    PlayerSettings.setSkipIntroFor(
+                        context, sourceKey, vodId, episodeIndex, introSec,
+                    )
+                    PlayerSettings.setSkipOutroFor(
+                        context, sourceKey, vodId, episodeIndex, outroSec,
+                    )
                     LogBus.i("UI", "设置本剧跳过: 片头${introSec}s 片尾${outroSec}s")
                     onDismiss()
                 },

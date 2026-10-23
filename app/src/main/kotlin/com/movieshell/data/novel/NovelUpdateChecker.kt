@@ -47,7 +47,10 @@ object NovelUpdateChecker {
             val chapters = metas.map {
                 Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url)
             }
-            NovelStore.updateSource(context, novel.id, novel.sourceKey, chapters)
+            // v0.186.0 第 9 组：换源写入失败时不谎报角标，直接按失败算
+            if (!NovelStore.updateSource(context, novel.id, novel.sourceKey, chapters)) {
+                return@runCatching Result.Failed
+            }
             Result.Updated(newCount)
         }.onFailure { Log.w(TAG, "追更检查失败《${novel.title}》", it) }
             .getOrDefault(Result.Failed)
@@ -57,16 +60,29 @@ object NovelUpdateChecker {
     suspend fun checkAll(
         context: Context,
         novels: List<Novel>,
-    ): Map<String, Int> = coroutineScope {
-        novels.filter { it.sourceKey != "local" }.map { novel ->
+    ): Map<String, Int> = checkAllDetailed(context, novels).updated
+
+    /** v0.186.0 第 9 组：批量检查加失败计数——Failed 不再被悄悄丢掉，Worker 据此决定重试。 */
+    data class CheckAllResult(val updated: Map<String, Int>, val failed: Int, val checked: Int)
+
+    suspend fun checkAllDetailed(
+        context: Context,
+        novels: List<Novel>,
+    ): CheckAllResult = coroutineScope {
+        val results = novels.filter { it.sourceKey != "local" }.map { novel ->
             async {
                 // v0.109.0：走统一限流（NovelSourceEngine 的 Semaphore(4)），
                 // 之前每本书一个 async 直调 search，绕过限流齐发被反爬封 IP
                 novel.id to NovelSourceEngine.withSearchThrottle { check(context, novel) }
             }
-        }.awaitAll().mapNotNull { (id, r) ->
-            (r as? Result.Updated)?.let { id to it.newCount }
-        }.toMap()
+        }.awaitAll()
+        CheckAllResult(
+            updated = results.mapNotNull { (id, r) ->
+                (r as? Result.Updated)?.let { id to it.newCount }
+            }.toMap(),
+            failed = results.count { (_, r) -> r is Result.Failed },
+            checked = results.size,
+        )
     }
 
     private suspend fun checkJson(novel: Novel): List<ChapterMeta>? {

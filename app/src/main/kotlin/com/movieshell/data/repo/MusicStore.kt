@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.movieshell.data.repo.MusicApi.Track
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -33,6 +35,11 @@ object MusicStore {
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    /**
+     * v0.186.0：本地、收藏、歌单三文件共用同一把锁——同一 store 内任何读改写全程串行。
+     */
+    private val mutex = Mutex()
+
     private fun readTracks(f: File): List<Track> = runCatching {
         if (!f.isFile) return emptyList()
         json.decodeFromString(ListSerializer(Track.serializer()), f.readText())
@@ -42,49 +49,65 @@ object MusicStore {
         AtomicFile.preserveCorrupt(f)
     }.getOrDefault(emptyList())
 
-    private fun writeTracks(f: File, list: List<Track>) = runCatching {
-        // v0.170.0：原子写盘
-        AtomicFile.writeText(f, json.encodeToString(ListSerializer(Track.serializer()), list))
-    }.onFailure { Log.w(TAG, "写入失败：${f.name}", it) }
+    private fun writeTracks(f: File, list: List<Track>): Boolean {
+        val ok = runCatching {
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(f, json.encodeToString(ListSerializer(Track.serializer()), list))
+        }.onFailure { Log.w(TAG, "写入失败：${f.name}", it) }.getOrDefault(false)
+        if (!ok) LogBus.w(TAG, "写入失败：${f.name}")
+        return ok
+    }
 
     // ---- 本地音乐 ----
 
-    suspend fun localList(context: Context): List<Track> = withContext(Dispatchers.IO) {
-        readTracks(File(context.filesDir, LOCAL_FILE))
-    }
-
-    suspend fun addLocal(context: Context, track: Track) = withContext(Dispatchers.IO) {
-        val f = File(context.filesDir, LOCAL_FILE)
-        val cur = readTracks(f).toMutableList()
-        if (cur.none { it.id == track.id }) {
-            cur.add(0, track)
-            writeTracks(f, cur)
+    suspend fun localList(context: Context): List<Track> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            readTracks(File(context.filesDir, LOCAL_FILE))
         }
     }
 
-    suspend fun removeLocal(context: Context, id: String) = withContext(Dispatchers.IO) {
-        val f = File(context.filesDir, LOCAL_FILE)
-        writeTracks(f, readTracks(f).filterNot { it.id == id })
+    suspend fun addLocal(context: Context, track: Track) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val f = File(context.filesDir, LOCAL_FILE)
+            val cur = readTracks(f).toMutableList()
+            if (cur.none { it.id == track.id }) {
+                cur.add(0, track)
+                writeTracks(f, cur)
+            }
+        }
+    }
+
+    suspend fun removeLocal(context: Context, id: String) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val f = File(context.filesDir, LOCAL_FILE)
+            writeTracks(f, readTracks(f).filterNot { it.id == id })
+        }
     }
 
     // ---- 收藏 ----
 
-    suspend fun favList(context: Context): List<Track> = withContext(Dispatchers.IO) {
-        readTracks(File(context.filesDir, FAV_FILE))
+    suspend fun favList(context: Context): List<Track> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            readTracks(File(context.filesDir, FAV_FILE))
+        }
     }
 
-    suspend fun isFav(context: Context, id: String): Boolean = withContext(Dispatchers.IO) {
-        readTracks(File(context.filesDir, FAV_FILE)).any { it.id == id }
+    suspend fun isFav(context: Context, id: String): Boolean = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            readTracks(File(context.filesDir, FAV_FILE)).any { it.id == id }
+        }
     }
 
     /** 切换收藏，返回切换后是否为收藏态。 */
-    suspend fun toggleFav(context: Context, track: Track): Boolean = withContext(Dispatchers.IO) {
-        val f = File(context.filesDir, FAV_FILE)
-        val cur = readTracks(f).toMutableList()
-        val exists = cur.any { it.id == track.id }
-        if (exists) cur.removeAll { it.id == track.id } else cur.add(0, track)
-        writeTracks(f, cur)
-        !exists
+    suspend fun toggleFav(context: Context, track: Track): Boolean = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val f = File(context.filesDir, FAV_FILE)
+            val cur = readTracks(f).toMutableList()
+            val exists = cur.any { it.id == track.id }
+            if (exists) cur.removeAll { it.id == track.id } else cur.add(0, track)
+            // 写盘失败返回写盘前状态：磁盘没变，UI 收藏态也不应翻转
+            if (writeTracks(f, cur)) !exists else exists
+        }
     }
 
     // ---- 自建歌单（v0.84.0） ----
@@ -100,80 +123,96 @@ object MusicStore {
         AtomicFile.preserveCorrupt(f)
     }.getOrDefault(emptyList())
 
-    private fun writePlaylists(f: File, list: List<MusicPlaylist>) = runCatching {
-        // v0.170.0：原子写盘
-        AtomicFile.writeText(f, json.encodeToString(ListSerializer(MusicPlaylist.serializer()), list))
-    }.onFailure { Log.w(TAG, "歌单写入失败", it) }
-
-    suspend fun playlistList(context: Context): List<MusicPlaylist> = withContext(Dispatchers.IO) {
-        readPlaylists(File(context.filesDir, PLAYLIST_FILE))
-            .sortedByDescending { it.createdAt }
+    private fun writePlaylists(f: File, list: List<MusicPlaylist>): Boolean {
+        val ok = runCatching {
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(f, json.encodeToString(ListSerializer(MusicPlaylist.serializer()), list))
+        }.onFailure { Log.w(TAG, "歌单写入失败", it) }.getOrDefault(false)
+        if (!ok) LogBus.w(TAG, "歌单写入失败")
+        return ok
     }
 
-    suspend fun getPlaylist(context: Context, id: String): MusicPlaylist? = withContext(Dispatchers.IO) {
-        readPlaylists(File(context.filesDir, PLAYLIST_FILE)).firstOrNull { it.id == id }
+    suspend fun playlistList(context: Context): List<MusicPlaylist> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            readPlaylists(File(context.filesDir, PLAYLIST_FILE))
+                .sortedByDescending { it.createdAt }
+        }
+    }
+
+    suspend fun getPlaylist(context: Context, id: String): MusicPlaylist? = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            readPlaylists(File(context.filesDir, PLAYLIST_FILE)).firstOrNull { it.id == id }
+        }
     }
 
     suspend fun createPlaylist(context: Context, name: String): MusicPlaylist? =
-        withContext(Dispatchers.IO) {
-            val nm = name.trim()
-            if (nm.isEmpty()) return@withContext null
-            val f = File(context.filesDir, PLAYLIST_FILE)
-            val cur = readPlaylists(f).toMutableList()
-            if (cur.any { it.name == nm }) return@withContext null // 重名不建
-            val pl = MusicPlaylist(
-                id = "pl_${System.currentTimeMillis()}",
-                name = nm,
-                createdAt = System.currentTimeMillis(),
-            )
-            cur.add(pl)
-            writePlaylists(f, cur)
-            pl
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                val nm = name.trim()
+                if (nm.isEmpty()) return@withContext null
+                val f = File(context.filesDir, PLAYLIST_FILE)
+                val cur = readPlaylists(f).toMutableList()
+                if (cur.any { it.name == nm }) return@withContext null // 重名不建
+                val pl = MusicPlaylist(
+                    id = "pl_${System.currentTimeMillis()}",
+                    name = nm,
+                    createdAt = System.currentTimeMillis(),
+                )
+                cur.add(pl)
+                // 写盘失败返回空：调用方已按空判失败并提示，不谎报已创建
+                if (writePlaylists(f, cur)) pl else null
+            }
         }
 
     suspend fun renamePlaylist(context: Context, id: String, name: String): Boolean =
-        withContext(Dispatchers.IO) {
-            val nm = name.trim()
-            if (nm.isEmpty()) return@withContext false
-            val f = File(context.filesDir, PLAYLIST_FILE)
-            val cur = readPlaylists(f)
-            if (cur.none { it.id == id } || cur.any { it.name == nm && it.id != id }) {
-                return@withContext false
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                val nm = name.trim()
+                if (nm.isEmpty()) return@withContext false
+                val f = File(context.filesDir, PLAYLIST_FILE)
+                val cur = readPlaylists(f)
+                if (cur.none { it.id == id } || cur.any { it.name == nm && it.id != id }) {
+                    return@withContext false
+                }
+                writePlaylists(f, cur.map { if (it.id == id) it.copy(name = nm) else it })
             }
-            writePlaylists(f, cur.map { if (it.id == id) it.copy(name = nm) else it })
-            true
         }
 
-    suspend fun deletePlaylist(context: Context, id: String) = withContext(Dispatchers.IO) {
-        val f = File(context.filesDir, PLAYLIST_FILE)
-        writePlaylists(f, readPlaylists(f).filterNot { it.id == id })
+    suspend fun deletePlaylist(context: Context, id: String) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val f = File(context.filesDir, PLAYLIST_FILE)
+            writePlaylists(f, readPlaylists(f).filterNot { it.id == id })
+        }
     }
 
     /** 往歌单加歌；已在则返回 false。 */
     suspend fun addToPlaylist(context: Context, playlistId: String, track: Track): Boolean =
-        withContext(Dispatchers.IO) {
-            val f = File(context.filesDir, PLAYLIST_FILE)
-            val cur = readPlaylists(f)
-            val pl = cur.firstOrNull { it.id == playlistId } ?: return@withContext false
-            if (pl.tracks.any { it.id == track.id }) return@withContext false
-            writePlaylists(
-                f,
-                cur.map { if (it.id == playlistId) it.copy(tracks = it.tracks + track) else it },
-            )
-            true
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                val f = File(context.filesDir, PLAYLIST_FILE)
+                val cur = readPlaylists(f)
+                val pl = cur.firstOrNull { it.id == playlistId } ?: return@withContext false
+                if (pl.tracks.any { it.id == track.id }) return@withContext false
+                writePlaylists(
+                    f,
+                    cur.map { if (it.id == playlistId) it.copy(tracks = it.tracks + track) else it },
+                )
+            }
         }
 
     suspend fun removeFromPlaylist(context: Context, playlistId: String, trackId: String) =
-        withContext(Dispatchers.IO) {
-            val f = File(context.filesDir, PLAYLIST_FILE)
-            val cur = readPlaylists(f)
-            writePlaylists(
-                f,
-                cur.map {
-                    if (it.id == playlistId) it.copy(tracks = it.tracks.filterNot { t -> t.id == trackId })
-                    else it
-                },
-            )
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                val f = File(context.filesDir, PLAYLIST_FILE)
+                val cur = readPlaylists(f)
+                writePlaylists(
+                    f,
+                    cur.map {
+                        if (it.id == playlistId) it.copy(tracks = it.tracks.filterNot { t -> t.id == trackId })
+                        else it
+                    },
+                )
+            }
         }
 
     /**
@@ -181,47 +220,53 @@ object MusicStore {
      * 越界直接 return；其余照抄 readPlaylists/writePlaylists 模式。
      */
     suspend fun moveTrack(context: Context, playlistId: String, from: Int, to: Int) =
-        withContext(Dispatchers.IO) {
-            val f = File(context.filesDir, PLAYLIST_FILE)
-            val cur = readPlaylists(f)
-            val pl = cur.firstOrNull { it.id == playlistId } ?: return@withContext
-            val tracks = pl.tracks
-            if (from !in tracks.indices || to !in tracks.indices || from == to) return@withContext
-            val mutable = tracks.toMutableList()
-            mutable.add(to, mutable.removeAt(from))
-            writePlaylists(
-                f,
-                cur.map { if (it.id == playlistId) pl.copy(tracks = mutable) else it },
-            )
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                val f = File(context.filesDir, PLAYLIST_FILE)
+                val cur = readPlaylists(f)
+                val pl = cur.firstOrNull { it.id == playlistId } ?: return@withContext
+                val tracks = pl.tracks
+                if (from !in tracks.indices || to !in tracks.indices || from == to) return@withContext
+                val mutable = tracks.toMutableList()
+                mutable.add(to, mutable.removeAt(from))
+                writePlaylists(
+                    f,
+                    cur.map { if (it.id == playlistId) pl.copy(tracks = mutable) else it },
+                )
+            }
         }
 
     /** v0.89.0：批量删除（多选模式）。 */
     suspend fun removeTracks(context: Context, playlistId: String, ids: Set<String>) =
-        withContext(Dispatchers.IO) {
-            if (ids.isEmpty()) return@withContext
-            val f = File(context.filesDir, PLAYLIST_FILE)
-            val cur = readPlaylists(f)
-            writePlaylists(
-                f,
-                cur.map {
-                    if (it.id == playlistId) it.copy(tracks = it.tracks.filterNot { t -> t.id in ids })
-                    else it
-                },
-            )
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                if (ids.isEmpty()) return@withContext
+                val f = File(context.filesDir, PLAYLIST_FILE)
+                val cur = readPlaylists(f)
+                writePlaylists(
+                    f,
+                    cur.map {
+                        if (it.id == playlistId) it.copy(tracks = it.tracks.filterNot { t -> t.id in ids })
+                        else it
+                    },
+                )
+            }
         }
 
     /** v0.89.0：按歌名排序（name.lowercase()）写回。 */
     suspend fun sortByName(context: Context, playlistId: String) =
-        withContext(Dispatchers.IO) {
-            val f = File(context.filesDir, PLAYLIST_FILE)
-            val cur = readPlaylists(f)
-            writePlaylists(
-                f,
-                cur.map {
-                    if (it.id == playlistId) {
-                        it.copy(tracks = it.tracks.sortedBy { t -> t.name.lowercase() })
-                    } else it
-                },
-            )
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                val f = File(context.filesDir, PLAYLIST_FILE)
+                val cur = readPlaylists(f)
+                writePlaylists(
+                    f,
+                    cur.map {
+                        if (it.id == playlistId) {
+                            it.copy(tracks = it.tracks.sortedBy { t -> t.name.lowercase() })
+                        } else it
+                    },
+                )
+            }
         }
 }

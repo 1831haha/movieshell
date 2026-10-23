@@ -5,6 +5,8 @@ import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 /**
  * v0.51.0：极简 WebDAV 客户端（只做备份文件上传/下载，不做目录浏览）。
@@ -71,6 +73,52 @@ object WebDavClient {
         } catch (e: Exception) {
             "连接失败：${e.message}"
         }
+    }
+
+    /** 远端文件信息：exists=false 表示远端无此文件；null 表示查不到
+     * （服务端不支持 PROPFIND、日期解析失败等），调用方不得据此判定冲突。 */
+    data class RemoteInfo(val exists: Boolean, val mtimeMs: Long)
+
+    /** 对单个远端文件发 Depth 0 PROPFIND，取 getlastmodified 作远端 mtime。 */
+    fun propfind(baseUrl: String, user: String, pass: String, name: String): RemoteInfo? {
+        return try {
+            val req = authed(
+                join(baseUrl, name), user, pass,
+                Request.Builder().method("PROPFIND", null).header("Depth", "0"),
+            )
+            client.newCall(req).execute().use { resp ->
+                if (resp.code == 404) return RemoteInfo(false, 0L)
+                if (!resp.isSuccessful) return null
+                val body = resp.body?.string() ?: return null
+                val dateText = Regex(
+                    "<(?:\\w+:)?getlastmodified>([^<]+)</(?:\\w+:)?getlastmodified>",
+                ).find(body)?.groupValues?.get(1)?.trim() ?: return null
+                val ms = runCatching {
+                    SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US)
+                        .parse(dateText)?.time
+                }.getOrNull() ?: return null
+                RemoteInfo(true, ms)
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** 摘要 sidecar 读取结果：缺文件（老备份无摘要）与读取失败要区分——
+     * 失败时调用方必须拒绝恢复，不能当成“无摘要”放行。 */
+    sealed interface SidecarResult {
+        data class Found(val digestHex: String) : SidecarResult
+        data object Missing : SidecarResult
+        data class Failed(val reason: String) : SidecarResult
+    }
+
+    /** 读摘要 sidecar 文件内容（十六进制摘要文本）；404 视为老备份无摘要。 */
+    fun getSidecar(baseUrl: String, user: String, pass: String, name: String): SidecarResult {
+        val reason = arrayOfNulls<String>(1)
+        val bytes = get(baseUrl, user, pass, name, reason)
+        if (bytes != null) return SidecarResult.Found(bytes.toString(Charsets.UTF_8).trim().lowercase())
+        return if (reason[0] == "云端没有备份文件") SidecarResult.Missing
+        else SidecarResult.Failed(reason[0] ?: "读取失败")
     }
 
     private fun join(base: String, name: String) = base.trimEnd('/') + "/" + name.trimStart('/')

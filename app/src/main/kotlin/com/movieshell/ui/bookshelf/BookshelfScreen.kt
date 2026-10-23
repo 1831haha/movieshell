@@ -77,7 +77,6 @@ import com.movieshell.data.novel.TxtImporter
 import com.movieshell.data.repo.BookGroup
 import com.movieshell.data.repo.BookshelfGroupStore
 import com.movieshell.data.repo.NovelStore
-import com.movieshell.data.repo.BookmarkStore
 import com.movieshell.data.repo.NovelUpdateInfo
 import com.movieshell.data.repo.NovelUpdateStore
 import com.movieshell.data.repo.ReadingProgressStore
@@ -182,11 +181,20 @@ fun BookshelfScreen(
                 BookSourceManager.load(context)
                 PyBookSourceManager.load(context)
             }
-            val result = NovelUpdateChecker.checkAll(context, books)
+            // v0.186.0 第 9 组：用带失败计数的批量检查——全失败时不再谎报“都追上了”
+            val checked = NovelUpdateChecker.checkAllDetailed(context, books)
+            val result = checked.updated
             result.forEach { (id, n) -> NovelUpdateStore.set(context, id, n) }
             checking = false
             reload()
-            toast(if (result.isEmpty()) "都追上了，没有新章节" else "${result.size} 本有更新")
+            toast(
+                when {
+                    result.isNotEmpty() -> "${result.size} 本有更新"
+                    checked.checked > 0 && checked.failed == checked.checked -> "检查失败，稍后再试"
+                    checked.failed > 0 -> "已检查，${checked.failed} 本检查失败"
+                    else -> "都追上了，没有新章节"
+                },
+            )
         }
     }
 
@@ -201,15 +209,10 @@ fun BookshelfScreen(
     fun deleteNovels(targets: List<Novel>) {
         scope.launch {
             withContext(Dispatchers.IO) {
+                // v0.186.0 第 9 组：走删书唯一入口，与搜索页清理范围一致
+                // （本体 + 进度 + 书签 + 分组 + 追更角标）
                 targets.forEach { t ->
-                    NovelStore.removeNovel(context, t.id)
-                    ReadingProgressStore.clear(context, t.id)
-                    // v0.109.0 A8：删书同时清书签——否则重加同书旧书签复活；
-                    // BookmarkStore 无整书 clear，用 list+remove 逐条删
-                    BookmarkStore.list(context, t.id).forEach { bm ->
-                        BookmarkStore.remove(context, t.id, bm.createdAt)
-                    }
-                    BookshelfGroupStore.removeNovelEverywhere(context, t.id)
+                    NovelStore.deleteNovelCascade(context, t.id)
                 }
             }
             selectionMode = false
@@ -643,7 +646,7 @@ fun BookshelfScreen(
                 deleteNovels(listOf(target))
             },
         ) {
-            Text("将从书架移除，阅读进度也会清除。")
+            Text("将从书架移除，阅读进度、书签与追更标记也会清除。")
         }
     }
 
@@ -658,7 +661,7 @@ fun BookshelfScreen(
                 deleteNovels(books.filter { selectedIds.contains(it.id) })
             },
         ) {
-            Text("将从书架移除，阅读进度也会清除。")
+            Text("将从书架移除，阅读进度、书签与追更标记也会清除。")
         }
     }
 

@@ -6,6 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -58,6 +60,14 @@ object FollowStore {
 
     private var inited = false
 
+    /**
+     * v0.186.0：读改写同一把锁——follow/unfollow/mark 系列的读表加写盘全程串行，
+     * UI 与 FollowCheckWorker 并发写同一 prefs 时后写者不再覆盖先写者的改动。
+     * 纯读（readSync/isFollowing/getWatchedEpisode）不动：SharedPreferences 单值读是原子的，
+     * commit 写盘同步可见；init 的 Synchronized 守门与开关单值读写也不重复加锁。
+     */
+    private val mutex = Mutex()
+
     @Synchronized
     fun init(context: Context) {
         if (inited) return
@@ -78,39 +88,43 @@ object FollowStore {
 
     /** 幂等追剧：已存在则刷新集数。 */
     suspend fun follow(context: Context, item: FollowItem): Boolean =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                // v0.87.0：新追时集数变化计时从当前起算
-                val fresh = item.copy(
-                    updatedAt = System.currentTimeMillis(),
-                    lastEpisodeChangeAt = System.currentTimeMillis(),
-                )
-                val rest = readAll(context).filterNot { it.id == fresh.id }
-                // v0.170.0：写盘失败如实返回 false，不谎报成功
-                if (!writeAll(context, (listOf(fresh) + rest).sortedByDescending { it.updatedAt })) {
-                    Log.w(TAG, "追剧写入失败")
-                    return@runCatching false
-                }
-                refreshFlow(context)
-                true
-            }.onFailure { Log.w(TAG, "追剧写入失败", it) }.getOrDefault(false)
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    // v0.87.0：新追时集数变化计时从当前起算
+                    val fresh = item.copy(
+                        updatedAt = System.currentTimeMillis(),
+                        lastEpisodeChangeAt = System.currentTimeMillis(),
+                    )
+                    val rest = readAll(context).filterNot { it.id == fresh.id }
+                    // v0.170.0：写盘失败如实返回 false，不谎报成功
+                    if (!writeAll(context, (listOf(fresh) + rest).sortedByDescending { it.updatedAt })) {
+                        Log.w(TAG, "追剧写入失败")
+                        return@runCatching false
+                    }
+                    refreshFlow(context)
+                    true
+                }.onFailure { Log.w(TAG, "追剧写入失败", it) }.getOrDefault(false)
+            }
         }
 
     suspend fun unfollow(context: Context, id: String): Boolean =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                // v0.170.0：写盘失败如实返回 false
-                if (!writeAll(context, readAll(context).filterNot { it.id == id })) {
-                    Log.w(TAG, "取消追剧失败")
-                    return@runCatching false
-                }
-                refreshFlow(context)
-                true
-            }.onFailure { Log.w(TAG, "取消追剧失败", it) }.getOrDefault(false)
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    // v0.170.0：写盘失败如实返回 false
+                    if (!writeAll(context, readAll(context).filterNot { it.id == id })) {
+                        Log.w(TAG, "取消追剧失败")
+                        return@runCatching false
+                    }
+                    refreshFlow(context)
+                    true
+                }.onFailure { Log.w(TAG, "取消追剧失败", it) }.getOrDefault(false)
+            }
         }
 
     /** 播放时记"看到第几集"。 */
-    suspend fun markWatched(context: Context, id: String, episodeIndex: Int) {
+    suspend fun markWatched(context: Context, id: String, episodeIndex: Int) = mutex.withLock {
         withContext(Dispatchers.IO) {
             runCatching {
                 val ok = writeAll(
@@ -128,49 +142,53 @@ object FollowStore {
 
     /** 更新检测：集数变多则标 NEW 并刷新集数，返回 true 表示有新增。 */
     suspend fun markNew(context: Context, id: String, newCount: Int): Boolean =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                var added = false
-                val ok = writeAll(
-                    context,
-                    readAll(context).map {
-                        if (it.id == id && newCount > it.episodeCount) {
-                            added = true
-                            it.copy(
-                                episodeCount = newCount,
-                                hasNew = true,
-                                updatedAt = System.currentTimeMillis(),
-                                // v0.87.0：有更新则完结计时清零
-                                lastEpisodeChangeAt = System.currentTimeMillis(),
-                            )
-                        } else it
-                    },
-                )
-                // v0.170.0：写盘失败不算有新增
-                if (!ok) {
-                    Log.w(TAG, "markNew 写入失败")
-                    return@runCatching false
-                }
-                if (added) refreshFlow(context)
-                added
-            }.onFailure { Log.w(TAG, "markNew 失败", it) }.getOrDefault(false)
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    var added = false
+                    val ok = writeAll(
+                        context,
+                        readAll(context).map {
+                            if (it.id == id && newCount > it.episodeCount) {
+                                added = true
+                                it.copy(
+                                    episodeCount = newCount,
+                                    hasNew = true,
+                                    updatedAt = System.currentTimeMillis(),
+                                    // v0.87.0：有更新则完结计时清零
+                                    lastEpisodeChangeAt = System.currentTimeMillis(),
+                                )
+                            } else it
+                        },
+                    )
+                    // v0.170.0：写盘失败不算有新增
+                    if (!ok) {
+                        Log.w(TAG, "markNew 写入失败")
+                        return@runCatching false
+                    }
+                    if (added) refreshFlow(context)
+                    added
+                }.onFailure { Log.w(TAG, "markNew 失败", it) }.getOrDefault(false)
+            }
         }
 
     /** v0.87.0：集数长期不变，标为已完结，不再参与更新检测。 */
     suspend fun markFinished(context: Context, id: String) =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val ok = writeAll(
-                    context,
-                    readAll(context).map { if (it.id == id) it.copy(finished = true) else it },
-                )
-                if (!ok) Log.w(TAG, "markFinished 写入失败")
-                refreshFlow(context)
-            }.onFailure { Log.w(TAG, "markFinished 失败", it) }
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val ok = writeAll(
+                        context,
+                        readAll(context).map { if (it.id == id) it.copy(finished = true) else it },
+                    )
+                    if (!ok) Log.w(TAG, "markFinished 写入失败")
+                    refreshFlow(context)
+                }.onFailure { Log.w(TAG, "markFinished 失败", it) }
+            }
         }
 
     /** 看过更新后清 NEW 角标。 */
-    suspend fun clearNew(context: Context, id: String) {
+    suspend fun clearNew(context: Context, id: String) = mutex.withLock {
         withContext(Dispatchers.IO) {
             runCatching {
                 val ok = writeAll(

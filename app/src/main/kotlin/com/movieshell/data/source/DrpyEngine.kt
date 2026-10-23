@@ -17,6 +17,15 @@ import com.movieshell.data.model.VodDetail
  */
 interface DrpyEngine {
 
+    /**
+     * v0.187.0 H04：最近一次调用的失败原因（null = 最近一次成功、未跑过、或该实现不提供原因）。
+     * 带默认实现：已有实现类（订阅池适配器、PY 适配器等）无需改动即可编译；
+     * 只有 V8DrpyEngine 真正写它，DrpySourceManager 适配器透传它。
+     * 调用方据此区分“源没数据”（空结果且 lastError 为 null）与“执行失败”（空结果但有原因）。
+     */
+    val lastError: String?
+        get() = null
+
     /** 载入一条 drpy 规则源码。必须在主线程调用。 */
     fun loadRule(js: String)
 

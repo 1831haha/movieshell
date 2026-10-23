@@ -404,17 +404,33 @@ fun WebSniffScreen(
 
     /**
      * v0.93：候选收集——各链路命中直链后进候选列表（按 url 去重），
-     * 用户点选后才播。请求头在点选播放时现取现存（[playCandidate]）。
+     * 用户点选后才播。v0.186.0：拦截链路把原始请求头原样存入候选，
+     * 点选时优先用存下的原始头、无存下时才现取现存（[playCandidate]）。
      */
-    fun addCandidate(url: String, source: String, kind: SniffKind = SniffKind.DIRECT) {
+    fun addCandidate(
+        url: String,
+        source: String,
+        kind: SniffKind = SniffKind.DIRECT,
+        headers: Map<String, String> = emptyMap(),
+    ) {
         if (hitDone.get() || url.isBlank()) return
         // v0.94：广告地址过滤（SniffConfig 广告过滤总开关；默认开）
         if (SniffConfig.adFilterEnabled && SniffEngine.isAdUrl(url)) {
             LogBus.i("WebSniff", "广告过滤 [$source] ${url.take(120)}")
             return
         }
-        if (!candidateUrls.add(url)) return
-        candidates.add(SniffCandidate(url = url, kind = kind, source = source))
+        if (!candidateUrls.add(url)) {
+            // 已在列表：若本次拦截带了原始头而旧候选头为空，用原始头补齐
+            // （先到 onLoadResource 的候选无请求头，后到的拦截不应被去重丢掉头）。
+            if (headers.isNotEmpty()) {
+                val idx = candidates.indexOfFirst { it.url == url }
+                if (idx >= 0 && candidates[idx].headers.isEmpty()) {
+                    candidates[idx] = candidates[idx].copy(headers = headers)
+                }
+            }
+            return
+        }
+        candidates.add(SniffCandidate(url = url, kind = kind, source = source, headers = headers))
         LogBus.i("WebSniff", "候选+1 [$source] ${url.take(120)}")
     }
 
@@ -430,7 +446,27 @@ fun WebSniffScreen(
         if (!hitDone.compareAndSet(false, true)) return
         picked = true
         if (view == null) {
-            onPlay(candidate.url, pageTitle.ifBlank { name })
+            // v0.186.0：view 缺失时也不得直接绕过结算——先走一次带空头集合的
+            // 结算 Content-Type 探测，硬拒绝则不播并提示、解锁，探测通过才播。
+            // 播时若候选存有拦截原始头，仍把原始头存给播放器。
+            probeScope.launch(Dispatchers.IO) {
+                val denied = SniffEngine.settlementDenied(candidate.url, probeClient, emptyMap())
+                withContext(Dispatchers.Main) {
+                    if (denied) {
+                        LogBus.w("WebSniff", "结算拦截：${candidate.url.take(120)} 返回网页/脚本不是视频流")
+                        candidates.remove(candidate)
+                        candidateUrls.remove(candidate.url)
+                        hitDone.set(false)
+                        picked = false
+                        Toast.makeText(context, "该地址返回的是网页不是视频流，已拦截", Toast.LENGTH_LONG).show()
+                    } else {
+                        if (candidate.headers.isNotEmpty()) {
+                            SniffPlayHeaders.put(candidate.url, candidate.headers)
+                        }
+                        onPlay(candidate.url, pageTitle.ifBlank { name })
+                    }
+                }
+            }
             return
         }
         // v0.109.0 A13：hitDone 先置位防连点，但 post 被丢弃/内部异常时必须解锁——
@@ -454,9 +490,12 @@ fun WebSniffScreen(
                 picked = false
                 return@post
             }
+            // v0.186.0：拦截存下的原始头优先于现拼头（现拼 Referer 取的是主 frame
+            // 地址、UA 取当前 WebView 设置，iframe 与跨域候选的原始头会被改写）。
+            val headersToUse = if (candidate.headers.isNotEmpty()) candidate.headers else headersBuilt
             probeScope.launch(Dispatchers.IO) {
                 val denied = !SniffEngine.matchesCustomPattern(candidate.url) &&
-                    SniffEngine.settlementDenied(candidate.url, probeClient, headersBuilt)
+                    SniffEngine.settlementDenied(candidate.url, probeClient, headersToUse)
                 withContext(Dispatchers.Main) {
                     if (denied) {
                         LogBus.w("WebSniff", "结算拦截：${candidate.url.take(120)} 返回网页/脚本不是视频流")
@@ -466,7 +505,7 @@ fun WebSniffScreen(
                         picked = false
                         Toast.makeText(context, "该地址返回的是网页不是视频流，已拦截", Toast.LENGTH_LONG).show()
                     } else {
-                        SniffPlayHeaders.put(candidate.url, headersBuilt)
+                        SniffPlayHeaders.put(candidate.url, headersToUse)
                         view.stopLoading()
                         onPlay(candidate.url, pageTitle.ifBlank { name })
                     }
@@ -973,7 +1012,10 @@ fun WebSniffScreen(
                                     rememberSeen(reqUrl)
                                     // v0.149 案例 6：主 frame 导航的 /m3u8 路径形式不进候选
                                     when (SniffEngine.sniffKind(reqUrl, request?.isForMainFrame == true)) {
-                                        SniffKind.DIRECT -> addCandidate(reqUrl, "网络拦截")
+                                        SniffKind.DIRECT -> addCandidate(
+                                            reqUrl, "网络拦截",
+                                            headers = request?.requestHeaders.orEmpty(),
+                                        )
                                         SniffKind.RTMP -> onRtmp(webView, reqUrl)
                                         null -> if (SniffEngine.isSuspiciousMediaUrl(reqUrl)) {
                                             probeAsync(webView, reqUrl, "网络拦截")
@@ -999,7 +1041,10 @@ fun WebSniffScreen(
                                             val reqUrl = request.url.toString()
                                             if (reqUrl.isEmpty()) return null
                                             when (SniffEngine.sniffKind(reqUrl)) {
-                                                SniffKind.DIRECT -> addCandidate(reqUrl, "网络拦截")
+                                                SniffKind.DIRECT -> addCandidate(
+                                                    reqUrl, "网络拦截",
+                                                    headers = request.requestHeaders,
+                                                )
                                                 SniffKind.RTMP -> onRtmp(this@apply, reqUrl)
                                                 null -> { /* SW 上下文不做 HEAD 探测，避免跨线程复杂 */ }
                                             }
