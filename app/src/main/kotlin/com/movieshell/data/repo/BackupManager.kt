@@ -387,20 +387,24 @@ object BackupManager {
         }
         // ---- 1b. 新段校验先行（缺段=老备份，跳过；有段但格式/字段不对=整单拒绝） ----
         // parse* 只在段存在时调用，返回 null 即格式或关键字段不对。
-        val followItems: List<FollowItem>? = if (root["follow"] == null) null else {
-            parseFollowSection(root["follow"])
+        val followEl = root["follow"]
+        val followItems: List<FollowItem>? = if (followEl == null) null else {
+            parseFollowSection(followEl)
                 ?: return RestoreResult.Failed("备份追剧段格式不对，拒绝恢复（当前数据未动）")
         }
-        val bookshelf: BookshelfParsed? = if (root["bookshelf"] == null) null else {
-            parseBookshelfSection(root["bookshelf"])
+        val bookshelfEl = root["bookshelf"]
+        val bookshelf: BookshelfParsed? = if (bookshelfEl == null) null else {
+            parseBookshelfSection(bookshelfEl)
                 ?: return RestoreResult.Failed("备份书架段格式不对，拒绝恢复（当前数据未动）")
         }
-        val music: MusicParsed? = if (root["music"] == null) null else {
-            parseMusicSection(root["music"])
+        val musicEl = root["music"]
+        val music: MusicParsed? = if (musicEl == null) null else {
+            parseMusicSection(musicEl)
                 ?: return RestoreResult.Failed("备份音乐段格式不对，拒绝恢复（当前数据未动）")
         }
-        val live: LiveParsed? = if (root["live"] == null) null else {
-            parseLiveSection(root["live"])
+        val liveEl = root["live"]
+        val live: LiveParsed? = if (liveEl == null) null else {
+            parseLiveSection(liveEl)
                 ?: return RestoreResult.Failed("备份直播段格式不对，拒绝恢复（当前数据未动）")
         }
         // ---- 2. 快照当前状态（回滚用；只快照备份里带有的段） ----
