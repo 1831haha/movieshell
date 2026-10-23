@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -325,7 +326,9 @@ fun BookshelfScreen(
 
     // ---------------- 界面 ----------------
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // v0.177.0：书架页正常模式顶部标题栏整行去掉——数据条直接贴顶（仅留状态栏高度）；
+    // 多选模式的“已选 N 本”标题栏保留，那是批量操作的操作栏，不是正常顶栏。
+    Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
         if (selectionMode) {
             TabTopBar(
                 title = "已选 ${selectedIds.size} 本",
@@ -355,45 +358,9 @@ fun BookshelfScreen(
                     }
                 },
             )
-        } else {
-            TabTopBar(
-                title = "书架",
-                actions = {
-                    Box {
-                        IconButton(onClick = { showAddMenu = true }, enabled = !importing) {
-                            Icon(Icons.Filled.Add, "添加书籍")
-                        }
-                        DropdownMenu(
-                            expanded = showAddMenu,
-                            onDismissRequest = { showAddMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("添加本地书籍") },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.FolderOpen, contentDescription = null)
-                                },
-                                onClick = {
-                                    showAddMenu = false
-                                    pickTxt.launch("text/plain")
-                                },
-                            )
-                        }
-                    }
-                    IconButton(onClick = { checkUpdates() }, enabled = !checking && !importing) {
-                        Icon(Icons.Filled.Refresh, "检查更新")
-                    }
-                    IconButton(onClick = { selectionMode = true }) {
-                        Icon(Icons.Filled.Checklist, "批量管理")
-                    }
-                    IconButton(onClick = onFindBookClick) {
-                        Icon(Icons.Filled.Search, "找书")
-                    }
-                    IconButton(onClick = onManageSourcesClick) {
-                        Icon(Icons.Filled.Storage, "书源管理")
-                    }
-                },
-            )
         }
+        // v0.177.0：正常模式无标题栏，上面那五个功能移到这里——数据条下方一排右对齐小按钮，
+        // 无标题、无渐变线；多选模式仍用上面那个“已选 N 本”操作栏。
 
         Column(
             modifier = Modifier
@@ -404,7 +371,46 @@ fun BookshelfScreen(
 
             // v0.98.0：阅读数据条
             StatsBar(stats)
-            Spacer(Modifier.height(10.dp))
+            // v0.177.0：原标题栏功能移位到这里（正常模式）
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box {
+                    IconButton(onClick = { showAddMenu = true }, enabled = !importing) {
+                        Icon(Icons.Filled.Add, "添加书籍")
+                    }
+                    DropdownMenu(
+                        expanded = showAddMenu,
+                        onDismissRequest = { showAddMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("添加本地书籍") },
+                            leadingIcon = {
+                                Icon(Icons.Filled.FolderOpen, contentDescription = null)
+                            },
+                            onClick = {
+                                showAddMenu = false
+                                pickTxt.launch("text/plain")
+                            },
+                        )
+                    }
+                }
+                IconButton(onClick = { checkUpdates() }, enabled = !checking && !importing) {
+                    Icon(Icons.Filled.Refresh, "检查更新")
+                }
+                IconButton(onClick = { selectionMode = true }) {
+                    Icon(Icons.Filled.Checklist, "批量管理")
+                }
+                IconButton(onClick = onFindBookClick) {
+                    Icon(Icons.Filled.Search, "找书")
+                }
+                IconButton(onClick = onManageSourcesClick) {
+                    Icon(Icons.Filled.Storage, "书源管理")
+                }
+            }
+            Spacer(Modifier.height(2.dp))
 
             // v0.98.0：分组横滑
             LazyRow(

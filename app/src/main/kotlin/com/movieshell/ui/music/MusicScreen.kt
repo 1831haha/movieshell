@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -64,7 +65,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
-import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.PlayerSettings
@@ -173,53 +173,13 @@ fun MusicScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            // v0.95.0：去掉右上角历史按钮（用户要求）
-            // v0.100.0：右上角音乐源管理入口
-            TabTopBar(
-                title = "音乐",
-                actions = {
-                    // v0.117.0：列表页切换音源（设首选源，下一首生效；有在播歌曲时立即重解析）
-                    // v0.123.0：纯图标用户认不出（反馈"没有切换音源按钮"），改图标+文字按钮
-                    TextButton(onClick = { showSourcePicker = true }) {
-                        Icon(
-                            imageVector = Icons.Filled.SwapHoriz,
-                            contentDescription = "切换音源",
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text("切换音源")
-                    }
-                    // v0.128.0：歌单导入按钮挪到标题行（原在在线页搜索行内，仅在线页签显示，
-                    // 沿用既有弹窗与导入逻辑）
-                    if (tab == 0) {
-                        IconButton(
-                            onClick = { showPlaylistDialog = true },
-                            modifier = Modifier.size(40.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PlaylistAdd,
-                                contentDescription = "歌单导入",
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                    }
-                    IconButton(onClick = onOpenMusicSource, modifier = Modifier.size(40.dp)) {
-                        Icon(
-                            imageVector = Icons.Filled.LibraryMusic,
-                            contentDescription = "音乐源管理",
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                },
-            )
-        },
-    ) { inner ->
+    // v0.177.0：音乐页顶部标题栏整行去掉——搜索框/页签直接贴顶（仅留状态栏高度），
+    // 标题栏三个功能不删，移到页签下方一排小按钮（切换音源/歌单导入/源管理）。
+    Scaffold {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(inner),
+                .statusBarsPadding(),
         ) {
             // v0.128.0：搜索框紧贴标题行下方（原在 OnlineTab 内、页签之下），仅在线页签显示
             if (tab == 0) {
@@ -254,6 +214,43 @@ fun MusicScreen(
                 selected = tab,
                 onSelect = { tab = it },
             )
+            // v0.177.0：原标题栏功能移位到这里——一排右对齐小按钮，无标题、无渐变线
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { showSourcePicker = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.SwapHoriz,
+                        contentDescription = "切换音源",
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("切换音源")
+                }
+                if (tab == 0) {
+                    IconButton(
+                        onClick = { showPlaylistDialog = true },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.PlaylistAdd,
+                            contentDescription = "歌单导入",
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+                IconButton(onClick = onOpenMusicSource, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.LibraryMusic,
+                        contentDescription = "音乐源管理",
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
             if (tab == 0) {
                 OnlineTab(
                     query = query,
