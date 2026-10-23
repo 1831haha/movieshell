@@ -34,8 +34,17 @@ object MusicApi {
     private const val TAG = "MusicApi"
     private const val BASE = "https://music-api.gdstudio.xyz/api.php"
 
-    /** v0.126.0：LX 平台 code 全集（搜索 chip 与切换平台弹窗的枚举真源）。 */
+    /**
+     * v0.126.0：已知可搜索平台 code（兜底与搜索接口口径）。
+     * v0.180.0：这只是兜底，不是 UI 的固定分类——音乐页平台行优先按
+     * 当前 LX 音源自报的平台列出（见 LxMusicSourceEngine.getSourcePlatforms），
+     * 音源没加载出来时才先按这张表显示；以后新平台只要在这里加 code 并在
+     * [PlatformMusicApi] 接上搜索接口，UI 不用改就能点亮。
+     */
     val PLATFORM_CODES = listOf("wy", "tx", "kw", "kg", "mg")
+
+    /** v0.180.0：可搜索平台的有序列表（UI 不直接读 PLATFORM_CODES）。 */
+    fun searchablePlatformCodes(): List<String> = PLATFORM_CODES
 
     /** v0.126.0：LX code → GD source 字符串，唯一映射处。 */
     private val GD_SOURCE = mapOf(
@@ -111,6 +120,18 @@ object MusicApi {
         "kg" -> "酷狗音乐"
         "mg" -> "咪咕音乐"
         else -> null
+    }
+
+    /**
+     * v0.180.0：平台短标签——由 [platformLabel] 去“音乐”后缀派生，
+     * 不是 UI 里再写一张五家对照表；认不出的 code 原样返回，音源以后
+     * 报出新平台时 chip 上至少能显示 code，不会空白。
+     */
+    fun platformShortLabel(code: String): String {
+        val full = platformLabel(code)
+        if (full == null) return code.trim().ifBlank { code }
+        val short = full.removeSuffix("音乐")
+        return if (short == "网易云") "网易" else short
     }
 
     /**

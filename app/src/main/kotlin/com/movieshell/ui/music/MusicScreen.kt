@@ -28,7 +28,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -98,12 +97,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.movieshell.data.repo.MusicSource
+import com.movieshell.data.repo.MusicSourceStore
 import com.movieshell.data.repo.MusicStore
 import com.movieshell.data.repo.MusicPlaylist
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.filled.ChevronRight
@@ -148,6 +148,19 @@ fun MusicScreen(
     var playlistInput by remember { mutableStateOf("") }
     var playlistName by remember { mutableStateOf<String?>(null) }
     var importingPlaylist by remember { mutableStateOf(false) }
+    // v0.180.0：音源条显示当前音源名（首选源名，无首选=自动），
+    // 切换音源弹窗关上后重新读一次，名字跟着新选择走。
+    var musicSources by remember { mutableStateOf<List<MusicSource>>(emptyList()) }
+    LaunchedEffect(showSourcePicker) {
+        if (!showSourcePicker) {
+            musicSources = runCatching { MusicSourceStore.list(context) }
+                .getOrDefault(emptyList())
+                .filter { it.enabled }
+        }
+    }
+    val currentSourceName = MusicPlayer.preferredSourceId()
+        ?.let { id -> musicSources.firstOrNull { it.id == id }?.name }
+        ?: "自动"
 
     // v0.82.0：歌单导入共用逻辑
     fun importPlaylist(input: String) {
@@ -214,41 +227,49 @@ fun MusicScreen(
                 selected = tab,
                 onSelect = { tab = it },
             )
-            // v0.177.0：原标题栏功能移位到这里——一排右对齐小按钮，无标题、无渐变线
-            Row(
+            // v0.180.0：音源条——以前是右对齐一排、两个功能只有无文字图标，
+            // 看着悬空还不知道当前是哪个源；改成一张卡：左边点开就是切换音源，
+            // 当前源名写在卡上，右边三个功能全带文字，不再猜图标。
+            AppCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                onClick = { showSourcePicker = true },
             ) {
-                TextButton(onClick = { showSourcePicker = true }) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Icon(
                         imageVector = Icons.Filled.SwapHoriz,
                         contentDescription = "切换音源",
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary,
                     )
-                    Spacer(Modifier.width(4.dp))
-                    Text("切换音源")
-                }
-                if (tab == 0) {
-                    IconButton(
-                        onClick = { showPlaylistDialog = true },
-                        modifier = Modifier.size(40.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.PlaylistAdd,
-                            contentDescription = "歌单导入",
-                            modifier = Modifier.size(20.dp),
+                    Spacer(Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "当前音源",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = currentSourceName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
-                }
-                IconButton(onClick = onOpenMusicSource, modifier = Modifier.size(40.dp)) {
-                    Icon(
-                        imageVector = Icons.Filled.LibraryMusic,
-                        contentDescription = "音乐源管理",
-                        modifier = Modifier.size(20.dp),
-                    )
+                    if (tab == 0) {
+                        TextButton(onClick = { showPlaylistDialog = true }) {
+                            Text("歌单导入", maxLines = 1)
+                        }
+                    }
+                    TextButton(onClick = onOpenMusicSource) {
+                        Text("源管理", maxLines = 1)
+                    }
                 }
             }
             if (tab == 0) {
@@ -342,15 +363,6 @@ fun MusicScreen(
         }
     }
 }
-
-// v0.128.0：平台行短标签（五等分紧凑分段用；内部 code 与 MusicApi.platformLabel 全称口径不动）
-private val PLATFORM_SHORT_LABELS = mapOf(
-    "wy" to "网易",
-    "tx" to "QQ",
-    "kw" to "酷我",
-    "kg" to "酷狗",
-    "mg" to "咪咕",
-)
 
 // v0.82.0：推荐歌单（网易云官方榜单，一点即导入）
 // v0.127.0：推荐榜单改由 MusicApi.charts(平台) 按所选平台下发（数据层收敛），
@@ -518,18 +530,23 @@ private fun OnlineTab(
 
     Column(modifier = Modifier.fillMaxSize()) {
         // v0.126.0：搜索平台切换（单选、持久化到 PlayerSettings）。
-        // v0.127.0：五家全点亮——wy 走 GD，其余四家走 PlatformMusicApi 各家
-        // 原生接口（逐家实测），可选口径看 MusicApi.SEARCHABLE_PLATFORMS；
+        // v0.127.0：wy 走 GD，其余走 PlatformMusicApi 各家原生接口（逐家实测），
         // 切换后搜索结果与下方榜单都跟随平台刷新，不再一成不变。
-        // v0.128.0：改一行五等分紧凑分段（Row + weight，不横滑）+ 短标签，切换逻辑零改动。
+        // v0.180.0：平台行不再写死五家五等分——行里列的是音源自报的平台
+        // （MusicSearchViewModel.availablePlatforms，音源没加载出来时先按已知
+        // 可搜索平台兜底），以后音源多一个平台就多一个 chip，横滑排布，
+        // 再多也不会被挤扁；短标签由 MusicApi.platformShortLabel 派生，
+        // 音源自带但搜索接口还没接的平台置灰（下面有小字说明原因）。
         val musicPlatform by PlayerSettings.musicPlatform.collectAsState()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+        val activity = LocalContext.current as ComponentActivity
+        val vm: MusicSearchViewModel = viewModel(activity)
+        val availablePlatforms by vm.availablePlatforms.collectAsState()
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            MusicApi.PLATFORM_CODES.forEach { code ->
+            items(availablePlatforms, key = { it }) { code ->
                 FilterChip(
                     selected = musicPlatform == code,
                     enabled = code in MusicApi.SEARCHABLE_PLATFORMS,
@@ -540,10 +557,17 @@ private fun OnlineTab(
                         // 空关键词时回榜单态（榜单跟随平台刷新），有关键词时重搜。
                         if (query.isNotBlank()) onSearch(query) else onResetToCharts()
                     },
-                    label = { Text(PLATFORM_SHORT_LABELS[code] ?: code, maxLines = 1) },
-                    modifier = Modifier.weight(1f),
+                    label = { Text(MusicApi.platformShortLabel(code), maxLines = 1) },
                 )
             }
+        }
+        if (availablePlatforms.any { it !in MusicApi.SEARCHABLE_PLATFORMS }) {
+            Text(
+                text = "置灰的平台是音源自带的，搜索接口还没接上，暂时点不了",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
         }
         // v0.127.0：推荐榜单跟随所选平台（MusicApi.charts 分发到各家原生接口）
         var charts by remember { mutableStateOf<List<MusicApi.ChartEntry>>(emptyList()) }
@@ -652,41 +676,56 @@ private fun OnlineTab(
                     // 搜索区加载圈统一为 StatusRing（跑马灯圆环 + 黄色状态点）
                     StatusRing(state = StatusRingState.Loading, diameter = 40.dp)
                 }
-                !searched -> Column(modifier = Modifier.fillMaxSize()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "推荐歌单",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    // v0.95：榜单改 2x2 长方形小卡片（横向，宽>高），按压缩放回弹
-                    // v0.127.0：榜单内容改按所选平台下发（charts state），不再写死网易四榜
-                    if (charts.isEmpty()) {
-                        // v0.146.0：咪咕无公开榜单接口，直说接口缺失，别让用户以为读取失败。
+                // v0.180.0：榜单改竖排满宽列表 + 底部说明卡——以前 2x2 小卡
+                // 只占上半截，下半页大片空白看着像没加载完；竖排后榜单、
+                // 说明一屏排下来，空白感没了，榜单本身还是点一下导入整榜。
+                !searched -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    item {
                         Text(
-                            text = if (musicPlatform == "mg") "咪咕暂无榜单接口" else "该平台暂无榜单",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp),
+                            text = "推荐榜单",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     }
-                    Column(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        charts.chunked(2).forEach { row ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                row.forEach { entry ->
-                                    ChartCard(
-                                        name = entry.name,
-                                        importing = importingChart,
-                                        onClick = { loadChart(entry) },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                                if (row.size == 1) Spacer(Modifier.weight(1f))
+                    if (charts.isEmpty()) {
+                        // v0.146.0：咪咕无公开榜单接口，直说接口缺失，别让用户以为读取失败。
+                        item {
+                            Text(
+                                text = if (musicPlatform == "mg")
+                                    "${MusicApi.platformShortLabel(musicPlatform)}暂无榜单接口"
+                                else "该平台暂无榜单接口",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    items(charts, key = { it.id }) { entry ->
+                        ChartCard(
+                            name = entry.name,
+                            importing = importingChart,
+                            onClick = { loadChart(entry) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    item {
+                        AppCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "榜单怎么用",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "点榜单名导入整榜；切上面平台，搜索和榜单都跟着换。" +
+                                        "平台行跟随当前音源走，音源以后多一个平台，上面就多一个选项。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                     }

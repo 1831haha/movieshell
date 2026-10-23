@@ -100,6 +100,7 @@ import kotlinx.coroutines.withContext
  * 检查更新改成下拉刷新；长按操作表加全选/分组/收藏。
  * v0.179.0：智能分组（在读/养肥/已读完）去掉，只留全部 + 自定义分组；
  * 顶部只留搜索在外，添加本地/书源管理进右上角三点菜单（参考阅读布局）。
+ * v0.180.0：全部提真顶行左侧，最近阅读行提顶行下面、自定义分组上面。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -361,8 +362,8 @@ fun BookshelfScreen(
                 },
             )
         }
-        // v0.179.0：正常模式无标题栏、无数据条，顶部右上角只留搜索 +
-        // 三点菜单（参考阅读布局）；添加本地/书源管理收进菜单里。
+        // v0.180.0：顶行左侧放“全部”，右侧放搜索 + 三点菜单；
+        // 最近阅读那一行同步提上来，放在顶行下面、自定义分组上面。
         // 检查更新改下拉刷新、批量管理改长按进多选；
         // 多选模式仍用上面那个“已选 N 本”操作栏。
 
@@ -373,83 +374,66 @@ fun BookshelfScreen(
         ) {
             Spacer(Modifier.height(12.dp))
 
-            // v0.179.0：搜索留在外面，添加本地/书源管理进三点菜单。
+            // v0.180.0：顶行 = 左侧“全部” + 右侧搜索/三点菜单。
+            // 179 错把“最前面”做成了分组横滑第一项，这次是真顶行。
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onFindBookClick) {
-                    Icon(Icons.Filled.Search, "找书")
-                }
-                Box {
-                    IconButton(onClick = { showTopMenu = true }) {
-                        Icon(Icons.Filled.MoreVert, "更多")
+                GroupChip(
+                    name = "全部",
+                    count = books.size,
+                    selected = selectedGroup == BookshelfGroupStore.GROUP_ALL,
+                    onClick = {
+                        selectedGroup = BookshelfGroupStore.GROUP_ALL
+                        BookshelfGroupStore.setSelectedGroup(
+                            context,
+                            BookshelfGroupStore.GROUP_ALL,
+                        )
+                    },
+                    onLongClick = null,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onFindBookClick) {
+                        Icon(Icons.Filled.Search, "找书")
                     }
-                    DropdownMenu(
-                        expanded = showTopMenu,
-                        onDismissRequest = { showTopMenu = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("添加本地书籍") },
-                            enabled = !importing,
-                            leadingIcon = {
-                                Icon(Icons.Filled.Add, contentDescription = null)
-                            },
-                            onClick = {
-                                showTopMenu = false
-                                pickTxt.launch("text/plain")
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("书源管理") },
-                            leadingIcon = {
-                                Icon(Icons.Filled.Storage, contentDescription = null)
-                            },
-                            onClick = {
-                                showTopMenu = false
-                                onManageSourcesClick()
-                            },
-                        )
+                    Box {
+                        IconButton(onClick = { showTopMenu = true }) {
+                            Icon(Icons.Filled.MoreVert, "更多")
+                        }
+                        DropdownMenu(
+                            expanded = showTopMenu,
+                            onDismissRequest = { showTopMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("添加本地书籍") },
+                                enabled = !importing,
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Add, contentDescription = null)
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    pickTxt.launch("text/plain")
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("书源管理") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Storage, contentDescription = null)
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    onManageSourcesClick()
+                                },
+                            )
+                        }
                     }
                 }
             }
             Spacer(Modifier.height(2.dp))
 
-            // v0.179.0：分组横滑只剩全部（最前面）+ 自定义分组。
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(end = 4.dp),
-            ) {
-                items(shelfGroups, key = { it.id }) { g ->
-                    val selected = g.id == selectedGroup
-                    GroupChip(
-                        name = g.name,
-                        count = g.count,
-                        selected = selected,
-                        onClick = {
-                            selectedGroup = g.id
-                            BookshelfGroupStore.setSelectedGroup(context, g.id)
-                        },
-                        onLongClick = {
-                            // 自定义分组长按：重命名/删除
-                            customGroups.find { it.id == g.id }?.let { groupMenuTarget = it }
-                        },
-                    )
-                }
-                item(key = "add_group") {
-                    GroupChip(
-                        name = "+ 分组",
-                        count = -1,
-                        selected = false,
-                        onClick = { showCreateGroup = true },
-                        onLongClick = null,
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-
-            // v0.98.0：排序 + 视图切换
+            // v0.180.0：最近阅读这一行同步提上来，放在顶行下面、分组上面。
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -516,6 +500,38 @@ fun BookshelfScreen(
                 }
             }
             Spacer(Modifier.height(4.dp))
+            // v0.180.0：自定义分组横滑（全部已提顶行，不在这里重复）。
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(end = 4.dp),
+            ) {
+                items(shelfGroups.filter { it.id != BookshelfGroupStore.GROUP_ALL }, key = { it.id }) { g ->
+                    val selected = g.id == selectedGroup
+                    GroupChip(
+                        name = g.name,
+                        count = g.count,
+                        selected = selected,
+                        onClick = {
+                            selectedGroup = g.id
+                            BookshelfGroupStore.setSelectedGroup(context, g.id)
+                        },
+                        onLongClick = {
+                            // 自定义分组长按：重命名/删除
+                            customGroups.find { it.id == g.id }?.let { groupMenuTarget = it }
+                        },
+                    )
+                }
+                item(key = "add_group") {
+                    GroupChip(
+                        name = "+ 分组",
+                        count = -1,
+                        selected = false,
+                        onClick = { showCreateGroup = true },
+                        onLongClick = null,
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
 
             // v0.178.0：下拉刷新 = 原检查更新（获取最新章节），
             // checking 既是刷新指示也是防重入，空书架无书可查不触发。

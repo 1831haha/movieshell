@@ -163,6 +163,37 @@ object MusicPlayer {
     fun preferredSourceId(): String? = preferredSourceId
 
     /**
+     * v0.180.0：当前 LX 音源自报的平台 code（墨澜/聚合类脚本的 inited sources 键）。
+     * 首选源排最前，逐个脚本试，第一个报出平台的脚本说了算；内置 huibq
+     * 没有脚本可报、脚本加载失败时返回空，调用方用已知平台兜底。
+     * 复用本单例的引擎实例（与播放同一份脚本缓存），不另建 V8 会话。
+     */
+    suspend fun sourcePlatforms(context: Context): List<String> {
+        val appContext = context.applicationContext
+        val sources = runCatching { MusicSourceStore.list(appContext) }
+            .getOrDefault(emptyList())
+            .filter { it.enabled && !it.builtin && it.url.isNotBlank() }
+            .let { list ->
+                val preferred = preferredSourceId
+                if (preferred == null) list
+                else list.sortedBy { if (it.id == preferred) 0 else 1 }
+            }
+        if (sources.isEmpty()) return emptyList()
+        val engine = getOrCreateLxEngine(appContext)
+        for (s in sources) {
+            runCatching { engine.loadScript(s.url) }
+            val codes = engine.getSourcePlatforms(s.url)
+                .map { raw ->
+                    MusicApi.normalizeSource(raw).ifBlank { raw.trim().lowercase() }
+                }
+                .filter { it.isNotBlank() }
+                .distinct()
+            if (codes.isNotEmpty()) return codes
+        }
+        return emptyList()
+    }
+
+    /**
      * v0.109.0 B4①：引擎复用——之前 resolveLxUrl 每首歌 `new LxMusicSourceEngine`
      * 再 `release()`，实例级的脚本缓存（engines map，按 scriptUrl）永远架空，
      * 每首歌都重下载、重建 JS 上下文。引擎实例与 V8 isolate 按 scriptUrl

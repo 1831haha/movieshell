@@ -271,6 +271,33 @@ class LxMusicSourceEngine(context: Context) {
         }.getOrDefault(emptyList())
     }
 
+    /**
+     * v0.180.0：某脚本 inited 自报的平台 code 列表（墨澜/聚合类脚本的 sources 键）。
+     * 这是音乐页平台行的真源——平台分类跟随音源走，不在 UI 里写死五家；
+     * 音源以后多一个平台，这里就多一个 code，UI 不用改。脚本未加载返回空，
+     * 调用方用已知平台兜底；键的顺序以 inited 原文为准，不在这里重排。
+     */
+    fun getSourcePlatforms(scriptUrl: String): List<String> {
+        val initedJson = synchronized(enginesLock) {
+            engines[scriptUrl]?.initedJson
+        } ?: return emptyList()
+        if (initedJson.isBlank()) return emptyList()
+        return runCatching {
+            when (val sources = JSONObject(initedJson).opt("sources")) {
+                is JSONObject -> {
+                    val keys = mutableListOf<String>()
+                    sources.keys().forEach { k ->
+                        if (k.isNotBlank()) keys.add(k.trim())
+                    }
+                    keys
+                }
+                else -> emptyList()
+            }
+        }.onFailure {
+            LogBus.w(TAG, "平台列表解析失败: $scriptUrl ${it.message}")
+        }.getOrDefault(emptyList())
+    }
+
     /** 关闭所有缓存的 JS 会话：逐条即时终止 isolate（任意线程可调）。 */
     fun release() {
         val all = synchronized(enginesLock) {

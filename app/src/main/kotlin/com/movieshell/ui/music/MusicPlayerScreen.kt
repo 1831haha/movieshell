@@ -1055,7 +1055,8 @@ internal fun MusicSourcePickerDialog(
                 Spacer(Modifier.height(6.dp))
                 val curPlatform = MusicApi.normalizeSource(platformTrack.source)
                     .ifBlank { "wy" }
-                MusicApi.PLATFORM_CODES.forEach { code ->
+                // v0.180.0：同曲换平台只列可搜索平台（数据层单点口径，UI 不写死五家）。
+                MusicApi.searchablePlatformCodes().forEach { code ->
                     SourceOptionRow(
                         name = MusicApi.platformLabel(code) ?: code,
                         desc = if (code == curPlatform) {

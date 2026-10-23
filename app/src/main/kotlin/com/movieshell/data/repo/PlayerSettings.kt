@@ -93,9 +93,12 @@ object PlayerSettings {
         )
         _gravityRotate.value = prefs.getBoolean(KEY_GRAVITY_ROTATE, true)
         _lyricColor.value = prefs.getInt(KEY_LYRIC_COLOR, 0)
-        _musicPlatform.value = MusicApi.normalizeSource(
-            prefs.getString(KEY_MUSIC_PLATFORM, "wy").orEmpty(),
-        ).ifBlank { "wy" }
+        // v0.180.0：别名先归一，认不出的 code 原样保留（小写）——
+        // 音源以后报出新平台时，已选平台不能被 normalize 的“认不出”打回 wy。
+        val savedPlatform = prefs.getString(KEY_MUSIC_PLATFORM, "wy").orEmpty()
+        _musicPlatform.value = MusicApi.normalizeSource(savedPlatform)
+            .ifBlank { savedPlatform.trim().lowercase() }
+            .ifBlank { "wy" }
     }
 
     /**
@@ -209,9 +212,12 @@ object PlayerSettings {
             .edit().putInt(KEY_RESIZE_MODE, mode.coerceIn(0, 2)).apply()
     }
 
-    /** v0.126.0：记忆音乐搜索平台（LX code，归一后落盘）。 */
+    /** v0.126.0：记忆音乐搜索平台（LX code，归一后落盘）。
+     *  v0.180.0：认不出的 code 原样落盘，不打回 wy（见 init 的注释）。 */
     fun setMusicPlatform(context: Context, code: String) {
-        val lx = MusicApi.normalizeSource(code).ifBlank { "wy" }
+        val lx = MusicApi.normalizeSource(code)
+            .ifBlank { code.trim().lowercase() }
+            .ifBlank { "wy" }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY_MUSIC_PLATFORM, lx).apply()
         _musicPlatform.value = lx

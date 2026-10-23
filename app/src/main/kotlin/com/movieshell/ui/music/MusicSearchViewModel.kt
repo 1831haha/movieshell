@@ -7,6 +7,7 @@ import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicHistoryStore
 import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.player.MusicPlayer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CancellationException
@@ -39,11 +40,33 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
     private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
     val searchHistory: StateFlow<List<String>> = _searchHistory
 
+    /**
+     * v0.180.0：音乐页平台行——先按已知可搜索平台兜底显示，音源加载成功后
+     * 按音源自报的平台刷新（墨澜类脚本以后多一个平台，这里就多一个 chip，
+     * UI 不写死）；已选平台即使不在新音源里也保留一行，避免已选状态凭空消失。
+     */
+    private val _availablePlatforms =
+        MutableStateFlow<List<String>>(MusicApi.searchablePlatformCodes())
+    val availablePlatforms: StateFlow<List<String>> = _availablePlatforms
+
+    fun refreshPlatforms() {
+        viewModelScope.launch {
+            val discovered = runCatching {
+                MusicPlayer.sourcePlatforms(getApplication())
+            }.getOrDefault(emptyList())
+            if (discovered.isEmpty()) return@launch
+            val current = PlayerSettings.musicPlatform.value
+            _availablePlatforms.value =
+                (discovered + listOf(current)).filter { it.isNotBlank() }.distinct()
+        }
+    }
+
     /** v0.109.0 A4：连续搜索时取消前一次的搜索协程 */
     private var searchJob: Job? = null
 
     init {
         reloadHistory()
+        refreshPlatforms()
     }
 
     fun setQuery(q: String) {
