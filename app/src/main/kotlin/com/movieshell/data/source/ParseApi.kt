@@ -13,6 +13,7 @@ import com.movieshell.player.SniffPlayHeaders
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
@@ -108,13 +109,13 @@ class ParseApi(
      */
     private suspend fun executeCancellable(call: Call): Response {
         val job = currentCoroutineContext()[Job]
-        job?.invokeOnCancellation { call.cancel() }
+        job?.invokeOnCompletion { call.cancel() }
         try {
             return call.execute()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (job?.isCancelled == true) throw job.getCancellationException()
+            if (job?.isCancelled == true) currentCoroutineContext().ensureActive()
             throw e
         }
     }

@@ -1219,7 +1219,7 @@ fun SourcesScreen(
             // v0.188.0：行 key 用行首规则的文件路径（种类加文件名），增删文件时行身份不再移位。
             items(
                 visibleLocal.chunked(2),
-                key = { row -> row.firstOrNull()?.let { item -> "${item.kind}:${item.fileName}" } },
+                key = { row -> row.firstOrNull()?.let { item -> "${item.kind}:${item.fileName}" } ?: "" },
             ) { pair ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),

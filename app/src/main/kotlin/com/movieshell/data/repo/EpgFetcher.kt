@@ -4,6 +4,7 @@ import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DEFAULT_UA_SHORT
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
@@ -196,7 +197,7 @@ object EpgFetcher {
             .build()
         val call = CmsApi.defaultClient().newCall(req)
         val job = currentCoroutineContext()[Job]
-        job?.invokeOnCancellation { call.cancel() }
+        job?.invokeOnCompletion { call.cancel() }
         try {
             call.execute().use { resp ->
                 if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
@@ -224,7 +225,7 @@ object EpgFetcher {
             // TimeoutCancellationException，withTimeoutOrNull 认它才返回 null
             // （抛普通 CancellationException 会穿出 withTimeoutOrNull）；
             // 外部取消的则是 JobCancellationException，原样透传。
-            if (job?.isCancelled == true) throw job.getCancellationException()
+            if (job?.isCancelled == true) currentCoroutineContext().ensureActive()
             throw e
         }
     }

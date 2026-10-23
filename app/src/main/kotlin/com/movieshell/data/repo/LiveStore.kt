@@ -5,6 +5,7 @@ import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DEFAULT_UA
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -488,7 +489,7 @@ object LiveStore {
             .build()
         val call = CmsApi.defaultClient().newCall(req)
         val job = currentCoroutineContext()[Job]
-        job?.invokeOnCancellation { call.cancel() }
+        job?.invokeOnCompletion { call.cancel() }
         try {
             call.execute().use { resp ->
                 if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
@@ -500,7 +501,7 @@ object LiveStore {
             // 取消时抛回 job 自身的取消异常（超时触发的是
             // TimeoutCancellationException，withTimeoutOrNull 认它才返回 null；
             // 外部取消的 JobCancellationException 原样透传，不当单源失败吞掉）。
-            if (job?.isCancelled == true) throw job.getCancellationException()
+            if (job?.isCancelled == true) currentCoroutineContext().ensureActive()
             throw e
         }
     }

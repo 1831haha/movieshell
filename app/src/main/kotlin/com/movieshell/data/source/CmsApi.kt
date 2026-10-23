@@ -8,6 +8,7 @@ import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.Json
@@ -279,7 +280,7 @@ class CmsApi(
     private suspend fun OkHttpClient.getTextCancellable(url: HttpUrl): String {
         val call = newCall(Request.Builder().url(url).header("User-Agent", DEFAULT_UA).build())
         val job = currentCoroutineContext()[Job]
-        job?.invokeOnCancellation { call.cancel() }
+        job?.invokeOnCompletion { call.cancel() }
         try {
             call.execute().use { resp ->
                 if (!resp.isSuccessful) throw IOException("HTTP ${resp.code} ${resp.message}")
@@ -288,7 +289,7 @@ class CmsApi(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (job?.isCancelled == true) throw job.getCancellationException()
+            if (job?.isCancelled == true) currentCoroutineContext().ensureActive()
             throw e
         }
     }

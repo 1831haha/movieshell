@@ -491,7 +491,7 @@ val CHANGELOG: List<ChangelogEntry> = listOf(
         version = "v0.65.0–v0.147.0",
         title = "中间版本档案未随包内置",
         details = listOf(
-            "v0.65.0–v0.147.0 的逐版记录不在仓库 docs/changelog/ 内（该目录自 v0.148.0 起建档），"
+            "v0.65.0–v0.147.0 的逐版记录不在仓库 docs/changelog/ 内（该目录自 v0.148.0 起建档），",
             "应用内暂无这段的逐版条目，不编造补写；v0.148.0 起的条目由仓库版本档案原文生成。",
         ),
     ),

@@ -12,6 +12,7 @@ import com.movieshell.data.repo.StoragePaths
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -515,7 +516,7 @@ class V8DrpyEngine(
             http.newCall(reqBuilder.build())
         }.getOrNull() ?: return ""
         val job = currentCoroutineContext()[Job]
-        job?.invokeOnCancellation { call.cancel() }
+        job?.invokeOnCompletion { call.cancel() }
         return try {
             call.execute().use { resp ->
                 if (!resp.isSuccessful) {
@@ -529,7 +530,7 @@ class V8DrpyEngine(
         } catch (e: Exception) {
             // 取消时抛回 job 自身的取消异常，不吞成空串，避免会话关闭后
             // 的取消还被当成普通失败重试。
-            if (job?.isCancelled == true) throw job.getCancellationException()
+            if (job?.isCancelled == true) currentCoroutineContext().ensureActive()
             LogBus.w(TAG, "request 失败: $url ${e.message}")
             ""
         }
