@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1061,12 +1062,20 @@ fun HomeScreen(
                             sourceLabel == "选择站源" || contentGen == 0 -> StatusRingState.Idle
                             else -> StatusRingState.Failed
                         }
+                        // v0.174.0：换源胶囊长按刷新当前源。点按仍是打开换源表；
+                        // 长按走首页下拉刷新同一入口 doRefresh（force=true，绕过
+                        // 失败退避），不用再下拉整页。Surface 本身不带 onClick，
+                        // 点击/长按全由 combinedClickable 接管，避免双层点击。
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             border = BorderStroke(1.5.dp, sourceRingState.color()),
-                            onClick = { showSourceSheet = true },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).combinedClickable(
+                                onClick = { showSourceSheet = true },
+                                onLongClick = {
+                                    if (drpyActive) doRefresh() else showSourceSheet = true
+                                },
+                            ),
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -1090,7 +1099,7 @@ fun HomeScreen(
                                 )
                                 Icon(
                                     imageVector = Icons.Filled.ExpandMore,
-                                    contentDescription = "切换站源",
+                                    contentDescription = "切换站源，长按刷新当前源",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp),
                                 )

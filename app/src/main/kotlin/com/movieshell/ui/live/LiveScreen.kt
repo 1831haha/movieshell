@@ -954,21 +954,6 @@ private fun displayNameOf(resolver: ContentResolver, uri: Uri): String? {
     return null
 }
 
-// v0.172.0：一键导入的稳定直播源清单，只在用户点按钮时导入，见 LiveManageScreen。
-private val StableLiveSources = listOf(
-    "白嫖军团" to "http://gg.7749.org/z/0/白嫖军团.txt",
-    "拾光直播源" to "https://slink.ltd/https://raw.githubusercontent.com/xmbjm/TV/refs/heads/master/output/user_result.txt",
-    "自动更新直播" to "http://175.178.251.183:6689/live.m3u",
-    "推荐直播" to "http://zozo.myartsonline.com/0/zb2.txt",
-    "长苏影视" to "https://gitee.com/wu-xuewei520/private/raw/master/JS/长苏影视.txt",
-    "蓝天白云" to "https://10085.kstore.space/蓝天白云.txt",
-    "六维直播" to "http://39.101.135.137:8081/xx3.txt",
-    "热舞直播" to "https://gitee.com/hot-song-and-hot-dance_0/live-streaming—tv.txt-direct/raw/master/m3u2.txt",
-    "B站直播源" to "https://www.goodiptv.club/bililive.m3u",
-    "YueChan Global" to "https://raw.githubusercontent.com/YueChan/Live/refs/heads/main/Global.m3u",
-    "Joevess央卫3" to "https://ghp.ci/raw.githubusercontent.com/joevess/IPTV/main/sources/home_sources.m3u8",
-)
-
 /** 直播订阅管理：M3U 订阅 URL / 本地 M3U 导入 / 手动添加频道 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1026,32 +1011,8 @@ fun LiveManageScreen(onBack: () -> Unit) {
                 .padding(horizontal = 16.dp),
         ) {
             item {
-                // v0.172.0：一键导入稳定直播源，只在用户点按钮时导入一次；
-                // 导入后就是普通订阅，订阅管理里可删，删了 App 不自动补回
-                AppButton(
-                    text = "一键导入稳定直播源（11 条）",
-                    onClick = {
-                        var added = 0
-                        var existed = 0
-                        for ((name, url) in StableLiveSources) {
-                            if (LiveStore.addSource(context, name, LiveSource.M3U_URL, url)) {
-                                added++
-                            } else {
-                                existed++
-                            }
-                        }
-                        Toast.makeText(
-                            context,
-                            "新增 $added 条，已有 $existed 条",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        scope.launch { LiveStore.refresh(context) }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    variant = AppButtonVariant.Primary,
-                )
+                // v0.174.0：11 条一键导入入口已删（用户要求：本地导入本来就有，
+                // 不需要这个定制入口）。已导入的订阅不动，仍在下面列表里逐条可删。
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1064,14 +1025,19 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         modifier = Modifier.weight(1f),
                         variant = AppButtonVariant.Primary,
                     )
+                    // v0.174.0：三按钮统一四字，单行不换行。之前“导入本地 M3U”
+                    // （7 字）和“手动加频道”（5 字）在三分之一宽的按钮里被
+                    // AppButton 默认内边距挤成两行（截图里“手动加频/道”断行），
+                    // “添加订阅”四字本来就是单行；改短后三格齐平，含义不变
+                    // （点开仍是本地 M3U 文件导入 / 手动添加频道弹窗）。
                     AppButton(
-                        text = "导入本地 M3U",
+                        text = "导入本地",
                         onClick = { filePicker.launch("*/*") },
                         modifier = Modifier.weight(1f),
                         variant = AppButtonVariant.Secondary,
                     )
                     AppButton(
-                        text = "手动加频道",
+                        text = "手动添加",
                         onClick = { showAddChannel = true },
                         modifier = Modifier.weight(1f),
                         variant = AppButtonVariant.Secondary,
