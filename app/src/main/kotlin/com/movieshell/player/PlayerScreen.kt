@@ -712,6 +712,13 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(playUrl) {
+        // v0.188.0 M03：换地址先清上一集残留，再拉新——上一集手动选的
+        // 字幕覆盖（sessionSubtitle）与旧弹幕列表，否则同标题切集时旧
+        // 字幕/旧弹幕会带到下一集。安全说明：字幕选择走 replayWithSubtitle，
+        // 它只重播当前 playUrl、不改 playUrl，本效应不会因此重跑，
+        // 刚选的字幕不会被这里清掉；清掉后本效应内仍按标题拉新弹幕。
+        sessionSubtitle = null
+        danmakuList = emptyList()
         // v0.54：弹幕预加载（按标题搜，不阻塞播放；失败静默无弹幕）
         if (danmakuEnabled && title.isNotBlank() && !isLive) {
             launch {
@@ -2634,12 +2641,6 @@ private fun SleepTimerDialog(
             )
         }
     }
-}
-
-/** v0.21.0：定时关闭剩余时间 → m:ss */
-private fun fmtSleep(ms: Long): String {
-    val s = (ms / 1000).toInt().coerceAtLeast(0)
-    return "%d:%02d".format(s / 60, s % 60)
 }
 
 /**

@@ -153,13 +153,19 @@ object StoragePaths {
      * v0.185.0：一键配置要建的全部目录（单一入口，改目录清单只改这里）。
      * 每个 dir() 本身已 mkdirs；py/book 与 php/t4_demo/lib 是子目录，
      * 必须显式列出，单调父目录不会自动带出它们。
+     * v0.188.0：补 js/subs、py/subs（订阅展开时才建的两个目录，现在 setup
+     * 一并建好，L24）；私有侧安装根（runtime/、pylibs/、mpv-libs/、
+     * subtitle-plugin/）不在此清单——它们是各插件自己的私有安装目录，
+     * 由各自安装逻辑建，不属公开侧一键配置。
      * 注意：只建目录、不写文件、不删文件；写说明文档是 PluginMarket
      * 的 setup 分支的事，文档内容来自插件包、不进安装包。
      */
     fun setupDirs(context: Context): List<File> = listOf(
         jsDir(context),
+        File(jsDir(context), "subs").also { it.mkdirs() },
         pyDir(context),
         File(pyDir(context), "book").also { it.mkdirs() },
+        File(pyDir(context), "subs").also { it.mkdirs() },
         phpDir(context),
         File(phpDir(context), "t4_demo").also { it.mkdirs() },
         File(File(phpDir(context), "t4_demo"), "lib").also { it.mkdirs() },

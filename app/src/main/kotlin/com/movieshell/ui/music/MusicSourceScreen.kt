@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.repo.MusicSource
+import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.repo.MusicSourceStore
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.LxCookieKit
@@ -103,7 +104,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
     }
 
     fun reload() {
-        scope.launch { sources = MusicSourceStore.list(context) }
+        scope.launch { sources = MusicSourceStore.validateLocalScripts(context) }
     }
     LaunchedEffect(Unit) { reload() }
 
@@ -171,12 +172,17 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
                     if (src.url.startsWith("file://")) {
-                        File(URI(src.url)).writeText(newText)
+                        // v0.188.0：编辑既有脚本前先拷 .bak，写盘走 AtomicFile（L25）
+                        val target = File(URI(src.url))
+                        runCatching {
+                            target.copyTo(File(target.parentFile, "${target.name}.bak"), overwrite = true)
+                        }
+                        if (!AtomicFile.writeText(target, newText)) throw IllegalStateException("脚本写盘失败")
                     } else {
                         val dir = File(context.filesDir, "lx_sources")
                         if (!dir.isDirectory) dir.mkdirs()
                         val dest = File(dir, "${UUID.randomUUID()}.js")
-                        dest.writeText(newText)
+                        if (!AtomicFile.writeText(dest, newText)) throw IllegalStateException("脚本写盘失败")
                         MusicSourceStore.add(
                             context,
                             src.copy(url = "file://${dest.absolutePath}"),
@@ -236,7 +242,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             val tmp = withContext(Dispatchers.IO) {
                 runCatching {
                     val f = File.createTempFile("lx_import", ".js", context.cacheDir)
-                    f.writeText(text)
+                    if (!AtomicFile.writeText(f, text)) throw IllegalStateException("脚本写盘失败")
                     f
                 }.getOrNull()
             }
@@ -392,6 +398,18 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
+                            if (source.scriptMissing) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "已失效",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.16f))
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                                )
+                            }
                             if (source.builtin) {
                                 Spacer(Modifier.width(6.dp))
                                 // v0.109.0 A9：内置 chip 金底 16% 透在亮色主题下近白，金字难读，用明度自适应金

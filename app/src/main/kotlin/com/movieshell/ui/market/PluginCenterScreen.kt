@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -202,6 +203,7 @@ private fun InstalledPluginsBody(onDetail: (String) -> Unit) {
     InstallProgressDialog(installState)
 
     uninstallFor?.let { p ->
+        var deleteDocs by remember(p.id) { mutableStateOf(false) }
         TechDialog(
             onDismissRequest = { uninstallFor = null },
             title = "卸载 ${p.name}？",
@@ -212,7 +214,7 @@ private fun InstalledPluginsBody(onDetail: (String) -> Unit) {
                 scope.launch {
                     val msg = withContext(Dispatchers.IO) {
                         runCatching {
-                            PluginMarket.uninstall(context, p.id)
+                            PluginMarket.uninstall(context, p.id, deleteDocs)
                             "已卸载 ${p.name}"
                         }.getOrElse { "卸载失败：${it.message}" }
                     }
@@ -221,7 +223,17 @@ private fun InstalledPluginsBody(onDetail: (String) -> Unit) {
                 }
             },
             dismissText = "取消",
-        ) {}
+        ) {
+            if (p.type == "setup") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = deleteDocs, onCheckedChange = { deleteDocs = it })
+                    Text(
+                        text = "一并删除已写入的说明文档（默认不删）",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
     }
 }
 

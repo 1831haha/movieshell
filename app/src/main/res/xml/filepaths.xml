@@ -1,7 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- v0.9.0：FileProvider 对外暴露公开目录 xiaying/ 下的文件（文件编辑/分享用） -->
+<!-- v0.188.0（M31 收窄）：不再 blanket 暴露整个 xiaying/ 根——FileProvider 实际只 -->
+<!-- 分享预览页的四类源文件（js/py/php/web，含各自 subs 子目录），其余子目录 -->
+<!-- （plugins/、service/、Download/、backup/、log/、crash/ 等）不再授权。 -->
 <paths>
-    <external-path name="xiaying" path="xiaying/" />
+    <external-path name="xiaying_js" path="xiaying/js/" />
+    <external-path name="xiaying_py" path="xiaying/py/" />
+    <external-path name="xiaying_web" path="xiaying/web/" />
+    <external-path name="xiaying_php" path="xiaying/php/" />
     <!-- v0.25.0：崩溃日志 zip（cacheDir）分享用 -->
+    <!-- v0.188.0 注：此处暂未收窄——CrashHandler.exportZip 把 zip 直接写在 -->
+    <!-- cacheDir 根目录，cache-path 一旦改成子目录就会断崩溃分享；要收窄须先把 -->
+    <!-- zip 移到 cacheDir 下的专用子目录（CrashHandler 侧改动，不在本版 M31 文件内）。 -->
     <cache-path name="cache" path="." />
 </paths>

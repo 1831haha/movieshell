@@ -9,7 +9,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.CircularProgressIndicator
@@ -55,6 +56,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -93,6 +96,7 @@ import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PhpSourceManager
+import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SourceProbe
 import com.movieshell.data.repo.toResult
@@ -369,12 +373,6 @@ private fun sortWithPins(items: List<GridFileItem>, pins: List<String>): List<Gr
             { it.displayName.lowercase() },
         ),
     )
-}
-
-private fun formatSize(bytes: Long): String = when {
-    bytes >= 1024 * 1024 -> "%.1f MB".format(bytes / 1024f / 1024f)
-    bytes >= 1024 -> "%.1f KB".format(bytes / 1024f)
-    else -> "$bytes B"
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
@@ -937,6 +935,16 @@ fun SourcesScreen(
     // v0.90.0：通知可带 tab 参数直达（如检测 tab）
     var subTab by rememberSaveable { mutableIntStateOf(initialTab) }
 
+    // v0.188.0：站源管理页搜索（订阅源与本地源两个列表共用一处），
+    // 样式复用换源器搜索框：浅灰 pill 加单行提示，不另起一套搜索 UI。
+    // 批量检测与回收站不走源列表，搜不到东西时不显示该框。
+    var sourceQuery by remember { mutableStateOf("") }
+    fun matchesSourceQuery(vararg texts: String): Boolean {
+        val q = sourceQuery.trim()
+        if (q.isBlank()) return true
+        return texts.any { it.contains(q, ignoreCase = true) }
+    }
+
     /** 订阅源 tab：v0.104.0 订阅 2 列卡片（对标 DsPlayer 资源页）+ 网页源 */
     @Composable
     fun SubscriptionTab() {
@@ -952,6 +960,8 @@ fun SourcesScreen(
         val visibleSubs = (if (effectiveFilter.isBlank()) apiGroup.entries
         else apiGroup.entries.filter { it.group.trim() == effectiveFilter })
             .distinctBy { it.detail }
+            .filter { matchesSourceQuery(it.name, it.detail, it.note, it.group) }
+        val visibleWeb = webItems.filter { matchesSourceQuery(it.displayName, it.fileName, it.detail) }
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),
@@ -1033,6 +1043,15 @@ fun SourcesScreen(
                     hint = "点「添加订阅」新增",
                 )
             }
+        } else if (visibleSubs.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                EmptyState(
+                    kind = EmptyKind.Empty,
+                    icon = Icons.Filled.Language,
+                    title = "没有匹配的源",
+                    hint = "换个关键词试试",
+                )
+            }
         } else {
             // v0.104.0：每张卡片一个订阅；展开态占满整行
             visibleSubs.forEach { entry ->
@@ -1085,7 +1104,7 @@ fun SourcesScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "网页源 · ${webItems.size} 个",
+                    text = "网页源 · ${visibleWeb.size} 个",
                     style = SoftType.CardTitle,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
@@ -1102,17 +1121,17 @@ fun SourcesScreen(
                 )
             }
         }
-        if (webItems.isEmpty()) {
+        if (visibleWeb.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 EmptyState(
                     kind = EmptyKind.Empty,
                     icon = Icons.Filled.Public,
-                    title = "暂无网页源",
-                    hint = "点「添加」手动新增",
+                    title = if (sourceQuery.isBlank()) "暂无网页源" else "没有匹配的源",
+                    hint = if (sourceQuery.isBlank()) "点「添加」手动新增" else "换个关键词试试",
                 )
             }
         } else {
-            webItems.forEach { item ->
+            visibleWeb.forEach { item ->
                 item(span = { GridItemSpan(maxLineSpan) }, key = "web:${item.fileName}") {
                     FileCard(
                         item = item,
@@ -1133,6 +1152,9 @@ fun SourcesScreen(
     /** 本地源 tab：PY / JS / drpy / JAR 文件网格 + 导入入口 */
     @Composable
     fun LocalTab() {
+        val visibleLocal = localItems.filter {
+            matchesSourceQuery(it.displayName, it.fileName, it.detail)
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -1167,7 +1189,7 @@ fun SourcesScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "共 ${localItems.size} 个规则 · 单击激活，长按更多操作",
+                    text = "共 ${visibleLocal.size} 个规则 · 单击激活，长按更多操作",
                     style = SoftType.Caption,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
@@ -1184,17 +1206,21 @@ fun SourcesScreen(
                 }
             }
         }
-        if (localItems.isEmpty()) {
+        if (visibleLocal.isEmpty()) {
             item {
                 EmptyState(
                     kind = EmptyKind.Empty,
                     icon = Icons.Filled.FolderOpen,
-                    title = "暂无本地规则",
-                    hint = "点「导入」添加 .py / .js / .php 文件",
+                    title = if (sourceQuery.isBlank()) "暂无本地规则" else "没有匹配的源",
+                    hint = if (sourceQuery.isBlank()) "点「导入」添加 .py / .js / .php 文件" else "换个关键词试试",
                 )
             }
         } else {
-            items(localItems.chunked(2)) { pair ->
+            // v0.188.0：行 key 用行首规则的文件路径（种类加文件名），增删文件时行身份不再移位。
+            items(
+                visibleLocal.chunked(2),
+                key = { row -> row.firstOrNull()?.let { item -> "${item.kind}:${item.fileName}" } },
+            ) { pair ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1311,6 +1337,50 @@ fun SourcesScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        if (subTab == 0 || subTab == 1) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = sourceQuery,
+                    onValueChange = { sourceQuery = it },
+                    placeholder = { Text("搜索站源", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    trailingIcon = {
+                        if (sourceQuery.isNotEmpty()) {
+                            IconButton(onClick = { sourceQuery = "" }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "清空",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(50),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                )
+            }
+        }
         CapsuleTabBar(
             titles = listOf("订阅源", "本地源", "批量检测", "回收站"),
             selected = subTab,
@@ -1400,7 +1470,7 @@ fun SourcesScreen(
         ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("文件名：${item.fileName}", style = SoftType.Body)
-                    Text("大小：${formatSize(file.length())}", style = SoftType.Body)
+                    Text("大小：${PluginMarket.formatSize(file.length())}", style = SoftType.Body)
                     Text("修改时间：$modified", style = SoftType.Body)
                     Text("路径：${file.absolutePath}", style = SoftType.Body)
                 }

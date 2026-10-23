@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -96,7 +95,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                     )
                 }
             } else {
-                items(patterns) { pattern ->
+                items(patterns, key = { it }) { pattern ->
                     AppCard(
                         modifier = Modifier
                             .fillMaxWidth()

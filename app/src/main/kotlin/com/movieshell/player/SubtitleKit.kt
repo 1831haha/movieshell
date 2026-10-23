@@ -1,6 +1,7 @@
 package com.movieshell.player
 
 import android.content.Context
+import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.Dispatchers
@@ -39,7 +40,13 @@ object SubtitleKit {
             val body = downloadOnIo(clean, headers) ?: return clean
             val shifted = shift(body, extOf(clean), offsetMs) ?: return clean
             val file = cacheFile(context, clean, offsetMs)
-            file.writeText(shifted, Charsets.UTF_8)
+            // v0.188.0：写盘走 AtomicFile；写成功后清同字幕其他偏移的旧文件（L25），
+            // 字幕目录不再随每次改偏移无限攒旧文件（只删同 hash 前缀的旧偏移文件）。
+            if (!AtomicFile.writeText(file, shifted)) throw IllegalStateException("字幕写盘失败")
+            val dir = file.parentFile
+            val prefix = "${clean.hashCode()}_"
+            dir?.listFiles { f -> f.isFile && f.name.startsWith(prefix) && f != file }
+                ?.forEach { runCatching { it.delete() } }
             LogBus.i("Subtitle", "字幕时间轴已偏移 ${offsetMs}ms：${file.name}")
             "file://${file.absolutePath}"
         }.getOrElse {

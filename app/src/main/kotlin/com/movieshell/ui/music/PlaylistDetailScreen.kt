@@ -19,7 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Sort
@@ -87,7 +86,10 @@ fun PlaylistDetailScreen(
 
     fun move(from: Int, to: Int) {
         scope.launch {
-            MusicStore.moveTrack(context, playlistId, from, to)
+            // v0.188.0：moveTrack 返回写盘成败，失败提示保存失败而非静默丢排序。
+            if (!MusicStore.moveTrack(context, playlistId, from, to)) {
+                Toast.makeText(context, "保存失败，请重试", Toast.LENGTH_SHORT).show()
+            }
             reload()
         }
     }
@@ -323,10 +325,15 @@ fun PlaylistDetailScreen(
             confirmText = "移除",
             onConfirm = {
                 scope.launch {
-                    MusicStore.removeFromPlaylist(context, playlistId, t.id)
+                    // v0.188.0：写盘失败不再谎报已移除。
+                    val ok = MusicStore.removeFromPlaylist(context, playlistId, t.id)
                     deleteTarget = null
                     reload()
-                    Toast.makeText(context, "已移除", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        if (ok) "已移除" else "保存失败，请重试",
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 }
             },
         ) {
@@ -350,9 +357,14 @@ fun PlaylistDetailScreen(
                 onClick = {
                     showSortDialog = false
                     scope.launch {
-                        MusicStore.sortByName(context, playlistId)
+                        // v0.188.0：写盘失败不再谎报已排序。
+                        val ok = MusicStore.sortByName(context, playlistId)
                         reload()
-                        Toast.makeText(context, "已按名称排序", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            if (ok) "已按名称排序" else "保存失败，请重试",
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -370,12 +382,17 @@ fun PlaylistDetailScreen(
             confirmText = "删除",
             onConfirm = {
                 scope.launch {
-                    MusicStore.removeTracks(context, playlistId, selectedIds)
+                    // v0.188.0：写盘失败不再谎报已删除。
+                    val ok = MusicStore.removeTracks(context, playlistId, selectedIds)
                     showDeleteSelected = false
                     selecting = false
                     selectedIds = emptySet()
                     reload()
-                    Toast.makeText(context, "已删除 $n 首", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        if (ok) "已删除 $n 首" else "保存失败，请重试",
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 }
             },
         ) { }

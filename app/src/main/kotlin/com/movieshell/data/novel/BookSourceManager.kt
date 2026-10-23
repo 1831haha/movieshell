@@ -144,12 +144,22 @@ object BookSourceManager {
         true
     }
 
-    suspend fun setEnabled(context: Context, key: String, enabled: Boolean) = mutex.withLock {
+    /**
+     * v0.188.0：setEnabled 返回写盘成败——写盘失败时内存表已回滚，
+     * 书源管理页据此提示“保存失败”，开关随 StateFlow 回滚值自动弹回。
+     * key 不存在时无写盘必要，返回 true，不误报失败。
+     */
+    suspend fun setEnabled(context: Context, key: String, enabled: Boolean): Boolean = mutex.withLock {
         val old = _sources.value
+        if (old.none { it.key == key }) return@withLock true
         _sources.value = old.map {
             if (it.key == key) it.copy(enabled = enabled) else it
         }
-        if (!save(context)) _sources.value = old
+        if (!save(context)) {
+            _sources.value = old
+            return@withLock false
+        }
+        true
     }
 
     fun enabledSources(): List<BookSource> = synchronized(syncLock) {

@@ -34,9 +34,15 @@ enum class HomeLayout(
 object HomeSettings {
     private const val PREFS = "movieshell_prefs"
     private const val KEY_HOME_LAYOUT = "home_layout"
+    private const val KEY_SOURCE_PICKER_LAYOUT = "source_picker_layout"
 
     private val _layout = MutableStateFlow(HomeLayout.GRID_3)
     val layout: StateFlow<HomeLayout> = _layout.asStateFlow()
+
+    // v0.188.0：换源器 6 种布局（0 大卡 1 图标 2 列表 3 宽卡 4 中卡 5 紧凑），
+    // 与首页布局同机制持久化，关弹窗重开不再回默认大卡。
+    private val _pickerLayout = MutableStateFlow(0)
+    val pickerLayout: StateFlow<Int> = _pickerLayout.asStateFlow()
 
     private var loaded = false
 
@@ -47,6 +53,18 @@ object HomeSettings {
             .getString(KEY_HOME_LAYOUT, null)
         _layout.value = runCatching { HomeLayout.valueOf(name!!) }
             .getOrDefault(HomeLayout.GRID_3)
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        _pickerLayout.value = prefs.getInt(KEY_SOURCE_PICKER_LAYOUT, 0).coerceIn(0, 5)
+    }
+
+    fun setPickerLayout(context: Context, mode: Int) {
+        val clamped = mode.coerceIn(0, 5)
+        _pickerLayout.value = clamped
+        runCatching {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putInt(KEY_SOURCE_PICKER_LAYOUT, clamped)
+                .apply()
+        }.onFailure { LogBus.w("HomeSettings", "换源器布局持久化失败：${it.message}") }
     }
 
     fun setLayout(context: Context, layout: HomeLayout) {

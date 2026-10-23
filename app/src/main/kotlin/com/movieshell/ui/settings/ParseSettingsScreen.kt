@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
@@ -61,35 +60,43 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val customParses by ParseStore.custom.collectAsState()
-    // 测活状态：index -> true 存活 / false 失效；testing 记录正在测的
-    var probeResults by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
-    var testing by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    // v0.188.0：测活状态按 url 存，不按下标；探活进行中删行/刷新，
+    // 迟到结果按旧下标贴到新行的窗口就此关闭。
+    var probeResults by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
+    var testing by remember { mutableStateOf<Set<String>>(emptySet()) }
     var probingAll by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
 
     fun probeOne(index: Int) {
         val parse = customParses.getOrNull(index) ?: return
-        if (index in testing || probingAll) return
-        testing = testing + index
+        // 下发时记下 url，写回前校验该 url 还在列表里，删行后的迟到结果直接丢弃。
+        val url = parse.url
+        if (url in testing || probingAll) return
+        testing = testing + url
         scope.launch {
             val ok = runCatching { ParseApi().probe(parse) }
                 .onFailure { LogBus.w("ParseSettings", "测活异常：${it.message}") }
                 .getOrDefault(false)
-            probeResults = probeResults + (index to ok)
-            testing = testing - index
+            if (customParses.any { it.url == url }) {
+                probeResults = probeResults + (url to ok)
+            }
+            testing = testing - url
         }
     }
 
     fun probeAll() {
         if (probingAll || customParses.isEmpty()) return
         probingAll = true
-        testing = customParses.indices.toSet()
+        testing = customParses.map { it.url }.toSet()
         scope.launch {
             val api = ParseApi()
-            customParses.forEachIndexed { i, p ->
+            customParses.forEach { p ->
+                val url = p.url
                 val ok = runCatching { api.probe(p) }.getOrDefault(false)
-                probeResults = probeResults + (i to ok)
-                testing = testing - i
+                if (customParses.any { it.url == url }) {
+                    probeResults = probeResults + (url to ok)
+                }
+                testing = testing - url
             }
             probingAll = false
         }
@@ -150,7 +157,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                     items = customParses,
                     key = { _, p -> p.url },
                 ) { index, parse ->
-                    val state = probeResults[index]
+                    val state = probeResults[parse.url]
                     SettingsRow(
                         icon = Icons.Filled.Link,
                         title = parse.name.ifBlank { "未命名" },
@@ -183,8 +190,9 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                                 }
                                 IconButton(onClick = {
                                     ParseStore.remove(context, index)
-                                    // 删一条后序号错位，清掉全部测活结果
-                                    probeResults = emptyMap()
+                                    // 按 url 存，删行只清掉该行自己的结果，不再清全部。
+                                    probeResults = probeResults - parse.url
+                                    testing = testing - parse.url
                                 }) {
                                     Icon(
                                         Icons.Filled.Delete,

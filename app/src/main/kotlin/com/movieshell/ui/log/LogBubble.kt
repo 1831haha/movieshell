@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -48,6 +49,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.StoragePaths
@@ -256,9 +258,10 @@ private fun exportLog(context: Context) {
         val dir = StoragePaths.logDir(context)
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val file = File(dir, "movieshell_$ts.txt")
-        file.writeText(LogBus.dumpText())
-        LogBus.i("Log", "日志已导出：${file.absolutePath}")
-        Toast.makeText(context, "日志已导出：${file.absolutePath}", Toast.LENGTH_LONG).show()
+        // v0.188.0：导出走 AtomicFile（L25）；提示只写相对位置（M31：不贴绝对路径）。
+        if (!AtomicFile.writeText(file, LogBus.dumpText())) throw IllegalStateException("日志写盘失败")
+        LogBus.i("Log", "日志已导出：${file.name}")
+        Toast.makeText(context, "日志已导出到 log 目录：${file.name}", Toast.LENGTH_LONG).show()
     } catch (e: Exception) {
         LogBus.e("Log", "日志导出失败：${e.message}")
         Toast.makeText(context, "导出失败：${e.message}", Toast.LENGTH_LONG).show()

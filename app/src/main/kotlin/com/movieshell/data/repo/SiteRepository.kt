@@ -15,6 +15,7 @@ import com.movieshell.data.model.isNovelOrComic
 import com.movieshell.data.model.isPhpSite
 import com.movieshell.data.model.isPySite
 import com.movieshell.data.model.isType4Site
+import com.movieshell.data.model.isUnsupportedSite
 import com.movieshell.data.model.toSite
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DrpyEngine
@@ -22,6 +23,7 @@ import com.movieshell.data.source.ParseApi
 import com.movieshell.data.source.TvBoxConfigParser
 import com.movieshell.data.source.Type4Api
 import com.movieshell.data.source.Type4PlayResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -72,6 +74,29 @@ class SiteRepository(
          * 源确实没数据，空结果且有原因 = 执行失败（UI 空态展示延期，见任务说明）。
          */
         private val lastFailureBySite = ConcurrentHashMap<String, String>()
+
+        /**
+         * v0.188.0 M28：最近一次 searchAll 里失败的源（超时 + 普通失败，
+         * 去重按源名）。供结果页脚汇总“X 个源失败”用，口径与
+         * SearchSlowSourceFilter 的 skippedLabel 同款（VM 侧拼进页脚文案）。
+         * 注意：无结果但无失败原因的源是“确实没数据”，不计入失败。
+         */
+        @Volatile
+        var lastSearchFailedCount: Int = 0
+            private set
+        @Volatile
+        var lastSearchFailedNames: List<String> = emptyList()
+            private set
+
+        /** 最近一次聚合搜索的失败汇总文案，null=本次无源失败。 */
+        fun failedSearchLabel(): String? =
+            if (lastSearchFailedCount > 0) "$lastSearchFailedCount 个源失败" else null
+
+        /** searchAll 内部写失败汇总的唯一入口（private set 只能由伴生内写）。 */
+        internal fun recordSearchFailed(names: Set<String>) {
+            lastSearchFailedNames = names.sorted()
+            lastSearchFailedCount = names.size
+        }
     }
 
     /** 最近一次失败原因（按站）：null = 最近一次调用无失败（或未跑过）。 */
@@ -112,7 +137,7 @@ class SiteRepository(
             site.isPhpSite() -> PhpCliEngine.lastError
             site.isType4Site() -> type4Api.lastError
             site.isPySite() -> (subOr(pyEngine) { pyEngineFor(site) } ?: pyEngine)?.lastError
-            site.isCmsSite() || site.isJavaSpider() || site.isNovelOrComic() -> null
+            site.isCmsSite() || site.isJavaSpider() || site.isNovelOrComic() || site.isUnsupportedSite() -> null
             else -> (subOr(drpyEngine) { drpyEngineFor(site) } ?: drpyEngine)?.lastError
         } ?: return
         lastFailureBySite.putIfAbsent(site.key, reason)
@@ -189,6 +214,11 @@ class SiteRepository(
         else if (site.isType4Site()) logged(site, "type4.home ${site.name}") { type4Api.home(site) }.orEmpty()
         else if (site.isCmsSite()) logged(site, "cms.home ${site.name}") { cmsApi.home(site) }.orEmpty()
         else if (site.isPySite()) logged(site, "py.home ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.home() }.orEmpty()
+        else if (site.isUnsupportedSite()) {
+            // v0.188.0 M15：未知类型/地址不再静默按 drpy 跑，明确走不支持空态。
+            LogBus.w(TAG, "不支持的站源，已跳过：${site.name} type=${site.type} api=${site.api.take(80)}")
+            emptyList()
+        }
         else logged(site, "drpy.home ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.home() }.orEmpty()
         recordEngineFailureIfEmpty(site, r.isEmpty())
         LogBus.i(TAG, "home site=${site.name} 结果 ${r.size} 条")
@@ -216,12 +246,19 @@ class SiteRepository(
         }
         else if (site.isJavaSpider()) logged(site, "spider.category ${site.name}") { SpiderEngine.category(site, tid, pg) }
             .orEmptyCategory()
+        // v0.188.0 M15：category 补小说站跳过分支，与 home/search 口径对齐
+        // （此前小说站进分类仍走引擎链路）。
+        else if (site.isNovelOrComic()) emptyList<CategoryType>() to emptyList()
         else if (site.isType4Site()) logged(site, "type4.category ${site.name}") { type4Api.category(site, tid, pg) }
             .orEmptyCategory()
         else if (site.isCmsSite()) logged(site, "cms.category ${site.name}") { cmsApi.category(site, tid, pg) }
             .orEmptyCategory()
         else if (site.isPySite()) logged(site, "py.categories ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.categories() }.orEmpty() to
             logged(site, "py.category ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
+        else if (site.isUnsupportedSite()) {
+            LogBus.w(TAG, "不支持的站源，已跳过：${site.name} type=${site.type} api=${site.api.take(80)}")
+            emptyList<CategoryType>() to emptyList()
+        }
         else emptyList<CategoryType>() to
             logged(site, "drpy.category ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
         recordEngineFailureIfEmpty(site, r.second.isEmpty())
@@ -235,8 +272,13 @@ class SiteRepository(
     /**
      * drpy 站某分类的筛选定义（规则 filter 分组），给 UI 筛选器用。
      * 非 drpy 站 / 规则没配 filter 时返回空列表。
+     * v0.188.0 M15：filters 口径与 home/search 对齐——小说/漫画站明确跳过
+     * （此前小说站 api 若以 .js 结尾会走到 drpy 筛选，与 home/search 的
+     * 跳过口径不一致）。UI 侧说明：筛选入口只在 filters 非空时展示，
+     * 非 drpy 站本来就没有筛选定义，返回空即等于隐藏筛选入口，不另起一套 UI。
      */
     suspend fun filters(site: Site, tid: String): List<FilterGroup> {
+        if (site.isNovelOrComic()) return emptyList()
         if (!site.isDrpySite()) return emptyList()
         lastFailureBySite.remove(site.key)
         val result = runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.filters(tid) }
@@ -258,12 +300,18 @@ class SiteRepository(
             ?: VodDetail(vodId = vodId)
         else if (site.isJavaSpider()) logged(site, "spider.detail ${site.name}") { SpiderEngine.detail(site, vodId) }
             ?: VodDetail(vodId = vodId)
+        // v0.188.0 M15：detail 补小说站跳过分支，与 home/search 口径对齐。
+        else if (site.isNovelOrComic()) VodDetail(vodId = vodId)
         else if (site.isType4Site()) logged(site, "type4.detail ${site.name}") { type4Api.detail(site, vodId) }
             ?: VodDetail(vodId = vodId)
         else if (site.isCmsSite()) logged(site, "cms.detail ${site.name}") { cmsApi.detail(site, vodId) }
             ?: VodDetail(vodId = vodId)
         else if (site.isPySite()) logged(site, "py.detail ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.detail(vodId) }
             ?: VodDetail(vodId = vodId)
+        else if (site.isUnsupportedSite()) {
+            LogBus.w(TAG, "不支持的站源，已跳过：${site.name} type=${site.type} api=${site.api.take(80)}")
+            VodDetail(vodId = vodId)
+        }
         else logged(site, "drpy.detail ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.detail(vodId) }
             ?: VodDetail(vodId = vodId)
         recordEngineFailureIfEmpty(site, r.vodName.isBlank() && r.vodPlayUrl.isBlank())
@@ -289,6 +337,10 @@ class SiteRepository(
         else if (site.isType4Site()) logged(site, "type4.search ${site.name}") { type4Api.search(site, wd) }.orEmpty()
         else if (site.isCmsSite()) logged(site, "cms.search ${site.name}") { cmsApi.search(site, wd) }.orEmpty()
         else if (site.isPySite()) logged(site, "py.search ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.search(wd) }.orEmpty()
+        else if (site.isUnsupportedSite()) {
+            LogBus.w(TAG, "不支持的站源，已跳过：${site.name} type=${site.type} api=${site.api.take(80)}")
+            emptyList()
+        }
         else logged(site, "drpy.search ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.orEmpty()
         recordEngineFailureIfEmpty(site, r.isEmpty())
         LogBus.i(TAG, "search site=${site.name} 结果 ${r.size} 条")
@@ -312,7 +364,9 @@ class SiteRepository(
         // v0.162.0：会话黑名单先过滤，跳过数记在 filter 里供结果页提示
         val targets = all.filter { !SearchSlowSourceFilter.shouldSkip(it.key) }
         SearchSlowSourceFilter.setLastSkipped(all.size - targets.size)
-        return supervisorScope {
+        // v0.188.0 M28：本轮失败源集合（并发写，用并发 set 去重）。
+        val failedNames = ConcurrentHashMap.newKeySet<String>()
+        val results = supervisorScope {
             targets.map { site ->
                 async {
                     val vods = try {
@@ -322,14 +376,37 @@ class SiteRepository(
                     } catch (e: TimeoutCancellationException) {
                         // v0.162.0：只有超时才计入慢源，普通失败不计
                         SearchSlowSourceFilter.onTimeout(site.key)
+                        LogBus.w(TAG, "聚合搜索源超时：${site.name}")
+                        failedNames += site.name
                         emptyList()
+                    } catch (e: CancellationException) {
+                        // 调用方取消（切页/新搜索）不是源失败：透传，不记失败、不吞。
+                        throw e
                     } catch (e: Exception) {
+                        // v0.188.0 M28：普通失败此前直接 emptyList() 且无日志，
+                        // 失败源在聚合搜索里静默消失。现记带源名的 warning 并计入失败。
+                        LogBus.w(TAG, "聚合搜索源失败：${site.name}：${e.message ?: e::class.java.simpleName}")
+                        failedNames += site.name
                         emptyList()
+                    }
+                    // search() 内部失败不抛异常（logged 吞成空结果）：空结果且
+                    // 按站留有失败原因的，同样是失败源，记 warning 并计入失败；
+                    // 空结果且无原因的，是源确实没数据，不计。
+                    if (vods.isEmpty()) {
+                        lastFailureReason(site)?.let { reason ->
+                            LogBus.w(TAG, "聚合搜索源失败：${site.name}：$reason")
+                            failedNames += site.name
+                        }
                     }
                     SiteSearchResult(site, vods)
                 }
             }.awaitAll()
-        }.filter { it.vods.isNotEmpty() }
+        }
+        recordSearchFailed(failedNames)
+        if (failedNames.isNotEmpty()) {
+            LogBus.w(TAG, "聚合搜索失败源 ${failedNames.size} 个：${failedNames.sorted().joinToString()}")
+        }
+        return results.filter { it.vods.isNotEmpty() }
     }
 
     /**
@@ -338,18 +415,6 @@ class SiteRepository(
      */
     fun parseEpisodes(detail: VodDetail): List<Episode> =
         cmsApi.parsePlayUrl(detail.vodPlayUrl, detail.vodPlayFrom)
-
-    /** drpy 播放：v0.1 引擎未实现，返回空串。 */
-    suspend fun drpyPlay(flag: String, id: String): String =
-        runCatching { drpyEngine?.play(flag, id) }
-            .onFailure { LogBus.e(TAG, "drpy.play 失败：${drpyEngine?.lastError ?: it.message}") }
-            .getOrNull().orEmpty()
-
-    /** PY 播放：playerContent 返回的直链 url。 */
-    suspend fun pyPlay(flag: String, id: String): String =
-        runCatching { pyEngine?.play(flag, id) }
-            .onFailure { LogBus.e(TAG, "py.play 失败：${pyEngine?.lastError ?: it.message}") }
-            .getOrNull().orEmpty()
 
 
     /**

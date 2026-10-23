@@ -64,17 +64,22 @@ object PluginUi {
         }
     }
 
-    /** 卸载：返回 toast 文案。 */
-    suspend fun uninstall(context: Context, p: MarketPlugin): String = try {
-        PluginMarket.uninstall(context, p.id)
+    /** 卸载：返回 toast 文案。deleteDocs 透传给 PluginMarket（L24 选项，默认不删说明）。 */
+    suspend fun uninstall(context: Context, p: MarketPlugin, deleteDocs: Boolean = false): String = try {
+        PluginMarket.uninstall(context, p.id, deleteDocs)
         "已卸载 ${p.name}"
     } catch (e: Exception) {
         LogBus.e("PluginMarket", "卸载失败：${e.message}（${p.id}）")
         "卸载失败：${e.message}"
     }
 
-    fun toast(context: Context, msg: String) =
-        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+    /**
+     * v0.188.0：全仓共享 toast 入口（L04 收敛：PyDepGuideOverlay、BookshelfScreen、
+     * MusicPlayer 的三份局部 toast 已删，全部改调这里）。duration 默认 SHORT，
+     * 长文案调用方显式传 LONG（原 PyDepGuideOverlay 口径不变）。
+     */
+    fun toast(context: Context, msg: String, duration: Int = Toast.LENGTH_SHORT) =
+        Toast.makeText(context, msg, duration).show()
 
     fun categoryLabel(category: String): String = when (category) {
         "env" -> "环境"
@@ -82,13 +87,6 @@ object PluginUi {
         else -> category
     }
 
-    /** v0.27.2：安装进度条文案。 */
-    fun formatBytes(bytes: Long): String = when {
-        bytes < 0 -> ""
-        bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
-        bytes >= 1024 -> "%d KB".format(bytes / 1024)
-        else -> "$bytes B"
-    }
 }
 
 /** v0.27.2：一键安装进度态（下载→校验→安装），null=不显示。 */
@@ -126,7 +124,7 @@ fun InstallProgressDialog(state: InstallProgressUi?) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "${PluginUi.formatBytes(state.done)} / ${PluginUi.formatBytes(state.total)}" +
+                    "${PluginMarket.formatSize(state.done)} / ${PluginMarket.formatSize(state.total)}" +
                         "（${(frac * 100).toInt()}%）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

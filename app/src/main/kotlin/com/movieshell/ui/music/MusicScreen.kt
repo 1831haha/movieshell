@@ -76,7 +76,6 @@ import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.components.goldTitleColor
-import com.movieshell.ui.theme.SoftType
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import kotlinx.coroutines.launch
@@ -849,9 +848,14 @@ private fun LocalTab() {
                 urlId = "",
                 localUri = uri.toString(),
             )
-            MusicStore.addLocal(context, track)
+            // v0.188.0：addLocal 返回写盘成败，失败不再谎报已导入。
+            val imported = MusicStore.addLocal(context, track)
             reload()
-            Toast.makeText(context, "已导入《$clean》", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                context,
+                if (imported) "已导入《$clean》" else "保存失败，请重试",
+                Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 
@@ -918,7 +922,14 @@ private fun LocalTab() {
                                     isPlaying = playState.track?.id == track.id && playState.playing,
                                     onDeleteClick = {
                                         scope.launch {
-                                            MusicStore.removeLocal(context, track.id)
+                                            // v0.188.0 M23：删本地歌即四处联动删（收藏、歌单、播放历史）。
+                                            if (!MusicStore.removeTrackEverywhere(context, track.id)) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "删除失败：保存失败，请重试",
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                            }
                                             reload()
                                         }
                                     },
@@ -976,7 +987,14 @@ private fun LocalTab() {
                                                 playState.playing,
                                             onDeleteClick = {
                                                 scope.launch {
-                                                    MusicStore.removeLocal(context, track.id)
+                                                    // v0.188.0 M23：删本地歌即四处联动删（收藏、歌单、播放历史）。
+                                                    if (!MusicStore.removeTrackEverywhere(context, track.id)) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            "删除失败：保存失败，请重试",
+                                                            Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                    }
                                                     reload()
                                                 }
                                             },
@@ -1364,7 +1382,17 @@ private fun PlaylistTab(
                         reload()
                         Toast.makeText(context, "已创建歌单「$name」", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(context, "歌单名为空或已存在", Toast.LENGTH_SHORT).show()
+                        // v0.188.0：createPlaylist 返回空有三种原因，先在 UI 侧区分
+                        // 空名与重名，剩下的才是写盘失败，不再一律报“为空或已存在”。
+                        Toast.makeText(
+                            context,
+                            when {
+                                name.isBlank() -> "歌单名为空"
+                                playlists.any { it.name == name.trim() } -> "歌单名已存在"
+                                else -> "保存失败，请重试"
+                            },
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }
             },
@@ -1383,7 +1411,16 @@ private fun PlaylistTab(
                     if (ok) {
                         reload()
                     } else {
-                        Toast.makeText(context, "歌单名为空或已存在", Toast.LENGTH_SHORT).show()
+                        // v0.188.0：与新建同理，先区分空名与重名，剩下的才是写盘失败。
+                        Toast.makeText(
+                            context,
+                            when {
+                                name.isBlank() -> "歌单名为空"
+                                playlists.any { it.name == name.trim() && it.id != pl.id } -> "歌单名已存在"
+                                else -> "保存失败，请重试"
+                            },
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }
             },
@@ -1397,9 +1434,13 @@ private fun PlaylistTab(
             confirmText = "删除",
             onConfirm = {
                 scope.launch {
-                    MusicStore.deletePlaylist(context, pl.id)
+                    // v0.188.0：删歌单写盘失败要提示，成功保持原来静默。
+                    val ok = MusicStore.deletePlaylist(context, pl.id)
                     deleteTarget = null
                     reload()
+                    if (!ok) {
+                        Toast.makeText(context, "删除失败：保存失败，请重试", Toast.LENGTH_SHORT).show()
+                    }
                 }
             },
         ) {
@@ -1449,10 +1490,17 @@ internal fun AddToPlaylistDialog(
 
     fun addTo(pl: MusicPlaylist) {
         scope.launch {
+            // v0.188.0：addToPlaylist 返回 false 有三种原因（已在、歌单没了、写盘失败），
+            // 先用当前列表区分“已在”，剩下的报保存失败，不再一律报已在。
+            val already = pl.tracks.any { it.id == track.id }
             val ok = MusicStore.addToPlaylist(context, pl.id, track)
             Toast.makeText(
                 context,
-                if (ok) "已加入「${pl.name}」" else "这首已经在「${pl.name}」里了",
+                when {
+                    ok -> "已加入「${pl.name}」"
+                    already -> "这首已经在「${pl.name}」里了"
+                    else -> "保存失败，请重试"
+                },
                 Toast.LENGTH_SHORT,
             ).show()
             if (ok) onDismiss()
@@ -1536,7 +1584,16 @@ internal fun AddToPlaylistDialog(
                         reload()
                         addTo(pl)
                     } else {
-                        Toast.makeText(context, "歌单名为空或已存在", Toast.LENGTH_SHORT).show()
+                        // v0.188.0：与歌单页新建同理，先区分空名与重名，剩下的才是写盘失败。
+                        Toast.makeText(
+                            context,
+                            when {
+                                name.isBlank() -> "歌单名为空"
+                                playlists.any { it.name == name.trim() } -> "歌单名已存在"
+                                else -> "保存失败，请重试"
+                            },
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }
             },

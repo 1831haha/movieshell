@@ -15,6 +15,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipFile
 
@@ -120,9 +121,6 @@ object PluginMarket {
 
     /** v0.79.0：进程级最近一次完整市场信息（按请求 URL key），供市场页首帧秒开（内存→磁盘→网络三级）。 */
     private val lastInfoMap = mutableMapOf<String, MarketInfo>()
-
-    @Synchronized
-    fun lastInfoFor(url: String): MarketInfo? = lastInfoMap[url]
 
     @Synchronized
     private fun rememberInfo(url: String, info: MarketInfo) {
@@ -614,14 +612,35 @@ object PluginMarket {
         var skipped = 0
         docsDir.walkTopDown().filter { it.isFile }.forEach { src ->
             val rel = src.relativeTo(docsDir).path
-            val dst = File(StoragePaths.baseDir(context), rel)
+            // v0.188.0：目标路径同样过 safeDst，不依赖“先写副本后写目标”的顺序
+            val dst = safeDst(StoragePaths.baseDir(context), rel)
             dst.parentFile?.mkdirs()
             if (dst.exists()) skipped++ else {
                 src.copyTo(dst)
                 written++
             }
         }
-        return "一键配置完成：已建好 ${dirs.size} 个目录，写入 $written 份说明，$skipped 份已有未覆盖"
+        return setupSummaryText(dirs, written, skipped)
+    }
+
+    /**
+     * v0.188.0：setup 汇总文案（L24）。目录数按实际落点拆开：公开根下的算
+     * 公开目录，落到 filesDir 回退位置的算私有回退目录——无存储权限时
+     * 全部目录都在私有回退位置，用户在文件管理器里看不到，文案不再
+     * 笼统写“已建好 N 个目录”误导。
+     */
+    private fun setupSummaryText(dirs: List<File>, written: Int, skipped: Int): String {
+        val pubRoot = runCatching { StoragePaths.publicRoot().canonicalPath }.getOrNull()
+        var pub = 0
+        dirs.forEach { d ->
+            val c = runCatching { d.canonicalPath }.getOrNull()
+            if (pubRoot != null && c != null &&
+                (c == pubRoot || c.startsWith(pubRoot + File.separator))
+            ) pub++
+        }
+        val priv = dirs.size - pub
+        return "一键配置完成：已建好 $pub 个公开目录、$priv 个私有回退目录，" +
+            "写入 $written 份说明，$skipped 份已有未覆盖"
     }
 
     private fun applySetupDocs(
@@ -646,14 +665,15 @@ object PluginMarket {
             copyEntryBounded(zf, e, srcDst, budget)
             installed.add("docs/$rel")
             // ② 再写到 xiaying 目标位置，已有不覆盖
-            val dst = File(StoragePaths.baseDir(context), rel)
+            // v0.188.0：目标路径同样过 safeDst（L24 防御纵深，不依赖顺序）
+            val dst = safeDst(StoragePaths.baseDir(context), rel)
             dst.parentFile?.mkdirs()
             if (dst.exists()) skipped++ else {
                 zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
                 written++
             }
         }
-        return "一键配置完成：已建好 ${dirs.size} 个目录，写入 $written 份说明，$skipped 份已有未覆盖"
+        return setupSummaryText(dirs, written, skipped)
     }
 
     /**
@@ -693,13 +713,19 @@ object PluginMarket {
     }
 
     /** 卸载：删文件 + 清记录 + 若命中 active 规则则清空。 */
-    suspend fun uninstall(context: Context, id: String) = withContext(Dispatchers.IO) {
+    suspend fun uninstall(context: Context, id: String, deleteDocs: Boolean = false) = withContext(Dispatchers.IO) {
         val rec = PluginStore.installedOf(id)
             ?: throw IllegalStateException("未安装：$id")
         when (rec.type) {
             // v0.185.0：setup 卸载只删插件自己的 docs/ 副本，不删已建好的目录
             // 和已写入的说明，更不碰用户放进各目录的规则文件（删了就丢不回来）。
-            "setup" -> File(StoragePaths.pluginsDir(context), id).deleteRecursively()
+            // v0.188.0：deleteDocs=true 时另删已写入的说明（L24 选项，默认 false）：
+            // 只删内容与 docs 副本逐字节一致的目标文件——用户改过、或安装时
+            // 已存在而被跳过的文件一律不动；只删文件，目录一律保留。
+            "setup" -> {
+                if (deleteDocs) deleteSetupDocs(context, id)
+                File(StoragePaths.pluginsDir(context), id).deleteRecursively()
+            }
             "server" -> File(StoragePaths.pluginsDir(context), id).deleteRecursively()
             // v0.137.0：runtime 插件卸载删私有安装目录（服务页共享安装的拷备由
             // ServicePluginManager 下次解析 php 占位时按来源存亡自行清理）
@@ -737,6 +763,27 @@ object PluginMarket {
             runCatching { LiveStore.refresh(context) }
                 .onFailure { LogBus.w(TAG, "卸载后刷新直播聚合失败：${it.message}") }
         }
+    }
+
+    /**
+     * v0.188.0：setup 卸载删说明（L24）。比对依据是卸载前尚存的 docs/ 副本：
+     * 副本已不在时无法验证，一律不删目标文件，宁可残留也不误删用户文件。
+     */
+    private fun deleteSetupDocs(context: Context, id: String) {
+        val docsDir = File(StoragePaths.pluginsDir(context), "$id/docs")
+        if (!docsDir.isDirectory) return
+        val base = StoragePaths.baseDir(context)
+        var deleted = 0
+        docsDir.walkTopDown().filter { it.isFile }.forEach { src ->
+            val rel = src.relativeTo(docsDir).path
+            val dst = runCatching { safeDst(base, rel) }.getOrNull() ?: return@forEach
+            if (!dst.isFile) return@forEach
+            val same = runCatching {
+                dst.readBytes().contentEquals(src.readBytes())
+            }.getOrDefault(false)
+            if (same && dst.delete()) deleted++
+        }
+        LogBus.i(TAG, "setup 卸载删说明：$id，共删 $deleted 份（内容不一致的已保留）")
     }
 
     /**
@@ -785,11 +832,17 @@ object PluginMarket {
         installedVersion != null && (isNewer(plugin.version, installedVersion) ||
             (plugin.type == "runtime" && plugin.version != installedVersion))
 
-    /** 人性化大小：1.2 MB / 340 KB。 */
+    /**
+     * v0.188.0：全仓唯一字节格式化（L03 收敛：SourcesScreen、SettingsScreen、
+     * PluginUi 的三份同名函数已删，调用点全部改调这里）。
+     * 口径：<=0 返空（调用方按空处理，如插件详情不显示大小）；GB/MB 一位小数、
+     * KB 取整；Locale.US 固定小数点，不随系统语言变逗号。
+     */
     fun formatSize(bytes: Long): String = when {
         bytes <= 0 -> ""
-        bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
-        bytes >= 1024 -> "%d KB".format(bytes / 1024)
+        bytes >= 1L shl 30 -> "%.1f GB".format(Locale.US, bytes / (1L shl 30).toDouble())
+        bytes >= 1L shl 20 -> "%.1f MB".format(Locale.US, bytes / (1L shl 20).toDouble())
+        bytes >= 1L shl 10 -> "%d KB".format(Locale.US, bytes / 1024)
         else -> "$bytes B"
     }
 

@@ -73,9 +73,6 @@ object PyBookSourceManager {
         }
     }
 
-    fun enabledRules(): List<PyBookRule> =
-        _rules.value.filter { it.name in _enabled.value }
-
     fun rulePath(context: Context, name: String): String? {
         val f = File(dir(context), name)
         return if (f.isFile) f.absolutePath else null
@@ -83,11 +80,14 @@ object PyBookSourceManager {
 
     fun isEnabled(name: String): Boolean = name in _enabled.value
 
-    fun setEnabled(context: Context, name: String, enabled: Boolean) {
-        val cur = _enabled.value.toMutableSet()
+    fun setEnabled(context: Context, name: String, enabled: Boolean): Boolean {
+        val old = _enabled.value
+        val cur = old.toMutableSet()
         if (enabled) cur.add(name) else cur.remove(name)
         _enabled.value = cur
-        prefs(context).edit().putStringSet(KEY_ENABLED, cur).apply()
+        val ok = prefs(context).edit().putStringSet(KEY_ENABLED, cur).commit()
+        if (!ok) _enabled.value = old
+        return ok
     }
 
     /** 导入 .py 书源文件：先写 .tmp、校验含 bookSearch、通过再改名。 */

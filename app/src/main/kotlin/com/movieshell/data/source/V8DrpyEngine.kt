@@ -10,7 +10,10 @@ import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.StoragePaths
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -71,6 +74,17 @@ class V8DrpyEngine(
     @Volatile
     private var sessionEpoch = 0
 
+    /**
+     * v0.188.0 M12：共享 home 缓存单例化锁。sharedHomeJson 的“查缓存、
+     * eval、写回”与 homeFallback 的缓存读写全程持同一把锁，并发 home()、
+     * categories() 只触发一次 __drpyHome，不再互相覆盖时间戳。
+     * loadRule/release 是非挂起函数、拿不到这把锁，另用 homeGeneration
+     * 世代号兜底：换规则/释放后完成的旧 eval 不写缓存、不交旧数据。
+     */
+    private val homeMutex = Mutex()
+    @Volatile
+    private var homeGeneration = 0
+
     private val hostJs by lazy { assetText("jsbridge/host.js") }
     private val shimJs by lazy { assetText("drpy/shim.js") }
 
@@ -113,6 +127,8 @@ class V8DrpyEngine(
         ruleJs = expanded.js
         lastError = null
         // v0.110.0：换规则即失效 home 缓存，避免旧规则的 home 串给新规则。
+        // v0.188.0 M12：世代号先加，在途旧 eval 完成时见世代已变，不写缓存。
+        homeGeneration++
         sharedHomeJson = null
         sharedHomeAt = 0L
         homeFallbackCache = null
@@ -226,12 +242,17 @@ class V8DrpyEngine(
      * 复用，不重复付重试与分类的代价；缓存过期重拉后仍为空才会重新兜底。
      */
     private suspend fun homeFallback(): List<Vod> {
-        homeFallbackCache?.let { (at, list) ->
-            if (at == sharedHomeAt) return list
+        val gen = homeGeneration
+        homeMutex.withLock {
+            homeFallbackCache?.let { (at, list) ->
+                if (at == sharedHomeAt) return list
+            }
         }
         LogBus.i(TAG, "home 首调推荐为空，清缓存重试一次")
-        sharedHomeJson = null
-        sharedHomeAt = 0L
+        homeMutex.withLock {
+            sharedHomeJson = null
+            sharedHomeAt = 0L
+        }
         delay(HOME_RETRY_DELAY_MS)
         val json = sharedHomeJson() ?: return emptyList()
         var list = parseVodList(json)
@@ -242,7 +263,10 @@ class V8DrpyEngine(
                 LogBus.i(TAG, "home 无推荐，用第一分类顶上：${firstCat.typeName} ${list.size} 条")
             }
         }
-        homeFallbackCache = sharedHomeAt to list
+        // 世代已变（中途换规则/释放）时只交本次结果，不写缓存，防旧规则结果复活。
+        if (gen == homeGeneration) {
+            homeMutex.withLock { homeFallbackCache = sharedHomeAt to list }
+        }
         return list
     }
 
@@ -268,16 +292,21 @@ class V8DrpyEngine(
     @Volatile
     private var homeFallbackCache: Pair<Long, List<Vod>>? = null
 
-    private suspend fun sharedHomeJson(): String? {
+    private suspend fun sharedHomeJson(): String? = homeMutex.withLock {
         val now = android.os.SystemClock.elapsedRealtime()
         val cached = sharedHomeJson
-        if (cached != null && now - sharedHomeAt < HOME_CACHE_MS) return cached
+        if (cached != null && now - sharedHomeAt < HOME_CACHE_MS) return@withLock cached
+        val gen = homeGeneration
         val json = evalForJson("(function(){return __drpyHome();})()")
-        if (json != null) {
+        // 世代已变说明 eval 期间换了规则/释放了引擎：旧数据不写缓存、不交调用方，
+        // 调用方按失败处理，不让旧规则 home 串台（管理器层世代号也会丢弃旧调用结果）。
+        if (json != null && gen == homeGeneration) {
             sharedHomeJson = json
             sharedHomeAt = now
+            json
+        } else {
+            null
         }
-        return json
     }
 
     /** 从 __drpyHome() 的 {"class":[...],"list":[...]} 里取分类数组。 */
@@ -308,7 +337,7 @@ class V8DrpyEngine(
     override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod> =
         withContext(Dispatchers.IO) {
             val filterJson = JSONObject(filter as Map<*, *>).toString()
-            val json = evalForJson(
+            val json = evalForJsonWithRetry(
                 "(function(){return __drpyCategory(${JSONObject.quote(tid)}, $pg, $filterJson);})()"
             ) ?: return@withContext emptyList()
             parseVodList(json)
@@ -321,27 +350,42 @@ class V8DrpyEngine(
     }
 
     override suspend fun detail(id: String): VodDetail = withContext(Dispatchers.IO) {
-        val json = evalForJson("(function(){return __drpyDetail(${JSONObject.quote(id)});})()")
+        val json = evalForJsonWithRetry("(function(){return __drpyDetail(${JSONObject.quote(id)});})()")
             ?: return@withContext VodDetail()
         parseDetail(json)
     }
 
     override suspend fun search(wd: String): List<Vod> = withContext(Dispatchers.IO) {
-        val json = evalForJson("(function(){return __drpySearch(${JSONObject.quote(wd)});})()")
+        val json = evalForJsonWithRetry("(function(){return __drpySearch(${JSONObject.quote(wd)});})()")
             ?: return@withContext emptyList()
         parseVodList(json)
     }
 
     override suspend fun play(flag: String, id: String): String = withContext(Dispatchers.IO) {
-        val json = evalForJson(
+        val json = evalForJsonWithRetry(
             "(function(){return __drpyPlay(${JSONObject.quote(flag)}, ${JSONObject.quote(id)});})()"
         ) ?: return@withContext ""
         parsePlayUrl(json)
     }
 
+    /**
+     * v0.188.0 M11：与 home 兜底同档的一次重试（首调失败 → 等 HOME_RETRY_DELAY_MS
+     * 再调一次）。home 自带两级兜底，不走这里；filters 只是筛选定义、失败交空
+     * 即可，同样不走这里。调用方被取消时 delay 直接抛取消，不会硬重试。
+     */
+    private suspend fun evalForJsonWithRetry(expression: String): String? {
+        val first = evalForJson(expression)
+        if (first != null) return first
+        LogBus.i(TAG, "JS 执行失败，重试一次")
+        delay(HOME_RETRY_DELAY_MS)
+        return evalForJson(expression)
+    }
+
     override fun release() {
         // A5：isolate.close() 即时终止（在途 evaluate 立即失败），任意线程可调。
         lastError = null
+        // v0.188.0 M12：释放同样 bump home 世代号，在途旧 eval 不写缓存。
+        homeGeneration++
         sessionEpoch++
         val old = synchronized(sessionFieldLock) { session.also { session = null } }
         runCatching { old?.close() }
@@ -381,6 +425,10 @@ class V8DrpyEngine(
             LogBus.w(TAG, reason)
             synchronized(sessionFieldLock) { if (session === s) session = null }
             null
+        } catch (e: CancellationException) {
+            // 调用方取消必须透传：吞成 null 会让上层重试入口误以为只是执行失败
+            // 而在已取消的协程里再 delay 重试一次。
+            throw e
         } catch (e: Exception) {
             val reason = "JS 执行失败: ${e.message}"
             lastError = reason
@@ -442,8 +490,13 @@ class V8DrpyEngine(
     /**
      * v0.99.0：统一网络执行（IO 协程内，不再阻塞任何 JS 线程）。
      * POST/PUT/PATCH 的 Content-Type 从 headers 里读，默认 application/x-www-form-urlencoded（P1-3）。
+     * v0.188.0 M11/M30：两点改动——① HTTP 非 2xx 按失败处理（错误体不再当正常
+     * body 交给规则解析）；② 可取消的同步调用：协程取消时 cancel 底层 OkHttp
+     * call（关 socket、execute 立即抛错），不再出现“JS 侧 15 秒已超时杀 isolate、
+     * 底层请求仍占着线程跑到 60 秒 callTimeout”的拖尾。调用方取消时抛取消、
+     * 不吞成空串，避免取消后还被当成普通失败重试。
      */
-    private fun doRequest(url: String, method: String, headers: JSONObject?, body: String): String {
+    private suspend fun doRequest(url: String, method: String, headers: JSONObject?, body: String): String {
         val call = runCatching {
             val reqBuilder = Request.Builder().url(url)
             headers?.keys()?.forEach { k ->
@@ -461,9 +514,22 @@ class V8DrpyEngine(
             }
             http.newCall(reqBuilder.build())
         }.getOrNull() ?: return ""
+        val job = currentCoroutineContext()[Job]
+        job?.invokeOnCancellation { call.cancel() }
         return try {
-            call.execute().use { resp -> resp.body?.string() ?: "" }
+            call.execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    LogBus.w(TAG, "request 非 2xx 按失败处理: $url HTTP ${resp.code}")
+                    return ""
+                }
+                resp.body?.string() ?: ""
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            // 取消时抛回 job 自身的取消异常，不吞成空串，避免会话关闭后
+            // 的取消还被当成普通失败重试。
+            if (job?.isCancelled == true) throw job.getCancellationException()
             LogBus.w(TAG, "request 失败: $url ${e.message}")
             ""
         }

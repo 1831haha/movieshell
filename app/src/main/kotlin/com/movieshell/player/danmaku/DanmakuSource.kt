@@ -1,6 +1,7 @@
 package com.movieshell.player.danmaku
 
 import android.content.Context
+import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.Dispatchers
@@ -194,7 +195,7 @@ object DanmakuSource {
                 savedAt = System.currentTimeMillis(),
                 items = list.take(500).map { CacheItem(it.text, it.timeMs, it.color, it.type) },
             )
-            f.writeText(json.encodeToString(CacheEntry.serializer(), e))
+            AtomicFile.writeText(f, json.encodeToString(CacheEntry.serializer(), e))
         }
     }
 

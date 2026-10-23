@@ -1,7 +1,6 @@
 package com.movieshell.ui.bookshelf
 
 import android.provider.OpenableColumns
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -83,6 +82,7 @@ import com.movieshell.data.repo.ReadingProgressStore
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.goldTitleColor
+import com.movieshell.ui.market.PluginUi
 import com.movieshell.ui.theme.LocalBrandGradient
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -139,9 +139,6 @@ fun BookshelfScreen(
     var renameTarget by remember { mutableStateOf<BookGroup?>(null) }
     var groupMenuTarget by remember { mutableStateOf<BookGroup?>(null) }
 
-    fun toast(msg: String) =
-        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-
     fun reload() {
         scope.launch {
             val all = withContext(Dispatchers.IO) { NovelStore.list(context) }
@@ -187,7 +184,7 @@ fun BookshelfScreen(
             result.forEach { (id, n) -> NovelUpdateStore.set(context, id, n) }
             checking = false
             reload()
-            toast(
+            PluginUi.toast(context, 
                 when {
                     result.isNotEmpty() -> "${result.size} 本有更新"
                     checked.checked > 0 && checked.failed == checked.checked -> "检查失败，稍后再试"
@@ -217,7 +214,7 @@ fun BookshelfScreen(
             }
             selectionMode = false
             selectedIds = emptySet()
-            toast("已删除 ${targets.size} 本")
+            PluginUi.toast(context, "已删除 ${targets.size} 本")
             reload()
         }
     }
@@ -230,7 +227,7 @@ fun BookshelfScreen(
             groupPickerFor = null
             selectionMode = false
             selectedIds = emptySet()
-            toast("已移入「${group.name}」")
+            PluginUi.toast(context, "已移入「${group.name}」")
             reload()
         }
     }
@@ -243,7 +240,7 @@ fun BookshelfScreen(
             if (fav == null) {
                 fav = BookshelfGroupStore.create(context, "收藏")
                 if (fav.id.isBlank()) {
-                    toast("收藏失败")
+                    PluginUi.toast(context, "收藏失败")
                     return@launch
                 }
             }
@@ -253,7 +250,7 @@ fun BookshelfScreen(
             } else {
                 BookshelfGroupStore.addNovels(context, fav.id, listOf(novel.id))
             }
-            toast(if (isFav) "已取消收藏" else "已收藏")
+            PluginUi.toast(context, if (isFav) "已取消收藏" else "已收藏")
             reload()
         }
     }
@@ -325,7 +322,7 @@ fun BookshelfScreen(
                 }.getOrDefault(false)
             }
             importing = false
-            toast(if (ok) "已加入书架" else "导入失败：不是有效的 TXT")
+            PluginUi.toast(context, if (ok) "已加入书架" else "导入失败：不是有效的 TXT")
             if (ok) reload()
         }
     }
@@ -699,7 +696,7 @@ fun BookshelfScreen(
             onDelete = { detailTarget = null; deleteTarget = fresh },
             onOpenPurifyRules = { detailTarget = null; onOpenPurifyRules() },
             onSourceSwitched = {
-                toast("已换源")
+                PluginUi.toast(context, "已换源")
                 reload()
             },
         )
@@ -733,7 +730,7 @@ fun BookshelfScreen(
                         // 从分组选择器进来时，建完直接移入
                         val ids = groupPickerFor
                         reload()
-                        if (ids != null) moveToGroup(g, ids) else toast("已创建「${g.name}」")
+                        if (ids != null) moveToGroup(g, ids) else PluginUi.toast(context, "已创建「${g.name}」")
                     }
                 }
             },
@@ -776,7 +773,7 @@ fun BookshelfScreen(
                                     selectedGroup = BookshelfGroupStore.GROUP_ALL
                                     BookshelfGroupStore.setSelectedGroup(context, selectedGroup)
                                 }
-                                toast("已删除分组（书籍保留）")
+                                PluginUi.toast(context, "已删除分组（书籍保留）")
                                 reload()
                             }
                         }

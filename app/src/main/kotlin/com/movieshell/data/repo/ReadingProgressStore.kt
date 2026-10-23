@@ -51,6 +51,15 @@ object ReadingProgressStore {
             readAll(context).firstOrNull { it.novelId == novelId }
         }
 
+    /**
+     * v0.188.0 M25：一次读出全部进度，供 NovelStore 派生 lastReadChapter 用。
+     * 阅读进度是唯一事实源；书架 index 里的 lastReadChapter 只作无进度时的回退值。
+     */
+    suspend fun loadAll(context: Context): Map<String, ReadingProgress> =
+        withContext(Dispatchers.IO) {
+            readAll(context).associateBy { it.novelId }
+        }
+
     suspend fun clear(context: Context, novelId: String) = withContext(Dispatchers.IO) {
         runCatching {
             val rest = readAll(context).filterNot { it.novelId == novelId }

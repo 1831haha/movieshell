@@ -66,22 +66,71 @@ object MusicStore {
         }
     }
 
-    suspend fun addLocal(context: Context, track: Track) = mutex.withLock {
+    /**
+     * v0.188.0 M23：写盘成败如实返回（已存在不写盘也算成功，调用方不再谎报已导入）。
+     * 无操作分支返回 true，只有真实写盘失败才返回 false。
+     */
+    suspend fun addLocal(context: Context, track: Track): Boolean = mutex.withLock {
         withContext(Dispatchers.IO) {
             val f = File(context.filesDir, LOCAL_FILE)
             val cur = readTracks(f).toMutableList()
             if (cur.none { it.id == track.id }) {
                 cur.add(0, track)
                 writeTracks(f, cur)
+            } else {
+                true
             }
         }
     }
 
-    suspend fun removeLocal(context: Context, id: String) = mutex.withLock {
+    suspend fun removeLocal(context: Context, id: String): Boolean = mutex.withLock {
         withContext(Dispatchers.IO) {
             val f = File(context.filesDir, LOCAL_FILE)
             writeTracks(f, readTracks(f).filterNot { it.id == id })
         }
+    }
+
+    /**
+     * v0.188.0 M23：删歌四处联动——本地、收藏、全部歌单内嵌 tracks、播放历史
+     * （历史经 MusicHistoryStore.removePlay，放在本 store 锁外，避免两锁交错）。
+     * 删歌单内单首（removeFromPlaylist）不是删歌，不走这里。
+     * 返回值只覆盖本地、收藏、歌单三处写盘（历史写盘失败不翻转返回值，尽力而为）。
+     */
+    suspend fun removeTrackEverywhere(context: Context, id: String): Boolean {
+        val ok = mutex.withLock {
+            withContext(Dispatchers.IO) {
+                var allOk = true
+                val localFile = File(context.filesDir, LOCAL_FILE)
+                val local = readTracks(localFile)
+                if (local.any { it.id == id } &&
+                    !writeTracks(localFile, local.filterNot { it.id == id })
+                ) {
+                    allOk = false
+                }
+                val favFile = File(context.filesDir, FAV_FILE)
+                val fav = readTracks(favFile)
+                if (fav.any { it.id == id } &&
+                    !writeTracks(favFile, fav.filterNot { it.id == id })
+                ) {
+                    allOk = false
+                }
+                val playlistFile = File(context.filesDir, PLAYLIST_FILE)
+                val pls = readPlaylists(playlistFile)
+                if (pls.any { pl -> pl.tracks.any { it.id == id } }) {
+                    val updated = pls.map { pl ->
+                        if (pl.tracks.any { it.id == id }) {
+                            pl.copy(tracks = pl.tracks.filterNot { it.id == id })
+                        } else {
+                            pl
+                        }
+                    }
+                    if (!writePlaylists(playlistFile, updated)) allOk = false
+                }
+                allOk
+            }
+        }
+        MusicHistoryStore.removePlay(context, id)
+        return ok
     }
 
     // ---- 收藏 ----
@@ -178,7 +227,8 @@ object MusicStore {
             }
         }
 
-    suspend fun deletePlaylist(context: Context, id: String) = mutex.withLock {
+    /** v0.188.0：写盘成败如实返回，供歌单页失败时提示保存失败而非静默。 */
+    suspend fun deletePlaylist(context: Context, id: String): Boolean = mutex.withLock {
         withContext(Dispatchers.IO) {
             val f = File(context.filesDir, PLAYLIST_FILE)
             writePlaylists(f, readPlaylists(f).filterNot { it.id == id })
@@ -200,7 +250,8 @@ object MusicStore {
             }
         }
 
-    suspend fun removeFromPlaylist(context: Context, playlistId: String, trackId: String) =
+    /** v0.188.0：写盘成败如实返回（歌单不存在时仍写回原表，返回值即写盘结果）。 */
+    suspend fun removeFromPlaylist(context: Context, playlistId: String, trackId: String): Boolean =
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 val f = File(context.filesDir, PLAYLIST_FILE)
@@ -219,14 +270,18 @@ object MusicStore {
      * v0.89.0：手动排序——把 from 位置的歌移到 to（邻位交换用 removeAt/add 一次到位）。
      * 越界直接 return；其余照抄 readPlaylists/writePlaylists 模式。
      */
-    suspend fun moveTrack(context: Context, playlistId: String, from: Int, to: Int) =
+    /**
+     * v0.188.0：写盘成败如实返回。无操作分支（歌单不存在、越界、原地）不写盘，
+     * 返回 true，不让调用方把“没动”误报成保存失败。
+     */
+    suspend fun moveTrack(context: Context, playlistId: String, from: Int, to: Int): Boolean =
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 val f = File(context.filesDir, PLAYLIST_FILE)
                 val cur = readPlaylists(f)
-                val pl = cur.firstOrNull { it.id == playlistId } ?: return@withContext
+                val pl = cur.firstOrNull { it.id == playlistId } ?: return@withContext false
                 val tracks = pl.tracks
-                if (from !in tracks.indices || to !in tracks.indices || from == to) return@withContext
+                if (from !in tracks.indices || to !in tracks.indices || from == to) return@withContext true
                 val mutable = tracks.toMutableList()
                 mutable.add(to, mutable.removeAt(from))
                 writePlaylists(
@@ -236,11 +291,11 @@ object MusicStore {
             }
         }
 
-    /** v0.89.0：批量删除（多选模式）。 */
-    suspend fun removeTracks(context: Context, playlistId: String, ids: Set<String>) =
+    /** v0.89.0：批量删除（多选模式）。v0.188.0：写盘成败如实返回，空选集不写盘返回 true。 */
+    suspend fun removeTracks(context: Context, playlistId: String, ids: Set<String>): Boolean =
         mutex.withLock {
             withContext(Dispatchers.IO) {
-                if (ids.isEmpty()) return@withContext
+                if (ids.isEmpty()) return@withContext true
                 val f = File(context.filesDir, PLAYLIST_FILE)
                 val cur = readPlaylists(f)
                 writePlaylists(
@@ -253,8 +308,8 @@ object MusicStore {
             }
         }
 
-    /** v0.89.0：按歌名排序（name.lowercase()）写回。 */
-    suspend fun sortByName(context: Context, playlistId: String) =
+    /** v0.89.0：按歌名排序（name.lowercase()）写回。v0.188.0：写盘成败如实返回。 */
+    suspend fun sortByName(context: Context, playlistId: String): Boolean =
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 val f = File(context.filesDir, PLAYLIST_FILE)

@@ -42,6 +42,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +68,7 @@ import coil.compose.AsyncImage
 import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.HomeSettings
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
@@ -337,7 +339,9 @@ fun SourcePickerSheet(
     // 0=截图式 2 列大卡（默认），1=原来 5 列小图标，2=列表。
     // v0.184.0：扩到 6 种，点一下依次换，长按直接打开选择菜单：
     // 0=2 列大卡，1=5 列图标，2=列表，3=1 列宽卡，4=3 列中卡，5=紧凑列表。
-    var layoutMode by remember { mutableStateOf(0) }
+    // v0.188.0：布局选择走 HomeSettings 持久化（与首页布局同机制），
+    // 关弹窗重开、进程重建都不再回默认大卡。
+    val layoutMode by HomeSettings.pickerLayout.collectAsState()
     var showLayoutMenu by remember { mutableStateOf(false) }
     val layoutNames = listOf("大卡", "图标", "列表", "宽卡", "中卡", "紧凑")
     val layoutIcons = listOf(
@@ -478,7 +482,7 @@ fun SourcePickerSheet(
                         .clip(RoundedCornerShape(50))
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
                         .combinedClickable(
-                            onClick = { layoutMode = (layoutMode + 1) % 6 },
+                            onClick = { HomeSettings.setPickerLayout(context, (layoutMode + 1) % 6) },
                             onLongClick = { showLayoutMenu = true },
                         )
                         .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -511,7 +515,7 @@ fun SourcePickerSheet(
                                 Icon(layoutIcons[index], contentDescription = null)
                             },
                             onClick = {
-                                layoutMode = index
+                                HomeSettings.setPickerLayout(context, index)
                                 showLayoutMenu = false
                             },
                         )

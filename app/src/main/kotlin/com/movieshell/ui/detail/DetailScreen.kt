@@ -1,6 +1,5 @@
 package com.movieshell.ui.detail
 
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -234,7 +233,7 @@ fun DetailScreen(
     val coverUrl = detail?.vodPic.orEmpty()
 
     /** v0.21.0：影片信息一键复制 */
-    // 当前来源名：收藏时记下来，收藏列表里展示；订阅站同时记 site key 以便回跳
+    // 当前来源名：追剧时记下来，追剧列表里展示；订阅站同时记 site key 以便回跳
     val sourceName = remember {
         when {
             subSite != null -> subSite.name
@@ -481,7 +480,7 @@ fun DetailScreen(
                     }
     
                     // 标题与元信息（v0.39.0：毛玻璃卡片化，mockup 风格）
-                    // v0.65：信息区按目标界面重构——海报+标题+标签+收藏 / 源pill / 简介 / 操作行
+                    // v0.65：信息区按目标界面重构——海报+标题+标签 / 源pill / 简介 / 操作行
                     // v0.78.2：卡片与播放器同宽（去横向边距），顶部圆角 20dp 做衔接过渡
                     item {
                         AppCard(
@@ -816,7 +815,12 @@ fun DetailScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    items(lineEpisodes.size) { i ->
+                                    items(
+                                        lineEpisodes.size,
+                                        // v0.188.0：按集身份取 key，不用下标；换线路后下标复用不再串位。
+                                        // Episode 无 id 字段，用线路名加集名加地址拼身份。
+                                        key = { lineEpisodes[it].let { ep -> "${ep.flag}|${ep.name}|${ep.url}" } },
+                                    ) { i ->
                                         val ep = lineEpisodes[i]
                                         // v0.71.0：已看角标
                                         EpisodeChip(
@@ -1035,6 +1039,8 @@ fun DetailScreen(
         }
     
         // v0.28.0：在线字幕搜索（下载后按剧记忆，播放时自动挂载）
+        // v0.188.0：已穿透 followSourceKey 与当前所选集 highlightEp，不再只依赖
+        // PlaySession 现值。
         if (showOnlineSubtitle) {
             com.movieshell.ui.subtitle.OnlineSubtitleSearchDialog(
                 keyword = vod?.title.orEmpty().ifBlank { displayTitle(vodId) },
@@ -1043,17 +1049,22 @@ fun DetailScreen(
                     showOnlineSubtitle = false
                     android.widget.Toast.makeText(
                         context,
-                        "字幕已保存，播放时自动挂载",
+                        "字幕已保存（按所选集记忆）",
                         android.widget.Toast.LENGTH_SHORT,
                     ).show()
                 },
                 onDismiss = { showOnlineSubtitle = false },
+                sourceKey = followSourceKey,
+                episodeIndex = highlightEp,
             )
         }
 
         // v0.26.0：下载选集（多选 → 解析地址 → 入队）
         if (showDownloadDialog) {
-            var selected by remember { mutableStateOf(lineEpisodes.indices.toSet()) }
+            var selected by remember(safeLine) {
+                // v0.188.0：按线路记已选，换线路时旧下标勾选不再带到新线路。
+                mutableStateOf(lineEpisodes.indices.toSet())
+            }
             var resolving by remember { mutableStateOf(false) }
             Dialog(onDismissRequest = { if (!resolving) showDownloadDialog = false }) {
                 AppCard {
@@ -1065,7 +1076,12 @@ fun DetailScreen(
                         )
                         Spacer(Modifier.height(8.dp))
                         LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
-                            items(lineEpisodes.size) { i ->
+                            items(
+                                lineEpisodes.size,
+                                // v0.188.0：按集身份取 key，不用下标；换线路后下标复用不再串位。
+                                // Episode 无 id 字段，用线路名加集名加地址拼身份。
+                                key = { lineEpisodes[it].let { ep -> "${ep.flag}|${ep.name}|${ep.url}" } },
+                            ) { i ->
                                 val ep = lineEpisodes[i]
                                 Row(
                                     modifier = Modifier

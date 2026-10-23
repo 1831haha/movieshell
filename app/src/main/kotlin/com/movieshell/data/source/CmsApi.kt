@@ -7,9 +7,11 @@ import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -17,6 +19,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.xmlpull.v1.XmlPullParser
 import java.io.IOException
 import java.io.StringReader
@@ -160,6 +163,10 @@ class CmsApi(
                     }
                 }
             }
+            // v0.188.0 M30：重试计数落日志——此前每次重试都记了
+            // “重试 N/3”，但 3 次耗尽时无收尾日志，排障时分不清是
+            // “没重试”还是“重试耗尽”。耗尽时补一条。
+            LogBus.w(TAG, "请求重试耗尽（3 次）：${chain.request().url}")
             throw lastError ?: IOException("unknown network error")
         }
 
@@ -180,7 +187,7 @@ class CmsApi(
     suspend fun home(site: Site): List<Vod> = ioSafe(TAG, emptyList()) {
         val url = buildUrl(site, "ac" to "videolist") ?: return@ioSafe emptyList<Vod>()
         LogBus.i(TAG, "CMS 请求: $url")
-        parseList(site, client.getText(url))
+        parseList(site, client.getTextCancellable(url))
     }
 
     /**
@@ -199,16 +206,16 @@ class CmsApi(
             val types: List<CategoryType>
             var list: List<Vod> = emptyList()
             if (site.type == 1) {
-                types = parseClassJson(client.getText(classUrl))
+                types = parseClassJson(client.getTextCancellable(classUrl))
             } else {
-                val xml = client.getText(classUrl)
+                val xml = client.getTextCancellable(classUrl)
                 types = parseClassXml(xml)
                 list = parseListXml(xml)
             }
             if (tid.isNotBlank()) {
                 val pageUrl = buildUrl(site, "ac" to "videolist", "t" to tid, "pg" to pg.toString())
                     ?: return@ioSafe (types to emptyList())
-                list = parseList(site, client.getText(pageUrl))
+                list = parseList(site, client.getTextCancellable(pageUrl))
             }
             types to list
         }
@@ -222,7 +229,7 @@ class CmsApi(
             buildUrl(site, "ac" to "videolist", "ids" to vodId)
         } ?: return@ioSafe VodDetail(vodId = vodId)
         LogBus.i(TAG, "CMS 详情请求: $url")
-        parseDetail(site, client.getText(url), vodId)
+        parseDetail(site, client.getTextCancellable(url), vodId)
     }
 
     /** 搜索：wd 由 HttpUrl 自动编码。 */
@@ -230,7 +237,7 @@ class CmsApi(
         if (wd.isBlank()) return@ioSafe emptyList<Vod>()
         val url = buildUrl(site, "ac" to "videolist", "wd" to wd)
             ?: return@ioSafe emptyList<Vod>()
-        parseList(site, client.getText(url))
+        parseList(site, client.getTextCancellable(url))
     }
 
     /**
@@ -257,6 +264,34 @@ class CmsApi(
     }
 
     // ---------------- 内部：请求 ----------------
+
+    /**
+     * v0.188.0 M30：可取消版同步 GET（语义与 SourceNetKit.getText 一致：
+     * 全仓 UA、非 2xx 抛 IOException，由 ioSafe 交 fallback）。
+     * 超时口径说明：调用方总超时本就小于底层 60 秒 callTimeout
+     * （聚合搜索单源 15 秒、探活 10 秒、嗅探 20 秒），但同步 execute
+     * 原先不响应协程取消，调用方超时后线程仍占着跑到 60 秒；现取消
+     * 即 cancel 底层 call（关 socket），超时真正起效。取消时抛回 job
+     * 自身的取消异常：搜索超时触发的是 TimeoutCancellationException，
+     * searchAll 认它才记慢源；外部取消的原样透传给 ioSafe（ioSafe
+     * 本就透传取消，不吞成 fallback）。
+     */
+    private suspend fun OkHttpClient.getTextCancellable(url: HttpUrl): String {
+        val call = newCall(Request.Builder().url(url).header("User-Agent", DEFAULT_UA).build())
+        val job = currentCoroutineContext()[Job]
+        job?.invokeOnCancellation { call.cancel() }
+        try {
+            call.execute().use { resp ->
+                if (!resp.isSuccessful) throw IOException("HTTP ${resp.code} ${resp.message}")
+                return resp.body?.string().orEmpty()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (job?.isCancelled == true) throw job.getCancellationException()
+            throw e
+        }
+    }
 
     private fun buildUrl(site: Site, vararg params: Pair<String, String>): HttpUrl? {
         val base = site.api.toHttpUrlOrNull() ?: return null

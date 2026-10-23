@@ -3,7 +3,6 @@ package com.movieshell.player
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
-import android.widget.Toast
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -16,6 +15,7 @@ import com.movieshell.data.repo.MusicHistoryStore
 import com.movieshell.data.repo.MusicSourceStore
 import com.movieshell.data.source.LxMusicSourceEngine
 import com.movieshell.data.source.resolveBuiltinHuibq
+import com.movieshell.ui.market.PluginUi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -295,11 +295,13 @@ object MusicPlayer {
             .build()
     }
 
-    /** 用户可见的失败提示（门面内统一出口；调用处都在主线程协程里） */
+    /**
+     * 用户可见的失败提示（门面内统一出口；调用处都在主线程协程里）。
+     * v0.188.0：不再自建 Toast.makeText，委托共享入口 PluginUi.toast（L04 收敛）；
+     * 这里只剩 appCtx 适配（MusicPlayer 持的是存起来的 applicationContext）。
+     */
     private fun toast(msg: String) {
-        runCatching {
-            appCtx?.let { Toast.makeText(it, msg, Toast.LENGTH_SHORT).show() }
-        }
+        appCtx?.let { PluginUi.toast(it, msg) }
     }
 
     /** 播放列表从 index 开始 */

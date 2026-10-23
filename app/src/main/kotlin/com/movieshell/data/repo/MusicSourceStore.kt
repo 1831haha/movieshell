@@ -24,6 +24,12 @@ data class MusicSource(
     val builtin: Boolean = false, // 内置 huibq 源不可删
     val enabled: Boolean = true,
     val addedAt: Long = System.currentTimeMillis(),
+    /**
+     * v0.188.0 M23：本地脚本悬空标记——file:// 指向的文件不存在时为 true，
+     * 注册表项保留不静默删除，调用方据此展示“已失效”；内置源与远程 URL 恒为 false。
+     * 旧注册表文件无此字段时反序列化取默认值 false，不破坏老数据。
+     */
+    val scriptMissing: Boolean = false,
 )
 
 object MusicSourceStore {
@@ -73,10 +79,58 @@ object MusicSourceStore {
         }.onFailure { LogBus.w(TAG, "音乐源添加失败：${it.message}") }.getOrDefault(false)
     }
 
-    /** 读全部；首次加载（或读坏）时种入内置源。 */
+    /**
+     * v0.188.0 M23：进程内首次读注册表即做一次脚本存在性自检（只做一次，
+     * 后续 list 不重复写盘）。悬空项只标 scriptMissing，不删注册表；
+     * lx_sources 下无注册表引用的孤儿脚本只记日志，不自动删文件。
+     * 无锁 helper：调用方已持锁且在 IO 线程。
+     */
+    private var startupChecked = false
+
+    private fun checkLocalScriptsUnlocked(context: Context, cur: List<MusicSource>): List<MusicSource> {
+        val checked = cur.map { s ->
+            if (s.builtin || !s.url.startsWith("file://")) {
+                if (s.scriptMissing) s.copy(scriptMissing = false) else s
+            } else {
+                val exists = runCatching { File(URI(s.url)).isFile }.getOrDefault(false)
+                if (s.scriptMissing == !exists) s else s.copy(scriptMissing = !exists)
+            }
+        }
+        if (checked != cur) writeAll(fileOf(context), checked)
+        val dir = File(context.filesDir, "lx_sources")
+        if (dir.isDirectory) {
+            val referenced = cur.mapNotNull { s ->
+                if (s.url.startsWith("file://")) {
+                    runCatching { File(URI(s.url)).absolutePath }.getOrNull()
+                } else {
+                    null
+                }
+            }.toSet()
+            dir.listFiles()
+                ?.filter { it.isFile && it.name.endsWith(".js") && it.absolutePath !in referenced }
+                ?.forEach { LogBus.w(TAG, "本地音源脚本无注册表引用：${it.name}") }
+        }
+        return checked
+    }
+
+    /** 读全部；首次加载（或读坏）时种入内置源。进程首次读时附带一次脚本自检。 */
     suspend fun list(context: Context): List<MusicSource> = mutex.withLock {
         withContext(Dispatchers.IO) {
-            loadUnlocked(context)
+            val cur = loadUnlocked(context)
+            if (!startupChecked) {
+                startupChecked = true
+                checkLocalScriptsUnlocked(context, cur)
+            } else {
+                cur
+            }
+        }
+    }
+
+    /** v0.188.0 M23：显式触发一次脚本存在性自检（供启动流程调用），返回自检后的注册表。 */
+    suspend fun validateLocalScripts(context: Context): List<MusicSource> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            startupChecked = true
+            checkLocalScriptsUnlocked(context, loadUnlocked(context))
         }
     }
 

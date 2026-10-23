@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.repo.DlStatus
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.DownloadTask
@@ -240,7 +241,9 @@ class DownloadQueueWorker(
                 sb.appendLine(raw)
             }
         }
-        File(dir, "index.m3u8").writeText(sb.toString())
+        // v0.188.0：播单走 AtomicFile（L25）——边下边播期间读到的要么是旧的
+        // 完整播单、要么是新的完整播单，不再是写一半的撕裂播单。
+        AtomicFile.writeText(File(dir, "index.m3u8"), sb.toString())
     }
 
     private fun segLocal(i: Int, url: String): String {

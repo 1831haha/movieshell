@@ -8,6 +8,7 @@ import androidx.javascriptengine.Message
 import androidx.javascriptengine.MessagePort
 import com.google.common.util.concurrent.ListenableFuture
 import com.movieshell.data.repo.LogBus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -26,10 +27,20 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicLong
 
-/** ListenableFuture → 挂起等待（手写桥，不引 kotlinx-coroutines-guava）。 */
+/**
+ * ListenableFuture → 挂起等待（手写桥，不引 kotlinx-coroutines-guava）。
+ * v0.188.0 M12：[cancelOnCancellation] 为 true 时，等待协程取消即 cancel
+ * 底层 future（isolate 专属 future 可安全取消）。默认 false：JsRuntime
+ * 的共享 sandbox 连接 future 绝不能取消——v0.142.0 实测，取消它会让
+ * “Binding to already bound service”导致 V8 永久死掉，超时只放弃等待、
+ * 不动共享 future，见 JsRuntime.connect。
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
-internal suspend fun <T> ListenableFuture<T>.awaitJs(): T =
+internal suspend fun <T> ListenableFuture<T>.awaitJs(cancelOnCancellation: Boolean = false): T =
     suspendCancellableCoroutine { cont ->
+        if (cancelOnCancellation) {
+            cont.invokeOnCancellation { runCatching { this@awaitJs.cancel(true) } }
+        }
         val r = Runnable {
             try {
                 val v = get()
@@ -144,7 +155,7 @@ internal class JsSession(private val logTag: String) {
             // 对外发布，没有其他 eval 在途，超时可直接 closeIsolate。
             val done = try {
                 withTimeoutOrNull(BOOTSTRAP_TIMEOUT_MS) {
-                    iso.evaluateJavaScriptAsync(script).awaitJs()
+                    iso.evaluateJavaScriptAsync(script).awaitJs(cancelOnCancellation = true)
                     true
                 }
             } catch (e: Throwable) {
@@ -176,7 +187,7 @@ internal class JsSession(private val logTag: String) {
             val iso = synchronized(lock) { isolate } ?: throw JsSessionClosedException("JS 会话已关闭")
             val result = try {
                 withTimeoutOrNull(timeoutMs) {
-                    iso.evaluateJavaScriptAsync(expression).awaitJs()
+                    iso.evaluateJavaScriptAsync(expression).awaitJs(cancelOnCancellation = true)
                 }
             } catch (e: ExecutionException) {
                 // isolate 已终止（close/崩溃）：在途 evaluate 以此失败
@@ -204,11 +215,39 @@ internal class JsSession(private val logTag: String) {
         }
     }
 
+    /**
+     * 在途 RPC id 登记：handler 开始执行即登记、resolve 注入完成（无论成败）
+     * 即注销。closeIsolate 时按这张表统一结算，JS 侧 Promise 不悬空。
+     */
+    private val pendingRpc = ConcurrentHashMap<Long, Boolean>()
+
     /** 关闭 isolate：在途 evaluate 立即失败，后续 eval 抛 [JsSessionClosedException]。 */
     fun close() = closeIsolate()
 
     private fun closeIsolate() {
         isInvalid = true
+        // v0.188.0 M12：先结算在途 RPC 再关 port/isolate、再取消 scope。
+        // 此前 scope.cancel() 后在途 handler 再也回注不了 __hrpcResolve，
+        // JS 侧 Promise 悬空到 eval 15 秒超时才失败。结算本身尽力而为：
+        // isolate 已死时注入失败即放弃，调用方仍按原超时/关闭路径失败。
+        val pending = pendingRpc.keys.toList()
+        if (pending.isNotEmpty()) {
+            val isoNow = synchronized(lock) { isolate }
+            if (isoNow != null) {
+                val b64 = Base64.encodeToString(
+                    "session closed".toByteArray(Charsets.UTF_8),
+                    Base64.NO_WRAP,
+                )
+                for (id in pending) {
+                    runCatching {
+                        isoNow.evaluateJavaScriptAsync(
+                            "__hrpcResolve(${id}, false, ${JSONObject.quote(b64)})",
+                        )
+                    }
+                }
+            }
+            pendingRpc.clear()
+        }
         val p = synchronized(lock) { port.also { port = null } }
         val iso = synchronized(lock) { isolate.also { isolate = null } }
         // 在途 RPC handler（网络请求/resolve 注入）随会话终止，不留孤儿协程
@@ -233,24 +272,35 @@ internal class JsSession(private val logTag: String) {
         val id = m.optLong("id", -1L)
         if (id >= 0) {
             val handler = rpcHandlers[kind]
+            pendingRpc[id] = true
             scope.launch {
-                val (ok, result) = if (handler == null) {
-                    false to "no rpc handler: $kind"
-                } else {
-                    try {
-                        true to handler(m)
-                    } catch (e: Throwable) {
-                        LogBus.w(logTag, "RPC $kind 失败: ${e.message}")
-                        false to (e.message ?: "rpc failed")
-                    }
-                }
-                // 结果以 base64(UTF-8) 传输，避免把任意字符串转义进表达式字面量
-                val b64 = Base64.encodeToString(result.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-                val iso = synchronized(lock) { isolate } ?: return@launch
                 try {
-                    iso.evaluateJavaScriptAsync("__hrpcResolve(${id}, $ok, ${JSONObject.quote(b64)})").awaitJs()
-                } catch (e: Throwable) {
-                    LogBus.d(logTag, "RPC resolve 注入失败: ${e.message}")
+                    val (ok, result) = if (handler == null) {
+                        // 无 handler 也结算失败：JS 侧 Promise 不悬空，只记一条日志。
+                        LogBus.w(logTag, "RPC 无 handler，已结算失败: $kind")
+                        false to "no rpc handler: $kind"
+                    } else {
+                        try {
+                            true to handler(m)
+                        } catch (e: CancellationException) {
+                            // 会话关闭导致的取消必须透传，不当成普通 RPC 失败再结算一次；
+                            // 统一结算由 closeIsolate 按 pendingRpc 表做。
+                            throw e
+                        } catch (e: Throwable) {
+                            LogBus.w(logTag, "RPC $kind 失败: ${e.message}")
+                            false to (e.message ?: "rpc failed")
+                        }
+                    }
+                    // 结果以 base64(UTF-8) 传输，避免把任意字符串转义进表达式字面量
+                    val b64 = Base64.encodeToString(result.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+                    val iso = synchronized(lock) { isolate } ?: return@launch
+                    try {
+                        iso.evaluateJavaScriptAsync("__hrpcResolve(${id}, $ok, ${JSONObject.quote(b64)})").awaitJs()
+                    } catch (e: Throwable) {
+                        LogBus.d(logTag, "RPC resolve 注入失败: ${e.message}")
+                    }
+                } finally {
+                    pendingRpc.remove(id)
                 }
             }
         } else {

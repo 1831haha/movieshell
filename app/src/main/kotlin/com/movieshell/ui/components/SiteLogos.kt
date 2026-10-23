@@ -100,13 +100,16 @@ fun faviconUrlForHost(host: String): String? {
  * 根因：favicon.ico 通常只有 16x16 / 32x32，放大到 44dp 卡片上必然模糊；
  * 很多站点根目录同时有 180x180 的 apple-touch-icon 和 192 的 favicon，
  * 先试高清的，加载失败再逐级降，最后才落到 favicon.ico，实在没有才回首字。
- * 顺序故意只留 3 个：试太多会给 130 个源的弹窗刷一堆 404 请求。
+ * 顺序只留 5 个：试太多会给 130 个源的弹窗刷一堆 404 请求。
  */
 fun hdIconCandidatesForHost(host: String): List<String> {
     val h = host.trim().lowercase().substringBefore(":").substringBefore("/").substringBefore(" ")
     if (h.isEmpty()) return emptyList()
+    // v0.188.0：只补最常见的两档，不无节制加候选。
     return listOf(
         "https://$h/apple-touch-icon.png",
+        "https://$h/apple-touch-icon-precomposed.png",
+        "https://$h/android-chrome-192x192.png",
         "https://$h/favicon-192.png",
         "https://$h/favicon.ico",
     )

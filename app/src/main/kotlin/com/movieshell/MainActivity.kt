@@ -125,7 +125,6 @@ import com.movieshell.ui.settings.ParseSettingsScreen
 import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.settings.SniffPatternsScreen
 import com.movieshell.ui.sources.SourcesScreen
-import com.movieshell.ui.trash.TrashScreen
 import com.movieshell.ui.theme.MovieShellTheme
 import com.movieshell.ui.theme.SoftMotion
 import com.movieshell.ui.web.WebSniffScreen
@@ -138,7 +137,7 @@ private data class Tab(
     val selectedIcon: ImageVector,
 )
 
-// v0.36.0：5 tab 按 mockup 重排——首页/直播/书架/实验室/设置；站源 tab 删除，管理入口搬进设置页。
+// v0.36.0：5 tab 按 mockup 重排——首页/直播/书架/音乐/设置；站源 tab 删除，管理入口搬进设置页。
 // v0.79.0：实验室 tab 改为音乐；实验室功能（插件市场/嗅探正则）搬进设置页。
 // 未选中用 Outlined，选中用 Filled＋青色（SoftBottomDock 里处理）。
 private val tabs = listOf(
@@ -214,7 +213,6 @@ class MainActivity : ComponentActivity() {
         FollowCheckWorker.reschedule(this)
         // v0.46.0：订阅自动刷新（每天 1 次）
         SubRefreshWorker.reschedule(this)
-        PhpSourceManager.init(this)
         WebSourceManager.init(this)
         SniffPatternStore.init(this)
         SubSiteEngines.init(this)
@@ -560,14 +558,9 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                         }
-                        // v0.24.0：回收站
-                        composable("trash") {
-                            TrashScreen(
-                                onBack = { navController.popBackStack() },
-                            )
-                        }
                         // v0.127.0：插件中心（插件/服务/市场三页签）统一入口；
-                        // 旧路由 market / service_plugins 兼容跳转到对应页签，不留死入口
+                        // v0.188.0：旧路由 market / service_plugins 已删（全仓无内部调用、
+                        // 无深链路入口，见 L09/L10），只留 plugin_center/{tab} 一个入口
                         composable(
                             "plugin_center/{tab}",
                             arguments = listOf(
@@ -579,20 +572,6 @@ class MainActivity : ComponentActivity() {
                                 onBack = { navController.popBackStack() },
                                 onDetail = { id -> navController.navigate("market_detail/$id") },
                             )
-                        }
-                        composable("market") {
-                            LaunchedEffect(Unit) {
-                                navController.navigate("plugin_center/2") {
-                                    popUpTo("market") { inclusive = true }
-                                }
-                            }
-                        }
-                        composable("service_plugins") {
-                            LaunchedEffect(Unit) {
-                                navController.navigate("plugin_center/1") {
-                                    popUpTo("service_plugins") { inclusive = true }
-                                }
-                            }
                         }
                         composable("market_detail/{id}") { entry ->
                             PluginDetailScreen(

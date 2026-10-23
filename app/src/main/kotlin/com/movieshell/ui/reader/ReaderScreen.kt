@@ -394,11 +394,12 @@ fun ReaderScreen(
             val statChapters = chaptersSeen.size
             val statEnd = System.currentTimeMillis()
             scope.launch {
+                // v0.188.0 M25：进度只写 ReadingProgressStore 一处；书架 lastReadChapter
+                // 由 NovelStore 读侧派生，不再双写 index，中间崩溃不再两处各说各话。
                 ReadingProgressStore.save(
                     context,
                     ReadingProgress(novelId, latestIndex, latestOffset.coerceIn(0, len)),
                 )
-                NovelStore.updateProgress(context, novelId, latestIndex)
                 ReadingStatsStore.recordSession(context, statStart, statEnd, statChapters)
             }
         }
@@ -406,14 +407,13 @@ fun ReaderScreen(
 
     fun jumpTo(index: Int, restoreTo: Int = 0) {
         if (index in chapters.indices) {
-            // 切章前先把当前进度存了
-            val offset = computeOffset()
+            // v0.188.0 M25：切章即把目标章位置写进唯一事实源（旧写法存旧章偏移
+            // 却写新章 index，两处自相矛盾；现只写进度，书架派生跟随）。
             scope.launch {
                 ReadingProgressStore.save(
                     context,
-                    ReadingProgress(novelId, chapterIndex, offset),
+                    ReadingProgress(novelId, index, restoreTo),
                 )
-                NovelStore.updateProgress(context, novelId, index)
             }
             restoreOffset = restoreTo
             chapterIndex = index
@@ -521,11 +521,11 @@ fun ReaderScreen(
                     showChangeSource = false
                     // v0.84.0：先存新进度再重载，否则重载会被旧进度覆盖
                     scope.launch {
+                        // v0.188.0 M25：只写进度事实源，不再双写 index（派生读跟随）。
                         ReadingProgressStore.save(
                             context,
                             ReadingProgress(novelId, newIndex, 0),
                         )
-                        NovelStore.updateProgress(context, novelId, newIndex)
                         chapterIndex = newIndex
                         sourceVersion++
                     }

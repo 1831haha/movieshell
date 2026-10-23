@@ -187,14 +187,28 @@ object PySourceManager {
         }
     }
 
-    suspend fun playUrl(flag: String, id: String): String =
-        activeRulePath()?.let { runCatching { api.play(it, flag, id).first }.getOrNull() }
-            .orEmpty()
+    suspend fun playUrl(flag: String, id: String): String {
+        // v0.188.0 M14：此前失败时 getOrNull() 直接交空串、无任何日志，
+        // 排障时分不清是规则没给地址还是执行失败。失败记规则路径 + 原因。
+        // 无激活规则时仍静默交空（不是一次失败，调用方按无规则处理）。
+        val path = activeRulePath() ?: return ""
+        return runCatching { api.play(path, flag, id).first }
+            .onFailure { e ->
+                LogBus.e(TAG, "本地 PY play 失败：规则=$path flag=$flag 原因=${e.message ?: e::class.java.simpleName}")
+            }
+            .getOrNull().orEmpty()
+    }
 
     /** v0.27.1：本地 PY 播放原始结果（url, parse, header），供 PlayResolver 做收尾。 */
-    suspend fun playRaw(flag: String, id: String): Triple<String, Int, Map<String, String>> =
-        activeRulePath()?.let { p -> runCatching { api.play(p, flag, id) }.getOrNull() }
-            ?: Triple("", 0, emptyMap())
+    suspend fun playRaw(flag: String, id: String): Triple<String, Int, Map<String, String>> {
+        // v0.188.0 M14：与 playUrl 同款，失败记规则路径 + 原因，不再静默交空 Triple。
+        val path = activeRulePath() ?: return Triple("", 0, emptyMap())
+        return runCatching { api.play(path, flag, id) }
+            .onFailure { e ->
+                LogBus.e(TAG, "本地 PY playRaw 失败：规则=$path flag=$flag 原因=${e.message ?: e::class.java.simpleName}")
+            }
+            .getOrNull() ?: Triple("", 0, emptyMap())
+    }
 
     /**
      * 给 SiteRepository 构造器用的 DrpyEngine 适配器：

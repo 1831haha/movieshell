@@ -2,7 +2,6 @@ package com.movieshell.ui.search
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Box
@@ -58,7 +57,6 @@ import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.PosterCard
-import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 
@@ -75,6 +73,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
     val searching by vm.searching.collectAsState()
     val groupedResults by vm.groupedResults.collectAsState() // null=尚未搜过
     val skippedLabel by vm.skippedLabel.collectAsState()
+    val failedLabel by vm.failedLabel.collectAsState()
 
     // 搜索历史：进入页面读一次，切回页面时刷新
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -292,6 +291,13 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                 Text("重试被跳过的源")
                             }
                         }
+                        failedLabel?.let {
+                            Text(
+                                text = it,
+                                style = SoftType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         EmptyState(
                             kind = EmptyKind.Empty,
                             icon = Icons.Filled.Search,
@@ -315,7 +321,8 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                 ) {
                     Text(
                         text = "共 $total 个结果 · ${groups.size} 个源" +
-                            (skippedLabel?.let { " · $it" } ?: ""),
+                            (skippedLabel?.let { " · $it" } ?: "") +
+                            (failedLabel?.let { " · $it" } ?: ""),
                         style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),

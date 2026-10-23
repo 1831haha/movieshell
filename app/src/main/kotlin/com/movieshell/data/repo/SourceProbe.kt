@@ -77,11 +77,29 @@ object SourceProbe {
      *  （php 未装、退出码、缺 lib/spider 等一律 Fail，不再用 Unsupported 把
      *  失败藏进"不支持"里——2026-10-22 实测：检测显示不支持、首页 0ms 空，
      *  用户对着空态猜了一小时，根因其实是当时装的还是 150、根本没有 CLI）。
-     *  调用方在 guarded 的 8 秒硬超时内跑。 */
-    fun probePhp(context: Context, name: String): Result {
+     *  v0.188.0 M32：三点改动——① 本函数自己包 guarded() 8 秒硬超时
+     *  （此前注释称“调用方在 guarded 内跑”，实际 buildTasks 直接调
+     *  probePhp，超时只依赖 PhpCliEngine 内部 30 秒）；② 成功返回
+     *  guarded 实测的耗时，不再恒为 Ok(0)；③ 失败原因按任务自带：
+     *  php 未装/脚本缺失在任务内直接判定，首页空时给任务级通用原因，
+     *  不再读 PhpCliEngine 单例共享 lastError——并发探活时多任务交错
+     *  写同一变量，失败原因会张冠李戴（详细原因仍在 PhpCliEngine 的
+     *  LogBus 日志里，按任务名可查）。注意 guarded 丢弃 block 返回值、
+     *  只按耗时给 Ok/Slow，所以失败必须抛异常才能落到 Fail 分支。
+     *  超时后残留的 php 进程最多跑到自身 30 秒 runCliOnce 超时被杀，
+     *  有界，不无限泄漏。 */
+    fun probePhp(context: Context, name: String): Result = guarded(label = name) {
+        if (!PhpCliEngine.isPhpInstalled(context)) {
+            throw IllegalStateException("PHP 插件未安装")
+        }
+        if (PhpCliEngine.scriptFile(context, name) == null) {
+            throw IllegalStateException("PHP 脚本不存在：$name")
+        }
         val list = runBlocking { PhpCliEngine.home(context, name) }
-        return if (list.isNotEmpty()) Result.Ok(0)
-        else Result.Fail(PhpCliEngine.lastError?.take(60) ?: "PHP 首页无数据")
+        if (list.isEmpty()) {
+            throw IllegalStateException("PHP 首页无数据（见日志）")
+        }
+        list
     }
 
     fun probeHttp(url: String): Result = guarded(label = url) {
@@ -166,7 +184,13 @@ object SourceProbe {
         }
         PhpSourceManager.rulesDir(context).listFiles { f -> PhpSourceManager.isSourceFile(f) }.orEmpty()
             .sortedBy { it.name }
-            .forEach { f -> tasks += ProbeTask("php", f.name, f.name) { probePhp(context, f.name) } }
+            .forEach { f ->
+                // v0.188.0 M32：PHP 探活补 isRuleEnabled 检查，与 js/py/web
+                // 同款——已禁用 PHP 规则不再被检测并计入报告。
+                if (SourceStateStore.isRuleEnabled("php", f.name)) {
+                    tasks += ProbeTask("php", f.name, f.name) { probePhp(context, f.name) }
+                }
+            }
         WebSourceManager.listSites().forEach { s ->
             if (SourceStateStore.isRuleEnabled("web", s.fileName)) {
                 tasks += ProbeTask("web", s.fileName, s.fileName) { probeHttp(s.url) }

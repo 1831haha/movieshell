@@ -100,6 +100,24 @@ object DownloadStore {
         _tasks.value = all
         // v0.63.0：启动时自动清理 N 天前的已完成任务（含文件）
         autoClearOldDone(context)
+        // v0.188.0：启动时扫一次无记录的 Download/<id>/ 孤儿目录（L25）——
+        // 删文件与删记录同块仍防不住“删记录后、删文件前进程被杀”的窗口，
+        // 启动扫是第二道：无记录的任务目录只可能是残留，直接清掉。
+        sweepOrphanDirs(context)
+    }
+
+    /** v0.188.0：删 Download/ 下无任务记录的子目录（只删目录，不碰文件）。 */
+    private fun sweepOrphanDirs(context: Context) {
+        val ids = synchronized(lock) { readAll(context).map { it.id }.toSet() }
+        val root = StoragePaths.downloadDir(context)
+        val orphans = root.listFiles { f -> f.isDirectory && f.name !in ids }.orEmpty()
+        if (orphans.isEmpty()) return
+        var n = 0
+        orphans.forEach { dir ->
+            runCatching { if (dir.deleteRecursively()) n++ }
+                .onFailure { Log.w(TAG, "孤儿下载目录清理失败", it) }
+        }
+        if (n > 0) Log.i(TAG, "启动清理了 $n 个无记录的下载孤儿目录")
     }
 
     /** v0.63.0：清理 N 天前完成的任务。days=0 表示不清理。 */
@@ -114,14 +132,16 @@ object DownloadStore {
                 (if (it.completedAt > 0) it.completedAt else it.createdAt) < cutoff }
         }
         if (old.isEmpty()) return
-        old.forEach { task ->
-            runCatching {
-                val dir = taskDir(context, task)
-                if (dir.isDirectory) dir.deleteRecursively()
-            }.onFailure { Log.w(TAG, "自动清理删文件失败", it) }
-        }
+        // v0.188.0：删文件与删记录放同一 synchronized 块（L25），中途崩溃
+        // 不再出现“文件已删记录还在”或反过来的跨步骤窗口。
         synchronized(lock) {
             val ids = old.map { it.id }.toSet()
+            old.forEach { task ->
+                runCatching {
+                    val dir = java.io.File(StoragePaths.downloadDir(context), task.id)
+                    if (dir.isDirectory) dir.deleteRecursively()
+                }.onFailure { Log.w(TAG, "自动清理删文件失败", it) }
+            }
             val rest = readAll(context).filterNot { it.id in ids }
             ids.forEach { lastPersisted.remove(it) }
             writeAll(context, rest)
@@ -189,14 +209,17 @@ object DownloadStore {
 
     suspend fun remove(context: Context, id: String, deleteFiles: Boolean) {
         withContext(Dispatchers.IO) {
-            val task = synchronized(lock) { readAll(context).firstOrNull { it.id == id } }
-            if (deleteFiles && task != null) {
-                runCatching {
-                    val dir = taskDir(context, task)
-                    if (dir.isDirectory) dir.deleteRecursively()
-                }.onFailure { Log.w(TAG, "删除下载文件失败", it) }
-            }
+            // v0.188.0：删文件与删记录放同一 synchronized 块（L25）
             synchronized(lock) {
+                if (deleteFiles) {
+                    val task = readAll(context).firstOrNull { it.id == id }
+                    if (task != null) {
+                        runCatching {
+                            val dir = java.io.File(StoragePaths.downloadDir(context), task.id)
+                            if (dir.isDirectory) dir.deleteRecursively()
+                        }.onFailure { Log.w(TAG, "删除下载文件失败", it) }
+                    }
+                }
                 val all = readAll(context).filterNot { it.id == id }
                 lastPersisted.remove(id)
                 writeAll(context, all)
@@ -209,15 +232,16 @@ object DownloadStore {
         withContext(Dispatchers.IO) {
             // v0.171.0：删记录的同时删文件（此前只删记录，xiaying/Download/<id>/
             // 下的视频与分片成孤儿，且此后自动清理再也认不到它们）
-            val done = synchronized(lock) { readAll(context).filter { it.status == DlStatus.DONE } }
-            done.forEach { task ->
-                runCatching {
-                    val dir = java.io.File(StoragePaths.downloadDir(context), task.id)
-                    if (dir.isDirectory) dir.deleteRecursively()
-                }.onFailure { Log.w(TAG, "清理已完成文件失败", it) }
-            }
+            // v0.188.0：删文件与删记录放同一 synchronized 块（L25）
             synchronized(lock) {
+                val done = readAll(context).filter { it.status == DlStatus.DONE }
                 val ids = done.map { it.id }.toSet()
+                done.forEach { task ->
+                    runCatching {
+                        val dir = java.io.File(StoragePaths.downloadDir(context), task.id)
+                        if (dir.isDirectory) dir.deleteRecursively()
+                    }.onFailure { Log.w(TAG, "清理已完成文件失败", it) }
+                }
                 val all = readAll(context).filterNot { it.id in ids }
                 ids.forEach { lastPersisted.remove(it) }
                 writeAll(context, all)

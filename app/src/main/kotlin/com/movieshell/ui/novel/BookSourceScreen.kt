@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentPaste
@@ -330,7 +329,9 @@ fun BookSourceScreen(
                         Switch(
                             checked = r.name in pyEnabled,
                             onCheckedChange = {
-                                PyBookSourceManager.setEnabled(context, r.name, it)
+                                if (!PyBookSourceManager.setEnabled(context, r.name, it)) {
+                                    Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
+                                }
                             },
                         )
                         // v0.67.0：连通性测试（跑一遍 bookSearch）
@@ -409,7 +410,17 @@ fun BookSourceScreen(
                             Switch(
                                 checked = s.enabled,
                                 onCheckedChange = {
-                                    scope.launch { BookSourceManager.setEnabled(context, s.key, it) }
+                                    scope.launch {
+                                        // v0.188.0：写盘失败提示“保存失败”；管理器已回滚
+                                        // 内存表，开关随 StateFlow 旧值自动弹回，不用手动复位。
+                                        if (!BookSourceManager.setEnabled(context, s.key, it)) {
+                                            Toast.makeText(
+                                                context,
+                                                "保存失败",
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                    }
                                 },
                             )
                             IconButton(onClick = { deleteTarget = s }) {

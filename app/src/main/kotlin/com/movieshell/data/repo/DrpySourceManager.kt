@@ -32,8 +32,21 @@ object DrpySourceManager {
     private var appContext: Context? = null
     private var initialized = false
 
+    @Volatile
     private var engine: V8DrpyEngine? = null
+    @Volatile
     private var activeName: String? = null
+
+    /**
+     * v0.188.0 M13：换规则世代号。setActiveRule 先 bump 世代、再 release
+     * 旧引擎；在途调用返回时见世代已变或引擎已不是当初那一个，即丢弃
+     * 结果交空，不再把旧规则数据写回 UI、也不再按旧结果清/记失败原因。
+     * 取消语义说明：这里只丢弃结果，不中断引擎内已在跑的 JS——release
+     * 本身即时终止 isolate，在途 eval 会以关闭异常快速失败；世代号兜底
+     * 的是“恰好在 release 前已拿到结果、返回时规则已换”的窗口。
+     */
+    @Volatile
+    private var generation = 0
 
     /**
      * v0.187.0 H04：管理器层捕获到的失败原因（引擎抛异常时记，成功时清）。
@@ -104,10 +117,12 @@ object DrpySourceManager {
 
     /**
      * 切换 active 规则。主线程调用；name=null 时清空。
-     * 同名重复调用直接复用；切换时销毁旧引擎、为新规则建 V8DrpyEngine 并 loadRule。
+     * 同名重复调用直接复用；切换时先 bump 世代号（在途调用随后按旧结果丢弃）、
+     * 再销毁旧引擎、为新规则建 V8DrpyEngine 并 loadRule。
      */
     fun setActiveRule(name: String?) {
         if (name == activeName) return
+        generation++
         try {
             engine?.release()
         } catch (e: Exception) {
@@ -134,48 +149,90 @@ object DrpySourceManager {
         }
     }
 
-    suspend fun home(): List<Vod> =
-        runCatching { engine?.home() }
+    /**
+     * 世代守门：快照调用开始时的引擎与世代号；返回时任一对不上即结果作废。
+     * 注意失败/成功记账只对未作废的调用做，旧规则的失败不污染新规则的原因槽。
+     */
+    private fun isStale(gen: Int, eng: V8DrpyEngine?): Boolean =
+        gen != generation || engine !== eng
+
+    suspend fun home(): List<Vod> {
+        val eng = engine
+        val gen = generation
+        val outcome = runCatching { eng?.home() }
+        if (isStale(gen, eng)) return emptyList()
+        return outcome
             .onFailure { recordFailure("home", it) }
             .onSuccess { managerLastError = null }
             .getOrNull().orEmpty()
+    }
 
-    suspend fun categories(): List<CategoryType> =
-        runCatching { engine?.categories() }
+    suspend fun categories(): List<CategoryType> {
+        val eng = engine
+        val gen = generation
+        val outcome = runCatching { eng?.categories() }
+        if (isStale(gen, eng)) return emptyList()
+        return outcome
             .onFailure { recordFailure("categories", it) }
             .onSuccess { managerLastError = null }
             .getOrNull().orEmpty()
+    }
 
-    suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod> =
-        runCatching { engine?.category(tid, pg, filter) }
+    suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod> {
+        val eng = engine
+        val gen = generation
+        val outcome = runCatching { eng?.category(tid, pg, filter) }
+        if (isStale(gen, eng)) return emptyList()
+        return outcome
             .onFailure { recordFailure("category", it) }
             .onSuccess { managerLastError = null }
             .getOrNull().orEmpty()
+    }
 
     /** 当前规则某分类的筛选定义（无筛选时空列表）。 */
-    suspend fun filters(tid: String): List<FilterGroup> =
-        runCatching { engine?.filters(tid) }
+    suspend fun filters(tid: String): List<FilterGroup> {
+        val eng = engine
+        val gen = generation
+        val outcome = runCatching { eng?.filters(tid) }
+        if (isStale(gen, eng)) return emptyList()
+        return outcome
             .onFailure { recordFailure("filters", it) }
             .onSuccess { managerLastError = null }
             .getOrNull().orEmpty()
+    }
 
-    suspend fun detail(vodId: String): VodDetail =
-        runCatching { engine?.detail(vodId) }
+    suspend fun detail(vodId: String): VodDetail {
+        val eng = engine
+        val gen = generation
+        val outcome = runCatching { eng?.detail(vodId) }
+        if (isStale(gen, eng)) return VodDetail(vodId = vodId)
+        return outcome
             .onFailure { recordFailure("detail", it) }
             .onSuccess { managerLastError = null }
             .getOrNull() ?: VodDetail(vodId = vodId)
+    }
 
-    suspend fun search(wd: String): List<Vod> =
-        runCatching { engine?.search(wd) }
+    suspend fun search(wd: String): List<Vod> {
+        val eng = engine
+        val gen = generation
+        val outcome = runCatching { eng?.search(wd) }
+        if (isStale(gen, eng)) return emptyList()
+        return outcome
             .onFailure { recordFailure("search", it) }
             .onSuccess { managerLastError = null }
             .getOrNull().orEmpty()
+    }
 
-    suspend fun playUrl(flag: String, id: String): String =
-        runCatching { engine?.play(flag, id) }
+    suspend fun playUrl(flag: String, id: String): String {
+        val eng = engine
+        val gen = generation
+        val outcome = runCatching { eng?.play(flag, id) }
+        if (isStale(gen, eng)) return ""
+        return outcome
             .onFailure { recordFailure("play", it) }
             .onSuccess { managerLastError = null }
             .getOrNull().orEmpty()
+    }
 
     /**
      * 给 SiteRepository 构造器用的 DrpyEngine 适配器：

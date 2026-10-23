@@ -8,6 +8,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.movieshell.data.repo.LogBus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.TimeUnit
 
 /**
  * v0.113.0 A1–A5：进程级 V8 sandbox 单例（androidx.javascriptengine）。
@@ -32,6 +33,9 @@ object JsRuntime {
 
     /** 连接等待超时，与 V8DrpyEngine 的 JS_TIMEOUT_MS 同档 15 秒。 */
     private const val CONNECT_TIMEOUT_MS = 15_000L
+
+    /** close 等待上限：只是退出时收尾，拿不到就放弃，不无限挂住调用线程。 */
+    private const val CLOSE_TIMEOUT_SECONDS = 5L
 
     private var appContext: Context? = null
 
@@ -167,7 +171,13 @@ object JsRuntime {
     /** App 退出时关闭（进程级单例，一般不需要显式调）。 */
     fun close() {
         val f = synchronized(lock) { sandboxFuture.also { sandboxFuture = null } }
-        runCatching { f?.get()?.close() }
-            .onFailure { Log.w(TAG, "sandbox close: ${it.message}") }
+        // v0.188.0 M12：此前裸 f.get() 无超时，绑定中的 future 会把调用线程
+        // 无限挂住。5 秒拿不到已连接的 sandbox 即放弃关闭、只记日志——
+        // future 已从槽位清掉，不影响下次重连；进程退出时系统自会回收。
+        runCatching { f?.get(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)?.close() }
+            .onFailure {
+                if (it is InterruptedException) Thread.currentThread().interrupt()
+                Log.w(TAG, "sandbox close 超时/失败: ${it.message}")
+            }
     }
 }

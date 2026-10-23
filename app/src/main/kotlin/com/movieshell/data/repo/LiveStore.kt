@@ -5,8 +5,15 @@ import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DEFAULT_UA
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
@@ -38,6 +45,13 @@ data class LiveChannel(
     val sourceKey: String = "",
     /** 手动添加的频道可删除 */
     val manual: Boolean = false,
+    /**
+     * v0.188.0 M29：过期标记。刷新失败的源不再直接消失，旧频道保留
+     * 并标 stale=true（UI 侧据此展示“过期”徽标，见任务说明；字段带
+     * 默认值，老缓存 JSON 缺字段时照常解析）。下次该源刷新成功即被
+     * 新频道替换，stale 自然清除。
+     */
+    val stale: Boolean = false,
 )
 
 /** 直播订阅：M3U 订阅地址 / 本地 M3U 文件 */
@@ -95,6 +109,8 @@ object LiveStore {
         inited = true
         _sources.value = readSources(context)
         _globalEpg.value = prefs(context).getString(KEY_GLOBAL_EPG, "").orEmpty()
+        // v0.188.0 M29：EPG 磁盘缓存目录（私有 filesDir，无需存储权限）。
+        EpgFetcher.setCacheDir(File(context.filesDir, "epg_cache").also { it.mkdirs() })
     }
 
     fun globalEpgUrl(context: Context): String =
@@ -175,46 +191,83 @@ object LiveStore {
 
     // ---------------- 刷新聚合 ----------------
 
+    /** 单源拉取结果：channels=null 表示下载/解析失败（failReason 带原因）。 */
+    private data class SourceFetch(
+        val key: String,
+        val channels: List<LiveChannel>?,
+        val failReason: String?,
+    )
+
+    /** 频道列表落盘缓存文件（私有 filesDir，可再生数据，损坏不保全）。 */
+    private fun channelsCacheFile(context: Context): File =
+        File(context.filesDir, "live_channels_cache.json")
+
+    /** 冷启动/内存为空时先读盘顶上，刷新完成后再替换；损坏返回 null。 */
+    private fun loadCachedChannels(context: Context): List<LiveChannel>? {
+        val f = channelsCacheFile(context)
+        if (!f.isFile) return null
+        return runCatching {
+            liveJson.decodeFromString(
+                ListSerializer(LiveChannel.serializer()),
+                f.readText(),
+            )
+        }.onFailure { LogBus.w("Live", "频道缓存读坏，已忽略：${it.message}") }
+            .getOrNull()
+    }
+
+    private fun saveCachedChannels(context: Context, list: List<LiveChannel>) {
+        runCatching {
+            AtomicFile.writeText(
+                channelsCacheFile(context),
+                liveJson.encodeToString(ListSerializer(LiveChannel.serializer()), list),
+            )
+        }.onFailure { LogBus.w("Live", "频道缓存写盘失败：${it.message}") }
+    }
+
     /**
      * 重拉所有来源并聚合；IO 线程调用。
      * @return 未解析出频道的订阅名（含原因），调用方可给用户可见提示。
      * v0.107.0 P0-9：之前 0 频道静默无提示。
+     * v0.188.0 M29：三点改动——① 订阅并行拉取（Semaphore 限流 4，
+     * 与聚合搜索同档，N 个订阅不再 N×15 秒串行）；② 频道列表落盘缓存，
+     * 内存为空时先读盘顶上、刷新完写盘；③ 刷新失败的源保留旧频道并标
+     * stale=true（过期），不再直接消失；解析出 0 频道同样按失败保留旧频道。
      */
     suspend fun refresh(context: Context): List<String> = withContext(Dispatchers.IO) {
         val favs = readFavs(context)
+        // 内存为空时先读盘：进程重建后不等刷新完也有频道可看。
+        if (_channels.value.isEmpty()) {
+            loadCachedChannels(context)?.let { cached ->
+                _channels.value = cached.map { it.copy(favorite = favs.contains(it.id)) }
+            }
+        }
+        // 合并前的旧频道快照（按 sourceKey 分组），失败源从这里取旧频道。
+        val oldBySource = _channels.value.groupBy { it.sourceKey }
         val out = mutableListOf<LiveChannel>()
         val emptySources = mutableListOf<String>()
-        out += readManual(context).map { it.copy(favorite = favs.contains(it.id)) }
-        for (s in _sources.value) {
-            // v0.173.0：单源下载失败（HTTP 404/403、断连、超时）只记清单、不抛异常。
-            // 之前 downloadText 抛 IllegalStateException("HTTP 404")，withTimeoutOrNull
-            // 只拦超时不拦它，异常一路穿出 refresh，撞上管理页那几个没包 runCatching
-            // 的 scope.launch（主线程协程）就直接闪退；其余正常源也被连坐丢掉。
-            var text: String?
-            var failReason: String? = null
-            try {
-                text = when (s.type) {
-                    LiveSource.LOCAL_FILE -> runCatching { File(s.url).readText() }.getOrNull()
-                    else -> withTimeoutOrNull(15_000) { downloadText(s.url) }
+        out += readManual(context).map { it.copy(favorite = favs.contains(it.id), stale = false) }
+        val semaphore = Semaphore(4)
+        // 订阅列表快照一次：并行任务与合并都用同一份，刷新中途增删源
+        // 不会导致任务与结果错位配对（zip 按位置配对，源变了就全错位）。
+        val sources = _sources.value
+        val fetches = supervisorScope {
+            sources.map { s ->
+                async {
+                    fetchSource(context, s, favs, semaphore)
                 }
-                if (text == null && s.type != LiveSource.LOCAL_FILE) failReason = "超时"
-            } catch (e: CancellationException) {
-                // 协程取消必须原样抛出，不能当成单源失败吞掉。
-                throw e
-            } catch (e: Exception) {
-                text = null
-                failReason = e.message ?: e.javaClass.simpleName
-            }
-            if (text == null) {
-                val reason = failReason ?: "下载失败"
+            }.awaitAll()
+        }
+        for ((s, fetch) in sources.zip(fetches)) {
+            if (fetch.channels != null && fetch.channels.isNotEmpty()) {
+                out += fetch.channels
+            } else {
+                // 下载失败或解析出 0 频道：旧频道保留并标过期，不直接消失。
+                val reason = fetch.failReason ?: "未解析出频道"
                 emptySources += "${s.name}（$reason）"
-                LogBus.e("Live", "订阅 ${s.name} 拉取失败：$reason，地址 ${s.url}")
-                continue
+                LogBus.e("Live", "订阅 ${s.name} 拉取失败：$reason，地址 ${s.url}，旧频道保留并标过期")
+                out += oldBySource[fetch.key].orEmpty()
+                    .map { it.copy(favorite = favs.contains(it.id), stale = true) }
             }
-            val key = "m3u:${s.name}"
-            val parsed = parseM3u(text, key)
-            if (parsed.isEmpty()) emptySources += "${s.name}（未解析出频道）"
-            out += parsed.map { it.copy(favorite = favs.contains(it.id)) }
         }
         // live 插件（v0.23.0 安装时已校验 lives 数组）
         // v0.173.0：单个插件文件读不出也只跳过，不让 refresh 整体抛。
@@ -225,8 +278,55 @@ object LiveStore {
                 out += parseLiveJson(pluginText, key).map { it.copy(favorite = favs.contains(it.id)) }
             }
         _channels.value = out
+        saveCachedChannels(context, out)
         LogBus.i("Live", "聚合 ${out.size} 个频道（手动/订阅/插件）")
         emptySources
+    }
+
+    /**
+     * 单源拉取（并行任务内执行，Semaphore 限流）。
+     * v0.173.0 的单源失败隔离口径不变：下载失败只记原因、不抛异常，
+     * 其余正常源不受连坐；协程取消原样抛出，不当成单源失败吞掉。
+     */
+    private suspend fun fetchSource(
+        context: Context,
+        s: LiveSource,
+        favs: Set<String>,
+        semaphore: Semaphore,
+    ): SourceFetch {
+        val key = "m3u:${s.name}"
+        return try {
+            semaphore.withPermit {
+                var text: String?
+                var failReason: String? = null
+                try {
+                    text = when (s.type) {
+                        LiveSource.LOCAL_FILE -> runCatching { File(s.url).readText() }.getOrNull()
+                        else -> withTimeoutOrNull(15_000) { downloadText(s.url) }
+                    }
+                    if (text == null && s.type != LiveSource.LOCAL_FILE) failReason = "超时"
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    text = null
+                    failReason = e.message ?: e.javaClass.simpleName
+                }
+                if (text == null) {
+                    SourceFetch(key, null, failReason ?: "下载失败")
+                } else {
+                    val parsed = parseM3u(text, key)
+                        .map { it.copy(favorite = favs.contains(it.id), stale = false) }
+                    // 解析出 0 频道也按失败处理（channels 为空列表时调用方
+                    // 保留旧频道），但要与下载失败区分原因文案。
+                    if (parsed.isEmpty()) SourceFetch(key, emptyList(), null)
+                    else SourceFetch(key, parsed, null)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            SourceFetch(key, null, e.message ?: e.javaClass.simpleName)
+        }
     }
 
     // ---------------- 解析 ----------------
@@ -376,14 +476,32 @@ object LiveStore {
             .apply()
     }
 
-    private fun downloadText(url: String): String {
+    /**
+     * v0.188.0 M29：与 EpgFetcher 同款可取消调用。单源 15 秒超时此前
+     * 取消不掉阻塞中的同步 execute，线程实际仍被占用；现取消即
+     * cancel 底层 call，超时真正起效。调用方取消时抛取消，不吞成下载失败。
+     */
+    private suspend fun downloadText(url: String): String {
         val req = Request.Builder()
             .url(url)
             .header("User-Agent", DEFAULT_UA)
             .build()
-        CmsApi.defaultClient().newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
-            return resp.body?.string() ?: throw IllegalStateException("空响应")
+        val call = CmsApi.defaultClient().newCall(req)
+        val job = currentCoroutineContext()[Job]
+        job?.invokeOnCancellation { call.cancel() }
+        try {
+            call.execute().use { resp ->
+                if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
+                return resp.body?.string() ?: throw IllegalStateException("空响应")
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 取消时抛回 job 自身的取消异常（超时触发的是
+            // TimeoutCancellationException，withTimeoutOrNull 认它才返回 null；
+            // 外部取消的 JobCancellationException 原样透传，不当单源失败吞掉）。
+            if (job?.isCancelled == true) throw job.getCancellationException()
+            throw e
         }
     }
 

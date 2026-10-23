@@ -61,10 +61,19 @@ class FollowCheckWorker(
                         )
                         Log.i(TAG, "《${item.name}》${item.episodeCount}→$count 集")
                     }
-                } else {
-                    // v0.87.0：集数连续 7 天不变，视为已完结（老数据无计时起点，从本次起算）
-                    val base = item.lastEpisodeChangeAt.takeIf { it > 0 }
-                        ?: System.currentTimeMillis()
+                } else if (count != null) {
+                    // v0.87.0：集数连续 7 天不变，视为已完结。
+                    // v0.188.0 M24：老数据无计时起点时，本次即把起点写回 FollowStore，
+                    // 不再每次以“现在”重算导致差值恒为 0；取不到集数（count 为 null）
+                    // 说明本次根本没验到“不变”，不推进完结计时。
+                    val existing = item.lastEpisodeChangeAt.takeIf { it > 0 }
+                    val base = if (existing != null) {
+                        existing
+                    } else {
+                        val now = System.currentTimeMillis()
+                        FollowStore.backfillEpisodeChangeBase(ctx, item.id, now)
+                        now
+                    }
                     if (System.currentTimeMillis() - base > FINISH_AFTER_MS) {
                         FollowStore.markFinished(ctx, item.id)
                         Log.i(TAG, "《${item.name}》7 天无更新，标为已完结")

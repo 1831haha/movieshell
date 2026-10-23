@@ -44,6 +44,10 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
     private val _skippedLabel = MutableStateFlow<String?>(null)
     val skippedLabel: StateFlow<String?> = _skippedLabel
 
+    /** v0.188.0 M28：本次聚合搜索失败的源汇总，null=本次无源失败 */
+    private val _failedLabel = MutableStateFlow<String?>(null)
+    val failedLabel: StateFlow<String?> = _failedLabel
+
     // 聚合搜索 repo：drpy / PY 走当前激活规则的引擎适配器
     private val repo = SiteRepository(
         drpyEngine = DrpySourceManager.drpyEngineAdapter,
@@ -99,6 +103,7 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
         _searching.value = true
         _groupedResults.value = null
         _skippedLabel.value = null
+        _failedLabel.value = null
         // v0.109.0 A4：连续搜索取消前一次——旧慢请求后返回覆盖新结果；try/finally
         // 保证被取消时 spinner 也能落下
         searchJob?.cancel()
@@ -107,6 +112,7 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
                 repo.loadFromConfig(buildSearchConfigJson(getApplication()))
                 _groupedResults.value = repo.searchAll(t)
                 _skippedLabel.value = SearchSlowSourceFilter.skippedLabel()
+                _failedLabel.value = SiteRepository.failedSearchLabel()
             } finally {
                 _searching.value = false
             }

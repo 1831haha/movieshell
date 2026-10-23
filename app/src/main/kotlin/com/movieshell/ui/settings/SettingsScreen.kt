@@ -25,7 +25,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Cached
@@ -47,6 +46,7 @@ import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Store
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
@@ -97,6 +97,7 @@ import com.movieshell.player.MpvPluginLoader
 import com.movieshell.ui.preview.fileProviderAuthority
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.player.PlayerManager
+import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.ThemeStore
 import com.movieshell.ui.components.AppButton
@@ -166,6 +167,10 @@ fun SettingsScreen(
     var showEngineDialog by remember { mutableStateOf(false) }
     var cacheSize by remember { mutableStateOf("计算中…") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
+    // v0.188.0：旧字幕记忆清理入口用——只在用户点清理行时统计条数、点确认时删除，
+    // 进设置页不自动删任何用户设置。
+    var showClearLegacySubtitleDialog by remember { mutableStateOf(false) }
+    var legacySubtitleCount by remember { mutableIntStateOf(-1) }
     // v0.78.2：解析接口已搬进子页面（ParseSettingsScreen），本页只留入口
     // v0.23.0：插件市场源（多源）+ 显示不兼容插件开关
     // v0.134.0：市场增删改收敛到插件中心「市场 → 管理」，本页只留市场数展示
@@ -286,22 +291,21 @@ fun SettingsScreen(
         // v0.147.0：统计失败不再静默回 0（之前 0 和“真没有”分不出来），记日志方便定位
         // v0.171.0：失败汇总到 statsFailed，界面上显示"—"与"统计失败"而不是 0
         var failed = false
-        followCount = runCatching { FollowStore.readSync(context).size }
-            .onFailure { failed = true; LogBus.w("SettingsStats", "追剧统计失败：${it.message}") }
-            .getOrDefault(0)
-        histCount = runCatching { withContext(Dispatchers.IO) { HistoryStore.getHistory(context).size } }
-            .onFailure { failed = true; LogBus.w("SettingsStats", "历史统计失败：${it.message}") }
-            .getOrDefault(0)
-        subCount = runCatching { withContext(Dispatchers.IO) { ApiSourceStore.load(context).size } }
-            .onFailure { failed = true; LogBus.w("SettingsStats", "订阅统计失败：${it.message}") }
-            .getOrDefault(0)
-        localCount = runCatching {
+        // v0.188.0：4 项统计共用 safeCount（L04）：失败记日志并汇总到 statsFailed，返回 0；
+        // 口径与原来逐项 runCatching 完全一致（标签文案不变），只收敛重复写法。
+        suspend fun safeCount(tag: String, block: suspend () -> Int): Int =
+            runCatching { block() }
+                .onFailure { failed = true; LogBus.w("SettingsStats", "$tag 统计失败：${it.message}") }
+                .getOrDefault(0)
+        followCount = safeCount("追剧") { FollowStore.readSync(context).size }
+        histCount = safeCount("历史") { withContext(Dispatchers.IO) { HistoryStore.getHistory(context).size } }
+        subCount = safeCount("订阅") { withContext(Dispatchers.IO) { ApiSourceStore.load(context).size } }
+        localCount = safeCount("本地") {
             withContext(Dispatchers.IO) {
                 DrpySourceManager.listRules().size + PySourceManager.listRules().size +
                     PhpSourceManager.listRules().size
             }
-        }.onFailure { failed = true; LogBus.w("SettingsStats", "本地统计失败：${it.message}") }
-            .getOrDefault(0)
+        }
         currentSourceName = runCatching {
             val cur = SubSiteStore.getCurrent(context)
             if (cur != null) {
@@ -412,12 +416,13 @@ fun SettingsScreen(
                             modifier = Modifier.weight(1f),
                             onClick = onHistoryClick,
                         )
+                        // v0.188.0：资料卡“源”只做统计展示，不设点击；
+                        // 站源管理唯一入口留给下方快捷宫格，不发明重复入口。
                         ProfileStat(
                             label = "源",
                             value = if (!statsLoaded) "…" else if (statsFailed) "—" else "${subCount + localCount}",
                             sub = if (!statsLoaded) "统计中…" else if (statsFailed) "统计失败" else "订阅$subCount 本地$localCount",
                             modifier = Modifier.weight(1f),
-                            onClick = onSourcesClick,
                         )
                     }
                 }
@@ -779,6 +784,17 @@ fun SettingsScreen(
                     subtitle = "共占用 $cacheSize",
                     onClick = { showClearCacheDialog = true },
                 )
+                // v0.188.0：旧字幕 key 清理入口——点开先说明条数，确认后才删；
+                // 只删旧格式 key，新格式记忆与当前字幕设置不受影响。
+                SettingsRow(
+                    icon = Icons.Filled.Subtitles,
+                    title = "清理旧字幕记忆",
+                    subtitle = "只删旧格式按剧记忆，需手动确认",
+                    onClick = {
+                        legacySubtitleCount = countLegacyPerShowKeys(context)
+                        showClearLegacySubtitleDialog = true
+                    },
+                )
                 run {
                     val logEnabled by LogStore.enabled.collectAsState()
                     SettingsRow(
@@ -804,11 +820,14 @@ fun SettingsScreen(
                         onClick = { exportCrashLog() },
                     )
                 }
+                // v0.188.0：关于行去掉点击态，不再是点了没反应的占位点击；
+                // 版本信息仍在副标题展示，更新日志入口在下一行。
                 SettingsRow(
                     icon = Icons.Filled.Info,
                     title = "关于侠影",
                     subtitle = "版本 ${com.movieshell.BuildConfig.VERSION_NAME} · 本地影视聚合",
-                    onClick = { /* 占位：可跳转关于页 */ },
+                    onClick = {},
+                    clickable = false,
                 )
                 // v0.30.0：更新日志独立入口
                 SettingsRow(
@@ -891,6 +910,36 @@ fun SettingsScreen(
         ) {
             Text(
                 "清理视频缓存（m3u8 分片）与图片缓存，共 $cacheSize。播放记录与站源配置不会被删除。",
+                style = SoftType.Body,
+            )
+        }
+    }
+    // v0.188.0：旧字幕记忆清理确认——清理前说明条数，确认后提示结果；
+    // 只调 186 已提供的 clearLegacyPerShowKeys，不自动删用户现有设置。
+    if (showClearLegacySubtitleDialog) {
+        TechDialog(
+            onDismissRequest = { showClearLegacySubtitleDialog = false },
+            title = "清理旧字幕记忆",
+            confirmText = "清理",
+            onConfirm = {
+                showClearLegacySubtitleDialog = false
+                val n = PlayerSettings.clearLegacyPerShowKeys(context)
+                legacySubtitleCount = -1
+                Toast.makeText(
+                    context,
+                    if (n > 0) "已清理旧字幕记忆 $n 条" else "没有旧字幕记忆可清理",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            },
+        ) {
+            Text(
+                if (legacySubtitleCount >= 0) {
+                    "共 $legacySubtitleCount 条旧格式按剧记忆（旧字幕地址与片头片尾跳过秒数）。" +
+                        "只删旧格式 key，新格式记忆不受影响；还没在新格式下打开过的剧，" +
+                        "旧记忆删后不再恢复，确认后再清理。"
+                } else {
+                    "只删旧格式按剧记忆，新格式记忆不受影响。"
+                },
                 style = SoftType.Body,
             )
         }
@@ -1139,6 +1188,8 @@ internal fun SettingsRow(
     subtitle: String,
     onClick: () -> Unit,
     trailing: @Composable (() -> Unit)? = null,
+    // v0.188.0：不可点行（如关于行）传 false，去掉点击态与右侧箭头。
+    clickable: Boolean = true,
 ) {
     ListItem(
         headlineContent = { Text(title, style = SoftType.Body) },
@@ -1156,15 +1207,31 @@ internal fun SettingsRow(
                 tint = MaterialTheme.colorScheme.primary,
             )
         },
-        trailingContent = trailing ?: {
+        trailingContent = if (!clickable) null else trailing ?: {
             Icon(
                 imageVector = Icons.Filled.ChevronRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = if (clickable) Modifier.clickable(onClick = onClick) else Modifier,
     )
+}
+
+/**
+ * v0.188.0：旧字幕 key 条数统计（只读不删）。
+ * 判定口径与 PlayerSettings.clearLegacyPerShowKeys 一致：前缀 + 纯数字 hash、
+ * 不含竖线分隔符；新 key 一律含竖线，不会被计入。前缀常量在 PlayerSettings 里是
+ * 私有的，这里逐字照抄三处前缀，改动前缀时两处须同步。
+ */
+private fun countLegacyPerShowKeys(context: Context): Int {
+    val prefs = context.getSharedPreferences("movieshell_prefs", Context.MODE_PRIVATE)
+    val prefixes = listOf("skip_intro_vod_", "skip_outro_vod_", "subtitle_vod_")
+    return prefs.all.keys.count { key ->
+        val prefix = prefixes.firstOrNull { key.startsWith(it) } ?: return@count false
+        val rest = key.removePrefix(prefix)
+        rest.isNotEmpty() && rest.toIntOrNull() != null && !rest.contains("|")
+    }
 }
 
 @Composable
@@ -1205,10 +1272,10 @@ private fun ProfileStat(
     value: String,
     sub: String? = null,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit = {},
+    onClick: (() -> Unit)? = null,
 ) {
     Column(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = if (onClick != null) modifier.clickable(onClick = onClick) else modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
@@ -1296,14 +1363,7 @@ private fun dirBytes(dir: File): Long =
         0L
     }
 
-private fun formatBytes(bytes: Long): String = when {
-    bytes >= 1L shl 30 -> "%.1f GB".format(Locale.US, bytes / (1L shl 30).toDouble())
-    bytes >= 1L shl 20 -> "%.1f MB".format(Locale.US, bytes / (1L shl 20).toDouble())
-    bytes >= 1L shl 10 -> "%.1f KB".format(Locale.US, bytes / (1L shl 10).toDouble())
-    else -> "$bytes B"
-}
-
 private suspend fun refreshCacheSize(context: Context): String =
     withContext(Dispatchers.IO) {
-        formatBytes(cacheDirs(context).sumOf { dirBytes(it) })
+        PluginMarket.formatSize(cacheDirs(context).sumOf { dirBytes(it) }).ifBlank { "0 B" }
     }

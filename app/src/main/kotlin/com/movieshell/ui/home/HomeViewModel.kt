@@ -120,9 +120,6 @@ class HomeViewModel(
         categories.value = cats
     }
 
-    /** 读某分类的内存缓存（没有返回 null） */
-    fun getCategoryCache(catId: Int): List<ModelVod>? = _categoryCache.value[catId]
-
     /** 清空分类内存缓存（换源时调用，旧源缓存不能留） */
     fun clearCategoryCache() {
         _categoryCache.value = emptyMap()

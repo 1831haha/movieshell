@@ -37,7 +37,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -63,6 +62,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
@@ -123,7 +123,7 @@ fun LiveScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val channels by LiveStore.channels.collectAsState()
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
     var showSearch by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var detailChannel by remember { mutableStateOf<LiveChannel?>(null) }
@@ -970,6 +970,14 @@ private fun ChannelCell(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (channel.stale) {
+                Text(
+                    text = "过期",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 1,
                 )
             }
         }

@@ -51,6 +51,8 @@ fun OnlineSubtitleSearchDialog(
     vodId: String?,
     onPick: (fileUrl: String) -> Unit,
     onDismiss: () -> Unit,
+    sourceKey: String? = null,
+    episodeIndex: Int? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -152,7 +154,7 @@ fun OnlineSubtitleSearchDialog(
                                     scope.launch {
                                         runCatching {
                                             OnlineSubtitleKit
-                                                .downloadAndSave(context, source, item, vodId)
+                                                .downloadAndSave(context, source, item, vodId, sourceKey, episodeIndex)
                                         }.onSuccess { url ->
                                             onPick(url)
                                         }.onFailure {

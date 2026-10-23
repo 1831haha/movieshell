@@ -171,11 +171,18 @@ fun Site.isJavaSpider(): Boolean = api.trim().startsWith("csp_", ignoreCase = tr
 fun Site.isCmsSite(): Boolean = type == 0 || type == 1
 
 /**
+ * 判定前先剥查询串与锚点：xxx.py?x=1、xxx.js?v=2 这类带参地址
+ * 原先 endsWith 对不上，直接落入错误分支（v0.188.0 M15）。
+ */
+private fun String.withoutQueryOrFragment(): String =
+    substringBefore('?').substringBefore('#')
+
+/**
  * PY 站：type=3 且 api 以 .py 结尾。
  * 注意旧逻辑曾把所有 type=3 都判成 PY（v0.5.1 修复：csp_ / drpy 不再误判）。
  */
 fun Site.isPySite(): Boolean =
-    !isJavaSpider() && type == 3 && api.trim().endsWith(".py", ignoreCase = true)
+    !isJavaSpider() && type == 3 && api.trim().withoutQueryOrFragment().endsWith(".py", ignoreCase = true)
 
 /** type=4 PHP 站：api 是 PHP 脚本的 HTTP 地址（PHP 跑在远端/本地服务里，壳子只发 HTTP 解析 JSON）。 */
 fun Site.isType4Site(): Boolean = type == 4
@@ -185,7 +192,16 @@ fun Site.isType4Site(): Boolean = type == 4
  * 注意 type==4 不再判 drpy（v0.6.0 起 type=4 = PHP 站，走 Type4Api）。
  */
 fun Site.isDrpySite(): Boolean =
-    !isJavaSpider() && !isType4Site() && api.trim().endsWith(".js", ignoreCase = true)
+    !isJavaSpider() && !isType4Site() && api.trim().withoutQueryOrFragment().endsWith(".js", ignoreCase = true)
+
+/**
+ * v0.188.0 M15：已知口径全对不上的站。调用方走到这里不再静默按 drpy
+ * 跑（旧 else 分支行为），而是明确走“不支持”空态并记日志。
+ * 注意小说/漫画站是主动跳过、不是不支持，判定里先排除它。
+ */
+fun Site.isUnsupportedSite(): Boolean =
+    !isPhpSite() && !isJavaSpider() && !isNovelOrComic() && !isType4Site() &&
+        !isCmsSite() && !isPySite() && !isDrpySite()
 
 /**
  * 小说/漫画站：订阅声明的扩展字段"类型"含"小说"/"漫画"。

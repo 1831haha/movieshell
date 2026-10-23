@@ -107,12 +107,6 @@ object MusicHistoryStore {
 
     // ---- 播放历史 ----
 
-    suspend fun playHistory(context: Context): List<Track> = mutex.withLock {
-        withContext(Dispatchers.IO) {
-            readTracks(File(context.filesDir, PLAY_FILE))
-        }
-    }
-
     /** 播歌时调：去重后放最前。 */
     suspend fun recordPlay(context: Context, track: Track) = mutex.withLock {
         withContext(Dispatchers.IO) {
@@ -122,18 +116,15 @@ object MusicHistoryStore {
         }
     }
 
+    /**
+     * v0.188.0 M23：仅保留删歌联动用——MusicStore.removeTrackEverywhere 调这里
+     * 清掉播放历史里的同一首。播放历史读/清空不在本任务范围，不恢复。
+     */
     suspend fun removePlay(context: Context, id: String) = mutex.withLock {
         withContext(Dispatchers.IO) {
             val f = File(context.filesDir, PLAY_FILE)
             val cur = readTracks(f).filterNot { it.id == id }
             writeTracks(f, cur)
-        }
-    }
-
-    suspend fun clearPlay(context: Context) = mutex.withLock {
-        withContext(Dispatchers.IO) {
-            runCatching { File(context.filesDir, PLAY_FILE).delete() }
-                .onFailure { Log.w(TAG, "播放历史清空失败", it) }
         }
     }
 }

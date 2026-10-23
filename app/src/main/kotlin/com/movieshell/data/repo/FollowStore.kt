@@ -172,6 +172,37 @@ object FollowStore {
             }
         }
 
+    /**
+     * v0.188.0 M24：老数据补写集数变化计时起点——只在 lastEpisodeChangeAt 为 0 时写，
+     * 已有起点的不动；写盘成功且确实补写时返回 true。Worker 首次以“现在”为起点时
+     * 调这里落盘，下次运行不再以“现在”重算，7 天计时才真正走起来。
+     */
+    suspend fun backfillEpisodeChangeBase(context: Context, id: String, base: Long): Boolean =
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    var changed = false
+                    val ok = writeAll(
+                        context,
+                        readAll(context).map {
+                            if (it.id == id && it.lastEpisodeChangeAt <= 0L) {
+                                changed = true
+                                it.copy(lastEpisodeChangeAt = base)
+                            } else {
+                                it
+                            }
+                        },
+                    )
+                    if (!ok) {
+                        Log.w(TAG, "backfillEpisodeChangeBase 写入失败")
+                        return@runCatching false
+                    }
+                    if (changed) refreshFlow(context)
+                    changed
+                }.onFailure { Log.w(TAG, "backfillEpisodeChangeBase 失败", it) }.getOrDefault(false)
+            }
+        }
+
     /** v0.87.0：集数长期不变，标为已完结，不再参与更新检测。 */
     suspend fun markFinished(context: Context, id: String) =
         mutex.withLock {

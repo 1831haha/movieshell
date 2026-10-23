@@ -10,9 +10,12 @@ import com.movieshell.data.model.ParseConfig
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.ParseStore
 import com.movieshell.player.SniffPlayHeaders
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -22,8 +25,10 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import java.net.URLEncoder
 import kotlin.coroutines.resume
 
@@ -76,6 +81,8 @@ class ParseApi(
                     else -> ""
                 }
             }.onFailure {
+                // 调用方取消不是线路失败：透传，不熔断、不换下一条继续撞。
+                if (it is CancellationException) throw it
                 // 只熔断抛异常的线；空结果（片不支持）不熔断
                 ParseStore.markTripped(p.url)
                 LogBus.w(TAG, "第 ${index + 1} 条线路失败：${it.message}")
@@ -89,6 +96,27 @@ class ParseApi(
         }
         LogBus.e(TAG, "全部 ${parses.size} 条线路解析失败")
         return ""
+    }
+
+    /**
+     * v0.188.0 M30：可取消版同步执行。探活 10 秒、嗅探 20 秒本就小于
+     * 底层 60 秒 callTimeout，但同步 execute 原先不响应协程取消，超时
+     * 后线程仍占着跑；现取消即 cancel 底层 call。取消时抛回 job 自身
+     * 的取消异常：超时触发的是 TimeoutCancellationException，探活的
+     * withTimeoutOrNull 认它才返回 false；外部取消的原样透传。
+     * 调用方负责 .use 关闭返回的 Response（与原来 execute().use 同款）。
+     */
+    private suspend fun executeCancellable(call: Call): Response {
+        val job = currentCoroutineContext()[Job]
+        job?.invokeOnCancellation { call.cancel() }
+        try {
+            return call.execute()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (job?.isCancelled == true) throw job.getCancellationException()
+            throw e
+        }
     }
 
     /**
@@ -115,7 +143,7 @@ class ParseApi(
                                 runCatching { builder.header(k, v) }
                             }
                         }
-                        client.newCall(builder.build()).execute().use { resp ->
+                        executeCancellable(client.newCall(builder.build())).use { resp ->
                             if (!resp.isSuccessful) return@withTimeoutOrNull false
                             val body = resp.body?.string().orEmpty().trim()
                             runCatching { json.parseToJsonElement(body).jsonObject }
@@ -126,7 +154,7 @@ class ParseApi(
                         val base = parse.url.trim()
                         if (base.isBlank()) return@withTimeoutOrNull false
                         val builder = Request.Builder().url(base).get()
-                        client.newCall(builder.build()).execute().use { resp ->
+                        executeCancellable(client.newCall(builder.build())).use { resp ->
                             resp.isSuccessful
                         }
                     }
@@ -154,7 +182,7 @@ class ParseApi(
                     runCatching { builder.header(k, v) }
                 }
             }
-            client.newCall(builder.build()).execute().use { resp ->
+            executeCancellable(client.newCall(builder.build())).use { resp ->
                 if (!resp.isSuccessful) return@withContext ""
                 extractUrl(resp.body?.string().orEmpty())
             }

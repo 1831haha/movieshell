@@ -53,8 +53,6 @@ object ChaquopyEngine : PyEngine {
         }
     }
 
-    fun isInitialized(): Boolean = appContext != null
-
     /**
      * v0.27.2：加锁。之前未加锁，并发协程可能同时通过 isStarted 检查、
      * 各调一次 Python.start()，真机报过 "Python already started"。
@@ -130,8 +128,11 @@ object ChaquopyEngine : PyEngine {
             val dir = com.movieshell.data.repo.StoragePaths.pyLibsDir(ctx)
             py.getModule("sys")?.get("path")?.callAttr("insert", 0, dir.absolutePath)
             Log.i(TAG, "pylibs 已加入 sys.path：${dir.absolutePath}")
+        }.onSuccess {
+            // v0.188.0 M14：此前失败也照常置位，之后永不再重试，依赖缺失
+            // 会被误当成“已加过”。只有真正加成功才置位，失败下次再试。
+            libsPathAdded = true
         }.onFailure { Log.w(TAG, "pylibs 加入 sys.path 失败", it) }
-        libsPathAdded = true
     }
 
     /**

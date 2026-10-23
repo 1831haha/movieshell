@@ -56,7 +56,7 @@ object PhpCliEngine {
     var lastError: String? = null
         private set
 
-    /** php 插件是否已装（bin/php 在位）。 */
+    /** v0.188.0 恢复：SourceProbe.probePhp 仍在调它，审计 L01 的零调用结论有误，不要再删。 */
     fun isPhpInstalled(context: Context? = null): Boolean = runCatching {
         val ctx = context ?: PhpSourceManager.appContext() ?: return@runCatching false
         val exe = ServicePluginManager.expandPlaceholders(ctx, "__plugin:php__/bin/php")
@@ -143,6 +143,17 @@ object PhpCliEngine {
                     return@runCatching null
                 }
                 val phpExe = ServicePluginManager.expandPlaceholders(ctx, "__plugin:php__/bin/php")
+                // v0.188.0 M14：lib 目录缺失时记日志。phpLibDirFor 在
+                // ServicePluginManager 侧是私有的、这里调不到，按同一结构
+                // （bin/php + 同级 lib/）本地判定：缺失只记日志不拦截，
+                // 动态 PIE 路线只用系统库、缺 lib 也可能跑通，失败时这条
+                // 日志能把“缺库”与“linker64 失败”区分开。
+                val phpExeFile = File(phpExe)
+                val phpLibDir = phpExeFile.parentFile
+                    ?.takeIf { it.name == "bin" }?.parentFile?.let { File(it, "lib") }
+                if (phpExeFile.name == "php" && phpLibDir?.isDirectory != true) {
+                    LogBus.w(TAG, "PHP 运行时不完整：lib 目录缺失（${phpLibDir?.absolutePath}），LD_LIBRARY_PATH 未设置")
+                }
                 val bootstrap = ensureBootstrap(ctx)
                 val result = ServicePluginManager.runCliOnce(
                     ctx,
@@ -151,10 +162,22 @@ object PhpCliEngine {
                     30_000L,
                 )
                 if (result.exitCode != 0) {
-                    lastError = "php 退出码 ${result.exitCode}：${firstReasonLine(result.output)}"
-                    LogBus.w(TAG, "php 退出码 ${result.exitCode}：${result.output.take(500)}")
+                    // v0.188.0 M14：runCliOnce 超时以退出码 -1 哨兵返回（真实
+                    // 进程退出码取不到 -1），PHP 侧不再照搬成“退出码 -1”，
+                    // 单独记为超时，与真实退出码区分开。
+                    lastError = if (result.exitCode == -1) {
+                        "php 执行超时（30 秒），进程已强制结束"
+                    } else {
+                        "php 退出码 ${result.exitCode}：${firstReasonLine(result.output)}"
+                    }
+                    LogBus.w(TAG, "php 执行失败：$lastError：${result.output.take(500)}")
                 }
-                extractJson(result.output)
+                val json = extractJson(result.output)
+                // v0.188.0 M14：成功取出 JSON 即清 lastError。此前退出码非 0
+                // 但输出里恰好有合法 JSON 时返回正常 JSON、lastError 仍非空，
+                // 与“null=最近一次成功”自相矛盾，调用方会把成功当失败展示。
+                if (json != null) lastError = null
+                json
             }.onFailure { e ->
                 if (lastError == null) lastError = e.message?.take(140)
                 LogBus.e(TAG, "PHP CLI 失败：${e::class.java.simpleName}: ${e.message}")

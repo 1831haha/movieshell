@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import com.movieshell.data.model.Chapter
 import com.movieshell.data.model.Novel
-import com.movieshell.data.model.ShelfTab
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
@@ -53,13 +52,22 @@ object NovelStore {
         }.onFailure { Log.w(TAG, "书架索引写入失败", it) }
     }
 
-    /** 全部书，按加入时间倒序。 */
+    /**
+     * v0.188.0 M25：书架读侧派生——lastReadChapter 以阅读进度为准（进度文件是唯一事实源），
+     * 无进度记录时回退 index 原值。阅读器只写进度，不再双写 index，书架分组不再与续读各说各话。
+     * updateProgress 保留作兼容回退写（备份恢复等旧调用方），不作为事实源。
+     */
     suspend fun list(context: Context): List<Novel> = withContext(Dispatchers.IO) {
-        readIndex(context).sortedByDescending { it.addedAt }
+        val all = readIndex(context).sortedByDescending { it.addedAt }
+        val progressById = ReadingProgressStore.loadAll(context)
+        all.map { n ->
+            progressById[n.id]?.let { n.copy(lastReadChapter = it.chapterIndex) } ?: n
+        }
     }
 
     suspend fun get(context: Context, id: String): Novel? = withContext(Dispatchers.IO) {
-        readIndex(context).firstOrNull { it.id == id }
+        val n = readIndex(context).firstOrNull { it.id == id } ?: return@withContext null
+        ReadingProgressStore.load(context, id)?.let { n.copy(lastReadChapter = it.chapterIndex) } ?: n
     }
 
     /** 幂等添加：同 id 已存在则保留进度只更新元信息。 */
@@ -203,14 +211,4 @@ object NovelStore {
             }.onFailure { Log.w(TAG, "章节正文缓存失败", it) }
         }
 
-    /** 书架分组：在追 / 想看 / 已看完。 */
-    suspend fun listShelves(context: Context): Map<ShelfTab, List<Novel>> =
-        withContext(Dispatchers.IO) {
-            val all = list(context)
-            mapOf(
-                ShelfTab.READING to all.filter { it.lastReadChapter > 0 && it.lastReadChapter < it.totalChapters - 1 },
-                ShelfTab.WANT to all.filter { it.lastReadChapter == 0 },
-                ShelfTab.FINISHED to all.filter { it.lastReadChapter > 0 && it.totalChapters > 0 && it.lastReadChapter >= it.totalChapters - 1 },
-            )
-        }
 }

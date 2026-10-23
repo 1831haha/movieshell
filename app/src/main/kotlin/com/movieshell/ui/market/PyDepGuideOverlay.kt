@@ -1,6 +1,5 @@
 package com.movieshell.ui.market
 
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
@@ -57,16 +56,16 @@ fun PyDepGuideOverlay() {
                     val info = PluginMarket.fetch(PluginStore.DEFAULT_MARKET_URL)
                     val dep = info.plugins.firstOrNull { it.id == PyDepGuide.DEP_PLUGIN_ID }
                     if (dep == null) {
-                        toast(context, "市场里没找到 PY 引擎依赖包")
+                        PluginUi.toast(context, "市场里没找到 PY 引擎依赖包", Toast.LENGTH_LONG)
                     } else {
                         val (ok, msg) = PluginUi.installWithProgress(context, dep) {
                             installProgress = it
                         }
-                        toast(context, msg)
+                        PluginUi.toast(context, msg, Toast.LENGTH_LONG)
                         if (ok) PyDepGuide.clear()
                     }
                 } catch (e: Exception) {
-                    toast(context, "安装失败：${e.message}")
+                    PluginUi.toast(context, "安装失败：${e.message}", Toast.LENGTH_LONG)
                 } finally {
                     installProgress = null
                     busy = false
@@ -80,5 +79,3 @@ fun PyDepGuideOverlay() {
     InstallProgressDialog(installProgress)
 }
 
-private fun toast(context: Context, msg: String) =
-    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()

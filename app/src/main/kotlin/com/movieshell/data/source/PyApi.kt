@@ -9,11 +9,12 @@ import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * PY 规则（hipy 风格）客户端：经 PyEngine 调规则文件的 Spider 方法，
@@ -67,22 +68,33 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
     private var sharedHomeData: JsonObject? = null
     private var sharedHomeAt: Long = 0L
 
+    /**
+     * v0.188.0 M14：共享 home 缓存单例化锁。“查缓存、调规则、写回”全程持锁，
+     * 并发 home()/categories() 只调一次 homeContent，不互相覆盖时间戳。
+     */
+    private val homeMutex = Mutex()
+
     // v0.50.0：homeContent 连续 3 次无推荐列表的规则，标记为"无首页推荐"。
     // 命中时跳过 list 解析直调 homeVideoContent（省一次串行等待；如实说明：
     // homeContent 那次 invoke 省不掉——categories() 吃的是同一次调用，10s 共享）。
     private val noRecommendRules = mutableSetOf<String>()
     private val noRecommendHits = mutableMapOf<String, Int>()
 
-    private suspend fun sharedHomeContent(rulePath: String): JsonObject? {
+    private suspend fun sharedHomeContent(rulePath: String): JsonObject? = homeMutex.withLock {
         val now = android.os.SystemClock.elapsedRealtime()
         if (rulePath == sharedHomePath && now - sharedHomeAt < 10_000) {
-            return sharedHomeData
+            return@withLock sharedHomeData
         }
         val data = envelope(engine.invoke(rulePath, "homeContent", """{"filter":true}"""))
-        sharedHomePath = rulePath
-        sharedHomeData = data
-        sharedHomeAt = now
-        return data
+        // 失败结果（envelope 为 null）不进缓存、不刷新时间戳：此前失败结果
+        // 也被写入并占 10 秒窗口，窗口内 home()/categories() 直接复用失败、
+        // 不重试。失败时只交 null，下次调用立即重调规则。
+        if (data != null) {
+            sharedHomePath = rulePath
+            sharedHomeData = data
+            sharedHomeAt = now
+        }
+        data
     }
 
     /**
