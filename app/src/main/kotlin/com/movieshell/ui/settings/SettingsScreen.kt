@@ -251,6 +251,8 @@ fun SettingsScreen(
     var localCount by remember { mutableIntStateOf(0) }
     // v0.148.0：统计加载完成前不显示 0（0 和“真没有”分不出来）
     var statsLoaded by remember { mutableStateOf(false) }
+    // v0.171.0：任一统计加载失败时整行标失败，不再用 0 冒充"真没有"
+    var statsFailed by remember { mutableStateOf(false) }
     var currentSourceName by remember { mutableStateOf("未设置") }
     // v0.82.0：背景底图
     var showBgMenu by remember { mutableStateOf(false) }
@@ -272,21 +274,23 @@ fun SettingsScreen(
         // v0.101.0：缓存占用（视频 m3u8 分片 + Coil 图片磁盘缓存）
         cacheSize = runCatching { refreshCacheSize(context) }.getOrDefault(cacheSize)
         // v0.147.0：统计失败不再静默回 0（之前 0 和“真没有”分不出来），记日志方便定位
+        // v0.171.0：失败汇总到 statsFailed，界面上显示"—"与"统计失败"而不是 0
+        var failed = false
         followCount = runCatching { FollowStore.readSync(context).size }
-            .onFailure { LogBus.w("SettingsStats", "追剧统计失败：${it.message}") }
+            .onFailure { failed = true; LogBus.w("SettingsStats", "追剧统计失败：${it.message}") }
             .getOrDefault(0)
         histCount = runCatching { withContext(Dispatchers.IO) { HistoryStore.getHistory(context).size } }
-            .onFailure { LogBus.w("SettingsStats", "历史统计失败：${it.message}") }
+            .onFailure { failed = true; LogBus.w("SettingsStats", "历史统计失败：${it.message}") }
             .getOrDefault(0)
         subCount = runCatching { withContext(Dispatchers.IO) { ApiSourceStore.load(context).size } }
-            .onFailure { LogBus.w("SettingsStats", "订阅统计失败：${it.message}") }
+            .onFailure { failed = true; LogBus.w("SettingsStats", "订阅统计失败：${it.message}") }
             .getOrDefault(0)
         localCount = runCatching {
             withContext(Dispatchers.IO) {
                 DrpySourceManager.listRules().size + PySourceManager.listRules().size +
                     PhpSourceManager.listRules().size
             }
-        }.onFailure { LogBus.w("SettingsStats", "本地统计失败：${it.message}") }
+        }.onFailure { failed = true; LogBus.w("SettingsStats", "本地统计失败：${it.message}") }
             .getOrDefault(0)
         currentSourceName = runCatching {
             val cur = SubSiteStore.getCurrent(context)
@@ -301,6 +305,7 @@ fun SettingsScreen(
                 "未设置"
             }
         }.getOrDefault("未设置")
+        statsFailed = failed
         statsLoaded = true
     }
 
@@ -387,20 +392,20 @@ fun SettingsScreen(
                     Row(modifier = Modifier.fillMaxWidth()) {
                         ProfileStat(
                             label = "追剧",
-                            value = if (statsLoaded) "$followCount" else "…",
+                            value = if (!statsLoaded) "…" else if (statsFailed) "—" else "$followCount",
                             modifier = Modifier.weight(1f),
                             onClick = onFollowClick,
                         )
                         ProfileStat(
                             label = "历史",
-                            value = if (statsLoaded) "$histCount" else "…",
+                            value = if (!statsLoaded) "…" else if (statsFailed) "—" else "$histCount",
                             modifier = Modifier.weight(1f),
                             onClick = onHistoryClick,
                         )
                         ProfileStat(
                             label = "源",
-                            value = if (statsLoaded) "${subCount + localCount}" else "…",
-                            sub = if (statsLoaded) "订阅$subCount 本地$localCount" else "统计中…",
+                            value = if (!statsLoaded) "…" else if (statsFailed) "—" else "${subCount + localCount}",
+                            sub = if (!statsLoaded) "统计中…" else if (statsFailed) "统计失败" else "订阅$subCount 本地$localCount",
                             modifier = Modifier.weight(1f),
                             onClick = onSourcesClick,
                         )

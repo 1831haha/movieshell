@@ -126,6 +126,7 @@ import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
@@ -157,10 +158,17 @@ fun DetailScreen(
     var detail by remember { mutableStateOf<VodDetail?>(null) }
     // v0.27.6：抽成函数，失败态的"重试"按钮可复用
     // v0.47.0：20 秒超时——规则 hang 住时不再无限骨架屏，转失败态可重试
+    // v0.171.0：世代号 + 取消旧任务——刷新按钮、失败重试、LaunchedEffect 可并发
+    // 起多个 20 秒请求，旧请求迟到时不再覆盖新结果、也不再把 loading 提前置 false
+    var detailGen by remember { mutableIntStateOf(0) }
+    var detailJob by remember { mutableStateOf<Job?>(null) }
     fun reloadDetail() {
-        scope.launch {
+        detailJob?.cancel()
+        detailGen++
+        val myGen = detailGen
+        detailJob = scope.launch {
             detailLoading = true
-            detail = runCatching {
+            val result = runCatching {
                 withTimeout(20_000) {
                     if (subSite != null) {
                         SiteRepository().detail(subSite, vodId)
@@ -174,7 +182,11 @@ fun DetailScreen(
                     }
                 }
             }.getOrNull()
-            detailLoading = false
+            // 只有最新一代才能写回；旧请求即使后完成也直接丢弃
+            if (myGen == detailGen) {
+                detail = result
+                detailLoading = false
+            }
         }
     }
     LaunchedEffect(vodId) { reloadDetail() }
@@ -303,14 +315,6 @@ fun DetailScreen(
 
     fun playEpisode(ep: Episode, lineIndex: Int, episodeIndex: Int) {
         LogBus.i("UI", "点击播放: ${ep.name.ifBlank { "未命名剧集" }} url=${ep.url.take(100)}")
-        // v0.26.0：追剧看到第几集联动
-        if (following) {
-            scope.launch {
-                FollowStore.markWatched(context, followId, episodeIndex)
-                // v0.71.0：已看角标实时跟上
-                watchedEp = maxOf(watchedEp, episodeIndex)
-            }
-        }
         // v0.106.0：解析走应用级 PlayResolveScope——rememberCoroutineScope 会在切页/
         // 返回时取消，导致 "The coroutine scope left the composition"（16 条线路全灭）
         PlayResolveScope.launch {
@@ -322,11 +326,24 @@ fun DetailScreen(
                 if (!ok) showMagnetDialog = true
             } else {
                 val link = resolvePlayUrl(context, subSite, ep)
+                // v0.171.0：无播放地址先拦截提示，不再静默记已看、不写播放会话、
+                // 不进只剩封面的空白播放区（此前 markWatched 与 PlaySession.start
+                // 都在空地址判定之前执行，点集没反应还被标成已看）
+                if (link.isBlank()) {
+                    Toast.makeText(context, "该集暂无播放地址", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
                 // v0.164.0：pics:// 图片集直接进看图，不写视频播放会话、不进嵌入播放器
                 if (com.movieshell.player.isPicsUrl(link)) {
                     picsTitle = "${vod?.title ?: displayTitle(vodId)} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}"
                     picsUrl = link
                     return@launch
+                }
+                // v0.26.0：追剧看到第几集联动（有地址才记）
+                if (following) {
+                    FollowStore.markWatched(context, followId, episodeIndex)
+                    // v0.71.0：已看角标实时跟上
+                    watchedEp = maxOf(watchedEp, episodeIndex)
                 }
                 // v0.19.0：写入播放会话，供播放器内切线路 / 失败自动重试
                 PlaySession.start(playLines, lineIndex, episodeIndex) { ctx, e ->
@@ -685,6 +702,9 @@ fun DetailScreen(
                                                         if (FollowStore.unfollow(context, followId)) {
                                                             following = false
                                                             Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            // v0.171.0：失败也给提示，不再点了没反应
+                                                            Toast.makeText(context, "取消追剧失败，请重试", Toast.LENGTH_SHORT).show()
                                                         }
                                                     } else {
                                                         val ok = FollowStore.follow(
@@ -702,6 +722,8 @@ fun DetailScreen(
                                                         if (ok) {
                                                             following = true
                                                             Toast.makeText(context, "已追剧，有更新会提醒你", Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            Toast.makeText(context, "追剧失败，请重试", Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 }
@@ -849,6 +871,18 @@ fun DetailScreen(
                             }
                         }
                         else -> {
+                            // v0.171.0：0 集时不再只剩标题加空白，给一句空提示
+                            item {
+                                Text(
+                                    text = "暂无可播放剧集",
+                                    style = SoftType.Caption,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(
+                                        horizontal = SoftDimens.PagePadding,
+                                        vertical = 8.dp,
+                                    ),
+                                )
+                            }
                             item { Spacer(Modifier.height(16.dp)) }
                         }
                     }

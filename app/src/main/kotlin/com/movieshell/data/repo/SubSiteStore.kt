@@ -344,6 +344,9 @@ object SubSiteStore {
                                 }
                         }
                     }.awaitAll().filterNotNull()
+                        // v0.171.0：同一订阅内同 key 站源只留首条，否则两条记录
+                        // 共用 fileNameFor 文件名互相覆盖、getCurrent 恒取第一条
+                        .distinctBy { it.key.trim() }
                 }
                 if (sites.isEmpty()) throw IllegalStateException("订阅站点全部展开失败")
                 val cache = SubCache(

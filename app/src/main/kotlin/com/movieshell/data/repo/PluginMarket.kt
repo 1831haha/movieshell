@@ -412,11 +412,23 @@ object PluginMarket {
                 }
                 "server" -> {
                     val root = File(StoragePaths.pluginsDir(context), plugin.id)
-                    entries.forEach { e ->
-                        val dst = safeDst(root, e.name)
-                        dst.parentFile?.mkdirs()
-                        zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
-                        installed.add(e.name)
+                    // v0.171.0：先解到同目录暂存目录，全部解完才替换旧目录；
+                    // 解压中途失败时旧目录原样保留，注册表也不更新，不再出现
+                    // "旧版已删、新版残缺、注册表仍显示旧版"的不一致态
+                    val staging = stagingDir(root)
+                    staging.deleteRecursively()
+                    staging.mkdirs()
+                    try {
+                        entries.forEach { e ->
+                            val dst = safeDst(staging, e.name)
+                            dst.parentFile?.mkdirs()
+                            zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
+                            installed.add(e.name)
+                        }
+                        swapDir(root, staging)
+                    } catch (e: Exception) {
+                        runCatching { staging.deleteRecursively() }
+                        throw e
                     }
                 }
                 /**
@@ -424,15 +436,26 @@ object PluginMarket {
                  * runtime/<id>/（native 载荷只能从私有目录执行）。
                  * v0.139.0：先清旧目录再解，避免旧版残留（如动态版 lib 目录的 so 文件近 80MB）；
                  * 静态单文件直接运行，动态文件走 ServicePluginManager 的 linker64 回退。
+                 * v0.171.0：改先解暂存目录再整体替换，失败时旧版保留（见 server 分支注释）。
                  */
                 "runtime" -> {
                     val root = File(StoragePaths.runtimeDir(context), plugin.id)
-                    root.deleteRecursively()
-                    entries.forEach { e ->
-                        val dst = safeDst(root, e.name)
-                        dst.parentFile?.mkdirs()
-                        zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
-                        installed.add(e.name)
+                    // v0.171.0：同 server 分支，先解暂存目录再整体替换旧目录，
+                    // 失败时旧版保留、注册表不更新（此前先清旧目录再解，失败即丢旧版）
+                    val staging = stagingDir(root)
+                    staging.deleteRecursively()
+                    staging.mkdirs()
+                    try {
+                        entries.forEach { e ->
+                            val dst = safeDst(staging, e.name)
+                            dst.parentFile?.mkdirs()
+                            zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
+                            installed.add(e.name)
+                        }
+                        swapDir(root, staging)
+                    } catch (e: Exception) {
+                        runCatching { staging.deleteRecursively() }
+                        throw e
                     }
                 }
                 /**
@@ -666,6 +689,41 @@ object PluginMarket {
             throw IllegalStateException("插件包路径非法：$name")
         }
         return dst
+    }
+
+    /**
+     * v0.171.0：安装暂存目录（与目标同父目录，保证改名替换不跨文件系统）。
+     * 命名带时间戳，避免上次失败残留的暂存目录与本次冲突。
+     */
+    private fun stagingDir(root: File): File {
+        val parent = root.parentFile ?: throw IllegalStateException("插件目录无父目录：${root.path}")
+        return File(parent, "${root.name}.staging-${System.currentTimeMillis()}")
+    }
+
+    /**
+     * v0.171.0：暂存目录整体替换目标目录。先把旧目录改名备份，再把暂存目录
+     * 改名到位，最后删备份；改名失败时把备份改回来，旧版不丢。
+     * 调用方须保证 staging 已完整解压；本函数只做替换，不做内容校验。
+     */
+    private fun swapDir(root: File, staging: File) {
+        val parent = root.parentFile ?: throw IllegalStateException("插件目录无父目录：${root.path}")
+        val backup = File(parent, "${root.name}.bak-${System.currentTimeMillis()}")
+        val hadOld = root.exists()
+        if (hadOld && !root.renameTo(backup)) {
+            throw IllegalStateException("旧版备份失败，安装已中止，旧版未动：${root.name}")
+        }
+        try {
+            if (!staging.renameTo(root)) {
+                throw IllegalStateException("新版落盘改名失败，安装已中止")
+            }
+            if (hadOld) runCatching { backup.deleteRecursively() }
+        } catch (e: Exception) {
+            if (hadOld && !root.exists()) {
+                runCatching { backup.renameTo(root) }
+                    .onFailure { LogBus.e(TAG, "旧版回滚失败，备份留在：${backup.path}") }
+            }
+            throw e
+        }
     }
 
     private fun ruleDir(context: Context, engine: String): File = when (engine) {

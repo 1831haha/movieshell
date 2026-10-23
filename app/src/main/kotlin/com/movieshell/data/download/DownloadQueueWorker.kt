@@ -44,22 +44,28 @@ class DownloadQueueWorker(
         setForeground(fg("准备下载", 0))
         while (!isStopped) {
             val task = DownloadStore.claimNext(applicationContext) ?: break
-            // v0.41.0：失败时带上真实错误原因，不再是笼统的"下载失败"
-            val failReason: String? = try {
-                downloadTask(task)
-                null
-            } catch (e: Exception) {
-                e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
-            }
-            if (isStopped) {
-                DownloadStore.setStatus(applicationContext, task.id, DlStatus.PAUSED)
-                break
-            }
-            if (failReason != null && DownloadStore.get(task.id)?.status == DlStatus.DOWNLOADING) {
-                Log.w(TAG, "下载失败：${task.title}，原因=$failReason")
-                DownloadStore.setStatus(
-                    applicationContext, task.id, DlStatus.FAILED, failReason.take(120)
-                )
+            // v0.171.0：认领即标记在途，删除任务靠它等 Worker 真停
+            DownloadStore.markActive(task.id)
+            try {
+                // v0.41.0：失败时带上真实错误原因，不再是笼统的"下载失败"
+                val failReason: String? = try {
+                    downloadTask(task)
+                    null
+                } catch (e: Exception) {
+                    e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
+                }
+                if (isStopped) {
+                    DownloadStore.setStatus(applicationContext, task.id, DlStatus.PAUSED)
+                    break
+                }
+                if (failReason != null && DownloadStore.get(task.id)?.status == DlStatus.DOWNLOADING) {
+                    Log.w(TAG, "下载失败：${task.title}，原因=$failReason")
+                    DownloadStore.setStatus(
+                        applicationContext, task.id, DlStatus.FAILED, failReason.take(120)
+                    )
+                }
+            } finally {
+                DownloadStore.unmarkActive(task.id)
             }
         }
         return Result.success()
@@ -117,10 +123,22 @@ class DownloadQueueWorker(
         pl.assets.forEach { (remote, local) ->
             if (!alive(task.id)) return
             val f = File(dir, local)
-            if (!f.isFile) downloadTo(remote, f, headers, 0L)
+            if (!f.isFile) downloadTo(remote, f, headers) { alive(task.id) }
         }
 
         var done = countDone(dir, pl)
+        // v0.171.0：恢复下载时把边界分片（最后一个已计入的分片）重下一遍。
+        // 旧版分片直接写最终文件，进程被杀时留下的半截分片与完整分片无法区分，
+        // 而顺序下载决定了半截只能是最后一个已计入分片；多下一个分片的代价，
+        // 换取 171 之前留下的残片在续下时必被修复（新版分片走临时文件改名，
+        // 正式文件只会是完整的，边界重下只是多花一个分片）
+        if (done > 0 && done <= pl.segments.size) {
+            val boundary = File(dir, segLocal(done - 1, pl.segments[done - 1].url))
+            if (boundary.isFile) {
+                boundary.delete()
+                done--
+            }
+        }
         renderLocalPlaylist(dir, pl, done)
         updateFg(task.title, 0)
         val meter = SpeedMeter()
@@ -129,7 +147,7 @@ class DownloadQueueWorker(
             val local = segLocal(i, seg.url)
             val f = File(dir, local)
             if (!f.isFile || f.length() == 0L) {
-                downloadTo(seg.url, f, headers, 0L)
+                downloadTo(seg.url, f, headers) { alive(task.id) }
                 meter.add(f.length())
             }
             done++
@@ -145,7 +163,10 @@ class DownloadQueueWorker(
         renderLocalPlaylist(dir, pl, pl.segments.size)
         val index = File(dir, "index.m3u8")
         DownloadStore.update(ctx, task.id, force = true) {
-            it.copy(status = DlStatus.DONE, progress = 1f, localPath = index.absolutePath, error = "")
+            it.copy(
+                status = DlStatus.DONE, progress = 1f, localPath = index.absolutePath,
+                error = "", completedAt = System.currentTimeMillis(),
+            )
         }
         Notify.downloadDone(ctx, task.title)
         Log.i(TAG, "m3u8 下载完成：${task.title}（${pl.segments.size} 分片）")
@@ -262,10 +283,19 @@ class DownloadQueueWorker(
         val target = File(dir, "video.$ext")
         val part = File(dir, "video.$ext.part")
         if (target.isFile && target.length() > 0) {
-            DownloadStore.update(ctx, task.id, force = true) {
-                it.copy(status = DlStatus.DONE, progress = 1f, localPath = target.absolutePath)
+            // v0.171.0：记录过总大小时必对长度——半截成品不再直接当 DONE；
+            // 长度对不上说明是旧残留或服务端换了文件，删掉重下（续传走 .part）
+            if (task.totalBytes <= 0 || target.length() == task.totalBytes) {
+                DownloadStore.update(ctx, task.id, force = true) {
+                    it.copy(
+                        status = DlStatus.DONE, progress = 1f, localPath = target.absolutePath,
+                        completedAt = System.currentTimeMillis(),
+                    )
+                }
+                return
             }
-            return
+            Log.w(TAG, "直链成品长度与记录不符，重新下载：${task.title}")
+            target.delete()
         }
         var done = if (part.isFile) part.length() else 0L
         val reqB = Request.Builder().url(task.url)
@@ -318,7 +348,10 @@ class DownloadQueueWorker(
         }
         if (!part.renameTo(target)) throw IllegalStateException("文件落盘失败")
         DownloadStore.update(ctx, task.id, force = true) {
-            it.copy(status = DlStatus.DONE, progress = 1f, localPath = target.absolutePath, error = "")
+            it.copy(
+                status = DlStatus.DONE, progress = 1f, localPath = target.absolutePath, error = "",
+                completedAt = System.currentTimeMillis(),
+            )
         }
         Notify.downloadDone(ctx, task.title)
     }
@@ -344,30 +377,44 @@ class DownloadQueueWorker(
         }
     }
 
-    /** 小文件下载（分片/key/map），带断点续传。 */
-    private fun downloadTo(url: String, dst: File, headers: Map<String, String>, resumeFrom: Long) {
+    /**
+     * 小文件下载（分片/key/map）。
+     * v0.171.0：先写同名 .part 文件（断点续传从 .part 长度起），整段写完
+     * 才改名到最终文件——中途被杀/断网只留 .part，正式文件绝不会是半截；
+     * 下次调用时 .part 在则续传，不在则重下。aliveCheck 在 64KB 块边界查，
+     * 暂停/删除后最多一个块即停，不再把整段写完才响应。
+     */
+    private fun downloadTo(
+        url: String,
+        dst: File,
+        headers: Map<String, String>,
+        aliveCheck: (() -> Boolean)? = null,
+    ) {
+        val part = File(dst.parentFile, dst.name + ".part")
+        var start = if (part.isFile) part.length() else 0L
         val reqB = Request.Builder().url(url).header("User-Agent", DEFAULT_UA)
         headers.forEach { (k, v) -> reqB.header(k, v) }
-        var start = if (dst.isFile) dst.length() else 0L
         if (start > 0) reqB.header("Range", "bytes=$start-")
         http.newCall(reqB.build()).execute().use { resp ->
             if (!resp.isSuccessful && resp.code != 206) throw IllegalStateException("HTTP ${resp.code}")
             val body = resp.body ?: throw IllegalStateException("空响应")
             if (resp.code != 206 && start > 0) {
-                dst.delete()
+                part.delete()
                 start = 0
             }
             dst.parentFile?.mkdirs()
-            java.io.FileOutputStream(dst, start > 0).use { out ->
+            java.io.FileOutputStream(part, start > 0).use { out ->
                 val buf = ByteArray(64 * 1024)
                 var n: Int
                 while (body.byteStream().read(buf).also { n = it } > 0) {
                     if (isStopped) throw InterruptedException("取消")
+                    if (aliveCheck != null && !aliveCheck()) throw InterruptedException("已暂停")
                     out.write(buf, 0, n)
                 }
             }
         }
-        if (!dst.isFile || dst.length() == 0L) throw IllegalStateException("分片为空：$url")
+        if (!part.isFile || part.length() == 0L) throw IllegalStateException("分片为空：$url")
+        if (!part.renameTo(dst)) throw IllegalStateException("分片落盘失败：$url")
     }
 
     private fun absUrl(base: String, rel: String): String {

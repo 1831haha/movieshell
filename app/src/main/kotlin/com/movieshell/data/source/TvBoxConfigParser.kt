@@ -26,6 +26,19 @@ object TvBoxConfigParser {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 
+    /**
+     * v0.171.0：顶层是否带 sites 数组（纯判断，不解析条目）。
+     * SiteRepository 载入前用它区分"合法但空的订阅"与"非法订阅"：
+     * 非法订阅（非 JSON、顶层无 sites）不得清空现有站源。
+     */
+    fun hasSitesArray(raw: String): Boolean {
+        return runCatching {
+            val clean = stripJsonComments(raw.trim().removePrefix("\uFEFF"))
+            val root = json.parseToJsonElement(clean).jsonObject
+            root["sites"] is JsonArray
+        }.getOrDefault(false)
+    }
+
     /** 解析订阅 JSON，失败（非 JSON / 顶层无 sites）返回空配置，不抛异常。 */
     fun parseConfig(raw: String): TvBoxConfig {
         return try {

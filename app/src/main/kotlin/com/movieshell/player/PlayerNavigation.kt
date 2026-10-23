@@ -21,13 +21,14 @@ const val PLAYER_ROUTE_BASE = "player"
 fun playerRoute(url: String, title: String, vodId: String? = null, isLive: Boolean = false): String =
     "$PLAYER_ROUTE_BASE?url=${Uri.encode(url)}&title=${Uri.encode(title)}&vod=${Uri.encode(vodId.orEmpty())}&live=${if (isLive) 1 else 0}"
 
-/** 跳转到播放器页 */
+/** 跳转到播放器页；空地址直接不跳转，不再进黑屏播放器页只剩返回键 */
 fun NavController.navigateToPlayer(
     url: String,
     title: String,
     vodId: String? = null,
     isLive: Boolean = false,
 ) {
+    if (url.isBlank()) return
     navigate(playerRoute(url, title, vodId, isLive))
 }
 

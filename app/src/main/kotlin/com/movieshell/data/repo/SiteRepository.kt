@@ -78,20 +78,62 @@ class SiteRepository(
     /**
      * 从 TVBox 订阅 JSON 载入站源。
      * 过滤掉 api/key 为空的无效条目；返回本次载入的有效站源。
+     *
+     * v0.171.0：先载入到临时结构、校验通过才替换现有列表——非法订阅
+     * （顶层无 sites 数组）直接保留旧站源并返回旧列表，不再先 clear 再载入
+     * 导致旧站源被清空。合法订阅里的重复站源按 key 与归一化 URL 去重
+     * （key 相同、或 URL 仅差尾斜杠/域名大小写/默认端口时算同一站源，首条胜出）。
      */
+    @Synchronized
     fun loadFromConfig(json: String): List<Site> {
+        if (!TvBoxConfigParser.hasSitesArray(json)) {
+            LogBus.w(TAG, "非法订阅：顶层无 sites 数组，已保留现有 ${sites.size} 个站源")
+            return getEnabledSites()
+        }
         val config = TvBoxConfigParser.parseConfig(json)
-        sites.clear()
-        sites += config.sites
+        val fresh = config.sites
             .filter { it.api.isNotBlank() && it.key.isNotBlank() }
             .map { it.toSite() }
+            .distinctBy { normalizeSiteKey(it) }
+        if (fresh.isEmpty()) {
+            // sites 数组合法但过滤后一条有效站源都没有：同样不清空旧列表，
+            // 否则一次残缺订阅就能把现有站源全部抹掉
+            LogBus.w(TAG, "订阅 sites 数组无有效条目，已保留现有 ${sites.size} 个站源")
+            return getEnabledSites()
+        }
+        sites.clear()
+        sites += fresh
         return getEnabledSites()
     }
 
+    /** 去重键：key（去空白）+ 归一化 URL；同一站源的不同写法落到同一键。 */
+    private fun normalizeSiteKey(site: Site): String {
+        val key = site.key.trim()
+        val url = site.api.trim().removeSuffix("/").let { raw ->
+            runCatching {
+                val schemeEnd = raw.indexOf("://")
+                if (schemeEnd < 0) return@let raw
+                val scheme = raw.substring(0, schemeEnd).lowercase()
+                val rest = raw.substring(schemeEnd + 3)
+                val hostEnd = rest.indexOf('/')
+                val hostPort = if (hostEnd < 0) rest else rest.substring(0, hostEnd)
+                val path = if (hostEnd < 0) "" else rest.substring(hostEnd)
+                val host = hostPort.substringBefore(':').lowercase()
+                val port = hostPort.substringAfter(':', "")
+                val defaultPort = if (scheme == "https") "443" else "80"
+                val hostPart = if (port.isBlank() || port == defaultPort) host else "$host:$port"
+                "$scheme://$hostPart$path"
+            }.getOrDefault(raw)
+        }
+        return "$key|$url"
+    }
+
     /** 当前可用的全部站源。 */
+    @Synchronized
     fun getEnabledSites(): List<Site> = sites.toList()
 
     /** 按 key 取站源，找不到返回 null。 */
+    @Synchronized
     fun findSite(key: String): Site? = sites.find { it.key == key }
 
     /** 首页推荐/最新：PHP 走 CLI 引擎；小说漫画站明确不支持，返回空；csp_ 站走 SpiderEngine。 */

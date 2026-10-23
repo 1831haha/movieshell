@@ -105,6 +105,9 @@ private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
 private object LiveSelection {
     var channelId: String? = null
     val sourceByName = mutableMapOf<String, String>()
+    // v0.171.0：分组与源行选中态也进单例，切 tab 离页重组不再回首组/全部
+    var selectedGroup: String? = null
+    var selectedLiveSource: String? = null
 }
 
 /** 直播 Tab：DsPlayer 式布局（v0.80.0 重做）——顶部 16:9 播放器 + 节目信息卡 + 两列（分组/频道）+ 播放器下方源行 */
@@ -126,10 +129,12 @@ fun LiveScreen(
     // v0.160.0：初值从单例恢复，离页回来也不回首台
     var selected by remember { mutableStateOf<LiveChannel?>(null) }
     // v0.80.0：左侧分组选中态
-    var selectedGroup by remember { mutableStateOf<String?>(null) }
+    // v0.171.0：初值从单例恢复，切 tab 回来不回首组
+    var selectedGroup by remember { mutableStateOf(LiveSelection.selectedGroup) }
     // v0.158.0：直播页内换源（null=全部，DsPlayer 切换直播源对标）；
     // 直播失败已试过的同名源 id（自动切源防循环，手动点频道/源时清空）
-    var selectedLiveSource by remember { mutableStateOf<String?>(null) }
+    // v0.171.0：初值从单例恢复，切 tab 回来不回"全部"
+    var selectedLiveSource by remember { mutableStateOf(LiveSelection.selectedLiveSource) }
     var liveTriedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     // v0.159.0：按台名记住上次选的源（源1/源2）——中列点台不再永远取同名第一条（源1）
     var liveSourceByName by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -408,13 +413,19 @@ fun LiveScreen(
                     SourceButton(
                         label = "全部",
                         selected = selectedLiveSource == null,
-                        onClick = { selectedLiveSource = null },
+                        onClick = {
+                            selectedLiveSource = null
+                            LiveSelection.selectedLiveSource = null
+                        },
                     )
                     sourceKeys.forEach { key ->
                         SourceButton(
                             label = liveSourceLabel(key),
                             selected = selectedLiveSource == key,
-                            onClick = { selectedLiveSource = key },
+                            onClick = {
+                                selectedLiveSource = key
+                                LiveSelection.selectedLiveSource = key
+                            },
                         )
                     }
                 }
@@ -477,7 +488,10 @@ fun LiveScreen(
                             name = g,
                             count = groups[g]?.size ?: 0,
                             selected = g == selectedGroup,
-                            onClick = { selectedGroup = g },
+                            onClick = {
+                                selectedGroup = g
+                                LiveSelection.selectedGroup = g
+                            },
                         )
                     }
                 }

@@ -212,7 +212,14 @@ fun HistoryScreen(
                     items(list, key = { "${it.url}@${it.timestamp}" }) { e ->
                         HistoryRow(
                             entry = e,
-                            onClick = { onPlay(e) },
+                            // v0.171.0：空地址历史点进去不再是黑屏播放器，先提示
+                            onClick = {
+                                if (e.url.isBlank()) {
+                                    Toast.makeText(context, "该条历史没有播放地址", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    onPlay(e)
+                                }
+                            },
                             onLongClick = { deleteTarget = e },
                         )
                     }

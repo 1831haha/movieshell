@@ -637,27 +637,44 @@ object ServicePluginManager {
             if (!zip.exists()) throw IllegalStateException("安装包不存在")
             // v0.162.0：解压前先过全量清单闸门（见 verifyFullManifest）
             verifyFullManifest(zip)
-            val spec: Spec
-            ZipFile(zip).use { zf ->
-                val entries = zf.entries().asSequence().filter { !it.isDirectory }.toList()
-                if (entries.isEmpty()) throw IllegalStateException("插件包为空")
-                val manifest = entries.firstOrNull { it.name == "server.json" }
+            // v0.171.0：先单独读出 spec（只读 server.json，不落盘），后边的回滚
+            // 逻辑需要提前知道 id 与旧注册表项
+            val spec = ZipFile(zip).use { zf ->
+                val manifest = zf.entries().asSequence().firstOrNull { it.name == "server.json" }
                     ?: throw IllegalStateException("插件包根部缺 server.json")
-                spec = parseSpec(zf.getInputStream(manifest).readBytes().toString(Charsets.UTF_8))
-                // 同 id 更新：先停进程再覆盖
-                running[spec.id]?.let { stopLocked(context, spec.id) }
-                val root = File(installRoot(context), spec.id)
-                if (root.exists()) root.deleteRecursively()
-                root.mkdirs()
-                entries.forEach { e ->
-                    val dst = safeDst(root, e.name)
-                    dst.parentFile?.mkdirs()
-                    zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
-                }
-                verifyExecutable(root, spec)
+                parseSpec(zf.getInputStream(manifest).readBytes().toString(Charsets.UTF_8))
             }
             val reg = loadRegistry(context)
             val prev = reg[spec.id]
+            // 同 id 更新：先停进程再覆盖
+            running[spec.id]?.let { stopLocked(context, spec.id) }
+            val root = File(installRoot(context), spec.id)
+            // v0.171.0：先解到同父目录暂存目录，verifyExecutable 在暂存目录上验；
+            // 验失败时旧目录原样保留、注册表不写，失败即回滚（此前先删旧目录
+            // 再解压，验失败时磁盘已是新包残缺态、注册表还是旧版）
+            val staging = File(installRoot(context), "${spec.id}.staging-${System.currentTimeMillis()}")
+            staging.deleteRecursively()
+            staging.mkdirs()
+            try {
+                ZipFile(zip).use { zf ->
+                    val entries = zf.entries().asSequence().filter { !it.isDirectory }.toList()
+                    if (entries.isEmpty()) throw IllegalStateException("插件包为空")
+                    entries.forEach { e ->
+                        val dst = safeDst(staging, e.name)
+                        dst.parentFile?.mkdirs()
+                        zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
+                    }
+                }
+                verifyExecutable(staging, spec)
+                swapInstallDir(root, staging)
+            } catch (e: Exception) {
+                runCatching { staging.deleteRecursively() }
+                // 旧进程是用户期望运行的，安装失败后尽力拉回旧版
+                if (prev?.desiredRunning == true && root.exists()) {
+                    runCatching { startLocked(context, spec.id) }
+                }
+                throw e
+            }
             val port = allocatePort(reg, spec.port, excludeId = spec.id)
             reg[spec.id] = RegistryEntry(
                 id = spec.id,
@@ -710,6 +727,31 @@ object ServicePluginManager {
             throw IllegalStateException("插件包路径非法：$name")
         }
         return dst
+    }
+
+    /**
+     * v0.171.0：暂存目录整体替换安装目录。旧目录先改名备份，暂存目录改名
+     * 到位后再删备份；改名失败时把备份改回来，旧版不丢（同 PluginMarket.swapDir 口径）。
+     */
+    private fun swapInstallDir(root: File, staging: File) {
+        val parent = root.parentFile ?: throw IllegalStateException("插件目录无父目录：${root.path}")
+        val backup = File(parent, "${root.name}.bak-${System.currentTimeMillis()}")
+        val hadOld = root.exists()
+        if (hadOld && !root.renameTo(backup)) {
+            throw IllegalStateException("旧版备份失败，安装已中止，旧版未动：${root.name}")
+        }
+        try {
+            if (!staging.renameTo(root)) {
+                throw IllegalStateException("新版落盘改名失败，安装已中止")
+            }
+            if (hadOld) runCatching { backup.deleteRecursively() }
+        } catch (e: Exception) {
+            if (hadOld && !root.exists()) {
+                runCatching { backup.renameTo(root) }
+                    .onFailure { LogBus.e(TAG, "旧版回滚失败，备份留在：${backup.path}") }
+            }
+            throw e
+        }
     }
 
     /**

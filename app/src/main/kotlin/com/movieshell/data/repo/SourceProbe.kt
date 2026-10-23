@@ -175,6 +175,70 @@ object SourceProbe {
         ApiSourceStore.load(context).filter { it.enabled }.forEach { e ->
             tasks += ProbeTask("sub", e.url, e.name) { probeHttp(e.url) }
         }
+        // v0.171.0：订阅展开后的 sub: 子站全部进检测（此前只探订阅 URL 本身，
+        // 订阅 host 活着但某条规则文件已死时仍报正常）。按 kind 分流：drpy/py
+        // 跑规则首页、CMS/type4 走 HTTP、spider 验 jar 落地、unsupported 直接
+        // 报展开时记的原因，不再静默跳过
+        val probedRuleFiles = mutableSetOf<String>()
+        ApiSourceStore.load(context).filter { it.enabled }.forEach { e ->
+            val cache = SubSiteStore.getCached(context, e.url.trim()) ?: return@forEach
+            val spiderJar = SubSiteStore.getSpiderJar(context, e.url.trim())
+            cache.sites.filter { it.enabled }.forEach { rec ->
+                val siteKey = SubSiteStore.siteKey(e.url.trim(), rec)
+                val task: ProbeTask = when (rec.kind) {
+                    SubSiteStore.KIND_DRPY -> {
+                        val f = File(rec.api)
+                        if (f.isFile) probedRuleFiles += f.canonicalPath
+                        ProbeTask("sub", siteKey, rec.name) {
+                            if (!f.isFile) Result.Fail("规则文件丢失") else probeJs(context, f)
+                        }
+                    }
+                    SubSiteStore.KIND_PY -> {
+                        val f = File(rec.api)
+                        if (f.isFile) probedRuleFiles += f.canonicalPath
+                        ProbeTask("sub", siteKey, rec.name) {
+                            if (!f.isFile) Result.Fail("规则文件丢失") else probePy(context, f)
+                        }
+                    }
+                    SubSiteStore.KIND_CMS, SubSiteStore.KIND_TYPE4 -> {
+                        ProbeTask("sub", siteKey, rec.name) { probeHttp(rec.api) }
+                    }
+                    SubSiteStore.KIND_SPIDER -> {
+                        ProbeTask("sub", siteKey, rec.name) {
+                            if (spiderJar.isBlank()) Result.Fail("未记录 spider jar")
+                            else guarded(label = siteKey) {
+                                JarSpiderStore.ensureJar(context, e.url.trim(), spiderJar)
+                                    ?: throw IllegalStateException("jar 下载失败")
+                            }
+                        }
+                    }
+                    else -> {
+                        ProbeTask("sub", siteKey, rec.name) {
+                            Result.Fail(rec.reason.ifBlank { "该站源暂不支持" })
+                        }
+                    }
+                }
+                tasks += task
+            }
+        }
+        // v0.171.0：js/subs、py/subs 下的订阅规则文件同样进检测（此前 listRules
+        // 只扫顶层，subs 规则从未被探活）；已由上面子站任务覆盖的文件不再重复探
+        listOf(
+            File(StoragePaths.jsDir(context), "subs") to "js",
+            File(StoragePaths.pyDir(context), "subs") to "py",
+        ).forEach { (subsDir, kind) ->
+            val ext = if (kind == "js") ".js" else ".py"
+            subsDir.listFiles { f -> f.isFile && f.name.endsWith(ext, ignoreCase = true) }
+                .orEmpty().sortedBy { it.name }.forEach { f ->
+                    if (runCatching { f.canonicalPath }.getOrNull() in probedRuleFiles) return@forEach
+                    val taskName = "subs/${f.name}"
+                    tasks += if (kind == "js") {
+                        ProbeTask("sub", taskName, f.name) { probeJs(context, f) }
+                    } else {
+                        ProbeTask("sub", taskName, f.name) { probePy(context, f) }
+                    }
+                }
+        }
         return tasks
     }
 

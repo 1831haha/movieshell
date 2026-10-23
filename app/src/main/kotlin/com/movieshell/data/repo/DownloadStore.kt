@@ -43,6 +43,8 @@ data class DownloadTask(
     val localPath: String = "",
     val error: String = "",
     val createdAt: Long = System.currentTimeMillis(),
+    /** v0.171.0：实际完成时间（毫秒）。老记录为 0，自动清理时回退到 createdAt。 */
+    val completedAt: Long = 0L,
 )
 
 /**
@@ -69,6 +71,22 @@ object DownloadStore {
     private var inited = false
     private val lock = Any()
 
+    /** v0.171.0：正在被 Worker 实际下载的任务 id（删除任务等 Worker 真停的依据）。 */
+    private val activeIds = mutableSetOf<String>()
+
+    @Synchronized
+    fun markActive(id: String) {
+        activeIds += id
+    }
+
+    @Synchronized
+    fun unmarkActive(id: String) {
+        activeIds -= id
+    }
+
+    @Synchronized
+    fun isActive(id: String): Boolean = id in activeIds
+
     @Synchronized
     fun init(context: Context) {
         if (inited) return
@@ -90,7 +108,10 @@ object DownloadStore {
         if (days <= 0) return
         val cutoff = System.currentTimeMillis() - days * 24L * 60 * 60 * 1000
         val old = synchronized(lock) {
-            readAll(context).filter { it.status == DlStatus.DONE && it.createdAt < cutoff }
+            // v0.171.0：按完成时间算，不再按入队时间——8 天前入队、昨天才下完
+            // 的剧以前到期即被删；老记录无完成时间时回退到入队时间
+            readAll(context).filter { it.status == DlStatus.DONE &&
+                (if (it.completedAt > 0) it.completedAt else it.createdAt) < cutoff }
         }
         if (old.isEmpty()) return
         old.forEach { task ->
@@ -186,8 +207,19 @@ object DownloadStore {
 
     suspend fun clearDone(context: Context) {
         withContext(Dispatchers.IO) {
+            // v0.171.0：删记录的同时删文件（此前只删记录，xiaying/Download/<id>/
+            // 下的视频与分片成孤儿，且此后自动清理再也认不到它们）
+            val done = synchronized(lock) { readAll(context).filter { it.status == DlStatus.DONE } }
+            done.forEach { task ->
+                runCatching {
+                    val dir = java.io.File(StoragePaths.downloadDir(context), task.id)
+                    if (dir.isDirectory) dir.deleteRecursively()
+                }.onFailure { Log.w(TAG, "清理已完成文件失败", it) }
+            }
             synchronized(lock) {
-                val all = readAll(context).filterNot { it.status == DlStatus.DONE }
+                val ids = done.map { it.id }.toSet()
+                val all = readAll(context).filterNot { it.id in ids }
+                ids.forEach { lastPersisted.remove(it) }
                 writeAll(context, all)
                 _tasks.value = all
             }

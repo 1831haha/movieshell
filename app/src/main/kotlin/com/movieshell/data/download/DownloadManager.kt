@@ -95,9 +95,17 @@ object DownloadManager {
         // 给 Worker 一个协作退出的机会
         withContext(Dispatchers.IO) {
             var tries = 0
-            while (DownloadStore.get(id)?.status == DlStatus.DOWNLOADING && tries < 20) {
+            // v0.171.0：等 Worker 真停（active 标记消失）再删目录，不再只看状态位——
+            // pause() 后状态立刻变 PAUSED，旧条件 status==DOWNLOADING 马上退出，
+            // Worker 还在写盘时目录就被删，写盘随后又把孤儿目录建回来。
+            // Worker 在分片/64KB 块边界查 alive()，暂停后最多一个块即停；
+            // 30 秒仍未停则继续删（Worker 下次查 alive 时即停，不再续写新分片）
+            while (DownloadStore.isActive(id) && tries < 150) {
                 kotlinx.coroutines.delay(200)
                 tries++
+            }
+            if (DownloadStore.isActive(id)) {
+                Log.w(TAG, "删除等待 Worker 停止超时，仍继续删记录与文件：$id")
             }
             DownloadStore.remove(context, id, deleteFiles = true)
         }
