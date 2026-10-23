@@ -45,25 +45,43 @@ object SubSiteEngines {
     internal fun requireContext(): Context =
         appContext ?: throw IllegalStateException("SubSiteEngines 未 init")
 
-    /** 订阅 drpy 站 -> 专属引擎；非订阅站 null；文件丢失 -> 空引擎。 */
+    /**
+     * 按站取 drpy 引擎：订阅站（sub:）与本地规则站（local:drpy:，v0.190.0
+     * 聚合搜索逐条搜本地规则用）都按 api 里的规则文件取池化引擎；
+     * 其他站 null（调用方回退到当前激活规则引擎）；文件丢失 -> 空引擎，
+     * 避免误用别的站的引擎。
+     */
     fun drpyEngineFor(site: Site): DrpyEngine? {
-        if (!site.isSubSite()) return null
-        if (!site.isDrpySite()) return null
+        val isLocal = site.key.startsWith("local:drpy:")
+        if (!isLocal && !site.isSubSite()) return null
+        // 本地站 type=4 会撞 type4 判定（isDrpySite 排除 type=4），
+        // 这里只认 api 是否 .js 结尾；订阅站仍走 isDrpySite 全套判定。
+        val isDrpyApi = if (isLocal) {
+            site.api.trim().endsWith(".js", ignoreCase = true)
+        } else {
+            site.isDrpySite()
+        }
+        if (!isDrpyApi) return null
         val f = File(site.api)
         if (!f.isFile) {
-            Log.w(TAG, "订阅 drpy 站规则文件丢失: ${site.key}")
+            Log.w(TAG, "drpy 站规则文件丢失: ${site.key}")
             return EmptyDrpyEngine
         }
         return PooledDrpyEngine(site.key, f)
     }
 
-    /** 订阅 PY 站 -> 专属引擎；非订阅站 null；文件丢失 -> 空引擎。 */
+    /**
+     * 按站取 PY 引擎：订阅站（sub:）与本地规则站（local:py:，v0.190.0
+     * 聚合搜索逐条搜本地规则用）都按 api 里的规则文件取适配器；
+     * 其他站 null（调用方回退到当前激活规则引擎）；文件丢失 -> 空引擎。
+     */
     fun pyEngineFor(site: Site): DrpyEngine? {
-        if (!site.isSubSite()) return null
+        val isLocal = site.key.startsWith("local:py:")
+        if (!isLocal && !site.isSubSite()) return null
         if (!site.isPySite()) return null
         val f = File(site.api)
         if (!f.isFile) {
-            Log.w(TAG, "订阅 PY 站规则文件丢失: ${site.key}")
+            Log.w(TAG, "PY 站规则文件丢失: ${site.key}")
             return EmptyDrpyEngine
         }
         return SubPyEngine(f.absolutePath)

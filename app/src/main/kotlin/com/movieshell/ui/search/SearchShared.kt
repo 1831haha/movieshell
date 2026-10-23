@@ -3,21 +3,33 @@ package com.movieshell.ui.search
 import android.content.Context
 import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod as ModelVod
+import com.movieshell.data.model.isPhpSite
 import com.movieshell.data.model.isSubSite
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.PhpCliEngine
+import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SourceStateStore
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.data.Vod
+import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** 本地规则搜索站的 key 前缀：key 里即规则文件名，引擎按文件取（见 SubSiteEngines）。 */
+internal const val LOCAL_DRPY_PREFIX = "local:drpy:"
+internal const val LOCAL_PY_PREFIX = "local:py:"
+
 /**
  * v0.88.0：搜索链路共享（从 SearchScreen 抽出，搜索页/演员作品页共用）。
- * 聚合搜索 = 接口站源（TVBox 订阅逐站展开）+ 本地 drpy / PY 激活规则合成站；
+ * 聚合搜索 = 接口站源（TVBox 订阅逐站展开）+ 全部已启用的本地规则（drpy / PY / PHP 逐条）；
  * 网页源无搜索接口，不参与。
+ * v0.190.0：本地规则不再只搜当前激活的一条——此前“所有源”里 drpy / PY
+ * 各只有一条合成站（drpy:active / py:active，走当前激活规则引擎），
+ * 用户手机里有多个 PY 规则时也只搜激活的那一个，这就是 189 收到反馈的根因。
  */
 
 /** drpy 影片 -> 界面 Vod */
@@ -82,7 +94,10 @@ internal fun currentSourceName(context: Context): String? =
  * - 接口站源：ApiSourceStore 里启用的条目。先判断——能解析出 sites 数组的就是
  *   完整 TVBox 配置（SubSiteStore.ensureExpanded 下载展开），逐站搜
  *   （csp_ 等不支持的站在展开时已剔除）；无 sites 的纯 CMS 地址保持旧逻辑 type=1；
- * - 本地 drpy / PY 规则：有激活规则时各补一条合成站点（走引擎适配器）。
+ * - 本地规则（v0.190.0）：drpy / PY / PHP 各按 listRules 逐条补站点，
+ *   只含 SourceStateStore 里未被禁用的规则；api 是规则文件的绝对路径
+ *   （PHP 例外：api 即规则名，SiteRepository.search 按 php: key 取脚本名）。
+ *   激活规则不再单列一条合成站，否则同一规则会被搜两次、出两个同名分组。
  * - v0.189.0 onlyCurrent=true：只放当前源一条（无当前源则 sites 为空，
  *   不回退全量）；订阅当前源的 JSON 形态与全量分支逐站条目一致。
  */
@@ -141,38 +156,74 @@ internal suspend fun buildSearchConfigJson(context: Context, onlyCurrent: Boolea
                 )
             }
         }
-    // v0.24.0：被禁用的规则不参与聚合搜索（单点：SourceStateStore）
-    if (SourceStateStore.activeDrpyRule() != null) {
-        arr.put(
-            JSONObject().apply {
-                put("key", "drpy:active")
-                put("name", "drpy:${DrpySourceManager.activeRuleName().orEmpty()}")
-                put("type", 4)
-                put("api", "drpy")
-            },
-        )
-    }
-    if (SourceStateStore.activePyRule() != null) {
-        arr.put(
-            JSONObject().apply {
-                put("key", "py:active")
-                put("name", "py:${PySourceManager.activeRuleName().orEmpty()}")
-                put("type", 3)
-                put("api", "active.py")
-            },
-        )
-    }
+    // v0.190.0：全部本地规则逐条搜（v0.24.0：被禁用的规则不参与，单点 SourceStateStore）。
+    // drpy 走引擎池（SubSiteEngines 按 local:drpy: key 取文件），PY 按 rulePath 直接调，
+    // PHP 按 php: key 取脚本名走 CLI——三者都不依赖当前激活规则。
+    DrpySourceManager.listRules()
+        .filter { SourceStateStore.isRuleEnabled("js", it.name) }
+        .forEach { rule ->
+            arr.put(
+                JSONObject().apply {
+                    put("key", "$LOCAL_DRPY_PREFIX${rule.name}")
+                    put("name", "drpy:${rule.name}")
+                    put("type", 4)
+                    put("api", File(StoragePaths.jsDir(context), rule.name).absolutePath)
+                },
+            )
+        }
+    PySourceManager.listRules()
+        .filter { SourceStateStore.isRuleEnabled("py", it.name) }
+        .forEach { rule ->
+            arr.put(
+                JSONObject().apply {
+                    put("key", "$LOCAL_PY_PREFIX${rule.name}")
+                    put("name", "py:${rule.name}")
+                    put("type", 3)
+                    put("api", File(StoragePaths.pyDir(context), rule.name).absolutePath)
+                },
+            )
+        }
+    PhpSourceManager.listRules()
+        .filter { SourceStateStore.isRuleEnabled("php", it.name) }
+        .forEach { rule ->
+            arr.put(
+                JSONObject().apply {
+                    put("key", "php:${rule.name}")
+                    put("name", "php:${rule.name}")
+                    put("type", 4)
+                    put("api", rule.name)
+                },
+            )
+        }
     return JSONObject().put("sites", arr).toString()
 }
 
 /**
  * 进详情：订阅子站点 / CMS 订阅站把站点上下文带给详情页（详情/播放按站走引擎）；
- * 本地规则合成站（drpy:active / py:active）传 null，详情页走当前激活规则旧逻辑。
+ * 本地规则站（local:drpy: / local:py: / php:）先把该规则切成当前激活规则，
+ * 再传 null——详情、播放、追剧、继续观看全部走现成的“当前激活规则”链路，
+ * 不用为本地站另起一套详情/播放分发；不切的话，点非激活规则的结果会
+ * 错走到当前激活规则上出详情、播错片。
+ * 只搜当前源的合成站（drpy:active / py:active）切到自身是 no-op，同样走这条路。
  */
 internal fun goDetail(site: Site, vodId: String, onVodClick: (vodId: String) -> Unit) {
     DetailSiteHolder.site = when {
         site.isSubSite() -> site
         site.key.startsWith("cms:") -> site
+        site.key.startsWith(LOCAL_DRPY_PREFIX) -> {
+            DrpySourceManager.setActiveRule(site.key.removePrefix(LOCAL_DRPY_PREFIX))
+            null
+        }
+        site.key.startsWith(LOCAL_PY_PREFIX) -> {
+            PySourceManager.setActiveRule(site.key.removePrefix(LOCAL_PY_PREFIX))
+            null
+        }
+        site.isPhpSite() -> {
+            PhpSourceManager.setActiveRule(
+                PhpCliEngine.scriptNameForSite(site.key, site.api),
+            )
+            null
+        }
         else -> null
     }
     onVodClick(vodId)

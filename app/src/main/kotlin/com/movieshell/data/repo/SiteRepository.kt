@@ -336,8 +336,10 @@ class SiteRepository(
         else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
         // v0.189.0：聚合搜索的本地 drpy 合成站（key=drpy:active，type=4）必须先于
         // type4 分发，否则会被当成 PHP 远端站走 Type4Api、api="drpy" 建不出 URL、
-        // 聚合搜索里的 drpy 条目一直空着；这里按 key 分流到当前激活 drpy 引擎
-        else if (site.key == "drpy:active") logged(site, "drpy.search ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.orEmpty()
+        // 聚合搜索里的 drpy 条目一直空着；这里按 key 分流到当前激活 drpy 引擎。
+        // v0.190.0：逐条搜本地规则的 local:drpy: 站同理（type=4、api 是文件路径），
+        // 也先于 type4 分发，按站取池化引擎；否则每条都会错走到远端 PHP。
+        else if (site.key == "drpy:active" || site.key.startsWith("local:drpy:")) logged(site, "drpy.search ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.orEmpty()
         else if (site.isType4Site()) logged(site, "type4.search ${site.name}") { type4Api.search(site, wd) }.orEmpty()
         else if (site.isCmsSite()) logged(site, "cms.search ${site.name}") { cmsApi.search(site, wd) }.orEmpty()
         else if (site.isPySite()) logged(site, "py.search ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.search(wd) }.orEmpty()
