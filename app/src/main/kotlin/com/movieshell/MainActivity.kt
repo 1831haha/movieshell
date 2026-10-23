@@ -176,6 +176,17 @@ class MainActivity : ComponentActivity() {
         // v0.7.2：日志总线最先初始化（接住之后所有初始化的异常）
         LogBus.init(this)
         LogBus.i("App", "侠影启动")
+        // v0.185.0：轻量自保护壳——硬拦截（可调试包/调试器已连）直接退出，
+        // root/模拟器只警告不拦；验签不做（云构建每轮新签名，写死必误杀，见 changelog）。
+        val guard = com.movieshell.data.repo.AppGuard.check(this)
+        if (guard.hardFail) {
+            Toast.makeText(this, "安全检查未通过（${guard.hardReasons.joinToString("、")}），已退出", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+        if (guard.warnings.isNotEmpty()) {
+            Toast.makeText(this, "当前为${guard.warnings.joinToString("、")}，继续使用风险自担", Toast.LENGTH_LONG).show()
+        }
         ThemeStore.init(this)
         LogStore.init(this)
         PlayerSettings.init(this)

@@ -39,7 +39,8 @@ object PluginMarket {
     /** 侠影可安装的 type；apk/import 等默认隐藏（设置里可开"显示不兼容插件"仅查看）。 */
     // v0.29.0：player=播放器引擎插件（libmpv 的 .so ZIP 包）
     // v0.30.0：subtitle=字幕搜索插件（DEX，经 DexClassLoader 动态加载）
-    private val INSTALLABLE_TYPES = setOf("source", "server", "live", "env", "player", "subtitle", "runtime")
+    // v0.185.0：setup=一键配置插件（建目录 + 写说明文档，文档来自插件包、不进安装包）
+    private val INSTALLABLE_TYPES = setOf("source", "server", "live", "env", "player", "subtitle", "runtime", "setup")
 
     /** v0.27.2：一键安装三段进度（下载→校验→安装），供安装进度条 UI 用。 */
     enum class InstallStage { Downloading, Verifying, Installing }
@@ -329,7 +330,7 @@ object PluginMarket {
                 // v0.96.1：live 插件装完自动刷新聚合，不然还播内存里的旧频道
                 runCatching { LiveStore.refresh(context) }
                     .onFailure { LogBus.w(TAG, "安装后刷新直播聚合失败：${it.message}") }
-            } else installZip(context, plugin, tmp)
+            } else warn = installZip(context, plugin, tmp)
             LogBus.i(TAG, "安装成功：${plugin.id} v${plugin.version}")
         } finally {
             tmp.delete()
@@ -385,10 +386,11 @@ object PluginMarket {
         }
     }
 
-    /** zip 包：plugin.json 一致性校验 → 按 type 解压。 */
-    private fun installZip(context: Context, plugin: MarketPlugin, zip: File) {
+    /** zip 包：plugin.json 一致性校验 → 按 type 解压。返回 setup 的配置结果（其余 type 返回 null）。 */
+    private fun installZip(context: Context, plugin: MarketPlugin, zip: File): String? {
         val installed = mutableListOf<String>()
         var engine = plugin.engine
+        var setupSummary: String? = null
         ZipFile(zip).use { zf ->
             val entries = zf.entries().asSequence().filter { !it.isDirectory }.toList()
             if (entries.isEmpty()) throw IllegalStateException("插件包为空：${plugin.id}")
@@ -507,6 +509,17 @@ object PluginMarket {
                     if (installed.isEmpty()) throw IllegalStateException("字幕插件包里没有 dex 文件：${plugin.id}")
                     com.movieshell.data.source.subtitle.SubtitlePluginLoader.reset()
                 }
+                /**
+                 * v0.185.0：setup=一键配置插件。安装即配置：
+                 * ① StoragePaths.setupDirs() 建齐全部目录；
+                 * ② 包内 docs/ 下的说明文档先存一份到 pluginsDir/<id>/docs/（供以后
+                 *    “重新一键配置”找回），再按相对路径写到 xiaying 根/子目录，
+                 *    已有文件一律不覆盖（只记跳过数，不删、不改用户文件）；
+                 * ③ 无 docs/ 也照常建目录，不算失败。
+                 */
+                "setup" -> {
+                    setupSummary = applySetupDocs(context, plugin, zf, entries, installed)
+                }
                 else -> throw IllegalStateException("不支持的插件类型：${plugin.type}")
             }
         }
@@ -514,6 +527,64 @@ object PluginMarket {
             context,
             InstalledPlugin(plugin.id, plugin.name, plugin.version, plugin.type, engine, installed),
         )
+        return setupSummary
+    }
+
+    /**
+     * v0.185.0：setup 插件的配置执行（安装与“重新一键配置”共用同一入口）。
+     * docsSource 为 null 时从已安装的 pluginsDir/<id>/docs/ 取文档（重新配置用）；
+     * 非 null 时从安装包取文档并先存一份到 pluginsDir/<id>/docs/。
+     * 返回给用户看的汇总（目录数/写入数/跳过数），已有文件不覆盖。
+     */
+    fun reconfigureSetup(context: Context, id: String): String {
+        val rec = PluginStore.installedOf(id)
+            ?: throw IllegalStateException("未安装一键配置插件：$id")
+        if (rec.type != "setup") throw IllegalStateException("不是一键配置插件：$id")
+        val docsDir = File(StoragePaths.pluginsDir(context), "$id/docs")
+        if (!docsDir.isDirectory) throw IllegalStateException("一键配置插件缺 docs，重新安装一次再试")
+        val dirs = StoragePaths.setupDirs(context)
+        var written = 0
+        var skipped = 0
+        docsDir.walkTopDown().filter { it.isFile }.forEach { src ->
+            val rel = src.relativeTo(docsDir).path
+            val dst = File(StoragePaths.baseDir(context), rel)
+            dst.parentFile?.mkdirs()
+            if (dst.exists()) skipped++ else {
+                src.copyTo(dst)
+                written++
+            }
+        }
+        return "一键配置完成：已建好 ${dirs.size} 个目录，写入 $written 份说明，$skipped 份已有未覆盖"
+    }
+
+    private fun applySetupDocs(
+        context: Context,
+        plugin: MarketPlugin,
+        zf: ZipFile,
+        entries: List<java.util.zip.ZipEntry>,
+        installed: MutableList<String>,
+    ): String {
+        val dirs = StoragePaths.setupDirs(context)
+        val docsRoot = File(StoragePaths.pluginsDir(context), "${plugin.id}/docs")
+        docsRoot.mkdirs()
+        var written = 0
+        var skipped = 0
+        entries.filter { it.name.startsWith("docs/") && !it.name.endsWith("/") }.forEach { e ->
+            val rel = e.name.removePrefix("docs/")
+            // ① 先存一份到插件自己的 docs/（重新配置的来源，卸载时随插件一起删）
+            val srcDst = safeDst(docsRoot, rel)
+            srcDst.parentFile?.mkdirs()
+            zf.getInputStream(e).use { input -> srcDst.outputStream().use { input.copyTo(it) } }
+            installed.add("docs/$rel")
+            // ② 再写到 xiaying 目标位置，已有不覆盖
+            val dst = File(StoragePaths.baseDir(context), rel)
+            dst.parentFile?.mkdirs()
+            if (dst.exists()) skipped++ else {
+                zf.getInputStream(e).use { input -> dst.outputStream().use { input.copyTo(it) } }
+                written++
+            }
+        }
+        return "一键配置完成：已建好 ${dirs.size} 个目录，写入 $written 份说明，$skipped 份已有未覆盖"
     }
 
     /** 包内 plugin.json（如有）与市场条目做 id/version 一致性校验。 */
@@ -549,6 +620,9 @@ object PluginMarket {
         val rec = PluginStore.installedOf(id)
             ?: throw IllegalStateException("未安装：$id")
         when (rec.type) {
+            // v0.185.0：setup 卸载只删插件自己的 docs/ 副本，不删已建好的目录
+            // 和已写入的说明，更不碰用户放进各目录的规则文件（删了就丢不回来）。
+            "setup" -> File(StoragePaths.pluginsDir(context), id).deleteRecursively()
             "server" -> File(StoragePaths.pluginsDir(context), id).deleteRecursively()
             // v0.137.0：runtime 插件卸载删私有安装目录（服务页共享安装的拷备由
             // ServicePluginManager 下次解析 php 占位时按来源存亡自行清理）

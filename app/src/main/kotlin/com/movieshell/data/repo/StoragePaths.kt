@@ -146,6 +146,32 @@ object StoragePaths {
         File(baseDir(context), "Download").also { it.mkdirs() }
 
     /**
+     * v0.185.0：一键配置要建的全部目录（单一入口，改目录清单只改这里）。
+     * 每个 dir() 本身已 mkdirs；py/book 与 php/t4_demo/lib 是子目录，
+     * 必须显式列出，单调父目录不会自动带出它们。
+     * 注意：只建目录、不写文件、不删文件；写说明文档是 PluginMarket
+     * 的 setup 分支的事，文档内容来自插件包、不进安装包。
+     */
+    fun setupDirs(context: Context): List<File> = listOf(
+        jsDir(context),
+        pyDir(context),
+        File(pyDir(context), "book").also { it.mkdirs() },
+        phpDir(context),
+        File(phpDir(context), "t4_demo").also { it.mkdirs() },
+        File(File(phpDir(context), "t4_demo"), "lib").also { it.mkdirs() },
+        webDir(context),
+        jarDir(context),
+        liveDir(context),
+        pluginsDir(context),
+        serviceDir(context),
+        backupDir(context),
+        logDir(context),
+        crashDir(context),
+        downloadDir(context),
+        screenshotsDir(context),
+    )
+
+    /**
      * 申请存储权限。
      * API>=30：跳系统设置页（ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION）；
      * API<30：常规运行时权限申请。

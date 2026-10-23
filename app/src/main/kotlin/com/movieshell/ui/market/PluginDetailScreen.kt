@@ -226,9 +226,35 @@ fun PluginDetailScreen(pluginId: String, onBack: () -> Unit = {}) {
                 )
                 Spacer(Modifier.height(8.dp))
             }
+            // v0.185.0：已安装的 setup 插件给“重新一键配置”入口（删了某个目录/
+            // 说明文件时不用重装，点一下按插件里存的 docs 补齐缺的，已有不覆盖）
+            val isSetupInstalled = plugin.type == "setup" && installedVersion != null
+            if (isSetupInstalled) {
+                AppButton(
+                    text = "重新一键配置",
+                    onClick = {
+                        busy = true
+                        SubSiteStore.appScope.launch {
+                            val msg = runCatching {
+                                PluginMarket.reconfigureSetup(context, plugin.id)
+                            }.fold(
+                                onSuccess = { it },
+                                onFailure = { "重新配置失败：${it.message}" },
+                            )
+                            PluginUi.toast(context.applicationContext, msg)
+                            installedTick++
+                            busy = false
+                        }
+                    },
+                    enabled = !busy,
+                    variant = AppButtonVariant.Secondary,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
             val typeNote = when (plugin.type) {
                 "server" -> "server 插件 App 只负责下载校验与版本管理，Node.js 服务需自行运行"
                 "env" -> "env 环境插件：依赖包解压到私有目录，PY 规则 import 即用；卸载后需重启 App 生效"
+                "setup" -> "setup 一键配置插件：安装即在文件管理器建好目录并写入说明文档，已有文件不覆盖；卸载不删已建好的目录和说明"
                 else -> ""
             }
             if (typeNote.isNotBlank()) {
