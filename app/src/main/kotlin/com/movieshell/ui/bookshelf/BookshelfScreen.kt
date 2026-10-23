@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Storage
@@ -97,6 +98,8 @@ import kotlinx.coroutines.withContext
  * - 趣味空状态；按压缩放/角标脉冲/分组切换动画微交互。
  * v0.178.0：阅读数据条整块去掉；顶部小按钮只留搜索/添加本地/书源管理；
  * 检查更新改成下拉刷新；长按操作表加全选/分组/收藏。
+ * v0.179.0：智能分组（在读/养肥/已读完）去掉，只留全部 + 自定义分组；
+ * 顶部只留搜索在外，添加本地/书源管理进右上角三点菜单（参考阅读布局）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -153,12 +156,10 @@ fun BookshelfScreen(
             progressMap = pm
             updates = ups
             customGroups = gs
-            // 分组被删了就回全部
+            // 分组被删了就回全部（v0.179.0：智能分组已去掉，
+            // 以前选过在读/养肥/已读完的也回全部）
             val validIds = setOf(
                 BookshelfGroupStore.GROUP_ALL,
-                BookshelfGroupStore.GROUP_READING,
-                BookshelfGroupStore.GROUP_FATTEN,
-                BookshelfGroupStore.GROUP_FINISHED,
             ) + gs.map { it.id }
             if (selectedGroup !in validIds) {
                 selectedGroup = BookshelfGroupStore.GROUP_ALL
@@ -255,41 +256,19 @@ fun BookshelfScreen(
 
     // ---------------- 数据计算 ----------------
 
-    // 智能分组成员判定
-    fun isReading(n: Novel) = n.lastReadChapter > 0 && n.readFraction() < 1f
-    fun isFatten(n: Novel) = (updates[n.id]?.newChapters ?: 0) > 0
-    fun isFinished(n: Novel) =
-        n.totalChapters > 0 && n.lastReadChapter > 0 &&
-            n.lastReadChapter >= n.totalChapters - 1
-
     data class ShelfGroup(val id: String, val name: String, val count: Int)
 
-    val shelfGroups = remember(books, updates, customGroups) {
-        val smart = listOf(
+    // v0.179.0：只留全部（放最前面）+ 自定义分组，智能分组已删。
+    val shelfGroups = remember(books, customGroups) {
+        listOf(
             ShelfGroup(BookshelfGroupStore.GROUP_ALL, "全部", books.size),
-            ShelfGroup(
-                BookshelfGroupStore.GROUP_READING, "在读",
-                books.count { isReading(it) },
-            ),
-            ShelfGroup(
-                BookshelfGroupStore.GROUP_FATTEN, "养肥",
-                books.count { isFatten(it) },
-            ),
-            ShelfGroup(
-                BookshelfGroupStore.GROUP_FINISHED, "已读完",
-                books.count { isFinished(it) },
-            ),
-        )
-        smart + customGroups.map { g ->
+        ) + customGroups.map { g ->
             ShelfGroup(g.id, g.name, books.count { g.novelIds.contains(it.id) })
         }
     }
 
     val visibleBooks = remember(books, selectedGroup, sortMode, progressMap, updates, customGroups) {
         val filtered = when (selectedGroup) {
-            BookshelfGroupStore.GROUP_READING -> books.filter { isReading(it) }
-            BookshelfGroupStore.GROUP_FATTEN -> books.filter { isFatten(it) }
-            BookshelfGroupStore.GROUP_FINISHED -> books.filter { isFinished(it) }
             BookshelfGroupStore.GROUP_ALL -> books
             else -> {
                 val ids = customGroups.find { it.id == selectedGroup }?.novelIds?.toSet()
@@ -315,6 +294,8 @@ fun BookshelfScreen(
 
     val sortNames = listOf("最近阅读", "更新时间", "书名", "阅读进度")
     var showSortMenu by remember { mutableStateOf(false) }
+    // v0.179.0：右上角三点菜单（添加本地/书源管理）。
+    var showTopMenu by remember { mutableStateOf(false) }
     // v0.178.0：下拉刷新状态，复用首页同款官方 PullToRefreshBox。
     val pullRefreshState = rememberPullToRefreshState()
 
@@ -380,7 +361,8 @@ fun BookshelfScreen(
                 },
             )
         }
-        // v0.178.0：正常模式无标题栏、无数据条，顶部只留三个小按钮，
+        // v0.179.0：正常模式无标题栏、无数据条，顶部右上角只留搜索 +
+        // 三点菜单（参考阅读布局）；添加本地/书源管理收进菜单里。
         // 检查更新改下拉刷新、批量管理改长按进多选；
         // 多选模式仍用上面那个“已选 N 本”操作栏。
 
@@ -391,29 +373,50 @@ fun BookshelfScreen(
         ) {
             Spacer(Modifier.height(12.dp))
 
-            // v0.178.0：只留搜索/添加本地/书源管理三个。添加原来下拉里
-            // 只有“添加本地书籍”一项，点开就是多余一步，直接走导入。
+            // v0.179.0：搜索留在外面，添加本地/书源管理进三点菜单。
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(
-                    onClick = { pickTxt.launch("text/plain") },
-                    enabled = !importing,
-                ) {
-                    Icon(Icons.Filled.Add, "添加本地书籍")
-                }
                 IconButton(onClick = onFindBookClick) {
                     Icon(Icons.Filled.Search, "找书")
                 }
-                IconButton(onClick = onManageSourcesClick) {
-                    Icon(Icons.Filled.Storage, "书源管理")
+                Box {
+                    IconButton(onClick = { showTopMenu = true }) {
+                        Icon(Icons.Filled.MoreVert, "更多")
+                    }
+                    DropdownMenu(
+                        expanded = showTopMenu,
+                        onDismissRequest = { showTopMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("添加本地书籍") },
+                            enabled = !importing,
+                            leadingIcon = {
+                                Icon(Icons.Filled.Add, contentDescription = null)
+                            },
+                            onClick = {
+                                showTopMenu = false
+                                pickTxt.launch("text/plain")
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("书源管理") },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Storage, contentDescription = null)
+                            },
+                            onClick = {
+                                showTopMenu = false
+                                onManageSourcesClick()
+                            },
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(2.dp))
 
-            // v0.98.0：分组横滑
+            // v0.179.0：分组横滑只剩全部（最前面）+ 自定义分组。
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(end = 4.dp),
