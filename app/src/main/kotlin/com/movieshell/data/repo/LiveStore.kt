@@ -3,6 +3,7 @@ package com.movieshell.data.repo
 import android.content.Context
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DEFAULT_UA
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -185,12 +186,29 @@ object LiveStore {
         val emptySources = mutableListOf<String>()
         out += readManual(context).map { it.copy(favorite = favs.contains(it.id)) }
         for (s in _sources.value) {
-            val text = when (s.type) {
-                LiveSource.LOCAL_FILE -> runCatching { File(s.url).readText() }.getOrNull()
-                else -> withTimeoutOrNull(15_000) { downloadText(s.url) }
+            // v0.173.0：单源下载失败（HTTP 404/403、断连、超时）只记清单、不抛异常。
+            // 之前 downloadText 抛 IllegalStateException("HTTP 404")，withTimeoutOrNull
+            // 只拦超时不拦它，异常一路穿出 refresh，撞上管理页那几个没包 runCatching
+            // 的 scope.launch（主线程协程）就直接闪退；其余正常源也被连坐丢掉。
+            val text: String?
+            var failReason: String? = null
+            try {
+                text = when (s.type) {
+                    LiveSource.LOCAL_FILE -> runCatching { File(s.url).readText() }.getOrNull()
+                    else -> withTimeoutOrNull(15_000) { downloadText(s.url) }
+                }
+                if (text == null && s.type != LiveSource.LOCAL_FILE) failReason = "超时"
+            } catch (e: CancellationException) {
+                // 协程取消必须原样抛出，不能当成单源失败吞掉。
+                throw e
+            } catch (e: Exception) {
+                text = null
+                failReason = e.message ?: e.javaClass.simpleName
             }
             if (text == null) {
-                emptySources += "${s.name}（下载失败）"
+                val reason = failReason ?: "下载失败"
+                emptySources += "${s.name}（$reason）"
+                LogBus.e("Live", "订阅 ${s.name} 拉取失败：$reason，地址 ${s.url}")
                 continue
             }
             val key = "m3u:${s.name}"
@@ -199,10 +217,12 @@ object LiveStore {
             out += parsed.map { it.copy(favorite = favs.contains(it.id)) }
         }
         // live 插件（v0.23.0 安装时已校验 lives 数组）
+        // v0.173.0：单个插件文件读不出也只跳过，不让 refresh 整体抛。
         StoragePaths.liveDir(context).listFiles { f -> f.isFile && f.name.endsWith(".json") }
             .orEmpty().sortedBy { it.name }.forEach { f ->
                 val key = "plugin:${f.nameWithoutExtension}"
-                out += parseLiveJson(f.readText(), key).map { it.copy(favorite = favs.contains(it.id)) }
+                val pluginText = runCatching { f.readText() }.getOrNull() ?: return@forEach
+                out += parseLiveJson(pluginText, key).map { it.copy(favorite = favs.contains(it.id)) }
             }
         _channels.value = out
         LogBus.i("Live", "聚合 ${out.size} 个频道（手动/订阅/插件）")
