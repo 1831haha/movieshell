@@ -1066,11 +1066,19 @@ fun HomeScreen(
                         // 长按走首页下拉刷新同一入口 doRefresh（force=true，绕过
                         // 失败退避），不用再下拉整页。Surface 本身不带 onClick，
                         // 点击/长按全由 combinedClickable 接管，避免双层点击。
+                        // v0.184.0：首页顶栏站源 pill 收窄——原来 weight(1f) 填满整行，
+                        // 名字短如“选择站源”时 pill 也撑得老宽；改成外面包一个
+                        // weight(1f) 的 Box 靠右放 pill，pill 只按内容宽，
+                        // 名字长时顶到 Box 宽再省略，内边距和状态环也同步收一点。
+                        Box(
+                            modifier = Modifier.weight(1f),
+                            contentAlignment = Alignment.CenterEnd,
+                        ) {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             border = BorderStroke(1.5.dp, sourceRingState.color()),
-                            modifier = Modifier.weight(1f).combinedClickable(
+                            modifier = Modifier.combinedClickable(
                                 onClick = { showSourceSheet = true },
                                 onLongClick = {
                                     if (drpyActive) doRefresh() else showSourceSheet = true
@@ -1078,7 +1086,7 @@ fun HomeScreen(
                             ),
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
                             ) {
@@ -1086,9 +1094,9 @@ fun HomeScreen(
                                 // 加载中→黄灯旋转；已选源且有数据→绿；已选源但空→红；未选源/未加载过→灰
                                 StatusRing(
                                     state = sourceRingState,
-                                    diameter = 20.dp,
+                                    diameter = 18.dp,
                                 )
-                                Spacer(Modifier.width(6.dp))
+                                Spacer(Modifier.width(4.dp))
                                 Text(
                                     text = sourceLabel,
                                     color = MaterialTheme.colorScheme.onSurface,
@@ -1101,9 +1109,10 @@ fun HomeScreen(
                                     imageVector = Icons.Filled.ExpandMore,
                                     contentDescription = "切换站源，长按刷新当前源",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp),
+                                    modifier = Modifier.size(16.dp),
                                 )
                             }
+                        }
                         }
                     }
                 }

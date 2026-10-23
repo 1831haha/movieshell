@@ -1,9 +1,11 @@
 package com.movieshell.ui.home
 
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,10 +33,13 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -106,6 +111,7 @@ import kotlinx.coroutines.withContext
  * v0.153.0：打开即定位到当前源——131 个源里当前源靠后时不再从头翻；
  * 只在无搜索、无类型筛选的默认列表下定位一次（筛选会把当前源滤掉，强制定位无意义）。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SourcePickerSheet(
     onDismiss: () -> Unit,
@@ -329,9 +335,15 @@ fun SourcePickerSheet(
     var kindFilter by remember { mutableStateOf<String?>(null) }
     // v0.182.0：三种排列类型，搜索框右边的小宫格按钮点一下换一种：
     // 0=截图式 2 列大卡（默认），1=原来 5 列小图标，2=列表。
+    // v0.184.0：扩到 6 种，点一下依次换，长按直接打开选择菜单：
+    // 0=2 列大卡，1=5 列图标，2=列表，3=1 列宽卡，4=3 列中卡，5=紧凑列表。
     var layoutMode by remember { mutableStateOf(0) }
-    val layoutNames = listOf("大卡", "图标", "列表")
-    val layoutIcons = listOf(Icons.Filled.GridView, Icons.Filled.GridView, Icons.Filled.List)
+    var showLayoutMenu by remember { mutableStateOf(false) }
+    val layoutNames = listOf("大卡", "图标", "列表", "宽卡", "中卡", "紧凑")
+    val layoutIcons = listOf(
+        Icons.Filled.GridView, Icons.Filled.GridView, Icons.Filled.List,
+        Icons.Filled.List, Icons.Filled.GridView, Icons.Filled.List,
+    )
     // 搜索文本 × 类型筛选联动
     val visible = remember(items, query, kindFilter) {
         items.filter { item ->
@@ -396,25 +408,38 @@ fun SourcePickerSheet(
                     )
                 }
             }
-            IconButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "关闭",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            // v0.184.0：关闭改图 2 那种文字 pill（原来 X 图标太小、不起眼），
+            // 背景跟随主题主色浅 tint，换主题色时它也跟着变。
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                    .clickable(onClick = onDismiss)
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "关闭",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
         }
-        // 搜索框：按源名过滤，右边是小宫格切换（点一下换一种排列）。
+        // 搜索框：按源名过滤，右边是小宫格切换（点一下换一种排列，长按打开选择）。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = SoftDimens.PagePadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // v0.184.0：搜索框收窄——提示改短成单行“搜索站源”，
+            // 不再是原来那句长提示换两行把框撑高；框体改浅灰 pill、
+            // 去掉描边，贴近图 2；宫格按钮改宽一点写“宫格·大卡”，
+            // 搜索框自然就窄下来了。
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text("输入站源名称关键词进行检索…", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                placeholder = { Text("搜索站源", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Filled.Search,
@@ -434,31 +459,63 @@ fun SourcePickerSheet(
                     }
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.padding(4.dp))
-            Box(
+                shape = RoundedCornerShape(50),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                ),
                 modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(LocalSoftExtra.current.glass)
-                    .clickable { layoutMode = (layoutMode + 1) % 3 }
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = layoutIcons[layoutMode],
-                        contentDescription = "切换排列",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.padding(2.dp))
-                    Text(
-                        text = layoutNames[layoutMode],
-                        style = SoftType.Caption,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    .weight(1f)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+            )
+            Spacer(Modifier.padding(8.dp))
+            Box {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                        .combinedClickable(
+                            onClick = { layoutMode = (layoutMode + 1) % 6 },
+                            onLongClick = { showLayoutMenu = true },
+                        )
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = layoutIcons[layoutMode],
+                            contentDescription = "切换排列，长按选择",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.padding(2.dp))
+                        Text(
+                            text = "宫格·${layoutNames[layoutMode]}",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                DropdownMenu(
+                    expanded = showLayoutMenu,
+                    onDismissRequest = { showLayoutMenu = false },
+                ) {
+                    layoutNames.forEachIndexed { index, name ->
+                        DropdownMenuItem(
+                            text = { Text(if (index == layoutMode) "$name（当前）" else name) },
+                            leadingIcon = {
+                                Icon(layoutIcons[index], contentDescription = null)
+                            },
+                            onClick = {
+                                layoutMode = index
+                                showLayoutMenu = false
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -485,6 +542,7 @@ fun SourcePickerSheet(
             Spacer(Modifier.height(8.dp))
         }
         // v0.182.0：三种排列，数据同一批（现在的源原样放进去），只换排法。
+        // v0.184.0：扩到 6 种，见 layoutNames。
         if (loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 // 整区加载圈统一为 StatusRing（跑马灯圆环 + 黄色状态点）
@@ -533,7 +591,7 @@ fun SourcePickerSheet(
                     SourceGridCard(item = item)
                 }
             }
-        } else {
+        } else if (layoutMode == 2) {
             LazyColumn(
                 contentPadding = PaddingValues(
                     start = SoftDimens.PagePadding,
@@ -545,6 +603,51 @@ fun SourcePickerSheet(
             ) {
                 items(visible, key = { it.id }) { item ->
                     SourceListRow(item = item)
+                }
+            }
+        } else if (layoutMode == 3) {
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    start = SoftDimens.PagePadding,
+                    end = SoftDimens.PagePadding,
+                    bottom = 16.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(visible, key = { it.id }) { item ->
+                    SourceWideCard(item = item)
+                }
+            }
+        } else if (layoutMode == 4) {
+            LazyVerticalGrid(
+                state = gridState,
+                columns = GridCells.Fixed(3),
+                contentPadding = PaddingValues(
+                    start = SoftDimens.PagePadding,
+                    end = SoftDimens.PagePadding,
+                    bottom = 16.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(visible, key = { it.id }) { item ->
+                    SourceGridCard(item = item)
+                }
+            }
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    start = SoftDimens.PagePadding,
+                    end = SoftDimens.PagePadding,
+                    bottom = 16.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(visible, key = { it.id }) { item ->
+                    SourceCompactRow(item = item)
                 }
             }
         }
@@ -580,13 +683,23 @@ private fun SourceCard2Col(item: PickerItem) {
                     Modifier
                         .background(
                             Brush.linearGradient(brandColors),
-                            RoundedCornerShape(14.dp),
+                            RoundedCornerShape(16.dp),
                         )
                         .padding(1.5.dp)
                 } else Modifier,
             )
-            .clip(RoundedCornerShape(14.dp))
-            .background(LocalSoftExtra.current.glass)
+            .clip(RoundedCornerShape(16.dp))
+            // v0.184.0：源框太不明显——原来毛玻璃底太透，改实色底 + 细描边；
+            // 当前源底色直接取主题品牌色第一色浅 tint，换主题色时它也跟着变，
+            // 不再是写死的绿。
+            .background(
+                if (item.isCurrent) brandColors.first().copy(alpha = 0.16f)
+                else MaterialTheme.colorScheme.surface,
+            )
+            .then(
+                if (item.isCurrent) Modifier
+                else Modifier.border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(16.dp)),
+            )
             .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
             .clickable(onClick = item.onPick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -639,10 +752,15 @@ private fun SourceCard2Col(item: PickerItem) {
 /** 列表式一行：图标 + 名 + 类型/来源，名字长也不怕，适合源多时翻找。 */
 @Composable
 private fun SourceListRow(item: PickerItem) {
+    val brandColors = LocalBrandGradient.current
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(LocalSoftExtra.current.glass)
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                if (item.isCurrent) brandColors.first().copy(alpha = 0.16f)
+                else MaterialTheme.colorScheme.surface,
+            )
+            .border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(16.dp))
             .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
             .clickable(onClick = item.onPick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -680,6 +798,94 @@ private fun SourceListRow(item: PickerItem) {
     }
 }
 
+/** v0.184.0：1 列宽卡——图标 + 名 + 类型/来源一排到底，名字长、想看清时用。 */
+@Composable
+private fun SourceWideCard(item: PickerItem) {
+    val brandColors = LocalBrandGradient.current
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                if (item.isCurrent) brandColors.first().copy(alpha = 0.16f)
+                else MaterialTheme.colorScheme.surface,
+            )
+            .border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(16.dp))
+            .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
+            .clickable(onClick = item.onPick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SourceLogo(logoUrl = item.logoUrl, name = item.name, size = 48.dp)
+            Spacer(Modifier.padding(6.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.name,
+                    style = SoftType.Body,
+                    fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
+                    color = if (item.isCurrent) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${kindLabel(item.kind)} · ${originLabel(item.id)}" +
+                        if (item.isCurrent) " · 当前源" else "",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (item.isCurrent) {
+                Text(
+                    text = "当前",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+/** v0.184.0：紧凑列表——一行到底，图标小、字小，源多时一屏看得多。 */
+@Composable
+private fun SourceCompactRow(item: PickerItem) {
+    val brandColors = LocalBrandGradient.current
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (item.isCurrent) brandColors.first().copy(alpha = 0.16f)
+                else MaterialTheme.colorScheme.surface,
+            )
+            .border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(12.dp))
+            .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
+            .clickable(onClick = item.onPick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SourceLogo(logoUrl = item.logoUrl, name = item.name, size = 28.dp)
+            Spacer(Modifier.padding(4.dp))
+            Text(
+                text = item.name,
+                style = SoftType.Body,
+                fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
+                color = if (item.isCurrent) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = kindLabel(item.kind),
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
 private data class PickerItem(
     val id: String,
     val name: String,
@@ -702,16 +908,23 @@ private fun SourceGridCard(item: PickerItem) {
                     Modifier
                         .background(
                             Brush.linearGradient(brandColors),
-                            RoundedCornerShape(14.dp),
+                            RoundedCornerShape(16.dp),
                         )
                         .padding(1.5.dp)
                 } else Modifier,
             )
-            .clip(RoundedCornerShape(14.dp))
-            .background(LocalSoftExtra.current.glass)
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                if (item.isCurrent) brandColors.first().copy(alpha = 0.16f)
+                else MaterialTheme.colorScheme.surface,
+            )
+            .then(
+                if (item.isCurrent) Modifier
+                else Modifier.border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(16.dp)),
+            )
             .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
             .clickable(onClick = item.onPick)
-            .padding(vertical = 8.dp, horizontal = 4.dp),
+            .padding(vertical = 10.dp, horizontal = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(
