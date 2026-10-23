@@ -30,8 +30,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -57,7 +55,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.movieshell.data.model.Novel
-import com.movieshell.data.repo.ReadingStats
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
@@ -67,9 +64,9 @@ import com.movieshell.ui.theme.LocalBrandGradient
 /**
  * v0.98.0：书架卡片组件。
  * - bookPressable：按压缩放（0.96）微交互，复用音乐四榜卡片的做法。
- * - StatsBar：顶部阅读数据条（毛玻璃卡）。
  * - NovelListCard / NovelGridCard：双视图卡片。
  * - BookshelfEmptyState：趣味空状态。
+ * v0.178.0：阅读数据条已删，不再留死组件。
  */
 
 /** 按压缩放。 */
@@ -108,87 +105,6 @@ fun Modifier.pulseBadge(): Modifier {
         label = "badgeAlpha",
     )
     return this.alpha(alpha)
-}
-
-private fun formatDuration(seconds: Long): String {
-    if (seconds < 60) return "${seconds}秒"
-    val min = seconds / 60
-    if (min < 60) return "${min}分钟"
-    return "${min / 60}小时${min % 60}分"
-}
-
-/** v0.98.0：顶部阅读数据条。 */
-@Composable
-fun StatsBar(stats: ReadingStats) {
-    // v0.109.0 A9：数据条在玻璃卡片上，亮色主题下白底金字难读，用明度自适应金
-    val gold = goldTitleColor()
-    AppCard(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            StatItem(
-                icon = Icons.Filled.Schedule,
-                value = formatDuration(stats.todaySeconds),
-                label = "今日阅读",
-                accent = gold,
-            )
-            StatDivider()
-            StatItem(
-                icon = Icons.Filled.MenuBook,
-                value = "${stats.weekChapters}章",
-                label = "本周章节",
-                accent = gold,
-            )
-            StatDivider()
-            StatItem(
-                icon = Icons.Filled.Whatshot,
-                value = "${stats.streak}天",
-                label = "连续打卡",
-                accent = Color(0xFFFF8A65),
-            )
-        }
-    }
-}
-
-@Composable
-private fun StatItem(icon: ImageVector, value: String, label: String, accent: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = accent,
-                modifier = Modifier.size(16.dp),
-            )
-            Spacer(Modifier.width(4.dp))
-            Text(
-                text = value,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = accent,
-            )
-        }
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun StatDivider() {
-    Box(
-        modifier = Modifier
-            .width(1.dp)
-            .height(36.dp)
-            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)),
-    )
 }
 
 /** 书籍阅读进度（0..1）。 */

@@ -18,11 +18,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -66,18 +69,22 @@ import kotlinx.coroutines.withContext
  * - BookDetailDialog：书籍详情（简介/目录/换源/净化规则/移入分组/删除）。
  * - GroupPickerDialog：选择分组（移入）。
  * - GroupNameDialog：新建/重命名分组。
+ * v0.178.0：长按操作表新增全选/收藏；分组仍走移入分组。
  */
 
 /** 长按操作表。 */
 @Composable
 fun BookActionSheet(
     novel: Novel,
+    isFavorite: Boolean = false,
     onDismiss: () -> Unit,
     onRead: () -> Unit,
     onDetail: () -> Unit,
     onMoveGroup: () -> Unit,
     onChangeSource: () -> Unit,
     onDelete: () -> Unit,
+    onSelectAll: () -> Unit = {},
+    onToggleFavorite: () -> Unit = {},
 ) {
     TechDialog(
         onDismissRequest = onDismiss,
@@ -86,9 +93,15 @@ fun BookActionSheet(
         dismissText = "关闭",
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            SheetRow(Icons.Filled.Checklist, "全选", onSelectAll)
+            SheetRow(Icons.Filled.DriveFileMove, "分组", onMoveGroup)
+            SheetRow(
+                if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                if (isFavorite) "取消收藏" else "收藏",
+                onToggleFavorite,
+            )
             SheetRow(Icons.Filled.PlayArrow, "继续阅读", onRead)
             SheetRow(Icons.Filled.Info, "书籍详情", onDetail)
-            SheetRow(Icons.Filled.DriveFileMove, "移入分组", onMoveGroup)
             SheetRow(Icons.Filled.SwapHoriz, "换书源", onChangeSource)
             SheetRow(
                 Icons.Filled.Delete,

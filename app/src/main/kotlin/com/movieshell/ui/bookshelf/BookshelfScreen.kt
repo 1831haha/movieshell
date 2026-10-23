@@ -34,23 +34,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -80,8 +80,6 @@ import com.movieshell.data.repo.BookmarkStore
 import com.movieshell.data.repo.NovelUpdateInfo
 import com.movieshell.data.repo.NovelUpdateStore
 import com.movieshell.data.repo.ReadingProgressStore
-import com.movieshell.data.repo.ReadingStats
-import com.movieshell.data.repo.ReadingStatsStore
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.goldTitleColor
@@ -93,12 +91,14 @@ import kotlinx.coroutines.withContext
 
 /**
  * v0.98.0：书架重设计（专业 + 可玩性）。
- * - 顶部阅读数据条（今日阅读/本周章节/连续打卡）。
  * - 分组：智能分组（全部/在读/养肥/已读完）+ 用户自定义分组（外部映射表，不动 Novel 本体）。
  * - 双视图（列表/网格）+ 排序（最近阅读/更新时间/书名/阅读进度），偏好持久化。
  * - 批量多选管理（删除/移入分组）；长按操作表；书籍详情弹窗。
  * - 趣味空状态；按压缩放/角标脉冲/分组切换动画微交互。
+ * v0.178.0：阅读数据条整块去掉；顶部小按钮只留搜索/添加本地/书源管理；
+ * 检查更新改成下拉刷新；长按操作表加全选/分组/收藏。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookshelfScreen(
     onNovelClick: (String) -> Unit = {},
@@ -113,7 +113,6 @@ fun BookshelfScreen(
     var books by remember { mutableStateOf<List<Novel>>(emptyList()) }
     var progressMap by remember { mutableStateOf<Map<String, ReadingProgress>>(emptyMap()) }
     var updates by remember { mutableStateOf<Map<String, NovelUpdateInfo>>(emptyMap()) }
-    var stats by remember { mutableStateOf(ReadingStats()) }
     var customGroups by remember { mutableStateOf<List<BookGroup>>(emptyList()) }
     var importing by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
@@ -150,11 +149,9 @@ fun BookshelfScreen(
                 }
             }
             val ups = withContext(Dispatchers.IO) { NovelUpdateStore.getAll(context) }
-            val st = withContext(Dispatchers.IO) { ReadingStatsStore.loadStats(context) }
             val gs = withContext(Dispatchers.IO) { BookshelfGroupStore.list(context) }
             progressMap = pm
             updates = ups
-            stats = st
             customGroups = gs
             // 分组被删了就回全部
             val validIds = setOf(
@@ -233,6 +230,29 @@ fun BookshelfScreen(
         }
     }
 
+    // v0.178.0：收藏不另建表，就是自定义分组里一个叫“收藏”的分组，
+    // 没有就现建，已在里面就取消，删书时随分组映射一起清。
+    fun toggleFavorite(novel: Novel) {
+        scope.launch {
+            var fav = BookshelfGroupStore.list(context).find { it.name == "收藏" }
+            if (fav == null) {
+                fav = BookshelfGroupStore.create(context, "收藏")
+                if (fav.id.isBlank()) {
+                    toast("收藏失败")
+                    return@launch
+                }
+            }
+            val isFav = fav.novelIds.contains(novel.id)
+            if (isFav) {
+                BookshelfGroupStore.removeNovels(context, fav.id, listOf(novel.id))
+            } else {
+                BookshelfGroupStore.addNovels(context, fav.id, listOf(novel.id))
+            }
+            toast(if (isFav) "已取消收藏" else "已收藏")
+            reload()
+        }
+    }
+
     // ---------------- 数据计算 ----------------
 
     // 智能分组成员判定
@@ -295,7 +315,8 @@ fun BookshelfScreen(
 
     val sortNames = listOf("最近阅读", "更新时间", "书名", "阅读进度")
     var showSortMenu by remember { mutableStateOf(false) }
-    var showAddMenu by remember { mutableStateOf(false) }
+    // v0.178.0：下拉刷新状态，复用首页同款官方 PullToRefreshBox。
+    val pullRefreshState = rememberPullToRefreshState()
 
     val pickTxt = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -359,8 +380,9 @@ fun BookshelfScreen(
                 },
             )
         }
-        // v0.177.0：正常模式无标题栏，上面那五个功能移到这里——数据条下方一排右对齐小按钮，
-        // 无标题、无渐变线；多选模式仍用上面那个“已选 N 本”操作栏。
+        // v0.178.0：正常模式无标题栏、无数据条，顶部只留三个小按钮，
+        // 检查更新改下拉刷新、批量管理改长按进多选；
+        // 多选模式仍用上面那个“已选 N 本”操作栏。
 
         Column(
             modifier = Modifier
@@ -369,39 +391,18 @@ fun BookshelfScreen(
         ) {
             Spacer(Modifier.height(12.dp))
 
-            // v0.98.0：阅读数据条
-            StatsBar(stats)
-            // v0.177.0：原标题栏功能移位到这里（正常模式）
+            // v0.178.0：只留搜索/添加本地/书源管理三个。添加原来下拉里
+            // 只有“添加本地书籍”一项，点开就是多余一步，直接走导入。
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box {
-                    IconButton(onClick = { showAddMenu = true }, enabled = !importing) {
-                        Icon(Icons.Filled.Add, "添加书籍")
-                    }
-                    DropdownMenu(
-                        expanded = showAddMenu,
-                        onDismissRequest = { showAddMenu = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("添加本地书籍") },
-                            leadingIcon = {
-                                Icon(Icons.Filled.FolderOpen, contentDescription = null)
-                            },
-                            onClick = {
-                                showAddMenu = false
-                                pickTxt.launch("text/plain")
-                            },
-                        )
-                    }
-                }
-                IconButton(onClick = { checkUpdates() }, enabled = !checking && !importing) {
-                    Icon(Icons.Filled.Refresh, "检查更新")
-                }
-                IconButton(onClick = { selectionMode = true }) {
-                    Icon(Icons.Filled.Checklist, "批量管理")
+                IconButton(
+                    onClick = { pickTxt.launch("text/plain") },
+                    enabled = !importing,
+                ) {
+                    Icon(Icons.Filled.Add, "添加本地书籍")
                 }
                 IconButton(onClick = onFindBookClick) {
                     Icon(Icons.Filled.Search, "找书")
@@ -513,6 +514,14 @@ fun BookshelfScreen(
             }
             Spacer(Modifier.height(4.dp))
 
+            // v0.178.0：下拉刷新 = 原检查更新（获取最新章节），
+            // checking 既是刷新指示也是防重入，空书架无书可查不触发。
+            PullToRefreshBox(
+                state = pullRefreshState,
+                isRefreshing = checking,
+                onRefresh = { checkUpdates() },
+                modifier = Modifier.fillMaxSize(),
+            ) {
             // v0.98.0：内容区（分组切换小动画）
             AnimatedContent(
                 targetState = "$selectedGroup|$viewMode",
@@ -535,7 +544,7 @@ fun BookshelfScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "这个分组还没有书\n长按书籍可移入分组",
+                            "这个分组还没有书\n长按书籍可全选/分组/收藏",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 20.sp,
@@ -598,6 +607,7 @@ fun BookshelfScreen(
                     }
                 }
             }
+            } // v0.178.0：闭合 PullToRefreshBox
         }
     }
 
@@ -633,16 +643,24 @@ fun BookshelfScreen(
         }
     }
 
-    // 长按操作表
+    // 长按操作表（v0.178.0：新增全选/收藏，分组沿用移入分组）
     actionTarget?.let { target ->
         BookActionSheet(
             novel = target,
+            isFavorite = customGroups.find { it.name == "收藏" }
+                ?.novelIds?.contains(target.id) == true,
             onDismiss = { actionTarget = null },
             onRead = { actionTarget = null; openNovel(target) },
             onDetail = { actionTarget = null; detailTarget = target },
             onMoveGroup = { actionTarget = null; groupPickerFor = listOf(target.id) },
             onChangeSource = { actionTarget = null; detailTarget = target },
             onDelete = { actionTarget = null; deleteTarget = target },
+            onSelectAll = {
+                actionTarget = null
+                selectionMode = true
+                selectedIds = visibleBooks.map { it.id }.toSet()
+            },
+            onToggleFavorite = { actionTarget = null; toggleFavorite(target) },
         )
     }
 
