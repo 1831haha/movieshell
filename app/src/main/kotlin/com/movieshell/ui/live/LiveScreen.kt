@@ -29,7 +29,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -49,6 +51,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
@@ -124,7 +127,8 @@ fun LiveScreen(
     var showSearch by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var detailChannel by remember { mutableStateOf<LiveChannel?>(null) }
-    var favOnly by remember { mutableStateOf(false) }
+    // v0.176.0：顶栏已去掉，设置入口改到节目卡齿轮 → DS 式直播设置弹层
+    var showLiveSettings by remember { mutableStateOf(false) }
     // v0.79.0：顶部播放器当前频道；进场自动选中第一个
     // v0.160.0：初值从单例恢复，离页回来也不回首台
     var selected by remember { mutableStateOf<LiveChannel?>(null) }
@@ -207,10 +211,9 @@ fun LiveScreen(
         selected = ch
     }
 
-    val filtered = remember(channels, query, favOnly, selectedLiveSource) {
+    val filtered = remember(channels, query, selectedLiveSource) {
         channels.filter {
             (selectedLiveSource == null || it.sourceKey == selectedLiveSource) &&
-                (!favOnly || it.favorite) &&
                 (query.isBlank() || it.name.contains(query, ignoreCase = true))
         }
     }
@@ -232,17 +235,30 @@ fun LiveScreen(
         val ordered = linkedMapOf<String, List<LiveChannel>>()
         sorted.filterKeys { it.contains("央视") }.forEach { (k, v) -> ordered[k] = v }
         sorted.filterKeys { !it.contains("央视") }.forEach { (k, v) -> ordered[k] = v }
-        ordered
+        // v0.176.0：收藏改成 DS 式一级分组——左列第一项“我的收藏”，
+        // 不再是顶栏星标开关；无收藏时不出现，选中态丢了自动回首组。
+        val withFav = linkedMapOf<String, List<LiveChannel>>()
+        val favs = filtered.filter { it.favorite }
+        if (favs.isNotEmpty()) withFav["我的收藏"] = favs
+        withFav.putAll(ordered)
+        withFav
     }
     val groupNames = remember(groups) { groups.keys.toList() }
-    // 分组选中态：保留旧选（若仍在），否则取首个
+    // 分组选中态：保留旧选（若仍在），否则取首个真实分组——
+    // v0.176.0：“我的收藏”只排第一项，不当默认分组（对标 DS 默认选中卫视频道，
+    // 不是我的收藏），只有用户自己点过它才留。
     LaunchedEffect(groupNames) {
-        if (selectedGroup !in groupNames) selectedGroup = groupNames.firstOrNull()
+        if (selectedGroup !in groupNames) {
+            selectedGroup = groupNames.firstOrNull { it != "我的收藏" }
+                ?: groupNames.firstOrNull()
+        }
     }
     // v0.80.1：selectedGroup 初始为 null（LaunchedEffect 异步才赋值），TreeMap.get(null)
-    // 会直接 NPE 闪退；首帧先兜底取首个分组
+    // 会直接 NPE 闪退；首帧先兜底取首个真实分组（同上，不默认我的收藏）
     val groupChannels = remember(groups, selectedGroup) {
-        val g = selectedGroup ?: groups.keys.firstOrNull()
+        val g = selectedGroup
+            ?: groups.keys.firstOrNull { it != "我的收藏" }
+            ?: groups.keys.firstOrNull()
         if (g == null) emptyList() else groups[g].orEmpty()
     }
     // v0.159.0：中列按台名去重，每台只显示一条——显示的是该台上次选的源，
@@ -274,41 +290,17 @@ fun LiveScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            // v0.96.2：横屏全屏播放时隐藏顶栏
-            if (!fullscreenPlayer) {
-            TabTopBar(
-                title = "直播",
-                actions = {
-                    IconButton(onClick = { showSearch = !showSearch }) {
-                        Icon(Icons.Filled.Search, contentDescription = "搜索频道")
-                    }
-                    IconButton(onClick = { favOnly = !favOnly }) {
-                        Icon(
-                            if (favOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
-                            contentDescription = "只看收藏",
-                            tint = if (favOnly) LocalSoftExtra.current.warning
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(onClick = { doRefresh() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                    }
-                    IconButton(onClick = onManageClick) {
-                        Icon(Icons.Filled.Settings, contentDescription = "订阅管理")
-                    }
-                },
-            )
-            } // v0.96.2 if (!fullscreenPlayer)
-        },
-    ) { inner ->
+    // v0.176.0：直播页顶栏整行去掉——播放器直接贴顶（系统状态栏下方第一行），
+    // 不再留 48dp“直播”标题栏；顶栏四个功能不删，全部移位：
+    // 搜索/收藏/设置 → 节目卡右侧三个图标（对标 DS 频道头齿轮+爱心），
+    // 刷新 → 直播设置弹层右上角；收藏另加左列“我的收藏”分组。
+    Scaffold {
         Column(
-            // v0.124.0：横屏全屏时不套 Scaffold 的 inner padding——它含状态栏/导航栏
-            // insets，播放器容器被夹小一圈，ZOOM 只能在小容器里裁、黑边依旧；
-            // 窗口层全出血在 PlayerScreen 的 applyImmersiveFullscreen 一并处理
+            // v0.124.0：横屏全屏时不套状态栏内边距——窗口层全出血在
+            // PlayerScreen 的 applyImmersiveFullscreen 一并处理；
+            // 竖屏只留状态栏高度，播放器贴在状态栏正下方，不压系统时间电量。
             modifier = if (fullscreenPlayer) Modifier.fillMaxSize()
-            else Modifier.fillMaxSize().padding(inner),
+            else Modifier.fillMaxSize().statusBarsPadding(),
         ) {
             // 顶部 16:9 播放器；v0.96.2：横屏全屏时占满（PlayerScreen 调用点唯一，不重建播放器）
             val playing = selected
@@ -375,7 +367,17 @@ fun LiveScreen(
             // v0.96.2：横屏全屏只留播放器，其他 UI 隐藏
             if (!fullscreenPlayer) {
             // 节目信息卡：台标 + 正在播/下一档（对标 DsPlayer）
-            ProgramInfoCard(channel = playing, epg = epg, hasEpgSource = (playing?.epgUrl?.isNotBlank() == true || globalEpg.isNotBlank()))
+            ProgramInfoCard(
+                channel = playing,
+                epg = epg,
+                hasEpgSource = (playing?.epgUrl?.isNotBlank() == true || globalEpg.isNotBlank()),
+                isFavorite = channels.firstOrNull { it.id == playing?.id }?.favorite == true,
+                onSearchClick = { showSearch = !showSearch },
+                onFavoriteClick = {
+                    playing?.let { LiveStore.toggleFavorite(context, it.id) }
+                },
+                onSettingsClick = { showLiveSettings = true },
+            )
             // v0.160.0：同名源行移到播放器下方（原右列删掉）——源1/源2是当前台的全局切换，
             // 不该在每个频道卡片里重复出现；卡片右上角只留星标
             if (sources.size > 1) {
@@ -464,7 +466,7 @@ fun LiveScreen(
                         icon = Icons.Filled.Tv,
                         title = "还没有直播频道",
                         // v0.96.1：插件更新/重装瞬间聚合会短暂为 0，给明确指引而不是干等
-                        hint = "插件更新或重装时请稍候，点右上角刷新重试；\n或点设置添加 M3U 订阅、去插件市场安装 live 插件",
+                        hint = "插件更新或重装时请稍候，在直播设置里点刷新重试；\n或在直播设置里进订阅管理添加 M3U 订阅、去插件市场安装 live 插件",
                     )
                 }
                 return@Column
@@ -523,6 +525,25 @@ fun LiveScreen(
         }
     }
 
+    // v0.176.0：DS 式直播设置弹层（顶栏设置+刷新移进来，订阅管理仍走原整页）
+    if (showLiveSettings) {
+        LiveSettingsSheet(
+            sourceKeys = sourceKeys,
+            selectedLiveSource = selectedLiveSource,
+            globalEpg = globalEpg,
+            onDismiss = { showLiveSettings = false },
+            onRefresh = { doRefresh() },
+            onSelectLiveSource = { key ->
+                selectedLiveSource = key
+                LiveSelection.selectedLiveSource = key
+            },
+            onManageClick = {
+                showLiveSettings = false
+                onManageClick()
+            },
+        )
+    }
+
     // 频道详情（长按）：台标/信息/EPG 当前+后续/收藏/删除
     detailChannel?.let { ch ->
         ChannelDetailSheet(
@@ -542,6 +563,178 @@ fun LiveScreen(
 }
 
 /**
+ * v0.176.0：DS 式直播设置弹层——对标 DS“直播设置”底部弹层：
+ * 标题右上角刷新、两胶囊“切换直播源 / EPG 设置”、源单选列表
+ * （手动/接口标签、“切回接口默认直播源”）。订阅的增删、本地导入、
+ * 手动加频道仍走原“直播订阅管理”整页，本弹层只给入口，不重复造。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LiveSettingsSheet(
+    sourceKeys: List<String>,
+    selectedLiveSource: String?,
+    globalEpg: String,
+    onDismiss: () -> Unit,
+    onRefresh: () -> Unit,
+    onSelectLiveSource: (String?) -> Unit,
+    onManageClick: () -> Unit,
+) {
+    val context = LocalContext.current
+    var tab by remember { mutableStateOf(0) }
+    var epgText by remember(globalEpg) { mutableStateOf(globalEpg) }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(
+            topStart = SoftDimens.CardCorner,
+            topEnd = SoftDimens.CardCorner,
+        ),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "直播设置",
+                    style = SoftType.CardTitle,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onRefresh) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "刷新直播源")
+                }
+            }
+            Text(
+                text = "切换生效直播源 / 配置 EPG 节目单兜底源",
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SourceButton(
+                    label = "切换直播源",
+                    selected = tab == 0,
+                    onClick = { tab = 0 },
+                )
+                SourceButton(
+                    label = "EPG 设置",
+                    selected = tab == 1,
+                    onClick = { tab = 1 },
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            if (tab == 0) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectLiveSource(null) }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "切回接口默认直播源",
+                        style = SoftType.Body,
+                        fontWeight = if (selectedLiveSource == null) FontWeight.Bold else FontWeight.Normal,
+                        color = if (selectedLiveSource == null) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                if (sourceKeys.isEmpty()) {
+                    Text(
+                        text = "暂无直播源",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                sourceKeys.forEach { key ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelectLiveSource(key) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = selectedLiveSource == key,
+                            onClick = { onSelectLiveSource(key) },
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = liveSourceLabel(key),
+                                style = SoftType.Body,
+                                fontWeight = if (selectedLiveSource == key) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Text(
+                            text = if (key == "manual") "手动" else "接口",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else {
+                Text(
+                    text = "全局节目单（兜底）",
+                    style = SoftType.CardTitle,
+                )
+                Text(
+                    text = "本源无节目单时用它查正在播 / 下一档；不填则不兜底，不内置任何源",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                AppTextField(
+                    value = epgText,
+                    onValueChange = { epgText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "https://…/xxx.xml",
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppButton(
+                        text = "保存",
+                        onClick = {
+                            LiveStore.setGlobalEpgUrl(context, epgText)
+                            Toast.makeText(
+                                context,
+                                if (epgText.isBlank()) "已清除全局节目单地址" else "已保存全局节目单地址",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        },
+                        variant = AppButtonVariant.Primary,
+                    )
+                    AppButton(
+                        text = "清除",
+                        onClick = {
+                            epgText = ""
+                            LiveStore.setGlobalEpgUrl(context, "")
+                        },
+                        variant = AppButtonVariant.Secondary,
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            AppButton(
+                text = "直播订阅管理",
+                onClick = onManageClick,
+                variant = AppButtonVariant.Secondary,
+            )
+            Text(
+                text = "添加/删除订阅、导入本地、手动加频道走整页",
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+/**
  * v0.80.0：节目信息卡（对标 DsPlayer 播放器下方那张卡）。
  * 台标 + 正在播 {节目} {开始-结束} / 下一档 {时间} {节目}；无 EPG 时显示频道名。
  */
@@ -550,6 +743,11 @@ private fun ProgramInfoCard(
     channel: LiveChannel?,
     epg: Pair<EpgFetcher.Program?, EpgFetcher.Program?>?,
     hasEpgSource: Boolean = true,
+    // v0.176.0：顶栏去掉后，搜索/收藏/设置移到这张卡右侧（对标 DS 频道头齿轮+爱心）
+    isFavorite: Boolean = false,
+    onSearchClick: () -> Unit = {},
+    onFavoriteClick: () -> Unit = {},
+    onSettingsClick: () -> Unit = {},
 ) {
     val (now, next) = epg ?: (null to null)
     AppCard(
@@ -626,11 +824,29 @@ private fun ProgramInfoCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = if (!hasEpgSource) "暂无节目单，可在直播订阅管理里填全局节目单地址" else "节目单加载中…",
+                        text = if (!hasEpgSource) "暂无节目单，可在直播设置 EPG 里填全局节目单地址" else "节目单加载中…",
                         style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            // v0.176.0：顶栏移过来的三个入口，无频道时只留搜索和设置，收藏无台可收
+            IconButton(onClick = onSearchClick, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Search, contentDescription = "搜索频道", modifier = Modifier.size(20.dp))
+            }
+            if (channel != null) {
+                IconButton(onClick = onFavoriteClick, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = if (isFavorite) "取消收藏" else "收藏",
+                        tint = if (isFavorite) LocalSoftExtra.current.warning
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            IconButton(onClick = onSettingsClick, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Settings, contentDescription = "直播设置", modifier = Modifier.size(20.dp))
             }
         }
     }
