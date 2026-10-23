@@ -334,6 +334,10 @@ class SiteRepository(
         val r = if (site.isPhpSite()) logged(site, "php.search ${site.name}") { PhpCliEngine.search(wd = wd, scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }.orEmpty()
         else if (site.isJavaSpider()) logged(site, "spider.search ${site.name}") { SpiderEngine.search(site, wd) }.orEmpty()
         else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
+        // v0.189.0：聚合搜索的本地 drpy 合成站（key=drpy:active，type=4）必须先于
+        // type4 分发，否则会被当成 PHP 远端站走 Type4Api、api="drpy" 建不出 URL、
+        // 聚合搜索里的 drpy 条目一直空着；这里按 key 分流到当前激活 drpy 引擎
+        else if (site.key == "drpy:active") logged(site, "drpy.search ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.orEmpty()
         else if (site.isType4Site()) logged(site, "type4.search ${site.name}") { type4Api.search(site, wd) }.orEmpty()
         else if (site.isCmsSite()) logged(site, "cms.search ${site.name}") { cmsApi.search(site, wd) }.orEmpty()
         else if (site.isPySite()) logged(site, "py.search ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.search(wd) }.orEmpty()

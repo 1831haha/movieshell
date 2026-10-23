@@ -74,13 +74,19 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
     val groupedResults by vm.groupedResults.collectAsState() // null=尚未搜过
     val skippedLabel by vm.skippedLabel.collectAsState()
     val failedLabel by vm.failedLabel.collectAsState()
+    val onlyCurrentSource by vm.onlyCurrentSource.collectAsState()
+    val currentSourceName by vm.currentSourceName.collectAsState()
 
     // 搜索历史：进入页面读一次，切回页面时刷新
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         vm.refreshHistory()
+        vm.refreshCurrentSourceName()
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) vm.refreshHistory()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                vm.refreshHistory()
+                vm.refreshCurrentSourceName()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -118,6 +124,38 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                 IconButton(onClick = { vm.setQuery("") }) {
                     Icon(Icons.Filled.Clear, contentDescription = "清空")
                 }
+            }
+        }
+
+        // v0.189.0：搜索范围开关——所有源 / 只搜当前源（首页当前源口径：
+        // 订阅当前源 > drpy > PY > PHP；切开关且已搜过时按新范围立即重搜）
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = SoftDimens.PagePadding),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            AppChip(
+                text = "所有源",
+                selected = !onlyCurrentSource,
+                onClick = { vm.setOnlyCurrentSource(false) },
+                small = true,
+            )
+            AppChip(
+                text = "只搜当前源",
+                selected = onlyCurrentSource,
+                onClick = { vm.setOnlyCurrentSource(true) },
+                small = true,
+            )
+            if (onlyCurrentSource) {
+                Text(
+                    text = currentSourceName?.let { "当前源：$it" } ?: "未设置当前源",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
 
@@ -298,6 +336,18 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        // v0.189.0：只搜当前源且无当前源时，空结果不是“没片”，
+                        // 是范围里一个源都没有——说清楚，并给切回所有源的出口
+                        if (onlyCurrentSource && currentSourceName == null) {
+                            Text(
+                                text = "当前没有设置首页源，先去站源管理设一个当前源，或切回所有源再搜",
+                                style = SoftType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(onClick = { vm.setOnlyCurrentSource(false) }) {
+                                Text("切回所有源")
+                            }
+                        }
                         EmptyState(
                             kind = EmptyKind.Empty,
                             icon = Icons.Filled.Search,
@@ -321,6 +371,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                 ) {
                     Text(
                         text = "共 $total 个结果 · ${groups.size} 个源" +
+                            (if (onlyCurrentSource) " · 只搜当前源" else "") +
                             (skippedLabel?.let { " · $it" } ?: "") +
                             (failedLabel?.let { " · $it" } ?: ""),
                         style = SoftType.Caption,

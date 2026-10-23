@@ -159,8 +159,9 @@ fun HomeScreen(
     // v0.139.0：首页空态“去添加站源”入口（站源管理在设置页）
     onManageSources: () -> Unit = {},
     // v0.75.0：继续观看——带集数进详情页（默认走 onVodClick）
-    onContinueWatch: (vodId: String, title: String, episodeIndex: Int) -> Unit =
-        { v, t, _ -> onVodClick(v, t) },
+    // v0.189.0：带源类型和源 key，进详情前先恢复到原来那个源
+    onContinueWatch: (vodId: String, title: String, episodeIndex: Int, sourceType: String, sourceKey: String) -> Unit =
+        { v, t, _, _, _ -> onVodClick(v, t) },
 ) {
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
@@ -1127,6 +1128,7 @@ fun HomeScreen(
                                             onContinueWatch(
                                                 h.vodId, h.title,
                                                 h.episodeIndex.coerceAtLeast(0),
+                                                h.sourceType, h.sourceKey,
                                             )
                                         },
                                         modifier = Modifier.width(180.dp),

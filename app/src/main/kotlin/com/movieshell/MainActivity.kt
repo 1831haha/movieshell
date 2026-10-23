@@ -358,7 +358,33 @@ class MainActivity : ComponentActivity() {
                                 // v0.139.0：首页空态去站源管理（管理入口在设置页）
                                 onManageSources = { navController.navigateTab("settings") },
                                 // v0.75.0：继续观看——带集数进详情页
-                                onContinueWatch = { vodId, title, episode ->
+                                // v0.189.0：进详情前先按追剧同款逻辑恢复源，
+                                // 否则详情按换源后的当前源拉，旧源的 vodId 和集数对不上。
+                                // 旧历史无源、订阅站查不到时保持当前源，不弹错、不清现有源。
+                                onContinueWatch = { vodId, title, episode, sourceType, sourceKey ->
+                                    when (sourceType) {
+                                        "drpy" -> if (sourceKey.isNotBlank()) {
+                                            DetailSiteHolder.site = null
+                                            DrpySourceManager.setActiveRule(sourceKey)
+                                        }
+                                        "py" -> if (sourceKey.isNotBlank()) {
+                                            DetailSiteHolder.site = null
+                                            PySourceManager.setActiveRule(sourceKey)
+                                        }
+                                        "php" -> if (sourceKey.isNotBlank()) {
+                                            DetailSiteHolder.site = null
+                                            PhpSourceManager.setActiveRule(sourceKey)
+                                        }
+                                        "sub" -> if (sourceKey.isNotBlank()) {
+                                            SubSiteStore.findSite(
+                                                this@MainActivity,
+                                                sourceKey,
+                                            )?.let { (u, r) ->
+                                                DetailSiteHolder.site = SubSiteStore.toSite(u, r)
+                                            }
+                                        }
+                                        else -> {}
+                                    }
                                     navController.navigate(
                                         "detail/${Uri.encode(vodId)}?title=${Uri.encode(title)}&episode=$episode",
                                     )

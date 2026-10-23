@@ -218,6 +218,18 @@ fun PlayerScreen(
             ?: PySourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
             ?: PhpSourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
     }
+    // v0.189.0：与 playSourceKey 同一次快照的源类型（sub/drpy/py/php），
+    // 口径与详情页追剧的 followSourceType 一致；无源时为 ""，不冒充 sub。
+    // 只在进入播放页时快照一次，退出保存进度时传快照，不现取已换过的激活规则。
+    val playSourceType = remember {
+        when {
+            DetailSiteHolder.site != null -> "sub"
+            DrpySourceManager.hasActiveRule() -> "drpy"
+            PySourceManager.hasActiveRule() -> "py"
+            PhpSourceManager.activeRuleName() != null -> "php"
+            else -> ""
+        }
+    }
     val scope = rememberCoroutineScope()
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     // v0.109.0 A2：双引擎画面 View 引用（keepScreenOn 用，Media3/libmpv 统一）
@@ -352,6 +364,7 @@ fun PlayerScreen(
             savePlayerProgress(
                 context, currentTitle, currentPlayUrl, isLive,
                 vodId, PlaySession.episodeIndex,
+                playSourceType, playSourceKey.orEmpty(),
             )
             // v0.63.0：看完自动删——本地下载文件播到 95% 以上且开关开着，删文件+清任务
             maybeAutoDeleteWatched(context, currentPlayUrl, isLive)
@@ -737,6 +750,7 @@ fun PlayerScreen(
                 savePlayerProgress(
                     context, title, prev, isLive,
                     vodId, lastEpIdx,
+                    playSourceType, playSourceKey.orEmpty(),
                 )
             }
             // v0.21.0：换地址清除自动换内核覆盖，回到用户持久化选择
@@ -2115,6 +2129,8 @@ private fun savePlayerProgress(
     isLive: Boolean = false,
     vodId: String? = null,
     episodeIndex: Int = -1,
+    sourceType: String = "",
+    sourceKey: String = "",
 ) {
     val position = EngineHost.currentPosition()
     // v0.24.0：直播无进度概念也记一条（position 0），kind=live 供历史页分流
@@ -2129,6 +2145,9 @@ private fun savePlayerProgress(
         // v0.75.0：继续观看用——记下剧 ID 和集数
         vodId = vodId.orEmpty(),
         episodeIndex = episodeIndex,
+        // v0.189.0：继续观看跳源用——记下本会话快照的源类型和源 key
+        sourceType = sourceType,
+        sourceKey = sourceKey,
     )
 }
 

@@ -48,6 +48,26 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
     private val _failedLabel = MutableStateFlow<String?>(null)
     val failedLabel: StateFlow<String?> = _failedLabel
 
+    /**
+     * v0.189.0：搜索范围开关——false=所有源（默认，旧行为），true=只搜当前源。
+     * 存在 SharedPreferences 里，重启后仍保持上次选择；切开关且已有提交词时
+     * 立即按新范围重搜，不用用户重新输入。
+     */
+    private val _onlyCurrentSource = MutableStateFlow(
+        getApplication<Application>().getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+            .getBoolean(KEY_ONLY_CURRENT, false),
+    )
+    val onlyCurrentSource: StateFlow<Boolean> = _onlyCurrentSource
+
+    /** v0.189.0：只搜当前源时的当前源展示名，null=未设置任何当前源 */
+    private val _currentSourceName = MutableStateFlow<String?>(null)
+    val currentSourceName: StateFlow<String?> = _currentSourceName
+
+    companion object {
+        private const val PREFS = "search_prefs"
+        private const val KEY_ONLY_CURRENT = "only_current_source"
+    }
+
     // 聚合搜索 repo：drpy / PY 走当前激活规则的引擎适配器
     private val repo = SiteRepository(
         drpyEngine = DrpySourceManager.drpyEngineAdapter,
@@ -59,6 +79,22 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         refreshHistory()
+        refreshCurrentSourceName()
+    }
+
+    /** v0.189.0：切开关（持久化；已有提交词时按新范围立即重搜）。 */
+    fun setOnlyCurrentSource(only: Boolean) {
+        if (_onlyCurrentSource.value == only) return
+        _onlyCurrentSource.value = only
+        getApplication<Application>().getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_ONLY_CURRENT, only).apply()
+        val t = _submitted.value
+        if (t.isNotBlank()) doSearch(t)
+    }
+
+    /** v0.189.0：刷新当前源展示名（进搜索页 / 切回页面时调，源可能已在别处换过）。 */
+    fun refreshCurrentSourceName() {
+        _currentSourceName.value = currentSourceName(getApplication())
     }
 
     fun setQuery(q: String) {
@@ -107,9 +143,22 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
         // v0.109.0 A4：连续搜索取消前一次——旧慢请求后返回覆盖新结果；try/finally
         // 保证被取消时 spinner 也能落下
         searchJob?.cancel()
+        // v0.189.0：只搜当前源且无当前源时直接出空结果，不进 loadFromConfig——
+        // 空 sites 配置会被 repo 当成残缺订阅而保留旧站源列表，搜出来就变全量了
+        refreshCurrentSourceName()
+        if (_onlyCurrentSource.value && _currentSourceName.value == null) {
+            searchJob = null
+            _groupedResults.value = emptyList()
+            _skippedLabel.value = null
+            _failedLabel.value = null
+            _searching.value = false
+            return
+        }
         searchJob = viewModelScope.launch {
             try {
-                repo.loadFromConfig(buildSearchConfigJson(getApplication()))
+                repo.loadFromConfig(
+                    buildSearchConfigJson(getApplication(), _onlyCurrentSource.value),
+                )
                 _groupedResults.value = repo.searchAll(t)
                 _skippedLabel.value = SearchSlowSourceFilter.skippedLabel()
                 _failedLabel.value = SiteRepository.failedSearchLabel()

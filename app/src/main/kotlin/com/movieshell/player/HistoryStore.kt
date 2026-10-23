@@ -26,6 +26,10 @@ data class HistoryEntry(
     val vodId: String = "",
     /** v0.75.0：集数下标（老数据缺字段时默认 -1） */
     val episodeIndex: Int = -1,
+    /** v0.189.0：继续观看跳源用（sub/drpy/py/php，老数据缺字段时默认 ""，回退当前源） */
+    val sourceType: String = "",
+    /** v0.189.0：继续观看跳源用（订阅站站点 key 或本地规则名，老数据缺字段时默认 ""） */
+    val sourceKey: String = "",
 )
 
 /**
@@ -59,6 +63,8 @@ object HistoryStore {
         kind: String = "vod",
         vodId: String = "",
         episodeIndex: Int = -1,
+        sourceType: String = "",
+        sourceKey: String = "",
     ) {
         if (url.isBlank()) return
         val list = getHistory(context).toMutableList()
@@ -74,6 +80,8 @@ object HistoryStore {
                 kind = kind,
                 vodId = vodId,
                 episodeIndex = episodeIndex,
+                sourceType = sourceType,
+                sourceKey = sourceKey,
             ),
         )
         while (list.size > MAX_SIZE) list.removeLast()
