@@ -15,14 +15,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -320,6 +324,11 @@ fun SourcePickerSheet(
     val kindsPresent = remember(items) { kindOrder.filter { k -> items.any { it.kind == k } } }
     var query by remember { mutableStateOf("") }
     var kindFilter by remember { mutableStateOf<String?>(null) }
+    // v0.182.0：三种排列类型，搜索框右边的小宫格按钮点一下换一种：
+    // 0=截图式 2 列大卡（默认），1=原来 5 列小图标，2=列表。
+    var layoutMode by remember { mutableStateOf(0) }
+    val layoutNames = listOf("大卡", "图标", "列表")
+    val layoutIcons = listOf(Icons.Filled.GridView, Icons.Filled.GridView, Icons.Filled.List)
     // 搜索文本 × 类型筛选联动
     val visible = remember(items, query, kindFilter) {
         items.filter { item ->
@@ -347,7 +356,7 @@ fun SourcePickerSheet(
             .fillMaxWidth()
             .fillMaxHeight(0.85f),
     ) {
-        // 顶部标题：选择片源 + 共 N 个源
+        // v0.182.0：顶部标题改截图口径“切换站源”，右边加关闭（原来只能下滑关闭）。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -356,7 +365,7 @@ fun SourcePickerSheet(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "选择片源",
+                text = "切换站源",
                 style = SoftType.Title,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -384,36 +393,72 @@ fun SourcePickerSheet(
                     )
                 }
             }
-        }
-        // 搜索框：按源名过滤
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = { Text("搜索源名", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-            leadingIcon = {
+            IconButton(onClick = onDismiss) {
                 Icon(
-                    imageVector = Icons.Filled.Search,
-                    contentDescription = null,
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "关闭",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = { query = "" }) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = "清空",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(20.dp),
+            }
+        }
+        // 搜索框：按源名过滤，右边是小宫格切换（点一下换一种排列）。
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = SoftDimens.PagePadding),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("输入站源名称关键词进行检索…", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Filled.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "清空",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.padding(4.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(LocalSoftExtra.current.glass)
+                    .clickable { layoutMode = (layoutMode + 1) % 3 }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = layoutIcons[layoutMode],
+                        contentDescription = "切换排列",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.padding(2.dp))
+                    Text(
+                        text = layoutNames[layoutMode],
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
         // 小字类型筛选 chips
         if (kindsPresent.isNotEmpty()) {
@@ -436,7 +481,7 @@ fun SourcePickerSheet(
             }
             Spacer(Modifier.height(8.dp))
         }
-        // 4 列小图标卡片网格
+        // v0.182.0：三种排列，数据同一批（现在的源原样放进去），只换排法。
         if (loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 // 整区加载圈统一为 StatusRing（跑马灯圆环 + 黄色状态点）
@@ -450,7 +495,24 @@ fun SourcePickerSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        } else {
+        } else if (layoutMode == 0) {
+            LazyVerticalGrid(
+                state = gridState,
+                columns = GridCells.Fixed(2),
+                contentPadding = PaddingValues(
+                    start = SoftDimens.PagePadding,
+                    end = SoftDimens.PagePadding,
+                    bottom = 16.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(visible, key = { it.id }) { item ->
+                    SourceCard2Col(item = item)
+                }
+            }
+        } else if (layoutMode == 1) {
             LazyVerticalGrid(
                 state = gridState,
                 // v0.167.0：4 列改 5 列（6 列会把 44dp 图标挤到边，名字也没处放）
@@ -468,6 +530,20 @@ fun SourcePickerSheet(
                     SourceGridCard(item = item)
                 }
             }
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    start = SoftDimens.PagePadding,
+                    end = SoftDimens.PagePadding,
+                    bottom = 16.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(visible, key = { it.id }) { item ->
+                    SourceListRow(item = item)
+                }
+            }
         }
     }
 }
@@ -480,6 +556,123 @@ private fun kindLabel(kind: String): String = when (kind) {
     SubSiteStore.KIND_TYPE4 -> "PHP"
     SubSiteStore.KIND_SPIDER -> "spider"
     else -> "不支持"
+}
+
+/**
+ * v0.182.0：卡片第二行不编假数据。截图里“响应速度：秒播/极速”那行，
+ * 咱们源里根本没有测速字段，编一个就是假的；这里只写真实有的：
+ * 本地规则 / 订阅站源 + 是不是当前源。
+ */
+private fun originLabel(id: String): String =
+    if (id.startsWith("sub:")) "订阅站源" else "本地规则"
+
+/** 截图式 2 列大卡：左边源名（可换两行），右边类型小标签，第二行是来源/当前源。 */
+@Composable
+private fun SourceCard2Col(item: PickerItem) {
+    val brandColors = LocalBrandGradient.current
+    Box(
+        modifier = Modifier
+            .then(
+                if (item.isCurrent) {
+                    Modifier
+                        .background(
+                            Brush.linearGradient(brandColors),
+                            RoundedCornerShape(14.dp),
+                        )
+                        .padding(1.5.dp)
+                } else Modifier,
+            )
+            .clip(RoundedCornerShape(14.dp))
+            .background(LocalSoftExtra.current.glass)
+            .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
+            .clickable(onClick = item.onPick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Text(
+                    text = item.name,
+                    style = SoftType.Body,
+                    fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
+                    color = if (item.isCurrent) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.padding(4.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        text = kindLabel(item.kind),
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
+            Text(
+                text = when {
+                    item.unsupportedReason != null -> item.unsupportedReason
+                    item.isCurrent -> "当前源 · ${originLabel(item.id)}"
+                    else -> originLabel(item.id)
+                },
+                style = SoftType.Caption,
+                color = if (item.isCurrent) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 列表式一行：图标 + 名 + 类型/来源，名字长也不怕，适合源多时翻找。 */
+@Composable
+private fun SourceListRow(item: PickerItem) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(LocalSoftExtra.current.glass)
+            .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
+            .clickable(onClick = item.onPick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SourceLogo(logoUrl = item.logoUrl, name = item.name, size = 36.dp)
+            Spacer(Modifier.padding(6.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.name,
+                    style = SoftType.Body,
+                    fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
+                    color = if (item.isCurrent) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${kindLabel(item.kind)} · ${originLabel(item.id)}" +
+                        if (item.isCurrent) " · 当前源" else "",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (item.isCurrent) {
+                Text(
+                    text = "当前",
+                    style = SoftType.Caption,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
 }
 
 private data class PickerItem(
