@@ -35,10 +35,15 @@ object BookmarkStore {
     private fun readAll(f: File): Map<String, List<Bookmark>> = runCatching {
         if (!f.isFile) return emptyMap()
         json.decodeFromString(mapSer, f.readText())
-    }.onFailure { Log.w(TAG, "书签读取失败", it) }.getOrDefault(emptyMap())
+    }.onFailure {
+        Log.w(TAG, "书签读取失败", it)
+        // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+        AtomicFile.preserveCorrupt(f)
+    }.getOrDefault(emptyMap())
 
     private fun writeAll(f: File, map: Map<String, List<Bookmark>>) = runCatching {
-        f.writeText(json.encodeToString(mapSer, map))
+        // v0.170.0：原子写盘（临时文件 + fsync + 改名），写中途被杀不留截断文件
+        AtomicFile.writeText(f, json.encodeToString(mapSer, map))
     }.onFailure { Log.w(TAG, "书签写入失败", it) }
 
     suspend fun list(context: Context, novelId: String): List<Bookmark> =

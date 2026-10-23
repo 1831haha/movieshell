@@ -48,6 +48,8 @@ object FollowStore {
     private const val TAG = "Follow"
     private const val PREFS = "follow_prefs"
     private const val KEY_LIST = "follow_list"
+    /** v0.170.0：解析失败的原串保全键——读坏的旧数据先留证据，下次写盘不再悄悄清空 */
+    private const val KEY_LIST_CORRUPT_BAK = "follow_list_corrupt_bak"
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -84,7 +86,11 @@ object FollowStore {
                     lastEpisodeChangeAt = System.currentTimeMillis(),
                 )
                 val rest = readAll(context).filterNot { it.id == fresh.id }
-                writeAll(context, (listOf(fresh) + rest).sortedByDescending { it.updatedAt })
+                // v0.170.0：写盘失败如实返回 false，不谎报成功
+                if (!writeAll(context, (listOf(fresh) + rest).sortedByDescending { it.updatedAt })) {
+                    Log.w(TAG, "追剧写入失败")
+                    return@runCatching false
+                }
                 refreshFlow(context)
                 true
             }.onFailure { Log.w(TAG, "追剧写入失败", it) }.getOrDefault(false)
@@ -93,7 +99,11 @@ object FollowStore {
     suspend fun unfollow(context: Context, id: String): Boolean =
         withContext(Dispatchers.IO) {
             runCatching {
-                writeAll(context, readAll(context).filterNot { it.id == id })
+                // v0.170.0：写盘失败如实返回 false
+                if (!writeAll(context, readAll(context).filterNot { it.id == id })) {
+                    Log.w(TAG, "取消追剧失败")
+                    return@runCatching false
+                }
                 refreshFlow(context)
                 true
             }.onFailure { Log.w(TAG, "取消追剧失败", it) }.getOrDefault(false)
@@ -103,13 +113,14 @@ object FollowStore {
     suspend fun markWatched(context: Context, id: String, episodeIndex: Int) {
         withContext(Dispatchers.IO) {
             runCatching {
-                writeAll(
+                val ok = writeAll(
                     context,
                     readAll(context).map {
                         if (it.id == id) it.copy(watchedEpisode = maxOf(it.watchedEpisode, episodeIndex))
                         else it
                     },
                 )
+                if (!ok) Log.w(TAG, "markWatched 写入失败")
                 refreshFlow(context)
             }.onFailure { Log.w(TAG, "markWatched 失败", it) }
         }
@@ -120,7 +131,7 @@ object FollowStore {
         withContext(Dispatchers.IO) {
             runCatching {
                 var added = false
-                writeAll(
+                val ok = writeAll(
                     context,
                     readAll(context).map {
                         if (it.id == id && newCount > it.episodeCount) {
@@ -135,6 +146,11 @@ object FollowStore {
                         } else it
                     },
                 )
+                // v0.170.0：写盘失败不算有新增
+                if (!ok) {
+                    Log.w(TAG, "markNew 写入失败")
+                    return@runCatching false
+                }
                 if (added) refreshFlow(context)
                 added
             }.onFailure { Log.w(TAG, "markNew 失败", it) }.getOrDefault(false)
@@ -144,10 +160,11 @@ object FollowStore {
     suspend fun markFinished(context: Context, id: String) =
         withContext(Dispatchers.IO) {
             runCatching {
-                writeAll(
+                val ok = writeAll(
                     context,
                     readAll(context).map { if (it.id == id) it.copy(finished = true) else it },
                 )
+                if (!ok) Log.w(TAG, "markFinished 写入失败")
                 refreshFlow(context)
             }.onFailure { Log.w(TAG, "markFinished 失败", it) }
         }
@@ -156,7 +173,11 @@ object FollowStore {
     suspend fun clearNew(context: Context, id: String) {
         withContext(Dispatchers.IO) {
             runCatching {
-                writeAll(context, readAll(context).map { if (it.id == id) it.copy(hasNew = false) else it })
+                val ok = writeAll(
+                    context,
+                    readAll(context).map { if (it.id == id) it.copy(hasNew = false) else it },
+                )
+                if (!ok) Log.w(TAG, "clearNew 写入失败")
                 refreshFlow(context)
             }.onFailure { Log.w(TAG, "clearNew 失败", it) }
         }
@@ -184,14 +205,25 @@ object FollowStore {
     private fun readAll(context: Context): List<FollowItem> {
         val raw = prefs(context).getString(KEY_LIST, null) ?: return emptyList()
         return runCatching { json.decodeFromString(ListSerializer(FollowItem.serializer()), raw) }
-            .onFailure { Log.w(TAG, "追剧列表解析失败", it) }
+            .onFailure {
+                Log.w(TAG, "追剧列表解析失败", it)
+                // v0.170.0：读坏先把原串保全到备份键，下次写盘不再悄悄清空
+                runCatching {
+                    prefs(context).edit().putString(KEY_LIST_CORRUPT_BAK, raw).apply()
+                }
+            }
             .getOrDefault(emptyList())
     }
 
-    private fun writeAll(context: Context, list: List<FollowItem>) {
-        prefs(context).edit()
+    /**
+     * v0.170.0：commit 同步写盘并返回成败——apply 的失败是静默的，
+     * follow()/unfollow() 原先永远返回 true，写盘失败也谎报成功。
+     * 全部调用方已在 Dispatchers.IO 上，主线程不走这里。
+     */
+    private fun writeAll(context: Context, list: List<FollowItem>): Boolean {
+        return prefs(context).edit()
             .putString(KEY_LIST, json.encodeToString(ListSerializer(FollowItem.serializer()), list))
-            .apply()
+            .commit()
     }
 
     private fun refreshFlow(context: Context) {

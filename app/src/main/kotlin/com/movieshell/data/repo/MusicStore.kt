@@ -36,10 +36,15 @@ object MusicStore {
     private fun readTracks(f: File): List<Track> = runCatching {
         if (!f.isFile) return emptyList()
         json.decodeFromString(ListSerializer(Track.serializer()), f.readText())
-    }.onFailure { Log.w(TAG, "读取失败：${f.name}", it) }.getOrDefault(emptyList())
+    }.onFailure {
+        Log.w(TAG, "读取失败：${f.name}", it)
+        // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+        AtomicFile.preserveCorrupt(f)
+    }.getOrDefault(emptyList())
 
     private fun writeTracks(f: File, list: List<Track>) = runCatching {
-        f.writeText(json.encodeToString(ListSerializer(Track.serializer()), list))
+        // v0.170.0：原子写盘
+        AtomicFile.writeText(f, json.encodeToString(ListSerializer(Track.serializer()), list))
     }.onFailure { Log.w(TAG, "写入失败：${f.name}", it) }
 
     // ---- 本地音乐 ----
@@ -89,10 +94,15 @@ object MusicStore {
     private fun readPlaylists(f: File): List<MusicPlaylist> = runCatching {
         if (!f.isFile) return emptyList()
         json.decodeFromString(ListSerializer(MusicPlaylist.serializer()), f.readText())
-    }.onFailure { Log.w(TAG, "歌单读取失败", it) }.getOrDefault(emptyList())
+    }.onFailure {
+        Log.w(TAG, "歌单读取失败", it)
+        // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+        AtomicFile.preserveCorrupt(f)
+    }.getOrDefault(emptyList())
 
     private fun writePlaylists(f: File, list: List<MusicPlaylist>) = runCatching {
-        f.writeText(json.encodeToString(ListSerializer(MusicPlaylist.serializer()), list))
+        // v0.170.0：原子写盘
+        AtomicFile.writeText(f, json.encodeToString(ListSerializer(MusicPlaylist.serializer()), list))
     }.onFailure { Log.w(TAG, "歌单写入失败", it) }
 
     suspend fun playlistList(context: Context): List<MusicPlaylist> = withContext(Dispatchers.IO) {

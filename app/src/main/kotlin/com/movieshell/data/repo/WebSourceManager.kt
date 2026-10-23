@@ -83,8 +83,13 @@ object WebSourceManager {
         return try {
             val fileName = "web_${System.currentTimeMillis()}.json"
             val obj = JSONObject().put("name", cleanName).put("url", cleanUrl)
-            File(dir, fileName).writeText(obj.toString())
-            WebSite(fileName, cleanName, cleanUrl)
+            // v0.170.0：原子写盘；写盘失败返回 null，不谎报成功
+            if (!AtomicFile.writeText(File(dir, fileName), obj.toString())) {
+                Log.w(TAG, "保存网页站源失败：写盘失败")
+                null
+            } else {
+                WebSite(fileName, cleanName, cleanUrl)
+            }
         } catch (e: Exception) {
             Log.w(TAG, "保存网页站源失败", e)
             null

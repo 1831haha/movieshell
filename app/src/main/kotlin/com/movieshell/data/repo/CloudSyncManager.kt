@@ -57,7 +57,10 @@ object CloudSyncManager {
     suspend fun backup(context: Context): String? = withContext(Dispatchers.IO) {
         val c = getConfig(context)
         if (c.url.isBlank()) return@withContext "先配置 WebDAV 服务器地址"
-        val json = BackupManager.exportJson(context)
+        val json = when (val r = BackupManager.exportJson(context)) {
+            is BackupManager.ExportResult.Ok -> r.json
+            is BackupManager.ExportResult.Failed -> return@withContext r.reason
+        }
         val err = WebDavClient.put(c.url, c.user, c.pass, REMOTE_NAME, json.toByteArray(Charsets.UTF_8))
         if (err == null) {
             markSynced(context)

@@ -46,7 +46,11 @@ object MusicSourceStore {
             return@withContext s
         }
         runCatching { json.decodeFromString(ser, f.readText()) }
-            .onFailure { LogBus.w(TAG, "音乐源读取失败：${it.message}") }
+            .onFailure {
+                LogBus.w(TAG, "音乐源读取失败：${it.message}")
+                // v0.170.0：读坏先保全原文件，种子源写盘不再悄悄清空旧数据
+                AtomicFile.preserveCorrupt(f)
+            }
             .getOrDefault(seeds())
     }
 
@@ -112,6 +116,7 @@ object MusicSourceStore {
         }
 
     private fun writeAll(f: File, sources: List<MusicSource>) = runCatching {
-        f.writeText(json.encodeToString(ser, sources))
+        // v0.170.0：原子写盘
+        AtomicFile.writeText(f, json.encodeToString(ser, sources))
     }.onFailure { LogBus.w(TAG, "音乐源写入失败：${it.message}") }
 }

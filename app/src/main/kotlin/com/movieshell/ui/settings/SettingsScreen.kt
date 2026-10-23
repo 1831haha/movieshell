@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.download.SubRefreshWorker
+import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.repo.BackupManager
 import com.movieshell.data.repo.CloudSyncManager
 import com.movieshell.data.repo.DownloadStore
@@ -177,7 +178,20 @@ fun SettingsScreen(
         try {
             val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val file = File(StoragePaths.backupDir(context), "movieshell_backup_$ts.json")
-            file.writeText(BackupManager.exportJson(context))
+            val json = when (val r = BackupManager.exportJson(context)) {
+                is BackupManager.ExportResult.Ok -> r.json
+                is BackupManager.ExportResult.Failed -> {
+                    LogBus.e("Backup", "备份导出失败：${r.reason}")
+                    Toast.makeText(context, "导出失败：${r.reason}", Toast.LENGTH_LONG).show()
+                    return
+                }
+            }
+            // v0.170.0：原子写盘，写盘失败如实报错，不谎报已导出
+            if (!AtomicFile.writeText(file, json)) {
+                LogBus.e("Backup", "备份导出失败：写盘失败")
+                Toast.makeText(context, "导出失败：写盘失败", Toast.LENGTH_LONG).show()
+                return
+            }
             LogBus.i("Backup", "备份已导出：${file.absolutePath}")
             Toast.makeText(context, "备份已导出：${file.absolutePath}", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {

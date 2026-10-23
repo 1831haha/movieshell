@@ -69,7 +69,11 @@ object SourceProbeStore {
         val f = File(context.filesDir, FILE_NAME)
         if (!f.isFile) return@withContext
         val r = runCatching { json.decodeFromString<ProbeReport>(f.readText()) }
-            .onFailure { Log.w(TAG, "读取检测结果失败", it) }
+            .onFailure {
+                Log.w(TAG, "读取检测结果失败", it)
+                // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+                AtomicFile.preserveCorrupt(f)
+            }
             .getOrNull() ?: return@withContext
         _report.value = r
         _map.value = r.records.associateBy { probeKey(it.kind, it.name) }
@@ -78,8 +82,11 @@ object SourceProbeStore {
     suspend fun saveReport(context: Context, report: ProbeReport) =
         withContext(Dispatchers.IO) {
             runCatching {
-                File(context.filesDir, FILE_NAME)
-                    .writeText(json.encodeToString(ProbeReport.serializer(), report))
+                // v0.170.0：原子写盘
+                AtomicFile.writeText(
+                    File(context.filesDir, FILE_NAME),
+                    json.encodeToString(ProbeReport.serializer(), report),
+                )
             }.onFailure { Log.w(TAG, "写入检测结果失败", it) }
             _report.value = report
             _map.value = report.records.associateBy { probeKey(it.kind, it.name) }

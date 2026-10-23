@@ -36,12 +36,20 @@ object NovelStore {
         if (!f.isFile) return emptyList()
         return runCatching {
             json.decodeFromString(ListSerializer(Novel.serializer()), f.readText())
-        }.onFailure { Log.w(TAG, "书架索引读取失败", it) }.getOrDefault(emptyList())
+        }.onFailure {
+            Log.w(TAG, "书架索引读取失败", it)
+            // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+            AtomicFile.preserveCorrupt(f)
+        }.getOrDefault(emptyList())
     }
 
     private fun writeIndex(context: Context, list: List<Novel>) {
         runCatching {
-            indexFile(context).writeText(json.encodeToString(ListSerializer(Novel.serializer()), list))
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(
+                indexFile(context),
+                json.encodeToString(ListSerializer(Novel.serializer()), list),
+            )
         }.onFailure { Log.w(TAG, "书架索引写入失败", it) }
     }
 
@@ -61,9 +69,12 @@ object NovelStore {
                 val fixed = chapters.mapIndexed { i, c ->
                     c.copy(novelId = novel.id, index = i)
                 }
-                chaptersFile(context, novel.id).writeText(
-                    json.encodeToString(ListSerializer(Chapter.serializer()), fixed),
-                )
+                // v0.170.0：原子写盘；写盘失败如实返回 false，不谎报导入成功
+                if (!AtomicFile.writeText(
+                        chaptersFile(context, novel.id),
+                        json.encodeToString(ListSerializer(Chapter.serializer()), fixed),
+                    )
+                ) return@runCatching false
                 val old = readIndex(context).firstOrNull { it.id == novel.id }
                 val merged = novel.copy(
                     totalChapters = fixed.size,
@@ -86,18 +97,25 @@ object NovelStore {
         runCatching {
             // v0.107.0 P0-6：追更/换源只带目录不带正文——content 为空的新章节不许覆盖
             // 已有缓存正文（按标题匹配，防源方目录乱序 graft 错章）
+            val cf = chaptersFile(context, novelId)
             val oldByTitle = runCatching {
-                val f = chaptersFile(context, novelId)
-                if (!f.isFile) emptyList()
-                else json.decodeFromString(ListSerializer(Chapter.serializer()), f.readText())
+                if (!cf.isFile) emptyList()
+                else json.decodeFromString(ListSerializer(Chapter.serializer()), cf.readText())
+            }.onFailure {
+                Log.w(TAG, "旧章节读取失败", it)
+                // v0.170.0：读坏先保全原文件
+                AtomicFile.preserveCorrupt(cf)
             }.getOrDefault(emptyList()).associateBy { it.title }
             val fixed = chapters.mapIndexed { i, c ->
                 val keep = c.content.ifBlank { oldByTitle[c.title]?.content.orEmpty() }
                 c.copy(novelId = novelId, index = i, content = keep)
             }
-            chaptersFile(context, novelId).writeText(
-                json.encodeToString(ListSerializer(Chapter.serializer()), fixed),
-            )
+            // v0.170.0：原子写盘；写盘失败如实返回 false
+            if (!AtomicFile.writeText(
+                    chaptersFile(context, novelId),
+                    json.encodeToString(ListSerializer(Chapter.serializer()), fixed),
+                )
+            ) return@runCatching false
             val list = readIndex(context).toMutableList()
             val i = list.indexOfFirst { it.id == novelId }
             if (i < 0) return@runCatching false
@@ -124,7 +142,11 @@ object NovelStore {
             if (!f.isFile) return@withContext emptyList()
             runCatching {
                 json.decodeFromString(ListSerializer(Chapter.serializer()), f.readText())
-            }.onFailure { Log.w(TAG, "章节读取失败", it) }.getOrDefault(emptyList())
+            }.onFailure {
+                Log.w(TAG, "章节读取失败", it)
+                // v0.170.0：读坏先保全原文件
+                AtomicFile.preserveCorrupt(f)
+            }.getOrDefault(emptyList())
         }
 
     suspend fun chapter(context: Context, novelId: String, index: Int): Chapter? =
@@ -151,7 +173,11 @@ object NovelStore {
                 if (!f.isFile) return@runCatching
                 val list = json.decodeFromString(ListSerializer(Chapter.serializer()), f.readText())
                 val updated = list.map { if (it.index == index) it.copy(content = content) else it }
-                f.writeText(json.encodeToString(ListSerializer(Chapter.serializer()), updated))
+                // v0.170.0：原子写盘
+                AtomicFile.writeText(
+                    f,
+                    json.encodeToString(ListSerializer(Chapter.serializer()), updated),
+                )
             }.onFailure { Log.w(TAG, "章节正文缓存失败", it) }
         }
 

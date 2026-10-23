@@ -61,7 +61,8 @@ object HomeCache {
     fun saveCategoryVods(context: Context, key: String, typeId: String, vods: List<Vod>) {
         val e = CatEntry(savedAt = System.currentTimeMillis(), vods = vods)
         runCatching {
-            catFile(context, key, typeId).writeText(json.encodeToString(CatEntry.serializer(), e))
+            // v0.170.0：原子写盘（缓存可再生，读坏不保全，只防写一半）
+            AtomicFile.writeText(catFile(context, key, typeId), json.encodeToString(CatEntry.serializer(), e))
         }
     }
 
@@ -97,6 +98,9 @@ object HomeCache {
             .getOrNull()
 
     private fun write(context: Context, key: String, e: Entry) {
-        runCatching { file(context, key).writeText(json.encodeToString(Entry.serializer(), e)) }
+        runCatching {
+            // v0.170.0：原子写盘（缓存可再生，读坏不保全，只防写一半）
+            AtomicFile.writeText(file(context, key), json.encodeToString(Entry.serializer(), e))
+        }
     }
 }

@@ -34,6 +34,8 @@ object SniffPatternStore {
             List(arr.length()) { arr.optString(it) }.filter { it.isNotBlank() }
         }.onFailure {
             Log.w(TAG, "读取嗅探正则失败", it)
+            // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+            appContext?.let { ctx -> AtomicFile.preserveCorrupt(java.io.File(ctx.filesDir, FILE)) }
         }.getOrDefault(emptyList())
         cached = list
         return list
@@ -70,7 +72,9 @@ object SniffPatternStore {
             val ctx = appContext ?: return false
             val arr = JSONArray()
             list.forEach { arr.put(it) }
-            java.io.File(ctx.filesDir, FILE).writeText(arr.toString())
+            // v0.170.0：原子写盘，写盘失败如实返回 false
+            val ok = AtomicFile.writeText(java.io.File(ctx.filesDir, FILE), arr.toString())
+            if (!ok) return false
             cached = list
             LogBus.i(TAG, "嗅探正则已保存 ${list.size} 条")
             true

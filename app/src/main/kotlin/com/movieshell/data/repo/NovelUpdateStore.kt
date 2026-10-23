@@ -33,13 +33,21 @@ object NovelUpdateStore {
         val f = File(context.filesDir, FILE_NAME)
         if (!f.isFile) return emptyMap()
         return runCatching { json.decodeFromString(mapSer, f.readText()) }
-            .onFailure { Log.w(TAG, "追更标记读取失败", it) }
+            .onFailure {
+                Log.w(TAG, "追更标记读取失败", it)
+                // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+                AtomicFile.preserveCorrupt(f)
+            }
             .getOrDefault(emptyMap())
     }
 
     private fun writeAll(context: Context, map: Map<String, NovelUpdateInfo>) {
         runCatching {
-            File(context.filesDir, FILE_NAME).writeText(json.encodeToString(mapSer, map))
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(
+                File(context.filesDir, FILE_NAME),
+                json.encodeToString(mapSer, map),
+            )
         }.onFailure { Log.w(TAG, "追更标记写入失败", it) }
     }
 

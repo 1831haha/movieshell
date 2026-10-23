@@ -276,6 +276,8 @@ object SubSiteStore {
                 .caches.associateBy { it.subUrl }
         } catch (e: Exception) {
             Log.w(TAG, "读取 $FILE_NAME 失败", e)
+            // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+            AtomicFile.preserveCorrupt(file)
             emptyMap()
         }
     }
@@ -286,7 +288,8 @@ object SubSiteStore {
                 SubCacheFile.serializer(),
                 SubCacheFile(all.values.toList()),
             )
-            File(context.filesDir, FILE_NAME).writeText(text)
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(File(context.filesDir, FILE_NAME), text)
         } catch (e: Exception) {
             Log.w(TAG, "写入 $FILE_NAME 失败", e)
         }

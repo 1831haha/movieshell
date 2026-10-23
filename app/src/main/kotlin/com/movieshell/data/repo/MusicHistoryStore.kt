@@ -30,13 +30,21 @@ object MusicHistoryStore {
         if (!f.isFile) return emptyList()
         // 读侧去重保序：旧文件/并发写留下的重复词会让 UI 的 raw-string lazy key 撞车
         json.decodeFromString(ListSerializer(String.serializer()), f.readText()).distinct()
-    }.onFailure { Log.w(TAG, "读取失败：${f.name}", it) }.getOrDefault(emptyList())
+    }.onFailure {
+        Log.w(TAG, "读取失败：${f.name}", it)
+        // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+        AtomicFile.preserveCorrupt(f)
+    }.getOrDefault(emptyList())
 
     private fun readTracks(f: File): List<Track> = runCatching {
         if (!f.isFile) return emptyList()
         // 读侧按 id 去重保序：同曲重复记录会让 UI 的 lazy key 撞车
         json.decodeFromString(ListSerializer(Track.serializer()), f.readText()).distinctBy { it.id }
-    }.onFailure { Log.w(TAG, "读取失败：${f.name}", it) }.getOrDefault(emptyList())
+    }.onFailure {
+        Log.w(TAG, "读取失败：${f.name}", it)
+        // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+        AtomicFile.preserveCorrupt(f)
+    }.getOrDefault(emptyList())
 
     // ---- 搜索历史 ----
 
@@ -49,14 +57,20 @@ object MusicHistoryStore {
         if (q.isEmpty()) return@withContext
         val f = File(context.filesDir, SEARCH_FILE)
         val cur = (listOf(q) + readStrings(f).filterNot { it == q }).take(MAX_SEARCH)
-        runCatching { f.writeText(json.encodeToString(ListSerializer(String.serializer()), cur)) }
+        runCatching {
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(f, json.encodeToString(ListSerializer(String.serializer()), cur))
+        }
             .onFailure { Log.w(TAG, "搜索历史写入失败", it) }
     }
 
     suspend fun removeSearch(context: Context, query: String) = withContext(Dispatchers.IO) {
         val f = File(context.filesDir, SEARCH_FILE)
         val cur = readStrings(f).filterNot { it == query }
-        runCatching { f.writeText(json.encodeToString(ListSerializer(String.serializer()), cur)) }
+        runCatching {
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(f, json.encodeToString(ListSerializer(String.serializer()), cur))
+        }
             .onFailure { Log.w(TAG, "搜索历史写入失败", it) }
     }
 
@@ -75,14 +89,20 @@ object MusicHistoryStore {
     suspend fun recordPlay(context: Context, track: Track) = withContext(Dispatchers.IO) {
         val f = File(context.filesDir, PLAY_FILE)
         val cur = (listOf(track) + readTracks(f).filterNot { it.id == track.id }).take(MAX_PLAY)
-        runCatching { f.writeText(json.encodeToString(ListSerializer(Track.serializer()), cur)) }
+        runCatching {
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(f, json.encodeToString(ListSerializer(Track.serializer()), cur))
+        }
             .onFailure { Log.w(TAG, "播放历史写入失败", it) }
     }
 
     suspend fun removePlay(context: Context, id: String) = withContext(Dispatchers.IO) {
         val f = File(context.filesDir, PLAY_FILE)
         val cur = readTracks(f).filterNot { it.id == id }
-        runCatching { f.writeText(json.encodeToString(ListSerializer(Track.serializer()), cur)) }
+        runCatching {
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(f, json.encodeToString(ListSerializer(Track.serializer()), cur))
+        }
             .onFailure { Log.w(TAG, "播放历史写入失败", it) }
     }
 

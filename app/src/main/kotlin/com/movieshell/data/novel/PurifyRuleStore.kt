@@ -2,6 +2,7 @@ package com.movieshell.data.novel
 
 import android.content.Context
 import android.util.Log
+import com.movieshell.data.repo.AtomicFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
@@ -38,7 +39,11 @@ object PurifyRuleStore {
             NovelPurifyEngine.defaultRules().toMutableList()
         } else {
             runCatching { json.decodeFromString(ser, f.readText()).toMutableList() }
-                .onFailure { Log.w(TAG, "净化规则读取失败", it) }
+                .onFailure {
+                    Log.w(TAG, "净化规则读取失败", it)
+                    // v0.170.0：读坏先保全原文件——默认规则补种写盘不再悄悄清空用户规则
+                    AtomicFile.preserveCorrupt(f)
+                }
                 .getOrDefault(NovelPurifyEngine.defaultRules().toMutableList())
         }
         if (!marker.isFile) {
@@ -82,6 +87,7 @@ object PurifyRuleStore {
         }
 
     private fun writeAll(f: File, rules: List<PurifyRule>) = runCatching {
-        f.writeText(json.encodeToString(ser, rules))
+        // v0.170.0：原子写盘
+        AtomicFile.writeText(f, json.encodeToString(ser, rules))
     }.onFailure { Log.w(TAG, "净化规则写入失败", it) }
 }

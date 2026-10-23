@@ -46,11 +46,17 @@ object ReadingStatsStore {
 
     private fun fileOf(context: Context) = java.io.File(context.filesDir, FILE_NAME)
 
-    private fun readFile(context: Context): StatsFile = runCatching {
+    private fun readFile(context: Context): StatsFile {
         val f = fileOf(context)
         if (!f.exists()) return StatsFile()
-        json.decodeFromString(StatsFile.serializer(), f.readText())
-    }.getOrDefault(StatsFile())
+        return runCatching {
+            json.decodeFromString(StatsFile.serializer(), f.readText())
+        }.onFailure {
+            LogBus.w("ReadingStats", "读取失败: ${it.message}")
+            // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+            AtomicFile.preserveCorrupt(f)
+        }.getOrDefault(StatsFile())
+    }
 
     private fun dayKey(timeMs: Long): String = dayFmt().format(Date(timeMs))
 
@@ -112,7 +118,9 @@ object ReadingStatsStore {
         val cutoff = dayKey(endMs - KEEP_DAYS * 24 * 3600 * 1000)
         val pruned = days.filterKeys { it >= cutoff }
         runCatching {
-            fileOf(context).writeText(
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(
+                fileOf(context),
                 json.encodeToString(StatsFile.serializer(), StatsFile(pruned, streak, today)),
             )
         }.onFailure { LogBus.w("ReadingStats", "写入失败: ${it.message}") }

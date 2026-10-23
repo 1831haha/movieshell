@@ -27,14 +27,20 @@ object ReadingProgressStore {
         if (!f.isFile) return emptyList()
         return runCatching {
             json.decodeFromString(ListSerializer(ReadingProgress.serializer()), f.readText())
-        }.onFailure { Log.w(TAG, "进度读取失败", it) }.getOrDefault(emptyList())
+        }.onFailure {
+            Log.w(TAG, "进度读取失败", it)
+            // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+            AtomicFile.preserveCorrupt(f)
+        }.getOrDefault(emptyList())
     }
 
     suspend fun save(context: Context, progress: ReadingProgress) = withContext(Dispatchers.IO) {
         runCatching {
             val fresh = progress.copy(updatedAt = System.currentTimeMillis())
             val rest = readAll(context).filterNot { it.novelId == fresh.novelId }
-            fileOf(context).writeText(
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(
+                fileOf(context),
                 json.encodeToString(ListSerializer(ReadingProgress.serializer()), listOf(fresh) + rest),
             )
         }.onFailure { Log.w(TAG, "进度保存失败", it) }
@@ -48,7 +54,9 @@ object ReadingProgressStore {
     suspend fun clear(context: Context, novelId: String) = withContext(Dispatchers.IO) {
         runCatching {
             val rest = readAll(context).filterNot { it.novelId == novelId }
-            fileOf(context).writeText(
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(
+                fileOf(context),
                 json.encodeToString(ListSerializer(ReadingProgress.serializer()), rest),
             )
         }.onFailure { Log.w(TAG, "进度清除失败", it) }

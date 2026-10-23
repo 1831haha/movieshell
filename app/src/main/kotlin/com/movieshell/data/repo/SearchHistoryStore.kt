@@ -44,6 +44,8 @@ object SearchHistoryStore {
             out.distinct()
         } catch (e: Exception) {
             Log.w(TAG, "读取历史失败", e)
+            // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+            AtomicFile.preserveCorrupt(f)
             emptyList()
         }
     }
@@ -55,7 +57,8 @@ object SearchHistoryStore {
         try {
             val updated = (listOf(q) + list(context, scope).filter { it != q }).take(MAX_SIZE)
             val arr = buildJsonArray { updated.forEach { s: String -> add(JsonPrimitive(s)) } }
-            file(context, scope).writeText(arr.toString())
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(file(context, scope), arr.toString())
         } catch (e: Exception) {
             Log.w(TAG, "写入历史失败", e)
         }
@@ -66,7 +69,8 @@ object SearchHistoryStore {
         try {
             val updated = list(context, scope).filter { it != query.trim() }
             val arr = buildJsonArray { updated.forEach { s: String -> add(JsonPrimitive(s)) } }
-            file(context, scope).writeText(arr.toString())
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(file(context, scope), arr.toString())
         } catch (e: Exception) {
             Log.w(TAG, "删除历史失败", e)
         }
@@ -75,7 +79,8 @@ object SearchHistoryStore {
     /** 清空全部历史。 */
     fun clear(context: Context, scope: String = "") {
         try {
-            file(context, scope).writeText("[]")
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(file(context, scope), "[]")
         } catch (e: Exception) {
             Log.w(TAG, "清空历史失败", e)
         }

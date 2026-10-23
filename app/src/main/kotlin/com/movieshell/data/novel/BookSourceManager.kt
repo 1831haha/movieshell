@@ -2,6 +2,7 @@ package com.movieshell.data.novel
 
 import android.content.Context
 import android.util.Log
+import com.movieshell.data.repo.AtomicFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,7 +42,11 @@ object BookSourceManager {
             (0 until arr.length()).mapNotNull {
                 BookSource.fromJson(arr.getJSONObject(it).toString())
             }
-        }.onFailure { Log.w(TAG, "书源文件读取失败", it) }.getOrDefault(emptyList())
+        }.onFailure {
+            Log.w(TAG, "书源文件读取失败", it)
+            // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+            AtomicFile.preserveCorrupt(f)
+        }.getOrDefault(emptyList())
         // v0.107.0 P0-7：删光就是删光，不再自动复活内置源；
         // 内置源走书源管理页"恢复默认"手动加回（restoreBuiltin）
         _sources.value = list
@@ -51,7 +56,8 @@ object BookSourceManager {
         runCatching {
             val arr = JSONArray()
             _sources.value.forEach { arr.put(it.toJson()) }
-            fileOf(context).writeText(arr.toString())
+            // v0.170.0：原子写盘
+            AtomicFile.writeText(fileOf(context), arr.toString())
         }.onFailure { Log.w(TAG, "书源保存失败", it) }
     }
 

@@ -53,11 +53,17 @@ object BookshelfGroupStore {
         val f = fileOf(context)
         if (!f.exists()) return emptyList()
         json.decodeFromString(GroupFile.serializer(), f.readText()).groups
+    }.onFailure {
+        LogBus.w("BookGroup", "读取失败")
+        // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+        AtomicFile.preserveCorrupt(fileOf(context))
     }.getOrDefault(emptyList())
 
     private fun writeFile(context: Context, groups: List<BookGroup>) {
         runCatching {
-            fileOf(context).writeText(
+            // v0.170.0：原子写盘（临时文件 + fsync + 改名），写中途被杀不留截断文件
+            AtomicFile.writeText(
+                fileOf(context),
                 json.encodeToString(GroupFile.serializer(), GroupFile(groups)),
             )
         }.onFailure { LogBus.w("BookGroup", "写入失败: ${it.message}") }

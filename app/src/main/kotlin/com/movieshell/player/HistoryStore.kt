@@ -1,6 +1,7 @@
 package com.movieshell.player
 
 import android.content.Context
+import android.util.Log
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -34,9 +35,16 @@ data class HistoryEntry(
  */
 object HistoryStore {
 
+    private const val TAG = "HistoryStore"
     private const val PREFS_NAME = "player_history"
     private const val KEY_LIST = "history_list"
+    /** v0.170.0：解析失败的原串保全键——读坏的旧数据先留证据，下次写盘不再悄悄清空 */
+    private const val KEY_LIST_CORRUPT_BAK = "history_list_corrupt_bak"
     private const val MAX_SIZE = 50
+
+    // v0.170.0：ignoreUnknownKeys——HistoryEntry 加字段后，旧文件/新文件互读不再抛错走清空链；
+    // prefs 的 apply 本身是平台级原子写（先写备份文件再改名），文件级 helper 不适用这里。
+    private val json = Json { ignoreUnknownKeys = true }
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -70,14 +78,21 @@ object HistoryStore {
         )
         while (list.size > MAX_SIZE) list.removeLast()
         prefs(context).edit()
-            .putString(KEY_LIST, Json.encodeToString(list))
+            .putString(KEY_LIST, json.encodeToString(list))
             .apply()
     }
 
     /** 读取全部历史记录（按最近播放排序） */
     fun getHistory(context: Context): List<HistoryEntry> {
         val raw = prefs(context).getString(KEY_LIST, null) ?: return emptyList()
-        return runCatching { Json.decodeFromString<List<HistoryEntry>>(raw) }
+        return runCatching { json.decodeFromString<List<HistoryEntry>>(raw) }
+            .onFailure {
+                Log.w(TAG, "历史记录解析失败", it)
+                // v0.170.0：读坏先把原串保全到备份键，下次写盘不再悄悄清空
+                runCatching {
+                    prefs(context).edit().putString(KEY_LIST_CORRUPT_BAK, raw).apply()
+                }
+            }
             .getOrDefault(emptyList())
     }
 
@@ -89,7 +104,7 @@ object HistoryStore {
     fun delete(context: Context, url: String) {
         val list = getHistory(context).filterNot { it.url == url }
         prefs(context).edit()
-            .putString(KEY_LIST, Json.encodeToString(list))
+            .putString(KEY_LIST, json.encodeToString(list))
             .apply()
     }
 

@@ -1,6 +1,7 @@
 package com.movieshell.ui.home
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -108,6 +109,7 @@ import com.movieshell.player.HistoryStore
 import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
+import com.movieshell.ui.components.color
 import com.movieshell.ui.settings.SettingsRow
 import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.FlowingGlowBackground
@@ -895,13 +897,17 @@ fun HomeScreen(
             if (data != null && (data.vods.isNotEmpty() || data.cats.isNotEmpty())) {
                 if (data.cats.isNotEmpty()) vm.setCategories(data.cats)
                 // v0.31.2/v0.44.0：selectedCategory/filterEntries 已由 SavedStateHandle/rememberSaveable 恢复。
-                // 之前停在某个分类就重载它（保证选中和内容一致），否则默认进第一个分类。
+                // 之前停在某个分类就重载它（保证选中和内容一致）；原选是推荐时只恢复推荐，
+                // 不强制进第一个分类（v0.170.0 修复：之前推荐用户会被悄悄切到分类 1）。
                 // v0.145.0：选中与分类一律读 VM 真值（刚写完分类后组合快照还滞后）。
                 val curSel = vm.selectedCategoryId.value
                 if (curSel >= 1 && vm.categories.value.getOrNull(curSel - 1) != null) {
                     LogBus.i("Home", "返回首页：恢复分类 ${vm.categories.value[curSel - 1].typeName}")
                     loadDrpyCategory(curSel, filterMap)
+                } else if (curSel < 1) {
+                    if (data.vods.isNotEmpty()) vm.setRecommend(data.vods)
                 } else if (data.cats.isNotEmpty()) {
+                    // 原选分类已不在列表里，退回第一个分类
                     loadDrpyCategory(1)
                 } else {
                     if (data.vods.isNotEmpty()) vm.setRecommend(data.vods)
@@ -1046,9 +1052,19 @@ fun HomeScreen(
                             )
                         }
                         // 换源胶囊（v0.7.1 入口，v0.60 搬进顶栏一行；v0.62：弹性宽度，源名过长省略）
+                        // v0.170.0：环判定以 drpyReady（有数据）优先于 contentGen == 0——切 tab 重组后
+                        // contentGen 归零、纯推荐恢复又不 bump 世代时，有数据也不应判灰。
+                        // 外圈裹住整个换源胶囊（状态点本身不变），颜色语义不变：加载中黄 / 失败红 / 完成绿。
+                        val sourceRingState = when {
+                            drpyLoading || loadingCat != null -> StatusRingState.Loading
+                            drpyReady -> StatusRingState.Ready
+                            sourceLabel == "选择站源" || contentGen == 0 -> StatusRingState.Idle
+                            else -> StatusRingState.Failed
+                        }
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.5.dp, sourceRingState.color()),
                             onClick = { showSourceSheet = true },
                             modifier = Modifier.weight(1f),
                         ) {
@@ -1060,12 +1076,7 @@ fun HomeScreen(
                                 // v0.141.0：换源图标改状态环（跑马灯＋状态点），与首页加载态联动：
                                 // 加载中→黄灯旋转；已选源且有数据→绿；已选源但空→红；未选源/未加载过→灰
                                 StatusRing(
-                                    state = when {
-                                        drpyLoading || loadingCat != null -> StatusRingState.Loading
-                                        sourceLabel == "选择站源" || contentGen == 0 -> StatusRingState.Idle
-                                        drpyReady -> StatusRingState.Ready
-                                        else -> StatusRingState.Failed
-                                    },
+                                    state = sourceRingState,
                                     diameter = 20.dp,
                                 )
                                 Spacer(Modifier.width(6.dp))
