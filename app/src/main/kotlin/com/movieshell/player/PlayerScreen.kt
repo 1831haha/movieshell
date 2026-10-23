@@ -821,6 +821,9 @@ fun PlayerScreen(
                 }
                 if (link.isNotBlank()) {
                     PlaySession.moveTo(targetLine, targetEpIdx)
+                    // v0.175.0：自动换线路也要通知外部——之前只改了 PlaySession，
+                    // 详情页的选中线路没收到通知，Tab 和源胶囊还停在旧线路上。
+                    onEpisodeChange(targetLine, targetEpIdx)
                     Toast.makeText(
                         context,
                         "已自动切换到「${lines[targetLine].name}」",

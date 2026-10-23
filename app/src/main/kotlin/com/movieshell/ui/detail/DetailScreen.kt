@@ -934,6 +934,12 @@ fun DetailScreen(
                             onEpisodeChange = { lineIdx, epIdx ->
                                 playingLine = lineIdx
                                 playingEp = epIdx
+                                // v0.175.0：播放器内切线路/选集（手动或自动）
+                                // 都要同步详情页的选中态，否则 Tab、源胶囊、
+                                // 选集列表还停在旧线路上；之前只写 playingLine
+                                // 但它没有任何地方读，等于没同步。
+                                selectedLine = lineIdx
+                                selectedEpisode = epIdx
                             },
                         )
                         if (mini) {
