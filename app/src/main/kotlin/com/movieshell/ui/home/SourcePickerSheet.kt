@@ -2,6 +2,7 @@ package com.movieshell.ui.home
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
@@ -72,6 +74,7 @@ import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.faviconUrlForHost
+import com.movieshell.ui.components.hdIconCandidatesForHost
 import com.movieshell.ui.components.hostFromUrl
 import com.movieshell.ui.components.siteLogoUrl
 import java.io.File
@@ -589,18 +592,11 @@ private fun SourceCard2Col(item: PickerItem) {
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Text(
-                    text = item.name,
-                    style = SoftType.Body,
-                    fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
-                    color = if (item.isCurrent) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.padding(4.dp))
+            // v0.183.0：大卡也带高清图标，顶上一排“图标 + 类型标签”，
+            // 名字放下面，不再是纯文字卡，看着像应用图标卡。
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SourceLogo(logoUrl = item.logoUrl, name = item.name, size = 40.dp)
+                Spacer(Modifier.weight(1f))
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
@@ -615,6 +611,15 @@ private fun SourceCard2Col(item: PickerItem) {
                     )
                 }
             }
+            Text(
+                text = item.name,
+                style = SoftType.Body,
+                fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
+                color = if (item.isCurrent) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
             Text(
                 text = when {
                     item.unsupportedReason != null -> item.unsupportedReason
@@ -747,11 +752,26 @@ private fun SourceLogo(logoUrl: String?, name: String, size: Dp) {
     // v0.105.0 口径：明度自适应，luminance>0.5 取深色 0xFF1A1408
     val onGradientColor =
         if (brandColors.map { it.luminance() }.average() > 0.5f) Color(0xFF1A1408) else Color.White
+    // v0.183.0：高清候选链。logoUrl 若是 favicon.ico（16/32px，放大必糊），
+    // 不直接拿它当图，先试本站的 apple-touch-icon / 192，失败逐级降，
+    // 最后一张才是 favicon.ico；ext/内置图本身就是图 URL 的，走单张。
+    val candidates = remember(logoUrl) {
+        if (logoUrl == null) {
+            emptyList()
+        } else if (logoUrl.endsWith("/favicon.ico")) {
+            val host = hostFromUrl(logoUrl)
+            if (host != null) hdIconCandidatesForHost(host) else listOf(logoUrl)
+        } else {
+            listOf(logoUrl)
+        }
+    }
+    var candidateIndex by remember(logoUrl) { mutableStateOf(0) }
     Box(
         modifier = Modifier
             .size(size)
             .clip(RoundedCornerShape(12.dp))
-            .background(Brush.linearGradient(brandColors)),
+            .background(Brush.linearGradient(brandColors))
+            .border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -760,11 +780,18 @@ private fun SourceLogo(logoUrl: String?, name: String, size: Dp) {
             fontWeight = FontWeight.Bold,
             color = onGradientColor,
         )
-        if (logoUrl != null) {
+        if (candidates.isNotEmpty() && candidateIndex < candidates.size) {
             AsyncImage(
-                model = logoUrl,
+                model = candidates[candidateIndex],
                 contentDescription = name,
-                contentScale = ContentScale.Crop,
+                // Fit 不裁切：矩形图不再被 Crop 放大裁掉边缘、糊一圈；
+                // High 缩放：180/192 的高清图缩到 44dp 时边缘更利落。
+                contentScale = ContentScale.Fit,
+                filterQuality = FilterQuality.High,
+                onError = {
+                    if (candidateIndex < candidates.lastIndex) candidateIndex++
+                    else candidateIndex = candidates.size
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(12.dp)),
