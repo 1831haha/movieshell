@@ -190,7 +190,7 @@ object LiveStore {
             // 之前 downloadText 抛 IllegalStateException("HTTP 404")，withTimeoutOrNull
             // 只拦超时不拦它，异常一路穿出 refresh，撞上管理页那几个没包 runCatching
             // 的 scope.launch（主线程协程）就直接闪退；其余正常源也被连坐丢掉。
-            val text: String?
+            var text: String?
             var failReason: String? = null
             try {
                 text = when (s.type) {
