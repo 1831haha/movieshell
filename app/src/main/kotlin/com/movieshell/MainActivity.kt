@@ -99,7 +99,6 @@ import com.movieshell.ui.novel.PurifyRulesScreen
 import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
-import com.movieshell.ui.favorites.FavoritesScreen
 import com.movieshell.ui.follow.FollowScreen
 import com.movieshell.ui.history.HistoryScreen
 import com.movieshell.ui.reader.ReaderScreen
@@ -211,6 +210,14 @@ class MainActivity : ComponentActivity() {
         SpiderEngine.init(this)
         // v0.5.1 升级修复：订阅站源相对路径/丢失规则文件后台修复，不阻塞启动
         lifecycleScope.launch(Dispatchers.IO) {
+            // v0.169.0：收藏功能已删除，清理老数据文件（只跑一次）
+            val migPrefs = getSharedPreferences("movieshell_migrations", android.content.Context.MODE_PRIVATE)
+            if (!migPrefs.getBoolean("legacy_favorites_cleaned_v169", false)) {
+                java.io.File(filesDir, "favorites.json").delete()
+                java.io.File(filesDir, "playlists.json").delete()
+                migPrefs.edit().putBoolean("legacy_favorites_cleaned_v169", true).apply()
+                LogBus.i("App", "已清理老收藏数据文件")
+            }
             SubSiteStore.repairOnUpgrade(this@MainActivity)
             // v0.8.0 升级修复：老缓存里 csp_ 站标的 KIND_UNSUPPORTED 转 KIND_SPIDER
             SubSiteStore.repairSpiderKind(this@MainActivity)
@@ -411,15 +418,6 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("live_manage") {
                             LiveManageScreen(
-                                onBack = { navController.popBackStack() },
-                            )
-                        }
-                        // v0.86.0：收藏独立页（收藏 / 片单）
-                        composable("favorites") {
-                            FavoritesScreen(
-                                onVodClick = { vodId ->
-                                    navController.navigate("detail/${Uri.encode(vodId)}")
-                                },
                                 onBack = { navController.popBackStack() },
                             )
                         }

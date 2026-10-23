@@ -16,7 +16,7 @@ import java.io.File
  * - index.json：全部 Novel 元信息（数组）
  * - {id}.json：该书的章节列表
  *
- * 照 FavoriteStore 的风格：suspend + Dispatchers.IO，异常吞掉打日志。
+ * suspend + Dispatchers.IO，异常吞掉打日志。
  */
 object NovelStore {
 
