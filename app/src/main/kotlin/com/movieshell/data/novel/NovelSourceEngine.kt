@@ -416,6 +416,10 @@ object NovelSourceEngine {
         }
     }
 
+    /** v0.210.0：发现页原网页直渲用：分类 URL 补成完整地址（第 1 页）。 */
+    fun explorePageUrl(source: BookSource, categoryUrl: String): String =
+        resolveUrl(source.url, categoryUrl.replace("{{page}}", "1"))
+
     /** 相对地址按源地址补全（源地址尾斜杠与分类地址首斜杠不重复）。 */
     private fun resolveUrl(base: String, url: String): String {
         if (url.startsWith("http")) return url
