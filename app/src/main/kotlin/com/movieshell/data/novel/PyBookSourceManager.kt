@@ -198,6 +198,23 @@ object PyBookSourceManager {
      * detailContent/playerContent/categoryContent），却没有 bookSearch。
      * 只看文件头 8KB，混淆过的也认得出方法名。
      */
+    /** v0.206.0：长按书源文本编辑——读 .py 文件原文，读不到返回 null。 */
+    suspend fun readContent(context: Context, name: String): String? = withContext(Dispatchers.IO) {
+        runCatching { File(dir(context), name).takeIf { it.isFile }?.readText() }.getOrNull()
+    }
+
+    /** v0.206.0：长按书源文本编辑——整文件写回，成功后重扫规则表（大小刷新）。 */
+    suspend fun writeContent(context: Context, name: String, text: String): Boolean = withContext(Dispatchers.IO) {
+        val ok = runCatching {
+            val f = File(dir(context), name)
+            if (!f.isFile) return@runCatching false
+            f.writeText(text)
+            true
+        }.getOrDefault(false)
+        if (ok) load(context)
+        ok
+    }
+
     private fun looksLikeVideoSpider(head: String): Boolean {
         if (head.contains("bookSearch")) return false
         val marks = listOf(

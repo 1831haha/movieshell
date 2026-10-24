@@ -17,9 +17,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoFixHigh
@@ -39,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
@@ -57,10 +62,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.movieshell.data.novel.BookSource
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.PurifyRuleStore
@@ -73,6 +81,7 @@ import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 /**
  * v0.61.0 书源管理：列表 / 启用开关 / 删除 / 粘贴 JSON 导入。
@@ -111,6 +120,10 @@ fun BookSourceScreen(
     // v0.196.0：长按卡片编辑（仿阅读书源列表）——JSON 改名/地址/分组，PY 改文件名
     var editTarget by remember { mutableStateOf<BookSource?>(null) }
     var editPyTarget by remember { mutableStateOf<PyBookSourceManager.PyBookRule?>(null) }
+    // v0.206.0：长按书源文本编辑——JSON 整条文本、PY 整文件文本
+    var textEditJson by remember { mutableStateOf<BookSource?>(null) }
+    var textEditPy by remember { mutableStateOf<PyBookSourceManager.PyBookRule?>(null) }
+    var textEditPyText by remember { mutableStateOf("") }
     // v0.197.0：阅读式书源列表——顶部搜索过滤 + 批量选择（全选/反选/删除）
     var srcQuery by remember { mutableStateOf("") }
     var batchMode by remember { mutableStateOf(false) }
@@ -363,7 +376,17 @@ fun BookSourceScreen(
                         modifier = Modifier.fillMaxWidth()
                             .combinedClickable(
                                 onClick = { onOpenPySource(r.name) },
-                                onLongClick = { editPyTarget = r },
+                                onLongClick = {
+                                    scope.launch {
+                                        val text = PyBookSourceManager.readContent(context, r.name)
+                                        if (text == null) {
+                                            Toast.makeText(context, "读取失败，请重试", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            textEditPyText = text
+                                            textEditPy = r
+                                        }
+                                    }
+                                },
                             )
                             .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -455,13 +478,13 @@ fun BookSourceScreen(
                 }
             }
             items(shownJson, key = { "json_${it.key}" }) { s ->
-                    // v0.197.0：阅读式 plain 行（点行/长按/✎均进编辑）；行末分隔线
+                    // v0.197.0：阅读式 plain 行（点行/✎进字段编辑）；v0.206.0：长按进文本编辑；行末分隔线
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth()
                                 .combinedClickable(
                                     onClick = { editTarget = s },
-                                    onLongClick = { editTarget = s },
+                                    onLongClick = { textEditJson = s },
                                 )
                                 .padding(vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -849,7 +872,39 @@ fun BookSourceScreen(
         }
     }
 
-    // v0.196.0：长按 PY 卡片重命名——只改文件名，不改文件内容
+    // v0.196.0：✎重命名——只改文件名，不改文件内容；v0.206.0：长按进文本编辑
+    // v0.206.0：长按 JSON 书源文本编辑——整条 JSON 可改，格式不对不保存
+    textEditJson?.let { s ->
+        SourceTextEditorDialog(
+            title = "编辑书源 · ${s.name}",
+            initialText = s.toJson().toString(2),
+            onDismiss = { textEditJson = null },
+            onSave = { text ->
+                val jsonOk = runCatching { JSONObject(text) }.isSuccess
+                if (!jsonOk) {
+                    "JSON 格式不对，未保存"
+                } else if (BookSourceManager.updateSourceJson(context, s.key, text)) {
+                    null
+                } else {
+                    "保存失败：地址与已有书源重复或写盘失败"
+                }
+            },
+        )
+    }
+
+    // v0.206.0：长按 PY 书源文本编辑——整文件可改，保存即生效
+    textEditPy?.let { r ->
+        SourceTextEditorDialog(
+            title = "编辑书源 · ${r.title}",
+            initialText = textEditPyText,
+            onDismiss = { textEditPy = null },
+            onSave = { text ->
+                val ok = PyBookSourceManager.writeContent(context, r.name, text)
+                if (ok) null else "保存失败，请重试"
+            },
+        )
+    }
+
     editPyTarget?.let { r ->
         var newBase by remember(r.name) { mutableStateOf(r.title) }
         TechDialog(
@@ -909,5 +964,82 @@ private fun RowScope.ImportAction(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/**
+ * v0.206.0：书源文本编辑——全屏对话框，等宽多行文本，保存回调返回 null 表示成功、
+ * 非空表示失败原因（弹 Toast 后留在编辑器里，不丢已改的文本）。
+ */
+@Composable
+private fun SourceTextEditorDialog(
+    title: String,
+    initialText: String,
+    onDismiss: () -> Unit,
+    onSave: suspend (String) -> String?,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var text by remember { mutableStateOf(initialText) }
+    val scrollState = rememberScrollState()
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onDismiss) { Text("取消") }
+                    Text(
+                        text = title,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    TextButton(onClick = {
+                        scope.launch {
+                            val err = onSave(text)
+                            if (err == null) {
+                                Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
+                                onDismiss()
+                            } else {
+                                Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }) { Text("保存") }
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 12.dp),
+                ) {
+                    BasicTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(scrollState),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                    )
+                }
+            }
+        }
     }
 }

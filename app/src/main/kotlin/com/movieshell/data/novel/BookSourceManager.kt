@@ -180,6 +180,23 @@ object BookSourceManager {
         true
     }
 
+    /**
+     * v0.206.0：长按书源文本编辑——整条 JSON 替换。解析失败、新 key 与已有书源
+     * 撞了、写盘失败都拒绝并回滚。返回 false=拒绝或保存失败。
+     */
+    suspend fun updateSourceJson(context: Context, oldKey: String, jsonText: String): Boolean = mutex.withLock {
+        val parsed = BookSource.fromJson(jsonText) ?: return@withLock false
+        val old = _sources.value
+        val target = old.find { it.key == oldKey } ?: return@withLock false
+        if (parsed.key != oldKey && old.any { it.key == parsed.key }) return@withLock false
+        _sources.value = old.map { if (it.key == oldKey) parsed else it }
+        if (!save(context)) {
+            _sources.value = old
+            return@withLock false
+        }
+        true
+    }
+
     fun enabledSources(): List<BookSource> = synchronized(syncLock) {
         _sources.value.filter { it.enabled }
     }
