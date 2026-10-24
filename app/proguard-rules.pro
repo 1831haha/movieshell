@@ -52,3 +52,10 @@
 # ---------- Rhino JS（阅读式 JS 书源，v0.199.0，反射调用多，全 keep） ----------
 -keep class org.mozilla.javascript.** { *; }
 -dontwarn org.mozilla.javascript.**
+
+# ---------- slf4j（readability4j 的日志门面，v0.202.0 引入；无绑定实现） ----------
+# v0.203.0 fix：readability4j 只带 slf4j-api、不带绑定，LoggerFactory.bind()
+# 引用的 org.slf4j.impl.StaticLoggerBinder 不存在，release R8 在
+# minifyReleaseWithR8 报错致 #393 失败；slf4j-api 无绑定时自动回退 NOP
+# 日志，不影响正文提取，故只 dontwarn、不另引绑定包。
+-dontwarn org.slf4j.**
