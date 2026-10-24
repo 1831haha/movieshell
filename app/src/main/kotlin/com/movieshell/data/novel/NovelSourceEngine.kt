@@ -10,6 +10,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * v0.61.0 书源执行引擎：把 BookSource 规则跑通
@@ -320,6 +322,85 @@ object NovelSourceEngine {
             LegadoJsEngine.evalTextRule(doc, checked.url, source.ruleBookCover, ctx.copy(baseUrl = checked.url), state)
                 .ifBlank { null }
         }
+    }
+
+    /**
+     * v0.201.0：发现页——按分类 URL 抓一页，返回书目。
+     * 规则取 ruleExplore，缺失项回落到 ruleSearch（源只有 exploreUrl 没写
+     * ruleExplore 时也能用）；分类 URL 支持 {{page}} 模板与相对地址（按源地址补全）。
+     */
+    suspend fun explore(source: BookSource, categoryUrl: String, page: Int): List<NovelSearchResult> {
+        if (source.exploreUrl.isBlank()) return emptyList()
+        return withContext(Dispatchers.IO) {
+            val url = resolveUrl(source.url, categoryUrl.replace("{{page}}", page.toString()))
+            val ua = uaOf(source)
+            val first = BookRuleEngine.fetchPage(url, ua) ?: return@withContext emptyList()
+            val state = LegadoJsEngine.JsState(source.key)
+            val ctx = LegadoJsEngine.JsCtx(source = source, baseUrl = first.url, page = page)
+            val checked = LegadoJsEngine.runLoginCheck(source, first, ctx, state) {
+                BookRuleEngine.fetchPage(url, ua)
+            }
+            val listRule = source.ruleExploreList.ifBlank { source.ruleSearchList }
+            if (listRule.isBlank()) return@withContext emptyList()
+            val nameRule = source.ruleExploreName.ifBlank { source.ruleSearchName.ifBlank { "@text" } }
+            val authorRule = source.ruleExploreAuthor.ifBlank { source.ruleSearchAuthor }
+            val bookUrlRule = source.ruleExploreBookUrl.ifBlank { source.ruleSearchBookUrl.ifBlank { "a@href" } }
+            val coverRule = source.ruleExploreCover.ifBlank { source.ruleSearchCover }
+            LegadoJsEngine.evalListRule(checked.body, checked.url, listRule, ctx, state).mapNotNull { el ->
+                val name = LegadoJsEngine.evalTextRule(el, checked.url, nameRule, ctx, state)
+                val bookUrl = LegadoJsEngine.evalTextRule(el, checked.url, bookUrlRule, ctx, state)
+                if (name.isBlank() || bookUrl.isBlank()) return@mapNotNull null
+                NovelSearchResult(
+                    sourceKey = source.key,
+                    remoteId = bookUrl,
+                    title = name,
+                    author = LegadoJsEngine.evalTextRule(el, checked.url, authorRule, ctx, state).ifBlank { null },
+                    cover = LegadoJsEngine.evalTextRule(el, checked.url, coverRule, ctx, state).ifBlank { null },
+                )
+            }
+        }
+    }
+
+    /** 相对地址按源地址补全（源地址尾斜杠与分类地址首斜杠不重复）。 */
+    private fun resolveUrl(base: String, url: String): String {
+        if (url.startsWith("http")) return url
+        val b = base.trimEnd('/')
+        val u = if (url.startsWith("/")) url else "/$url"
+        return b + u
+    }
+
+    /** 发现分类。 */
+    data class ExploreCategory(val title: String, val url: String)
+
+    /**
+     * 解析 exploreUrl：数组形 [{title,url}] 或对象形 {标题: url | {url}}；
+     * 空地址的分组标题行跳过。解析失败返回空列表，不抛。
+     */
+    fun parseExploreCategories(exploreUrl: String): List<ExploreCategory> {
+        val t = exploreUrl.trim()
+        if (t.isEmpty()) return emptyList()
+        return runCatching {
+            if (t.startsWith("[")) {
+                val arr = JSONArray(t)
+                (0 until arr.length()).mapNotNull { i ->
+                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val title = o.optString("title")
+                    val url = o.optString("url")
+                    if (title.isBlank() || url.isBlank()) null else ExploreCategory(title, url)
+                }
+            } else {
+                val o = JSONObject(t)
+                o.keys().asSequence().mapNotNull { title ->
+                    val v = o.opt(title)
+                    val url = when (v) {
+                        is String -> v
+                        is JSONObject -> v.optString("url")
+                        else -> ""
+                    }
+                    if (url.isBlank()) null else ExploreCategory(title, url)
+                }.toList()
+            }
+        }.getOrDefault(emptyList())
     }
 
     // ---------------- v0.64.0 本地 PY 书源链路 ----------------

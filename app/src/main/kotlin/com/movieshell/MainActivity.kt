@@ -95,6 +95,7 @@ import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
 import com.movieshell.ui.bookshelf.BookshelfScreen
 import com.movieshell.ui.novel.BookSourceScreen
+import com.movieshell.ui.novel.ExploreScreen
 import com.movieshell.ui.novel.PurifyRulesScreen
 import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.novel.VerifyGateDialog
@@ -550,8 +551,21 @@ class MainActivity : ComponentActivity() {
                                 onOpenPySource = { ruleName ->
                                     navController.navigate("novel_search?pySource=$ruleName")
                                 },
+                                // v0.201.0：发现页入口（书架子结构内）
+                                onOpenExplore = { key ->
+                                    navController.navigate("explore/${Uri.encode(key)}")
+                                },
                                 // v0.95.0：净化规则管理
                                 onOpenPurifyRules = { navController.navigate("purify_rules") },
+                            )
+                        }
+                        composable(
+                            "explore/{sourceKey}",
+                            arguments = listOf(navArgument("sourceKey") { type = NavType.StringType }),
+                        ) { entry ->
+                            ExploreScreen(
+                                sourceKey = entry.arguments?.getString("sourceKey").orEmpty(),
+                                onBack = { navController.popBackStack() },
                             )
                         }
                         // v0.95.0：净化规则管理页

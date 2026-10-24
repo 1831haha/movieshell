@@ -84,6 +84,7 @@ import kotlinx.coroutines.withContext
 fun BookSourceScreen(
     onBack: () -> Unit = {},
     onOpenPySource: (ruleName: String) -> Unit = {},
+    onOpenExplore: (sourceKey: String) -> Unit = {},
     onOpenPurifyRules: () -> Unit = {}, // v0.95.0：净化规则管理
     embedded: Boolean = false, // v0.79.0：嵌入书架子 tab 时隐藏头部
 ) {
@@ -517,6 +518,12 @@ fun BookSourceScreen(
                                     }
                                 },
                             )
+                            // v0.201.0：有发现分类的源行末加「发现」入口（进书架子结构内的发现页）
+                            if (s.exploreUrl.isNotBlank()) {
+                                TextButton(onClick = { onOpenExplore(s.key) }) {
+                                    Text("发现", fontSize = 13.sp)
+                                }
+                            }
                             IconButton(onClick = { editTarget = s }) {
                                 Icon(Icons.Filled.Edit, "编辑", tint = gold)
                             }

@@ -43,6 +43,14 @@ data class BookSource(
     val headerUa: String = "",
     /** v0.200.0：共享 JS 库（阅读式 jsLib，内联代码；URL 形式暂不支持）。 */
     val jsLib: String = "",
+    /** v0.201.0：发现页分类（阅读式 exploreUrl：分类 JSON 数组或对象）与分类列表规则。 */
+    val exploreUrl: String = "",
+    val ruleExploreList: String = "",
+    val ruleExploreName: String = "",
+    val ruleExploreAuthor: String = "",
+    val ruleExploreBookUrl: String = "",
+    val ruleExploreCover: String = "",
+    val ruleExploreIntro: String = "",
 ) {
     /** 书源唯一标识：url 去协议去尾斜杠。 */
     val key: String get() = url.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
@@ -81,6 +89,15 @@ data class BookSource(
         put("loginCheckJs", loginCheckJs)
         put("loginUrl", loginUrl)
         put("jsLib", jsLib)
+        put("exploreUrl", exploreUrl)
+        put("ruleExplore", JSONObject().apply {
+            put("bookList", ruleExploreList)
+            put("name", ruleExploreName)
+            put("author", ruleExploreAuthor)
+            put("bookUrl", ruleExploreBookUrl)
+            put("coverUrl", ruleExploreCover)
+            put("intro", ruleExploreIntro)
+        })
         if (headerUa.isNotBlank()) {
             put("header", JSONObject().apply { put("User-Agent", headerUa) })
         }
@@ -102,6 +119,7 @@ data class BookSource(
             val rb = o.optJSONObject("ruleBookInfo")
             val rt = o.optJSONObject("ruleToc")
             val rc = o.optJSONObject("ruleContent")
+            val re = o.optJSONObject("ruleExplore")
             BookSource(
                 name = o.optString("bookSourceName"),
                 url = o.optString("bookSourceUrl"),
@@ -129,6 +147,13 @@ data class BookSource(
                 loginUrl = o.optString("loginUrl").orEmpty(),
                 headerUa = parseHeaderUa(o),
                 jsLib = o.optString("jsLib").orEmpty(),
+                exploreUrl = o.optString("exploreUrl").orEmpty(),
+                ruleExploreList = re?.optString("bookList").orEmpty(),
+                ruleExploreName = re?.optString("name").orEmpty(),
+                ruleExploreAuthor = re?.optString("author").orEmpty(),
+                ruleExploreBookUrl = re?.optString("bookUrl").orEmpty(),
+                ruleExploreCover = re?.optString("coverUrl").orEmpty(),
+                ruleExploreIntro = re?.optString("intro").orEmpty(),
             ).takeIf { it.name.isNotBlank() && it.url.isNotBlank() }
         }.getOrNull()
 
