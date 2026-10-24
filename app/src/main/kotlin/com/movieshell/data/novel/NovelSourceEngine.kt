@@ -52,7 +52,7 @@ object NovelSourceEngine {
     /** 在单个书源里搜书。v0.197.0：搜索走 POST 感知的请求（老 GET 源行为不变）。v0.199.0：JS 源走 LegadoJsEngine。 */
     /**
      * v0.208.0：403 自动过验证（阅读同款路子）。
-     * 直连被站方墙拦（403）时，弹全屏 WebView 走一次真实浏览器验证（浏览器指纹 +
+     * 直连被站方墙拦（空页时）弹全屏 WebView 走一次真实浏览器验证（浏览器指纹 +
      * Cookie 落袋），Cookie 回写共享 Jar 后把原请求重抓一次；用户取消/超时/验证后
      * 仍失败则返回 null，走原空结果逻辑。只重抓一次，不递归、不循环弹。
      * allowGate=false 时（如后台更新检查）不弹验证窗，原样返回空。
@@ -66,7 +66,10 @@ object NovelSourceEngine {
     ): BookRuleEngine.PageResult? {
         val first = fetch()
         if (first.page != null) return first.page
-        if (!allowGate || first.httpCode != 403) return null
+        // v0.209.0：用户主动发起时，空页即弹验证——墙的拦法不止 403（沙箱测得 403，
+        // 手机 VPN 下常表现为连接被重置/超时，httpCode 不是 403），只认 403 会漏弹。
+        // 后台（allowGate=false）仍不弹。只重抓一次，不递归。
+        if (!allowGate) return null
         val result = runCatching { VerifyGate.awaitVerify(gateUrl, source.name, ua) }.getOrNull() ?: return null
         if (result.cookieHeader.isNotBlank()) CmsApi.putCookies(result.url, result.cookieHeader)
         return fetch().page
@@ -102,10 +105,14 @@ object NovelSourceEngine {
             var page = gatedFetch(source, ua, source.url, allowGate) {
                 BookRuleEngine.fetchSearchPageOutcome(req, ua)
             } ?: return@withContext emptyList()
+            // v0.209.0：登录后重抓也过验证通道——999 这类源先握手再被墙时，
+            // 原直接重抓拿不到页又不弹窗，搜索静默为空。
             page = LegadoJsEngine.runLoginCheck(source, page, ctx, state, refetch = {
                 val urlStr2 = evalSearchUrl(source, ctx, state)
                 val req2 = BookRuleEngine.buildSearchRequest(urlStr2, keyword)
-                BookRuleEngine.fetchSearchPage(req2, ua)
+                gatedFetch(source, ua, source.url, allowGate) {
+                    BookRuleEngine.fetchSearchPageOutcome(req2, ua)
+                }
             })
             val pageCtx = ctx.copy(baseUrl = page.url)
             val items = LegadoJsEngine.evalListRule(page.body, page.url, source.ruleSearchList, pageCtx, state)
