@@ -944,22 +944,20 @@ fun PlayerScreen(
 
     // v0.25.0：切换中防抖（快速连点不叠请求）
     var switchingEngine by remember { mutableStateOf(false) }
+    // v0.209.0：内核直选菜单显隐（点 Exo 切 Exo、点 mpv 切 mpv，不再是单个切换钮）
 
     /**
-     * v0.20.0：播放器内一键切换内核（Media3 ↔ libmpv）。
+     * v0.209.0：播放器内点选切换内核（菜单直选 Exo/mpv，点谁切谁）。
      * 停掉旧引擎、持久化选择、按当前进度重播；AndroidView 用 key(engine) 重建对应画面。
      * v0.21.0：手动切换先清掉自动换内核覆盖；字幕走 SubtitleKit。
      * v0.25.0：try/catch 兜底 + 防抖，切换失败 Toast 不崩。
      */
-    fun switchEngine() {
+    fun switchToEngine(target: PlayerEngine) {
         if (switchingEngine) return
         switchingEngine = true
         scope.launch {
             try {
                 val pos = EngineHost.currentPosition()
-                val target =
-                    if (EngineHost.engine() == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV
-                    else PlayerEngine.MEDIA3
                 // v0.123.0：手动切 libmpv 前先查插件在不在，没装别把用户带进黑屏
                 if (target == PlayerEngine.LIBMPV && !MpvPluginLoader.isInstalled(context)) {
                     Toast.makeText(
@@ -1767,22 +1765,55 @@ fun PlayerScreen(
                             Text("自动", color = Color.White, style = SoftType.Body)
                         }
                     }
-                    // 引擎切换（目标界面显示 Exo，蓝色）
-                    TextButton(
-                        onClick = { switchEngine() },
-                        modifier = Modifier.height(SoftDimens.TouchTarget),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                if (engine == PlayerEngine.MEDIA3) "Exo" else "mpv",
-                                color = Color(0xFF2196F3),
-                                style = SoftType.Body,
+                    // 引擎切换（目标界面显示 Exo，蓝色；v0.209.0：点开菜单直选，点谁切谁）
+                    Box {
+                        TextButton(
+                            onClick = { showEngineMenu = true },
+                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    if (engine == PlayerEngine.MEDIA3) "Exo" else "mpv",
+                                    color = Color(0xFF2196F3),
+                                    style = SoftType.Body,
+                                )
+                                Icon(
+                                    Icons.Filled.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = Color(0xFF2196F3),
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = showEngineMenu,
+                            onDismissRequest = { showEngineMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (engine == PlayerEngine.MEDIA3) "Exo（当前）" else "Exo"
+                                    )
+                                },
+                                onClick = {
+                                    showEngineMenu = false
+                                    if (engine != PlayerEngine.MEDIA3) {
+                                        switchToEngine(PlayerEngine.MEDIA3)
+                                    }
+                                },
                             )
-                            Icon(
-                                Icons.Filled.ArrowDropDown,
-                                contentDescription = null,
-                                tint = Color(0xFF2196F3),
-                                modifier = Modifier.size(18.dp),
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (engine == PlayerEngine.LIBMPV) "mpv（当前）" else "mpv"
+                                    )
+                                },
+                                onClick = {
+                                    showEngineMenu = false
+                                    if (engine != PlayerEngine.LIBMPV) {
+                                        switchToEngine(PlayerEngine.LIBMPV)
+                                    }
+                                },
                             )
                         }
                     }
