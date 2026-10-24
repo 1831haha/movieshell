@@ -41,6 +41,8 @@ data class BookSource(
     val ruleContentNext: String = "",
     /** v0.199.0：源自定义 UA（header.User-Agent，空则用默认）。 */
     val headerUa: String = "",
+    /** v0.200.0：共享 JS 库（阅读式 jsLib，内联代码；URL 形式暂不支持）。 */
+    val jsLib: String = "",
 ) {
     /** 书源唯一标识：url 去协议去尾斜杠。 */
     val key: String get() = url.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
@@ -78,6 +80,7 @@ data class BookSource(
         })
         put("loginCheckJs", loginCheckJs)
         put("loginUrl", loginUrl)
+        put("jsLib", jsLib)
         if (headerUa.isNotBlank()) {
             put("header", JSONObject().apply { put("User-Agent", headerUa) })
         }
@@ -125,6 +128,7 @@ data class BookSource(
                 loginCheckJs = o.optString("loginCheckJs").orEmpty(),
                 loginUrl = o.optString("loginUrl").orEmpty(),
                 headerUa = parseHeaderUa(o),
+                jsLib = o.optString("jsLib").orEmpty(),
             ).takeIf { it.name.isNotBlank() && it.url.isNotBlank() }
         }.getOrNull()
 

@@ -18,6 +18,7 @@ import org.mozilla.javascript.NativeJavaObject
 import org.mozilla.javascript.Scriptable
 import org.mozilla.javascript.ScriptableObject
 import org.mozilla.javascript.Undefined
+import java.io.File
 import java.nio.charset.Charset
 import java.security.MessageDigest
 import java.util.Base64
@@ -55,13 +56,37 @@ object LegadoJsEngine {
     /** 源变量：源 key → 变量 JSON 字符串。 */
     object SourceVariableStore {
         private val vars = ConcurrentHashMap<String, String>()
+        private var dir: File? = null
+        private const val FILE_NAME = "novel_source_vars.json"
+
+        /** v0.200.0：App 启动时注入 filesDir，落盘读回；未注入时只放内存。 */
+        fun init(filesDir: File) {
+            dir = filesDir
+            runCatching {
+                val f = File(filesDir, FILE_NAME)
+                if (!f.exists()) return@runCatching
+                val o = JSONObject(f.readText())
+                o.keys().forEach { k -> vars[k] = o.optString(k) }
+            }
+        }
+
         fun get(key: String): String = vars[key].orEmpty()
 
-        /** 值变了返回 true（供登录校验判断是否需要重取）。 */
+        /** 值变了返回 true（供登录校验判断是否需要重取），并同步落盘。 */
         fun set(key: String, value: String): Boolean {
             if (vars[key] == value) return false
             vars[key] = value
+            persist()
             return true
+        }
+
+        private fun persist() {
+            val d = dir ?: return
+            runCatching {
+                val o = JSONObject()
+                vars.forEach { (k, v) -> o.put(k, v) }
+                File(d, FILE_NAME).writeText(o.toString())
+            }
         }
     }
 
@@ -80,6 +105,7 @@ object LegadoJsEngine {
         val baseUrl: String,
         val bookName: String = "",
         val bookUrl: String = "",
+        val bookAuthor: String = "",
         val chapterTitle: String = "",
         val chapterUrl: String = "",
         val keyword: String = "",
@@ -227,8 +253,9 @@ object LegadoJsEngine {
     }
 
     /** 求值一段 JS，bindings 按名进 scope；返回 Rhino 原生值（用 toJsString/toJsStringList 转）。 */
-    fun evalScript(script: String, bindings: Map<String, Any?>): Any? {
+    fun evalScript(script: String, bindings: Map<String, Any?>, prelude: String = ""): Any? {
         if (script.isBlank()) return null
+        val full = if (prelude.isBlank()) script else prelude + "\n" + script
         val cx = rhinoFactory.enterContext()
         try {
             cx.optimizationLevel = -1
@@ -252,12 +279,37 @@ object LegadoJsEngine {
                 }
                 ScriptableObject.putProperty(scope, k, jsValue)
             }
-            return runCatching { cx.evaluateString(scope, script, "rule", 1, null) }
+            return runCatching { cx.evaluateString(scope, full, "rule", 1, null) }
                 .onFailure { Log.w(TAG, "JS 求值失败: ${it.message}") }
                 .getOrNull()
         } finally {
             Context.exit()
         }
+    }
+
+    /** v0.200.0：jsLib 前置代码（内联形式；URL 形式暂不支持，返回空）。 */
+    fun jsLibPrelude(source: BookSource): String {
+        val lib = source.jsLib
+        return if (lib.startsWith("http")) "" else lib
+    }
+
+    /** 内部求值统一入口：自动带 jsLib 前置代码。 */
+    private fun evalJs(script: String, ctx: JsCtx, state: JsState, result: Any?, src: String): Any? =
+        evalScript(script, bindings(ctx, state, result, src), jsLibPrelude(ctx.source))
+
+    /**
+     * v0.200.0：规则里的 {{book.name}} / {{book.bookUrl}} / {{book.author}} /
+     * {{chapter.title}} / {{chapter.url}} / {{title}} 模板替换（阅读式写法，如封面 JS）。
+     * 只替换规则字符串本身，不碰求值产出的正文。
+     */
+    fun substituteTemplates(rule: String, ctx: JsCtx): String {
+        if (!rule.contains("{{")) return rule
+        return rule.replace("{{book.name}}", ctx.bookName)
+            .replace("{{book.bookUrl}}", ctx.bookUrl)
+            .replace("{{book.author}}", ctx.bookAuthor)
+            .replace("{{chapter.title}}", ctx.chapterTitle)
+            .replace("{{chapter.url}}", ctx.chapterUrl)
+            .replace("{{title}}", ctx.chapterTitle)
     }
 
     /** 一次求值的绑定表：result/src/baseUrl/java/source/cookie/title/book/chapter/key/page。 */
@@ -275,7 +327,7 @@ object LegadoJsEngine {
                 mapOf(
                     "name" to ctx.bookName,
                     "bookUrl" to ctx.bookUrl,
-                    "author" to "",
+                    "author" to ctx.bookAuthor,
                 ),
             ),
             "chapter" to JsObj(
@@ -529,22 +581,25 @@ object LegadoJsEngine {
         state: JsState,
     ): String {
         if (rule.isBlank()) return ""
-        val (js, rest) = splitJsPrefix(rule)
+        val (js, rest) = splitJsPrefix(substituteTemplates(rule, ctx))
         if (js != null) {
-            val out = evalScript(
+            val out = evalJs(
                 js,
-                bindings(ctx, state, result = root.outerHtml(), src = root.outerHtml()),
+                ctx,
+                state,
+                result = root.outerHtml(),
+                src = root.outerHtml(),
             )
             val s = toJsString(out)
             if (rest.isBlank()) return s
             if (rest.trimStart().startsWith("$.")) return evalJsonPath(s, rest.trim())
             val doc = Jsoup.parse(s, pageUrl)
             return evalChain(doc, pageUrl, rest) { script, input ->
-                evalScript(script, bindings(ctx, state, result = input, src = s))
+                evalJs(script, ctx, state, result = input, src = s)
             }.firstText()
         }
         return evalChain(root, pageUrl, rule) { script, input ->
-            evalScript(script, bindings(ctx, state, result = input, src = ""))
+            evalJs(script, ctx, state, result = input, src = "")
         }.firstText()
     }
 
@@ -557,17 +612,17 @@ object LegadoJsEngine {
         state: JsState,
     ): List<Element> {
         var h = html
-        var r = rule.trim()
+        var r = substituteTemplates(rule.trim(), ctx)
         val (js, rest) = splitJsPrefix(r)
         if (js != null) {
-            val out = evalScript(js, bindings(ctx, state, result = h, src = h))
+            val out = evalJs(js, ctx, state, result = h, src = h)
             h = toJsString(out)
             r = rest
         }
         if (r.isBlank()) return emptyList()
         val doc = Jsoup.parse(h, pageUrl)
         return evalChain(doc, pageUrl, r) { script, input ->
-            evalScript(script, bindings(ctx, state, result = input, src = h))
+            evalJs(script, ctx, state, result = input, src = h)
         }.elems()
     }
 
@@ -616,12 +671,15 @@ object LegadoJsEngine {
         state: JsState,
         refetch: (suspend () -> BookRuleEngine.PageResult?)?,
     ): BookRuleEngine.PageResult {
-        val js = source.loginCheckJs
+        val js = substituteTemplates(source.loginCheckJs, ctx)
         if (js.isBlank()) return page
         state.lastPage = page
-        val out = evalScript(
+        val out = evalJs(
             js,
-            bindings(ctx.copy(baseUrl = page.url), state, result = StrResponse(page.body, page.url), src = page.body),
+            ctx.copy(baseUrl = page.url),
+            state,
+            result = StrResponse(page.body, page.url),
+            src = page.body,
         )
         var resultPage = page
         when (out) {
@@ -659,7 +717,7 @@ object LegadoJsEngine {
         ctx: JsCtx,
         state: JsState,
     ): List<String> {
-        val t = rule.trim()
+        val t = substituteTemplates(rule.trim(), ctx)
         if (t.isEmpty()) return emptyList()
         val jsStart = t.indexOf("<js>")
         if (jsStart > 0) {
@@ -668,29 +726,32 @@ object LegadoJsEngine {
             val js = if (jsEnd < 0) t.substring(jsStart + 4) else t.substring(jsStart + 4, jsEnd)
             val doc = Jsoup.parse(html, pageUrl)
             val stage1 = evalChain(doc, pageUrl, first) { script, input ->
-                evalScript(script, bindings(ctx, state, result = input, src = html))
+                evalJs(script, ctx, state, result = input, src = html)
             }.firstText()
-            val out = evalScript(
+            val out = evalJs(
                 js,
-                bindings(ctx, state, result = arrayOf(stage1), src = html),
+                ctx,
+                state,
+                result = arrayOf(stage1),
+                src = html,
             )
             return toJsStringList(out).filter { it.isNotBlank() }
         }
         val (js, rest) = splitJsPrefix(t)
         if (js != null) {
             if (rest.isBlank()) {
-                val out = evalScript(js, bindings(ctx, state, result = html, src = html))
+                val out = evalJs(js, ctx, state, result = html, src = html)
                 return toJsStringList(out).filter { it.isNotBlank() }
             }
-            val s = toJsString(evalScript(js, bindings(ctx, state, result = html, src = html)))
+            val s = toJsString(evalJs(js, ctx, state, result = html, src = html))
             val doc = Jsoup.parse(s, pageUrl)
             return evalChain(doc, pageUrl, rest) { script, input ->
-                evalScript(script, bindings(ctx, state, result = input, src = s))
+                evalJs(script, ctx, state, result = input, src = s)
             }.allTexts().filter { it.isNotBlank() }
         }
         val doc = Jsoup.parse(html, pageUrl)
         return evalChain(doc, pageUrl, t) { script, input ->
-            evalScript(script, bindings(ctx, state, result = input, src = html))
+            evalJs(script, ctx, state, result = input, src = html)
         }.allTexts().filter { it.isNotBlank() }
     }
 

@@ -167,12 +167,18 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _joining.value = group.key + item.remoteId
             val ok = runCatching {
+                var cover = item.cover
                 val metas = if (group.key.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
                     NovelSourceEngine.chaptersPy(getApplication(), item)
                 } else {
                     val source = BookSourceManager.sources.value.firstOrNull { it.key == group.key }
                         ?: return@runCatching false
-                    NovelSourceEngine.chapters(source, item)
+                    val ms = NovelSourceEngine.chapters(source, item)
+                    // v0.200.0：搜索没封面时，用详情封面 JS 补一张（只多一次详情页请求）
+                    if (cover.isNullOrBlank() && source.ruleBookCover.isNotBlank()) {
+                        cover = NovelSourceEngine.detailCover(source, item) ?: cover
+                    }
+                    ms
                 }
                 if (metas.isEmpty()) return@runCatching false
                 val novel = Novel(
@@ -180,7 +186,7 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                     sourceKey = group.key,
                     title = item.title,
                     author = item.author,
-                    cover = item.cover,
+                    cover = cover,
                     addedAt = System.currentTimeMillis(),
                 )
                 // 只存目录（带章节 URL），正文阅读时按需拉取并缓存

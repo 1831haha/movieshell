@@ -41,6 +41,7 @@ object NovelSourceEngine {
         val out = LegadoJsEngine.evalScript(
             js,
             LegadoJsEngine.bindings(ctx, state, result = "", src = ""),
+            LegadoJsEngine.jsLibPrelude(source),
         )
         return LegadoJsEngine.toJsString(out).ifBlank { source.searchUrl }
     }
@@ -149,7 +150,13 @@ object NovelSourceEngine {
             if (source.ruleTocList.isBlank()) return@withContext emptyList()
             val ua = uaOf(source)
             val state = LegadoJsEngine.JsState(source.key)
-            val ctx = LegadoJsEngine.JsCtx(source = source, baseUrl = detailUrl)
+            val ctx = LegadoJsEngine.JsCtx(
+                source = source,
+                baseUrl = detailUrl,
+                bookName = book.title,
+                bookUrl = book.remoteId,
+                bookAuthor = book.author,
+            )
             var tocUrl = detailUrl
             if (source.ruleBookTocUrl.isNotBlank()) {
                 val detailPage = BookRuleEngine.fetchPage(detailUrl, ua) ?: return@withContext emptyList()
@@ -247,8 +254,9 @@ object NovelSourceEngine {
                     if (js != null) {
                         LegadoJsEngine.toJsString(
                             LegadoJsEngine.evalScript(
-                                js,
+                                LegadoJsEngine.substituteTemplates(js, ctx),
                                 LegadoJsEngine.bindings(ctx, state, result = outText, src = outText),
+                                LegadoJsEngine.jsLibPrelude(source),
                             ),
                         )
                     } else {
@@ -274,8 +282,9 @@ object NovelSourceEngine {
         if (js != null) {
             state.currentSrc = html
             val out = LegadoJsEngine.evalScript(
-                js,
+                LegadoJsEngine.substituteTemplates(js, ctx),
                 LegadoJsEngine.bindings(ctx.copy(baseUrl = pageUrl), state, result = "", src = html),
+                LegadoJsEngine.jsLibPrelude(source),
             )
             var s = LegadoJsEngine.toJsString(out)
             if (rest.isNotBlank()) {
@@ -286,6 +295,31 @@ object NovelSourceEngine {
         }
         val doc = BookRuleEngine.parseDoc(html, pageUrl)
         return BookRuleEngine.extractContent(doc, source.ruleContent)
+    }
+
+    /**
+     * v0.200.0：详情封面求值：ruleBookCover 为空返回 null；含 <js> 时跑 Rhino
+     * （如 999 的 uaa001 接口取封面，JS 里的 {{book.name}} 已替换），余下可接 JSON 路径；
+     * 纯 CSS 封面规则也同样走这条（先抓详情页再按链取）。
+     * 仅在搜索结果封面为空时由入架流程调用，不影响已有封面。
+     */
+    suspend fun detailCover(source: BookSource, book: NovelSearchResult): String? {
+        if (source.ruleBookCover.isBlank()) return null
+        return withContext(Dispatchers.IO) {
+            val page = BookRuleEngine.fetchPage(book.remoteId, uaOf(source)) ?: return@withContext null
+            val ctx = LegadoJsEngine.JsCtx(
+                source = source,
+                baseUrl = page.url,
+                bookName = book.title,
+                bookUrl = book.remoteId,
+                bookAuthor = book.author,
+            )
+            val state = LegadoJsEngine.JsState(source.key)
+            val checked = LegadoJsEngine.runLoginCheck(source, page, ctx, state, null)
+            val doc = BookRuleEngine.parseDoc(checked.body, checked.url)
+            LegadoJsEngine.evalTextRule(doc, checked.url, source.ruleBookCover, ctx.copy(baseUrl = checked.url), state)
+                .ifBlank { null }
+        }
     }
 
     // ---------------- v0.64.0 本地 PY 书源链路 ----------------
