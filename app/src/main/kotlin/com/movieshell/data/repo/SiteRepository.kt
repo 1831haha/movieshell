@@ -439,15 +439,25 @@ class SiteRepository(
     }
 
     /**
+     * v0.192.0：左栏用的本次搜索目标站（启用站去黑名单后）。
+     * ViewModel 在 loadFromConfig 后立刻调它，先把左栏站名列出来；
+     * searchAllFlow 里会再算一次同一集合（两次调用之间没有搜索在跑，
+     * 黑名单是会话态、不会自己变，所以两次结果一致，不会错位）。
+     */
+    fun searchTargetSites(): List<Site> = searchTargets()
+
+    /**
      * v0.191.0：流式聚合搜索，搜索页专用。
      * 根因：旧 searchAll 用 awaitAll 等全部源跑完才一次性返回，SearchViewModel
      * 拿到结果前 groupedResults 一直是 null，搜索页只能干放骨架屏——日志里
      * 早已回来的几十个源（本轮“手”：275听书 50 条、8j 40 条等）用户一个都看不到，
      * 150+ 个源 × 4 并发 × 单源 15 秒超时，全跑完要几分钟。
-     * 改：每源一跑完、有结果就 send 一个分组，调用方先到先显示；失败汇总
+     * 改：每源一跑完就 send 一个分组，调用方先到先显示；失败汇总
      * 仍在全部跑完后才记（joinAll 后），搜中途不给“X 个源失败”半截数。
      * 分组按先到先出，不再按站源原顺序——这是流式显示的代价，页脚会写明。
      * 取消语义与 searchAll 同款：调用方取消透传，不记失败。
+     * v0.192.0：空结果也发（调用方只把非空的放进展示列表，空的只计
+     * “已搜数”与左栏状态），否则左栏里没结果的源永远停在“搜索中…”。
      */
     fun searchAllFlow(wd: String, timeoutMs: Long = 15_000): Flow<SiteSearchResult> = channelFlow {
         if (wd.isBlank()) return@channelFlow
@@ -456,7 +466,7 @@ class SiteRepository(
         val jobs = targets.map { site ->
             launch {
                 val result = searchOneSite(site, wd, timeoutMs, failedNames)
-                if (result.vods.isNotEmpty()) send(result)
+                send(result)
             }
         }
         jobs.joinAll()

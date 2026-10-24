@@ -1,5 +1,6 @@
 package com.movieshell.ui.search
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.text.KeyboardActions
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,12 +20,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Icon
@@ -72,6 +77,10 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
     val focusManager = LocalFocusManager.current
     val searching by vm.searching.collectAsState()
     val groupedResults by vm.groupedResults.collectAsState() // null=尚未搜过
+    // v0.192.0：左右分栏左栏与选中态（VM 侧，换词/切开关时随 doSearch 重置）。
+    val searchSites by vm.searchSites.collectAsState()
+    val completedKeys by vm.completedKeys.collectAsState()
+    val selectedSiteKey by vm.selectedSiteKey.collectAsState()
     val skippedLabel by vm.skippedLabel.collectAsState()
     val failedLabel by vm.failedLabel.collectAsState()
     val onlyCurrentSource by vm.onlyCurrentSource.collectAsState()
@@ -377,8 +386,15 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                     }
                 }
             } else {
+                // v0.192.0：左右分栏——左栏源列表（窄，不挤右栏），右栏视频网格。
+                // 左栏按配置原顺序列出本次目标站，跑完的显示条数、没跑完的显示
+                // “搜索中…”；点左栏切右栏，点“全部”回混排（分组先到先出）。
                 val groups = grouped.orEmpty()
                 val total = groups.sumOf { it.vods.size }
+                val leftSites = if (searchSites.isNotEmpty()) searchSites else groups.map { it.site }
+                val visibleGroups = selectedSiteKey?.let { key ->
+                    groups.filter { it.site.key == key }
+                } ?: groups
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -389,7 +405,8 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "共 $total 个结果 · ${groups.size} 个源" +
+                        text = (if (searchSites.isNotEmpty()) "已搜 ${completedKeys.size}/${searchSites.size} · " else "") +
+                            "共 $total 个结果 · ${groups.size} 个源" +
                             (if (onlyCurrentSource) " · 只搜当前源" else "") +
                             // v0.191.0：搜中途已显示的分组头上写明还在搜，别让用户
                             // 以为这就是全部结果；搜完后该后缀随 searching 落下而消失。
@@ -407,120 +424,133 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                         }
                     }
                 }
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    groups.forEach { group ->
-                        // 分组头：源名 + 条数
-                        item(key = "head:${group.site.key}") {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        horizontal = SoftDimens.PagePadding,
-                                        vertical = 10.dp,
-                                    ),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text(
-                                    text = group.site.name,
-                                    style = SoftType.CardTitle,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                                Text(
-                                    text = "${group.vods.size} 条",
-                                    style = SoftType.Caption,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                Row(modifier = Modifier.fillMaxSize()) {
+                    // 左栏：120dp 窄列，只放源名 + 状态，不抢右栏的海报宽度。
+                    LazyColumn(
+                        modifier = Modifier
+                            .width(120.dp)
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                    ) {
+                        item(key = "left:all") {
+                            LeftSourceItem(
+                                name = "全部",
+                                status = if (searching) "搜索中…" else "$total 个结果",
+                                selected = selectedSiteKey == null,
+                                onClick = { vm.selectSite(null) },
+                            )
                         }
-                        val uiVods = group.vods.map { it.toUiVod() }.distinctBy { it.id }
-                        items(uiVods, key = { "vod:${group.site.key}:${it.id}" }) { vod ->
-                            AppCard(
-                                onClick = { goDetail(group.site, vod.id, onVodClick) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        horizontal = SoftDimens.PagePadding,
-                                        vertical = 4.dp,
-                                    ),
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(SoftDimens.CardSpacing),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    PosterCard(
-                                        title = vod.title,
-                                        posterUrl = vod.poster,
-                                        modifier = Modifier
-                                            .width(72.dp)
-                                            .height(104.dp),
-                                    )
-                                    Spacer(Modifier.width(SoftDimens.CardSpacing))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = vod.title,
-                                            style = SoftType.CardTitle,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        Spacer(Modifier.height(4.dp))
-                                        if (vod.desc.isNotBlank()) {
-                                            Text(
-                                                text = vod.desc,
-                                                style = SoftType.Caption,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            Spacer(Modifier.height(4.dp))
-                                        }
-                                        Text(
-                                            text = "${vod.category} · ${vod.year}",
-                                            style = SoftType.Body,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(
-                                            text = "${vod.rating}分 · ${vod.actors}",
-                                            style = SoftType.Caption,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                    IconButton(onClick = { goDetail(group.site, vod.id, onVodClick) }) {
-                                        Icon(
-                                            imageVector = Icons.Filled.PlayArrow,
-                                            contentDescription = "播放",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                        )
-                                    }
-                                }
-                            }
+                        items(leftSites, key = { "left:${it.key}" }) { site ->
+                            val done = site.key in completedKeys
+                            val count = groups.firstOrNull { it.site.key == site.key }
+                                ?.vods?.size
+                            LeftSourceItem(
+                                name = site.name,
+                                status = if (done) "${count ?: 0} 条" else "搜索中…",
+                                selected = selectedSiteKey == site.key,
+                                onClick = { vm.selectSite(site.key) },
+                            )
                         }
                     }
-                    // v0.191.0：搜中途的页脚，告诉用户后面还会有分组陆续出现。
-                    if (searching) {
-                        item(key = "searching-footer") {
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.outlineVariant),
+                    )
+                    // 右栏：双列视频网格；点中某个源时只放该源的片。
+                    if (visibleGroups.isEmpty()) {
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
                             Text(
-                                text = "还在搜其他源，有结果会陆续出现…",
+                                text = if (searching && selectedSiteKey !in completedKeys) {
+                                    "该源还在搜，结果到了会显示在这里"
+                                } else {
+                                    "该源没有结果"
+                                },
                                 style = SoftType.Caption,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        horizontal = SoftDimens.PagePadding,
-                                        vertical = 12.dp,
-                                    ),
+                                modifier = Modifier.padding(SoftDimens.PagePadding),
                             )
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            contentPadding = PaddingValues(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            visibleGroups.forEach { group ->
+                                val uiVods = group.vods.map { it.toUiVod() }.distinctBy { it.id }
+                                items(uiVods, key = { "vod:${group.site.key}:${it.id}" }) { vod ->
+                                    PosterCard(
+                                        title = vod.title,
+                                        // 全部混排时片下带源名，单源时源名已在左栏、不重复写。
+                                        subtitle = if (selectedSiteKey == null) group.site.name else null,
+                                        posterUrl = vod.poster,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(208.dp),
+                                        onClick = { goDetail(group.site, vod.id, onVodClick) },
+                                    )
+                                }
+                            }
+                            // v0.191.0：搜中途的页脚，告诉用户后面还会有分组陆续出现。
+                            if (searching) {
+                                item(span = { GridItemSpan(2) }) {
+                                    Text(
+                                        text = "还在搜其他源，有结果会陆续出现…",
+                                        style = SoftType.Caption,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(vertical = 4.dp),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LeftSourceItem(
+    name: String,
+    status: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    // v0.192.0：左栏单行——源名最多 2 行，状态一行；选中行用主色底区分，
+    // 不加粗、不放大，窄栏里不抢右栏海报的视觉。
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (selected) MaterialTheme.colorScheme.primaryContainer
+                else androidx.compose.ui.graphics.Color.Transparent,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = name,
+            style = SoftType.Body,
+            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+            else MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = status,
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

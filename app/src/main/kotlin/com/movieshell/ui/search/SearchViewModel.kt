@@ -3,6 +3,7 @@ package com.movieshell.ui.search
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.movieshell.data.model.Site
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SearchHistoryStore
@@ -62,6 +63,23 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
     /** v0.189.0：只搜当前源时的当前源展示名，null=未设置任何当前源 */
     private val _currentSourceName = MutableStateFlow<String?>(null)
     val currentSourceName: StateFlow<String?> = _currentSourceName
+
+    /** v0.192.0：左右分栏左栏——本次搜索的目标站（配置原顺序，先到先列不跳动）。 */
+    private val _searchSites = MutableStateFlow<List<Site>>(emptyList())
+    val searchSites: StateFlow<List<Site>> = _searchSites
+
+    /** v0.192.0：已跑完的源 key 集合（空结果也算跑完，供左栏“搜索中…”/条数切换）。 */
+    private val _completedKeys = MutableStateFlow<Set<String>>(emptySet())
+    val completedKeys: StateFlow<Set<String>> = _completedKeys
+
+    /** v0.192.0：右栏当前选中的源 key，null=全部（全部时按先到先出的分组顺序混排）。 */
+    private val _selectedSiteKey = MutableStateFlow<String?>(null)
+    val selectedSiteKey: StateFlow<String?> = _selectedSiteKey
+
+    /** v0.192.0：左栏点源切换右栏（点“全部”传 null）。 */
+    fun selectSite(key: String?) {
+        _selectedSiteKey.value = key
+    }
 
     companion object {
         private const val PREFS = "search_prefs"
@@ -140,6 +158,10 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
         _groupedResults.value = null
         _skippedLabel.value = null
         _failedLabel.value = null
+        // v0.192.0：新一轮先清左栏与选中态，半截结果不串到下一轮。
+        _searchSites.value = emptyList()
+        _completedKeys.value = emptySet()
+        _selectedSiteKey.value = null
         // v0.109.0 A4：连续搜索取消前一次——旧慢请求后返回覆盖新结果；try/finally
         // 保证被取消时 spinner 也能落下
         searchJob?.cancel()
@@ -159,13 +181,19 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
                 repo.loadFromConfig(
                     buildSearchConfigJson(getApplication(), _onlyCurrentSource.value),
                 )
+                // v0.192.0：左栏先列出本次目标站（配置原顺序），再开始流式跑。
+                _searchSites.value = repo.searchTargetSites()
                 // v0.191.0：流式累积——每到一个分组就往列表里追加，不等全部源跑完。
                 // 旧写法是 searchAll awaitAll 后一次性赋值，搜中途 groupedResults
                 // 一直是 null，页面只能放骨架屏。取消时 collect 抛异常走 finally，
                 // 半截结果留在原地无妨：下一次 doSearch 开头先置 null 再重搜。
                 _groupedResults.value = emptyList()
                 repo.searchAllFlow(t).collect { group ->
-                    _groupedResults.value = (_groupedResults.value.orEmpty() + group)
+                    // v0.192.0：空结果也到这里——只计已搜数与左栏状态，不进展示列表。
+                    _completedKeys.value = _completedKeys.value + group.site.key
+                    if (group.vods.isNotEmpty()) {
+                        _groupedResults.value = (_groupedResults.value.orEmpty() + group)
+                    }
                 }
                 _skippedLabel.value = SearchSlowSourceFilter.skippedLabel()
                 _failedLabel.value = SiteRepository.failedSearchLabel()

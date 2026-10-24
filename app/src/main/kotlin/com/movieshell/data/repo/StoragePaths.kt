@@ -108,6 +108,37 @@ object StoragePaths {
     fun pluginsDir(context: Context): File =
         File(baseDir(context), "plugins").also { it.mkdirs() }
 
+    /**
+     * v0.192.0：往公开目录写 .nomedia（空文件），让系统媒体扫描跳过该目录。
+     * 起因：magnet-stream 1.0.5 的 node_modules 里有 98 个 .ts 文件（96 个
+     * .d.ts 类型定义 + 2 个源码 .ts），安卓把 .ts 当视频格式（MPEG-TS），
+     * 相册里凭空多出一堆 0 秒空白“视频”。写失败只吞掉，不让安装/启动
+     * 因为一个标记文件失败；已存在的不重复写。
+     */
+    fun ensureNomedia(dir: File) {
+        runCatching {
+            if (dir.isDirectory) {
+                File(dir, ".nomedia").let { if (!it.exists()) it.createNewFile() }
+            }
+        }
+    }
+
+    /**
+     * v0.192.0：给已装插件补 .nomedia（启动时跑一次，幂等）。
+     * 根目录 + 每个已装插件子目录各写一个：根目录的 .nomedia 负责挡住
+     * 整棵树，子目录的是双保险——万一将来某个子目录被单独挪出去也不漏。
+     * 只针对公开侧两个插件根（plugins/、service/）；私有 filesDir 下的
+     * runtime/pylibs 等本来就不进媒体扫描，不碰。
+     */
+    fun ensureNomediaForPluginDirs(context: Context) {
+        runCatching {
+            listOf(pluginsDir(context), serviceDir(context)).forEach { root ->
+                ensureNomedia(root)
+                root.listFiles()?.filter { it.isDirectory }?.forEach { ensureNomedia(it) }
+            }
+        }
+    }
+
     /** v0.137.0：runtime 型插件安装根（私有：native 载荷只能从私有目录执行）。 */
     fun runtimeDir(context: Context): File =
         File(context.filesDir, "runtime").also { it.mkdirs() }

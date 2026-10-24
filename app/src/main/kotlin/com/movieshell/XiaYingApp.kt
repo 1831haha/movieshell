@@ -7,6 +7,7 @@ import com.movieshell.data.novel.NovelUpdateWorker
 import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.ServicePluginManager
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.source.JsRuntime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,13 @@ class XiaYingApp : Application() {
         // v0.132.0：拉起设了自启动的插件服务（失败只记日志，不阻塞启动）
         CoroutineScope(Dispatchers.IO).launch {
             runCatching { ServicePluginManager.startAutoStartServices(this@XiaYingApp) }
+        }
+        // v0.192.0：给已装插件补 .nomedia（幂等，后台跑不阻塞启动）：
+        // 光靠安装时写，2026-10-23 之前装好的 magnet-stream 这类旧插件
+        // 还是漏网；下次启动补上后，配合 1.0.6 更新删掉旧 .ts 文件，
+        // 重启触发媒体扫描后相册里的假视频才会跟着消失。
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching { StoragePaths.ensureNomediaForPluginDirs(this@XiaYingApp) }
         }
     }
 }

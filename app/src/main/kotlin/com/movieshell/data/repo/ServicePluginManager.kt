@@ -720,6 +720,10 @@ object ServicePluginManager {
                 }
                 verifyExecutable(staging, spec)
                 swapInstallDir(root, staging)
+                // v0.192.0：落盘后写 .nomedia（与市场 server 分支同款，见
+                // StoragePaths.ensureNomedia）：服务脚本目录也在公开存储，
+                // 包里带 .ts 之类媒体味后缀的文件不再被相册收成假视频。
+                StoragePaths.ensureNomedia(root)
             } catch (e: Exception) {
                 runCatching { staging.deleteRecursively() }
                 // 旧进程是用户期望运行的，安装失败后尽力拉回旧版

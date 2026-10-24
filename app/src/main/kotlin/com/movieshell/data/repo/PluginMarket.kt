@@ -458,6 +458,9 @@ object PluginMarket {
                             installed.add(e.name)
                         }
                         swapDir(root, staging)
+                        // v0.192.0：落盘后写 .nomedia，插件包里带媒体味后缀的
+                        // 文件（如 node_modules 的 .ts）不再被相册收成假视频。
+                        StoragePaths.ensureNomedia(root)
                     } catch (e: Exception) {
                         runCatching { staging.deleteRecursively() }
                         throw e
