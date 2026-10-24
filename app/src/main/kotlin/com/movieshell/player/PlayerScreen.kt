@@ -120,6 +120,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -186,6 +187,28 @@ private const val LONG_PRESS_MS = 400L
  * v0.19.0：线路/选集走 PlaySession（详情页进入前写入），播放器内可切线路；
  * 播放失败自动按线路顺序重试；支持外挂字幕与画中画。
  */
+/**
+ * v0.204.0：小圆控制钮——对标参考播放器的小巧圆润风格：40.dp 圆底 + 20.dp 白图标。
+ * 直播与点播共用 PlayerScreen，改这一处两边全变。
+ */
+@Composable
+private fun RoundControlButton(
+    icon: ImageVector,
+    desc: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = Color.White,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .size(40.dp)
+            .background(Color.Black.copy(alpha = 0.45f), CircleShape),
+    ) {
+        Icon(icon, contentDescription = desc, tint = tint, modifier = Modifier.size(20.dp))
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class) // v0.84.0：Slider 自定义 track 用到实验性 SliderState API
 @Composable
 fun PlayerScreen(
@@ -1300,14 +1323,14 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .zIndex(1f)
-                    .size(76.dp)
+                    .size(64.dp)
                     .background(Color.Black.copy(alpha = 0.45f), CircleShape),
             ) {
                 Icon(
                     Icons.Filled.PlayArrow,
                     contentDescription = "播放",
                     tint = Color.White,
-                    modifier = Modifier.size(44.dp),
+                    modifier = Modifier.size(36.dp),
                 )
             }
         }
@@ -1344,19 +1367,21 @@ fun PlayerScreen(
                     .padding(horizontal = 4.dp, vertical = if (embedded) 0.dp else 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = {
-                    // v0.123.0：嵌入直播横屏时返回 = 退出横屏（LiveScreen 传的 onBack 是
-                    // 空实现，横屏下点了一点反应都没有，正是"返回键失效"的实锤之一）
-                    if (embedded && isLive &&
-                        cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
-                    ) {
-                        toggleEmbeddedLandscape()
-                    } else {
-                        onBack()
-                    }
-                }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
-                }
+                RoundControlButton(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    desc = "返回",
+                    onClick = {
+                        // v0.123.0：嵌入直播横屏时返回 = 退出横屏（LiveScreen 传的 onBack 是
+                        // 空实现，横屏下点了一点反应都没有，正是"返回键失效"的实锤之一）
+                        if (embedded && isLive &&
+                            cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
+                        ) {
+                            toggleEmbeddedLandscape()
+                        } else {
+                            onBack()
+                        }
+                    },
+                )
                 Text(
                     text = title,
                     color = Color.White,
@@ -1402,34 +1427,38 @@ fun PlayerScreen(
                     Spacer(Modifier.width(4.dp))
                 }
                 // 画中画
-                IconButton(onClick = { enterPip(context) }) {
-                    Icon(Icons.Filled.PictureInPictureAlt, contentDescription = "画中画", tint = Color.White)
-                }
+                RoundControlButton(
+                    icon = Icons.Filled.PictureInPictureAlt,
+                    desc = "画中画",
+                    onClick = { enterPip(context) },
+                )
                 // 投屏（v0.40.0：占位，功能开发中）
-                IconButton(onClick = {
-                    Toast.makeText(context, "投屏功能开发中，敬请期待", Toast.LENGTH_SHORT).show()
-                    LogBus.i("Player", "投屏按钮：功能开发中")
-                }) {
-                    Icon(Icons.Filled.Cast, contentDescription = "投屏", tint = Color.White)
-                }
+                RoundControlButton(
+                    icon = Icons.Filled.Cast,
+                    desc = "投屏",
+                    onClick = {
+                        Toast.makeText(context, "投屏功能开发中，敬请期待", Toast.LENGTH_SHORT).show()
+                        LogBus.i("Player", "投屏按钮：功能开发中")
+                    },
+                )
                 // v0.121.0：嵌入模式横屏入口——用户反馈详情页"没有切横屏的按钮"（底栏全屏键
                 // 在窄屏上会被挤出可视区）。点播跳独立播放页，直播原地旋转（与底栏逻辑一致）。
                 if (embedded) {
-                    IconButton(onClick = {
-                        if (isLive) toggleEmbeddedLandscape() else onFullscreen()
-                    }) {
-                        Icon(
-                            Icons.Filled.ScreenRotation,
-                            contentDescription = "横屏",
-                            tint = Color.White,
-                        )
-                    }
+                    RoundControlButton(
+                        icon = Icons.Filled.ScreenRotation,
+                        desc = "横屏",
+                        onClick = {
+                            if (isLive) toggleEmbeddedLandscape() else onFullscreen()
+                        },
+                    )
                 }
                 // 更多菜单：字幕/选集/定时/跳过设置/画面比例收敛到这里
                 Box {
-                    IconButton(onClick = { showMoreMenu = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "更多", tint = Color.White)
-                    }
+                    RoundControlButton(
+                        icon = Icons.Filled.MoreVert,
+                        desc = "更多",
+                        onClick = { showMoreMenu = true },
+                    )
                     DropdownMenu(
                         expanded = showMoreMenu,
                         onDismissRequest = { showMoreMenu = false },
@@ -1514,7 +1543,9 @@ fun PlayerScreen(
         // v0.65：移到右侧（对标目标界面）
         // 锁定时只显示解锁按钮（常显，不跟随控制层自动隐藏）
         if (locked) {
-            IconButton(
+            RoundControlButton(
+                icon = Icons.Filled.LockOpen,
+                desc = "解锁",
                 onClick = {
                     locked = false
                     controlsVisible = true
@@ -1522,17 +1553,8 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .zIndex(1f)
-                    .padding(end = 16.dp)
-                    .size(56.dp)
-                    .background(Color.Black.copy(alpha = 0.5f), CircleShape),
-            ) {
-                Icon(
-                    Icons.Filled.LockOpen,
-                    contentDescription = "解锁",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
+                    .padding(end = 16.dp),
+            )
         } else if (controlsVisible) {
             Column(
                 modifier = Modifier
@@ -1542,20 +1564,14 @@ fun PlayerScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                IconButton(
+                RoundControlButton(
+                    icon = Icons.Filled.Lock,
+                    desc = "锁定",
                     onClick = { locked = true },
-                    modifier = Modifier
-                        .size(56.dp)
-                        .background(Color.Black.copy(alpha = 0.5f), CircleShape),
-                ) {
-                    Icon(
-                        Icons.Filled.Lock,
-                        contentDescription = "锁定",
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
-                IconButton(
+                )
+                RoundControlButton(
+                    icon = Icons.Filled.CameraAlt,
+                    desc = "截图",
                     onClick = {
                         scope.launch {
                             val file = withContext(Dispatchers.IO) {
@@ -1571,17 +1587,7 @@ fun PlayerScreen(
                             ).show()
                         }
                     },
-                    modifier = Modifier
-                        .size(56.dp)
-                        .background(Color.Black.copy(alpha = 0.5f), CircleShape),
-                ) {
-                    Icon(
-                        Icons.Filled.CameraAlt,
-                        contentDescription = "截图",
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
+                )
             }
         }
 
@@ -1668,13 +1674,11 @@ fun PlayerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    IconButton(onClick = { EngineHost.togglePlayPause() }) {
-                        Icon(
-                            if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (isPlaying) "暂停" else "播放",
-                            tint = Color.White,
-                        )
-                    }
+                    RoundControlButton(
+                        icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        desc = if (isPlaying) "暂停" else "播放",
+                        onClick = { EngineHost.togglePlayPause() },
+                    )
                     // v0.69.1：嵌入模式去掉重复的时间文本（进度条行已有），收窄底部黑边
                     // v0.121.0：直播无进度概念，时间文本也隐藏（用户反馈"直播不需要进度条"）
                     if (!embedded && !isLive) {
@@ -1688,34 +1692,28 @@ fun PlayerScreen(
                         val hasPrev = PlaySession.episodeIndex > 0
                         val hasNext = PlaySession.currentLine()?.episodes
                             ?.getOrNull(PlaySession.episodeIndex + 1) != null
-                        IconButton(
+                        RoundControlButton(
+                            icon = Icons.Filled.SkipPrevious,
+                            desc = "上一集",
                             onClick = {
                                 if (hasPrev) switchEpisode(
                                     PlaySession.lineIndex,
                                     PlaySession.episodeIndex - 1,
                                 )
                             },
-                        ) {
-                            Icon(
-                                Icons.Filled.SkipPrevious,
-                                contentDescription = "上一集",
-                                tint = if (hasPrev) Color.White else Color.White.copy(alpha = 0.3f),
-                            )
-                        }
-                        IconButton(
+                            tint = if (hasPrev) Color.White else Color.White.copy(alpha = 0.3f),
+                        )
+                        RoundControlButton(
+                            icon = Icons.Filled.SkipNext,
+                            desc = "下一集",
                             onClick = {
                                 if (hasNext) switchEpisode(
                                     PlaySession.lineIndex,
                                     PlaySession.episodeIndex + 1,
                                 )
                             },
-                        ) {
-                            Icon(
-                                Icons.Filled.SkipNext,
-                                contentDescription = "下一集",
-                                tint = if (hasNext) Color.White else Color.White.copy(alpha = 0.3f),
-                            )
-                        }
+                            tint = if (hasNext) Color.White else Color.White.copy(alpha = 0.3f),
+                        )
                     }
                     // v0.121.0：直播隐藏倍速（用户反馈"直播不需要倍速"；直播流也不允许变速）
                     if (!isLive) {
@@ -1792,27 +1790,23 @@ fun PlayerScreen(
                     // v0.96.2：嵌入直播手动横竖屏切换（详情页嵌入不显示，保持跳独立播放页逻辑）
                     if (embedded && isLive) {
                         val isLandscape = cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
-                        IconButton(onClick = { toggleEmbeddedLandscape() }) {
-                            Icon(
-                                if (isLandscape) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
-                                contentDescription = if (isLandscape) "退出横屏" else "横屏",
-                                tint = Color.White,
-                            )
-                        }
+                        RoundControlButton(
+                            icon = if (isLandscape) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                            desc = if (isLandscape) "退出横屏" else "横屏",
+                            onClick = { toggleEmbeddedLandscape() },
+                        )
                     }
                     // v0.123.0：嵌入直播已有上面的横屏按钮，通用全屏按钮不再重复渲染
                     // （之前两个 ⛶ 并排，用户反馈"有两个全屏按钮"就是这里）
                     if (!(embedded && isLive)) {
-                        IconButton(onClick = {
-                            // v0.65：嵌入模式点全屏 → 跳独立播放页（详情页传入回调）
-                            if (embedded) onFullscreen() else toggleOrientation()
-                        }) {
-                            Icon(
-                                Icons.Filled.Fullscreen,
-                                contentDescription = "全屏",
-                                tint = Color.White,
-                            )
-                        }
+                        RoundControlButton(
+                            icon = Icons.Filled.Fullscreen,
+                            desc = "全屏",
+                            onClick = {
+                                // v0.65：嵌入模式点全屏 → 跳独立播放页（详情页传入回调）
+                                if (embedded) onFullscreen() else toggleOrientation()
+                            },
+                        )
                     }
                 }
             }
