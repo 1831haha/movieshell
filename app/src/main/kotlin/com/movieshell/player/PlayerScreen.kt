@@ -945,6 +945,7 @@ fun PlayerScreen(
     // v0.25.0：切换中防抖（快速连点不叠请求）
     var switchingEngine by remember { mutableStateOf(false) }
     // v0.209.0：内核直选菜单显隐（点 Exo 切 Exo、点 mpv 切 mpv，不再是单个切换钮）
+    var showEngineMenu by remember { mutableStateOf(false) }
 
     /**
      * v0.209.0：播放器内点选切换内核（菜单直选 Exo/mpv，点谁切谁）。
