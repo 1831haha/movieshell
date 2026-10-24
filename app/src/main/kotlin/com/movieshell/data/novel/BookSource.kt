@@ -32,6 +32,15 @@ data class BookSource(
     val ruleContent: String = "",
     /** v0.198.0：正文替换规则（阅读式 replaceRegex，每行一条，行内用 ## 分隔正则与替换）。 */
     val ruleContentReplace: String = "",
+    /** v0.199.0：登录校验 JS（阅读式 loginCheckJs，空表示不需要）。 */
+    val loginCheckJs: String = "",
+    val loginUrl: String = "",
+    /** v0.199.0：目录分页规则（ruleToc.nextTocUrl）。 */
+    val ruleTocNext: String = "",
+    /** v0.199.0：正文分页规则（ruleContent.nextContentUrl）。 */
+    val ruleContentNext: String = "",
+    /** v0.199.0：源自定义 UA（header.User-Agent，空则用默认）。 */
+    val headerUa: String = "",
 ) {
     /** 书源唯一标识：url 去协议去尾斜杠。 */
     val key: String get() = url.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
@@ -56,18 +65,33 @@ data class BookSource(
             put("coverUrl", ruleBookCover)
             put("tocUrl", ruleBookTocUrl)
         })
+        put("ruleContent", JSONObject().apply {
+            put("content", ruleContent)
+            put("replaceRegex", ruleContentReplace)
+            put("nextContentUrl", ruleContentNext)
+        })
         put("ruleToc", JSONObject().apply {
             put("chapterList", ruleTocList)
             put("chapterName", ruleTocTitle)
             put("chapterUrl", ruleTocUrl)
+            put("nextTocUrl", ruleTocNext)
         })
-        put("ruleContent", JSONObject().apply {
-            put("content", ruleContent)
-            put("replaceRegex", ruleContentReplace)
-        })
+        put("loginCheckJs", loginCheckJs)
+        put("loginUrl", loginUrl)
+        if (headerUa.isNotBlank()) {
+            put("header", JSONObject().apply { put("User-Agent", headerUa) })
+        }
     }
 
     companion object {
+        /** header 可能是对象或 JSON 字符串（阅读导出是字符串），两种都认，只取 User-Agent。 */
+        private fun parseHeaderUa(o: JSONObject): String {
+            o.optJSONObject("header")?.let { return it.optString("User-Agent").orEmpty() }
+            val raw = o.optString("header")
+            if (raw.isBlank()) return ""
+            return runCatching { JSONObject(raw).optString("User-Agent") }.getOrDefault("")
+        }
+
         /** 解析单条 bookSource.json（兼容阅读 App 导出的完整格式，只取用到的字段）。 */
         fun fromJson(json: String): BookSource? = runCatching {
             val o = JSONObject(json)
@@ -96,6 +120,11 @@ data class BookSource(
                 ruleTocUrl = rt?.optString("chapterUrl").orEmpty(),
                 ruleContent = rc?.optString("content").orEmpty(),
                 ruleContentReplace = rc?.optString("replaceRegex").orEmpty(),
+                ruleContentNext = rc?.optString("nextContentUrl").orEmpty(),
+                ruleTocNext = rt?.optString("nextTocUrl").orEmpty(),
+                loginCheckJs = o.optString("loginCheckJs").orEmpty(),
+                loginUrl = o.optString("loginUrl").orEmpty(),
+                headerUa = parseHeaderUa(o),
             ).takeIf { it.name.isNotBlank() && it.url.isNotBlank() }
         }.getOrNull()
 

@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 266
-        versionName = "0.198.0"
+        versionCode = 267
+        versionName = "0.199.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {
@@ -165,6 +165,8 @@ dependencies {
     // v0.113.0：JS 规则改用 V8 真 async 引擎（替代 app.cash.quickjs）。
     // 引擎由设备 WebView 提供，isolate 内的 await 是天然事件循环，宿主网络请求不再阻塞 JS 线程。
     implementation("androidx.javascriptengine:javascriptengine:1.1.1")
+    // v0.199.0：阅读式 JS 书源用 Rhino（与阅读同款同步引擎；V8 isolate 只有异步宿主调用，跑不了阅读的同步 java.* 规则）。
+    implementation("org.mozilla:rhino:1.7.15")
     // javascriptengine 的异步 API 全部返回 ListenableFuture，显式声明确保编译期可见。
     implementation("com.google.guava:guava:33.2.1-android")
 }

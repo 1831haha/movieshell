@@ -48,3 +48,7 @@
 
 # ---------- FileProvider ----------
 -keep class androidx.core.content.FileProvider { *; }
+
+# ---------- Rhino JS（阅读式 JS 书源，v0.199.0，反射调用多，全 keep） ----------
+-keep class org.mozilla.javascript.** { *; }
+-dontwarn org.mozilla.javascript.**

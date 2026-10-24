@@ -36,17 +36,24 @@ object BookRuleEngine {
     private val client = CmsApi.defaultClient()
 
 
-    suspend fun getHtml(url: String): String? = withContext(Dispatchers.IO) {
+    suspend fun getHtml(url: String, ua: String? = null): String? =
+        fetchPage(url, ua)?.body
+
+    /** v0.199.0：抓取结果（正文 + 落地 URL，供登录校验判断重定向）。 */
+    data class PageResult(val body: String, val url: String)
+
+    /** v0.199.0：GET 抓取，返回正文与重定向后的落地 URL。 */
+    suspend fun fetchPage(url: String, ua: String? = null): PageResult? = withContext(Dispatchers.IO) {
         runCatching {
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", DEFAULT_UA_CHROME120)
+                .header("User-Agent", ua ?: DEFAULT_UA_CHROME120)
                 .header("Accept-Language", "zh-CN,zh;q=0.9")
                 .build()
             client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return@use null
                 val bytes = resp.body?.bytes() ?: return@use null
-                decodeBytes(bytes)
+                PageResult(decodeBytes(bytes), resp.request.url.toString())
             }
         }.onFailure { Log.w(TAG, "抓取失败 $url", it) }.getOrNull()
     }
@@ -104,11 +111,15 @@ object BookRuleEngine {
     }
 
     /** v0.197.0：按 SearchRequest 抓搜索页；POST 发表单，body 按 charset 编字节。 */
-    suspend fun fetchSearchHtml(request: SearchRequest): String? = withContext(Dispatchers.IO) {
+    suspend fun fetchSearchHtml(request: SearchRequest): String? =
+        fetchSearchPage(request)?.body
+
+    /** v0.199.0：按 SearchRequest 抓搜索页，返回正文与落地 URL。 */
+    suspend fun fetchSearchPage(request: SearchRequest, ua: String? = null): PageResult? = withContext(Dispatchers.IO) {
         runCatching {
             val builder = Request.Builder()
                 .url(request.url)
-                .header("User-Agent", DEFAULT_UA_CHROME120)
+                .header("User-Agent", ua ?: DEFAULT_UA_CHROME120)
                 .header("Accept-Language", "zh-CN,zh;q=0.9")
             request.headers.forEach { (k, v) -> builder.header(k, v) }
             if (request.method == "POST" && request.body != null) {
@@ -120,13 +131,13 @@ object BookRuleEngine {
             client.newCall(builder.build()).execute().use { resp ->
                 if (!resp.isSuccessful) return@use null
                 val bytes = resp.body?.bytes() ?: return@use null
-                decodeBytes(bytes)
+                PageResult(decodeBytes(bytes), resp.request.url.toString())
             }
         }.onFailure { Log.w(TAG, "搜索抓取失败 ${request.url}", it) }.getOrNull()
     }
 
     /** 页面解码：先 UTF-8，出现替换符则转 GBK（中文小说站常见）。 */
-    private fun decodeBytes(bytes: ByteArray): String {
+    internal fun decodeBytes(bytes: ByteArray): String {
         val utf8 = bytes.toString(Charsets.UTF_8)
         return if (utf8.contains('�')) bytes.toString(Charset.forName("GBK")) else utf8
     }
