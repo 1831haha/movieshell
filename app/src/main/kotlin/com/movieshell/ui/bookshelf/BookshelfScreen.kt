@@ -76,6 +76,7 @@ import com.movieshell.data.novel.TxtImporter
 import com.movieshell.data.repo.BookGroup
 import com.movieshell.data.repo.BookshelfGroupStore
 import com.movieshell.data.repo.NovelStore
+import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.data.repo.NovelUpdateInfo
 import com.movieshell.data.repo.NovelUpdateStore
 import com.movieshell.data.repo.ReadingProgressStore
@@ -105,7 +106,6 @@ import kotlinx.coroutines.withContext
 @Composable
 fun BookshelfScreen(
     onNovelClick: (String) -> Unit = {},
-    onFindBookClick: () -> Unit = {},
     onManageSourcesClick: () -> Unit = {},
     // v0.98.0：书籍详情里的净化规则快捷入口
     onOpenPurifyRules: () -> Unit = {},
@@ -128,6 +128,9 @@ fun BookshelfScreen(
     // v0.98.0：多选模式
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    // v0.195.0：书架内直接搜（不用单独找书页）
+    var searching by remember { mutableStateOf(false) }
 
     // 弹窗状态
     var deleteTarget by remember { mutableStateOf<Novel?>(null) }
@@ -395,7 +398,7 @@ fun BookshelfScreen(
                     onLongClick = null,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onFindBookClick) {
+                    IconButton(onClick = { searching = true }) {
                         Icon(Icons.Filled.Search, "找书")
                     }
                     Box {
@@ -431,6 +434,31 @@ fun BookshelfScreen(
                     }
                 }
             }
+            if (searching) {
+                // v0.195.0：找书不用单独页面——书架内直接搜（嵌入找书页，自动聚焦键盘）
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "找书",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { searching = false }) { Text("取消") }
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        NovelSearchScreen(
+                            embedded = true,
+                            autoFocus = true,
+                            onManageSources = onManageSourcesClick,
+                        )
+                    }
+                }
+            } else {
             Spacer(Modifier.height(2.dp))
 
             // v0.180.0：最近阅读这一行同步提上来，放在顶行下面、分组上面。
@@ -552,7 +580,7 @@ fun BookshelfScreen(
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         item {
                             BookshelfEmptyState(
-                                onFindBook = onFindBookClick,
+                                onFindBook = { searching = true },
                                 onImportTxt = { pickTxt.launch("text/plain") },
                             )
                         }
@@ -627,6 +655,7 @@ fun BookshelfScreen(
                 }
             }
             } // v0.178.0：闭合 PullToRefreshBox
+            }
         }
     }
 

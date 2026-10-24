@@ -61,7 +61,8 @@ object PyBookSourceManager {
         val files = dir(context).listFiles { f -> f.isFile && f.name.endsWith(".py") }
             .orEmpty().filter { hasBookSearch(it) }.sortedBy { it.name }
         _rules.value = files.map {
-            PyBookRule(it.name, extractTitle(it) ?: it.nameWithoutExtension, it.length() / 1024)
+            // v0.195.0：卡片标题直接用文件名（第一版主），不再显示 BaseSpider 这类类名
+            PyBookRule(it.name, it.nameWithoutExtension, it.length() / 1024)
         }
         // 文件删了但启用集合里还有 → 清理掉
         val names = files.map { it.name }.toSet()
@@ -188,16 +189,6 @@ object PyBookSourceManager {
     private fun hasBookSearch(file: File): Boolean = runCatching {
         file.readText(Charsets.UTF_8).contains("bookSearch")
     }.getOrDefault(false)
-
-    /** 从文件头抠类名做标题（class Xxx），抠不到返回 null。 */
-    private fun extractTitle(file: File): String? = runCatching {
-        val head = file.inputStream().use { input ->
-            val buf = ByteArray(4096)
-            val n = input.read(buf)
-            if (n > 0) String(buf, 0, n) else ""
-        }
-        Regex("""class\s+(\w+)""").find(head)?.groupValues?.get(1)
-    }.getOrNull()
 
     /** Novel.sourceKey → 书源文件名（非 PY 书源返回 null）。 */
     fun fileNameOf(sourceKey: String): String? =

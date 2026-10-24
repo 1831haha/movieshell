@@ -47,6 +47,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -69,6 +71,7 @@ fun NovelSearchScreen(
     onManageSources: () -> Unit = {},
     pySourceName: String? = null,
     embedded: Boolean = false, // v0.79.0：嵌入书架子 tab 时隐藏头部
+    autoFocus: Boolean = false, // v0.195.0：书架内嵌搜索时打开即聚焦键盘，直接输
 ) {
     // v0.103.0：activity 级 VM——切后台/切 tab 不销毁，viewModelScope 里的多书源搜索不中断、结果保留
     val activity = LocalContext.current as ComponentActivity
@@ -134,6 +137,11 @@ fun NovelSearchScreen(
         }
         Spacer(Modifier.height(12.dp))
         }
+        // v0.195.0：自动聚焦（书架点搜索即输，不用再点一次框）
+        val searchFocus = remember { FocusRequester() }
+        LaunchedEffect(autoFocus) {
+            if (autoFocus) searchFocus.requestFocus()
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = keyword,
@@ -142,7 +150,7 @@ fun NovelSearchScreen(
                 singleLine = true,
                 // v0.139.0：搜索框改胶囊圆角，与系统干净风格对齐
                 shape = RoundedCornerShape(50),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).focusRequester(searchFocus),
             )
             IconButton(onClick = { vm.doSearch() }, modifier = Modifier.padding(start = 4.dp)) {
                 Icon(Icons.Filled.Search, "搜索", tint = gold)
