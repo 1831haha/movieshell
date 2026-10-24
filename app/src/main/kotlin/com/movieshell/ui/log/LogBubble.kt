@@ -3,6 +3,7 @@ package com.movieshell.ui.log
 import android.content.ClipData
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,7 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -63,6 +65,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 private const val PREFS = "movieshell_prefs"
@@ -88,6 +91,7 @@ private fun saveBubbleOffset(context: Context, offset: Offset) {
  *
  * - 开关由设置页"运行日志悬浮窗"控制（LogStore，默认关）；
  * - 小泡：48dp 圆形，虚化风格（半透明底 + blur），可拖到任意位置（位置记住）；
+ * v0.205.0：图标改 Code（</>，更像日志控制台）；静默 5 秒无新日志后整体虚化到 0.35，有新日志恢复。
  * - 点开：BottomSheet = 日志列表（倒序、可按级别过滤）+ 导出日志 / 复制日志 / 关闭悬浮窗。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -110,10 +114,21 @@ fun LogBubbleOverlay() {
         var offset by remember { mutableStateOf(loadBubbleOffset(context) ?: defaultOffset) }
         var showSheet by remember { mutableStateOf(false) }
 
+        // v0.205.0：静默虚化——5 秒无新日志就淡到 0.35，有新日志恢复
+        val logEntries by LogBus.entries.collectAsState()
+        var idleFaded by remember { mutableStateOf(false) }
+        LaunchedEffect(logEntries.size) {
+            idleFaded = false
+            delay(5000)
+            idleFaded = true
+        }
+        val bubbleAlpha by animateFloatAsState(if (idleFaded) 0.35f else 1f, label = "logBubbleAlpha")
+
         Box(
             modifier = Modifier
                 .offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
                 .size(48.dp)
+                .alpha(bubbleAlpha)
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDragEnd = { saveBubbleOffset(context, offset) },
@@ -134,7 +149,7 @@ fun LogBubbleOverlay() {
                     .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)),
             )
             Icon(
-                imageVector = Icons.Filled.BugReport,
+                imageVector = Icons.Filled.Code,
                 contentDescription = "运行日志",
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier

@@ -306,6 +306,9 @@ fun DetailScreen(
     // v0.65：嵌入播放器状态（详情页顶部 16:9 直接播）
     var embeddedUrl by remember { mutableStateOf("") }
     var embeddedTitle by remember { mutableStateOf("") }
+    // v0.205.0：顶部播放区状态——解析中/失败时盖一层状态，不再只剩封面图
+    var embeddedResolving by remember { mutableStateOf(false) }
+    var embeddedError by remember { mutableStateOf<String?>(null) }
     // v0.164.0：pics:// 图片集不走嵌入视频播放器，单独全屏看图（见外层 Box 末尾的覆盖层）
     var picsUrl by remember { mutableStateOf("") }
     var picsTitle by remember { mutableStateOf("") }
@@ -318,25 +321,36 @@ fun DetailScreen(
         // v0.106.0：解析走应用级 PlayResolveScope——rememberCoroutineScope 会在切页/
         // 返回时取消，导致 "The coroutine scope left the composition"（16 条线路全灭）
         PlayResolveScope.launch {
+            embeddedResolving = true
+            embeddedError = null
             if (MagnetPlayer.isMagnet(ep.url)) {
                 val ok = runCatching {
                     MagnetPlayer.playIfReady(context, ep.url, vod?.title ?: displayTitle(vodId))
                 }.getOrDefault(false)
                 // 服务通则已直接起播；不通则弹窗提示
                 if (!ok) showMagnetDialog = true
+                embeddedResolving = false
             } else {
-                val link = resolvePlayUrl(context, subSite, ep)
+                val link = try {
+                    resolvePlayUrl(context, subSite, ep)
+                } catch (t: Throwable) {
+                    LogBus.e("Detail", "解析异常：${t.message}")
+                    ""
+                }
                 // v0.171.0：无播放地址先拦截提示，不再静默记已看、不写播放会话、
                 // 不进只剩封面的空白播放区（此前 markWatched 与 PlaySession.start
                 // 都在空地址判定之前执行，点集没反应还被标成已看）
                 if (link.isBlank()) {
                     Toast.makeText(context, "该集暂无播放地址", Toast.LENGTH_SHORT).show()
+                    embeddedError = "该集暂无播放地址"
+                    embeddedResolving = false
                     return@launch
                 }
                 // v0.164.0：pics:// 图片集直接进看图，不写视频播放会话、不进嵌入播放器
                 if (com.movieshell.player.isPicsUrl(link)) {
                     picsTitle = "${vod?.title ?: displayTitle(vodId)} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}"
                     picsUrl = link
+                    embeddedResolving = false
                     return@launch
                 }
                 // v0.26.0：追剧看到第几集联动（有地址才记）
@@ -353,6 +367,7 @@ fun DetailScreen(
                 playingLine = lineIndex
                 playingEp = episodeIndex
                 embeddedTitle = "${vod?.title ?: displayTitle(vodId)} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}"
+                embeddedResolving = false
                 embeddedUrl = link
             }
         }
@@ -987,6 +1002,48 @@ fun DetailScreen(
                                     contentDescription = "关闭",
                                     tint = Color.White,
                                     modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                // v0.205.0：顶部状态层——解析中给转圈、失败给重试，
+                // 盖在封面图上，不再静默只剩一张图
+                if (embeddedUrl.isBlank() && (embeddedResolving || embeddedError != null)) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .fillMaxWidth()
+                            .offset {
+                                IntOffset(
+                                    0,
+                                    -listState.firstVisibleItemScrollOffset,
+                                )
+                            }
+                            .aspectRatio(16f / 9f)
+                            .background(Color.Black.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (embeddedResolving) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    modifier = Modifier.size(28.dp),
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text("正在解析…", color = Color.White)
+                            }
+                        } else {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(embeddedError ?: "播放失败", color = Color.White)
+                                Spacer(Modifier.height(10.dp))
+                                AppButton(
+                                    text = "重试",
+                                    onClick = {
+                                        if (lineEpisodes.isNotEmpty()) {
+                                            playEpisode(lineEpisodes[safeSelected], safeLine, safeSelected)
+                                        }
+                                    },
                                 )
                             }
                         }
