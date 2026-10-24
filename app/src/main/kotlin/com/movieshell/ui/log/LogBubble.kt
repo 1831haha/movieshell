@@ -26,7 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -92,6 +92,7 @@ private fun saveBubbleOffset(context: Context, offset: Offset) {
  * - 开关由设置页"运行日志悬浮窗"控制（LogStore，默认关）；
  * - 小泡：48dp 圆形，虚化风格（半透明底 + blur），可拖到任意位置（位置记住）；
  * v0.205.0：图标改 Code（</>，更像日志控制台）；静默 5 秒无新日志后整体虚化到 0.35，有新日志恢复。
+ * v0.207.0：图标改 Terminal（>_，用户嫌 </> 丑、让助手定，终端样式一眼就是控制台）。
  * - 点开：BottomSheet = 日志列表（倒序、可按级别过滤）+ 导出日志 / 复制日志 / 关闭悬浮窗。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -149,7 +150,7 @@ fun LogBubbleOverlay() {
                     .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)),
             )
             Icon(
-                imageVector = Icons.Filled.Code,
+                imageVector = Icons.Filled.Terminal,
                 contentDescription = "运行日志",
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier
