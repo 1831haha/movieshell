@@ -23,11 +23,12 @@ object NovelSourceEngine {
     private const val SEARCH_MAX_CONCURRENCY = 4
     private val searchSemaphore = Semaphore(SEARCH_MAX_CONCURRENCY)
 
-    /** 在单个书源里搜书。 */
+    /** 在单个书源里搜书。v0.197.0：搜索走 POST 感知的请求（老 GET 源行为不变）。 */
     suspend fun search(source: BookSource, keyword: String): List<NovelSearchResult> {
         if (source.searchUrl.isBlank() || source.ruleSearchList.isBlank()) return emptyList()
-        val url = BookRuleEngine.buildSearchUrl(source.searchUrl, keyword)
-        val html = BookRuleEngine.getHtml(url) ?: return emptyList()
+        val req = BookRuleEngine.buildSearchRequest(source.searchUrl, keyword)
+        val html = BookRuleEngine.fetchSearchHtml(req) ?: return emptyList()
+        val url = req.url
         return BookRuleEngine.selectList(html, source.ruleSearchList).mapNotNull { el ->
             val name = BookRuleEngine.extract(el, url, source.ruleSearchName.ifBlank { "@text" })
             val bookUrl = BookRuleEngine.extract(el, url, source.ruleSearchBookUrl.ifBlank { "a@href" })

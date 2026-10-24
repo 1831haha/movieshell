@@ -5,7 +5,10 @@ import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DEFAULT_UA_CHROME120
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
@@ -20,6 +23,9 @@ import java.nio.charset.Charset
  *   选择器省略时作用于当前元素，如 "@text"、"@href"
  * - searchUrl 中的 {{key}} 替换为 URL 编码后的关键词
  * - 相对链接自动按页面 URL 补全为绝对地址
+ * - v0.197.0：searchUrl 可带阅读式选项后缀
+ *   `URL,{"method":"POST","body":"...{{key}}...","charset":"GBK","headers":{...}}`；
+ *   没有后缀的老源走原 GET 逻辑，不受影响。
  */
 object BookRuleEngine {
 
@@ -40,11 +46,89 @@ object BookRuleEngine {
             client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return@use null
                 val bytes = resp.body?.bytes() ?: return@use null
-                // 先按 UTF-8 解，乱码则尝试 GBK（中文小说站常见）
-                val utf8 = bytes.toString(Charsets.UTF_8)
-                if (utf8.contains('�')) bytes.toString(Charset.forName("GBK")) else utf8
+                decodeBytes(bytes)
             }
         }.onFailure { Log.w(TAG, "抓取失败 $url", it) }.getOrNull()
+    }
+
+    /** v0.197.0：搜索请求（URL + 方法 + 表单体 + 编码 + 附加头）。 */
+    data class SearchRequest(
+        val url: String,
+        val method: String = "GET",
+        val body: String? = null,
+        val charsetName: String = "UTF-8",
+        val headers: Map<String, String> = emptyMap(),
+    )
+
+    /**
+     * v0.197.0：解析 searchUrl。
+     * - 无 `,{...}` 后缀：老行为，GET，{{key}} 按 UTF-8 编码。
+     * - 有后缀：按 method/body/charset/headers 解析；body 里的 {{key}} 按 charset
+     *   编码（如 GBK 站），URL 里的 {{key}} 仍按 UTF-8 编码；{{page}} 恒为 1
+     *   （本引擎搜索只抓一页，不做分页）。
+     * - 后缀 JSON 解析失败时回落老行为，不炸掉老源。
+     */
+    fun buildSearchRequest(template: String, keyword: String): SearchRequest {
+        val key = keyword.trim()
+        val utf8Key = URLEncoder.encode(key, "UTF-8")
+        val optStart = template.indexOf(",{")
+        if (optStart < 0) {
+            return SearchRequest(
+                url = template.replace("{{key}}", utf8Key).replace("{{page}}", "1"),
+            )
+        }
+        val opts = runCatching { JSONObject(template.substring(optStart + 1)) }.getOrNull()
+            ?: return SearchRequest(
+                // 后缀不是合法 JSON：只取逗号前的纯 URL，不把垃圾后缀带进请求
+                url = template.substring(0, optStart)
+                    .replace("{{key}}", utf8Key).replace("{{page}}", "1"),
+            )
+        val charsetName = opts.optString("charset", "UTF-8").ifBlank { "UTF-8" }
+        val encodedKey = runCatching { URLEncoder.encode(key, charsetName) }.getOrDefault(utf8Key)
+        val headers = mutableMapOf<String, String>()
+        opts.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { k -> headers[k] = h.optString(k) }
+        }
+        val body = opts.optString("body", "")
+            .replace("{{key}}", encodedKey)
+            .replace("{{page}}", "1")
+            .ifBlank { null }
+        return SearchRequest(
+            url = template.substring(0, optStart)
+                .replace("{{key}}", utf8Key).replace("{{page}}", "1"),
+            method = opts.optString("method", "GET").ifBlank { "GET" }.uppercase(),
+            body = body,
+            charsetName = charsetName,
+            headers = headers,
+        )
+    }
+
+    /** v0.197.0：按 SearchRequest 抓搜索页；POST 发表单，body 按 charset 编字节。 */
+    suspend fun fetchSearchHtml(request: SearchRequest): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val builder = Request.Builder()
+                .url(request.url)
+                .header("User-Agent", DEFAULT_UA_CHROME120)
+                .header("Accept-Language", "zh-CN,zh;q=0.9")
+            request.headers.forEach { (k, v) -> builder.header(k, v) }
+            if (request.method == "POST" && request.body != null) {
+                val charset = runCatching { Charset.forName(request.charsetName) }
+                    .getOrDefault(Charsets.UTF_8)
+                val mediaType = "application/x-www-form-urlencoded".toMediaType()
+                builder.post(request.body.toByteArray(charset).toRequestBody(mediaType))
+            }
+            client.newCall(builder.build()).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                val bytes = resp.body?.bytes() ?: return@use null
+                decodeBytes(bytes)
+            }
+        }.onFailure { Log.w(TAG, "搜索抓取失败 ${request.url}", it) }.getOrNull()
+    }
+
+    /** 页面解码：先 UTF-8，出现替换符则转 GBK（中文小说站常见）。 */
+    private fun decodeBytes(bytes: ByteArray): String {
+        val utf8 = bytes.toString(Charsets.UTF_8)
+        return if (utf8.contains('�')) bytes.toString(Charset.forName("GBK")) else utf8
     }
 
     /** 在 root 下按规则提字段。返回空字符串表示没提出来。 */
@@ -100,9 +184,6 @@ object BookRuleEngine {
                 .joinToString("\n\n") { "　　$it" }
         }.getOrDefault("")
     }
-
-    fun buildSearchUrl(template: String, keyword: String): String =
-        template.replace("{{key}}", URLEncoder.encode(keyword.trim(), "UTF-8"))
 
     private fun absolutize(pageUrl: String, href: String): String {
         if (href.isBlank()) return ""
