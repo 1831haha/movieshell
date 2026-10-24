@@ -42,8 +42,19 @@ object BookRuleEngine {
     /** v0.199.0：抓取结果（正文 + 落地 URL，供登录校验判断重定向）。 */
     data class PageResult(val body: String, val url: String)
 
+    /** v0.208.0：抓取结果 + HTTP 状态（null=网络异常等未拿到响应）。 */
+    data class FetchOutcome(val page: PageResult?, val httpCode: Int?)
+
     /** v0.199.0：GET 抓取，返回正文与重定向后的落地 URL。 */
-    suspend fun fetchPage(url: String, ua: String? = null): PageResult? = withContext(Dispatchers.IO) {
+    suspend fun fetchPage(url: String, ua: String? = null): PageResult? =
+        fetchPageOutcome(url, ua).page
+
+    /**
+     * v0.208.0：GET 抓取 + HTTP 状态。
+     * 403 时调用方可用它触发 WebView 验证通道（见 NovelSourceEngine.gatedFetch），
+     * 普通失败仍按原逻辑返回空页，不影响老调用方。
+     */
+    suspend fun fetchPageOutcome(url: String, ua: String? = null): FetchOutcome = withContext(Dispatchers.IO) {
         runCatching {
             val req = Request.Builder()
                 .url(url)
@@ -51,11 +62,11 @@ object BookRuleEngine {
                 .header("Accept-Language", "zh-CN,zh;q=0.9")
                 .build()
             client.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@use null
-                val bytes = resp.body?.bytes() ?: return@use null
-                PageResult(decodeBytes(bytes), resp.request.url.toString())
+                if (!resp.isSuccessful) return@use FetchOutcome(null, resp.code)
+                val bytes = resp.body?.bytes() ?: return@use FetchOutcome(null, resp.code)
+                FetchOutcome(PageResult(decodeBytes(bytes), resp.request.url.toString()), resp.code)
             }
-        }.onFailure { Log.w(TAG, "抓取失败 $url", it) }.getOrNull()
+        }.onFailure { Log.w(TAG, "抓取失败 $url", it) }.getOrNull() ?: FetchOutcome(null, null)
     }
 
     /** v0.197.0：搜索请求（URL + 方法 + 表单体 + 编码 + 附加头）。 */
@@ -115,7 +126,11 @@ object BookRuleEngine {
         fetchSearchPage(request)?.body
 
     /** v0.199.0：按 SearchRequest 抓搜索页，返回正文与落地 URL。 */
-    suspend fun fetchSearchPage(request: SearchRequest, ua: String? = null): PageResult? = withContext(Dispatchers.IO) {
+    suspend fun fetchSearchPage(request: SearchRequest, ua: String? = null): PageResult? =
+        fetchSearchPageOutcome(request, ua).page
+
+    /** v0.208.0：按 SearchRequest 抓搜索页 + HTTP 状态（见 fetchPageOutcome）。 */
+    suspend fun fetchSearchPageOutcome(request: SearchRequest, ua: String? = null): FetchOutcome = withContext(Dispatchers.IO) {
         runCatching {
             val builder = Request.Builder()
                 .url(request.url)
@@ -129,11 +144,11 @@ object BookRuleEngine {
                 builder.post(request.body.toByteArray(charset).toRequestBody(mediaType))
             }
             client.newCall(builder.build()).execute().use { resp ->
-                if (!resp.isSuccessful) return@use null
-                val bytes = resp.body?.bytes() ?: return@use null
-                PageResult(decodeBytes(bytes), resp.request.url.toString())
+                if (!resp.isSuccessful) return@use FetchOutcome(null, resp.code)
+                val bytes = resp.body?.bytes() ?: return@use FetchOutcome(null, resp.code)
+                FetchOutcome(PageResult(decodeBytes(bytes), resp.request.url.toString()), resp.code)
             }
-        }.onFailure { Log.w(TAG, "搜索抓取失败 ${request.url}", it) }.getOrNull()
+        }.onFailure { Log.w(TAG, "搜索抓取失败 ${request.url}", it) }.getOrNull() ?: FetchOutcome(null, null)
     }
 
     /** 页面解码：先 UTF-8，出现替换符则转 GBK（中文小说站常见）。 */

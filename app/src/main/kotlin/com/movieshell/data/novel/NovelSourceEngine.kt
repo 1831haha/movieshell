@@ -3,6 +3,7 @@ package com.movieshell.data.novel
 import android.content.Context
 import android.util.Log
 import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -49,11 +50,35 @@ object NovelSourceEngine {
     }
 
     /** 在单个书源里搜书。v0.197.0：搜索走 POST 感知的请求（老 GET 源行为不变）。v0.199.0：JS 源走 LegadoJsEngine。 */
-    suspend fun search(source: BookSource, keyword: String): List<NovelSearchResult> {
+    /**
+     * v0.208.0：403 自动过验证（阅读同款路子）。
+     * 直连被站方墙拦（403）时，弹全屏 WebView 走一次真实浏览器验证（浏览器指纹 +
+     * Cookie 落袋），Cookie 回写共享 Jar 后把原请求重抓一次；用户取消/超时/验证后
+     * 仍失败则返回 null，走原空结果逻辑。只重抓一次，不递归、不循环弹。
+     * allowGate=false 时（如后台更新检查）不弹验证窗，原样返回空。
+     */
+    private suspend fun gatedFetch(
+        source: BookSource,
+        ua: String?,
+        gateUrl: String,
+        allowGate: Boolean,
+        fetch: suspend () -> BookRuleEngine.FetchOutcome,
+    ): BookRuleEngine.PageResult? {
+        val first = fetch()
+        if (first.page != null) return first.page
+        if (!allowGate || first.httpCode != 403) return null
+        val result = runCatching { VerifyGate.awaitVerify(gateUrl, source.name, ua) }.getOrNull() ?: return null
+        if (result.cookieHeader.isNotBlank()) CmsApi.putCookies(result.url, result.cookieHeader)
+        return fetch().page
+    }
+
+    suspend fun search(source: BookSource, keyword: String, allowGate: Boolean = false): List<NovelSearchResult> {
         if (source.searchUrl.isBlank() || source.ruleSearchList.isBlank()) return emptyList()
         if (!isJsSource(source)) {
             val req = BookRuleEngine.buildSearchRequest(source.searchUrl, keyword)
-            val html = BookRuleEngine.fetchSearchHtml(req) ?: return emptyList()
+            val html = gatedFetch(source, null, source.url, allowGate) {
+                BookRuleEngine.fetchSearchPageOutcome(req)
+            }?.body ?: return emptyList()
             val url = req.url
             return BookRuleEngine.selectList(html, source.ruleSearchList).mapNotNull { el ->
                 val name = BookRuleEngine.extract(el, url, source.ruleSearchName.ifBlank { "@text" })
@@ -74,7 +99,9 @@ object NovelSourceEngine {
             val ctx = LegadoJsEngine.JsCtx(source = source, baseUrl = source.url, keyword = keyword, page = 1)
             val urlStr = evalSearchUrl(source, ctx, state)
             val req = BookRuleEngine.buildSearchRequest(urlStr, keyword)
-            var page = BookRuleEngine.fetchSearchPage(req, ua) ?: return@withContext emptyList()
+            var page = gatedFetch(source, ua, source.url, allowGate) {
+                BookRuleEngine.fetchSearchPageOutcome(req, ua)
+            } ?: return@withContext emptyList()
             page = LegadoJsEngine.runLoginCheck(source, page, ctx, state, refetch = {
                 val urlStr2 = evalSearchUrl(source, ctx, state)
                 val req2 = BookRuleEngine.buildSearchRequest(urlStr2, keyword)
@@ -101,11 +128,12 @@ object NovelSourceEngine {
     suspend fun searchAll(
         sources: List<BookSource>,
         keyword: String,
+        allowGate: Boolean = false,
     ): List<Pair<BookSource, List<NovelSearchResult>>> = coroutineScope {
         sources.map { s ->
             async {
                 s to searchSemaphore.withPermit {
-                    runCatching { search(s, keyword) }
+                    runCatching { search(s, keyword, allowGate) }
                         .onFailure { Log.w(TAG, "搜索失败 ${s.name}", it) }
                         .getOrDefault(emptyList())
                 }
@@ -343,12 +371,14 @@ object NovelSourceEngine {
      * 规则取 ruleExplore，缺失项回落到 ruleSearch（源只有 exploreUrl 没写
      * ruleExplore 时也能用）；分类 URL 支持 {{page}} 模板与相对地址（按源地址补全）。
      */
-    suspend fun explore(source: BookSource, categoryUrl: String, page: Int): List<NovelSearchResult> {
+    suspend fun explore(source: BookSource, categoryUrl: String, page: Int, allowGate: Boolean = false): List<NovelSearchResult> {
         if (source.exploreUrl.isBlank()) return emptyList()
         return withContext(Dispatchers.IO) {
             val url = resolveUrl(source.url, categoryUrl.replace("{{page}}", page.toString()))
             val ua = uaOf(source)
-            val first = BookRuleEngine.fetchPage(url, ua) ?: return@withContext emptyList()
+            val first = gatedFetch(source, ua, url, allowGate) {
+                BookRuleEngine.fetchPageOutcome(url, ua)
+            } ?: return@withContext emptyList()
             val state = LegadoJsEngine.JsState(source.key)
             val ctx = LegadoJsEngine.JsCtx(source = source, baseUrl = first.url, page = page)
             val checked = LegadoJsEngine.runLoginCheck(source, first, ctx, state) {

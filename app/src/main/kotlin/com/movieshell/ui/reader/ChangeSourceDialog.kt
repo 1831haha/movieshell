@@ -98,7 +98,7 @@ fun ChangeSourceDialog(
             val enabledPy = pyRules.filter { it.name in pyEnabled }
             val result = coroutineScope {
                 val jsonJob = async {
-                    NovelSourceEngine.searchAll(enabledSources, kw)
+                    NovelSourceEngine.searchAll(enabledSources, kw, allowGate = true)
                         .filter { it.second.isNotEmpty() }
                         .map { (s, books) -> ChangeSourceGroup(s.key, s.name, books) }
                 }

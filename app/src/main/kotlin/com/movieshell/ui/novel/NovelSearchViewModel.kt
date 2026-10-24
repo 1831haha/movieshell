@@ -139,7 +139,7 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                     val enabledPyRules = PyBookSourceManager.rules.value
                         .filter { it.name in PyBookSourceManager.enabled.value }
                     val jsonJob = async {
-                        NovelSourceEngine.searchAll(enabledSources, kw)
+                        NovelSourceEngine.searchAll(enabledSources, kw, allowGate = true)
                             .filter { it.second.isNotEmpty() }
                             .map { (s, books) -> SourceGroup(s.key, s.name, books) }
                     }

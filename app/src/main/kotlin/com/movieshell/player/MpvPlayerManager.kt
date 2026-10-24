@@ -51,6 +51,8 @@ object MpvPlayerManager {
     @Volatile private var attachedSurface: Surface? = null
     @Volatile private var surfaceW: Int = 0
     @Volatile private var surfaceH: Int = 0
+    /** v0.208.0：最近一次画面档位（-1=未设置过）；拉伸档依赖容器尺寸，surface 尺寸变化时需重算。 */
+    @Volatile private var currentAspectMode: Int = -1
     @Volatile private var lastPositionMs: Long = 0L
     @Volatile private var lastDurationMs: Long = 0L
     @Volatile private var paused = true
@@ -157,6 +159,10 @@ object MpvPlayerManager {
     fun onSurfaceSize(width: Int, height: Int) {
         surfaceW = width
         surfaceH = height
+        // v0.208.0：拉伸档的比例取自容器尺寸——横竖屏切换时档位效应先跑、surface 后改尺寸，
+        // 之前只在档位切换时算一次，横屏后仍用竖屏 16:9 盒子比例，拉伸也铺不满；
+        // 尺寸变化时把当前拉伸档重算一遍（适应/裁剪不依赖尺寸，无需重算）。
+        if (currentAspectMode == 2) setAspectMode(2)
     }
 
     /**
@@ -260,6 +266,7 @@ object MpvPlayerManager {
      * 变形，与 RESIZE_MODE_FILL 同义；panscan 保持 0（不裁剪）。
      */
     fun setAspectMode(mode: Int) {
+        currentAspectMode = mode
         executor.execute {
             if (!initialized.get() || destroyed.get()) return@execute
             runCatching {

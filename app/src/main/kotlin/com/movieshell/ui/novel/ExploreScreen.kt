@@ -72,7 +72,7 @@ fun ExploreScreen(
         loading = true
         notice = null
         scope.launch {
-            val list = runCatching { NovelSourceEngine.explore(src, cat.url, p) }.getOrDefault(emptyList())
+            val list = runCatching { NovelSourceEngine.explore(src, cat.url, p, allowGate = true) }.getOrDefault(emptyList())
             results = if (append) (results + list).distinctBy { it.remoteId } else list
             if (list.isEmpty() && !append) notice = "这一页没有结果（可能撞上验证，稍后重试）"
             loading = false
