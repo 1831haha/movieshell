@@ -157,7 +157,7 @@ object NovelSourceEngine {
                 baseUrl = detailUrl,
                 bookName = book.title,
                 bookUrl = book.remoteId,
-                bookAuthor = book.author,
+                bookAuthor = book.author.orEmpty(),
             )
             var tocUrl = detailUrl
             if (source.ruleBookTocUrl.isNotBlank()) {
@@ -328,7 +328,7 @@ object NovelSourceEngine {
                 baseUrl = page.url,
                 bookName = book.title,
                 bookUrl = book.remoteId,
-                bookAuthor = book.author,
+                bookAuthor = book.author.orEmpty(),
             )
             val state = LegadoJsEngine.JsState(source.key)
             val checked = LegadoJsEngine.runLoginCheck(source, page, ctx, state, null)
