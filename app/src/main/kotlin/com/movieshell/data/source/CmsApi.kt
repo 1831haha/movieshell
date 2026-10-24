@@ -118,6 +118,39 @@ class CmsApi(
                 }
                 oldestKey?.let { store.remove(it) }
             }
+
+            /** v0.201.0：验证通道回写 Cookie（按名合并，不丢该 host 已有项）。 */
+            fun put(url: HttpUrl, cookies: List<Cookie>) {
+                val host = url.host
+                val old = store[host]?.cookies.orEmpty()
+                val merged = old.filter { o -> cookies.none { it.name == o.name } } + cookies
+                store[host] = CookieEntry(merged, System.currentTimeMillis())
+            }
+
+            /** v0.201.0：清掉某 host 的全部 Cookie（验证重进时不带旧 Cookie）。 */
+            fun clear(host: String) {
+                store.remove(host)
+            }
+        }
+
+        /**
+         * v0.201.0：把 WebView 拿到的 Cookie（"a=b; c=d" 形）写进共享 Jar，
+         * 后续 OkHttp 请求自动带上。解析失败的段直接丢弃，不影响其它段。
+         */
+        fun putCookies(url: String, cookieHeader: String) {
+            val httpUrl = url.toHttpUrlOrNull() ?: return
+            val cookies = cookieHeader.split(";").mapNotNull { part ->
+                val trimmed = part.trim()
+                if (trimmed.isEmpty()) null else Cookie.parse(httpUrl, trimmed)
+            }
+            if (cookies.isNotEmpty()) memoryCookieJar.put(httpUrl, cookies)
+        }
+
+        /** v0.201.0：清掉某地址 host 在 OkHttp Jar 与 WebView 里的 Cookie。 */
+        fun clearCookies(url: String) {
+            val host = url.toHttpUrlOrNull()?.host ?: return
+            memoryCookieJar.clear(host)
+            runCatching { android.webkit.CookieManager.getInstance().removeAllCookies(null) }
         }
 
         /** UA 拦截器：没带 UA 的请求统一补浏览器 UA，不覆盖调用方显式设置的 */

@@ -97,6 +97,7 @@ import com.movieshell.ui.bookshelf.BookshelfScreen
 import com.movieshell.ui.novel.BookSourceScreen
 import com.movieshell.ui.novel.PurifyRulesScreen
 import com.movieshell.ui.novel.NovelSearchScreen
+import com.movieshell.ui.novel.VerifyGateDialog
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
 import com.movieshell.ui.follow.FollowScreen
@@ -751,6 +752,8 @@ class MainActivity : ComponentActivity() {
                 LogBubbleOverlay()
                 // v0.27.2：PY 缺库一键安装引导
                 PyDepGuideOverlay()
+                // v0.201.0：Cloudflare/WebView 验证通道（有请求时弹全屏验证页）
+                VerifyGateDialog()
                 }
             }
         }

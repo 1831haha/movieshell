@@ -40,8 +40,8 @@ import javax.crypto.spec.SecretKeySpec
  *
  * v1 范围：搜索/目录/正文三条链 + searchUrl JS + loginCheckJs + 源变量 + 正文/目录分页。
  * 不在 v1：发现页（书架无入口）、详情封面 JS（侠影不单独拉详情页）、jsLib、
- * WebView 验证（startBrowserAwait 占位返回空，命中 Cloudflare 时该次结果为空）。
- * 源变量目前只放进程内，重启后首次请求经登录校验重新探测重定向域名。
+ * WebView 验证（startBrowserAwait 走 VerifyGate 全屏 WebView 验证通道，见 VerifyGateDialog）。
+ * 源变量落盘（filesDir/novel_source_vars.json），重启后重定向域名记忆仍在。
  *
  * 调用约束：Rhino 求值与 java.ajax 都是同步阻塞，调用方必须在 IO 线程
  * （NovelSourceEngine 的 JS 分支统一包 withContext(Dispatchers.IO)）。
@@ -121,10 +121,10 @@ object LegadoJsEngine {
     /** book / chapter 的 JS 对象标记（求值时转成 NativeObject）。 */
     data class JsObj(val props: Map<String, String>)
 
-    /** cookie 桥：v1 占位（只有 Cloudflare 分支调，与 startBrowserAwait 一并待 WebView 方案）。 */
+    /** cookie 桥：清掉该地址 host 在 OkHttp Jar 与 WebView 里的 Cookie（验证重进用）。 */
     class CookieBridge {
         fun removeCookie(url: String) {
-            Log.d(TAG, "removeCookie 占位（未实现）: $url")
+            CmsApi.clearCookies(url)
         }
     }
 
@@ -202,8 +202,20 @@ object LegadoJsEngine {
             Log.d(TAG, "toast: $message")
         }
 
-        /** v1 占位：Cloudflare/WebView 验证需界面配合，暂返回空响应。 */
-        fun startBrowserAwait(url: String, title: String): StrResponse = StrResponse("", url)
+        /**
+         * v0.201.0：Cloudflare/WebView 验证——在 IO 线程挂起等用户在全屏
+         * WebView 里完成验证（最长 180 秒），拿到 HTML 后把 Cookie 回写共享 Jar，
+         * 返回验证后的响应；超时/取消返回空响应，规则求值按空结果处理。
+         */
+        fun startBrowserAwait(url: String, title: String): StrResponse {
+            val result = runCatching {
+                kotlinx.coroutines.runBlocking { VerifyGate.awaitVerify(url, title, ua) }
+            }.getOrNull() ?: return StrResponse("", url)
+            if (result.cookieHeader.isNotBlank()) {
+                CmsApi.putCookies(result.url, result.cookieHeader)
+            }
+            return StrResponse(result.html, result.url)
+        }
 
         /** 按最后一次响应的落地 URL 重算 baseUrl（取 scheme://host/）。 */
         fun initUrl() {
