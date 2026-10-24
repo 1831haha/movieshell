@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,6 +55,7 @@ import com.movieshell.ui.theme.SoftType
  */
 
 /** 通用卡片：surface 底 + 1dp 低对比描边 + 20dp 圆角。 */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppCard(
     modifier: Modifier = Modifier,

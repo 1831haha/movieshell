@@ -3,6 +3,7 @@ package com.movieshell.ui.novel
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -78,6 +79,7 @@ import kotlinx.coroutines.withContext
  * 兼容"阅读"App 导出的 bookSource.json（单条或数组）。
  * v0.66.0：点本地 PY 源 → 打开该源专属找书页（onOpenPySource）。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BookSourceScreen(
     onBack: () -> Unit = {},
