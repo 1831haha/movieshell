@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,6 +43,10 @@ import com.movieshell.ui.theme.LocalBrandGradient
 /**
  * v0.84.0：科技感弹窗——深色玻璃拟态底 + 四色渐变描边 + 标题下渐变细线。
  * 替代默认 AlertDialog（在深色主题下发白、输入框看不清，用户反馈"导入框框都看不到"）。
+ * v0.194.0：弹窗体跟随系统主题——之前恒深色 #171B28，用户在浅色主题下嫌
+ * “所有弹窗页都太暗了”；现深色主题仍走深底、浅色主题走浅底，内容色一律
+ * 跟主题 onSurface/onSurfaceVariant 走，此前各弹窗里写死的浅色一并改掉
+ * （见 BookDetailDialog/ReaderScreen/MusicPlayerScreen 等），不许再写死。
  */
 @Composable
 fun TechDialog(
@@ -56,6 +61,9 @@ fun TechDialog(
     // content 放最后：调用处用尾随 lambda 写法时必须对应最后一个参数
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    // v0.194.0：用主题背景明度判深浅（App 主题默认跟随系统），不用写死深色。
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val dialogBg = if (isDark) Color(0xFF171B28) else MaterialTheme.colorScheme.surface
     Dialog(onDismissRequest = onDismissRequest) {
         Box(
             modifier = Modifier
@@ -64,7 +72,7 @@ fun TechDialog(
                 .background(Brush.linearGradient(LocalBrandGradient.current))
                 .padding(1.5.dp)
                 .clip(RoundedCornerShape(21.dp))
-                .background(Color(0xFF171B28))
+                .background(dialogBg)
                 .padding(horizontal = 20.dp, vertical = 18.dp),
         ) {
             Column {
@@ -72,7 +80,8 @@ fun TechDialog(
                     text = title,
                     fontSize = 19.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFD9C39A),
+                    // v0.194.0：深底金字、浅底深金棕（金色在浅底上对比度不够）。
+                    color = if (isDark) Color(0xFFD9C39A) else Color(0xFF7A5C1F),
                 )
                 Spacer(Modifier.height(6.dp))
                 // 标题下四色渐变细线（呼应顶栏品牌线）
@@ -88,16 +97,13 @@ fun TechDialog(
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        // v0.109.0 A9：弹窗体恒为深色 #171B28，主题 onSurfaceVariant 在亮色主题下是深灰
-                        // 写深底上对比度约 2.5:1；固定用浅灰紫保证深浅主题都可读（约 8:1）
-                        color = Color(0xFFAEB6D4),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Spacer(Modifier.height(12.dp))
-                // v0.117.0：弹窗体恒深色 #171B28，但 content 槽没做颜色保护——
-                // 调用方的裸 Text 在亮色主题下拿到 onSurface 深色，深底深字看不见
-                // （真机实锤：存储权限弹窗正文全黑）。整个内容区固定浅色，一次修全。
-                CompositionLocalProvider(LocalContentColor provides Color(0xFFAEB6D4)) {
+                // v0.194.0：内容区不再固定浅色，改跟主题——浅色主题下裸 Text
+                // 拿 onSurface 深色正好可读，深色主题下拿浅色也可读。
+                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
                     content()
                 }
                 Spacer(Modifier.height(16.dp))
@@ -110,8 +116,7 @@ fun TechDialog(
                         TextButton(onClick = onDismissRequest) {
                             Text(
                                 dismissText,
-                                // v0.109.0 A9：同上，取消键固定用浅灰紫（弹窗体恒深色）
-                                color = Color(0xFFAEB6D4),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -159,13 +164,13 @@ fun TechTextField(
         singleLine = singleLine,
         minLines = minLines,
         enabled = enabled,
-        textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         interactionSource = interactionSource,
         keyboardOptions = keyboardOptions,
         modifier = modifier
             .clip(shape)
-            .background(Color(0xFF1F2433))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .border(
                 width = 1.dp,
                 color = if (focused) MaterialTheme.colorScheme.primary
@@ -178,7 +183,7 @@ fun TechTextField(
                 Text(
                     text = placeholder,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.35f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
                 )
             }
             inner()

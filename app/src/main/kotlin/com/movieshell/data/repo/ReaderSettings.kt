@@ -18,13 +18,19 @@ object ReaderSettings {
     private const val KEY_BRIGHTNESS = "reader_brightness"
     private const val KEY_VOLUME_PAGE = "reader_volume_page"
     private const val KEY_BG_THEME = "reader_bg_theme"
+    private const val KEY_FONT_FAMILY = "reader_font_family"
     private const val KEY_PAGE_MODE = "reader_page_mode"
 
     data class Settings(
         val fontSize: Int = 18,
         /** v0.89.0 起废弃：由 bgTheme 代替；load 时按 bgTheme 回填，仅做兼容 */
         val nightMode: Boolean = false,
-        val serifFont: Boolean = false,
+        /**
+         * v0.194.0追加：字体 0=系统默认 1=无衬线 2=衬线 3=等宽 4=手写。
+         * 旧版只有 serifFont 开关；迁移：有新 key 用新 key，没有则旧开关
+         * 开=衬线、关=无衬线（老用户选择不变）。
+         */
+        val fontFamily: Int = 1,
         val lineHeightRatio: Float = 1.8f,
         val brightness: Float = -1f, // -1=跟随系统
         /** v0.72.0：音量键翻页；v0.193.0 起默认开（用户要求“加上”，旧版默认关藏得太深） */
@@ -46,7 +52,9 @@ object ReaderSettings {
         return Settings(
             fontSize = p.getInt(KEY_FONT_SIZE, 18).coerceIn(14, 24),
             nightMode = bgTheme == 3,
-            serifFont = p.getBoolean(KEY_SERIF, false),
+            fontFamily = if (p.contains(KEY_FONT_FAMILY)) {
+                p.getInt(KEY_FONT_FAMILY, 1).coerceIn(0, 4)
+            } else if (p.getBoolean(KEY_SERIF, false)) 2 else 1,
             lineHeightRatio = p.getFloat(KEY_LINE_RATIO, 1.8f).coerceIn(1.2f, 2.4f),
             brightness = p.getFloat(KEY_BRIGHTNESS, -1f),
             volumePageTurn = p.getBoolean(KEY_VOLUME_PAGE, true),
@@ -59,7 +67,7 @@ object ReaderSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putInt(KEY_FONT_SIZE, s.fontSize)
             .putBoolean(KEY_NIGHT, s.nightMode)
-            .putBoolean(KEY_SERIF, s.serifFont)
+            .putInt(KEY_FONT_FAMILY, s.fontFamily)
             .putFloat(KEY_LINE_RATIO, s.lineHeightRatio)
             .putFloat(KEY_BRIGHTNESS, s.brightness)
             .putBoolean(KEY_VOLUME_PAGE, s.volumePageTurn)

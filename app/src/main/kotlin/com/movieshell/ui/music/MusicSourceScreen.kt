@@ -616,13 +616,13 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                         Text(
                             text = "Cookie 仅写入本机脚本文件，不会上传到任何服务器。",
                             fontSize = 11.sp,
-                            color = Color(0xFF8A93B2),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
                             text = "获取方式：电脑浏览器登录对应平台官网 → F12 → 网络 → 复制请求头里的 Cookie。",
                             fontSize = 11.sp,
-                            color = Color(0xFF8A93B2),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -710,8 +710,8 @@ private val cookieCardModifier: Modifier
     get() = Modifier
         .fillMaxWidth()
         .clip(RoundedCornerShape(14.dp))
-        .background(Color.White.copy(alpha = 0.05f))
-        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
         .padding(12.dp)
 
 /** v0.119.0：Cookie 配置状态概览卡——已配 x / n + 作用说明 */
@@ -735,14 +735,14 @@ private fun CookieStatusCard(filled: Int, total: Int) {
                 text = "已配置 $filled / $total",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(2.dp))
             Text(
                 text = if (done) "各平台将以登录态解析，可解锁会员与无损音质"
                 else "粘贴各平台登录后的 Cookie，解锁会员与无损音质",
                 fontSize = 12.sp,
-                color = Color(0xFF8A93B2),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -751,7 +751,7 @@ private fun CookieStatusCard(filled: Int, total: Int) {
 /** v0.119.0：已填写/未填写状态徽标 */
 @Composable
 private fun CookieStatusPill(filled: Boolean) {
-    val c = if (filled) Color(0xFF4ADE80) else Color(0xFF8A93B2)
+    val c = if (filled) Color(0xFF4ADE80) else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -789,7 +789,7 @@ private fun CookieSlotCard(
                 text = slot.label,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.weight(1f))
             CookieStatusPill(filled = filled)
@@ -798,7 +798,7 @@ private fun CookieSlotCard(
         Text(
             text = cookieDesc(slot.key),
             fontSize = 12.sp,
-            color = Color(0xFF8A93B2),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(8.dp))
         TechTextField(

@@ -137,7 +137,9 @@ fun NovelListCard(
         Row(
             modifier = Modifier
                 .bookPressable(onClick = onClick, onLongClick = onLongClick)
-                .padding(12.dp),
+                // v0.194.0追加：列表行收紧（用户原话“列表太宽了”）——封面
+                // 56×76→46×62、内边距 12→10，行高约 100→82，一屏多看两三本。
+                .padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (selectionMode) {
@@ -149,7 +151,7 @@ fun NovelListCard(
             }
             Box(
                 modifier = Modifier
-                    .size(width = 56.dp, height = 76.dp)
+                    .size(width = 46.dp, height = 62.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
@@ -170,12 +172,12 @@ fun NovelListCard(
                     )
                 }
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         novel.title,
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         // v0.109.0 A9：书名在玻璃卡片上，亮色主题白底金字难读，用明度自适应金
                         color = goldTitleColor(),
@@ -200,7 +202,7 @@ fun NovelListCard(
                         )
                     }
                 }
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(3.dp))
                 NovelMetaRow(
                     icon = Icons.Filled.Person,
                     text = novel.author?.takeIf { it.isNotBlank() } ?: "未知作者",
@@ -216,13 +218,13 @@ fun NovelListCard(
                     icon = Icons.Filled.LibraryBooks,
                     text = "共 $total 章 · ${formatLastReadTs(lastReadAt)}",
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     LinearProgressIndicator(
                         progress = { progress },
                         modifier = Modifier
                             .weight(1f)
-                            .height(5.dp),
+                            .height(4.dp),
                         color = cyan,
                         trackColor = cyan.copy(alpha = 0.2f),
                     )

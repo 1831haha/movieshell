@@ -1575,7 +1575,7 @@ fun SourcesScreen(
             Spacer(Modifier.height(12.dp))
             Text(
                 text = "正在检测：$probeLabel",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 style = SoftType.Body,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

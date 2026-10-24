@@ -632,7 +632,7 @@ fun MusicPlayerScreen(
                         if (playState.loading) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(34.dp),
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                         } else {
                             Icon(
@@ -899,7 +899,7 @@ private fun PlayerOpItem(
     }
 }
 
-/** v0.129.0：播放列表弹窗——TechDialog 恒深色，文字用固定浅色系（与切换音源弹窗同口径）。 */
+/** v0.129.0：播放列表弹窗；v0.194.0 起弹窗体跟随主题，文字跟主题色走。 */
 @Composable
 private fun MusicQueueDialog(
     onDismiss: () -> Unit,
@@ -914,7 +914,7 @@ private fun MusicQueueDialog(
             Text(
                 "队列是空的",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF8A93B2),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),
             )
         } else {
@@ -952,7 +952,7 @@ private fun MusicQueueDialog(
                                 color = if (current) {
                                     MaterialTheme.colorScheme.primary
                                 } else {
-                                    Color.White
+                                    MaterialTheme.colorScheme.onSurface
                                 },
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -961,7 +961,7 @@ private fun MusicQueueDialog(
                             Text(
                                 text = t.artist,
                                 fontSize = 12.sp,
-                                color = Color(0xFF8A93B2),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -1049,7 +1049,7 @@ internal fun MusicSourcePickerDialog(
                 Text(
                     "平台（当前歌曲）",
                     fontSize = 13.sp,
-                    color = Color(0xFF8A93B2),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 4.dp),
                 )
                 Spacer(Modifier.height(6.dp))
@@ -1085,7 +1085,7 @@ internal fun MusicSourcePickerDialog(
     }
 }
 
-/** v0.121.0：切换音源选项行——名称 + 人话说明 + 选中打勾（TechDialog 内容区恒深色，用固定浅色系） */
+/** v0.121.0：切换音源选项行——名称 + 人话说明 + 选中打勾；v0.194.0 起跟主题色走。 */
 // v0.137.0：enabled=false 时置灰且不可点（当前平台行用，点了没反应不如明示）
 @Composable
 private fun SourceOptionRow(
@@ -1101,7 +1101,7 @@ private fun SourceOptionRow(
             .clip(RoundedCornerShape(12.dp))
             .background(
                 if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                else Color.White.copy(alpha = 0.04f),
+                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f),
             )
             .clickable(enabled = enabled, onClick = onClick)
             .alpha(if (enabled) 1f else 0.5f)
@@ -1113,13 +1113,13 @@ private fun SourceOptionRow(
                 text = name,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(2.dp))
             Text(
                 text = desc,
                 fontSize = 12.sp,
-                color = Color(0xFF8A93B2),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (selected) {

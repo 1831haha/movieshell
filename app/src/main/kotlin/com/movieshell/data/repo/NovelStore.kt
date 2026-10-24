@@ -5,6 +5,8 @@ import android.util.Log
 import com.movieshell.data.model.Chapter
 import com.movieshell.data.model.Novel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -24,6 +26,24 @@ object NovelStore {
     private const val INDEX_NAME = "index.json"
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    // v0.194.0：索引写锁——index.json 是所有书共享的，快速连点多本书时
+    // 两个 add 并发读-改-写，后写的盖掉先写的（用户实锤：多本只剩一本）。
+    // add/remove/updateSource 三处写索引共用同一把锁，读侧不加锁。
+    private val indexMutex = Mutex()
+
+    /**
+     * v0.194.0：站内导航标题——有些规则把目录页底部的站内导航
+     * （首页/电脑版/书架）也当章节抓回来，目录里多出这几行（真机实锤）。
+     * 规则侧修是正道，但壳子在这里兜底：标题 exactly 是导航词的章直接丢掉。
+     * 章节正经标题不可能就叫这几个字，误杀风险可忽略。
+     */
+    private val NAV_TITLES = setOf(
+        "首页", "电脑版", "书架", "上一页", "下一页", "上一章", "下一章",
+        "返回首页", "返回", "手机版", "电脑端", "触屏版", "目录",
+    )
+
+    fun isNavChapterTitle(title: String): Boolean = title.trim() in NAV_TITLES
 
     private fun dirOf(context: Context): File = File(context.filesDir, DIR_NAME).also { it.mkdirs() }
     private fun indexFile(context: Context): File = File(dirOf(context), INDEX_NAME)
@@ -73,6 +93,7 @@ object NovelStore {
     /** 幂等添加：同 id 已存在则保留进度只更新元信息。 */
     suspend fun addNovel(context: Context, novel: Novel, chapters: List<Chapter>): Boolean =
         withContext(Dispatchers.IO) {
+            indexMutex.withLock {
             runCatching {
                 val fixed = chapters.mapIndexed { i, c ->
                     c.copy(novelId = novel.id, index = i)
@@ -93,6 +114,7 @@ object NovelStore {
                 writeIndex(context, listOf(merged) + rest)
                 true
             }.onFailure { Log.w(TAG, "小说导入失败", it) }.getOrDefault(false)
+            }
         }
 
     /** v0.83.0：换源——替换某书的目录与源 key，保留加入时间与阅读进度。返回新目录。 */
@@ -102,6 +124,7 @@ object NovelStore {
         sourceKey: String,
         chapters: List<Chapter>,
     ): Boolean = withContext(Dispatchers.IO) {
+        indexMutex.withLock {
         runCatching {
             // v0.186.0 第 9 组：先查索引存在再写章节——索引不存在直接返回 false，
             // 章节文件一动不动，不再出现章节已换、索引未换、调用方以为失败原数据还在。
@@ -137,14 +160,17 @@ object NovelStore {
             writeIndex(context, list)
             true
         }.onFailure { Log.w(TAG, "换源失败", it) }.getOrDefault(false)
+        }
     }
 
     suspend fun removeNovel(context: Context, id: String): Boolean = withContext(Dispatchers.IO) {
+        indexMutex.withLock {
         runCatching {
             writeIndex(context, readIndex(context).filterNot { it.id == id })
             chaptersFile(context, id).delete()
             true
         }.onFailure { Log.w(TAG, "删除小说失败", it) }.getOrDefault(false)
+        }
     }
 
     /**
@@ -177,6 +203,10 @@ object NovelStore {
                 // v0.170.0：读坏先保全原文件
                 AtomicFile.preserveCorrupt(f)
             }.getOrDefault(emptyList())
+                // v0.194.0：已入库的老书读盘时也滤掉导航章（不用重加就干净），
+                // 并按过滤后的位置重排 index，与阅读器的位置口径一致。
+                .filterNot { isNavChapterTitle(it.title) }
+                .mapIndexed { i, c -> c.copy(index = i) }
         }
 
     suspend fun chapter(context: Context, novelId: String, index: Int): Chapter? =

@@ -602,7 +602,7 @@ fun BookSourceScreen(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
                                     maxLines = 1,
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                 )
                                 Text(
                                     s.url,

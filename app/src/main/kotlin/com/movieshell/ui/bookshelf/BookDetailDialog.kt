@@ -118,10 +118,8 @@ private fun SheetRow(
     icon: ImageVector,
     text: String,
     onClick: () -> Unit,
-    // v0.193.0：TechDialog 底恒深色，行色不能再用主题 onSurface——
-    // 亮色主题下 onSurface 是深色，深底深字整行看不见（真机实锤：长按
-    // 操作表只剩红色删除可见）。直接用弹窗内容浅色，与 TechDialog 一致。
-    tint: Color = Color(0xFFAEB6D4),
+    // v0.194.0：弹窗体跟随主题（TechDialog），行色跟主题走，不再写死浅色。
+    tint: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     Row(
         modifier = Modifier
@@ -206,13 +204,13 @@ fun BookDetailDialog(
                         else "已读：第 ${read + 1} 章（$percent%）",
                         fontSize = 13.sp,
                         // v0.193.0：同 SheetRow，深底弹窗内不用主题 onSurface。
-                        color = Color(0xFFAEB6D4),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "上次阅读：${formatLastReadTs(lastReadAt)}",
                         fontSize = 12.sp,
-                        color = Color(0xFFAEB6D4).copy(alpha = 0.7f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -221,7 +219,7 @@ fun BookDetailDialog(
                 Text(
                     novel.desc,
                     fontSize = 13.sp,
-                    color = Color(0xFFAEB6D4).copy(alpha = 0.7f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -276,7 +274,7 @@ fun BookDetailDialog(
                                     fontSize = 13.sp,
                                     color = if (ch.index <= read) Color(0xFF4DD0E1)
                                     // v0.193.0：未读章同 SheetRow，不用主题 onSurface。
-                                    else Color(0xFFAEB6D4),
+                                    else MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -359,7 +357,7 @@ fun GroupPickerDialog(
                     "还没有自定义分组，先建一个吧",
                     fontSize = 13.sp,
                     // v0.193.0：同 SheetRow，深底弹窗内不用主题色。
-                    color = Color(0xFFAEB6D4).copy(alpha = 0.7f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
             }
@@ -375,13 +373,13 @@ fun GroupPickerDialog(
                     Text(
                         g.name,
                         fontSize = 15.sp,
-                        color = Color(0xFFAEB6D4),
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
                     Text(
                         "${g.novelIds.size} 本",
                         fontSize = 12.sp,
-                        color = Color(0xFFAEB6D4).copy(alpha = 0.7f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

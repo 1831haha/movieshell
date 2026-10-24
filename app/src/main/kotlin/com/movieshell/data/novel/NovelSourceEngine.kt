@@ -2,6 +2,7 @@ package com.movieshell.data.novel
 
 import android.content.Context
 import android.util.Log
+import com.movieshell.data.repo.NovelStore
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -86,6 +87,9 @@ object NovelSourceEngine {
             if (title.isBlank() || url.isBlank()) return@mapIndexedNotNull null
             ChapterMeta(index = i, title = title, url = url)
         }
+            // v0.194.0：导航章兜底过滤（见 NovelStore.isNavChapterTitle）。
+            .filterNot { NovelStore.isNavChapterTitle(it.title) }
+            .mapIndexed { i, m -> m.copy(index = i) }
     }
 
     /** 拉单章正文。 */
@@ -145,6 +149,9 @@ object NovelSourceEngine {
         return runCatching { pyBookApi.detail(path, book.remoteId)?.chapters.orEmpty() }
             .onFailure { Log.w(TAG, "PY 书源目录失败 ${book.sourceKey}", it) }
             .getOrDefault(emptyList())
+            // v0.194.0：导航章兜底过滤（见 NovelStore.isNavChapterTitle）。
+            .filterNot { NovelStore.isNavChapterTitle(it.title) }
+            .mapIndexed { i, m -> m.copy(index = i) }
     }
 
     /** 拉 PY 书源的单章正文。 */
