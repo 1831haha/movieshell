@@ -21,15 +21,19 @@ object NovelPaginator {
         innerH: Float,
         sample: String = "",
     ): Int {
-        // v0.102.0：按正文样本的中英文混排比例估算平均字宽，替代固定 0.95 系数
-        val widthRatio = avgCharWidthRatio(sample)
-        val cpl = if (innerW > 0 && fontPx > 0) {
-            (innerW / (fontPx * widthRatio)).toInt().coerceAtLeast(10)
-        } else 30
+        val cpl = charsPerLine(fontPx, innerW, sample)
         val lpp = if (innerH > 0 && fontPx > 0) {
             (innerH / (fontPx * lineHeight)).toInt().coerceAtLeast(5)
         } else 20
         return (cpl * lpp).coerceAtLeast(200)
+    }
+
+    /** 每行字符数（与 charsPerPage 同口径；v0.193.0 首尾行重叠用）。 */
+    fun charsPerLine(fontPx: Float, innerW: Float, sample: String = ""): Int {
+        val widthRatio = avgCharWidthRatio(sample)
+        return if (innerW > 0 && fontPx > 0) {
+            (innerW / (fontPx * widthRatio)).toInt().coerceAtLeast(10)
+        } else 30
     }
 
     /**

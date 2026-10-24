@@ -27,9 +27,9 @@ object ReaderSettings {
         val serifFont: Boolean = false,
         val lineHeightRatio: Float = 1.8f,
         val brightness: Float = -1f, // -1=跟随系统
-        /** v0.72.0：音量键翻页（默认关） */
-        val volumePageTurn: Boolean = false,
-        /** v0.89.0：背景主题 0=白 1=米黄 2=护眼绿 3=夜间黑 */
+        /** v0.72.0：音量键翻页；v0.193.0 起默认开（用户要求“加上”，旧版默认关藏得太深） */
+        val volumePageTurn: Boolean = true,
+        /** v0.89.0：背景主题 0=白 1=米黄 2=护眼绿 3=夜间黑；v0.193.0 加 4=跟随系统 */
         val bgTheme: Int = 1,
         /** v0.89.0：翻页模式 0=上下滚动 1=左右覆盖 2=仿真翻页 */
         val pageMode: Int = 1,
@@ -39,7 +39,7 @@ object ReaderSettings {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         // 老用户迁移：没有 bgTheme key 时，按旧 nightMode 换算（开=夜间黑，关=米黄）
         val bgTheme = if (p.contains(KEY_BG_THEME)) {
-            p.getInt(KEY_BG_THEME, 1).coerceIn(0, 3)
+            p.getInt(KEY_BG_THEME, 1).coerceIn(0, 4)
         } else {
             if (p.getBoolean(KEY_NIGHT, false)) 3 else 1
         }
@@ -49,7 +49,7 @@ object ReaderSettings {
             serifFont = p.getBoolean(KEY_SERIF, false),
             lineHeightRatio = p.getFloat(KEY_LINE_RATIO, 1.8f).coerceIn(1.2f, 2.4f),
             brightness = p.getFloat(KEY_BRIGHTNESS, -1f),
-            volumePageTurn = p.getBoolean(KEY_VOLUME_PAGE, false),
+            volumePageTurn = p.getBoolean(KEY_VOLUME_PAGE, true),
             bgTheme = bgTheme,
             pageMode = p.getInt(KEY_PAGE_MODE, 1).coerceIn(0, 2),
         )

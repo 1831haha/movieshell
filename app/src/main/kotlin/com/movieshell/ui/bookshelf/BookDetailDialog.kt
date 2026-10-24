@@ -118,14 +118,18 @@ private fun SheetRow(
     icon: ImageVector,
     text: String,
     onClick: () -> Unit,
-    tint: Color = MaterialTheme.colorScheme.onSurface,
+    // v0.193.0：TechDialog 底恒深色，行色不能再用主题 onSurface——
+    // 亮色主题下 onSurface 是深色，深底深字整行看不见（真机实锤：长按
+    // 操作表只剩红色删除可见）。直接用弹窗内容浅色，与 TechDialog 一致。
+    tint: Color = Color(0xFFAEB6D4),
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            // v0.193.0：行高收紧（12dp→8dp），操作表不再像个空壳大框。
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
@@ -201,13 +205,14 @@ fun BookDetailDialog(
                         if (novel.lastReadChapter == 0) "还没读过"
                         else "已读：第 ${read + 1} 章（$percent%）",
                         fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        // v0.193.0：同 SheetRow，深底弹窗内不用主题 onSurface。
+                        color = Color(0xFFAEB6D4),
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "上次阅读：${formatLastReadTs(lastReadAt)}",
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color(0xFFAEB6D4).copy(alpha = 0.7f),
                     )
                 }
             }
@@ -216,7 +221,7 @@ fun BookDetailDialog(
                 Text(
                     novel.desc,
                     fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color(0xFFAEB6D4).copy(alpha = 0.7f),
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -270,7 +275,8 @@ fun BookDetailDialog(
                                     text = ch.title.ifBlank { "第 ${ch.index + 1} 章" },
                                     fontSize = 13.sp,
                                     color = if (ch.index <= read) Color(0xFF4DD0E1)
-                                    else MaterialTheme.colorScheme.onSurface,
+                                    // v0.193.0：未读章同 SheetRow，不用主题 onSurface。
+                                    else Color(0xFFAEB6D4),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -352,7 +358,8 @@ fun GroupPickerDialog(
                 Text(
                     "还没有自定义分组，先建一个吧",
                     fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // v0.193.0：同 SheetRow，深底弹窗内不用主题色。
+                    color = Color(0xFFAEB6D4).copy(alpha = 0.7f),
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
             }
@@ -362,19 +369,19 @@ fun GroupPickerDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .clickable { onPick(g) }
-                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         g.name,
                         fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = Color(0xFFAEB6D4),
                         modifier = Modifier.weight(1f),
                     )
                     Text(
                         "${g.novelIds.size} 本",
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color(0xFFAEB6D4).copy(alpha = 0.7f),
                     )
                 }
             }

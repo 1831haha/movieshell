@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Source
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.goldTitleColor
 import com.movieshell.ui.components.StatusRing
@@ -264,6 +265,16 @@ fun NovelSearchScreen(
                                         else vm.joinShelf(group, item)
                                     },
                                     enabled = !busy,
+                                    // v0.193.0：已在书架改灰底灰字，与紫色“加入书架”
+                                    // 一眼区分（用户原话“加入之后换个不同的颜色，或者就是灰色”）。
+                                    colors = if (onShelf) {
+                                        ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    } else {
+                                        ButtonDefaults.buttonColors()
+                                    },
                                 ) {
                                     Text(if (busy) "加入中" else if (onShelf) "已在书架" else "加入书架")
                                 }
