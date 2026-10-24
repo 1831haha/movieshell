@@ -291,7 +291,10 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
             // 聚合搜索结果：按源分组
             // v0.191.0：搜中途有分组就显示分组，不再拿骨架屏挡全部结果——
             // 骨架屏只在“一个分组都还没到”时出现；搜完且空才进空结果页。
-            if (groupedResults == null || (searching && groupedResults.isEmpty())) {
+            // 修复 v0.191.0 构建失败：groupedResults 是 by 委托属性，== null 后
+            // 编译器不能对它做智能转换（第二次读取可能已变），先快照到局部变量再判空。
+            val grouped = groupedResults
+            if (grouped == null || (searching && grouped.isEmpty())) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -316,7 +319,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                         )
                     }
                 }
-            } else if (groupedResults.isNullOrEmpty()) {
+            } else if (grouped.isNullOrEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -374,7 +377,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                     }
                 }
             } else {
-                val groups = groupedResults.orEmpty()
+                val groups = grouped.orEmpty()
                 val total = groups.sumOf { it.vods.size }
                 Row(
                     modifier = Modifier
