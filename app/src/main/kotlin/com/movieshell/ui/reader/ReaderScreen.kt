@@ -997,11 +997,11 @@ private fun ReaderPill(
                 modifier = Modifier
                     .size(10.dp)
                     .clip(CircleShape)
-                    .background(
+                    .then(
                         if (dotFollowSystem) {
-                            Brush.horizontalGradient(listOf(Color.White, Color(0xFF121212)))
+                            Modifier.background(Brush.horizontalGradient(listOf(Color.White, Color(0xFF121212))))
                         } else {
-                            dotColor ?: Color.Transparent
+                            Modifier.background(dotColor ?: Color.Transparent)
                         },
                     )
                     .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape),
