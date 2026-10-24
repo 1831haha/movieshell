@@ -27,6 +27,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -354,6 +358,57 @@ class SiteRepository(
     }
 
     /**
+     * v0.191.0：单源聚合搜索（searchAll / searchAllFlow 共用，禁各写一份）。
+     * 语义与旧 searchAll 内联版逐字一致：限流 + 单源 15 秒超时 + 超时才计慢源 +
+     * 调用方取消透传 + 内部失败（logged 吞成空）按失败原因计入失败源。
+     */
+    private suspend fun searchOneSite(
+        site: Site,
+        wd: String,
+        timeoutMs: Long,
+        failedNames: MutableSet<String>,
+    ): SiteSearchResult {
+        val vods = try {
+            searchSemaphore.withPermit {
+                withTimeout(timeoutMs) { search(site, wd) }
+            }.also { SearchSlowSourceFilter.onSuccess(site.key) }
+        } catch (e: TimeoutCancellationException) {
+            // v0.162.0：只有超时才计入慢源，普通失败不计
+            SearchSlowSourceFilter.onTimeout(site.key)
+            LogBus.w(TAG, "聚合搜索源超时：${site.name}")
+            failedNames += site.name
+            emptyList()
+        } catch (e: CancellationException) {
+            // 调用方取消（切页/新搜索）不是源失败：透传，不记失败、不吞。
+            throw e
+        } catch (e: Exception) {
+            // v0.188.0 M28：普通失败此前直接 emptyList() 且无日志，
+            // 失败源在聚合搜索里静默消失。现记带源名的 warning 并计入失败。
+            LogBus.w(TAG, "聚合搜索源失败：${site.name}：${e.message ?: e::class.java.simpleName}")
+            failedNames += site.name
+            emptyList()
+        }
+        // search() 内部失败不抛异常（logged 吞成空结果）：空结果且
+        // 按站留有失败原因的，同样是失败源，记 warning 并计入失败；
+        // 空结果且无原因的，是源确实没数据，不计。
+        if (vods.isEmpty()) {
+            lastFailureReason(site)?.let { reason ->
+                LogBus.w(TAG, "聚合搜索源失败：${site.name}：$reason")
+                failedNames += site.name
+            }
+        }
+        return SiteSearchResult(site, vods)
+    }
+
+    /** 聚合搜索目标站：启用站去黑名单，跳过数记 filter 供结果页提示（两路共用）。 */
+    private fun searchTargets(): List<Site> {
+        val all = getEnabledSites()
+        val targets = all.filter { !SearchSlowSourceFilter.shouldSkip(it.key) }
+        SearchSlowSourceFilter.setLastSkipped(all.size - targets.size)
+        return targets
+    }
+
+    /**
      * 聚合搜索：对所有已启用站源并发搜索。
      *
      * - 复用单源 search()（CMS / drpy / PY 各走原实现，不重写）；
@@ -363,49 +418,17 @@ class SiteRepository(
      *   结果先到先等，awaitAll 返回后按原顺序展示，流式行为不变；
      * - 网页源是 URL 直达形态、无搜索接口，天然不在 sites 列表中（已跳过）；
      * - 返回按站源原顺序排列的分组，只含结果非空的站源。
+     * - v0.191.0：搜索页不再用本函数（见 searchAllFlow），演员作品页仍用本函数
+     *   （跨源去重需要一次性全量，按原顺序取首个，不跟流式抢顺序）。
      */
     suspend fun searchAll(wd: String, timeoutMs: Long = 15_000): List<SiteSearchResult> {
         if (wd.isBlank()) return emptyList()
-        val all = getEnabledSites()
-        // v0.162.0：会话黑名单先过滤，跳过数记在 filter 里供结果页提示
-        val targets = all.filter { !SearchSlowSourceFilter.shouldSkip(it.key) }
-        SearchSlowSourceFilter.setLastSkipped(all.size - targets.size)
+        val targets = searchTargets()
         // v0.188.0 M28：本轮失败源集合（并发写，用并发 set 去重）。
         val failedNames = ConcurrentHashMap.newKeySet<String>()
         val results = supervisorScope {
             targets.map { site ->
-                async {
-                    val vods = try {
-                        searchSemaphore.withPermit {
-                            withTimeout(timeoutMs) { search(site, wd) }
-                        }.also { SearchSlowSourceFilter.onSuccess(site.key) }
-                    } catch (e: TimeoutCancellationException) {
-                        // v0.162.0：只有超时才计入慢源，普通失败不计
-                        SearchSlowSourceFilter.onTimeout(site.key)
-                        LogBus.w(TAG, "聚合搜索源超时：${site.name}")
-                        failedNames += site.name
-                        emptyList()
-                    } catch (e: CancellationException) {
-                        // 调用方取消（切页/新搜索）不是源失败：透传，不记失败、不吞。
-                        throw e
-                    } catch (e: Exception) {
-                        // v0.188.0 M28：普通失败此前直接 emptyList() 且无日志，
-                        // 失败源在聚合搜索里静默消失。现记带源名的 warning 并计入失败。
-                        LogBus.w(TAG, "聚合搜索源失败：${site.name}：${e.message ?: e::class.java.simpleName}")
-                        failedNames += site.name
-                        emptyList()
-                    }
-                    // search() 内部失败不抛异常（logged 吞成空结果）：空结果且
-                    // 按站留有失败原因的，同样是失败源，记 warning 并计入失败；
-                    // 空结果且无原因的，是源确实没数据，不计。
-                    if (vods.isEmpty()) {
-                        lastFailureReason(site)?.let { reason ->
-                            LogBus.w(TAG, "聚合搜索源失败：${site.name}：$reason")
-                            failedNames += site.name
-                        }
-                    }
-                    SiteSearchResult(site, vods)
-                }
+                async { searchOneSite(site, wd, timeoutMs, failedNames) }
             }.awaitAll()
         }
         recordSearchFailed(failedNames)
@@ -413,6 +436,34 @@ class SiteRepository(
             LogBus.w(TAG, "聚合搜索失败源 ${failedNames.size} 个：${failedNames.sorted().joinToString()}")
         }
         return results.filter { it.vods.isNotEmpty() }
+    }
+
+    /**
+     * v0.191.0：流式聚合搜索，搜索页专用。
+     * 根因：旧 searchAll 用 awaitAll 等全部源跑完才一次性返回，SearchViewModel
+     * 拿到结果前 groupedResults 一直是 null，搜索页只能干放骨架屏——日志里
+     * 早已回来的几十个源（本轮“手”：275听书 50 条、8j 40 条等）用户一个都看不到，
+     * 150+ 个源 × 4 并发 × 单源 15 秒超时，全跑完要几分钟。
+     * 改：每源一跑完、有结果就 send 一个分组，调用方先到先显示；失败汇总
+     * 仍在全部跑完后才记（joinAll 后），搜中途不给“X 个源失败”半截数。
+     * 分组按先到先出，不再按站源原顺序——这是流式显示的代价，页脚会写明。
+     * 取消语义与 searchAll 同款：调用方取消透传，不记失败。
+     */
+    fun searchAllFlow(wd: String, timeoutMs: Long = 15_000): Flow<SiteSearchResult> = channelFlow {
+        if (wd.isBlank()) return@channelFlow
+        val targets = searchTargets()
+        val failedNames = ConcurrentHashMap.newKeySet<String>()
+        val jobs = targets.map { site ->
+            launch {
+                val result = searchOneSite(site, wd, timeoutMs, failedNames)
+                if (result.vods.isNotEmpty()) send(result)
+            }
+        }
+        jobs.joinAll()
+        recordSearchFailed(failedNames)
+        if (failedNames.isNotEmpty()) {
+            LogBus.w(TAG, "聚合搜索失败源 ${failedNames.size} 个：${failedNames.sorted().joinToString()}")
+        }
     }
 
     /**

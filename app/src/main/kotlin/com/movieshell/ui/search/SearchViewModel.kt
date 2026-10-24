@@ -159,7 +159,14 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
                 repo.loadFromConfig(
                     buildSearchConfigJson(getApplication(), _onlyCurrentSource.value),
                 )
-                _groupedResults.value = repo.searchAll(t)
+                // v0.191.0：流式累积——每到一个分组就往列表里追加，不等全部源跑完。
+                // 旧写法是 searchAll awaitAll 后一次性赋值，搜中途 groupedResults
+                // 一直是 null，页面只能放骨架屏。取消时 collect 抛异常走 finally，
+                // 半截结果留在原地无妨：下一次 doSearch 开头先置 null 再重搜。
+                _groupedResults.value = emptyList()
+                repo.searchAllFlow(t).collect { group ->
+                    _groupedResults.value = (_groupedResults.value.orEmpty() + group)
+                }
                 _skippedLabel.value = SearchSlowSourceFilter.skippedLabel()
                 _failedLabel.value = SiteRepository.failedSearchLabel()
             } finally {

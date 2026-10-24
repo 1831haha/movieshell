@@ -289,7 +289,9 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
             }
         } else {
             // 聚合搜索结果：按源分组
-            if (searching || groupedResults == null) {
+            // v0.191.0：搜中途有分组就显示分组，不再拿骨架屏挡全部结果——
+            // 骨架屏只在“一个分组都还没到”时出现；搜完且空才进空结果页。
+            if (groupedResults == null || (searching && groupedResults.isEmpty())) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -298,6 +300,11 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                 ) {
                     Text(
                         text = "聚合搜索中…",
+                        style = SoftType.Caption,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "先到的源会先显示，不用等全部搜完",
                         style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -348,6 +355,15 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                 Text("切回所有源")
                             }
                         }
+                        // v0.191.0：只搜当前源且搜完为空时说清——不是“没搜”，
+                        // 是该源确实 0 条（本轮 py:6v.py 对“我的”“手”都搜过、都 0 条）。
+                        if (onlyCurrentSource && currentSourceName != null) {
+                            Text(
+                                text = "只搜当前源 $currentSourceName，已搜完，确实没有结果",
+                                style = SoftType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         EmptyState(
                             kind = EmptyKind.Empty,
                             icon = Icons.Filled.Search,
@@ -372,6 +388,9 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                     Text(
                         text = "共 $total 个结果 · ${groups.size} 个源" +
                             (if (onlyCurrentSource) " · 只搜当前源" else "") +
+                            // v0.191.0：搜中途已显示的分组头上写明还在搜，别让用户
+                            // 以为这就是全部结果；搜完后该后缀随 searching 落下而消失。
+                            (if (searching) " · 还在搜…" else "") +
                             (skippedLabel?.let { " · $it" } ?: "") +
                             (failedLabel?.let { " · $it" } ?: ""),
                         style = SoftType.Caption,
@@ -478,6 +497,22 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                     }
                                 }
                             }
+                        }
+                    }
+                    // v0.191.0：搜中途的页脚，告诉用户后面还会有分组陆续出现。
+                    if (searching) {
+                        item(key = "searching-footer") {
+                            Text(
+                                text = "还在搜其他源，有结果会陆续出现…",
+                                style = SoftType.Caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        horizontal = SoftDimens.PagePadding,
+                                        vertical = 12.dp,
+                                    ),
+                            )
                         }
                     }
                 }
