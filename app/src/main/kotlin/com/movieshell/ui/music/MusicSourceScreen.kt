@@ -706,13 +706,14 @@ internal fun qualityLabel(id: String): String = when (id) {
 private fun qualityRank(id: String): Int = LxMusicSourceEngine.qualityRank(id)
 
 /** v0.119.0：Cookie 弹窗玻璃卡片通用底 */
-private val cookieCardModifier: Modifier
-    get() = Modifier
-        .fillMaxWidth()
-        .clip(RoundedCornerShape(14.dp))
-        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-        .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
-        .padding(12.dp)
+/** 修复：原 val getter 在非 @Composable 上下文读 MaterialTheme.colorScheme，编译不过，改成 @Composable 函数 */
+@Composable
+private fun cookieCardModifier(): Modifier = Modifier
+    .fillMaxWidth()
+    .clip(RoundedCornerShape(14.dp))
+    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+    .padding(12.dp)
 
 /** v0.119.0：Cookie 配置状态概览卡——已配 x / n + 作用说明 */
 @Composable
@@ -720,7 +721,7 @@ private fun CookieStatusCard(filled: Int, total: Int) {
     val done = total > 0 && filled == total
     val accent = if (done) Color(0xFF4ADE80) else Color(0xFFD9C39A)
     Row(
-        modifier = cookieCardModifier,
+        modifier = cookieCardModifier(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -783,7 +784,7 @@ private fun CookieSlotCard(
 ) {
     val context = LocalContext.current
     val filled = value.isNotBlank()
-    Column(modifier = cookieCardModifier) {
+    Column(modifier = cookieCardModifier()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = slot.label,

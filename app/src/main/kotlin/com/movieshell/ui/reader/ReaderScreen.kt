@@ -473,6 +473,14 @@ fun ReaderScreen(
         }
     }
 
+    /** v0.194.0追加：开设置时先把顶底栏叫出来（设置面板本身就是菜单），关时恢复原样。 */
+    /** 修复：局部函数必须先声明后调用，openSettings 移到 onContentTap 之前（原顺序编译报 Unresolved reference）。 */
+    fun openSettings() {
+        wasImmersiveBeforeSettings = immersive
+        immersive = false
+        showSettings = true
+    }
+
     /** v0.194.0追加：点击分区——上 1/3 上一页、下 1/3 下一页、中部弹设置（向阅读 App 靠拢）。 */
     fun onContentTap(y: Float) {
         val h = pageHeight.coerceAtLeast(1).toFloat()
@@ -481,13 +489,6 @@ fun ReaderScreen(
             y > h * 2f / 3f -> pageDown(fromTap = true)
             else -> openSettings()
         }
-    }
-
-    /** v0.194.0追加：开设置时先把顶底栏叫出来（设置面板本身就是菜单），关时恢复原样。 */
-    fun openSettings() {
-        wasImmersiveBeforeSettings = immersive
-        immersive = false
-        showSettings = true
     }
 
     fun closeSettings() {
