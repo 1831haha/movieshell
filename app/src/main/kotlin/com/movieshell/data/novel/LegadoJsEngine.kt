@@ -609,7 +609,7 @@ object LegadoJsEngine {
      * 自动验证成功或源变量变化时，用 refetch 重取一次（只重取一次，不递归），
      * 对应原版注释“自动验证成功后重新获取 / 搜索时重定向新网址需要重新获取搜索内容”。
      */
-    fun runLoginCheck(
+    suspend fun runLoginCheck(
         source: BookSource,
         page: BookRuleEngine.PageResult,
         ctx: JsCtx,
