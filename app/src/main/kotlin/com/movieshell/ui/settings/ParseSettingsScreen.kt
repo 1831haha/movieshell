@@ -162,7 +162,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                         icon = Icons.Filled.Link,
                         title = parse.name.ifBlank { "未命名" },
                         subtitle = buildString {
-                            append(if (parse.type == 1) "JSON" else "嗅探")
+                            append(when (parse.type) { 1 -> "JSON"; 99 -> "yt-dlp"; else -> "嗅探" })
                             append(" · ${parse.url}")
                             when (state) {
                                 true -> append(" · 正常")
@@ -251,9 +251,16 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                             style = SoftType.Body,
                             modifier = Modifier.clickable { parseType = 0 },
                         )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        RadioButton(selected = parseType == 99, onClick = { parseType = 99 })
+                        Text(
+                            "yt-dlp 通用",
+                            style = SoftType.Body,
+                            modifier = Modifier.clickable { parseType = 99 },
+                        )
                     }
                     Text(
-                        text = "JSON：GET 地址+视频地址，取返回 JSON 的 url 字段；嗅探：用 WebView 打开抓直链",
+                        text = "JSON：GET 地址+视频地址，取返回 JSON 的 url 字段；嗅探：用 WebView 打开抓直链；yt-dlp 通用：无规则视频页的通用解析，需先在插件市场安装 yt-dlp 通用解析包，地址栏留空即可（自动填 ytdlp://generic，仅作线路标识）",
                         style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

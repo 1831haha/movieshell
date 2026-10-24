@@ -32,6 +32,9 @@ object ChaquopyEngine : PyEngine {
      */
     private const val PY_TIMEOUT_MS = 15_000L
 
+    /** v0.203.0：yt-dlp 通用解析超时（首次 import 全量提取器约 1–2 秒 + 取页，15 秒偏紧）。 */
+    private const val YT_TIMEOUT_MS = 30_000L
+
     /**
      * v0.187.0 H03：桥调用专用作用域，与调用方作用域脱钩。
      * 写法照抄 PySourceManager.kt 的 readScope（CoroutineScope + SupervisorJob + IO）。
@@ -187,5 +190,19 @@ object ChaquopyEngine : PyEngine {
         runCatching {
             python().getModule("pyspider_bridge").callAttr("reset", rulePath)
         }.onFailure { Log.w(TAG, "resetRuleCache 失败", it) }
+    }
+
+    /**
+     * v0.203.0：yt-dlp 通用解析。调插件 yt-dlp-generic 提供的 yt_generic.resolve。
+     * 插件未装时 getModule 抛异常，包成空串返回，不触发 ParseApi 的熔断；
+     * 超时只放行调用方（桥是同步阻塞接口，后台 Python 停不掉，同 callBridge）。
+     */
+    suspend fun resolveYtGeneric(url: String): String = withContext(Dispatchers.IO) {
+        val deferred = pyCallScope.async {
+            runCatching {
+                python().getModule("yt_generic")?.callAttr("resolve", url)?.toString().orEmpty()
+            }.getOrDefault("")
+        }
+        withTimeoutOrNull(YT_TIMEOUT_MS) { deferred.await() }.orEmpty()
     }
 }

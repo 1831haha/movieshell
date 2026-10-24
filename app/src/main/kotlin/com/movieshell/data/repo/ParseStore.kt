@@ -106,9 +106,11 @@ object ParseStore {
     fun add(context: Context, name: String, url: String, type: Int) {
         load(context)
         val n = name.trim()
-        val u = url.trim()
+        val t = if (type == 99) 99 else type.coerceIn(0, 1)
+        // v0.203.0：type=99 的 url 不作接口地址，只作线路标识；留空时补默认值
+        val u = url.trim().ifBlank { if (t == 99) "ytdlp://generic" else "" }
         if (n.isEmpty() || u.isEmpty()) return
-        val entry = ParseConfig(name = n, url = u, type = type.coerceIn(0, 1))
+        val entry = ParseConfig(name = n, url = u, type = t)
         val cur = _custom.value
         val idx = cur.indexOfFirst { it.url.trim() == u }
         persist(

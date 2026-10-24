@@ -79,6 +79,7 @@ class ParseApi(
                 when (p.type) {
                     1 -> parseType1(p, videoUrl)
                     0 -> if (context != null) sniffType0(context, p, videoUrl) else ""
+                    99 -> parseType99(videoUrl)
                     else -> ""
                 }
             }.onFailure {
@@ -188,6 +189,16 @@ class ParseApi(
                 extractUrl(resp.body?.string().orEmpty())
             }
         }
+
+    /**
+     * v0.203.0：type=99 yt-dlp 通用解析。插件未装时 ChaquopyEngine 返回空串，
+     * 本函数不抛异常，因此不触发 ParseApi 的熔断（装上插件后本线路立刻可用）。
+     */
+    private suspend fun parseType99(videoUrl: String): String {
+        val hit = ChaquopyEngine.resolveYtGeneric(videoUrl)
+        if (hit.isNotBlank()) LogBus.i(TAG, "yt-dlp 通用解析成功")
+        return hit
+    }
 
     /**
      * 纯函数（可单元测试）：解析线路返回的 JSON，取顶层 `url`，

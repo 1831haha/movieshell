@@ -59,7 +59,7 @@ data class SiteConfig(
 data class ParseConfig(
     val name: String = "",
     val url: String = "",
-    /** 0=WebView 嗅探页（加载 url+视频地址抓 .m3u8/.mp4），1=JSON 接口（GET url+视频地址取 url 字段） */
+    /** 0=WebView 嗅探页（加载 url+视频地址抓 .m3u8/.mp4），1=JSON 接口（GET url+视频地址取 url 字段），99=yt-dlp 通用解析（插件提供，url 仅作线路标识） */
     val type: Int = 0,
     val ext: String = "",
     /** ext 对象里的 header（如 User-Agent），请求解析线路时带上 */
