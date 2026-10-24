@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -970,6 +971,7 @@ private fun RowScope.ImportAction(
 /**
  * v0.206.0：书源文本编辑——全屏对话框，等宽多行文本，保存回调返回 null 表示成功、
  * 非空表示失败原因（弹 Toast 后留在编辑器里，不丢已改的文本）。
+ * v0.210.0：正文改 12.sp 等宽 + 圆角容器，字小一点、看着干净一点。
  */
 @Composable
 private fun SourceTextEditorDialog(
@@ -1027,17 +1029,26 @@ private fun SourceTextEditorDialog(
                         .padding(horizontal = 12.dp)
                         .padding(bottom = 12.dp),
                 ) {
-                    BasicTextField(
-                        value = text,
-                        onValueChange = { text = it },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(scrollState),
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                    )
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                    ) {
+                        BasicTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(scrollState)
+                                .padding(12.dp),
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                        )
+                    }
                 }
             }
         }

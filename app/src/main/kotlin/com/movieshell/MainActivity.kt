@@ -176,6 +176,8 @@ class MainActivity : ComponentActivity() {
         handleRouteIntent(intent)
         // v0.7.2：日志总线最先初始化（接住之后所有初始化的异常）
         LogBus.init(this)
+        // v0.210.0：后台验证用的应用上下文（搜书验证先在后台 WebView 里过，不过才弹页）
+        com.movieshell.data.novel.VerifyGate.init(applicationContext)
         LogBus.i("App", "侠影启动")
         // v0.185.0：轻量自保护壳——硬拦截（可调试包/调试器已连）直接退出，
         // root/模拟器只警告不拦；验签不做（云构建每轮新签名，写死必误杀，见 changelog）。

@@ -69,8 +69,12 @@ object NovelSourceEngine {
         // v0.209.0：用户主动发起时，空页即弹验证——墙的拦法不止 403（沙箱测得 403，
         // 手机 VPN 下常表现为连接被重置/超时，httpCode 不是 403），只认 403 会漏弹。
         // 后台（allowGate=false）仍不弹。只重抓一次，不递归。
+        // v0.210.0：先后台验证（不弹页面，挑战自己过了直接重抓）；后台过不了
+        // （真人验证码、超时）再弹可见验证页兜底。
         if (!allowGate) return null
-        val result = runCatching { VerifyGate.awaitVerify(gateUrl, source.name, ua) }.getOrNull() ?: return null
+        val result = runCatching { VerifyGate.awaitVerifyBackground(gateUrl, ua) }.getOrNull()
+            ?: runCatching { VerifyGate.awaitVerify(gateUrl, source.name, ua) }.getOrNull()
+            ?: return null
         if (result.cookieHeader.isNotBlank()) CmsApi.putCookies(result.url, result.cookieHeader)
         return fetch().page
     }
