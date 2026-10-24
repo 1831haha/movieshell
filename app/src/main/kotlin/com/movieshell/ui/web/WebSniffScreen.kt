@@ -608,8 +608,11 @@ fun WebSniffScreen(
             if (hitDone.get()) return@evaluateJavascript
             val found = parseRootStringArray(decodeJsResult(raw))
             LogBus.i("WebSniff", "blob 深挖扫到 ${found.size} 个候选 URL")
-            for (u in found) {
+            for (rawU in found) {
                 if (hitDone.get()) break
+                // v0.202.0：JSON 里转义过的地址（https:\/\/cdn\/x.m3u8、\u0026、\u002f）先还原，否则进播放器是坏链
+                val u = rawU.replace("\\/", "/").replace("\\u0026", "&")
+                    .replace("\\u002f", "/").replace("\\u002F", "/")
                 // v0.92：ts 分片只是线索——同目录拼 playlist 候选并验证，不直接进候选
                 if (SniffEngine.isTsSegment(u)) probeTsClues(view, u, "blob深挖")
                 else onUrlFound(view, u, "blob深挖")

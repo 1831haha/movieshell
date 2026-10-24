@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 269
-        versionName = "0.201.0"
+        versionCode = 270
+        versionName = "0.202.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {
@@ -123,6 +123,8 @@ dependencies {
     // 网络 / JSON
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jsoup:jsoup:1.17.2")
+    // v0.202.0：小说通用正文兜底——Mozilla Readability 的 Kotlin 移植（Apache 2.0），规则提空时从整页提正文
+    implementation("net.dankito.readability4j:readability4j:1.0.8")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     // Java spider 宿主：jar 里 SpiderApi.multiReq 签名引用 gson（dex 里无自带）
     implementation("com.google.code.gson:gson:2.10.1")

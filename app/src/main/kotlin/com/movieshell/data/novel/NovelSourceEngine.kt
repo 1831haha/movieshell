@@ -206,13 +206,15 @@ object NovelSourceEngine {
 
     /** 拉单章正文。v0.198.0：JSON 源按 ruleContentReplace 做正文替换。v0.199.0：JS 源走 LegadoJsEngine（含正文分页）。 */
     suspend fun content(source: BookSource, chapter: ChapterMeta): String {
-        if (chapter.url.isBlank() || source.ruleContent.isBlank()) return ""
+        if (chapter.url.isBlank()) return ""
         if (!isJsSource(source)) {
             val html = BookRuleEngine.getHtml(chapter.url) ?: return ""
             val doc = BookRuleEngine.parseDoc(html, chapter.url)
-            val raw = BookRuleEngine.extractContent(doc, source.ruleContent)
-            return if (source.ruleContentReplace.isBlank()) raw
+            val raw = if (source.ruleContent.isBlank()) "" else BookRuleEngine.extractContent(doc, source.ruleContent)
+            val out = if (source.ruleContentReplace.isBlank()) raw
             else BookRuleEngine.applyReplaceRegex(raw, source.ruleContentReplace)
+            // v0.202.0：规则提空时用通用正文兜底（无 content 规则的源也由此可读）
+            return out.ifBlank { readabilityText(chapter.url, html) }
         }
         return withContext(Dispatchers.IO) {
             val ua = uaOf(source)
@@ -268,8 +270,20 @@ object NovelSourceEngine {
                     BookRuleEngine.applyReplaceRegex(outText, source.ruleContentReplace)
                 }
             }
-            outText
+            // v0.202.0：JS 规则提空时同样用通用正文兜底（取首页面源码）
+            outText.ifBlank { readabilityText(chapter.url, checked.body) }
         }
+    }
+
+    /**
+     * v0.202.0：通用正文兜底（Readability4J，Mozilla Readability 的 Kotlin 移植，
+     * Apache 2.0）：规则提空时从整页 HTML 提正文。失败返回空，不抛。
+     */
+    private fun readabilityText(pageUrl: String, html: String): String {
+        if (html.isBlank()) return ""
+        return runCatching {
+            net.dankito.readability4j.Readability4J(pageUrl, html).parse().textContent.orEmpty()
+        }.getOrDefault("")
     }
 
     /** v0.199.0：单页正文求值（JS 规则跑 Rhino，否则走老 extractContent）。 */
