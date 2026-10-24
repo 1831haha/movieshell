@@ -30,6 +30,8 @@ data class BookSource(
     val ruleTocTitle: String = "",
     val ruleTocUrl: String = "",
     val ruleContent: String = "",
+    /** v0.198.0：正文替换规则（阅读式 replaceRegex，每行一条，行内用 ## 分隔正则与替换）。 */
+    val ruleContentReplace: String = "",
 ) {
     /** 书源唯一标识：url 去协议去尾斜杠。 */
     val key: String get() = url.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
@@ -61,6 +63,7 @@ data class BookSource(
         })
         put("ruleContent", JSONObject().apply {
             put("content", ruleContent)
+            put("replaceRegex", ruleContentReplace)
         })
     }
 
@@ -92,6 +95,7 @@ data class BookSource(
                 ruleTocTitle = rt?.optString("chapterName").orEmpty(),
                 ruleTocUrl = rt?.optString("chapterUrl").orEmpty(),
                 ruleContent = rc?.optString("content").orEmpty(),
+                ruleContentReplace = rc?.optString("replaceRegex").orEmpty(),
             ).takeIf { it.name.isNotBlank() && it.url.isNotBlank() }
         }.getOrNull()
 

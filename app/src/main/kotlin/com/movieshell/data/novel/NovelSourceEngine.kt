@@ -93,12 +93,14 @@ object NovelSourceEngine {
             .mapIndexed { i, m -> m.copy(index = i) }
     }
 
-    /** 拉单章正文。 */
+    /** 拉单章正文。v0.198.0：JSON 源按 ruleContentReplace 做正文替换。 */
     suspend fun content(source: BookSource, chapter: ChapterMeta): String {
         if (chapter.url.isBlank() || source.ruleContent.isBlank()) return ""
         val html = BookRuleEngine.getHtml(chapter.url) ?: return ""
         val doc = BookRuleEngine.parseDoc(html, chapter.url)
-        return BookRuleEngine.extractContent(doc, source.ruleContent)
+        val raw = BookRuleEngine.extractContent(doc, source.ruleContent)
+        return if (source.ruleContentReplace.isBlank()) raw
+        else BookRuleEngine.applyReplaceRegex(raw, source.ruleContentReplace)
     }
 
     // ---------------- v0.64.0 本地 PY 书源链路 ----------------

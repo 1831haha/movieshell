@@ -185,6 +185,27 @@ object BookRuleEngine {
         }.getOrDefault("")
     }
 
+    /** v0.198.0：阅读式正文替换。
+     * 规则格式：每行一条，`正则##替换`；没有 ## 的行按删除处理；某条正则
+     * 写坏了只跳过该条，不炸掉整章。替换后把 3 个以上连续换行压回两个，
+     * 避免被删的广告行留出大片空白。
+     */
+    fun applyReplaceRegex(text: String, replaceRegex: String): String {
+        if (text.isBlank() || replaceRegex.isBlank()) return text
+        var result = text
+        replaceRegex.split("\n").forEach { line ->
+            if (line.isBlank()) return@forEach
+            val sep = line.indexOf("##")
+            val pattern = if (sep >= 0) line.substring(0, sep) else line
+            val replacement = if (sep >= 0) line.substring(sep + 2) else ""
+            if (pattern.isNotBlank()) {
+                result = runCatching {
+                    result.replace(Regex(pattern), replacement)
+                }.getOrDefault(result)
+            }
+        }
+        return result.replace(Regex("\n{3,}"), "\n\n")
+    }
     private fun absolutize(pageUrl: String, href: String): String {
         if (href.isBlank()) return ""
         if (href.startsWith("http://") || href.startsWith("https://")) return href
