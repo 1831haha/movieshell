@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,6 +58,8 @@ import com.movieshell.ui.theme.SoftType
 fun AppCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    // v0.196.0：长按回调（书源卡片长按编辑）；给了才用 combinedClickable，否则沿用 clickable
+    onLongClick: (() -> Unit)? = null,
     // v0.78.2：允许自定义形状（如详情页信息卡只要顶部圆角，与播放器衔接）
     shape: RoundedCornerShape = RoundedCornerShape(SoftDimens.CardCorner),
     content: @Composable () -> Unit,
@@ -64,7 +67,16 @@ fun AppCard(
     Surface(
         modifier = modifier
             .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+            .then(
+                when {
+                    onLongClick != null -> Modifier.combinedClickable(
+                        onClick = { onClick?.invoke() },
+                        onLongClick = onLongClick,
+                    )
+                    onClick != null -> Modifier.clickable(onClick = onClick)
+                    else -> Modifier
+                }
+            ),
         shape = shape,
         color = LocalSoftExtra.current.glass,
         tonalElevation = 0.dp,

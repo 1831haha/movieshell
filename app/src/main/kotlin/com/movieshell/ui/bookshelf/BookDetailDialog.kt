@@ -28,11 +28,14 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +55,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.movieshell.data.model.Chapter
 import com.movieshell.data.model.Novel
+import com.movieshell.data.novel.BookSourceManager
+import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.BookGroup
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.ui.components.AppButton
@@ -156,6 +161,15 @@ fun BookDetailDialog(
     val total = novel.totalChapters.coerceAtLeast(1)
     val read = novel.lastReadChapter.coerceIn(0, total - 1)
     val percent = (novel.readFraction() * 100).toInt()
+    // v0.197.0：来源显示名（JSON 查名、PY 查标题、本地直显；查不到回落 key）
+    val jsonSources by BookSourceManager.sources.collectAsState()
+    val pyRules by PyBookSourceManager.rules.collectAsState()
+    val sourceName = when (novel.sourceKey) {
+        "local" -> "本地"
+        else -> jsonSources.firstOrNull { it.key == novel.sourceKey }?.name
+            ?: pyRules.firstOrNull { it.name == novel.sourceKey }?.title
+            ?: novel.sourceKey
+    }
 
     LaunchedEffect(showToc) {
         if (showToc && chapters == null) {
@@ -168,15 +182,17 @@ fun BookDetailDialog(
     TechDialog(
         onDismissRequest = onDismiss,
         title = novel.title,
-        subtitle = "${novel.author?.takeIf { it.isNotBlank() } ?: "未知作者"} · 共 $total 章",
+        // v0.197.0：作者/章数不再放副标题，改放下面的标签与信息行（阅读书籍信息页结构）
+        subtitle = null,
         onConfirm = null,
         dismissText = "关闭",
     ) {
         Column {
+            // v0.197.0：阅读式书籍信息头——封面 + 蓝色标签（共 N 章 / 已读进度）+ 上次阅读
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(width = 52.dp, height = 70.dp)
+                        .size(width = 64.dp, height = 86.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
@@ -199,11 +215,15 @@ fun BookDetailDialog(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        InfoChip("共 $total 章")
+                        InfoChip(if (novel.lastReadChapter == 0) "未读" else "已读 $percent%")
+                    }
+                    Spacer(Modifier.height(6.dp))
                     Text(
                         if (novel.lastReadChapter == 0) "还没读过"
-                        else "已读：第 ${read + 1} 章（$percent%）",
+                        else "已读：第 ${read + 1} 章",
                         fontSize = 13.sp,
-                        // v0.193.0：同 SheetRow，深底弹窗内不用主题 onSurface。
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -214,6 +234,9 @@ fun BookDetailDialog(
                     )
                 }
             }
+            Spacer(Modifier.height(12.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+            Spacer(Modifier.height(4.dp))
             if (!novel.desc.isNullOrBlank()) {
                 Spacer(Modifier.height(10.dp))
                 Text(
@@ -225,22 +248,18 @@ fun BookDetailDialog(
                 )
             }
             Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                AppButton(
-                    text = "继续阅读",
-                    onClick = onRead,
-                    modifier = Modifier.weight(1f),
-                )
-                AppButton(
-                    text = if (showToc) "收起目录" else "目录",
-                    onClick = { showToc = !showToc },
-                    variant = AppButtonVariant.Secondary,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            // v0.197.0：阅读式信息行（标签定宽 + 值 + 右侧动作）；字数/分类/状态/
+            // 人气咱没有真实数据，不编假标签，只列有的项
+            InfoRow(label = "作者", value = novel.author?.takeIf { it.isNotBlank() } ?: "未知作者")
+            InfoRow(label = "来源", value = sourceName, actionText = "换源", onAction = { showChangeSource = true })
+            InfoRow(label = "最新", value = "共 $total 章")
+            InfoRow(label = "分组", actionText = "设置分组", onAction = onMoveGroup)
+            InfoRow(
+                label = "目录",
+                actionText = if (showToc) "收起目录" else "查看目录",
+                onAction = { showToc = !showToc },
+            )
+            InfoRow(label = "净化规则", actionText = "管理", onAction = onOpenPurifyRules)
             if (showToc) {
                 Spacer(Modifier.height(8.dp))
                 val list = chapters
@@ -284,39 +303,21 @@ fun BookDetailDialog(
                 }
             }
             Spacer(Modifier.height(12.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+            Spacer(Modifier.height(12.dp))
+            // v0.197.0：阅读式底部栏——左侧删除书籍文字钮，右侧蓝色阅读钮
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                TextButton(onClick = onDelete) {
+                    Text("删除书籍", color = MaterialTheme.colorScheme.error)
+                }
+                Spacer(Modifier.weight(1f))
                 AppButton(
-                    text = "换源",
-                    onClick = { showChangeSource = true },
-                    variant = AppButtonVariant.Secondary,
-                    modifier = Modifier.weight(1f),
-                )
-                AppButton(
-                    text = "净化规则",
-                    onClick = onOpenPurifyRules,
-                    variant = AppButtonVariant.Secondary,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                AppButton(
-                    text = "移入分组",
-                    onClick = onMoveGroup,
-                    variant = AppButtonVariant.Ghost,
-                    modifier = Modifier.weight(1f),
-                )
-                AppButton(
-                    text = "删除",
-                    onClick = onDelete,
-                    variant = AppButtonVariant.Ghost,
-                    modifier = Modifier.weight(1f),
+                    text = "阅读",
+                    onClick = onRead,
+                    modifier = Modifier.width(140.dp),
                 )
             }
         }
@@ -334,6 +335,62 @@ fun BookDetailDialog(
                 onSourceSwitched()
             },
         )
+    }
+}
+
+/** v0.197.0：书籍信息页蓝色小标签（阅读式）。 */
+@Composable
+private fun InfoChip(text: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+    ) {
+        Text(
+            text,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            maxLines = 1,
+        )
+    }
+}
+
+/** v0.197.0：书籍信息行——标签定宽 + 值 + 右侧动作（无值时只留动作）。 */
+@Composable
+private fun InfoRow(
+    label: String,
+    value: String? = null,
+    actionText: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(52.dp),
+        )
+        if (value != null) {
+            Text(
+                value,
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        if (actionText != null && onAction != null) {
+            TextButton(onClick = onAction) {
+                Text(actionText, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+            }
+        }
     }
 }
 

@@ -3,6 +3,7 @@ package com.movieshell.ui.novel
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,12 +25,14 @@ import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -102,6 +105,27 @@ fun BookSourceScreen(
     var urlChecked by remember { mutableStateOf<Set<String>>(emptySet()) }
     var deleteTarget by remember { mutableStateOf<BookSource?>(null) }
     var deletePyTarget by remember { mutableStateOf<PyBookSourceManager.PyBookRule?>(null) }
+    // v0.196.0：长按卡片编辑（仿阅读书源列表）——JSON 改名/地址/分组，PY 改文件名
+    var editTarget by remember { mutableStateOf<BookSource?>(null) }
+    var editPyTarget by remember { mutableStateOf<PyBookSourceManager.PyBookRule?>(null) }
+    // v0.197.0：阅读式书源列表——顶部搜索过滤 + 批量选择（全选/反选/删除）
+    var srcQuery by remember { mutableStateOf("") }
+    var batchMode by remember { mutableStateOf(false) }
+    var selectedSrcKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var batchDeleteConfirm by remember { mutableStateOf(false) }
+    val shownPy = remember(pyRules, srcQuery) {
+        if (srcQuery.isBlank()) pyRules else pyRules.filter {
+            it.name.contains(srcQuery, ignoreCase = true) || it.title.contains(srcQuery, ignoreCase = true)
+        }
+    }
+    val shownJson = remember(sources, srcQuery) {
+        if (srcQuery.isBlank()) sources else sources.filter {
+            it.name.contains(srcQuery, ignoreCase = true) || it.url.contains(srcQuery, ignoreCase = true)
+        }
+    }
+    val allShownKeys = remember(shownPy, shownJson) {
+        shownPy.map { "py_${it.name}" } + shownJson.map { "json_${it.key}" }
+    }
     // v0.67.0：PY 源连通性测试
     var testingPy by remember { mutableStateOf<String?>(null) }
     // v0.96.1：净化规则生效数（按钮上展示）
@@ -296,9 +320,30 @@ fun BookSourceScreen(
             Text("恢复默认书源")
         }
         Spacer(Modifier.height(12.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // v0.197.0：阅读式顶部搜索（按名/地址过滤）+ 批量入口
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TechTextField(
+                value = srcQuery,
+                onValueChange = { srcQuery = it },
+                placeholder = "搜索书源",
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+            )
+            Spacer(Modifier.width(8.dp))
+            TextButton(onClick = {
+                batchMode = !batchMode
+                if (!batchMode) selectedSrcKeys = emptySet()
+            }) {
+                Text(if (batchMode) "取消批量" else "批量")
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) {
             // v0.64.0：本地 PY 书源区
-            if (pyRules.isNotEmpty()) {
+            if (shownPy.isNotEmpty()) {
                 item(key = "py_header") {
                     Text(
                         "本地 PY 书源（${pyRules.count { it.name in pyEnabled }} 已启用）",
@@ -308,22 +353,39 @@ fun BookSourceScreen(
                     )
                 }
             }
-            items(pyRules, key = { "py_${it.name}" }) { r ->
-                AppCard(
-                    // v0.66.0：点卡片直接打开该源（找书只搜它）
-                    onClick = { onOpenPySource(r.name) },
-                ) {
+            items(shownPy, key = { "py_${it.name}" }) { r ->
+                // v0.197.0：阅读式 plain 行（点行打开该源，长按/✎编辑）；行末分隔线
+                Column {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                            .combinedClickable(
+                                onClick = { onOpenPySource(r.name) },
+                                onLongClick = { editPyTarget = r },
+                            )
+                            .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        if (batchMode) {
+                            Checkbox(
+                                checked = "py_${r.name}" in selectedSrcKeys,
+                                onCheckedChange = {
+                                    selectedSrcKeys = if (it) selectedSrcKeys + "py_${r.name}"
+                                    else selectedSrcKeys - "py_${r.name}"
+                                },
+                                modifier = Modifier.padding(end = 4.dp),
+                            )
+                        }
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(r.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(
+                                r.title, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
                             Text(
                                 "${r.name} · ${r.sizeKb}KB",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                         Switch(
@@ -365,6 +427,9 @@ fun BookSourceScreen(
                                 )
                             }
                         }
+                        IconButton(onClick = { editPyTarget = r }) {
+                            Icon(Icons.Filled.Edit, "编辑", tint = gold)
+                        }
                         IconButton(onClick = { deletePyTarget = r }) {
                             Icon(
                                 Icons.Filled.Delete,
@@ -373,9 +438,10 @@ fun BookSourceScreen(
                             )
                         }
                     }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                 }
             }
-            if (sources.isNotEmpty()) {
+            if (shownJson.isNotEmpty()) {
                 item(key = "json_header") {
                     Text(
                         "JSON 书源",
@@ -385,26 +451,52 @@ fun BookSourceScreen(
                     )
                 }
             }
-            items(sources, key = { "json_${it.key}" }) { s ->
-                    AppCard {
+            items(shownJson, key = { "json_${it.key}" }) { s ->
+                    // v0.197.0：阅读式 plain 行（点行/长按/✎均进编辑）；行末分隔线
+                    Column {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                                .combinedClickable(
+                                    onClick = { editTarget = s },
+                                    onLongClick = { editTarget = s },
+                                )
+                                .padding(vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(s.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                Text(
-                                    s.url,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
+                            if (batchMode) {
+                                Checkbox(
+                                    checked = "json_${s.key}" in selectedSrcKeys,
+                                    onCheckedChange = {
+                                        selectedSrcKeys = if (it) selectedSrcKeys + "json_${s.key}"
+                                        else selectedSrcKeys - "json_${s.key}"
+                                    },
+                                    modifier = Modifier.padding(end = 4.dp),
                                 )
-                                if (s.group.isNotBlank()) {
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    s.name, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        s.group,
+                                        s.url,
                                         fontSize = 12.sp,
-                                        color = gold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
                                     )
+                                    if (s.group.isNotBlank()) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            s.group,
+                                            fontSize = 12.sp,
+                                            color = gold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
                                 }
                             }
                             Switch(
@@ -423,6 +515,9 @@ fun BookSourceScreen(
                                     }
                                 },
                             )
+                            IconButton(onClick = { editTarget = s }) {
+                                Icon(Icons.Filled.Edit, "编辑", tint = gold)
+                            }
                             IconButton(onClick = { deleteTarget = s }) {
                                 Icon(
                                     Icons.Filled.Delete,
@@ -431,21 +526,75 @@ fun BookSourceScreen(
                                 )
                             }
                         }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                     }
                 }
-            if (sources.isEmpty() && pyRules.isEmpty()) {
+            if (shownPy.isEmpty() && shownJson.isEmpty()) {
                 item(key = "empty") {
                     Box(
                         Modifier.fillMaxWidth().padding(top = 48.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "还没有书源，点顶部导入",
+                            if (srcQuery.isBlank()) "还没有书源，点顶部导入" else "没有匹配的书源",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
+        }
+        // v0.197.0：底部批量栏（阅读式：全选 / 反选 / 删除）
+        if (batchMode) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { selectedSrcKeys = allShownKeys.toSet() }) {
+                    Text("全选（${selectedSrcKeys.size}/${allShownKeys.size}）")
+                }
+                TextButton(onClick = {
+                    selectedSrcKeys = allShownKeys.filter { it !in selectedSrcKeys }.toSet()
+                }) {
+                    Text("反选")
+                }
+                TextButton(
+                    enabled = selectedSrcKeys.isNotEmpty(),
+                    onClick = { batchDeleteConfirm = true },
+                ) {
+                    Text("删除")
+                }
+            }
+        }
+    }
+
+    // v0.197.0：批量删除确认
+    if (batchDeleteConfirm) {
+        TechDialog(
+            onDismissRequest = { batchDeleteConfirm = false },
+            title = "删除 ${selectedSrcKeys.size} 个书源？",
+            confirmText = "删除",
+            onConfirm = {
+                batchDeleteConfirm = false
+                val keys = selectedSrcKeys
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        keys.forEach { k ->
+                            when {
+                                k.startsWith("py_") ->
+                                    PyBookSourceManager.remove(context, k.removePrefix("py_"))
+                                k.startsWith("json_") ->
+                                    BookSourceManager.remove(context, k.removePrefix("json_"))
+                            }
+                        }
+                    }
+                    selectedSrcKeys = emptySet()
+                    batchMode = false
+                    Toast.makeText(context, "已删除 ${keys.size} 个书源", Toast.LENGTH_SHORT).show()
+                }
+            },
+        ) {
+            Text("删除后找书不再用这些源，书架里已有的书不受影响。")
         }
     }
 
@@ -658,6 +807,64 @@ fun BookSourceScreen(
             },
         ) {
             Text("确定删除本地 PY 书源「${r.title}」？文件也会被删除。")
+        }
+    }
+
+    // v0.196.0：长按 JSON 卡片编辑——名称 / 地址 / 分组（规则本身不动）
+    editTarget?.let { s ->
+        var editName by remember(s.key) { mutableStateOf(s.name) }
+        var editUrl by remember(s.key) { mutableStateOf(s.url) }
+        var editGroup by remember(s.key) { mutableStateOf(s.group) }
+        TechDialog(
+            onDismissRequest = { editTarget = null },
+            title = "编辑书源",
+            confirmText = "保存",
+            onConfirm = {
+                scope.launch {
+                    val ok = BookSourceManager.updateSource(context, s.key, editName.trim(), editUrl.trim(), editGroup.trim())
+                    if (!ok) {
+                        Toast.makeText(context, "保存失败：名称或地址为空、地址与已有书源重复", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                editTarget = null
+            },
+        ) {
+            Text("名称", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TechTextField(value = editName, onValueChange = { editName = it }, placeholder = "书源名称")
+            Spacer(Modifier.height(10.dp))
+            Text("地址", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TechTextField(value = editUrl, onValueChange = { editUrl = it }, placeholder = "https://")
+            Spacer(Modifier.height(10.dp))
+            Text("分组", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TechTextField(value = editGroup, onValueChange = { editGroup = it }, placeholder = "分组，可空")
+        }
+    }
+
+    // v0.196.0：长按 PY 卡片重命名——只改文件名，不改文件内容
+    editPyTarget?.let { r ->
+        var newBase by remember(r.name) { mutableStateOf(r.title) }
+        TechDialog(
+            onDismissRequest = { editPyTarget = null },
+            title = "重命名书源",
+            subtitle = "只改文件名，不改文件内容",
+            confirmText = "保存",
+            onConfirm = {
+                scope.launch {
+                    val ok = PyBookSourceManager.rename(context, r.name, newBase.trim())
+                    if (!ok) {
+                        Toast.makeText(context, "重命名失败：名称为空、含非法字符或已存在同名文件", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                editPyTarget = null
+            },
+        ) {
+            TechTextField(value = newBase, onValueChange = { newBase = it }, placeholder = "新名称，不用写 .py")
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "保存后文件将改名为“${newBase.trim().removeSuffix(".py")}.py”，卡片标题跟着变。",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 

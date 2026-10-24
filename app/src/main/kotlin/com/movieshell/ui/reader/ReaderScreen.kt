@@ -30,9 +30,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,7 +44,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
 import androidx.compose.material3.TextButton
@@ -792,30 +795,78 @@ fun ReaderScreen(
             }
         }
 
-        // 底栏：上一章 / 目录 / 设置 / 下一章（v0.61.0：沉浸模式时隐藏）
+        // 底栏：阅读式底菜单（v0.197.0）——第一行 上一章 / 进度条 / 下一章，
+        // 第二行 目录 / 界面 / 设置；右上悬浮钮 书签 / 亮度 / 刷新
+        // （沉浸模式时隐藏；v0.61.0 的沉浸规则不变）。
+        // 注意：界面与设置目前同指一个设置面板（咱的设置本就是一页全量、无滚动），
+        // 等阅读反编译稿到了再按阅读的面板分拆；朗读按用户定不做，故不占位。
+        // 章内搜索（阅读悬浮钮里的搜索）咱没有对应功能，不摆空壳。
         if (!immersive) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
-                    onClick = { jumpTo(chapterIndex - 1) },
-                    enabled = chapterIndex > 0,
-                ) { Text("上一章", color = fg) }
-                TextButton(onClick = { showToc = true }) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.List, "目录", tint = fg, modifier = Modifier.padding(end = 4.dp))
-                        Text("目录", color = fg)
+            // 拖动进度条只跟手，松手才跳章，避免拖动中反复加载
+            var sliderPos by remember { mutableStateOf<Float?>(null) }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = 12.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        SmallFloatingActionButton(onClick = { showBookmarks = true }) {
+                            Icon(Icons.Filled.Bookmark, "书签")
+                        }
+                        SmallFloatingActionButton(onClick = { openSettings() }) {
+                            Icon(Icons.Filled.BrightnessMedium, "亮度")
+                        }
+                        SmallFloatingActionButton(onClick = { jumpTo(chapterIndex) }) {
+                            Icon(Icons.Filled.Refresh, "刷新")
+                        }
                     }
                 }
-                TextButton(onClick = { openSettings() }) { Text("设置", color = fg) }
-                TextButton(
-                    onClick = { jumpTo(chapterIndex + 1) },
-                    enabled = chapterIndex < chapters.size - 1,
-                ) { Text("下一章", color = fg) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(
+                        onClick = { jumpTo(chapterIndex - 1) },
+                        enabled = chapterIndex > 0,
+                    ) { Text("上一章", color = fg) }
+                    Slider(
+                        value = sliderPos ?: chapterIndex.toFloat(),
+                        onValueChange = { sliderPos = it },
+                        onValueChangeFinished = {
+                            sliderPos?.toInt()?.let { jumpTo(it) }
+                            sliderPos = null
+                        },
+                        valueRange = 0f..(chapters.size - 1).coerceAtLeast(1).toFloat(),
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = { jumpTo(chapterIndex + 1) },
+                        enabled = chapterIndex < chapters.size - 1,
+                    ) { Text("下一章", color = fg) }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = { showToc = true }) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.List, "目录", tint = fg, modifier = Modifier.padding(end = 4.dp))
+                            Text("目录", color = fg)
+                        }
+                    }
+                    TextButton(onClick = { openSettings() }) { Text("界面", color = fg) }
+                    TextButton(onClick = { openSettings() }) { Text("设置", color = fg) }
+                }
             }
         }
     }
@@ -938,48 +989,39 @@ fun ReaderScreen(
             confirmText = "完成",
             onConfirm = { closeSettings() },
         ) {
+            // v0.196.0：紧凑一页版——不滚动、不用原生 Slider/Switch，全部走胶囊与步进器；
+            // 标签 12sp、组标题 11sp、行距 6dp，九行设置 + 预览 + 四组标题塞进一页。
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 560.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(13.dp),
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                // 预览：当前字体/字号/行距实时效果
+                // 预览：当前字体/字号/行距实时效果（单行）
                 Text(
                     "山重水复疑无路，柳暗花明又一村。",
                     fontSize = fontSize.sp,
                     lineHeight = (fontSize * lineHeightRatio).sp,
                     fontFamily = readerFont,
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 ReaderSectionHeader("显示")
-                // 字号：数值 + 定制滑杆
+                // 字号：步进器（去滑杆）
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("字号", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    Text(
-                        "${fontSize}sp",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
+                    Text("字号", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    ReaderStepper(
+                        valueText = "${fontSize}sp",
+                        onMinus = { if (fontSize > 14) fontSize-- },
+                        onPlus = { if (fontSize < 24) fontSize++ },
                     )
                 }
-                ReaderSliderRow(
-                    value = fontSize.toFloat(),
-                    range = 14f..24f,
-                    onChange = { fontSize = it.toInt() },
-                    onMinus = { if (fontSize > 14) fontSize-- },
-                    onPlus = { if (fontSize < 24) fontSize++ },
-                )
                 // 字体：五档，胶囊字本身就用对应字体渲染
                 ReaderFontRow(fontFamily) { fontFamily = it }
                 // 行距
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("行距", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text("行距", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                     listOf(1.2f to "紧凑", 1.8f to "适中", 2.4f to "疏朗").forEachIndexed { i, (ratio, label) ->
-                        if (i > 0) Spacer(Modifier.width(6.dp))
+                        if (i > 0) Spacer(Modifier.width(4.dp))
                         ReaderPill(label, lineHeightRatio == ratio) { lineHeightRatio = ratio }
                     }
                 }
@@ -989,51 +1031,50 @@ fun ReaderScreen(
                 ReaderSectionHeader("阅读")
                 // 翻页模式
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("翻页", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text("翻页", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                     listOf(0 to "上下滚动", 1 to "左右覆盖", 2 to "仿真翻页").forEachIndexed { i, (mode, label) ->
-                        if (i > 0) Spacer(Modifier.width(6.dp))
+                        if (i > 0) Spacer(Modifier.width(4.dp))
                         ReaderPill(label, pageMode == mode) { pageMode = mode }
                     }
                 }
                 // 音量键翻页
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("音量键翻页", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text("音量键翻页", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                     ReaderPill("开", volumePageTurn) { volumePageTurn = true }
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(4.dp))
                     ReaderPill("关", !volumePageTurn) { volumePageTurn = false }
                 }
-                // 亮度（-1=跟随系统）
+                // 亮度（-1=跟随系统）：自动档 + 步进器（去滑杆）
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        if (brightness < 0) "亮度：跟随系统" else "亮度：${(brightness * 100).toInt()}%",
-                        fontSize = 13.sp,
+                        if (brightness < 0) "亮度：跟随系统" else "亮度",
+                        fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
                     ReaderPill("自动", brightness < 0, accent = true) { brightness = -1f }
+                    Spacer(Modifier.width(4.dp))
+                    ReaderStepper(
+                        valueText = if (brightness < 0) "—" else "${(brightness * 100).toInt()}%",
+                        onMinus = {
+                            brightness = (if (brightness < 0) 0.5f else brightness)
+                                .minus(0.05f).coerceIn(0.05f, 1f)
+                        },
+                        onPlus = {
+                            brightness = (if (brightness < 0) 0.5f else brightness)
+                                .plus(0.05f).coerceIn(0.05f, 1f)
+                        },
+                    )
                 }
-                ReaderSliderRow(
-                    value = if (brightness < 0) 0.5f else brightness,
-                    range = 0.05f..1f,
-                    onChange = { brightness = it.coerceIn(0.05f, 1f) },
-                    onMinus = {
-                        brightness = (if (brightness < 0) 0.5f else brightness)
-                            .minus(0.05f).coerceIn(0.05f, 1f)
-                    },
-                    onPlus = {
-                        brightness = (if (brightness < 0) 0.5f else brightness)
-                            .plus(0.05f).coerceIn(0.05f, 1f)
-                    },
-                )
                 HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                 ReaderSectionHeader("章节")
                 // 章节快捷：上一章 / 目录 / 下一章
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("章节", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text("章节", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                     ReaderPill("上一章", false) { if (chapterIndex > 0) { closeSettings(); jumpTo(chapterIndex - 1) } }
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(4.dp))
                     ReaderPill("目录", false, accent = true) { closeSettings(); showToc = true }
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(4.dp))
                     ReaderPill("下一章", false) { if (chapterIndex < chapters.size - 1) { closeSettings(); jumpTo(chapterIndex + 1) } }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
@@ -1043,7 +1084,7 @@ fun ReaderScreen(
                     Text(
                         "净化规则" +
                             if (purifyCount >= 0) "（$purifyCount 条生效）" else "",
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
@@ -1057,12 +1098,12 @@ fun ReaderScreen(
     }
     }
 
-/** v0.195.0：设置弹窗组标题——弹窗内容按显示/阅读/章节/管理分层，小标题 + 分隔线。 */
+/** v0.196.0：设置弹窗组标题——紧凑一页版，11sp。 */
 @Composable
 private fun ReaderSectionHeader(text: String) {
     Text(
         text = text,
-        fontSize = 12.sp,
+        fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.primary,
     )
@@ -1099,7 +1140,7 @@ private fun ReaderPill(
             .clip(RoundedCornerShape(50))
             .background(bg)
             .clickable(onClick = onClick)
-            .padding(horizontal = 11.dp, vertical = 6.dp),
+            .padding(horizontal = 9.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (dotColor != null || dotFollowSystem) {
@@ -1120,7 +1161,7 @@ private fun ReaderPill(
         }
         Text(
             text = text,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             color = fg,
             fontFamily = font,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
@@ -1138,7 +1179,7 @@ private fun readerFontFamilyOf(v: Int): FontFamily = when (v) {
     else -> FontFamily.SansSerif
 }
 
-/** v0.194.0追加：字体行——五档胶囊换行排，胶囊字用对应字体渲染。 */
+/** v0.196.0：字体行——标签定宽 + 胶囊右对齐单行排，窄屏自动折行（仍在一页内，不滚动）。 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ReaderFontRow(
@@ -1148,14 +1189,14 @@ private fun ReaderFontRow(
     Row(verticalAlignment = Alignment.Top) {
         Text(
             "字体",
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f).padding(top = 6.dp),
+            modifier = Modifier.width(40.dp).padding(top = 5.dp),
         )
         FlowRow(
-            modifier = Modifier.weight(3f),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             listOf(0 to "系统默认", 1 to "无衬线", 2 to "衬线", 3 to "等宽", 4 to "手写").forEach { (v, label) ->
                 ReaderPill(label, selected == v, font = readerFontFamilyOf(v)) { onSelect(v) }
@@ -1164,27 +1205,26 @@ private fun ReaderFontRow(
     }
 }
 
-/** v0.193.0：设置页定制滑杆——圆形描边加减钮 + 主题色细轨，替代系统默认 Slider 紫条。 */
+/**
+ * v0.196.0：步进器——圆形描边加减钮 + 居中数值，替代原生 Slider（字号/亮度共用）。
+ * 滑杆拖动换成了点按步进，弹窗里不再有任何原生控件。
+ */
 @Composable
-private fun ReaderSliderRow(
-    value: Float,
-    range: ClosedFloatingPointRange<Float>,
-    onChange: (Float) -> Unit,
+private fun ReaderStepper(
+    valueText: String,
     onMinus: () -> Unit,
     onPlus: () -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         ReaderRoundIconButton(Icons.Filled.Remove, "减小", onMinus)
-        Slider(
-            value = value,
-            onValueChange = onChange,
-            valueRange = range,
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
-            ),
-            modifier = Modifier.weight(1f),
+        Text(
+            valueText,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.width(48.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            maxLines = 1,
         )
         ReaderRoundIconButton(Icons.Filled.Add, "增大", onPlus)
     }
@@ -1205,8 +1245,8 @@ private fun ReaderRoundIconButton(icon: ImageVector, desc: String, onClick: () -
 }
 
 /**
- * v0.193.0：背景行——标签 + 可换行胶囊（窄屏时“跟随系统”自动折到第二行，
- * 不挤爆弹窗）。跟随系统档带深浅渐变点，一眼认得出。
+ * v0.196.0：背景行——标签定宽 + 胶囊右对齐单行排，窄屏自动折行（仍在一页内，不滚动）。
+ * 跟随系统档带深浅渐变点，一眼认得出。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1214,16 +1254,16 @@ private fun ReaderBgRow(selected: Int, onSelect: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.Top) {
         Text(
             "背景",
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
-                .weight(1f)
-                .padding(top = 6.dp),
+                .width(40.dp)
+                .padding(top = 5.dp),
         )
         FlowRow(
-            modifier = Modifier.weight(3f),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             ReaderPill("白", selected == 0, dotColor = Color.White) { onSelect(0) }
             ReaderPill("米黄", selected == 1, dotColor = Color(0xFFF7F3E8)) { onSelect(1) }

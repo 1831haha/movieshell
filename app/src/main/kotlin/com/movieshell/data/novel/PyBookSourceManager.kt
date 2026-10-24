@@ -153,6 +153,28 @@ object PyBookSourceManager {
     }
 
     /**
+     * v0.196.0：长按卡片重命名——只改文件名（不改文件内容）。新名不带 .py 后缀也行，
+     * 自动补；含 / \ 或已存在同名文件时拒绝。改名后清桥缓存、启用标记跟过去、重载列表。
+     */
+    suspend fun rename(context: Context, oldName: String, newBase: String): Boolean = withContext(Dispatchers.IO) {
+        val base = newBase.trim().removeSuffix(".py")
+        if (base.isBlank() || base.contains('/') || base.contains('\\')) return@withContext false
+        val newName = "$base.py"
+        if (newName == oldName) return@withContext true
+        val dir = dir(context)
+        val src = File(dir, oldName)
+        val dst = File(dir, newName)
+        if (!src.isFile || dst.exists()) return@withContext false
+        if (!src.renameTo(dst)) return@withContext false
+        runCatching { ChaquopyEngine.resetRuleCache(src.absolutePath) }
+        val wasEnabled = isEnabled(oldName)
+        setEnabled(context, oldName, false)
+        if (wasEnabled) setEnabled(context, newName, true)
+        load(context)
+        true
+    }
+
+    /**
      * 删除书源文件 + 清桥缓存 + 清启用标记。
      * v0.186.0 第 9 组：文件存在但删除返回 false 时直接返回 false，
      * 不清启用标记、不重载——不再出现删了又出现且是禁用态。

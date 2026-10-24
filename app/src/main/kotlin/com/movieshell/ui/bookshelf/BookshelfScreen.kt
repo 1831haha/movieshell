@@ -1,6 +1,7 @@
 package com.movieshell.ui.bookshelf
 
 import android.provider.OpenableColumns
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -23,6 +24,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -33,6 +36,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.GridView
@@ -47,12 +51,14 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,12 +67,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.movieshell.data.model.Novel
 import com.movieshell.data.model.ReadingProgress
 import com.movieshell.data.novel.BookSourceManager
@@ -77,6 +87,7 @@ import com.movieshell.data.repo.BookGroup
 import com.movieshell.data.repo.BookshelfGroupStore
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.ui.novel.NovelSearchScreen
+import com.movieshell.ui.novel.NovelSearchViewModel
 import com.movieshell.data.repo.NovelUpdateInfo
 import com.movieshell.data.repo.NovelUpdateStore
 import com.movieshell.data.repo.ReadingProgressStore
@@ -124,6 +135,10 @@ fun BookshelfScreen(
     var viewMode by remember { mutableStateOf(BookshelfGroupStore.viewMode(context)) }
     var sortMode by remember { mutableStateOf(BookshelfGroupStore.sortMode(context)) }
     var selectedGroup by remember { mutableStateOf(BookshelfGroupStore.selectedGroup(context)) }
+
+    // v0.197.0：阅读式页签（全部 / 更新失败）+ 上次检查失败的书 id（持久化在 prefs）
+    var shelfTab by remember { mutableStateOf(0) }
+    var failedIds by remember { mutableStateOf(BookshelfGroupStore.failedIds(context)) }
 
     // v0.98.0：多选模式
     var selectionMode by remember { mutableStateOf(false) }
@@ -185,6 +200,9 @@ fun BookshelfScreen(
             val checked = NovelUpdateChecker.checkAllDetailed(context, books)
             val result = checked.updated
             result.forEach { (id, n) -> NovelUpdateStore.set(context, id, n) }
+            // v0.197.0：失败 id 存起来供“更新失败”页签用
+            failedIds = checked.failedIds
+            BookshelfGroupStore.setFailedIds(context, checked.failedIds)
             checking = false
             reload()
             PluginUi.toast(context, 
@@ -271,13 +289,15 @@ fun BookshelfScreen(
         }
     }
 
-    val visibleBooks = remember(books, selectedGroup, sortMode, progressMap, updates, customGroups) {
-        val filtered = when (selectedGroup) {
-            BookshelfGroupStore.GROUP_ALL -> books
+    val visibleBooks = remember(books, selectedGroup, sortMode, progressMap, updates, customGroups, shelfTab, failedIds) {
+        // v0.197.0：更新失败页签只列上次检查失败的书（不看分组）；全部页签沿用分组筛选
+        val preFiltered = if (shelfTab == 1) books.filter { it.id in failedIds } else books
+        val filtered = if (shelfTab == 1) preFiltered else when (selectedGroup) {
+            BookshelfGroupStore.GROUP_ALL -> preFiltered
             else -> {
                 val ids = customGroups.find { it.id == selectedGroup }?.novelIds?.toSet()
                     ?: emptySet()
-                books.filter { it.id in ids }
+                preFiltered.filter { it.id in ids }
             }
         }
         when (sortMode) {
@@ -377,26 +397,43 @@ fun BookshelfScreen(
         ) {
             Spacer(Modifier.height(12.dp))
 
-            // v0.180.0：顶行 = 左侧“全部” + 右侧搜索/三点菜单。
-            // 179 错把“最前面”做成了分组横滑第一项，这次是真顶行。
+            // v0.197.0：顶行左侧改阅读式页签（全部 / 更新失败，选中带主题色下划线）；
+            // 179 的“全部”分组胶囊并入页签，不再重复出现。
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                GroupChip(
-                    name = "全部",
-                    count = books.size,
-                    selected = selectedGroup == BookshelfGroupStore.GROUP_ALL,
-                    onClick = {
-                        selectedGroup = BookshelfGroupStore.GROUP_ALL
-                        BookshelfGroupStore.setSelectedGroup(
-                            context,
-                            BookshelfGroupStore.GROUP_ALL,
-                        )
-                    },
-                    onLongClick = null,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    listOf(0 to "全部", 1 to "更新失败").forEachIndexed { i, (tab, label) ->
+                        if (i > 0) Spacer(Modifier.width(18.dp))
+                        val tabSelected = shelfTab == tab
+                        val tabText = if (tab == 1 && failedIds.isNotEmpty()) "$label(${failedIds.size})" else label
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.clickable { shelfTab = tab },
+                        ) {
+                            Text(
+                                tabText,
+                                fontSize = 15.sp,
+                                fontWeight = if (tabSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (tabSelected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(20.dp)
+                                    .height(2.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(
+                                        if (tabSelected) MaterialTheme.colorScheme.primary
+                                        else Color.Transparent,
+                                    ),
+                            )
+                        }
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { searching = true }) {
                         Icon(Icons.Filled.Search, "找书")
@@ -409,6 +446,18 @@ fun BookshelfScreen(
                             expanded = showTopMenu,
                             onDismissRequest = { showTopMenu = false },
                         ) {
+                            // v0.197.0：阅读式书架菜单（只留有真实功能的项；
+                            // 添加网址/远程书籍/缓存导出/导出导入书单/日志暂无对应功能，不摆空壳）
+                            DropdownMenuItem(
+                                text = { Text("更新目录") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Refresh, contentDescription = null)
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    checkUpdates()
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("添加本地书籍") },
                                 enabled = !importing,
@@ -418,6 +467,28 @@ fun BookshelfScreen(
                                 onClick = {
                                     showTopMenu = false
                                     pickTxt.launch("text/plain")
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("书架管理") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Checklist, contentDescription = null)
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    selectionMode = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("书架布局") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.GridView, contentDescription = null)
+                                },
+                                onClick = {
+                                    showTopMenu = false
+                                    viewMode = if (viewMode == BookshelfGroupStore.VIEW_LIST)
+                                        BookshelfGroupStore.VIEW_GRID else BookshelfGroupStore.VIEW_LIST
+                                    BookshelfGroupStore.setViewMode(context, viewMode)
                                 },
                             )
                             DropdownMenuItem(
@@ -434,8 +505,14 @@ fun BookshelfScreen(
                     }
                 }
             }
+            // v0.196.0：搜索框上移到与“找书”同一行——框直接绑活动级搜索 VM
+            // （与内嵌找书页同一份 keyword），回车即搜；VM 与焦点提到分支外，避免条件组合。
+            val searchActivity = LocalContext.current as ComponentActivity
+            val searchVm: NovelSearchViewModel = viewModel(searchActivity)
+            val searchKeyword by searchVm.keyword.collectAsState()
+            val searchFocus = remember { FocusRequester() }
             if (searching) {
-                // v0.195.0：找书不用单独页面——书架内直接搜（嵌入找书页，自动聚焦键盘）
+                LaunchedEffect(Unit) { searchFocus.requestFocus() }
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -447,13 +524,24 @@ fun BookshelfScreen(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.width(10.dp))
+                        OutlinedTextField(
+                            value = searchKeyword,
+                            onValueChange = { searchVm.setKeyword(it) },
+                            placeholder = { Text("书名 / 作者") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(50),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { searchVm.doSearch() }),
+                            modifier = Modifier.weight(1f).focusRequester(searchFocus),
+                        )
                         TextButton(onClick = { searching = false }) { Text("取消") }
                     }
                     Box(modifier = Modifier.weight(1f)) {
                         NovelSearchScreen(
                             embedded = true,
-                            autoFocus = true,
+                            autoFocus = false,
+                            hideSearchField = true,
                             onManageSources = onManageSourcesClick,
                         )
                     }
@@ -529,6 +617,8 @@ fun BookshelfScreen(
             }
             Spacer(Modifier.height(4.dp))
             // v0.180.0：自定义分组横滑（全部已提顶行，不在这里重复）。
+            // v0.197.0：更新失败页签不看分组，横滑行隐藏。
+            if (shelfTab == 0) {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(end = 4.dp),
@@ -559,6 +649,7 @@ fun BookshelfScreen(
                     )
                 }
             }
+            } // v0.197.0：闭合 shelfTab==0 的分组横滑
             Spacer(Modifier.height(8.dp))
 
             // v0.178.0：下拉刷新 = 原检查更新（获取最新章节），
@@ -571,7 +662,7 @@ fun BookshelfScreen(
             ) {
             // v0.98.0：内容区（分组切换小动画）
             AnimatedContent(
-                targetState = "$selectedGroup|$viewMode",
+                targetState = "$selectedGroup|$viewMode|$shelfTab",
                 label = "shelfContent",
                 modifier = Modifier.fillMaxSize(),
             ) {
@@ -591,7 +682,9 @@ fun BookshelfScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "这个分组还没有书\n长按书籍可全选/分组/收藏",
+                            // v0.197.0：更新失败页签空态单独说明
+                            if (shelfTab == 1) "还没有更新失败的书\n下拉刷新检查后，失败的会列在这里"
+                            else "这个分组还没有书\n长按书籍可全选/分组/收藏",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 20.sp,
@@ -627,8 +720,9 @@ fun BookshelfScreen(
                         }
                     }
                 } else {
+                    // v0.197.0：阅读式 plain 行自带底部分隔线，列表不再额外留 10dp 间距
                     LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(0.dp),
                         contentPadding = PaddingValues(bottom = 24.dp),
                     ) {
                         if (checking) {

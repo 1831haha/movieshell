@@ -63,7 +63,13 @@ object NovelUpdateChecker {
     ): Map<String, Int> = checkAllDetailed(context, novels).updated
 
     /** v0.186.0 第 9 组：批量检查加失败计数——Failed 不再被悄悄丢掉，Worker 据此决定重试。 */
-    data class CheckAllResult(val updated: Map<String, Int>, val failed: Int, val checked: Int)
+    data class CheckAllResult(
+        val updated: Map<String, Int>,
+        val failed: Int,
+        val checked: Int,
+        // v0.197.0：失败的书 id（书架“更新失败”页签用）
+        val failedIds: Set<String> = emptySet(),
+    )
 
     suspend fun checkAllDetailed(
         context: Context,
@@ -82,6 +88,9 @@ object NovelUpdateChecker {
             }.toMap(),
             failed = results.count { (_, r) -> r is Result.Failed },
             checked = results.size,
+            failedIds = results.mapNotNull { (id, r) ->
+                if (r is Result.Failed) id else null
+            }.toSet(),
         )
     }
 

@@ -32,8 +32,8 @@ import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -57,7 +57,6 @@ import coil.compose.AsyncImage
 import com.movieshell.data.model.Novel
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
-import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.goldTitleColor
 import com.movieshell.ui.theme.LocalBrandGradient
 
@@ -114,7 +113,9 @@ fun Novel.readFraction(): Float {
     return if (lastReadChapter == 0) 0f else (read + 1).toFloat() / total
 }
 
-/** v0.98.0：列表卡片（信息保留原样 + 多选框 + 按压缩放 + 角标脉冲）。 */
+/** v0.197.0：阅读式列表行——不用玻璃卡片，plain 行 + 底部分隔线；四行信息
+ * （书名+未读数角标 / 作者 / 已读章节 / 共 N 章·上次阅读），进度条去掉，
+ * 与阅读书架行结构对齐。网格卡片不动（书架布局切换时仍用）。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NovelListCard(
@@ -129,17 +130,12 @@ fun NovelListCard(
 ) {
     val total = novel.totalChapters.coerceAtLeast(1)
     val read = novel.lastReadChapter.coerceIn(0, total - 1)
-    val progress = novel.readFraction()
-    val percent = (progress * 100).toInt()
-    val cyan = Color(0xFF4DD0E1)
 
-    AppCard(modifier = modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .bookPressable(onClick = onClick, onLongClick = onLongClick)
-                // v0.194.0追加：列表行收紧（用户原话“列表太宽了”）——封面
-                // 56×76→46×62、内边距 12→10，行高约 100→82，一屏多看两三本。
-                .padding(10.dp),
+                .padding(vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (selectionMode) {
@@ -185,10 +181,11 @@ fun NovelListCard(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    // 阅读式未读角标：只显示数字（蓝底小 pill），不再是“+N 章”
                     if (updateCount > 0) {
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = "+$updateCount 章",
+                            text = "$updateCount",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimary,
@@ -218,25 +215,9 @@ fun NovelListCard(
                     icon = Icons.Filled.LibraryBooks,
                     text = "共 $total 章 · ${formatLastReadTs(lastReadAt)}",
                 )
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(4.dp),
-                        color = cyan,
-                        trackColor = cyan.copy(alpha = 0.2f),
-                    )
-                    Text(
-                        "$percent%",
-                        fontSize = 11.sp,
-                        color = cyan,
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
     }
 }
 

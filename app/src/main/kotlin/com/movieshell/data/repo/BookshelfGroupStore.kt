@@ -33,6 +33,8 @@ object BookshelfGroupStore {
     private const val KEY_VIEW = "view_mode" // 0=列表 1=网格
     private const val KEY_SORT = "sort_mode" // 0=最近阅读 1=更新时间 2=书名 3=阅读进度
     private const val KEY_GROUP = "selected_group" // all=全部，其余为智能/自定义分组 id
+    // v0.197.0：上次追更检查失败的书 id（书架“更新失败”页签用，逗号分隔存 prefs）
+    private const val KEY_FAILED = "update_failed_ids"
 
     const val VIEW_LIST = 0
     const val VIEW_GRID = 1
@@ -165,6 +167,15 @@ object BookshelfGroupStore {
 
     fun selectedGroup(context: Context): String =
         prefs(context).getString(KEY_GROUP, GROUP_ALL) ?: GROUP_ALL
+
+    /** v0.197.0：上次检查失败的书 id（页签筛选）；检查跑完即整体替换，不逐条攒。 */
+    fun failedIds(context: Context): Set<String> =
+        prefs(context).getString(KEY_FAILED, "").orEmpty()
+            .split(',').filter { it.isNotBlank() }.toSet()
+
+    fun setFailedIds(context: Context, ids: Set<String>) {
+        prefs(context).edit().putString(KEY_FAILED, ids.joinToString(",")).apply()
+    }
 
     fun setSelectedGroup(context: Context, id: String) {
         prefs(context).edit().putString(KEY_GROUP, id).apply()

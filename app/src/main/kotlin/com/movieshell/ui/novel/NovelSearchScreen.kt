@@ -72,6 +72,7 @@ fun NovelSearchScreen(
     pySourceName: String? = null,
     embedded: Boolean = false, // v0.79.0：嵌入书架子 tab 时隐藏头部
     autoFocus: Boolean = false, // v0.195.0：书架内嵌搜索时打开即聚焦键盘，直接输
+    hideSearchField: Boolean = false, // v0.196.0：搜索框已上移到书架的“找书”标题行，这里不再重复画框
 ) {
     // v0.103.0：activity 级 VM——切后台/切 tab 不销毁，viewModelScope 里的多书源搜索不中断、结果保留
     val activity = LocalContext.current as ComponentActivity
@@ -137,11 +138,12 @@ fun NovelSearchScreen(
         }
         Spacer(Modifier.height(12.dp))
         }
-        // v0.195.0：自动聚焦（书架点搜索即输，不用再点一次框）
+        // v0.195.0：自动聚焦（书架点搜索即输，不用再点一次框；框已外移到标题行时由外层聚焦）
         val searchFocus = remember { FocusRequester() }
         LaunchedEffect(autoFocus) {
-            if (autoFocus) searchFocus.requestFocus()
+            if (autoFocus && !hideSearchField) searchFocus.requestFocus()
         }
+        if (!hideSearchField) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = keyword,
@@ -157,6 +159,7 @@ fun NovelSearchScreen(
             }
         }
         Spacer(Modifier.height(12.dp))
+        }
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {

@@ -162,6 +162,24 @@ object BookSourceManager {
         true
     }
 
+    /**
+     * v0.196.0：长按卡片编辑——改名/地址/分组。地址变了 key 也跟着变（key 由 url 派生），
+     * 新 key 与已有书源撞了就拒绝；写盘失败内存回滚。返回 false=拒绝或保存失败。
+     */
+    suspend fun updateSource(context: Context, oldKey: String, name: String, url: String, group: String): Boolean = mutex.withLock {
+        val old = _sources.value
+        val target = old.find { it.key == oldKey } ?: return@withLock false
+        if (name.isBlank() || url.isBlank()) return@withLock false
+        val updated = target.copy(name = name, url = url, group = group)
+        if (updated.key != oldKey && old.any { it.key == updated.key }) return@withLock false
+        _sources.value = old.map { if (it.key == oldKey) updated else it }
+        if (!save(context)) {
+            _sources.value = old
+            return@withLock false
+        }
+        true
+    }
+
     fun enabledSources(): List<BookSource> = synchronized(syncLock) {
         _sources.value.filter { it.enabled }
     }
