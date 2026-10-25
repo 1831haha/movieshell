@@ -56,6 +56,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -673,14 +674,39 @@ fun BookshelfScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Spacer(Modifier.width(10.dp))
+                        // v0.223.0：与独立找书页同一样式——16dp 圆角填充条、左搜索
+                        // 图标、右清除，不再是胶囊描边框。
                         OutlinedTextField(
                             value = searchKeyword,
                             onValueChange = { searchVm.setKeyword(it) },
                             placeholder = { Text("书名 / 作者") },
                             singleLine = true,
-                            shape = RoundedCornerShape(50),
+                            shape = RoundedCornerShape(16.dp),
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Search, contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            trailingIcon = {
+                                if (searchKeyword.isNotEmpty()) {
+                                    IconButton(onClick = { searchVm.setKeyword("") }) {
+                                        Icon(
+                                            Icons.Filled.Close, "清除",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            },
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = { searchVm.doSearch() }),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF4DD0E1),
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                cursorColor = Color(0xFF4DD0E1),
+                            ),
                             modifier = Modifier.weight(1f).focusRequester(searchFocus),
                         )
                         TextButton(onClick = { searching = false }) { Text("取消") }

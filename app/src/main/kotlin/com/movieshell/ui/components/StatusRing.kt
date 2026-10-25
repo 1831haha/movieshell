@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.dp
  * 外圈：加载中时一段 270° 光弧匀速旋转（跑马灯）；非加载时为同色细圆轨。
  * 中央点：绿 = 正常/运行中，黄 = 加载中/启动中，红 = 失败/异常，灰 = 未启动/已停止。
  * 颜色口径与服务页红绿灯（v0.138.0）一致，不另起一套。
+ * v0.223.0：showDot/strokeWidth——找书加载圈要专业化：细环、无中央点，
+ * 其余调用点默认行为不变（颜色语义不动：黄仍是加载中）。
  */
 enum class StatusRingState {
     Ready,
@@ -47,6 +49,8 @@ fun StatusRing(
     state: StatusRingState,
     diameter: Dp = 24.dp,
     modifier: Modifier = Modifier,
+    showDot: Boolean = true,
+    strokeWidth: Dp? = null,
 ) {
     val c = state.color()
     val transition = rememberInfiniteTransition(label = "statusRing")
@@ -61,7 +65,7 @@ fun StatusRing(
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.size(diameter)) {
-            val w = size.minDimension * 0.14f
+            val w = strokeWidth?.toPx() ?: size.minDimension * 0.14f
             if (state == StatusRingState.Loading) {
                 drawArc(
                     color = c.copy(alpha = 0.18f),
@@ -87,11 +91,13 @@ fun StatusRing(
                 )
             }
         }
-        Box(
-            modifier = Modifier
-                .size(diameter * 0.42f)
-                .clip(CircleShape)
-                .background(c),
-        )
+        if (showDot) {
+            Box(
+                modifier = Modifier
+                    .size(diameter * 0.42f)
+                    .clip(CircleShape)
+                    .background(c),
+            )
+        }
     }
 }

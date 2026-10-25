@@ -108,9 +108,15 @@ object NovelSourceEngine {
             val req = BookRuleEngine.buildSearchRequest(urlStr, keyword)
             var page = gatedFetch(source, ua, source.url, allowGate) {
                 BookRuleEngine.fetchSearchPageOutcome(req, ua)
-            } ?: return@withContext emptyList()
+            }
+            if (page == null) {
+                // v0.223.0：搜书诊断——未抓到页以前是静默空，记一行才能分清是请求问题还是解析问题。
+                Log.w(TAG, "搜书诊断 ${source.name} 未抓到页")
+                return@withContext emptyList()
+            }
             // v0.209.0：登录后重抓也过验证通道——999 这类源先握手再被墙时，
             // 原直接重抓拿不到页又不弹窗，搜索静默为空。
+            val beforeLoginLen = page.body.length
             page = LegadoJsEngine.runLoginCheck(source, page, ctx, state, refetch = {
                 val urlStr2 = evalSearchUrl(source, ctx, state)
                 val req2 = BookRuleEngine.buildSearchRequest(urlStr2, keyword)
@@ -120,6 +126,8 @@ object NovelSourceEngine {
             })
             val pageCtx = ctx.copy(baseUrl = page.url)
             val items = LegadoJsEngine.evalListRule(page.body, page.url, source.ruleSearchList, pageCtx, state)
+            // v0.223.0：搜书诊断——只记长度与条数，不记正文；校验前后长度一变就说明 1234 握手改写了页。
+            Log.d(TAG, "搜书诊断 ${source.name} 校验前长=$beforeLoginLen 校验后长=${page.body.length} 解析出 ${items.size} 条")
             items.mapNotNull { el ->
                 val name = LegadoJsEngine.evalTextRule(el, page.url, source.ruleSearchName.ifBlank { "@text" }, pageCtx, state)
                 val bookUrl = LegadoJsEngine.evalTextRule(el, page.url, source.ruleSearchBookUrl.ifBlank { "a@href" }, pageCtx, state)

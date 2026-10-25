@@ -2,6 +2,9 @@ package com.movieshell.ui.novel
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -159,35 +162,67 @@ fun NovelSearchScreen(
             if (autoFocus && !hideSearchField) searchFocus.requestFocus()
         }
         if (!hideSearchField) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = keyword,
-                onValueChange = { vm.setKeyword(it) },
-                placeholder = { Text("书名 / 作者") },
-                singleLine = true,
-                // v0.139.0：搜索框改胶囊圆角，与系统干净风格对齐
-                shape = RoundedCornerShape(50),
-                // v0.211.0：聚焦青色描边、未聚焦低对比描边，不再是默认原生灰框。
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF4DD0E1),
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                    cursorColor = Color(0xFF4DD0E1),
-                ),
-                modifier = Modifier.weight(1f).focusRequester(searchFocus),
-            )
-            IconButton(onClick = { vm.doSearch() }, modifier = Modifier.padding(start = 4.dp)) {
-                Icon(Icons.Filled.Search, "搜索", tint = gold)
-            }
-        }
+        // v0.223.0：找书搜索框重设计——整条一体：左搜索图标 + 无框输入 +
+        // 右清除/搜索，不再是胶囊描边框 + 外挂搜索钮；填充底 + 聚焦青色描边。
+        OutlinedTextField(
+            value = keyword,
+            onValueChange = { vm.setKeyword(it) },
+            placeholder = { Text("书名 / 作者") },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            leadingIcon = {
+                Icon(
+                    Icons.Filled.Search, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            trailingIcon = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (keyword.isNotEmpty()) {
+                        IconButton(onClick = { vm.setKeyword("") }) {
+                            Icon(
+                                Icons.Filled.Close, "清除",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    TextButton(
+                        onClick = { vm.doSearch() },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) {
+                        Text("搜索", color = gold, fontSize = 14.sp)
+                    }
+                }
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { vm.doSearch() }),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF4DD0E1),
+                unfocusedBorderColor = Color.Transparent,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                cursorColor = Color(0xFF4DD0E1),
+            ),
+            modifier = Modifier.fillMaxWidth().focusRequester(searchFocus),
+        )
         Spacer(Modifier.height(12.dp))
         }
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    // v0.139.0：加载圈统一为 StatusRing（跑马灯圆环 + 黄色状态点）
-                    StatusRing(state = StatusRingState.Loading, diameter = 44.dp)
-                    Spacer(Modifier.height(8.dp))
-                    Text("正在搜索 $totalEnabled 个书源…", fontSize = 13.sp,
+                    // v0.223.0：加载圈专业化——细环 32dp、无中央点（颜色语义不动，
+                    // 黄仍是加载中）；主副两行文案，不再是大黄圈 + 一行小字。
+                    StatusRing(
+                        state = StatusRingState.Loading,
+                        diameter = 32.dp,
+                        showDot = false,
+                        strokeWidth = 2.5.dp,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("正在搜索…", fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.height(4.dp))
+                    Text("$totalEnabled 个书源", fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

@@ -1,11 +1,11 @@
 package com.movieshell.ui.novel
 
+import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,7 +42,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -330,55 +329,64 @@ fun BookSourceScreen(
         }
         Spacer(Modifier.height(8.dp))
         }
+        // v0.223.0：头部压缩——说明只留一行（开关语义），发现聚合/净化规则/
+        // 恢复默认由三个通栏大钮并成一行小钮，省约 110dp。
         Text(
-            "粘贴/URL/文件可导入阅读 App 的 bookSource.json；导入本地PY选 .py 书源文件；开关控制搜索时是否使用该源",
+            "开关控制搜索时是否使用该源",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(8.dp))
-        // v0.214.0：发现聚合入口（多源首屏横滑行，不用逐源钻进去）。
-        FilledTonalButton(
-            onClick = onOpenExploreAggregate,
+        Row(
             modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Icon(Icons.Filled.Explore, "发现聚合", modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("发现聚合（多源首屏一览）")
-        }
-        Spacer(Modifier.height(8.dp))
-        // v0.95.0：净化规则入口（正文替换规则管理）；v0.96.1：按钮上显示生效数
-        FilledTonalButton(
-            onClick = onOpenPurifyRules,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(Icons.Filled.AutoFixHigh, "净化规则", modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(
-                "净化规则（正文去广告/版式整理）" +
-                    if (purifyCount >= 0) " · $purifyCount 条生效" else ""
-            )
-        }
-        // v0.107.0 P0-7：删光书源后手动恢复内置源（已存在则提示，无需操作）
-        OutlinedButton(
-            onClick = {
-                scope.launch {
-                    // v0.186.0：restoreBuiltin 返回 false 有两种含义——已存在、写盘失败；
-                    // 调用前已有内置源才是已存在，否则就是写盘失败（失败时内存已回滚）。
-                    // 内置源 key 与 BookSourceManager 的内置 key 一致：quanben 网址去协议去尾斜杠。
-                    val hadBuiltin = BookSourceManager.sources.value.any { it.key == "www.quanben.io" }
-                    val added = BookSourceManager.restoreBuiltin(context)
-                    AppToast.show(context, when {
-                            added -> "已恢复内置书源（全本小说网）"
-                            hadBuiltin -> "内置书源已存在，无需恢复"
-                            else -> "保存失败，内置书源未恢复，请重试"
-                        }, long = false)
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(Icons.Filled.Refresh, "恢复默认书源", modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("恢复默认书源")
+            // v0.214.0：发现聚合入口（多源首屏横滑行，不用逐源钻进去）。
+            FilledTonalButton(
+                onClick = onOpenExploreAggregate,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
+            ) {
+                Icon(Icons.Filled.Explore, null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(2.dp))
+                Text("发现聚合", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            // v0.95.0：净化规则入口（正文替换规则管理）；v0.96.1：按钮上显示生效数
+            FilledTonalButton(
+                onClick = onOpenPurifyRules,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
+            ) {
+                Icon(Icons.Filled.AutoFixHigh, null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(2.dp))
+                Text(
+                    "净化规则" + if (purifyCount >= 0) " · $purifyCount" else "",
+                    fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // v0.107.0 P0-7：删光书源后手动恢复内置源（已存在则提示，无需操作）
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        // v0.186.0：restoreBuiltin 返回 false 有两种含义——已存在、写盘失败；
+                        // 调用前已有内置源才是已存在，否则就是写盘失败（失败时内存已回滚）。
+                        // 内置源 key 与 BookSourceManager 的内置 key 一致：quanben 网址去协议去尾斜杠。
+                        val hadBuiltin = BookSourceManager.sources.value.any { it.key == "www.quanben.io" }
+                        val added = BookSourceManager.restoreBuiltin(context)
+                        AppToast.show(context, when {
+                                added -> "已恢复内置书源（全本小说网）"
+                                hadBuiltin -> "内置书源已存在，无需恢复"
+                                else -> "保存失败，内置书源未恢复，请重试"
+                            }, long = false)
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
+            ) {
+                Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(2.dp))
+                Text("恢复默认", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
         Spacer(Modifier.height(12.dp))
         // v0.197.0：阅读式顶部搜索（按名/地址过滤）+ 批量入口
@@ -401,7 +409,7 @@ fun BookSourceScreen(
         Spacer(Modifier.height(8.dp))
         LazyColumn(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(0.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // v0.64.0：本地 PY 书源区
             if (shownPy.isNotEmpty()) {
@@ -415,25 +423,24 @@ fun BookSourceScreen(
                 }
             }
             items(shownPy, key = { "py_${it.name}" }) { r ->
-                // v0.197.0：阅读式 plain 行（点行打开该源，长按/✎编辑）；行末分隔线
-                Column {
+                // v0.223.0：每源单独卡片（点卡打开该源，长按进文本编辑）。
+                AppCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onOpenPySource(r.name) },
+                    onLongClick = {
+                        scope.launch {
+                            val text = PyBookSourceManager.readContent(context, r.name)
+                            if (text == null) {
+                                AppToast.show(context, "读取失败，请重试", long = false)
+                            } else {
+                                textEditPyText = text
+                                textEditPy = r
+                            }
+                        }
+                    },
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .combinedClickable(
-                                onClick = { onOpenPySource(r.name) },
-                                onLongClick = {
-                                    scope.launch {
-                                        val text = PyBookSourceManager.readContent(context, r.name)
-                                        if (text == null) {
-                                            AppToast.show(context, "读取失败，请重试", long = false)
-                                        } else {
-                                            textEditPyText = text
-                                            textEditPy = r
-                                        }
-                                    }
-                                },
-                            )
-                            .padding(vertical = 10.dp),
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (batchMode) {
@@ -513,7 +520,6 @@ fun BookSourceScreen(
                             )
                         }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                 }
             }
             if (shownJson.isNotEmpty()) {
@@ -527,17 +533,16 @@ fun BookSourceScreen(
                 }
             }
             items(shownJson, key = { "json_${it.key}" }) { s ->
-                    // v0.197.0：阅读式 plain 行（点行/✎进字段编辑）；v0.206.0：长按进文本编辑；行末分隔线
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth()
-                                .combinedClickable(
-                                    onClick = { editTarget = s },
-                                    onLongClick = { textEditJson = s },
-                                )
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+                // v0.223.0：每源单独卡片——第一行书名 + 开关（开关恒贴右缘），
+                // 第二行地址 + 操作钮（操作列恒贴右缘），各卡片开关与操作列纵向对齐。
+                // 点卡进字段编辑，长按进文本编辑（与原来点行/长按一致）。
+                AppCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { editTarget = s },
+                    onLongClick = { textEditJson = s },
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             if (batchMode) {
                                 Checkbox(
                                     checked = "json_${s.key}" in selectedSrcKeys,
@@ -548,32 +553,11 @@ fun BookSourceScreen(
                                     modifier = Modifier.padding(end = 4.dp),
                                 )
                             }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    s.name, fontWeight = FontWeight.Bold, fontSize = 16.sp,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        s.url,
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f, fill = false),
-                                    )
-                                    if (s.group.isNotBlank()) {
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            s.group,
-                                            fontSize = 12.sp,
-                                            color = gold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                }
-                            }
+                            Text(
+                                s.name, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
                             AppSwitch(
                                 checked = s.enabled,
                                 onCheckedChange = {
@@ -586,6 +570,32 @@ fun BookSourceScreen(
                                     }
                                 },
                             )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(
+                                    s.url,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                if (s.group.isNotBlank()) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        s.group,
+                                        fontSize = 12.sp,
+                                        color = gold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
                             // v0.201.0：有发现分类的源行末加「发现」入口（进书架子结构内的发现页）
                             if (s.exploreUrl.isNotBlank()) {
                                 TextButton(onClick = { onOpenExplore(s.key) }) {
@@ -603,9 +613,9 @@ fun BookSourceScreen(
                                 )
                             }
                         }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                     }
                 }
+            }
             if (shownPy.isEmpty() && shownJson.isEmpty()) {
                 item(key = "empty") {
                     Box(
