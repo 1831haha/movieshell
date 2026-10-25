@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -89,9 +91,15 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val lxEngine = remember(context) { LxMusicSourceEngine(context) }
     var sources by remember { mutableStateOf<List<MusicSource>>(emptyList()) }
+    // v0.213.0：删源原来直接执行无确认，误删即丢脚本与 Cookie；
+    // 改走歌单删除同款确认弹窗。
+    var deleteSourceTarget by remember { mutableStateOf<MusicSource?>(null) }
     var showAdd by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
     var testMsg by remember { mutableStateOf<String?>(null) }
+    // v0.213.0：测试弹窗标题原来写死“测试内置源解析”，自定义源也
+    // 顶这个标题；记下被测源，标题按内置/自定义区分。
+    var testSource by remember { mutableStateOf<MusicSource?>(null) }
     /** v0.109.0 A6：测试协程句柄——testing 期间允许用户取消（返回键/点外部） */
     var testJob by remember { mutableStateOf<Job?>(null) }
     // v0.100.0：页面退出时释放引擎，避免 JS 引擎实例泄漏
@@ -270,6 +278,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         }
         testMsg = null
         testing = true
+        testSource = source
         // v0.109.0 A6：testing 期间允许取消——关弹窗（返回键/点外部）即 cancel；
         // 旧 runCatching 会吞 CancellationException 导致取消后仍弹"解析失败"，这里显式重抛
         testJob?.cancel()
@@ -358,6 +367,18 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     )
                 }
             }
+            // v0.213.0：无源时原来整页只剩引导条 + 悬浮钮，没有空态
+            // 说明；补一句，告诉用户点右下角 + 添加。
+            if (sources.isEmpty()) {
+                item {
+                    Text(
+                        text = "还没有音乐源，点右下角 + 添加",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+            }
             items(sources, key = { it.id }) { source ->
                 // v0.103.0：档次 chips——内置 huibq 用自报两档（v0.106.0：走引擎共享声明）；
                 // 自定义源取脚本 inited 自报的 qualitys；加载中"…", 失败/无数据"未知"
@@ -426,6 +447,9 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                                 onCheckedChange = { enabled ->
                                     scope.launch {
                                         MusicSourceStore.setEnabled(context, source.id, enabled)
+                                        // v0.213.0：禁用首选源后原来成悬空 ID；
+                                        // 禁用即清首选，芯片与实际播放不再打架。
+                                        if (!enabled) MusicPlayer.clearPreferredSourceIf(context, source.id)
                                         reload()
                                     }
                                 },
@@ -459,12 +483,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                                 Text("Cookie", fontSize = 13.sp)
                             }
                             if (!source.builtin) {
-                                IconButton(onClick = {
-                                    scope.launch {
-                                        MusicSourceStore.remove(context, source.id)
-                                        reload()
-                                    }
-                                }) {
+                                IconButton(onClick = { deleteSourceTarget = source }) {
                                     Icon(
                                         imageVector = Icons.Filled.Delete,
                                         contentDescription = "删除音乐源",
@@ -626,6 +645,25 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         }
     }
 
+    deleteSourceTarget?.let { src ->
+        TechDialog(
+            onDismissRequest = { deleteSourceTarget = null },
+            title = "删除音乐源",
+            subtitle = src.name,
+            confirmText = "删除",
+            onConfirm = {
+                scope.launch {
+                    MusicSourceStore.remove(context, src.id)
+                    MusicPlayer.clearPreferredSourceIf(context, src.id)
+                    deleteSourceTarget = null
+                    reload()
+                }
+            },
+        ) {
+            Text("确定删除音乐源「${src.name}」？本地脚本文件与已填的 Cookie 也会一起删掉。")
+        }
+    }
+
     // v0.123.0：内置源 Cookie 说明（免配置，讲清 Cookie 入口在脚本类音源那一行）
     builtinCookieTip?.let { src ->
         TechDialog(
@@ -663,7 +701,8 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     testMsg = null
                 }
             },
-            title = "测试内置源解析",
+            title = "测试${if (testSource?.builtin == true) "内置" else "自定义"}源解析",
+            subtitle = testSource?.name,
             dismissText = if (testing) null else "关闭",
             onConfirm = null,
         ) {
@@ -780,6 +819,9 @@ private fun CookieSlotCard(
 ) {
     val context = LocalContext.current
     val filled = value.isNotBlank()
+    // v0.213.0 音乐界面误导修复：Cookie 原来明文躺在输入框里；
+    // 默认遮掩，点“显示”才明文，点“隐藏”恢复遮掩。
+    var showCookie by remember { mutableStateOf(false) }
     Column(modifier = cookieCardModifier()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -804,6 +846,11 @@ private fun CookieSlotCard(
             placeholder = "粘贴 ${slot.label} 的 Cookie",
             singleLine = false,
             minLines = 2,
+            visualTransformation = if (showCookie) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(6.dp))
@@ -812,6 +859,9 @@ private fun CookieSlotCard(
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            TextButton(onClick = { showCookie = !showCookie }) {
+                Text(if (showCookie) "隐藏" else "显示", fontSize = 12.sp)
+            }
             if (filled) {
                 TextButton(onClick = { onValueChange("") }) {
                     Text("清空", fontSize = 12.sp)

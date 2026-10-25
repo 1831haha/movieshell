@@ -36,6 +36,12 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
     private val _searched = MutableStateFlow(false)
     val searched: StateFlow<Boolean> = _searched
 
+    // v0.213.0 音乐界面误导修复：搜索失败原来把上次好结果清空，
+    // 空结果分支又统一渲染“没搜到”，断网与真无结果无法区分；
+    // 失败改只记 error 态、不碰旧结果，UI 按 error 态说实话。
+    private val _searchError = MutableStateFlow(false)
+    val searchError: StateFlow<Boolean> = _searchError
+
     /** v0.84.0：搜索历史（视频/小说两端独立存，互不串） */
     private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
     val searchHistory: StateFlow<List<String>> = _searchHistory
@@ -102,6 +108,7 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
     /** v0.146.0：空关键词切平台时回榜单态——榜单跟随平台刷新，旧搜索结果不再赖着不走。 */
     fun resetToCharts() {
         _searched.value = false
+        _searchError.value = false
     }
 
     /**
@@ -117,6 +124,7 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
         searchJob = viewModelScope.launch {
             _searching.value = true
             _searched.value = true
+            _searchError.value = false
             try {
                 // v0.84.0：记搜索历史
                 MusicHistoryStore.addSearch(getApplication(), q)
@@ -129,7 +137,8 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
                     .onFailure {
                         if (it is CancellationException) throw it
                         LogBus.e("Music", "搜索失败：${it.message}")
-                        _tracks.value = emptyList()
+                        // v0.213.0：失败不清空旧结果，只记 error 态
+                        _searchError.value = true
                     }
             } finally {
                 _searching.value = false

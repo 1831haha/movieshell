@@ -136,6 +136,85 @@ object MusicPlayer {
 
     private var queue: List<MusicApi.Track> = emptyList()
     private var index: Int = -1
+
+    // v0.213.0 播错丢状态修复：队列原来只在内存，进程重建后播放、
+    // 队列、首选源全丢；队列与下标持久化到 SharedPreferences（JSON），
+    // 重建后恢复队列快照（不自动起播，用户点队列项再播），下标越界钳制。
+    private const val KEY_QUEUE_JSON = "queue_json"
+    private const val KEY_QUEUE_INDEX = "queue_index"
+    private var queueRestored = false
+
+    private fun persistQueue(context: Context?) {
+        val ctx = context ?: appCtx ?: return
+        runCatching {
+            val arr = org.json.JSONArray()
+            for (t in queue) {
+                arr.put(org.json.JSONObject().apply {
+                    put("id", t.id); put("name", t.name); put("artist", t.artist)
+                    put("album", t.album); put("picId", t.picId); put("urlId", t.urlId)
+                    put("localUri", t.localUri); put("source", t.source)
+                })
+            }
+            ctx.getSharedPreferences(MUSIC_PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_QUEUE_JSON, arr.toString())
+                .putInt(KEY_QUEUE_INDEX, index)
+                .apply()
+        }
+    }
+
+    /** 进程启动后恢复一次队列快照（仅队列与下标，不恢复播放态）。 */
+    fun restoreQueue(context: Context) {
+        if (queueRestored) return
+        queueRestored = true
+        if (queue.isNotEmpty()) return
+        runCatching {
+            val prefs = context.getSharedPreferences(MUSIC_PREFS, Context.MODE_PRIVATE)
+            val raw = prefs.getString(KEY_QUEUE_JSON, null) ?: return@runCatching
+            val arr = org.json.JSONArray(raw)
+            val list = ArrayList<MusicApi.Track>()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                list += MusicApi.Track(
+                    id = o.optString("id"), name = o.optString("name"),
+                    artist = o.optString("artist"), album = o.optString("album"),
+                    picId = o.optString("picId"), urlId = o.optString("urlId"),
+                    localUri = o.optString("localUri"), source = o.optString("source"),
+                )
+            }
+            if (list.isNotEmpty()) {
+                queue = list
+                index = prefs.getInt(KEY_QUEUE_INDEX, -1).coerceIn(list.indices)
+                _queueState.value = QueueState(queue, index)
+            }
+        }
+    }
+
+    /**
+     * v0.213.0：删歌同步播放器——删掉正在播/在队列里的歌时，播放器
+     * 原来完全不知道，删掉的歌播完、上下首还能播到它；删当前歌则
+     * 停播并清显示态，删队列里的歌则剔出队列并修正下标。
+     */
+    fun onTrackDeleted(context: Context, trackId: String) {
+        val cur = _state.value.track
+        if (cur?.id == trackId) {
+            playJob?.cancel()
+            progressJob?.cancel()
+            controller?.stop()
+            _state.value = State(repeatMode = _state.value.repeatMode)
+        }
+        val at = queue.indexOfFirst { it.id == trackId }
+        if (at < 0) return
+        val wasCurrent = at == index
+        queue = queue.toMutableList().also { it.removeAt(at) }
+        if (wasCurrent) {
+            index = -1
+            _queueState.value = QueueState(queue, -1)
+        } else {
+            if (at < index) index -= 1
+            _queueState.value = QueueState(queue, index)
+        }
+        persistQueue(context)
+    }
     // v0.85.0：播放请求代际——连接 service 是异步的，旧请求回来时若已被取代则丢弃
     private var playGen = 0
     // v0.146.0：上一轮 LX 解析是否撞上"只有试听"——供最终失败时给准提示（见 playAt）。
@@ -151,16 +230,46 @@ object MusicPlayer {
      * v0.117.0：列表页「切换音源」设置的首选源 id（null=自动，按启用顺序）。
      * 与 forcedSourceId 的区别：forced 是播放页一次性指定（消费即清），
      * preferred 持续生效，resolveLxUrl 排它最先试、失败回落默认顺序。
+     * v0.213.0 播错丢状态修复：原来只是 @Volatile 内存变量，重启就丢，
+     * 删/禁首选源后还成悬空 ID（芯片、弹窗、实际播放三处打架）；
+     * 改 StateFlow + SharedPreferences 持久化，芯片跟 Flow 走、删禁源时清掉。
      */
-    @Volatile
-    private var preferredSourceId: String? = null
+    private val _preferredSourceId = MutableStateFlow<String?>(null)
+    val preferredSourceIdFlow: StateFlow<String?> = _preferredSourceId
+    private const val MUSIC_PREFS = "music_player_prefs"
+    private const val KEY_PREFERRED_SOURCE = "preferred_source_id"
+    private var preferredRestored = false
 
+    fun setPreferredSource(context: Context, sourceId: String?) {
+        _preferredSourceId.value = sourceId
+        runCatching {
+            context.getSharedPreferences(MUSIC_PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_PREFERRED_SOURCE, sourceId).apply()
+        }
+    }
+
+    /** 兼容旧调用：无 Context 时只改内存（持久化由带 Context 的重载负责）。 */
     fun setPreferredSource(sourceId: String?) {
-        preferredSourceId = sourceId
+        _preferredSourceId.value = sourceId
+    }
+
+    /** 进程启动后读一次持久化的首选源（重复调用只生效一次）。 */
+    fun restorePreferred(context: Context) {
+        if (preferredRestored) return
+        preferredRestored = true
+        _preferredSourceId.value = runCatching {
+            context.getSharedPreferences(MUSIC_PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_PREFERRED_SOURCE, null)
+        }.getOrNull()
+    }
+
+    /** 首选源被删/禁用时清掉，避免悬空 ID 让芯片与实际播放打架。 */
+    fun clearPreferredSourceIf(context: Context, sourceId: String) {
+        if (_preferredSourceId.value == sourceId) setPreferredSource(context, null)
     }
 
     /** v0.121.0：切换音源弹窗打勾用（null=自动）。 */
-    fun preferredSourceId(): String? = preferredSourceId
+    fun preferredSourceId(): String? = _preferredSourceId.value
 
     /**
      * v0.180.0：当前 LX 音源自报的平台 code（墨澜/聚合类脚本的 inited sources 键）。
@@ -174,7 +283,7 @@ object MusicPlayer {
             .getOrDefault(emptyList())
             .filter { it.enabled && !it.builtin && it.url.isNotBlank() }
             .let { list ->
-                val preferred = preferredSourceId
+                val preferred = _preferredSourceId.value
                 if (preferred == null) list
                 else list.sortedBy { if (it.id == preferred) 0 else 1 }
             }
@@ -310,6 +419,7 @@ object MusicPlayer {
         appCtx = context.applicationContext
         queue = tracks
         playAt(context, startIndex.coerceIn(tracks.indices))
+        persistQueue(context)
     }
 
     /**
@@ -322,8 +432,19 @@ object MusicPlayer {
             toast("当前没有播放的歌曲")
             return
         }
+        // v0.213.0：本地歌原来也走 playAt 重播，进度直接丢掉；
+        // 本地文件无需换源解析，直接拒绝，不动 forced、不重播。
+        if (queue[index].isLocal) {
+            toast("本地歌曲无需换源")
+            return
+        }
         forcedSourceId = sourceId
         playAt(context, index)
+    }
+
+    /** v0.213.0：切回自动后立即用默认顺序重解析当前歌（与选具体源对称）。 */
+    fun replayCurrent(context: Context) {
+        if (index in queue.indices) playAt(context, index)
     }
 
     /**
@@ -352,6 +473,9 @@ object MusicPlayer {
             return
         }
         appCtx = context.applicationContext
+        // v0.213.0 播错修复：跨平台搜索原来无代际保护，切歌后旧搜索
+        // 返回仍把播放拉回旧歌；记下发起时代际，过期直接丢弃。
+        val platformGen = playGen
         scope.launch {
             val key = cur.id to target
             if (!platformMatches.containsKey(cur.id to current)) {
@@ -370,6 +494,7 @@ object MusicPlayer {
                 cur.copy(source = target, urlId = hit.urlId, picId = hit.picId)
                     .also { platformMatches[key] = it }
             }
+            if (platformGen != playGen) return@launch
             val qi = queue.indexOfFirst { it.id == cur.id }
             if (qi >= 0) {
                 queue = queue.toMutableList().also { it[qi] = matched }
@@ -385,8 +510,18 @@ object MusicPlayer {
         if (i !in queue.indices) return
         // v0.131.0：切歌即取消上一首未完成的解析（见 playJob 声明处）
         playJob?.cancel()
+        // v0.213.0：新起播先取消在途渐弱，尾巴不再暂停新歌。
+        fadeJob?.cancel()
+        // v0.213.0 播错修复：forced 原来是全局裸变量，本地歌不走
+        // resolve、解析协程被取消时都没消费，下一首错用它解析；
+        // 改在 playAt 入口捕获即清零，随本次解析参数传入，过期不泄漏。
+        val forcedForThisPlay = forcedSourceId.also { forcedSourceId = null }
+        // v0.213.0 播错修复：解析失败回滚用——失败前先记住旧下标，
+        // 失败时把 index/queueState 恢复，队列弹窗不再高亮一首没在播的歌。
+        val prevIndex = index
         index = i
         _queueState.value = QueueState(queue, i)
+        persistQueue(context)
         val track = queue[i]
         val gen = ++playGen
         // v0.146.0：新地址没拿到手之前不切显示态——播放页仍以控制器实际在播的
@@ -406,7 +541,7 @@ object MusicPlayer {
                 if (track.isLocal) {
                     Resolved(track.localUri, "本地文件", "")
                 } else {
-                    resolveLxUrl(context.applicationContext, track)
+                    resolveLxUrl(context.applicationContext, track, forcedForThisPlay)
                         ?: try {
                             MusicApi.playUrl(track.urlId, platform).takeIf { it.isNotBlank() }
                                 ?.let { Resolved(it, "GD Studio", "") }
@@ -431,6 +566,14 @@ object MusicPlayer {
                 artDeferred.cancel()
                 // v0.131.0：失败只报一次——已切歌的旧代静默退出，不记日志不 toast 不动 state
                 if (gen != playGen) return@launch
+                // v0.213.0 播错修复：解析失败把下标滚回旧值——否则队列
+                // 弹窗高亮失败歌、下一首/播完自动切歌都从错位置算、队列里
+                // 点高亮的失败歌还因 i==index 直接 no-op 点不动。
+                // 注意：playList 换过队列时旧下标可能越界，越界则归 -1。
+                val rollbackIndex = prevIndex.takeIf { it in queue.indices } ?: -1
+                index = rollbackIndex
+                _queueState.value = QueueState(queue, rollbackIndex)
+                persistQueue(context)
                 LogBus.e("MusicPlayer", "取播放地址失败：${track.name}")
                 // v0.146.0：显示态没切过新曲，这里只提示，不动 state（旧曲该播还播）。
                 // LX 链撞上试听且备用线路也没拿到时，说准"只有试听片段"而不是泛泛的失败。
@@ -503,26 +646,29 @@ object MusicPlayer {
     private suspend fun resolveLxUrl(
         appContext: Context,
         track: MusicApi.Track,
+        forced: String?,
     ): Resolved? {
         val songId = track.urlId
         val platform = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
         // v0.146.0：每轮先清试听标记（源为空直接返回时也不能留上一首的值）。
         lastTrialOnly = false
         if (songId.isBlank()) return null
-        // v0.108.0 B1：一次性消费手动指定的源；该源不存在/已禁用时 sources 为空，
+        // v0.108.0 B1：一次性指定源由 playAt 入口捕获传入（本地歌/取消
+        // 路径不再泄漏到下一首）；该源不存在/已禁用时 sources 为空，
         // 自然回落为调用方 MusicApi.playUrl（GD Studio）兜底
-        val forced = forcedSourceId.also { forcedSourceId = null }
-        val preferred = preferredSourceId
-        val sources = runCatching { MusicSourceStore.list(appContext) }
+        val preferred = _preferredSourceId.value
+        val enabledIds = runCatching { MusicSourceStore.list(appContext) }
             .getOrDefault(emptyList())
             .filter { it.enabled }
-            .let { list ->
-                when {
-                    forced != null -> list.filter { it.id == forced }
-                    preferred != null -> list.sortedBy { if (it.id == preferred) 0 else 1 }
-                    else -> list
-                }
+        val sources = enabledIds.let { list ->
+            when {
+                // v0.213.0：指定源失败不再只剩 GD 兜底——注释早说回落
+                // 默认顺序，代码却只剩 GD；指定源排最前、其余启用源随后。
+                forced != null -> list.sortedBy { if (it.id == forced) 0 else 1 }
+                preferred != null -> list.sortedBy { if (it.id == preferred) 0 else 1 }
+                else -> list
             }
+        }
         if (sources.isEmpty()) return null
         // v0.109.0 B4①：复用 MusicPlayer 生命周期内的引擎实例，不再每首歌 new+release
         val engine = getOrCreateLxEngine(appContext)
@@ -530,6 +676,12 @@ object MusicPlayer {
         val failures = ArrayList<String>()
         for (s in sources) {
             currentCoroutineContext().ensureActive()
+            // v0.213.0 播错修复：解析循环原来开头快照 enabled 源后不再
+            // 重读注册表，删/禁源后在途解析仍能用已删源抢到播放权；
+            // 每源尝试前重读一次启用态，已删/已禁直接跳过。
+            val stillEnabled = runCatching { MusicSourceStore.list(appContext) }
+                .getOrDefault(emptyList()).any { it.id == s.id && it.enabled }
+            if (!stillEnabled) continue
             val qualities: List<String> = if (s.builtin) {
                 LxMusicSourceEngine.BUILTIN_QUALITIES
             } else {
@@ -583,10 +735,16 @@ object MusicPlayer {
         withController(ctx) { if (it.isPlaying) it.pause() else it.play() }
     }
 
+    // v0.213.0 播错修复：渐弱原来是裸 launch 无句柄，视频联动暂停
+    // 或睡眠定时后用户 2 秒内手动恢复，尾巴仍把歌按停；记句柄，
+    // 新渐弱/新起播先取消旧渐弱。
+    private var fadeJob: Job? = null
+
     /** v0.85.0：睡眠定时到期——2 秒线性渐弱后暂停，恢复音量 */
     fun fadeOutAndPause() {
         val c = controller ?: return
-        scope.launch {
+        fadeJob?.cancel()
+        fadeJob = scope.launch {
             val steps = 10
             repeat(steps) { i ->
                 c.volume = 1f - (i + 1) / steps.toFloat()
@@ -681,6 +839,7 @@ object MusicPlayer {
         queue = emptyList()
         index = -1
         _queueState.value = QueueState()
+        persistQueue(null)
     }
 
     /** 切 tab/退后台不自动停；App 退出时 MainActivity.onDestroy 可调 release */

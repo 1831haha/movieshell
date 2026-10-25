@@ -130,6 +130,7 @@ fun MusicScreen(
     val tracks by vm.tracks.collectAsState()
     val searching by vm.searching.collectAsState()
     val searched by vm.searched.collectAsState()
+    val searchError by vm.searchError.collectAsState()
     // v0.84.0：搜索历史
     val searchHistory by vm.searchHistory.collectAsState()
 
@@ -159,7 +160,14 @@ fun MusicScreen(
                 .filter { it.enabled }
         }
     }
-    val currentSourceName = MusicPlayer.preferredSourceId()
+    // v0.213.0：首选源改 StateFlow 后芯片跟 Flow 走——源管理页删/禁
+    // 首选源回来时芯片不再拿旧快照说谎；首次进页恢复一次持久化值。
+    val preferredSourceId by MusicPlayer.preferredSourceIdFlow.collectAsState()
+    LaunchedEffect(Unit) {
+        MusicPlayer.restorePreferred(context)
+        MusicPlayer.restoreQueue(context)
+    }
+    val currentSourceName = preferredSourceId
         ?.let { id -> musicSources.firstOrNull { it.id == id }?.name }
         ?: "自动"
 
@@ -325,8 +333,17 @@ fun MusicScreen(
             },
             onPickAuto = {
                 showSourcePicker = false
-                MusicPlayer.setPreferredSource(null)
-                AppToast.show(context, "已切回自动音源", long = false)
+                MusicPlayer.setPreferredSource(context, null)
+                // v0.213.0 播错修复：切回自动原来只改首选不重解析，
+                // 当前这首仍走旧源播完；在线歌立即用默认顺序重解析，
+                // 本地歌不重播（进度不丢）。
+                val cur = MusicPlayer.state.value.track
+                if (cur != null && !cur.isLocal) {
+                    AppToast.show(context, "正在用自动音源重新解析", long = false)
+                    MusicPlayer.replayCurrent(context)
+                } else {
+                    AppToast.show(context, "已切回自动音源", long = false)
+                }
             },
             // v0.126.0：平台区目标沿用本弹窗既有语义=当前在播歌曲（无在播/本地歌不渲染）
             platformTrack = MusicPlayer.state.value.track?.takeIf { !it.isLocal },
@@ -336,11 +353,13 @@ fun MusicScreen(
             },
             onPick = { src ->
                 showSourcePicker = false
-                MusicPlayer.setPreferredSource(src.id)
-                if (MusicPlayer.state.value.track != null) {
+                MusicPlayer.setPreferredSource(context, src.id)
+                val cur = MusicPlayer.state.value.track
+                if (cur != null && !cur.isLocal) {
                     AppToast.show(context, "正在用「${src.name}」重新解析", long = false)
                     MusicPlayer.playWithSource(context, src.id)
                 } else {
+                    // 本地歌不重播（playWithSource 亦会拒绝），只记首选下一首生效。
                     AppToast.show(context, "默认音源：${src.name}（下一首生效）", long = false)
                 }
             },
@@ -578,10 +597,18 @@ private fun OnlineTab(
         }
         // v0.127.0：推荐榜单跟随所选平台（MusicApi.charts 分发到各家原生接口）
         var charts by remember { mutableStateOf<List<MusicApi.ChartEntry>>(emptyList()) }
-        LaunchedEffect(musicPlatform) {
-            charts = runCatching { MusicApi.charts(musicPlatform) }
-                .getOrDefault(emptyList())
+        // v0.213.0 音乐界面误导修复：榜单失败原来 getOrDefault(emptyList())，
+        // 空榜单统一渲染“暂无榜单接口”，断网被说成平台不支持；
+        // 失败单独记 chartsFailed，UI 按失败说实话并给重试。
+        var chartsFailed by remember { mutableStateOf(false) }
+        fun loadCharts() {
+            scope.launch {
+                runCatching { MusicApi.charts(musicPlatform) }
+                    .onSuccess { charts = it; chartsFailed = false }
+                    .onFailure { chartsFailed = true }
+            }
         }
+        LaunchedEffect(musicPlatform) { loadCharts() }
         // 点榜单 → 拉该平台榜单曲目并回填列表（与歌单导入同一通路）
         fun loadChart(entry: MusicApi.ChartEntry) {
             if (importingChart) return
@@ -695,14 +722,28 @@ private fun OnlineTab(
                     }
                     if (charts.isEmpty()) {
                         // v0.146.0：咪咕无公开榜单接口，直说接口缺失，别让用户以为读取失败。
+                        // v0.213.0：失败态单独分支，带重试，不再谎报“暂无接口”。
                         item {
-                            Text(
-                                text = if (musicPlatform == "mg")
-                                    "${MusicApi.platformShortLabel(musicPlatform)}暂无榜单接口"
-                                else "该平台暂无榜单接口",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            if (chartsFailed) {
+                                Column {
+                                    Text(
+                                        text = "榜单加载失败",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    TextButton(onClick = { loadCharts() }) {
+                                        Text("点击重试")
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = if (musicPlatform == "mg")
+                                        "${MusicApi.platformShortLabel(musicPlatform)}暂无榜单接口"
+                                    else "该平台暂无榜单接口",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                     items(charts, key = { it.id }) { entry ->
@@ -736,17 +777,49 @@ private fun OnlineTab(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    EmptyState(
-                        kind = EmptyKind.Empty,
-                        icon = Icons.Filled.MusicNote,
-                        title = "没搜到",
-                        hint = "换个关键词试试",
-                    )
+                    // v0.213.0：失败不再谎报“没搜到”；失败态给 Error 档 +
+                    // 重试按钮，旧结果已由 VM 保留（非空时走列表分支）。
+                    if (searchError) {
+                        EmptyState(
+                            kind = EmptyKind.Error,
+                            icon = Icons.Filled.MusicNote,
+                            title = "搜索失败",
+                            hint = "网络或音源接口异常，换个网络或稍后再试",
+                            actionText = "重试",
+                            onAction = { vm.doSearch() },
+                        )
+                    } else {
+                        EmptyState(
+                            kind = EmptyKind.Empty,
+                            icon = Icons.Filled.MusicNote,
+                            title = "没搜到",
+                            hint = "换个关键词试试",
+                        )
+                    }
                 }
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    // v0.213.0：失败时列表是上次的好结果，顶行明说，避免
+                    // 用户以为这就是本次搜索结果；另补总数（本地/歌单页有，
+                    // 搜索结果原来没有）。
+                    item {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                            Text(
+                                text = "共 ${tracks.size} 首",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (searchError) {
+                                Text(
+                                    text = "上次搜索失败，显示的是上次的结果",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                     // v0.133.0：搜索与导入歌单均来自外部数据，同 id 重复曲目可真实出现；
                     // key 用 id 加下标复合（不去重，播放下标须与原列表对齐）
                     itemsIndexed(tracks, key = { idx, t -> "${t.id}_$idx" }) { idx, track ->
@@ -790,6 +863,12 @@ private fun LocalTab() {
     val playState by MusicPlayer.state.collectAsState()
     val badges by MusicPlayer.badges.collectAsState() // v0.117.0：来源/音质徽标
     var locals by remember { mutableStateOf<List<MusicApi.Track>>(emptyList()) }
+    // v0.213.0 音乐界面误导修复：本地/收藏/歌单三页原来初始空列表，
+    // 异步 reload 完成前就闪空态；加 loading 旗标，加载中只转圈。
+    var localsLoading by remember { mutableStateOf(true) }
+    // v0.213.0：删本地歌原来直接执行无确认，联动删三处数据；
+    // 改走歌单删除同款确认弹窗。
+    var deleteTrackTarget by remember { mutableStateOf<MusicApi.Track?>(null) }
     // v0.84.0：加到歌单
     var addToPlaylistTrack by remember { mutableStateOf<MusicApi.Track?>(null) }
     // v0.89.0：分组维度（0=全部 1=歌手 2=专辑 3=文件夹），rememberSaveable 记住选择；折叠组 key 带维度前缀
@@ -808,7 +887,9 @@ private fun LocalTab() {
 
     fun reload() {
         scope.launch {
+            localsLoading = true
             locals = MusicStore.localList(context)
+            localsLoading = false
         }
     }
     LaunchedEffect(Unit) { reload() }
@@ -865,7 +946,14 @@ private fun LocalTab() {
             }
         }
         Box(modifier = Modifier.weight(1f)) {
-            if (locals.isEmpty()) {
+            if (localsLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    StatusRing(state = StatusRingState.Loading, diameter = 40.dp)
+                }
+            } else if (locals.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -906,15 +994,7 @@ private fun LocalTab() {
                                     badge = badges[track.urlId],
                                     isCurrent = playState.track?.id == track.id,
                                     isPlaying = playState.track?.id == track.id && playState.playing,
-                                    onDeleteClick = {
-                                        scope.launch {
-                                            // v0.188.0 M23：删本地歌即四处联动删（收藏、歌单、播放历史）。
-                                            if (!MusicStore.removeTrackEverywhere(context, track.id)) {
-                                                AppToast.show(context, "删除失败：保存失败，请重试", long = false)
-                                            }
-                                            reload()
-                                        }
-                                    },
+                                    onDeleteClick = { deleteTrackTarget = track },
                                     onPlaylistClick = { addToPlaylistTrack = track },
                                     onClick = { MusicPlayer.playList(context, locals, idx) },
                                 )
@@ -967,15 +1047,7 @@ private fun LocalTab() {
                                             isCurrent = playState.track?.id == track.id,
                                             isPlaying = playState.track?.id == track.id &&
                                                 playState.playing,
-                                            onDeleteClick = {
-                                                scope.launch {
-                                                    // v0.188.0 M23：删本地歌即四处联动删（收藏、歌单、播放历史）。
-                                                    if (!MusicStore.removeTrackEverywhere(context, track.id)) {
-                                                        AppToast.show(context, "删除失败：保存失败，请重试", long = false)
-                                                    }
-                                                    reload()
-                                                }
-                                            },
+                                            onDeleteClick = { deleteTrackTarget = track },
                                             onPlaylistClick = { addToPlaylistTrack = track },
                                             onClick = {
                                                 MusicPlayer.playList(context, glist, idx)
@@ -998,6 +1070,29 @@ private fun LocalTab() {
             onDismiss = { addToPlaylistTrack = null },
         )
     }
+
+    deleteTrackTarget?.let { t ->
+        TechDialog(
+            onDismissRequest = { deleteTrackTarget = null },
+            title = "删除本地歌曲",
+            confirmText = "删除",
+            onConfirm = {
+                scope.launch {
+                    // v0.188.0 M23：删本地歌即四处联动删（收藏、歌单、播放历史）。
+                    val ok = MusicStore.removeTrackEverywhere(context, t.id)
+                    deleteTrackTarget = null
+                    // v0.213.0：删歌同步播放器，否则删掉的歌播完、上下首还能播到它。
+                    if (ok) MusicPlayer.onTrackDeleted(context, t.id)
+                    reload()
+                    if (!ok) {
+                        AppToast.show(context, "删除失败：保存失败，请重试", long = false)
+                    }
+                }
+            },
+        ) {
+            Text("确定删除「${t.name}」？收藏、歌单、播放历史里的这首歌也会一起删掉。")
+        }
+    }
 }
 
 /** v0.81.0：收藏 tab。 */
@@ -1008,16 +1103,28 @@ private fun FavTab() {
     val playState by MusicPlayer.state.collectAsState()
     val badges by MusicPlayer.badges.collectAsState() // v0.117.0：来源/音质徽标
     var favs by remember { mutableStateOf<List<MusicApi.Track>>(emptyList()) }
+    var favsLoading by remember { mutableStateOf(true) }
     // v0.84.0：加到歌单
     var addToPlaylistTrack by remember { mutableStateOf<MusicApi.Track?>(null) }
 
     fun reload() {
-        scope.launch { favs = MusicStore.favList(context) }
+        scope.launch {
+            favsLoading = true
+            favs = MusicStore.favList(context)
+            favsLoading = false
+        }
     }
     LaunchedEffect(Unit) { reload() }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (favs.isEmpty()) {
+        if (favsLoading) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                StatusRing(state = StatusRingState.Loading, diameter = 40.dp)
+            }
+        } else if (favs.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
@@ -1249,12 +1356,17 @@ private fun PlaylistTab(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var playlists by remember { mutableStateOf<List<MusicPlaylist>>(emptyList()) }
+    var playlistsLoading by remember { mutableStateOf(true) }
     var showNew by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<MusicPlaylist?>(null) }
     var deleteTarget by remember { mutableStateOf<MusicPlaylist?>(null) }
 
     fun reload() {
-        scope.launch { playlists = MusicStore.playlistList(context) }
+        scope.launch {
+            playlistsLoading = true
+            playlists = MusicStore.playlistList(context)
+            playlistsLoading = false
+        }
     }
     LaunchedEffect(Unit) { reload() }
 
@@ -1278,7 +1390,14 @@ private fun PlaylistTab(
             }
         }
         Box(modifier = Modifier.weight(1f)) {
-            if (playlists.isEmpty()) {
+            if (playlistsLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    StatusRing(state = StatusRingState.Loading, diameter = 40.dp)
+                }
+            } else if (playlists.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -1287,7 +1406,7 @@ private fun PlaylistTab(
                         kind = EmptyKind.Empty,
                         icon = Icons.Filled.QueueMusic,
                         title = "还没有歌单",
-                        hint = "点「新建歌单」，或在歌曲上点 ⁺ 加进来",
+                        hint = "点「新建歌单」，或在歌曲旁点歌单按钮加进来",
                     )
                 }
             } else {

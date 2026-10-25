@@ -91,29 +91,32 @@ internal fun MiniPlayer(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (playState.loading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    strokeWidth = 2.dp,
-                )
-            } else {
-                IconButton(onClick = { MusicPlayer.prev(context) }) {
-                    Icon(Icons.Filled.SkipPrevious, contentDescription = "上一首")
-                }
-                IconButton(
-                    onClick = { MusicPlayer.toggle() },
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape),
-                ) {
+            // v0.213.0 音乐界面误导修复：加载时原来三个控制钮整个消失，
+            // 解析卡住时迷你条什么都点不了；改成播放页同款——上一首/
+            // 下一首始终在，转圈只嵌在主按钮里。
+            IconButton(onClick = { MusicPlayer.prev(context) }) {
+                Icon(Icons.Filled.SkipPrevious, contentDescription = "上一首")
+            }
+            IconButton(
+                onClick = { MusicPlayer.toggle() },
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape),
+            ) {
+                if (playState.loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                    )
+                } else {
                     Icon(
                         if (playState.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (playState.playing) "暂停" else "播放",
                     )
                 }
-                IconButton(onClick = { MusicPlayer.next(context) }) {
-                    Icon(Icons.Filled.SkipNext, contentDescription = "下一首")
-                }
+            }
+            IconButton(onClick = { MusicPlayer.next(context) }) {
+                Icon(Icons.Filled.SkipNext, contentDescription = "下一首")
             }
         }
     }

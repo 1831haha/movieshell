@@ -717,8 +717,14 @@ fun MusicPlayerScreen(
             },
             onPick = { src ->
                 showSourceDialog = false
-                AppToast.show(context, "正在用「${src.name}」重新解析", long = false)
-                MusicPlayer.playWithSource(context, src.id)
+                // v0.213.0：本地歌不走换源解析（playWithSource 亦会拒绝），
+                // 这里先拦住，不再先报一句“正在重新解析”误导。
+                if (track?.isLocal == true) {
+                    AppToast.show(context, "本地歌曲无需换源", long = false)
+                } else {
+                    AppToast.show(context, "正在用「${src.name}」重新解析", long = false)
+                    MusicPlayer.playWithSource(context, src.id)
+                }
             },
         )
     }
@@ -874,6 +880,10 @@ private fun PlayerOpItem(
     tint: Color,
     onClick: (() -> Unit)?,
 ) {
+    // v0.213.0 音乐界面误导修复：onClick 为 null 的项原来外观与可点项
+    // 完全一致（如音质只展示不点击），看着能点、点了没反应；
+    // 不可点项整体置灰，一眼可辨。
+    val opAlpha = if (onClick == null) 0.45f else 1f
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -881,6 +891,7 @@ private fun PlayerOpItem(
             .then(
                 if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
             )
+            .alpha(opAlpha)
             .padding(horizontal = 10.dp, vertical = 6.dp),
     ) {
         Icon(
@@ -906,6 +917,13 @@ private fun MusicQueueDialog(
     onPick: (Int) -> Unit,
 ) {
     val queueState by MusicPlayer.queueState.collectAsState()
+    // v0.213.0 音乐界面误导修复：队列弹窗原来长队列永远停在顶部，
+    // 当前歌曲在下面时用户找不到自己在听哪首；打开即滚到当前项。
+    val queueListState = rememberLazyListState()
+    LaunchedEffect(queueState.currentIndex) {
+        val cur = queueState.currentIndex
+        if (cur in queueState.tracks.indices) queueListState.scrollToItem(cur)
+    }
     TechDialog(
         onDismissRequest = onDismiss,
         title = "播放列表",
@@ -919,6 +937,7 @@ private fun MusicQueueDialog(
             )
         } else {
             LazyColumn(
+                state = queueListState,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 420.dp),
