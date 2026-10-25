@@ -151,6 +151,11 @@ private val tabs = listOf(
     Tab("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings),
 )
 
+// v0.222.0：tab 级目的地（含经 navigateTab 到达的 search）——tab 切换的
+// 退出混合判定用：两边都是 tab 时旧页瞬间撤掉，不再有双页叠在一起的
+// 300ms 重影帧；tab 与子页之间仍走原转场。
+private val TAB_ROUTES = setOf("home", "live", "bookshelf", "music", "settings", "search")
+
 private const val DETAIL_ROUTE = "detail/{vodId}?title={title}&episode={episode}"
 
 /** 通知已消费路由在 savedInstanceState 里的 key（F69 去重用）。 */
@@ -348,19 +353,35 @@ class MainActivity : ComponentActivity() {
                         startDestination = "home",
                         modifier = Modifier.padding(inner),
                         // v0.27.0 Soft Tech：页面切换统一淡入 + 8dp 位移，300ms ease-out
+                        // v0.222.0：tab 切 tab 时退出混合置空——旧页瞬间撤掉、新页
+                        // 仍淡入，不再有双页叠在一起的重影帧；exit/popExit 的 lambda
+                        // 里 initialState 是正在退出的页、targetState 是要进入的页，
+                        // 两边都是 tab 才判 tab 切换，tab 与子页之间仍走原转场。
                         enterTransition = {
                             fadeIn(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) +
                                 slideInVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { with(density) { 8.dp.roundToPx() } }
                         },
                         exitTransition = {
-                            fadeOut(tween(SoftMotion.Fast, easing = SoftMotion.Ease))
+                            if (initialState.destination.route in TAB_ROUTES &&
+                                targetState.destination.route in TAB_ROUTES
+                            ) {
+                                null
+                            } else {
+                                fadeOut(tween(SoftMotion.Fast, easing = SoftMotion.Ease))
+                            }
                         },
                         popEnterTransition = {
                             fadeIn(tween(SoftMotion.Fast, easing = SoftMotion.Ease))
                         },
                         popExitTransition = {
-                            fadeOut(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) +
-                                slideOutVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { with(density) { 8.dp.roundToPx() } }
+                            if (initialState.destination.route in TAB_ROUTES &&
+                                targetState.destination.route in TAB_ROUTES
+                            ) {
+                                null
+                            } else {
+                                fadeOut(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) +
+                                    slideOutVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { with(density) { 8.dp.roundToPx() } }
+                            }
                         },
                     ) {
                         composable("home") {

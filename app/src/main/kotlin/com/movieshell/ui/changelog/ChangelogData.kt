@@ -19,6 +19,15 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.222.0",
+        date = "2026-10-25",
+        title = "修直播页切 tab 时的重影。",
+        details = listOf(
+            "tab 切 tab 时旧页瞬间撤掉、新页仍淡入，不再有双页叠在一起的 300ms 重影帧；tab 与子页之间的转场不动。",
+            "完整内容见仓库 docs/changelog/v0.222.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.221.0",
         date = "2026-10-25",
         title = "修播放器按钮被推出屏外、找书框留着上次的词。",
