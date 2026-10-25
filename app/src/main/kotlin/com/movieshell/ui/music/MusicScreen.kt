@@ -567,6 +567,10 @@ private fun OnlineTab(
         val activity = LocalContext.current as ComponentActivity
         val vm: MusicSearchViewModel = viewModel(activity)
         val availablePlatforms by vm.availablePlatforms.collectAsState()
+        // v0.213.0 构建修复：searchError 只在 MusicScreen 里 collect 过，
+        // OnlineTab 是独立 composable，782/814 行直接用它导致
+        // compileReleaseKotlin 报 Unresolved reference；这里跟 vm 走。
+        val searchError by vm.searchError.collectAsState()
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 16.dp),
