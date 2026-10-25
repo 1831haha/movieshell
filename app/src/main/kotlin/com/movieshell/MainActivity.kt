@@ -353,7 +353,7 @@ class MainActivity : ComponentActivity() {
                         startDestination = "home",
                         modifier = Modifier.padding(inner),
                         // v0.27.0 Soft Tech：页面切换统一淡入 + 8dp 位移，300ms ease-out
-                        // v0.222.0：tab 切 tab 时退出混合置空——旧页瞬间撤掉、新页
+                        // v0.222.0：tab 切 tab 时退出混合改为 0ms 淡出（exit lambda 不接受 null，须返回非空 ExitTransition）——旧页瞬间撤掉、新页
                         // 仍淡入，不再有双页叠在一起的重影帧；exit/popExit 的 lambda
                         // 里 initialState 是正在退出的页、targetState 是要进入的页，
                         // 两边都是 tab 才判 tab 切换，tab 与子页之间仍走原转场。
@@ -365,7 +365,7 @@ class MainActivity : ComponentActivity() {
                             if (initialState.destination.route?.let { it in TAB_ROUTES } == true &&
                                 targetState.destination.route?.let { it in TAB_ROUTES } == true
                             ) {
-                                null
+                                fadeOut(tween(0))
                             } else {
                                 fadeOut(tween(SoftMotion.Fast, easing = SoftMotion.Ease))
                             }
@@ -377,7 +377,7 @@ class MainActivity : ComponentActivity() {
                             if (initialState.destination.route?.let { it in TAB_ROUTES } == true &&
                                 targetState.destination.route?.let { it in TAB_ROUTES } == true
                             ) {
-                                null
+                                fadeOut(tween(0))
                             } else {
                                 fadeOut(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) +
                                     slideOutVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { with(density) { 8.dp.roundToPx() } }
