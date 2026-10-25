@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.movieshell.data.model.Chapter
 import com.movieshell.data.model.Novel
 import com.movieshell.data.novel.BookSourceManager
+import com.movieshell.data.novel.ChapterMeta
 import com.movieshell.data.novel.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.PyBookSourceManager
@@ -17,6 +18,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -44,8 +46,10 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
     private val _searched = MutableStateFlow(false)
     val searched: StateFlow<Boolean> = _searched
 
-    private val _joining = MutableStateFlow<String?>(null)
-    val joining: StateFlow<String?> = _joining
+    // v0.220.0：忙状态改集合——连点多本时每本各管各的“加入中”，原来单槽位
+    // 会让先点的那本弹回“加入书架”。
+    private val _joining = MutableStateFlow<Set<String>>(emptySet())
+    val joining: StateFlow<Set<String>> = _joining
 
     /** v0.67.0：小说搜索历史（独立作用域） */
     private val _history = MutableStateFlow<List<String>>(emptyList())
@@ -179,24 +183,54 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun joinShelf(group: SourceGroup, item: NovelSearchResult) {
-        viewModelScope.launch {
-            _joining.value = group.key + item.remoteId
-            val ok = runCatching {
-                var cover = item.cover
-                val metas = if (group.key.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
-                    NovelSourceEngine.chaptersPy(getApplication(), item)
+    /** v0.220.0：入架拉目录——走统一限流 + 空结果重试一次。
+     * 根因：原来 joinShelf 直调 chapters，不走搜书/追更共用的 Semaphore(4)，
+     * 快速连点等于对站方齐发请求（注释里自己写过齐发被反爬封 IP）；而
+     * chapters 单次失败即判空（非 2xx 直接 null，IO 异常拦截器重试 3 次后
+     * 仍挂也 null），一次抖动就丢一本，只能用户手动重进重点。
+     * 修：每次拉取都先拿限流许可；空结果 1 秒后重试一次，两次都空才判失败。
+     * 返回目录 + 可能补到的封面。 */
+    private suspend fun fetchJoinMetas(
+        group: SourceGroup,
+        item: NovelSearchResult,
+        cover: String?,
+    ): Pair<List<ChapterMeta>, String?> {
+        var lastMetas: List<ChapterMeta> = emptyList()
+        var lastCover = cover
+        repeat(2) { attempt ->
+            val (ms, cv) = NovelSourceEngine.withSearchThrottle {
+                if (group.key.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
+                    NovelSourceEngine.chaptersPy(getApplication(), item) to cover
                 } else {
                     val source = BookSourceManager.sources.value.firstOrNull { it.key == group.key }
-                        ?: return@runCatching false
-                    val ms = NovelSourceEngine.chapters(source, item)
+                        ?: return@withSearchThrottle emptyList<ChapterMeta>() to cover
+                    val m = NovelSourceEngine.chapters(source, item)
                     // v0.200.0：搜索没封面时，用详情封面 JS 补一张（只多一次详情页请求）
-                    if (cover.isNullOrBlank() && source.ruleBookCover.isNotBlank()) {
-                        cover = NovelSourceEngine.detailCover(source, item) ?: cover
+                    var c = cover
+                    if (c.isNullOrBlank() && source.ruleBookCover.isNotBlank()) {
+                        c = NovelSourceEngine.detailCover(source, item) ?: c
                     }
-                    ms
+                    m to c
                 }
-                if (metas.isEmpty()) return@runCatching false
+            }
+            lastMetas = ms
+            lastCover = cv
+            if (ms.isNotEmpty()) return ms to cv
+            if (attempt == 0) delay(1000)
+        }
+        return lastMetas to lastCover
+    }
+
+    fun joinShelf(group: SourceGroup, item: NovelSearchResult) {
+        val key = group.key + item.remoteId
+        viewModelScope.launch {
+            // v0.220.0：忙状态改集合——原来单槽位，连点第二本时第一本的
+            // 按钮就从“加入中”弹回“加入书架”，看着像没在跑，还能重复点。
+            _joining.value = _joining.value + key
+            try {
+                val ok = runCatching {
+                    val (metas, cover) = fetchJoinMetas(group, item, item.cover)
+                    if (metas.isEmpty()) return@runCatching false
                 // v0.216.0（C10）：id 走新稳定拼法；书架里若已有同源同书
                 // （新 id 或老 hash id），复用旧 id 走 addNovel 合并，不产生第二本。
                 val newId = shelfNovelId(group, item)
@@ -223,8 +257,10 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
                 NovelStore.addNovel(getApplication(), novel, chapters)
-            }.getOrDefault(false)
-            _joining.value = null
+                }.getOrDefault(false)
+            } finally {
+                _joining.value = _joining.value - key
+            }
             AppToast.show(getApplication(), if (ok) "已加入书架" else "加入失败（目录拉取失败）", long = false)
         }
     }

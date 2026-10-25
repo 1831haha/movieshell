@@ -104,7 +104,7 @@ fun NovelSearchScreen(
     val appCtx = LocalContext.current.applicationContext
     LaunchedEffect(results, joining) {
         // 结果刷新或一次加入结束 → 重拉书架成员，按钮状态实时跟上
-        if (results.isNotEmpty() && joining == null) {
+        if (results.isNotEmpty() && joining.isEmpty()) {
             shelfIds = NovelStore.list(appCtx).map { it.id }.toSet()
         }
     }
@@ -322,7 +322,7 @@ fun NovelSearchScreen(
                                 }
                                 Spacer(Modifier.width(8.dp))
                                 val onShelf = shelfNovelIds(group, item).any { it in shelfIds }
-                                val busy = joining == group.key + item.remoteId
+                                val busy = (group.key + item.remoteId) in joining
                                 // v0.211.0：原生 Button（系统紫）改统一 AppButton；
                                 // 已在书架仍走 Secondary 灰底（v0.193.0 口径不变）。
                                 AppButton(

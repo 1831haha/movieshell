@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.220.0",
+        date = "2026-10-25",
+        title = "修找书页快速连点加入书架丢书。",
+        details = listOf(
+            "入架拉目录改走搜书/追更共用的限流，不再对站方齐发请求；空结果 1 秒后重试一次，两次都空才判失败。",
+            "连点多本时每本各管各的“加入中”，不再互相顶掉忙状态。",
+            "完整内容见仓库 docs/changelog/v0.220.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.219.0",
         date = "2026-10-25",
         title = "修切 tab 后直播还在后台响。",

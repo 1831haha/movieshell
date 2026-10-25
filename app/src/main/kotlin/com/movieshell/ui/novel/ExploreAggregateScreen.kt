@@ -203,7 +203,7 @@ fun ExploreAggregateScreen(
                                 LazyRow {
                                     items(shown, key = { it.remoteId }) { book ->
                                         val group = SourceGroup(src.key, src.name, raw)
-                                        val isJoining = joining == group.key + book.remoteId
+                                        val isJoining = (group.key + book.remoteId) in joining
                                         Column(
                                             Modifier
                                                 .width(110.dp)

@@ -186,7 +186,7 @@ fun ExploreScreen(
                         Spacer(Modifier.width(8.dp))
                         val canJoin = pageUrl.isNotBlank() &&
                             pageUrl.trimEnd('/') != categoryUrl.trimEnd('/')
-                        val isJoining = group != null && joining == group.key + pageUrl
+                        val isJoining = group != null && (group.key + pageUrl) in joining
                         Button(
                             enabled = canJoin && !isJoining,
                             onClick = {
@@ -234,7 +234,7 @@ fun ExploreScreen(
                 } else {
                     LazyColumn(Modifier.fillMaxSize()) {
                         items(results, key = { it.remoteId }) { item ->
-                            val isJoining = group != null && joining == group.key + item.remoteId
+                            val isJoining = group != null && (group.key + item.remoteId) in joining
                             Column(
                                 Modifier.fillMaxWidth()
                                     .clickable(enabled = !isJoining) {
@@ -297,7 +297,7 @@ fun ExploreScreen(
     // v0.215.0：列表行详情预览弹窗（确认才入架；取消不丢列表）。
     previewItem?.let { item ->
         val group = source?.let { SourceGroup(it.key, it.name, results) }
-        val isJoining = group != null && joining == group.key + item.remoteId
+        val isJoining = group != null && (group.key + item.remoteId) in joining
         TechDialog(
             onDismissRequest = { if (!isJoining) previewItem = null },
             title = item.title,
