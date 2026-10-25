@@ -286,11 +286,11 @@ fun HomeScreen(
     val pullRefreshState = rememberPullToRefreshState()
     // v0.53.0：三点核心——选中/分类/列表/加载态全在 HomeViewModel 里。
     // detail pop 回来时 VM 在 back stack 里不重建，第一帧直接出缓存。
-    // v0.217.0（F1）：selectedCategory 存的是 typeId（0=推荐），序号只做界面展示：
+    // v0.217.0（F1）：selectedCategory 存的是 typeId（""=推荐），序号只做界面展示：
     // selectedPosition 由 typeId 到分类列表里现算，分类顺序一变也不错位。
     val selectedCategory by vm.selectedCategoryId.collectAsState()
     val drpyCats by vm.categories.collectAsState()
-    val selectedPosition = if (selectedCategory == 0) 0
+    val selectedPosition = if (selectedCategory == "") 0
         else drpyCats.indexOfFirst { it.typeId == selectedCategory } + 1
     val drpyList by vm.currentVideos.collectAsState()
     val drpyLoading by vm.isLoading.collectAsState()
@@ -721,7 +721,7 @@ fun HomeScreen(
      * v0.217.0（F1）：按 typeId 重载分类（下拉刷新后保持当前分类用）。
      * 分类已不在列表里时什么都不做，不拿旧序号硬套新列表。
      */
-    fun loadDrpyCategoryByTypeId(typeId: Int, filters: Map<String, String> = emptyMap()) {
+    fun loadDrpyCategoryByTypeId(typeId: String, filters: Map<String, String> = emptyMap()) {
         val pos = vm.categories.value.indexOfFirst { it.typeId == typeId } + 1
         if (pos >= 1) loadDrpyCategory(pos, filters)
     }
@@ -764,14 +764,14 @@ fun HomeScreen(
         // reset 或当前无选中（0）且有分类 → 进第 1 个分类；reset 且无分类 → 回推荐流兜底；
         // 非 reset 且已在某分类 → 保持浏览（下拉刷新不把用户拽出当前分类）。
         val effectiveReset = payload.resetSelection && !keepSelection
-        if (effectiveReset || vm.selectedCategoryId.value == 0) {
+        if (effectiveReset || vm.selectedCategoryId.value == "") {
             setFilters(emptyMap())
             if (payload.cats.isNotEmpty()) {
                 // 离开推荐流视图，3s 降级立起的推荐空态一并清掉，失败改走分类内联重试。
                 recommendEmpty = false
                 loadDrpyCategory(1)
             } else if (effectiveReset) {
-                vm.selectCategory(0)
+                vm.selectCategory("")
             }
         }
         // v0.50.0（用户补）：最终应用时也在前台才刷推荐区；后台回来的只留缓存（上游已写），防跳变
@@ -791,7 +791,7 @@ fun HomeScreen(
         // v0.106.0：25s 熔断/网络失败且无数据可展示时，给可见的"加载超时，点重试"入口
         //（之前只设 homeError，但它从未被渲染，用户看到的是白屏）
         // v0.145.0：只在推荐流视图（选中 0）才给推荐空态；在分类视图失败走分类内联重试。
-        if (payload.vods == null && vm.currentVideos.value.isEmpty() && vm.selectedCategoryId.value == 0) recommendEmpty = true
+        if (payload.vods == null && vm.currentVideos.value.isEmpty() && vm.selectedCategoryId.value == "") recommendEmpty = true
     }
 
     /**
@@ -968,7 +968,7 @@ fun HomeScreen(
             vm.setCategories(emptyList())
             vm.clearCategoryCache()
             vm.clearDisplay() // v0.58：旧源列表不保留
-            vm.selectCategory(0)
+            vm.selectCategory("")
             setFilters(emptyMap())
             homeError = null
             // v0.31.0：失败计数按数据源 key 记在 HomeLoadGate 单例里，切源自然用新 key 的计数，无需手动清零
@@ -1011,12 +1011,12 @@ fun HomeScreen(
                 // v0.145.0：选中与分类一律读 VM 真值（刚写完分类后组合快照还滞后）。
                 // v0.217.0（F1）：选中存 typeId，恢复时先按 typeId 找当前位置，找不到再退回第一个分类。
                 val curSel = vm.selectedCategoryId.value
-                val curPos = if (curSel == 0) 0
+                val curPos = if (curSel == "") 0
                     else vm.categories.value.indexOfFirst { it.typeId == curSel } + 1
                 if (curPos >= 1) {
                     LogBus.i("Home", "返回首页：恢复分类 ${vm.categories.value[curPos - 1].typeName}")
                     loadDrpyCategory(curPos, filterMap)
-                } else if (curSel == 0) {
+                } else if (curSel == "") {
                     if (data.vods.isNotEmpty()) vm.setRecommend(data.vods)
                 } else if (data.cats.isNotEmpty()) {
                     // 原选分类已不在列表里，退回第一个分类
@@ -1067,7 +1067,7 @@ fun HomeScreen(
                 // 下拉前已在某分类才刷该分类；推荐视图下拉时 apply 已按
                 // 默认进第一个分类，不在这里再重复刷一次。
                 // v0.217.0（F1）：selBefore 存的是 typeId，按 typeId 重载。
-                if (selBefore != 0) loadDrpyCategoryByTypeId(selBefore)
+                if (selBefore != "") loadDrpyCategoryByTypeId(selBefore)
             })
         } else {
             // v0.215.0：无源时下拉原来空转 1.2 秒假装刷新——没源可刷，直接收指示条
@@ -1087,7 +1087,7 @@ fun HomeScreen(
     val drpyReady = drpyUiList != null
     // v0.144.0：首格"全部"是 App 拼的（index==0 走首页推荐流，与规则无关），
     // 用户要求整个删掉：分类行只剩规则自己的分类；推荐流仍是默认首页
-    // （selectedCategory==0 时无格高亮），进分类后下拉刷新回推荐。
+    // （selectedCategory=="" 时无格高亮），进分类后下拉刷新回推荐。
     val chipLabels: List<String> = drpyCats.map { it.typeName }
 
     val filtered: List<Vod> = when {
@@ -1421,7 +1421,7 @@ fun HomeScreen(
                         // v0.44.0：二级筛选行——选中分类的 filters 全组各一行（之前只取第一组）
                         val activeCat = drpyCats.firstOrNull { it.typeId == selectedCategory }
                         val filterGroups = activeCat?.filters.orEmpty()
-                        if (selectedCategory != 0 && filterGroups.isNotEmpty()) {
+                        if (selectedCategory != "" && filterGroups.isNotEmpty()) {
                             filterGroups.forEach { filterGroup ->
                                 item(span = { GridItemSpan(maxLineSpan) }) {
                                     // v0.212.0 审计修复：筛选行原来只画 chips，组名
@@ -1541,7 +1541,7 @@ fun HomeScreen(
                     }
                     // v0.215.0：分类分页脚——推荐视图（分类 0）不分页，只分类视图有“加载更多”；
                     // 空页后显示“没有更多了”，不再重复请求。
-                    if (vm.selectedCategoryId.value != 0 && filtered.isNotEmpty()) {
+                    if (vm.selectedCategoryId.value != "" && filtered.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             Box(
                                 modifier = Modifier

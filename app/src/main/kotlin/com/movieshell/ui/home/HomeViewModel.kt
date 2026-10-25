@@ -29,13 +29,15 @@ class HomeViewModel(
 ) : ViewModel() {
 
     /**
-     * 要点1：当前选中分类，0=推荐流；SavedStateHandle 存，进程重建也不丢。
+     * 要点1：当前选中分类，""=推荐流；SavedStateHandle 存，进程重建也不丢。
      * getStateFlow 返回只读视图，写操作走 selectCategory()（同时写回 SavedStateHandle）。
-     * v0.217.0（F1）：这里存的是分类的 typeId，不再是“第几个”（序号一变缓存就张冠李戴）；
-     * 序号只做界面展示用，展示时按 typeId 到分类列表里找位置。
+     * v0.217.0（F1）：这里存的是分类的 typeId（CategoryType.typeId 本就是 String），
+     * 不再是“第几个”（序号一变缓存就张冠李戴）；序号只做界面展示用，展示时按
+     * typeId 到分类列表里找位置。key 用 selectedCatTypeId：老 key 存的是 Int，
+     * 换类型读会崩，换 key 隔离。
      */
-    val selectedCategoryId: StateFlow<Int> =
-        savedState.getStateFlow("selectedCatId", 0)
+    val selectedCategoryId: StateFlow<String> =
+        savedState.getStateFlow("selectedCatTypeId", "")
 
     /** 分类列表（37 个分类那种） */
     val categories = MutableStateFlow<List<CategoryType>>(emptyList())
@@ -44,23 +46,23 @@ class HomeViewModel(
     val recommendCache = MutableStateFlow<List<ModelVod>>(emptyList())
 
     /** 要点1：分类内容缓存：typeId -> videos（内存级，返回秒回，与磁盘缓存同口径） */
-    private val _categoryCache = MutableStateFlow<Map<Int, List<ModelVod>>>(emptyMap())
-    val categoryCache: StateFlow<Map<Int, List<ModelVod>>> = _categoryCache
+    private val _categoryCache = MutableStateFlow<Map<String, List<ModelVod>>>(emptyMap())
+    val categoryCache: StateFlow<Map<String, List<ModelVod>>> = _categoryCache
 
     /**
      * v0.217.0（F4）：分类分页状态搬进 VM，与分类缓存同生同灭——
      * 切 tab 回来界面重建也不丢页码，页码与“已合并几页”不再脱节。
      * key 均为 typeId；换源清缓存时一并清掉。
      */
-    private val _categoryPages = MutableStateFlow<Map<Int, Int>>(emptyMap())
-    fun categoryPage(typeId: Int): Int = _categoryPages.value[typeId] ?: 1
-    fun setCategoryPage(typeId: Int, page: Int) {
+    private val _categoryPages = MutableStateFlow<Map<String, Int>>(emptyMap())
+    fun categoryPage(typeId: String): Int = _categoryPages.value[typeId] ?: 1
+    fun setCategoryPage(typeId: String, page: Int) {
         _categoryPages.value = _categoryPages.value + (typeId to page)
     }
-    private val _categoryNoMore = MutableStateFlow<Set<Int>>(emptySet())
-    val categoryNoMore: StateFlow<Set<Int>> = _categoryNoMore
-    fun isCategoryNoMore(typeId: Int): Boolean = typeId in _categoryNoMore.value
-    fun setCategoryNoMore(typeId: Int, noMore: Boolean) {
+    private val _categoryNoMore = MutableStateFlow<Set<String>>(emptySet())
+    val categoryNoMore: StateFlow<Set<String>> = _categoryNoMore
+    fun isCategoryNoMore(typeId: String): Boolean = typeId in _categoryNoMore.value
+    fun setCategoryNoMore(typeId: String, noMore: Boolean) {
         _categoryNoMore.value = if (noMore) {
             _categoryNoMore.value + typeId
         } else {
@@ -73,23 +75,23 @@ class HomeViewModel(
      * 正在加载的分类 typeId，null=空闲。切到无缓存分类时不清空旧列表，
      * UI 层据此显示顶部细条 loading（有旧数据）或骨架屏（无旧数据）。
      */
-    val loadingCategoryId = MutableStateFlow<Int?>(null)
+    val loadingCategoryId = MutableStateFlow<String?>(null)
 
     /**
      * v0.110.0：分类内容加载失败的分类 typeId（超时/规则异常），null=无失败。
      * 失败后 loadingCategoryId 同步清掉（不再转圈），UI 据此给内联错误+重试；
      * 之前失败只写空缓存，顶部细条转圈卡死、用户无任何反馈（审查报告第 10 条）。
      */
-    val failedCategoryId = MutableStateFlow<Int?>(null)
+    val failedCategoryId = MutableStateFlow<String?>(null)
 
     /** 标记某分类内容加载失败：停掉它的转圈，UI 切失败态 */
-    fun markCategoryFailed(catId: Int) {
+    fun markCategoryFailed(catId: String) {
         failedCategoryId.value = catId
         if (loadingCategoryId.value == catId) loadingCategoryId.value = null
     }
 
     /** 发起新一轮分类加载时，清掉该分类的旧失败标记 */
-    fun clearCategoryFailed(catId: Int) {
+    fun clearCategoryFailed(catId: String) {
         if (failedCategoryId.value == catId) failedCategoryId.value = null
     }
 
@@ -114,12 +116,12 @@ class HomeViewModel(
                 // 见目标为空又把 loading 置回，整屏骨架屏一直盖着、无空态。
                 // 改按“有没有缓存条目”区分：有条目（哪怕是空列表）就按
                 // 该条目展示并停转圈；没条目才标记加载中、保留旧列表。
-                if (catId == 0) {
+                if (catId == "") {
                     if (rec.isNotEmpty()) {
                         _displayVideos.value = rec
-                        if (failedCategoryId.value == 0) failedCategoryId.value = null
+                        if (failedCategoryId.value == "") failedCategoryId.value = null
                     }
-                    // catId==0 且推荐为空：首页加载中，保持旧展示不动
+                    // catId=="" 且推荐为空：首页加载中，保持旧展示不动
                 } else if (catMap.containsKey(catId)) {
                     _displayVideos.value = catMap[catId].orEmpty()
                     if (loadingCategoryId.value == catId) loadingCategoryId.value = null
@@ -143,7 +145,7 @@ class HomeViewModel(
     }
 
     /** 写某分类缓存（key 为 typeId，与磁盘缓存同口径） */
-    fun setCategoryVideos(typeId: Int, videos: List<ModelVod>) {
+    fun setCategoryVideos(typeId: String, videos: List<ModelVod>) {
         _categoryCache.value = _categoryCache.value + (typeId to videos)
     }
 
@@ -159,8 +161,8 @@ class HomeViewModel(
         _categoryCache.value = _categoryCache.value.filterKeys { it in typeIds }
         _categoryPages.value = _categoryPages.value.filterKeys { it in typeIds }
         _categoryNoMore.value = _categoryNoMore.value.intersect(typeIds)
-        if (selectedCategoryId.value != 0 && selectedCategoryId.value !in typeIds) {
-            selectCategory(0)
+        if (selectedCategoryId.value != "" && selectedCategoryId.value !in typeIds) {
+            selectCategory("")
         }
         if (loadingCategoryId.value != null && loadingCategoryId.value !in typeIds) {
             loadingCategoryId.value = null
@@ -188,8 +190,8 @@ class HomeViewModel(
     }
 
     /** 切分类：只换 selectedCategoryId（typeId，写回 SavedStateHandle），展示层按缓存情况决定切不切 */
-    fun selectCategory(catId: Int) {
-        savedState["selectedCatId"] = catId
+    fun selectCategory(catId: String) {
+        savedState["selectedCatTypeId"] = catId
         // v0.58：切到无缓存分类时，init 里的 collect 会置 loadingCategoryId 并保留旧列表；
         // 网络回来调 setCategoryVideos，collect 自动刷新展示并清 loading
     }
