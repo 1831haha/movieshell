@@ -299,7 +299,7 @@ fun NovelSearchScreen(
             }
             // v0.211.0：底部留 96dp，最后一行不再被底部 dock / 精致提示盖住。
             else -> LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 96.dp),
             ) {
                 results.forEach { group ->
@@ -315,23 +315,25 @@ fun NovelSearchScreen(
                     items(group.books.distinctBy { it.remoteId }, key = { "${group.key}_${it.remoteId}" }) { item ->
                         AppCard {
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                modifier = Modifier.fillMaxWidth().padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 // v0.211.0：结果卡片补封面——之前只画标题/作者，
                                 // 截图里那种“左图右文”才是用户一眼能认的书。无封面时
                                 // 用书名首字占位，不留空白方块。
+                                // v0.227.0：卡片瘦身——封面 56×76→48×64、内边距
+                                // 14→10dp，单卡约 104→84dp，一屏多看两本左右。
                                 val coverShape = RoundedCornerShape(10.dp)
                                 if (!item.cover.isNullOrBlank()) {
                                     AsyncImage(
                                         model = item.cover,
                                         contentDescription = null,
-                                        modifier = Modifier.size(56.dp, 76.dp).clip(coverShape),
+                                        modifier = Modifier.size(48.dp, 64.dp).clip(coverShape),
                                         contentScale = ContentScale.Crop,
                                     )
                                 } else {
                                     Box(
-                                        modifier = Modifier.size(56.dp, 76.dp)
+                                        modifier = Modifier.size(48.dp, 64.dp)
                                             .clip(coverShape)
                                             .background(MaterialTheme.colorScheme.surfaceVariant),
                                         contentAlignment = Alignment.Center,
@@ -344,14 +346,15 @@ fun NovelSearchScreen(
                                         )
                                     }
                                 }
-                                Spacer(Modifier.width(12.dp))
+                                Spacer(Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    // 标题/作者各只占一行，超长用 …，不再把卡片撑成三四行。
+                                    // v0.227.0：标题最多两行（长书名不断尾），
+                                    // 作者仍一行；卡片不再被三四行撑高。
                                     Text(
                                         item.title,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        maxLines = 1,
+                                        fontSize = 15.sp,
+                                        maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Spacer(Modifier.height(4.dp))

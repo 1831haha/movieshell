@@ -6,13 +6,13 @@ import com.movieshell.ui.components.AppToast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,6 +30,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentPaste
@@ -112,6 +113,7 @@ fun BookSourceScreen(
     val pyRules by PyBookSourceManager.rules.collectAsState()
     val pyEnabled by PyBookSourceManager.enabled.collectAsState()
     var showImport by remember { mutableStateOf(false) }
+    var showImportMenu by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
     // v0.81.0：书源 URL 导入 + 本地书源文件导入
     var showUrlImport by remember { mutableStateOf(false) }
@@ -293,41 +295,29 @@ fun BookSourceScreen(
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         if (!embedded) {
         // v0.86.0：第一行只留返回+标题，清爽
+        // v0.227.0：四个导入入口并成一个——标题行末尾一个“导入书源”
+        // 钮，点开弹窗再选方式；原来四个均分大钮占的一行省掉。
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = gold)
             }
-            Text("书源管理", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = gold)
+            Text(
+                "书源管理",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = gold,
+                modifier = Modifier.weight(1f),
+            )
+            FilledTonalButton(
+                onClick = { showImportMenu = true },
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Icon(Icons.Filled.Add, null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(2.dp))
+                Text("导入书源", fontSize = 12.sp, maxLines = 1)
+            }
         }
-        Spacer(Modifier.height(8.dp))
-        // v0.86.0：第二行导入操作——四个均分，图标+文字单行不断行
-        // v0.137.0：间距 8→6dp，配合 ImportAction 缩小，360dp 下四钮不省略
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            ImportAction(
-                icon = Icons.Filled.ContentPaste,
-                label = "粘贴导入",
-                onClick = { importText = ""; showImport = true },
-            )
-            ImportAction(
-                icon = Icons.Filled.Link,
-                label = "URL导入",
-                onClick = { importUrl = ""; showUrlImport = true },
-            )
-            ImportAction(
-                icon = Icons.Filled.FolderOpen,
-                label = "文件导入",
-                onClick = { jsonFileLauncher.launch("*/*") },
-            )
-            ImportAction(
-                icon = Icons.Filled.Code,
-                label = "导入本地PY",
-                onClick = { pyImportLauncher.launch("*/*") },
-            )
-        }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         }
         // v0.223.0：头部压缩——说明只留一行（开关语义），发现聚合/净化规则/
         // 恢复默认由三个通栏大钮并成一行小钮，省约 110dp。
@@ -336,7 +326,7 @@ fun BookSourceScreen(
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -388,7 +378,7 @@ fun BookSourceScreen(
                 Text("恢复默认", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         // v0.197.0：阅读式顶部搜索（按名/地址过滤）+ 批量入口
         Row(verticalAlignment = Alignment.CenterVertically) {
             TechTextField(
@@ -406,7 +396,7 @@ fun BookSourceScreen(
                 Text(if (batchMode) "取消批量" else "批量")
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         LazyColumn(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -706,6 +696,28 @@ fun BookSourceScreen(
         }
     }
 
+    // v0.227.0：导入方式二选一变四选一弹窗——原来四个大钮占一整行，
+    // 并成标题行一个“导入书源”入口，点开再选方式，原四路动作原样接线。
+    if (showImportMenu) {
+        TechDialog(
+            onDismissRequest = { showImportMenu = false },
+            title = "导入书源",
+            onConfirm = null,
+        ) {
+            ImportMenuItem(Icons.Filled.ContentPaste, "粘贴导入") {
+                showImportMenu = false; importText = ""; showImport = true
+            }
+            ImportMenuItem(Icons.Filled.Link, "URL导入") {
+                showImportMenu = false; importUrl = ""; showUrlImport = true
+            }
+            ImportMenuItem(Icons.Filled.FolderOpen, "文件导入") {
+                showImportMenu = false; jsonFileLauncher.launch("*/*")
+            }
+            ImportMenuItem(Icons.Filled.Code, "导入本地PY") {
+                showImportMenu = false; pyImportLauncher.launch("*/*")
+            }
+        }
+    }
     // v0.84.0：换科技感 TechDialog
     if (showImport) {
         TechDialog(
@@ -1080,26 +1092,21 @@ fun BookSourceScreen(
     }
 }
 
-/** v0.86.0：书源顶栏导入操作按钮——图标+文字，四均分单行 */
+/** v0.227.0：导入方式选项行——图标+文字整行可点，原 ImportAction 四钮并成弹窗后改用它 */
 @Composable
-private fun RowScope.ImportAction(
+private fun ImportMenuItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
 ) {
-    FilledTonalButton(
-        onClick = onClick,
-        modifier = Modifier.weight(1f),
-        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.width(2.dp))
-        Text(
-            label,
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(label, fontSize = 15.sp)
     }
 }
 

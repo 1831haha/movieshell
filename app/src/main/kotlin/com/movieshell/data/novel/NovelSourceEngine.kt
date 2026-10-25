@@ -229,13 +229,22 @@ object NovelSourceEngine {
             var tocUrl = detailUrl
             if (source.ruleBookTocUrl.isNotBlank()) {
                 val detailPage = BookRuleEngine.fetchPage(detailUrl, ua) ?: return@withContext emptyList()
-                val checked = LegadoJsEngine.runLoginCheck(source, detailPage, ctx, state, null)
+                val checked = LegadoJsEngine.runLoginCheck(source, detailPage, ctx, state) {
+                    // v0.227.0：握手后必须重抓——999 的 1234 握手把页换成
+                    // “success”短串，refetch 为 null 时这页被当成详情页解析，
+                    // 目录永远为空（搜书 136 行有 refetch 才正常，目录四处漏了）。
+                    BookRuleEngine.fetchPage(detailUrl, ua)
+                }
                 val doc = BookRuleEngine.parseDoc(checked.body, checked.url)
                 val resolved = LegadoJsEngine.evalTextRule(doc, checked.url, source.ruleBookTocUrl, ctx, state)
                 if (resolved.isNotBlank()) tocUrl = resolved
             }
-            var curPage = BookRuleEngine.fetchPage(tocUrl, ua) ?: return@withContext emptyList()
-            curPage = LegadoJsEngine.runLoginCheck(source, curPage, ctx, state, null)
+            val firstPage = BookRuleEngine.fetchPage(tocUrl, ua) ?: return@withContext emptyList()
+            val firstLen = firstPage.body.length
+            var curPage = LegadoJsEngine.runLoginCheck(source, firstPage, ctx, state) {
+                BookRuleEngine.fetchPage(tocUrl, ua)
+            }
+            val checkedLen = curPage.body.length
             val all = mutableListOf<ChapterMeta>()
             fun collect(html: String, pageUrl: String) {
                 val pageCtx = ctx.copy(baseUrl = pageUrl)
@@ -256,18 +265,25 @@ object NovelSourceEngine {
                 if (nexts.isEmpty()) break
                 if (nexts.size == 1) {
                     val next = BookRuleEngine.fetchPage(nexts[0], ua) ?: break
-                    curPage = LegadoJsEngine.runLoginCheck(source, next, ctx, state, null)
+                    curPage = LegadoJsEngine.runLoginCheck(source, next, ctx, state) {
+                        BookRuleEngine.fetchPage(nexts[0], ua)
+                    }
                     continue
                 }
                 for (u in nexts) {
                     val p = BookRuleEngine.fetchPage(u, ua) ?: continue
-                    val checked = LegadoJsEngine.runLoginCheck(source, p, ctx, state, null)
+                    val checked = LegadoJsEngine.runLoginCheck(source, p, ctx, state) {
+                        BookRuleEngine.fetchPage(u, ua)
+                    }
                     collect(checked.body, checked.url)
                 }
                 break
             }
-            all.filterNot { NovelStore.isNavChapterTitle(it.title) }
+            val result = all.filterNot { NovelStore.isNavChapterTitle(it.title) }
                 .mapIndexed { i, m -> m.copy(index = i) }
+            // v0.227.0：目录诊断——下次再空，直接看是详情没拿到、握手换了页、还是规则没命中。
+            LogBus.d(TAG, "目录诊断 ${source.name} 详情长=$firstLen 握手后长=$checkedLen 解析出 ${result.size} 章")
+            result
         }
     }
 
@@ -295,7 +311,9 @@ object NovelSourceEngine {
                 chapterUrl = chapter.url,
             )
             val first = BookRuleEngine.fetchPage(chapter.url, ua) ?: return@withContext ""
-            val checked = LegadoJsEngine.runLoginCheck(source, first, ctx, state, null)
+            val checked = LegadoJsEngine.runLoginCheck(source, first, ctx, state) {
+                BookRuleEngine.fetchPage(chapter.url, ua)
+            }
             val sb = StringBuilder()
             var curBody = checked.body
             var curUrl = checked.url
@@ -308,14 +326,18 @@ object NovelSourceEngine {
                 if (nexts.isEmpty()) break
                 if (nexts.size == 1) {
                     val p = BookRuleEngine.fetchPage(nexts[0], ua) ?: break
-                    val c = LegadoJsEngine.runLoginCheck(source, p, ctx, state, null)
+                    val c = LegadoJsEngine.runLoginCheck(source, p, ctx, state) {
+                        BookRuleEngine.fetchPage(nexts[0], ua)
+                    }
                     curBody = c.body
                     curUrl = c.url
                     continue
                 }
                 for (u in nexts) {
                     val p = BookRuleEngine.fetchPage(u, ua) ?: continue
-                    val c = LegadoJsEngine.runLoginCheck(source, p, ctx, state, null)
+                    val c = LegadoJsEngine.runLoginCheck(source, p, ctx, state) {
+                        BookRuleEngine.fetchPage(u, ua)
+                    }
                     sb.append(evalChapterText(source, c.body, c.url, ctx, state))
                 }
                 break
@@ -400,7 +422,9 @@ object NovelSourceEngine {
                 bookAuthor = book.author.orEmpty(),
             )
             val state = LegadoJsEngine.JsState(source.key)
-            val checked = LegadoJsEngine.runLoginCheck(source, page, ctx, state, null)
+            val checked = LegadoJsEngine.runLoginCheck(source, page, ctx, state) {
+                BookRuleEngine.fetchPage(book.remoteId, uaOf(source))
+            }
             val doc = BookRuleEngine.parseDoc(checked.body, checked.url)
             LegadoJsEngine.evalTextRule(doc, checked.url, source.ruleBookCover, ctx.copy(baseUrl = checked.url), state)
                 .ifBlank { null }

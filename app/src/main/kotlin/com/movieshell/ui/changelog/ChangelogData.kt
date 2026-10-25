@@ -19,6 +19,18 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.227.0",
+        date = "2026-10-26",
+        title = "226 搜书通了，但入架又失败：目录这环漏了握手后重抓。",
+        details = listOf(
+            "999 详情页带 1234 门：loginCheckJs 握手后把页换成“success”短串，等调用方重抓一次拿真页；搜书和发现页一直有重抓，目录、正文、封面四处传的却是 null，重抓被丢、短串被当成详情页解析，章节永远为空。",
+            "目录、正文、封面全部补上重抓（与搜书同一写法）；目录加一行诊断：详情长、握手后长、解析出几章。",
+            "搜书卡片瘦身：封面 48×64、内边距 10dp，单卡约 104→84dp；书名最多两行，长书名不断尾。",
+            "书源管理四个导入入口并成标题行一个“导入书源”钮，点开弹窗再选四路；头部空隙收紧，列表上提约 66dp。",
+            "完整内容见仓库 docs/changelog/v0.227.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.226.0",
         date = "2026-10-26",
         title = "999 搜书真因找到：搜索地址的 JS 根本没求值成功，请求连手机都没出。",
