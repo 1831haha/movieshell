@@ -1,6 +1,7 @@
 package com.movieshell.data.novel
 
 import android.util.Log
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DEFAULT_UA_CHROME120
 import kotlinx.coroutines.Dispatchers
@@ -273,6 +274,9 @@ object LegadoJsEngine {
         val cx = rhinoFactory.enterContext()
         try {
             cx.optimizationLevel = -1
+            // v0.226.0：规则里 let 这类现代写法在默认语言版本下可能直接语法错误，
+            // 整段求值失败又只记系统 Log，搜书就静默空；改走 ES6 并记进悬浮窗。
+            cx.setLanguageVersion(Context.VERSION_ES6)
             cx.setClassShutter(ClassShutter { name ->
                 name.startsWith("com.movieshell.data.novel.") ||
                     name == "java.lang.String" || name == "java.lang.Integer" ||
@@ -294,7 +298,7 @@ object LegadoJsEngine {
                 ScriptableObject.putProperty(scope, k, jsValue)
             }
             return runCatching { cx.evaluateString(scope, full, "rule", 1, null) }
-                .onFailure { Log.w(TAG, "JS 求值失败: ${it.message}") }
+                .onFailure { LogBus.w(TAG, "JS 求值失败: ${it.message}") }
                 .getOrNull()
         } finally {
             Context.exit()

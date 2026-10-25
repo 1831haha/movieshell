@@ -19,6 +19,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.226.0",
+        date = "2026-10-26",
+        title = "999 搜书真因找到：搜索地址的 JS 根本没求值成功，请求连手机都没出。",
+        details = listOf(
+            "225 日志一次摆清：两次抓取失败都是“无 scheme for <js>...”，传给网络库的是整段没求值的原文；后台验证通过但 Cookie 为空，只是首页正常页被算成通过。",
+            "Rhino 改走 ES6（let 这类现代写法在默认版本下可能直接语法错误）；JS 求值失败记进悬浮窗，不再只写系统 Log。",
+            "搜索地址求值失败直接跳过本次搜索并记一行，不再拿原串撞网络库、白白走 30 秒验证。",
+            "完整内容见仓库 docs/changelog/v0.226.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.225.0",
         date = "2026-10-25",
         title = "搜书全链路诊断进悬浮窗：首抓、后台验证、重抓三处结果全记出来。",

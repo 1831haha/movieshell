@@ -38,7 +38,7 @@ object NovelSourceEngine {
         source: BookSource,
         ctx: LegadoJsEngine.JsCtx,
         state: LegadoJsEngine.JsState,
-    ): String {
+    ): String? {
         val (js, _) = LegadoJsEngine.splitJsPrefix(source.searchUrl)
         if (js == null) return source.searchUrl
         val out = LegadoJsEngine.evalScript(
@@ -46,7 +46,14 @@ object NovelSourceEngine {
             LegadoJsEngine.bindings(ctx, state, result = "", src = ""),
             LegadoJsEngine.jsLibPrelude(source),
         )
-        return LegadoJsEngine.toJsString(out).ifBlank { source.searchUrl }
+        val urlStr = LegadoJsEngine.toJsString(out)
+        // v0.226.0：求值失败时旧逻辑回退原串，OkHttp 再以“无 scheme”炸掉，
+        // 白白走 30 秒验证；求值失败直接判空，调用方跳过验证。
+        if (urlStr.isBlank() || urlStr.trimStart().startsWith("<js>")) {
+            LogBus.w(TAG, "搜索地址 JS 求值失败 ${source.name}，跳过本次搜索")
+            return null
+        }
+        return urlStr
     }
 
     /** 在单个书源里搜书。v0.197.0：搜索走 POST 感知的请求（老 GET 源行为不变）。v0.199.0：JS 源走 LegadoJsEngine。 */
@@ -113,7 +120,7 @@ object NovelSourceEngine {
             val ua = uaOf(source)
             val state = LegadoJsEngine.JsState(source.key)
             val ctx = LegadoJsEngine.JsCtx(source = source, baseUrl = source.url, keyword = keyword, page = 1)
-            val urlStr = evalSearchUrl(source, ctx, state)
+            val urlStr = evalSearchUrl(source, ctx, state) ?: return@withContext emptyList()
             val req = BookRuleEngine.buildSearchRequest(urlStr, keyword)
             var page = gatedFetch(source, ua, source.url, allowGate) {
                 BookRuleEngine.fetchSearchPageOutcome(req, ua)
@@ -128,9 +135,13 @@ object NovelSourceEngine {
             val beforeLoginLen = page.body.length
             page = LegadoJsEngine.runLoginCheck(source, page, ctx, state, refetch = {
                 val urlStr2 = evalSearchUrl(source, ctx, state)
-                val req2 = BookRuleEngine.buildSearchRequest(urlStr2, keyword)
-                gatedFetch(source, ua, source.url, allowGate) {
-                    BookRuleEngine.fetchSearchPageOutcome(req2, ua)
+                if (urlStr2 == null) {
+                    null
+                } else {
+                    val req2 = BookRuleEngine.buildSearchRequest(urlStr2, keyword)
+                    gatedFetch(source, ua, source.url, allowGate) {
+                        BookRuleEngine.fetchSearchPageOutcome(req2, ua)
+                    }
                 }
             })
             val pageCtx = ctx.copy(baseUrl = page.url)
