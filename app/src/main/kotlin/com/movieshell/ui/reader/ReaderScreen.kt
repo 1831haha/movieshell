@@ -47,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -138,6 +139,23 @@ fun ReaderScreen(
     val scope = rememberCoroutineScope()
 
     var novel by remember { mutableStateOf<Novel?>(null) }
+
+    // v0.214.0：顶栏来源名（JSON 查名、PY 查标题、本地直显；查不到回落 key）。
+    val jsonSources by BookSourceManager.sources.collectAsState()
+    val pyRules by PyBookSourceManager.rules.collectAsState()
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            BookSourceManager.load(context)
+            PyBookSourceManager.load(context)
+        }
+    }
+    val readerSourceName = when (val k = novel?.sourceKey) {
+        null -> ""
+        "local" -> "本地"
+        else -> jsonSources.firstOrNull { it.key == k }?.name
+            ?: pyRules.firstOrNull { it.name == k.removePrefix(PyBookSourceManager.SOURCE_KEY_PREFIX) }?.title
+            ?: k
+    }
     var chapters by remember { mutableStateOf<List<Chapter>>(emptyList()) }
     // v0.84.0：换源
     var showChangeSource by remember { mutableStateOf(false) }
@@ -413,7 +431,7 @@ fun ReaderScreen(
             delay(2000)
             val idx = latestChapterIndex
             val off = NovelPaginator.pageStartOffset(pages, pagerState.currentPage)
-            ReadingProgressStore.save(context, ReadingProgress(novelId, idx, off))
+            ReadingProgressStore.save(context, ReadingProgress(novelId, idx, off, chapterTitle = chapters.getOrNull(idx)?.title.orEmpty()))
         }
     }
     // v0.211.0：上下滚动模式以前没有这个——滚动时进度只在退出阅读页
@@ -431,7 +449,7 @@ fun ReaderScreen(
         if (pageMode != 0 || scrollState.isScrollInProgress || !loaded || chapter == null) return@LaunchedEffect
         ReadingProgressStore.save(
             context,
-            ReadingProgress(novelId, latestChapterIndex, computeOffset()),
+            ReadingProgress(novelId, latestChapterIndex, computeOffset(), chapterTitle = chapters.getOrNull(latestChapterIndex)?.title.orEmpty()),
         )
     }
     LaunchedEffect(charsPerPage) {
@@ -443,6 +461,7 @@ fun ReaderScreen(
 
     // 退出时保存进度。用 rememberUpdatedState 保证 onDispose 拿到最新的章节和偏移值。
     val latestIndex by rememberUpdatedState(chapterIndex)
+    val latestTitle by rememberUpdatedState(chapter?.title.orEmpty())
     val latestOffset by rememberUpdatedState(computeOffset())
     val latestLen by rememberUpdatedState(chapter?.content?.length ?: 0)
     DisposableEffect(novelId) {
@@ -460,7 +479,7 @@ fun ReaderScreen(
                 // 由 NovelStore 读侧派生，不再双写 index，中间崩溃不再两处各说各话。
                 ReadingProgressStore.save(
                     context,
-                    ReadingProgress(novelId, latestIndex, latestOffset.coerceIn(0, len)),
+                    ReadingProgress(novelId, latestIndex, latestOffset.coerceIn(0, len), chapterTitle = latestTitle),
                 )
                 ReadingStatsStore.recordSession(context, statStart, statEnd, statChapters)
             }
@@ -480,7 +499,7 @@ fun ReaderScreen(
             scope.launch {
                 ReadingProgressStore.save(
                     context,
-                    ReadingProgress(novelId, index, safeOffset),
+                    ReadingProgress(novelId, index, safeOffset, chapterTitle = chapters.getOrNull(index)?.title.orEmpty()),
                 )
             }
             restoreOffset = restoreTo
@@ -669,6 +688,15 @@ fun ReaderScreen(
                         fontSize = 12.sp,
                         maxLines = 1,
                     )
+                    // v0.214.0：顶栏补来源名（报告中项：阅读页看不到当前来源）。
+                    if (readerSourceName.isNotBlank()) {
+                        Text(
+                            readerSourceName,
+                            color = fg.copy(alpha = 0.45f),
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                        )
+                    }
                 }
                 // v0.84.0：换源（本地 TXT 书没有源可换）
                 if (novel?.sourceKey != "local") {
@@ -699,7 +727,7 @@ fun ReaderScreen(
                         // v0.188.0 M25：只写进度事实源，不再双写 index（派生读跟随）。
                         ReadingProgressStore.save(
                             context,
-                            ReadingProgress(novelId, newIndex, 0),
+                            ReadingProgress(novelId, newIndex, 0, chapterTitle = chapters.getOrNull(newIndex)?.title.orEmpty()),
                         )
                         chapterIndex = newIndex
                         sourceVersion++

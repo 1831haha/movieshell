@@ -215,7 +215,7 @@ fun BookshelfScreen(
                 BookSourceManager.load(context)
                 PyBookSourceManager.load(context)
             }
-            val online = books.filter { it.sourceKey != "local" }
+            val online = books.filter { it.sourceKey != "local" && it.updateEnabled }
             checkingIds = online.map { it.id }.toSet()
             val results = online.map { novel ->
                 async {
@@ -424,6 +424,13 @@ fun BookshelfScreen(
                             selectedIds = visibleBooks.map { it.id }.toSet()
                         },
                     ) { Text("全选") }
+                    // v0.214.0：多选反选（只对当前可见书取反，其余已选不动）。
+                    TextButton(
+                        onClick = {
+                            val visible = visibleBooks.map { it.id }.toSet()
+                            selectedIds = (selectedIds - visible) + (visible - selectedIds)
+                        },
+                    ) { Text("反选") }
                     TextButton(
                         onClick = { if (selectedIds.isNotEmpty()) batchDelete = true },
                         enabled = selectedIds.isNotEmpty(),

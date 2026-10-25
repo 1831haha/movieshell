@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -33,6 +35,7 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayArrow
@@ -95,6 +98,8 @@ fun BookSourceScreen(
     onBack: () -> Unit = {},
     onOpenPySource: (ruleName: String) -> Unit = {},
     onOpenExplore: (sourceKey: String) -> Unit = {},
+    // v0.214.0：发现聚合页入口
+    onOpenExploreAggregate: () -> Unit = {},
     onOpenPurifyRules: () -> Unit = {}, // v0.95.0：净化规则管理
     embedded: Boolean = false, // v0.79.0：嵌入书架子 tab 时隐藏头部
 ) {
@@ -310,6 +315,16 @@ fun BookSourceScreen(
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.height(8.dp))
+        // v0.214.0：发现聚合入口（多源首屏横滑行，不用逐源钻进去）。
+        FilledTonalButton(
+            onClick = onOpenExploreAggregate,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Filled.Explore, "发现聚合", modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("发现聚合（多源首屏一览）")
+        }
         Spacer(Modifier.height(8.dp))
         // v0.95.0：净化规则入口（正文替换规则管理）；v0.96.1：按钮上显示生效数
         FilledTonalButton(
@@ -847,18 +862,21 @@ fun BookSourceScreen(
         }
     }
 
-    // v0.196.0：长按 JSON 卡片编辑——名称 / 地址 / 分组（规则本身不动）
+    // v0.214.0：✎进字段编辑——按基础／搜索／详情／目录／正文／发现六页签拆开的
+    // 表单（原来只有名称／地址／分组三框，规则一律改不了；全文 JSON 仍走长按文本编辑）。
+    // 保存走 updateSourceJson（整条 JSON 回写，字段全量 round-trip；地址变了自动迁书架）。
     editTarget?.let { s ->
-        var editName by remember(s.key) { mutableStateOf(s.name) }
-        var editUrl by remember(s.key) { mutableStateOf(s.url) }
-        var editGroup by remember(s.key) { mutableStateOf(s.group) }
+        var draft by remember(s.key) { mutableStateOf(s) }
+        var tab by remember(s.key) { mutableStateOf(0) }
+        val tabs = listOf("基础", "搜索", "详情", "目录", "正文", "发现")
         TechDialog(
             onDismissRequest = { editTarget = null },
             title = "编辑书源",
+            subtitle = "按页签改规则；想改整条 JSON 请长按源进文本编辑",
             confirmText = "保存",
             onConfirm = {
                 scope.launch {
-                    val ok = BookSourceManager.updateSource(context, s.key, editName.trim(), editUrl.trim(), editGroup.trim())
+                    val ok = BookSourceManager.updateSourceJson(context, s.key, draft.toJson().toString())
                     if (!ok) {
                         AppToast.show(context, "保存失败：名称或地址为空、地址与已有书源重复", long = false)
                     }
@@ -866,14 +884,72 @@ fun BookSourceScreen(
                 editTarget = null
             },
         ) {
-            Text("名称", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TechTextField(value = editName, onValueChange = { editName = it }, placeholder = "书源名称")
-            Spacer(Modifier.height(10.dp))
-            Text("地址", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TechTextField(value = editUrl, onValueChange = { editUrl = it }, placeholder = "https://")
-            Spacer(Modifier.height(10.dp))
-            Text("分组", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TechTextField(value = editGroup, onValueChange = { editGroup = it }, placeholder = "分组，可空")
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                tabs.forEachIndexed { i, t ->
+                    TextButton(onClick = { tab = i }) {
+                        Text(
+                            t,
+                            fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal,
+                            color = if (tab == i) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                when (tab) {
+                    0 -> {
+                        SourceField("名称", draft.name) { draft = draft.copy(name = it) }
+                        SourceField("地址", draft.url, hint = "书源唯一标识由此算出，改地址会同步迁书架上的书") { draft = draft.copy(url = it) }
+                        SourceField("分组", draft.group, hint = "可空") { draft = draft.copy(group = it) }
+                        SourceField("自定义 UA", draft.headerUa, hint = "空则用默认 UA") { draft = draft.copy(headerUa = it) }
+                        SourceField("登录地址", draft.loginUrl) { draft = draft.copy(loginUrl = it) }
+                        SourceField("登录校验 JS", draft.loginCheckJs, hint = "阅读式 loginCheckJs，空表示不需要", multiLine = true) { draft = draft.copy(loginCheckJs = it) }
+                    }
+                    1 -> {
+                        SourceField("搜索地址", draft.searchUrl, hint = "{{key}} 按 UTF-8 编码，{{page}} 恒为 1") { draft = draft.copy(searchUrl = it) }
+                        SourceField("搜索列表", draft.ruleSearchList, hint = "ruleSearch.bookList") { draft = draft.copy(ruleSearchList = it) }
+                        SourceField("书名", draft.ruleSearchName, hint = "ruleSearch.name") { draft = draft.copy(ruleSearchName = it) }
+                        SourceField("作者", draft.ruleSearchAuthor, hint = "ruleSearch.author") { draft = draft.copy(ruleSearchAuthor = it) }
+                        SourceField("封面", draft.ruleSearchCover, hint = "ruleSearch.coverUrl") { draft = draft.copy(ruleSearchCover = it) }
+                        SourceField("详情地址", draft.ruleSearchBookUrl, hint = "ruleSearch.bookUrl") { draft = draft.copy(ruleSearchBookUrl = it) }
+                    }
+                    2 -> {
+                        SourceField("书名", draft.ruleBookName, hint = "ruleBookInfo.name") { draft = draft.copy(ruleBookName = it) }
+                        SourceField("作者", draft.ruleBookAuthor, hint = "ruleBookInfo.author") { draft = draft.copy(ruleBookAuthor = it) }
+                        SourceField("简介", draft.ruleBookIntro, hint = "ruleBookInfo.intro", multiLine = true) { draft = draft.copy(ruleBookIntro = it) }
+                        SourceField("封面", draft.ruleBookCover, hint = "ruleBookInfo.coverUrl") { draft = draft.copy(ruleBookCover = it) }
+                        SourceField("目录地址", draft.ruleBookTocUrl, hint = "ruleBookInfo.tocUrl") { draft = draft.copy(ruleBookTocUrl = it) }
+                    }
+                    3 -> {
+                        SourceField("目录列表", draft.ruleTocList, hint = "ruleToc.chapterList") { draft = draft.copy(ruleTocList = it) }
+                        SourceField("章节名", draft.ruleTocTitle, hint = "ruleToc.chapterName") { draft = draft.copy(ruleTocTitle = it) }
+                        SourceField("章节地址", draft.ruleTocUrl, hint = "ruleToc.chapterUrl") { draft = draft.copy(ruleTocUrl = it) }
+                        SourceField("目录下一页", draft.ruleTocNext, hint = "ruleToc.nextTocUrl，JS 源才跟分页") { draft = draft.copy(ruleTocNext = it) }
+                    }
+                    4 -> {
+                        SourceField("正文", draft.ruleContent, hint = "ruleContent.content，空则走通用正文兜底") { draft = draft.copy(ruleContent = it) }
+                        SourceField("正文替换", draft.ruleContentReplace, hint = "replaceRegex：每行一条，行内用 ## 分隔正则与替换", multiLine = true) { draft = draft.copy(ruleContentReplace = it) }
+                        SourceField("正文下一页", draft.ruleContentNext, hint = "ruleContent.nextContentUrl") { draft = draft.copy(ruleContentNext = it) }
+                        SourceField("共享 JS 库", draft.jsLib, hint = "阅读式 jsLib（内联代码，URL 形式暂不支持）", multiLine = true) { draft = draft.copy(jsLib = it) }
+                    }
+                    else -> {
+                        SourceField("发现地址", draft.exploreUrl, hint = "阅读式 exploreUrl：分类 JSON 数组或对象") { draft = draft.copy(exploreUrl = it) }
+                        SourceField("发现列表", draft.ruleExploreList, hint = "ruleExplore.bookList") { draft = draft.copy(ruleExploreList = it) }
+                        SourceField("书名", draft.ruleExploreName, hint = "ruleExplore.name") { draft = draft.copy(ruleExploreName = it) }
+                        SourceField("作者", draft.ruleExploreAuthor, hint = "ruleExplore.author") { draft = draft.copy(ruleExploreAuthor = it) }
+                        SourceField("详情地址", draft.ruleExploreBookUrl, hint = "ruleExplore.bookUrl") { draft = draft.copy(ruleExploreBookUrl = it) }
+                        SourceField("封面", draft.ruleExploreCover, hint = "ruleExplore.coverUrl") { draft = draft.copy(ruleExploreCover = it) }
+                        SourceField("简介", draft.ruleExploreIntro, hint = "ruleExplore.intro", multiLine = true) { draft = draft.copy(ruleExploreIntro = it) }
+                    }
+                }
+            }
         }
     }
 
@@ -969,6 +1045,34 @@ private fun RowScope.ImportAction(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/**
+ * v0.214.0：字段编辑器单行（标签 + 输入框 + 字段 key 提示）。
+ */
+@Composable
+private fun SourceField(
+    label: String,
+    value: String,
+    hint: String? = null,
+    multiLine: Boolean = false,
+    onValueChange: (String) -> Unit,
+) {
+    Column {
+        Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(4.dp))
+        TechTextField(
+            value = value,
+            onValueChange = onValueChange,
+            placeholder = hint ?: label,
+            singleLine = !multiLine,
+            minLines = if (multiLine) 3 else 1,
+        )
+        if (hint != null) {
+            Spacer(Modifier.height(2.dp))
+            Text(hint, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+        }
     }
 }
 

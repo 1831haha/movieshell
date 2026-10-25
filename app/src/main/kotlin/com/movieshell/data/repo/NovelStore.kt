@@ -82,13 +82,24 @@ object NovelStore {
         val all = readIndex(context).sortedByDescending { it.addedAt }
         val progressById = ReadingProgressStore.loadAll(context)
         all.map { n ->
-            progressById[n.id]?.let { n.copy(lastReadChapter = it.chapterIndex) } ?: n
+            progressById[n.id]?.let {
+                n.copy(
+                    lastReadChapter = it.chapterIndex,
+                    // v0.214.0：进度里的在读章标题一并派生到书架行。
+                    lastReadChapterTitle = it.chapterTitle.takeIf { t -> t.isNotBlank() },
+                )
+            } ?: n
         }
     }
 
     suspend fun get(context: Context, id: String): Novel? = withContext(Dispatchers.IO) {
         val n = readIndex(context).firstOrNull { it.id == id } ?: return@withContext null
-        ReadingProgressStore.load(context, id)?.let { n.copy(lastReadChapter = it.chapterIndex) } ?: n
+        ReadingProgressStore.load(context, id)?.let {
+            n.copy(
+                lastReadChapter = it.chapterIndex,
+                lastReadChapterTitle = it.chapterTitle.takeIf { t -> t.isNotBlank() },
+            )
+        } ?: n
     }
 
     /** 幂等添加：同 id 已存在则保留进度只更新元信息。 */
@@ -118,6 +129,9 @@ object NovelStore {
                 val merged = novel.copy(
                     totalChapters = fixed.size,
                     lastReadChapter = old?.lastReadChapter ?: 0,
+                    // v0.214.0：入架即记最新章标题；重复入架目录变长时也刷新。
+                    latestChapterTitle = fixed.lastOrNull()?.title?.takeIf { it.isNotBlank() }
+                        ?: old?.latestChapterTitle,
                     addedAt = old?.addedAt ?: System.currentTimeMillis(),
                 )
                 val rest = readIndex(context).filterNot { it.id == novel.id }
@@ -166,6 +180,8 @@ object NovelStore {
             list[i] = list[i].copy(
                 sourceKey = sourceKey,
                 totalChapters = fixed.size,
+                // v0.214.0：换源/追更写目录时同步最新章标题，书架行不用再翻目录。
+                latestChapterTitle = fixed.lastOrNull()?.title?.takeIf { it.isNotBlank() },
             )
             writeIndex(context, list)
             // v0.211.0 审计修复：换源后进度不重映射、角标不清——
@@ -270,6 +286,17 @@ object NovelStore {
                     if (it.id == novelId) it.copy(lastReadChapter = chapterIndex) else it
                 })
             }.onFailure { Log.w(TAG, "阅读进度更新失败", it) }
+        }
+
+    /** v0.214.0：单本追更开关（详情页拨动；关掉的书手动/后台检查都跳过）。 */
+    suspend fun setUpdateEnabled(context: Context, novelId: String, enabled: Boolean) =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val all = readIndex(context)
+                writeIndex(context, all.map {
+                    if (it.id == novelId) it.copy(updateEnabled = enabled) else it
+                })
+            }.onFailure { Log.w(TAG, "追更开关更新失败", it) }
         }
 
     /** 更新单章正文（在线书源按需拉取后缓存）。

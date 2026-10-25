@@ -15,6 +15,12 @@ data class Novel(
     val desc: String? = null,
     val totalChapters: Int = 0,
     val lastReadChapter: Int = 0, // 已读到的章节下标（从 0 起），0=没读过
+    // v0.214.0：书架行章节标题——在读章标题由阅读器落盘时写进度，
+    // 最新章标题由入架/换源/追更写目录时写索引；老数据无此字段时回落只显章号。
+    val lastReadChapterTitle: String? = null,
+    val latestChapterTitle: String? = null,
+    // v0.214.0：单本追更开关（默认开；关掉的书手动/后台检查都跳过）。
+    val updateEnabled: Boolean = true,
     val addedAt: Long = 0L,
 )
 
@@ -36,6 +42,8 @@ data class ReadingProgress(
     val chapterIndex: Int = 0,
     val charOffset: Int = 0,
     val updatedAt: Long = 0L,
+    // v0.214.0：在读章节标题（阅读器落盘时一并写，书架行直接显示，不用再翻目录文件）。
+    val chapterTitle: String = "",
 )
 
 /** 书架分组。 */

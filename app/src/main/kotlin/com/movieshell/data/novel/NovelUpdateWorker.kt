@@ -33,13 +33,14 @@ class NovelUpdateWorker(
         val books = NovelStore.list(context)
         // v0.186.0 第 9 组：不再恒返回 success——有书可查且全部失败时返回 retry，
         // 让 WorkManager 按退避策略补跑；有更新或无更新时才 success，且只给真更新写角标。
-        val checked = NovelUpdateChecker.checkAllDetailed(context, books)
+        // v0.214.0：单本追更开关关掉的书，后台也不查（与手动检查口径一致）。
+        val checked = NovelUpdateChecker.checkAllDetailed(context, books.filter { it.updateEnabled })
         val result = checked.updated
         result.forEach { (id, n) -> NovelUpdateStore.set(context, id, n) }
         // v0.211.0 审计修复：后台原来从不写/清失败 id，失败页签与
         // 后台结果脱节——本轮查过的书：失败的进页签、查过的从旧
         // 失败集合里摘掉，未查的书（本地书等）原样保留。
-        val checkedIds = books.filter { it.sourceKey != "local" }.map { it.id }.toSet()
+        val checkedIds = books.filter { it.sourceKey != "local" && it.updateEnabled }.map { it.id }.toSet()
         val oldFailed = BookshelfGroupStore.failedIds(context)
         BookshelfGroupStore.setFailedIds(context, (oldFailed - checkedIds) + checked.failedIds)
         if (result.isNotEmpty()) {

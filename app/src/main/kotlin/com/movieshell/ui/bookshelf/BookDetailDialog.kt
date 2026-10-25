@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Tune
@@ -32,6 +33,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -179,7 +181,7 @@ fun BookDetailDialog(
             Spacer(Modifier.height(8.dp))
             Text(
                 if (novel.lastReadChapter == 0) "还没读过"
-                else "已读：第 ${read + 1} 章 · 上次阅读：${formatLastReadTs(lastReadAt)}",
+                else "已读：第 ${read + 1} 章" + (novel.lastReadChapterTitle?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "") + " · 上次阅读：${formatLastReadTs(lastReadAt)}",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -194,6 +196,39 @@ fun BookDetailDialog(
                 InfoRow(icon = Icons.Filled.Public, label = "来源", value = sourceName, actionText = "换源", onAction = { showChangeSource = true })
                 InfoRow(icon = Icons.Filled.Explore, label = "最新", value = chapters?.lastOrNull()?.title?.takeIf { it.isNotBlank() } ?: "共 $total 章")
                 InfoRow(icon = Icons.Filled.Tune, label = "分组", value = groupName, actionText = "设置分组", onAction = onMoveGroup)
+                // v0.214.0：单本追更开关——关掉的书手动/后台检查都跳过（详情页拨动即写盘）。
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Filled.Notifications,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "追更",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(52.dp),
+                    )
+                    var updateOn by remember(novel.id) { mutableStateOf(novel.updateEnabled) }
+                    Text(
+                        if (updateOn) "开" else "关",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(
+                        checked = updateOn,
+                        onCheckedChange = { on ->
+                            updateOn = on
+                            scope.launch { NovelStore.setUpdateEnabled(context, novel.id, on) }
+                        },
+                    )
+                }
                 InfoRow(
                     icon = Icons.Filled.Folder,
                     label = "目录",

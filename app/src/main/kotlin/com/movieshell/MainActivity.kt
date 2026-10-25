@@ -96,6 +96,7 @@ import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
 import com.movieshell.ui.bookshelf.BookshelfScreen
 import com.movieshell.ui.novel.BookSourceScreen
+import com.movieshell.ui.novel.ExploreAggregateScreen
 import com.movieshell.ui.novel.ExploreScreen
 import com.movieshell.ui.novel.PurifyRulesScreen
 import com.movieshell.ui.novel.NovelSearchScreen
@@ -558,6 +559,10 @@ class MainActivity : ComponentActivity() {
                                 onOpenExplore = { key ->
                                     navController.navigate("explore/${Uri.encode(key)}")
                                 },
+                                // v0.214.0：发现聚合页入口
+                                onOpenExploreAggregate = {
+                                    navController.navigate("explore_aggregate")
+                                },
                                 // v0.95.0：净化规则管理
                                 onOpenPurifyRules = { navController.navigate("purify_rules") },
                             )
@@ -569,6 +574,15 @@ class MainActivity : ComponentActivity() {
                             ExploreScreen(
                                 sourceKey = entry.arguments?.getString("sourceKey").orEmpty(),
                                 onBack = { navController.popBackStack() },
+                            )
+                        }
+                        // v0.214.0：发现聚合页
+                        composable("explore_aggregate") {
+                            ExploreAggregateScreen(
+                                onBack = { navController.popBackStack() },
+                                onOpenExplore = { key ->
+                                    navController.navigate("explore/${Uri.encode(key)}")
+                                },
                             )
                         }
                         // v0.95.0：净化规则管理页

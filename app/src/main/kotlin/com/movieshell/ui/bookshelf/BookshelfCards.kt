@@ -211,13 +211,16 @@ fun NovelListCard(
                 Spacer(Modifier.height(2.dp))
                 NovelMetaRow(
                     icon = Icons.Filled.MenuBook,
+                    // v0.214.0：书架行补在读章节标题（有标题才拼，无标题回落只显章号）。
                     text = if (novel.lastReadChapter == 0) "还没读过"
-                    else "已读：第 ${read + 1} 章",
+                    else "已读：第 ${read + 1} 章" + (novel.lastReadChapterTitle?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
                 )
                 Spacer(Modifier.height(2.dp))
                 NovelMetaRow(
                     icon = Icons.Filled.LibraryBooks,
-                    text = "共 $total 章 · ${formatLastReadTs(lastReadAt)}",
+                    // v0.214.0：书架行补最新章节标题；老数据无标题时回落原来的“共 N 章 · 上次阅读”。
+                    text = novel.latestChapterTitle?.takeIf { it.isNotBlank() }?.let { "共 $total 章 · 最新：$it" }
+                        ?: "共 $total 章 · ${formatLastReadTs(lastReadAt)}",
                 )
             }
             // v0.211.0：行尾逐本状态——转圈 = 这本还在查，停了就是查完了；
@@ -401,6 +404,18 @@ fun NovelGridCard(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
+        // v0.214.0：网格卡片也补最新章节标题（无标题时不占行）。
+        novel.latestChapterTitle?.takeIf { it.isNotBlank() }?.let { latest ->
+            Text(
+                "最新：$latest",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 
