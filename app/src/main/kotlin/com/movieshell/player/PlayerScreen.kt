@@ -47,6 +47,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.RowScope
@@ -74,7 +75,6 @@ import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
@@ -199,11 +199,13 @@ private fun RoundControlButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
+    // v0.228.0：底部控制行 9 个钮挤不下时可传 36dp 瘦身，默认 40dp 不动。
+    size: Dp = 40.dp,
 ) {
     IconButton(
         onClick = onClick,
         modifier = modifier
-            .size(40.dp)
+            .size(size)
             .background(Color.Black.copy(alpha = 0.45f), CircleShape),
     ) {
         Icon(icon, contentDescription = desc, tint = tint, modifier = Modifier.size(20.dp))
@@ -948,6 +950,8 @@ fun PlayerScreen(
     var switchingEngine by remember { mutableStateOf(false) }
     // v0.209.0：内核直选菜单显隐（点 Exo 切 Exo、点 mpv 切 mpv，不再是单个切换钮）
     var showEngineMenu by remember { mutableStateOf(false) }
+    // v0.228.0：清晰度菜单显隐（见控制行清晰度钮）。
+    var showQualityMenu by remember { mutableStateOf(false) }
 
     /**
      * v0.209.0：播放器内点选切换内核（菜单直选 Exo/mpv，点谁切谁）。
@@ -1670,16 +1674,11 @@ fun PlayerScreen(
                         icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         desc = if (isPlaying) "暂停" else "播放",
                         onClick = { EngineHost.togglePlayPause() },
+                        size = 36.dp,
                     )
-                    // v0.69.1：嵌入模式去掉重复的时间文本（进度条行已有），收窄底部黑边
-                    // v0.121.0：直播无进度概念，时间文本也隐藏（用户反馈"直播不需要进度条"）
-                    if (!embedded && !isLive) {
-                        Text(
-                            text = "${fmtTime(if (scrubbing) scrubPos else pos)} / ${fmtTime(dur)}",
-                            color = Color.White,
-                            style = SoftType.Caption,
-                        )
-                    }
+                    // v0.228.0：第二行时间文本删掉——进度行已有当前/总时长，
+                    // 重复占约 80dp，正是尾巴（自动、引擎、全屏）被推出屏外的
+                    // 主因之一；嵌入与直播本来就不显示它。
                     if (!isLive) {
                         val hasPrev = PlaySession.episodeIndex > 0
                         val hasNext = PlaySession.currentLine()?.episodes
@@ -1694,6 +1693,7 @@ fun PlayerScreen(
                                 )
                             },
                             tint = if (hasPrev) Color.White else Color.White.copy(alpha = 0.3f),
+                            size = 36.dp,
                         )
                         RoundControlButton(
                             icon = Icons.Filled.SkipNext,
@@ -1705,6 +1705,7 @@ fun PlayerScreen(
                                 )
                             },
                             tint = if (hasNext) Color.White else Color.White.copy(alpha = 0.3f),
+                            size = 36.dp,
                         )
                     }
                     // v0.121.0：直播隐藏倍速（用户反馈"直播不需要倍速"；直播流也不允许变速）
@@ -1717,6 +1718,7 @@ fun PlayerScreen(
                                 PlayerSettings.setSpeed(context, SPEEDS[speedIndex])
                             },
                             modifier = Modifier.height(SoftDimens.TouchTarget),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
                             // 目标界面样式：1.0X（大写 X）
                             Text(
@@ -1730,33 +1732,41 @@ fun PlayerScreen(
                         TextButton(
                             onClick = { showLines = true },
                             modifier = Modifier.height(SoftDimens.TouchTarget),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Filled.List,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(Modifier.width(2.dp))
-                                Text("选集", color = Color.White, style = SoftType.Body)
-                            }
+                            // v0.228.0：选集图标去掉只留文字——图标+文字占 72dp，
+                            // “选集”两字自明，省 20dp 给尾巴的按钮。
+                            Text("选集", color = Color.White, style = SoftType.Body)
                         }
                         // v0.65：循环模式（对标目标界面"顺序播放"）
                         TextButton(
                             onClick = { playModeIndex = (playModeIndex + 1) % PLAY_MODES.size },
                             modifier = Modifier.height(SoftDimens.TouchTarget),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
                             Text(PLAY_MODES[playModeIndex], color = Color.White, style = SoftType.Body)
                         }
-                        // v0.65：清晰度（对标目标界面"自动"；当前直链无多清晰度，展示占位）
-                        TextButton(
-                            onClick = {
-                                AppToast.show(context, "当前为自动清晰度", long = false)
-                            },
-                            modifier = Modifier.height(SoftDimens.TouchTarget),
-                        ) {
-                            Text("自动", color = Color.White, style = SoftType.Body)
+                        // v0.228.0：清晰度改菜单——原来点“自动”只弹一句
+                        // “当前为自动清晰度”，用户质疑这算哪门子选择；
+                        // 现在点开是标准清晰度菜单（直链暂无多清晰度，
+                        // 只有“自动（当前）”，以后有真选项直接往里加）。
+                        Box {
+                            TextButton(
+                                onClick = { showQualityMenu = true },
+                                modifier = Modifier.height(SoftDimens.TouchTarget),
+                                contentPadding = PaddingValues(horizontal = 6.dp),
+                            ) {
+                                Text("自动", color = Color.White, style = SoftType.Body)
+                            }
+                            DropdownMenu(
+                                expanded = showQualityMenu,
+                                onDismissRequest = { showQualityMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("自动（当前）") },
+                                    onClick = { showQualityMenu = false },
+                                )
+                            }
                         }
                     }
                     // 引擎切换（目标界面显示 Exo，蓝色；v0.209.0：点开菜单直选，点谁切谁）
@@ -1764,6 +1774,7 @@ fun PlayerScreen(
                         TextButton(
                             onClick = { showEngineMenu = true },
                             modifier = Modifier.height(SoftDimens.TouchTarget),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
@@ -1819,6 +1830,7 @@ fun PlayerScreen(
                             icon = if (isLandscape) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
                             desc = if (isLandscape) "退出横屏" else "横屏",
                             onClick = { toggleEmbeddedLandscape() },
+                            size = 36.dp,
                         )
                     }
                     // v0.123.0：嵌入直播已有上面的横屏按钮，通用全屏按钮不再重复渲染
@@ -1831,6 +1843,7 @@ fun PlayerScreen(
                                 // v0.65：嵌入模式点全屏 → 跳独立播放页（详情页传入回调）
                                 if (embedded) onFullscreen() else toggleOrientation()
                             },
+                            size = 36.dp,
                         )
                     }
                 }

@@ -99,6 +99,7 @@ import com.movieshell.ui.novel.ExploreAggregateScreen
 import com.movieshell.ui.novel.ExploreScreen
 import com.movieshell.ui.novel.PurifyRulesScreen
 import com.movieshell.ui.novel.NovelSearchScreen
+import com.movieshell.ui.novel.NovelSearchViewModel
 import com.movieshell.ui.novel.VerifyGateDialog
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
@@ -311,6 +312,15 @@ class MainActivity : ComponentActivity() {
                 // 详情页等非 tab 页面隐藏底部导航栏
                 // v0.96.2：直播页横屏全屏播放时也隐藏，播放器真正占满
                 val curRoute = current?.route
+                // v0.228.0：找书框离页清词——221 的 dispose 只在页面真正
+                // 销毁时触发，tab 切换时页面留栈不销毁，框里还留着上次
+                // 的词；路由离开书架/找书两个搜书宿主时清框词，结果与历史不动。
+                val novelSearchVm: NovelSearchViewModel = viewModel()
+                LaunchedEffect(curRoute) {
+                    if (curRoute != null && curRoute != "bookshelf" && curRoute != "search") {
+                        novelSearchVm.setKeyword("")
+                    }
+                }
                 val liveLandscape = curRoute == "live" &&
                     LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
                 val showBottomBar = (current?.hierarchy?.any { dest ->
