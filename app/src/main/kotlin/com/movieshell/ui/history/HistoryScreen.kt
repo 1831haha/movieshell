@@ -269,7 +269,7 @@ fun HistoryScreen(
             title = "删除记录",
             confirmText = "删除",
             onConfirm = {
-                HistoryStore.delete(context, e.url)
+                HistoryStore.deleteEntry(context, e.url, e.timestamp)
                 deleteTarget = null
                 reload()
             },
@@ -289,7 +289,7 @@ fun HistoryScreen(
                 if (tab == 0) {
                     HistoryStore.clear(context)
                 } else {
-                    kindFiltered.forEach { HistoryStore.delete(context, it.url) }
+                    kindFiltered.forEach { HistoryStore.deleteEntry(context, it.url, it.timestamp) }
                 }
                 showClearAll = false
                 reload()

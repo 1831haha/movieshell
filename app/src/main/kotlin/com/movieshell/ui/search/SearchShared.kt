@@ -206,25 +206,29 @@ internal suspend fun buildSearchConfigJson(context: Context, onlyCurrent: Boolea
  * 错走到当前激活规则上出详情、播错片。
  * 只搜当前源的合成站（drpy:active / py:active）切到自身是 no-op，同样走这条路。
  */
-internal fun goDetail(site: Site, vodId: String, onVodClick: (vodId: String) -> Unit) {
-    DetailSiteHolder.site = when {
-        site.isSubSite() -> site
-        site.key.startsWith("cms:") -> site
-        site.key.startsWith(LOCAL_DRPY_PREFIX) -> {
+internal fun goDetail(site: Site, vodId: String, onVodClick: (vodId: String) -> Unit): Boolean {
+    // v0.217.0（F51）：切源失败不再进详情——原来三个 setActiveRule 的返回值
+    // 全丢弃，规则文件删了还照常进详情，出的是另一个源的同名片或加载失败；
+    // 失败时不改站点上下文、不回调，调用方按返回值提示。
+    val ok = when {
+        site.isSubSite() -> true
+        site.key.startsWith("cms:") -> true
+        site.key.startsWith(LOCAL_DRPY_PREFIX) ->
             DrpySourceManager.setActiveRule(site.key.removePrefix(LOCAL_DRPY_PREFIX))
-            null
-        }
-        site.key.startsWith(LOCAL_PY_PREFIX) -> {
+        site.key.startsWith(LOCAL_PY_PREFIX) ->
             PySourceManager.setActiveRule(site.key.removePrefix(LOCAL_PY_PREFIX))
-            null
-        }
-        site.isPhpSite() -> {
+        site.isPhpSite() ->
             PhpSourceManager.setActiveRule(
                 PhpCliEngine.scriptNameForSite(site.key, site.api),
             )
-            null
-        }
+        else -> true
+    }
+    if (!ok) return false
+    DetailSiteHolder.site = when {
+        site.isSubSite() -> site
+        site.key.startsWith("cms:") -> site
         else -> null
     }
     onVodClick(vodId)
+    return true
 }

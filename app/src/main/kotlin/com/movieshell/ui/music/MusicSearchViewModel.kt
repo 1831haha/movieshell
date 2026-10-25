@@ -99,10 +99,13 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 歌单导入成功后回填列表（原 OnlineTab.onTracksLoaded） */
+    /** 歌单导入成功后回填列表（原 OnlineTab.onTracksLoaded）
+     * v0.217.0（F33）：新数据到了，旧的搜索失败标志一并清掉——原来只设新数据，
+     * 上次搜索断网失败的横幅会赖在导入成功的列表顶上。 */
     fun setTracks(list: List<MusicApi.Track>) {
         _tracks.value = list
         _searched.value = true
+        _searchError.value = false
     }
 
     /** v0.146.0：空关键词切平台时回榜单态——榜单跟随平台刷新，旧搜索结果不再赖着不走。 */

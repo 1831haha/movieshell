@@ -8,6 +8,7 @@ import com.movieshell.data.source.Type4Api
 import com.movieshell.data.source.Type4PlayResult
 import java.io.File
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -34,7 +35,7 @@ import kotlinx.coroutines.withContext
  * display_errors 开着时警告会混进输出，取首个 '{' 到末个 '}' 之间的 JSON
  * 段解析，警告只记日志；Node CLI 不在这里，见本版 changelog（无 Android
  * Node 二进制可复用，drpy-node 的手机包是 Termux 方案，不是插件二进制）。
- * v0.152.0：空结果不再等于"规则没数据"——最近一次失败原因记在 [lastError]，
+ * v0.152.0：空结果不再等于"规则没数据"——最近一次失败原因记在 [lastErrorFor]，
  * 首页与批量检测据此给可见提示（php 未装、退出码、缺 lib/spider 之类），
  * 不再让用户对着空首页猜。
  */
@@ -51,10 +52,17 @@ object PhpCliEngine {
             "\$_SERVER['QUERY_STRING'] = \$_SERVER['argv'][1] ?? '';\n" +
             "include \$_SERVER['argv'][2];\n"
 
-    /** v0.152.0：最近一次 runQuery 的失败原因（null=最近一次成功或未跑过），供首页/检测透出。 */
-    @Volatile
-    var lastError: String? = null
-        private set
+    /**
+     * v0.217.0（F54）：失败原因按脚本分流——原来单例一份 lastError，
+     * 聚合搜索多 PHP 站并发时 A 站成功会把 B 站刚记下的失败原因清掉，
+     * 失败计数忽多忽少；现在每个脚本各记各的，调用方按脚本名取。
+     * v0.152.0 起供首页/检测透出（null=该脚本最近一次成功或未跑过）。
+     */
+    private val lastErrorByScript = ConcurrentHashMap<String, String>()
+
+    /** 取某脚本最近一次 runQuery 的失败原因；脚本名空时取当前激活规则。 */
+    fun lastErrorFor(scriptName: String?): String? =
+        (scriptName ?: activeScriptName())?.let { lastErrorByScript[it] }
 
     /** v0.188.0 恢复：SourceProbe.probePhp 仍在调它，审计 L01 的零调用结论有误，不要再删。 */
     fun isPhpInstalled(context: Context? = null): Boolean = runCatching {
@@ -125,20 +133,21 @@ object PhpCliEngine {
         return Triple(second.url, second.parse, second.header)
     }
 
-    /** 跑一次查询，返回提取出的 JSON 文本；php 未装、脚本不存在、超时、非 JSON 一律 null（不抛），原因记 [lastError]。 */
+    /** 跑一次查询，返回提取出的 JSON 文本；php 未装、脚本不存在、超时、非 JSON 一律 null（不抛），原因记 [lastErrorFor]。 */
     suspend fun runQuery(context: Context? = null, scriptName: String?, query: String): String? =
         withContext(Dispatchers.IO) {
-            lastError = null
+            val errKey = scriptName ?: activeScriptName()
+            if (errKey != null) lastErrorByScript.remove(errKey)
             runCatching {
                 // v0.187.0 H03：上下文缺失不再静默返回 null，显式记失败原因并记日志，
-                // 调用方据 lastError 可区分“上下文未就绪”与“规则没数据”。
+                // 调用方据 lastErrorFor 可区分“上下文未就绪”与“规则没数据”。
                 val ctx = context ?: PhpSourceManager.appContext() ?: run {
-                    lastError = "应用上下文未就绪"
+                    if (errKey != null) lastErrorByScript[errKey] = "应用上下文未就绪"
                     LogBus.w(TAG, "PHP CLI 未跑：应用上下文未就绪")
                     return@runCatching null
                 }
                 val script = scriptFile(ctx, scriptName ?: activeScriptName()) ?: run {
-                    lastError = "脚本不存在：${scriptName ?: activeScriptName()}"
+                    if (errKey != null) lastErrorByScript[errKey] = "脚本不存在：${scriptName ?: activeScriptName()}"
                     LogBus.w(TAG, "PHP 脚本不存在：$scriptName")
                     return@runCatching null
                 }
@@ -165,21 +174,22 @@ object PhpCliEngine {
                     // v0.188.0 M14：runCliOnce 超时以退出码 -1 哨兵返回（真实
                     // 进程退出码取不到 -1），PHP 侧不再照搬成“退出码 -1”，
                     // 单独记为超时，与真实退出码区分开。
-                    lastError = if (result.exitCode == -1) {
+                    val reason = if (result.exitCode == -1) {
                         "php 执行超时（30 秒），进程已强制结束"
                     } else {
                         "php 退出码 ${result.exitCode}：${firstReasonLine(result.output)}"
                     }
-                    LogBus.w(TAG, "php 执行失败：$lastError：${result.output.take(500)}")
+                    if (errKey != null) lastErrorByScript[errKey] = reason
+                    LogBus.w(TAG, "php 执行失败：$reason：${result.output.take(500)}")
                 }
-                val json = extractJson(result.output)
+                val json = extractJson(result.output, errKey)
                 // v0.188.0 M14：成功取出 JSON 即清 lastError。此前退出码非 0
                 // 但输出里恰好有合法 JSON 时返回正常 JSON、lastError 仍非空，
                 // 与“null=最近一次成功”自相矛盾，调用方会把成功当失败展示。
-                if (json != null) lastError = null
+                if (json != null && errKey != null) lastErrorByScript.remove(errKey)
                 json
             }.onFailure { e ->
-                if (lastError == null) lastError = e.message?.take(140)
+                if (errKey != null) e.message?.take(140)?.let { lastErrorByScript.putIfAbsent(errKey, it) }
                 LogBus.e(TAG, "PHP CLI 失败：${e::class.java.simpleName}: ${e.message}")
             }.getOrNull()
         }
@@ -198,11 +208,11 @@ object PhpCliEngine {
         return f
     }
 
-    private fun extractJson(output: String): String? {
+    private fun extractJson(output: String, errKey: String?): String? {
         val start = output.indexOf('{')
         val end = output.lastIndexOf('}')
         if (start < 0 || end <= start) {
-            if (lastError == null) lastError = "PHP 输出无 JSON：${output.take(140)}"
+            if (errKey != null) lastErrorByScript.putIfAbsent(errKey, "PHP 输出无 JSON：${output.take(140)}")
             LogBus.w(TAG, "PHP 输出无 JSON：${output.take(300)}")
             return null
         }

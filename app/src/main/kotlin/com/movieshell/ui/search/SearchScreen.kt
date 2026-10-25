@@ -58,6 +58,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.LoadingSkeleton
@@ -494,7 +495,12 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(208.dp),
-                                        onClick = { goDetail(group.site, vod.id, onVodClick) },
+                                        onClick = {
+                                            // v0.217.0（F51）：源已删时不进详情，只提示。
+                                            if (!goDetail(group.site, vod.id, onVodClick)) {
+                                                AppToast.show(activity, "该结果的源已删除或不可用", long = false)
+                                            }
+                                        },
                                     )
                                 }
                             }

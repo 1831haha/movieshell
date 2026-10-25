@@ -32,6 +32,7 @@ import com.movieshell.data.model.Site
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
+import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.LoadingSkeleton
@@ -67,26 +68,52 @@ fun ActorWorksScreen(
     }
     var searching by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
+    // v0.217.0（F14）：全部源失败（非“搜到 0 部”）单独成态，走带重试的失败态
+    var allFailed by remember { mutableStateOf(false) }
     var works by remember { mutableStateOf<List<Pair<Site, Vod>>>(emptyList()) }
     var sourceCount by remember { mutableStateOf(0) }
+    // v0.217.0（F13）：搜索世代号——换演员时旧搜索的迟到结果直接丢弃
+    var searchGen by remember { mutableIntStateOf(0) }
 
     fun doSearch() {
+        searchGen += 1
+        val myGen = searchGen
         scope.launch {
             searching = true
             failed = false
+            allFailed = false
+            // 目标站表必须在 loadFromConfig 之后算，否则比的是旧站表，
+            // 全失败判定会对不上 searchAll 实际跑的那批源。
+            var targets: List<Site> = emptyList()
             val groups = runCatching {
                 repo.loadFromConfig(buildSearchConfigJson(context))
+                targets = repo.searchTargetSites()
                 repo.searchAll(actorName)
             }.getOrNull()
+            // 世代已过：新一轮搜索已起，本单不再动任何状态（包括转圈）
+            if (myGen != searchGen) return@launch
             if (groups == null) {
                 failed = true
                 works = emptyList()
             } else {
                 sourceCount = groups.size
+                // v0.217.0（F14）：空结果分两种——目标源全失败走失败态（带重试），
+                // 否则才是真没找到。失败数读 searchAll 刚记的本轮汇总。
+                allFailed = groups.isEmpty() && targets.isNotEmpty() &&
+                    SiteRepository.lastSearchFailedCount >= targets.size
                 // 跨源按"片名+年份"去重，同一部剧只留一张海报
+                // v0.217.0（F15）：年份为空时不再仅凭片名去重（同名同年不同片、
+                // 或同名片年份缺失时会被误删），此时按源区分、宁可并列展示。
                 works = groups
                     .flatMap { g -> g.vods.map { vod -> g.site to vod.toUiVod() } }
-                    .distinctBy { (_, vod) -> (vod.title.trim() + "|" + vod.year.trim()).lowercase() }
+                    .distinctBy { (site, vod) ->
+                        val year = vod.year.trim()
+                        if (year.isEmpty()) {
+                            vod.title.trim().lowercase() + "|site:" + site.key
+                        } else {
+                            (vod.title.trim() + "|" + year).lowercase()
+                        }
+                    }
             }
             searching = false
         }
@@ -117,7 +144,7 @@ fun ActorWorksScreen(
                     }
                 }
             }
-            failed -> {
+            failed || allFailed -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -125,7 +152,8 @@ fun ActorWorksScreen(
                     EmptyState(
                         kind = EmptyKind.Error,
                         icon = Icons.Filled.Warning,
-                        title = "加载失败，请检查网络后重试",
+                        title = if (allFailed) "全部源搜索失败，请检查网络后重试"
+                            else "加载失败，请检查网络后重试",
                         actionText = "重试",
                         onAction = { doSearch() },
                     )
@@ -168,7 +196,12 @@ fun ActorWorksScreen(
                             badge = vod.rating.ifBlank { null },
                             posterUrl = vod.poster,
                             modifier = Modifier.aspectRatio(3f / 4.6f),
-                            onClick = { goDetail(site, vod.id, onVodClick) },
+                            onClick = {
+                                // v0.217.0（F51）：源已删时不进详情，只提示。
+                                if (!goDetail(site, vod.id, onVodClick)) {
+                                    AppToast.show(context, "该结果的源已删除或不可用", long = false)
+                                }
+                            },
                         )
                     }
                 }

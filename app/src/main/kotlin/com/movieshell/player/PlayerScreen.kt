@@ -380,6 +380,9 @@ fun PlayerScreen(
     // 退出时保存进度、清理播放会话（沉浸式窗口驱动见 fullscreenNow 的 LaunchedEffect；
     // 离页时 restorePlayerWindow 有守卫——嵌入竖屏从没动过窗口，不会重现 v0.84.0
     // 「切 tab 把手机底部导航栏弹出来」的问题）
+    // v0.217.0（F16）：嵌入模式的退出不做会话／引擎清理——跳全屏时独立播放页
+    // 正是同一会话的延续，清掉会导致切集／换线路失效、甚至新页黑屏；
+    // 真离开详情页的停播由详情页自己的 dispose 负责（见 DetailScreen goingFullscreen）。
     DisposableEffect(Unit) {
         PlaySession.playerVisible = true
         onDispose {
@@ -391,10 +394,12 @@ fun PlayerScreen(
             )
             // v0.63.0：看完自动删——本地下载文件播到 95% 以上且开关开着，删文件+清任务
             maybeAutoDeleteWatched(context, currentPlayUrl, isLive)
-            PlaySession.playerVisible = false
-            PlaySession.clear()
-            // v0.78.1：退出播放页必须停播放器，否则退到后台还在响
-            EngineHost.stop()
+            if (!embedded) {
+                PlaySession.playerVisible = false
+                PlaySession.clear()
+                // v0.78.1：退出播放页必须停播放器，否则退到后台还在响
+                EngineHost.stop()
+            }
             // v0.27.7：退出播放器恢复系统默认方向 + 停重力感应（仅全屏页；嵌入不碰）
             if (!embedded) {
                 OrientationSensor.stop()

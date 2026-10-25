@@ -58,8 +58,13 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
     /** v0.109.0 A4：连续搜索时取消前一次的搜索协程 */
     private var searchJob: Job? = null
 
+    /** v0.217.0（F39）：书源载入句柄（init 里启动，doSearch 等它）。 */
+    private var loadJob: Job? = null
+
     init {
-        viewModelScope.launch {
+        // v0.217.0（F39）：载入句柄留下来给 doSearch 等——原来 fire-and-forget，
+        // 用户一进页就搜时读到的是空表，误报“没有启用的书源”。
+        loadJob = viewModelScope.launch {
             BookSourceManager.load(getApplication())
             PyBookSourceManager.load(getApplication())
         }
@@ -97,6 +102,17 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         lockPyName?.let { name -> PyBookSourceManager.rules.value.find { it.name == name } }
 
     fun doSearch() {
+        // v0.217.0（F39）：书源载入未完成时先等载入、再按原逻辑跑一次——
+        // 不在空表上提前判“没有启用的书源”。载入异常也继续（join 异常已吞），
+        // 此时空表才是真的无源，提示才可信。
+        val pendingLoad = loadJob?.takeIf { !it.isCompleted }
+        if (pendingLoad != null) {
+            viewModelScope.launch {
+                runCatching { pendingLoad.join() }
+                doSearch()
+            }
+            return
+        }
         val kw = _keyword.value.trim()
         val locked = lockedPyRule()
         // v0.66.0：锁定模式下只要该源存在即可搜

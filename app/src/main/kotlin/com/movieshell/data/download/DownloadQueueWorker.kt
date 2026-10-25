@@ -151,7 +151,10 @@ class DownloadQueueWorker(
                 downloadTo(seg.url, f, headers) { alive(task.id) }
                 meter.add(f.length())
             }
-            done++
+            // v0.217.0（F17）：已下过的分片不能再数一遍——原来无条件 done++，
+            // 续下时 10 个旧分片又数一遍，进度能超过 100%；改按下标推导：
+            // 处理完第 i 个分片，前 i+1 个分片必已齐全（旧的跳过、缺的刚下完）。
+            done = i + 1
             val p = done.toFloat() / pl.segments.size
             DownloadStore.update(ctx, task.id) {
                 it.copy(doneSeg = done, progress = p, speedBps = meter.current())

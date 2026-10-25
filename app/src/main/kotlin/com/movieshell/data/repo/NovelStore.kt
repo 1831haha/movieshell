@@ -82,29 +82,43 @@ object NovelStore {
         val all = readIndex(context).sortedByDescending { it.addedAt }
         val progressById = ReadingProgressStore.loadAll(context)
         all.map { n ->
-            progressById[n.id]?.let {
+            val p = progressById[n.id]
+            if (p != null) {
                 n.copy(
-                    lastReadChapter = it.chapterIndex,
+                    lastReadChapter = p.chapterIndex,
                     // v0.214.0：进度里的在读章标题一并派生到书架行。
-                    lastReadChapterTitle = it.chapterTitle.takeIf { t -> t.isNotBlank() },
+                    lastReadChapterTitle = p.chapterTitle.takeIf { t -> t.isNotBlank() },
+                    // v0.217.0（F46）：进度记录存在即已开始；无记录时显式
+                    // 置 false，免得索引里残留的旧值在进度清掉后还赖着。
+                    hasStartedReading = true,
                 )
-            } ?: n
+            } else {
+                n.copy(hasStartedReading = false)
+            }
         }
     }
 
     suspend fun get(context: Context, id: String): Novel? = withContext(Dispatchers.IO) {
         val n = readIndex(context).firstOrNull { it.id == id } ?: return@withContext null
-        ReadingProgressStore.load(context, id)?.let {
+        val p = ReadingProgressStore.load(context, id)
+        if (p != null) {
             n.copy(
-                lastReadChapter = it.chapterIndex,
-                lastReadChapterTitle = it.chapterTitle.takeIf { t -> t.isNotBlank() },
+                lastReadChapter = p.chapterIndex,
+                lastReadChapterTitle = p.chapterTitle.takeIf { t -> t.isNotBlank() },
+                hasStartedReading = true,
             )
-        } ?: n
+        } else {
+            n.copy(hasStartedReading = false)
+        }
     }
 
-    /** 幂等添加：同 id 已存在则保留进度只更新元信息。 */
+    /** 幂等添加：同 id 已存在则保留进度只更新元信息。
+     * v0.217.0（F48）：空目录拒绝入架——原来空列表也照写空章节文件，
+     * 发现页／重复入架一旦传空目录，旧书的章节连同缓存正文一次清光；
+     * 现在空目录直接返回 false，调用方按失败提示，不动旧数据。 */
     suspend fun addNovel(context: Context, novel: Novel, chapters: List<Chapter>): Boolean =
         withContext(Dispatchers.IO) {
+            if (chapters.isEmpty()) return@withContext false
             indexMutex.withLock {
             runCatching {
                 // v0.211.0 审计修复：重复入架原来用空目录全量覆盖旧章节
@@ -191,16 +205,26 @@ object NovelStore {
             val prog = ReadingProgressStore.load(context, novelId)
             // v0.216.0（C8）：钳制只改下标不清标题——复用旧进度 copy，新标题取
             // 新目录对应章；新目录为空时不写这条进度（不留指向不存在第 0 章的脏进度）。
-            if (prog != null && fixed.isNotEmpty() && prog.chapterIndex >= fixed.size) {
-                val newIndex = (fixed.size - 1).coerceAtLeast(0)
-                ReadingProgressStore.save(
-                    context,
-                    prog.copy(
-                        chapterIndex = newIndex,
-                        charOffset = 0,
-                        chapterTitle = fixed[newIndex].title,
-                    ),
-                )
+            // v0.217.0（F44）：同下标也要按新目录重算标题——换源后旧章名还挂在
+            // 进度上，书架行显示的是旧源的章名；只重算标题，不动下标与段内偏移
+            // （追更刷新同源目录时下标与偏移本来就是对的，不能顺手清掉）。
+            if (prog != null && fixed.isNotEmpty()) {
+                if (prog.chapterIndex >= fixed.size) {
+                    val newIndex = (fixed.size - 1).coerceAtLeast(0)
+                    ReadingProgressStore.save(
+                        context,
+                        prog.copy(
+                            chapterIndex = newIndex,
+                            charOffset = 0,
+                            chapterTitle = fixed[newIndex].title,
+                        ),
+                    )
+                } else if (prog.chapterTitle != fixed[prog.chapterIndex].title) {
+                    ReadingProgressStore.save(
+                        context,
+                        prog.copy(chapterTitle = fixed[prog.chapterIndex].title),
+                    )
+                }
             }
             NovelUpdateStore.clear(context, novelId)
             true
@@ -307,25 +331,32 @@ object NovelStore {
             chapters(context, novelId).getOrNull(index)
         }
 
-    /** 更新读到第几章（书架分组用）。 */
+    /** 更新读到第几章（书架分组用）。
+     * v0.217.0（F41）：读-改-写进索引锁——原来两处直接读盘改写，与
+     * addNovel／updateSource 的锁内写盘并发时互相覆盖，进度或开关会丢。 */
     suspend fun updateProgress(context: Context, novelId: String, chapterIndex: Int) =
         withContext(Dispatchers.IO) {
             runCatching {
-                val all = readIndex(context)
-                writeIndex(context, all.map {
-                    if (it.id == novelId) it.copy(lastReadChapter = chapterIndex) else it
-                })
+                indexMutex.withLock {
+                    val all = readIndex(context)
+                    writeIndex(context, all.map {
+                        if (it.id == novelId) it.copy(lastReadChapter = chapterIndex) else it
+                    })
+                }
             }.onFailure { Log.w(TAG, "阅读进度更新失败", it) }
         }
 
-    /** v0.214.0：单本追更开关（详情页拨动；关掉的书手动/后台检查都跳过）。 */
+    /** v0.214.0：单本追更开关（详情页拨动；关掉的书手动/后台检查都跳过）。
+     * v0.217.0（F41）：同上，读-改-写进索引锁。 */
     suspend fun setUpdateEnabled(context: Context, novelId: String, enabled: Boolean) =
         withContext(Dispatchers.IO) {
             runCatching {
-                val all = readIndex(context)
-                writeIndex(context, all.map {
-                    if (it.id == novelId) it.copy(updateEnabled = enabled) else it
-                })
+                indexMutex.withLock {
+                    val all = readIndex(context)
+                    writeIndex(context, all.map {
+                        if (it.id == novelId) it.copy(updateEnabled = enabled) else it
+                    })
+                }
             }.onFailure { Log.w(TAG, "追更开关更新失败", it) }
         }
 

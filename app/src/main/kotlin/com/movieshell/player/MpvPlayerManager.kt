@@ -392,7 +392,7 @@ object MpvPlayerManager {
     }
 
     /**
-     * END_FILE 处理：自然播完（eof-reached=true）不做任何事；
+     * END_FILE 处理：自然播完（eof-reached=true）同步置 paused（界面不再以为在播）；
      * 异常结束则回调 onError（调用方走自动换线路重试）。
      * v0.107.0 P0-3：我们自己 stop()/loadfile 触发的按计数忽略；
      * 快速失败（404/拒连，eof-reached=false）直接走错误路径，不再被时间窗口吞掉。
@@ -418,6 +418,11 @@ object MpvPlayerManager {
                 "，$phase，起播后${elapsed}ms，eof=false）"
             LogBus.w("MpvPlayer", "播放异常结束（非自然播完）：$detail")
             mainHandler.post { errorListener?.invoke(detail) }
+        } else {
+            // v0.217.0（F23）：自然播完同样置 paused——原来只有异常结束置，
+            // 自然播完 isPlaying 仍为 true，中央大播放键出不来；
+            // 若 mpv 本身会回调 pause 属性，此处置 true 是幂等的，无副作用。
+            paused = true
         }
     }
 

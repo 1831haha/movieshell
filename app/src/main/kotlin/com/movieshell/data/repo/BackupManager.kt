@@ -120,8 +120,16 @@ object ApiSourceStore {
         if (prefs.getBoolean(KEY_DEFAULTS_PURGED, false)) return list
         val kept = list.filterNot { (it.name to it.url) in builtinDefaults }
         if (kept.size != list.size) {
-            save(context, kept)
-            Log.i(TAG, "已清理内置默认源 ${list.size - kept.size} 个")
+            // v0.217.0（F64）：写盘成功才标“已清理”——原来写盘结果看
+            // 都不看就标了，万一那次写盘失败，下次读就不清理了，默认源
+            // 原样复活；失败时返回原列表（盘上还是旧的），下次启动重跑。
+            if (save(context, kept)) {
+                Log.i(TAG, "已清理内置默认源 ${list.size - kept.size} 个")
+                prefs.edit().putBoolean(KEY_DEFAULTS_PURGED, true).apply()
+                return kept
+            }
+            Log.w(TAG, "内置默认源清理写盘失败，未标记，下次启动重跑")
+            return list
         }
         prefs.edit().putBoolean(KEY_DEFAULTS_PURGED, true).apply()
         return kept
@@ -866,8 +874,19 @@ object BackupManager {
         live: LiveParsed?,
     ): Boolean {
         if (followItems != null) {
-            if (FollowStore.readSync(context).map { it.id }.toSet() != followItems.map { it.id }.toSet()) {
+            val gotFollow = FollowStore.readSync(context).associateBy { it.id }
+            if (gotFollow.keys != followItems.map { it.id }.toSet()) {
                 return false
+            }
+            // v0.217.0（F66）：原来只比 id 集合，集数／看到第几集写错
+            // 位也照样报恢复成功；现在逐本比总集数与已看集数。
+            followItems.forEach { want ->
+                val got = gotFollow[want.id] ?: return false
+                if (got.episodeCount != want.episodeCount ||
+                    got.watchedEpisode != want.watchedEpisode
+                ) {
+                    return false
+                }
             }
         }
         if (bookshelf != null) {
@@ -876,7 +895,16 @@ object BackupManager {
             ) {
                 return false
             }
-            if (BookshelfGroupStore.list(context).size != bookshelf.groups.size) return false
+            // v0.217.0（F66）：原来分组只比数量，分组里装了谁根本没比；
+            // 现在按分组 id 比名字与组内书 id 集合。
+            val gotGroups = BookshelfGroupStore.list(context).associateBy { it.id }
+            if (gotGroups.keys != bookshelf.groups.map { it.id }.toSet()) return false
+            bookshelf.groups.forEach { want ->
+                val got = gotGroups[want.id] ?: return false
+                if (got.name != want.name || got.novelIds.toSet() != want.novelIds.toSet()) {
+                    return false
+                }
+            }
             bookshelf.progress.forEach { want ->
                 val got = ReadingProgressStore.load(context, want.novelId) ?: return false
                 if (got.chapterIndex != want.chapterIndex || got.charOffset != want.charOffset) {
@@ -895,10 +923,17 @@ object BackupManager {
             ) {
                 return false
             }
-            if (MusicStore.playlistList(context).map { it.name }.toSet() !=
-                music.playlists.map { it.name }.toSet()
-            ) {
+            // v0.217.0（F66）：原来歌单只比名字集合，歌单里的歌没比；
+            // 现在按歌单名比组内曲目 id 集合。
+            val gotPlaylists = MusicStore.playlistList(context).associateBy { it.name }
+            if (gotPlaylists.keys != music.playlists.map { it.name }.toSet()) {
                 return false
+            }
+            music.playlists.forEach { want ->
+                val got = gotPlaylists[want.name] ?: return false
+                if (got.tracks.map { it.id }.toSet() != want.tracks.map { it.id }.toSet()) {
+                    return false
+                }
             }
         }
         if (live != null) {

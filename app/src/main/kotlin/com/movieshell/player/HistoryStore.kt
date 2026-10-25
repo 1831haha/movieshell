@@ -136,9 +136,13 @@ object HistoryStore {
     fun getProgress(context: Context, url: String): Long =
         getHistory(context).firstOrNull { it.url == url }?.positionMs ?: 0L
 
-    /** v0.24.0：删单条（按 url） */
-    fun delete(context: Context, url: String) {
-        val list = getHistory(context).filterNot { it.url == url }
+    /**
+     * v0.217.0（F61）：删单条记录——按 URL＋时间戳定位（列表 key 本来
+     * 就是 url@timestamp）。原来按 URL 删，同一地址的多条记录会被一次
+     * 删光；按 tab 清空点播时，同地址的直播记录也会被顺带删掉。
+     */
+    fun deleteEntry(context: Context, url: String, timestamp: Long) {
+        val list = getHistory(context).filterNot { it.url == url && it.timestamp == timestamp }
         if (corruptLoaded) {
             Log.w(TAG, "历史记录读坏未处理，拒绝写盘覆盖")
             return

@@ -103,13 +103,16 @@ object ParseStore {
     }
 
     /** 新增一条（name/url 非空，type 只认 0/1）；同 url 已存在时原地更新名称/类型，不追加重复条。 */
-    fun add(context: Context, name: String, url: String, type: Int) {
+    /** v0.217.0（F62）：返回是否真加上了——原来空名／空地址静默 return，
+     * 页面又不管成没成一律关对话框，用户只填了名点添加、框没了列表里
+     * 也没有新线路，完全不知道问题出在哪。 */
+    fun add(context: Context, name: String, url: String, type: Int): Boolean {
         load(context)
         val n = name.trim()
         val t = if (type == 99) 99 else type.coerceIn(0, 1)
         // v0.203.0：type=99 的 url 不作接口地址，只作线路标识；留空时补默认值
         val u = url.trim().ifBlank { if (t == 99) "ytdlp://generic" else "" }
-        if (n.isEmpty() || u.isEmpty()) return
+        if (n.isEmpty() || u.isEmpty()) return false
         val entry = ParseConfig(name = n, url = u, type = t)
         val cur = _custom.value
         val idx = cur.indexOfFirst { it.url.trim() == u }
@@ -118,6 +121,7 @@ object ParseStore {
             if (idx >= 0) cur.toMutableList().also { it[idx] = entry } else cur + entry,
         )
         LogBus.i("ParseStore", "新增自定义解析：$n")
+        return true
     }
 
     /** 按下标删除。 */

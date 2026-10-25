@@ -54,6 +54,23 @@ object PySourceManager {
     private var activeName: String? = null
     private val api: PyApi by lazy { PyApi() }
 
+    /**
+     * v0.217.0（F53）：与 DrpySourceManager 同款——本地 PY 读方法原来失败
+     * 只记日志、交空结果，聚合搜索的失败桥接读不到原因，PY 站挂了也只
+     * 算“没数据”；现在失败原因记进 managerLastError，适配器透传给桥接。
+     */
+    private var managerLastError: String? = null
+
+    /** 引擎抛异常时记原因（日志仍由各调用点记，这里只留载体）。 */
+    private fun recordFailure(e: Throwable) {
+        managerLastError = e.message?.takeIf { it.isNotBlank() }
+            ?: e::class.java.simpleName
+    }
+
+    /** 适配器透传：最近一次失败原因；无激活规则时明确报无规则。 */
+    fun adapterLastError(): String? =
+        managerLastError ?: if (activeName == null) "无激活规则" else null
+
     /** v0.22.0：读请求共享域；SupervisorJob 保证单个请求失败不牵连其他。 */
     private val readScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     /** 每个读方法只保留最新请求；新调用取消旧的（切分类/切源立即生效）。 */
@@ -155,7 +172,11 @@ object PySourceManager {
         val path = activeRulePath() ?: return emptyList()
         return latest(homeSlot) {
             runCatching { api.home(path) }
-                .onFailure { e -> LogBus.e(TAG, "本地 PY home 失败: ${e::class.simpleName}: ${e.message}") }
+                .onFailure { e ->
+                    recordFailure(e)
+                    LogBus.e(TAG, "本地 PY home 失败: ${e::class.simpleName}: ${e.message}")
+                }
+                .onSuccess { managerLastError = null }
                 .getOrNull().orEmpty().filterNotNull()
         }
     }
@@ -164,7 +185,11 @@ object PySourceManager {
         val path = activeRulePath() ?: return emptyList()
         return latest(categoriesSlot) {
             runCatching { api.categories(path) }
-                .onFailure { e -> LogBus.e(TAG, "本地 PY categories 失败: ${e::class.simpleName}: ${e.message}") }
+                .onFailure { e ->
+                    recordFailure(e)
+                    LogBus.e(TAG, "本地 PY categories 失败: ${e::class.simpleName}: ${e.message}")
+                }
+                .onSuccess { managerLastError = null }
                 .getOrNull().orEmpty().filterNotNull()
         }
     }
@@ -173,7 +198,11 @@ object PySourceManager {
         val path = activeRulePath() ?: return emptyList()
         return latest(categorySlot) {
             runCatching { api.category(path, tid, pg, filter) }
-                .onFailure { e -> LogBus.e(TAG, "本地 PY category 失败: ${e::class.simpleName}: ${e.message}") }
+                .onFailure { e ->
+                    recordFailure(e)
+                    LogBus.e(TAG, "本地 PY category 失败: ${e::class.simpleName}: ${e.message}")
+                }
+                .onSuccess { managerLastError = null }
                 .getOrNull().orEmpty().filterNotNull()
         }
     }
@@ -182,7 +211,11 @@ object PySourceManager {
         val path = activeRulePath() ?: return VodDetail(vodId = vodId)
         return latest(detailSlot) {
             runCatching { api.detail(path, vodId) }
-                .onFailure { e -> LogBus.e(TAG, "本地 PY detail 失败: ${e::class.simpleName}: ${e.message}") }
+                .onFailure { e ->
+                    recordFailure(e)
+                    LogBus.e(TAG, "本地 PY detail 失败: ${e::class.simpleName}: ${e.message}")
+                }
+                .onSuccess { managerLastError = null }
                 .getOrNull() ?: VodDetail(vodId = vodId)
         }
     }
@@ -191,7 +224,11 @@ object PySourceManager {
         val path = activeRulePath() ?: return emptyList()
         return latest(searchSlot) {
             runCatching { api.search(path, wd) }
-                .onFailure { e -> LogBus.e(TAG, "本地 PY search 失败: ${e::class.simpleName}: ${e.message}") }
+                .onFailure { e ->
+                    recordFailure(e)
+                    LogBus.e(TAG, "本地 PY search 失败: ${e::class.simpleName}: ${e.message}")
+                }
+                .onSuccess { managerLastError = null }
                 .getOrNull().orEmpty().filterNotNull()
         }
     }
@@ -203,8 +240,10 @@ object PySourceManager {
         val path = activeRulePath() ?: return ""
         return runCatching { api.play(path, flag, id).first }
             .onFailure { e ->
+                recordFailure(e)
                 LogBus.e(TAG, "本地 PY play 失败：规则=$path flag=$flag 原因=${e.message ?: e::class.java.simpleName}")
             }
+            .onSuccess { managerLastError = null }
             .getOrNull().orEmpty()
     }
 
@@ -214,8 +253,10 @@ object PySourceManager {
         val path = activeRulePath() ?: return Triple("", 0, emptyMap())
         return runCatching { api.play(path, flag, id) }
             .onFailure { e ->
+                recordFailure(e)
                 LogBus.e(TAG, "本地 PY playRaw 失败：规则=$path flag=$flag 原因=${e.message ?: e::class.java.simpleName}")
             }
+            .onSuccess { managerLastError = null }
             .getOrNull() ?: Triple("", 0, emptyMap())
     }
 
@@ -224,6 +265,10 @@ object PySourceManager {
      * 委托给当前 active 的 PY 规则；无 active 规则时返回空结果。
      */
     val engineAdapter: DrpyEngine = object : DrpyEngine {
+            /** v0.217.0（F53）：透传最近一次失败原因（drpy 适配器同款）。 */
+            override val lastError: String?
+                get() = this@PySourceManager.adapterLastError()
+
             override fun loadRule(js: String) {
                 Log.w(TAG, "适配器不支持直接 loadRule，请走 setActiveRule(name)")
             }

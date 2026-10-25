@@ -204,25 +204,29 @@ fun HomeScreen(
         }.getOrDefault(emptyList())
     }
 
-    /** 当前数据源的分类：订阅 CMS 站走 CMS 分类接口，drpy/PY 站走引擎 categories() */
-    suspend fun engineCats(): List<CategoryType> {
+    /**
+     * 当前数据源的分类：订阅 CMS 站走 CMS 分类接口，drpy/PY 站走引擎 categories()。
+     * v0.217.0（F2）：照抄 engineCategory 的可空口径——异常返回 null（调用方判失败，
+     * 给可见反馈+重试），不再吞成 emptyList；空列表只表示规则真没分类。
+     */
+    suspend fun engineCats(): List<CategoryType>? {
         val s = subSite
         if (s != null) {
             if (s.isCmsSite()) return runCatching { subRepo.category(s, "", 1).first }
-                .getOrDefault(emptyList())
+                .getOrNull()
             if (s.isJavaSpider()) return runCatching { subRepo.category(s, "", 1).first }
-                .getOrDefault(emptyList())
+                .getOrNull()
             if (s.isPySite()) return runCatching { SubSiteEngines.pyEngineFor(s)?.categories() }
-                .getOrNull().orEmpty()
+                .getOrNull()
             return runCatching { SubSiteEngines.drpyEngineFor(s)?.categories() }
-                .getOrNull().orEmpty()
+                .getOrNull()
         }
         return runCatching {
             if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.categories()
             else if (SourceStateStore.activePyRule() != null) PySourceManager.categories()
             else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.categories(context)
             else emptyList()
-        }.getOrDefault(emptyList())
+        }.getOrNull()
     }
 
     /**
@@ -282,14 +286,20 @@ fun HomeScreen(
     val pullRefreshState = rememberPullToRefreshState()
     // v0.53.0：三点核心——选中/分类/列表/加载态全在 HomeViewModel 里。
     // detail pop 回来时 VM 在 back stack 里不重建，第一帧直接出缓存。
+    // v0.217.0（F1）：selectedCategory 存的是 typeId（0=推荐），序号只做界面展示：
+    // selectedPosition 由 typeId 到分类列表里现算，分类顺序一变也不错位。
     val selectedCategory by vm.selectedCategoryId.collectAsState()
     val drpyCats by vm.categories.collectAsState()
+    val selectedPosition = if (selectedCategory == 0) 0
+        else drpyCats.indexOfFirst { it.typeId == selectedCategory } + 1
     val drpyList by vm.currentVideos.collectAsState()
     val drpyLoading by vm.isLoading.collectAsState()
     // v0.58：切分类 loading 标记（null=空闲；非 null=正在加载该分类，旧列表保留不闪空）
     val loadingCat by vm.loadingCategoryId.collectAsState()
     // v0.110.0：分类内容加载失败标记（超时/规则异常），UI 给内联错误+重试
     val failedCat by vm.failedCategoryId.collectAsState()
+    // v0.217.0（F4）：到底标记跟 VM 走（按 typeId），切 tab 回来不复活
+    val noMoreCats by vm.categoryNoMore.collectAsState()
     // v0.44.0：二级筛选升级为多组 Map（key->value），空=未选（用规则默认）。
     // v0.31.2 的教训：rememberSaveable 存 Map 有坑，用 List<String> 存 "key\u0001value" 编码。
     // tab 切回时选中态不丢；切分类时清空（不同分类的筛选组不同）。
@@ -306,9 +316,7 @@ fun HomeScreen(
     // v0.31.2：分类加载单飞——快速连点时取消上一次，保证同一时间只有一个分类请求在跑
     var categoryJob by remember { mutableStateOf<Job?>(null) }
     var shuffleSeed by remember { mutableIntStateOf(0) }
-    // v0.215.0：分类分页——页码／到底标记／加载更多进行态（切分类时重置）。
-    var catPage by remember { mutableIntStateOf(1) }
-    var catNoMore by remember { mutableStateOf(false) }
+    // v0.215.0：分类分页——加载更多进行态（切分类时重置）；页码与到底标记已搬进 VM（F4）。
     var catLoadingMore by remember { mutableStateOf(false) }
 
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
@@ -380,13 +388,15 @@ fun HomeScreen(
         var cacheCats: List<CategoryType> = emptyList()
         var cacheFresh = false
         var cacheShown = false
-        withContext(Dispatchers.IO) { HomeCache.load(context, key) }?.let { (data, fresh) ->
+        // v0.217.0（F7）：推荐的新鲜度只看推荐自己的保存时间，不跟分类共用。
+        withContext(Dispatchers.IO) { HomeCache.load(context, key) }?.let { result ->
+            val data = result.data
             cacheCats = data.cats
-            cacheFresh = fresh
+            cacheFresh = result.vodsFresh
             if (data.vods.isNotEmpty()) {
                 cacheVods = data.vods
                 cacheShown = true
-                LogBus.i("Home", "首页缓存先行（${if (fresh) "新鲜" else "过期stale"}）：${data.vods.size} 条")
+                LogBus.i("Home", "首页缓存先行（推荐${if (result.vodsFresh) "新鲜" else "过期stale"}／分类${if (result.catsFresh) "新鲜" else "过期stale"}）：${data.vods.size} 条")
             }
         }
         // v0.50.0 E：缓存立刻上屏，不等网络
@@ -551,7 +561,7 @@ fun HomeScreen(
         val phpErrorVal = if (SourceStateStore.activePhpRule() != null &&
             netVods.isNullOrEmpty() && netCats.isNullOrEmpty() &&
             cacheVods.isEmpty() && cacheCats.isEmpty()
-        ) PhpCliEngine.lastError?.take(140) else null
+        ) PhpCliEngine.lastErrorFor(null)?.take(140) else null
         return HomeLoadGate.HomePayload(
             vods = finalVods,
             cats = finalCats,
@@ -564,12 +574,12 @@ fun HomeScreen(
     // v0.145.0 修：从下方挪到 applyHomePayload 之前——Kotlin 局部函数必须先声明后调用（首轮构建即挂于此）。
     /** v0.44.0：筛选改为多组 Map；切分类时清空（不同分类的筛选组不同）。 */
     fun loadDrpyCategory(index: Int, filters: Map<String, String> = emptyMap()) { // index >= 1，对应 drpyCats[index-1]
-        // v0.215.0：切分类重置分页（第 1 页起，到底标记清掉）。
-        catPage = 1
-        catNoMore = false
-        catLoadingMore = false
         // v0.145.0：分类一律读 VM 真值，不读组合快照（换源/刚写分类后快照还滞后，143 同类教训）。
         val cat = vm.categories.value.getOrNull(index - 1) ?: return
+        // v0.217.0（F4）：切分类重置分页（第 1 页起，到底标记清掉），页码按 typeId 记在 VM 里。
+        vm.setCategoryPage(cat.typeId, 1)
+        vm.setCategoryNoMore(cat.typeId, false)
+        catLoadingMore = false
         // v0.31.2：单飞——快速连点时取消上一次，同一时间只有一个分类请求在跑
         // （之前每次点击都起一个协程，PY 引擎并发堆积是闪退的主因）。
         // 世代+1：旧请求的迟到结果直接丢弃，"最后一次点击赢"。
@@ -577,8 +587,9 @@ fun HomeScreen(
         contentGen += 1
         val myGen = contentGen
         // 选中态立即更新，不等网络（之前是网络回来才设，连点时选中和内容错位，看着像"换了分类内容不变"）
-        vm.selectCategory(index)
-        vm.clearCategoryFailed(index) // v0.110.0：新一轮加载先清旧的失败标记
+        // v0.217.0（F1）：选中态存 typeId，不再存序号。
+        vm.selectCategory(cat.typeId)
+        vm.clearCategoryFailed(cat.typeId) // v0.110.0：新一轮加载先清旧的失败标记
         setFilters(filters)
         LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId}) filter=$filters")
         // v0.44.0：drpy 分类首次选中时懒加载筛选组（PY 的筛选 homeContent 已带，不重复拉）
@@ -599,13 +610,13 @@ fun HomeScreen(
             }
         }
         // v0.52.0：分类内容缓存先行——详情页返回/重进时秒回，不白屏等网络
-        // v0.53.0：写 vm.categoryCache（selectedCategory=index 时 currentVideos 自动派生）
+        // v0.53.0：写 vm.categoryCache（selectedCategory=typeId 时 currentVideos 自动派生）
         val cacheKey = homeCacheKey()
         if (cacheKey != null && filters.isEmpty()) {
             scope.launch(Dispatchers.IO) {
                 val cached = HomeCache.loadCategoryVods(context, cacheKey, cat.typeId)
                 if (cached != null && myGen == contentGen) {
-                    vm.setCategoryVideos(index, cached.first)
+                    vm.setCategoryVideos(cat.typeId, cached.first)
                     LogBus.i("UI", "分类 ${cat.typeName} 缓存先行：${cached.first.size} 条")
                 }
             }
@@ -626,7 +637,7 @@ fun HomeScreen(
                     // 写空列表，把上次成功的内容从内存缓存里抹掉；失败只标
                     // 失败态、不碰缓存，切走再切回仍能秒回旧内容。
                     LogBus.w("UI", "分类 ${cat.typeName} 加载失败（超时/规则异常），给可见重试")
-                    vm.markCategoryFailed(index)
+                    vm.markCategoryFailed(cat.typeId)
                 } else {
                     if (list.isEmpty()) {
                         LogBus.i("UI", "分类 ${cat.typeName} 规则返回空（非失败）")
@@ -641,7 +652,7 @@ fun HomeScreen(
                     }
                     // v0.53.0：写 vm.categoryCache；成功空列表也写（覆盖旧缓存，
                     // 避免旧内容残留），VM 收集器按“有条目”展示空态、不再转圈。
-                    vm.setCategoryVideos(index, list)
+                    vm.setCategoryVideos(cat.typeId, list)
                 }
             } finally {
                 // 只有最新请求才清 loading，避免旧请求的 finally 把新请求的转圈灭掉
@@ -650,7 +661,7 @@ fun HomeScreen(
                 // 最新请求收尾时一并清掉本分类的 loading。
                 if (myGen == contentGen) {
                     vm.isLoading.value = false
-                    if (vm.loadingCategoryId.value == index) vm.loadingCategoryId.value = null
+                    if (vm.loadingCategoryId.value == cat.typeId) vm.loadingCategoryId.value = null
                 }
             }
         }
@@ -659,13 +670,16 @@ fun HomeScreen(
     /**
      * v0.215.0：分类加载更多——下一页追加（按 id 去重），空页=到底；
      * 切分类/换筛选期间不追加（选中分类变了就丢弃迟到结果）；无筛选时合并后落盘。
+     * v0.217.0（F3/F4）：收尾做快照三项校验——选中 typeId、筛选条件、起手页码
+     * 任一变了就丢弃本页，不合并、不推进页码；页码按 typeId 记在 VM 里。
      */
     fun loadMoreCategory() {
-        if (catLoadingMore || catNoMore) return
-        val index = vm.selectedCategoryId.value
-        if (index < 1) return
-        val cat = vm.categories.value.getOrNull(index - 1) ?: return
-        val nextPage = catPage + 1
+        val typeId = vm.selectedCategoryId.value
+        if (typeId == 0) return
+        if (catLoadingMore || vm.isCategoryNoMore(typeId)) return
+        val cat = vm.categories.value.firstOrNull { it.typeId == typeId } ?: return
+        val startPage = vm.categoryPage(typeId)
+        val nextPage = startPage + 1
         val curFilters = filterMap
         val cacheKey = homeCacheKey()
         catLoadingMore = true
@@ -673,19 +687,26 @@ fun HomeScreen(
             val page = withTimeoutOrNull(30_000) {
                 engineCategory(cat.typeId, nextPage, curFilters)
             }
-            if (vm.selectedCategoryId.value != index) {
+            // 快照校验：选中、筛选、页码三者任一变了，本页作废。
+            // 注意：filterMap 是组合快照，协程里读它永远等于起手值，必须读
+            // live 的 filterEntries 现算，否则筛选变化校验不到。
+            val liveFilters = filterEntries.map(::decodeFilter).toMap()
+            if (vm.selectedCategoryId.value != typeId ||
+                liveFilters != curFilters ||
+                vm.categoryPage(typeId) != startPage
+            ) {
                 catLoadingMore = false
                 return@launch
             }
             if (page == null) {
                 AppToast.show(context, "加载更多失败，请重试", long = false)
             } else if (page.isEmpty()) {
-                catNoMore = true
+                vm.setCategoryNoMore(typeId, true)
             } else {
                 val merged = (vm.currentVideos.value + page)
                     .distinctBy { it.vodId.ifBlank { "noid:${it.vodName}" } }
-                vm.setCategoryVideos(index, merged)
-                catPage = nextPage
+                vm.setCategoryVideos(typeId, merged)
+                vm.setCategoryPage(typeId, nextPage)
                 if (curFilters.isEmpty() && cacheKey != null) {
                     withContext(Dispatchers.IO) {
                         HomeCache.saveCategoryVods(context, cacheKey, cat.typeId, merged)
@@ -694,6 +715,15 @@ fun HomeScreen(
             }
             catLoadingMore = false
         }
+    }
+
+    /**
+     * v0.217.0（F1）：按 typeId 重载分类（下拉刷新后保持当前分类用）。
+     * 分类已不在列表里时什么都不做，不拿旧序号硬套新列表。
+     */
+    fun loadDrpyCategoryByTypeId(typeId: Int, filters: Map<String, String> = emptyMap()) {
+        val pos = vm.categories.value.indexOfFirst { it.typeId == typeId } + 1
+        if (pos >= 1) loadDrpyCategory(pos, filters)
     }
 
     /**
@@ -943,6 +973,13 @@ fun HomeScreen(
             homeError = null
             // v0.31.0：失败计数按数据源 key 记在 HomeLoadGate 单例里，切源自然用新 key 的计数，无需手动清零
             catsFailed = false
+            // v0.217.0（F5）：同一源禁用再启用时，key 没变故 switched 为假，
+            // 但上面刚清完数据、源又可用、且以前加载过（lastLoaded 非空）——
+            // 不补一次加载首页就晾在空白页。冷启动（lastLoaded 本来为空）不走这里，
+            // 保持 v0.27.4 干净空态；真换源走下面的 switched 分支，不重复加载。
+            if (!switched && active && lastLoaded != null) {
+                loadHome(force = true)
+            }
         }
         if (switched) {
             SubSiteStore.setLastLoadedSource(context, curCacheKey!!)
@@ -965,18 +1002,21 @@ fun HomeScreen(
         scope.launch {
             val cached = withContext(Dispatchers.IO) { HomeCache.load(context, key) }
             if (!vm.needRefreshOnReturn()) return@launch // 恢复期间用户已操作，不覆盖
-            val data = cached?.first
+            val data = cached?.data
             if (data != null && (data.vods.isNotEmpty() || data.cats.isNotEmpty())) {
                 if (data.cats.isNotEmpty()) vm.setCategories(data.cats)
                 // v0.31.2/v0.44.0：selectedCategory/filterEntries 已由 SavedStateHandle/rememberSaveable 恢复。
                 // 之前停在某个分类就重载它（保证选中和内容一致）；原选是推荐时只恢复推荐，
                 // 不强制进第一个分类（v0.170.0 修复：之前推荐用户会被悄悄切到分类 1）。
                 // v0.145.0：选中与分类一律读 VM 真值（刚写完分类后组合快照还滞后）。
+                // v0.217.0（F1）：选中存 typeId，恢复时先按 typeId 找当前位置，找不到再退回第一个分类。
                 val curSel = vm.selectedCategoryId.value
-                if (curSel >= 1 && vm.categories.value.getOrNull(curSel - 1) != null) {
-                    LogBus.i("Home", "返回首页：恢复分类 ${vm.categories.value[curSel - 1].typeName}")
-                    loadDrpyCategory(curSel, filterMap)
-                } else if (curSel < 1) {
+                val curPos = if (curSel == 0) 0
+                    else vm.categories.value.indexOfFirst { it.typeId == curSel } + 1
+                if (curPos >= 1) {
+                    LogBus.i("Home", "返回首页：恢复分类 ${vm.categories.value[curPos - 1].typeName}")
+                    loadDrpyCategory(curPos, filterMap)
+                } else if (curSel == 0) {
                     if (data.vods.isNotEmpty()) vm.setRecommend(data.vods)
                 } else if (data.cats.isNotEmpty()) {
                     // 原选分类已不在列表里，退回第一个分类
@@ -1026,7 +1066,8 @@ fun HomeScreen(
                 refreshing = false
                 // 下拉前已在某分类才刷该分类；推荐视图下拉时 apply 已按
                 // 默认进第一个分类，不在这里再重复刷一次。
-                if (selBefore >= 1) loadDrpyCategory(selBefore)
+                // v0.217.0（F1）：selBefore 存的是 typeId，按 typeId 重载。
+                if (selBefore != 0) loadDrpyCategoryByTypeId(selBefore)
             })
         } else {
             // v0.215.0：无源时下拉原来空转 1.2 秒假装刷新——没源可刷，直接收指示条
@@ -1246,7 +1287,7 @@ fun HomeScreen(
                                                 // v0.215.0：继续观看单条删除（原来只能去历史页清全部）。
                                                 IconButton(
                                                     onClick = {
-                                                        HistoryStore.delete(context, h.url)
+                                                        HistoryStore.deleteEntry(context, h.url, h.timestamp)
                                                         reloadWatchHistory()
                                                     },
                                                     modifier = Modifier.size(22.dp),
@@ -1358,7 +1399,7 @@ fun HomeScreen(
                                     // 第 index 格对应第 index+1 个分类（loadDrpyCategory 按 1 计）。
                                     AppChip(
                                         text = label,
-                                        selected = selectedCategory == index + 1,
+                                        selected = selectedPosition == index + 1,
                                         onClick = {
                                             // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
                                             loadDrpyCategory(index + 1)
@@ -1372,15 +1413,15 @@ fun HomeScreen(
                         // 之前失败后顶部细条转圈卡死、无任何反馈（审查报告第 10 条）
                         if (failedCat != null && failedCat == selectedCategory) {
                             item(span = { GridItemSpan(maxLineSpan) }) {
-                                TextButton(onClick = { loadDrpyCategory(selectedCategory, filterMap) }) {
+                                TextButton(onClick = { loadDrpyCategory(selectedPosition, filterMap) }) {
                                     Text("该分类加载失败，点击重试")
                                 }
                             }
                         }
                         // v0.44.0：二级筛选行——选中分类的 filters 全组各一行（之前只取第一组）
-                        val activeCat = drpyCats.getOrNull(selectedCategory - 1)
+                        val activeCat = drpyCats.firstOrNull { it.typeId == selectedCategory }
                         val filterGroups = activeCat?.filters.orEmpty()
-                        if (selectedCategory >= 1 && filterGroups.isNotEmpty()) {
+                        if (selectedCategory != 0 && filterGroups.isNotEmpty()) {
                             filterGroups.forEach { filterGroup ->
                                 item(span = { GridItemSpan(maxLineSpan) }) {
                                     // v0.212.0 审计修复：筛选行原来只画 chips，组名
@@ -1415,7 +1456,7 @@ fun HomeScreen(
                                                     // 点已选中的则取消本组筛选，回到默认；多组之间互不干扰
                                                     val next = if (isSel) filterMap - filterGroup.key
                                                     else filterMap + (filterGroup.key to fv.value)
-                                                    loadDrpyCategory(selectedCategory, next)
+                                                    loadDrpyCategory(selectedPosition, next)
                                                 },
                                             )
                                         }
@@ -1438,7 +1479,7 @@ fun HomeScreen(
                     // v0.145.0：进分类后标题跟当前分类走（选中 0 的推荐流视图才叫今日推荐）。
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         SectionTitle(
-                            title = drpyCats.getOrNull(selectedCategory - 1)?.typeName ?: "今日推荐",
+                            title = drpyCats.firstOrNull { it.typeId == selectedCategory }?.typeName ?: "今日推荐",
                             action = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (recommendStale) {
@@ -1500,7 +1541,7 @@ fun HomeScreen(
                     }
                     // v0.215.0：分类分页脚——推荐视图（分类 0）不分页，只分类视图有“加载更多”；
                     // 空页后显示“没有更多了”，不再重复请求。
-                    if (vm.selectedCategoryId.value >= 1 && filtered.isNotEmpty()) {
+                    if (vm.selectedCategoryId.value != 0 && filtered.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             Box(
                                 modifier = Modifier
@@ -1514,7 +1555,7 @@ fun HomeScreen(
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    catNoMore -> Text(
+                                    selectedCategory in noMoreCats -> Text(
                                         "没有更多了",
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,

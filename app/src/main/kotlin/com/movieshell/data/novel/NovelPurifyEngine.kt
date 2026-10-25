@@ -60,7 +60,11 @@ object NovelPurifyEngine {
         when (r.scope) {
             "book" -> r.target.isNotBlank() && r.target == bookUrl
             "source" -> r.target.isNotBlank() && r.target == sourceKey
-            else -> true
+            // v0.217.0（F47）：fail-closed——原来 else 全放行，scope 写错
+            // 一个字母（或外来规则带了未知 scope）就从单书／单源变成全局，
+            // 悄悄改掉所有书的正文；只有明确的 all 才全局，未知 scope 不生效。
+            "all" -> true
+            else -> false
         }
 
     /** 内置保守默认规则：只处理明显安全的版式问题，广告类默认关闭交由用户按需开启。 */

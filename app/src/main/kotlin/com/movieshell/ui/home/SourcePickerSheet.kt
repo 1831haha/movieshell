@@ -205,17 +205,34 @@ fun SourcePickerSheet(
     }
 
     fun pickLocal(isDrpy: Boolean, name: String) {
+        // v0.217.0（F51）：与站源页同款——消费 setActiveRule 的 Boolean，
+        // 失败时不写激活态、不关弹窗，让用户换一个再点。
+        val prevDrpy = DrpySourceManager.activeRuleName()
+        val prevPy = PySourceManager.activeRuleName()
+        val prevPhp = PhpSourceManager.activeRuleName()
         SubSiteStore.clearCurrent(context)
         if (isDrpy) {
             PySourceManager.setActiveRule(null)
             PhpSourceManager.setActiveRule(null)
-            DrpySourceManager.setActiveRule(name)
+            if (!DrpySourceManager.setActiveRule(name)) {
+                if (prevPy != null) PySourceManager.setActiveRule(prevPy)
+                else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
+                else if (prevDrpy != null && prevDrpy != name) DrpySourceManager.setActiveRule(prevDrpy)
+                AppToast.show(context, "切换失败：规则文件不存在或加载失败", long = false)
+                return
+            }
             SourceStateStore.setRuleEnabled(context, "js", name, true)
             SourceStateStore.saveActiveRule(context, "js", name)
         } else {
             DrpySourceManager.setActiveRule(null)
             PhpSourceManager.setActiveRule(null)
-            PySourceManager.setActiveRule(name)
+            if (!PySourceManager.setActiveRule(name)) {
+                if (prevDrpy != null) DrpySourceManager.setActiveRule(prevDrpy)
+                else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
+                else if (prevPy != null && prevPy != name) PySourceManager.setActiveRule(prevPy)
+                AppToast.show(context, "切换失败：规则文件不存在或加载失败", long = false)
+                return
+            }
             SourceStateStore.setRuleEnabled(context, "py", name, true)
             SourceStateStore.saveActiveRule(context, "py", name)
         }
@@ -225,10 +242,20 @@ fun SourcePickerSheet(
 
     /** v0.147.0：本地 PHP 规则与 drpy/py 平齐进换源弹窗，点选即切换。 */
     fun pickPhp(name: String) {
+        val prev = PhpSourceManager.activeRuleName()
+        val prevDrpy = DrpySourceManager.activeRuleName()
+        val prevPy = PySourceManager.activeRuleName()
         SubSiteStore.clearCurrent(context)
         DrpySourceManager.setActiveRule(null)
         PySourceManager.setActiveRule(null)
-        PhpSourceManager.setActiveRule(name)
+        if (!PhpSourceManager.setActiveRule(name)) {
+            // 先恢复切换前正在用的引擎（drpy／py／php 同一时间只一个在用）。
+            if (prevDrpy != null) DrpySourceManager.setActiveRule(prevDrpy)
+            else if (prevPy != null) PySourceManager.setActiveRule(prevPy)
+            else if (prev != null && prev != name) PhpSourceManager.setActiveRule(prev)
+            AppToast.show(context, "选中失败：规则文件不存在或加载失败", long = false)
+            return
+        }
         SourceStateStore.setRuleEnabled(context, "php", name, true)
         SourceStateStore.saveActiveRule(context, "php", name)
         onChanged()

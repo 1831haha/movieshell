@@ -198,7 +198,10 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
                 _skippedLabel.value = SearchSlowSourceFilter.skippedLabel()
                 _failedLabel.value = SiteRepository.failedSearchLabel()
             } finally {
-                _searching.value = false
+                // v0.217.0（F60）：收尾只认当前任务——旧任务被取消后 finally
+                // 可能晚于新任务启动才跑，原来无条件置 false 会把新搜索的
+                // 转圈提前灭掉，结果还在往外冒、转圈却没了。
+                if (searchJob == coroutineContext[Job]) _searching.value = false
             }
         }
     }

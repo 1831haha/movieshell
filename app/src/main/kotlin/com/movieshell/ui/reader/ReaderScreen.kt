@@ -739,10 +739,15 @@ fun ReaderScreen(
                     showChangeSource = false
                     // v0.84.0：先存新进度再重载，否则重载会被旧进度覆盖
                     scope.launch {
+                        // v0.217.0（F44）：标题按新目录算——原来拿旧目录列表取
+                        // newIndex 处的标题，换源后书架行显示的是旧源章名；
+                        // 新目录刚由换源写盘，从盘上取最准。
+                        val newTitle = runCatching { NovelStore.chapters(context, novelId) }
+                            .getOrNull()?.getOrNull(newIndex)?.title.orEmpty()
                         // v0.188.0 M25：只写进度事实源，不再双写 index（派生读跟随）。
                         ReadingProgressStore.save(
                             context,
-                            ReadingProgress(novelId, newIndex, 0, chapterTitle = chapters.getOrNull(newIndex)?.title.orEmpty()),
+                            ReadingProgress(novelId, newIndex, 0, chapterTitle = newTitle),
                         )
                         chapterIndex = newIndex
                         sourceVersion++

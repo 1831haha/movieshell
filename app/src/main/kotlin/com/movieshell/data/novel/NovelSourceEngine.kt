@@ -247,7 +247,9 @@ object NovelSourceEngine {
     suspend fun content(source: BookSource, chapter: ChapterMeta): String {
         if (chapter.url.isBlank()) return ""
         if (!isJsSource(source)) {
-            val html = BookRuleEngine.getHtml(chapter.url) ?: return ""
+            // v0.217.0（F43）：非 JS 链路也要传源自定义 UA——原来只 JS 链路传，
+            // CSS 源正文永远走默认 UA，需要自定义 UA 的站直接 403。
+            val html = BookRuleEngine.getHtml(chapter.url, uaOf(source)) ?: return ""
             val doc = BookRuleEngine.parseDoc(html, chapter.url)
             val raw = if (source.ruleContent.isBlank()) "" else BookRuleEngine.extractContent(doc, source.ruleContent)
             val out = if (source.ruleContentReplace.isBlank()) raw

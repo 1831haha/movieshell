@@ -176,7 +176,10 @@ fun MusicPlayerScreen(
         }
     }
 
-    LaunchedEffect(track?.id) {
+    // v0.217.0（F29）：歌词 effect 的 key 改成 id + urlId + source——跨平台切歌时
+    // id 原样不动、只换 source／urlId／picId，而歌词是按 urlId + source 取的，
+    // 原来 key 只有 id，切平台后歌词还停留在旧平台那首。
+    LaunchedEffect(track?.id, track?.urlId, track?.source) {
         val t = track ?: return@LaunchedEffect
         isFav = MusicStore.isFav(context, t.id)
         lyricLoading = true

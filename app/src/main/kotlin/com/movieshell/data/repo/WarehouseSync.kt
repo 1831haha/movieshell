@@ -33,14 +33,17 @@ object WarehouseSync {
         val all = ApiSourceStore.load(context).toMutableList()
         var changed = false
         val newUrls = warehouses.map { it.url }.toSet()
-        // 已消失的子仓：删记录 + 清站点缓存
+        // 已消失的子仓：先只删记录，缓存等写盘成功后再清——原来先清
+        // 缓存后写盘且不看结果，写盘一失败记录还在、缓存已经没了，
+        // 下次打开该子仓要重新下载展开，同步还以为自己成功了。
+        val removedUrls = mutableListOf<String>()
         val iter = all.iterator()
         while (iter.hasNext()) {
             val e = iter.next()
             if (e.parentUrl == parent.url && e.url !in newUrls) {
                 iter.remove()
                 changed = true
-                SubSiteStore.removeCache(context, e.url)
+                removedUrls += e.url
                 LogBus.i("WarehouseSync", "子仓已消失，随父仓同步删除：${e.name}")
             }
         }
@@ -60,7 +63,16 @@ object WarehouseSync {
             changed = true
             LogBus.i("WarehouseSync", "多仓展开新增子仓订阅：${parent.name} · ${wh.name}")
         }
-        if (changed) ApiSourceStore.save(context, all)
+        if (changed) {
+            // 写盘成功才清已消失子仓的缓存；写盘失败时缓存不动、新增
+            // 也不报给调用方去解析展开，下次同步重跑。
+            if (ApiSourceStore.save(context, all)) {
+                removedUrls.forEach { SubSiteStore.removeCache(context, it) }
+            } else {
+                LogBus.w("WarehouseSync", "多仓同步写盘失败，缓存未清、新增未上报，下次同步重跑")
+                return emptyList()
+            }
+        }
         return added
     }
 
@@ -69,8 +81,12 @@ object WarehouseSync {
         val all = ApiSourceStore.load(context)
         val children = all.filter { it.parentUrl == parentUrl }
         if (children.isEmpty()) return
+        // 与 syncChildren 同款：先写盘、成功后再清缓存，写盘失败缓存不动。
+        if (!ApiSourceStore.save(context, all.filter { it.parentUrl != parentUrl })) {
+            LogBus.w("WarehouseSync", "删父仓连带子仓写盘失败，缓存未清")
+            return
+        }
         children.forEach { SubSiteStore.removeCache(context, it.url) }
-        ApiSourceStore.save(context, all.filter { it.parentUrl != parentUrl })
         LogBus.i("WarehouseSync", "删父仓连带删除 ${children.size} 个子仓订阅")
     }
 }

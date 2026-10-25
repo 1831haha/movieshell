@@ -106,6 +106,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -235,6 +237,11 @@ fun BookshelfScreen(
         }
     }
 
+    // v0.217.0（F40）：逐本回写的互斥锁——每本查完的回调里都有“读 failedIds／
+    // updates → 改 → 写盘”三步，并发回调互相覆盖，失败态会丢；
+    // 锁把每本的回写串行化，逐本随查随写盘的好处（中途退出不丢）保留。
+    val checkWriteMutex = remember { Mutex() }
+
     // v0.84.0：检查全部在线书的更新（本地 TXT 跳过）。
     // v0.211.0：逐本状态——原来 checkAllDetailed 只在全部跑完才回结果，
     // 刷新时每本书后面没有自己的状态，只剩顶部一行“正在检查更新…”。
@@ -261,26 +268,25 @@ fun BookshelfScreen(
                     val r = NovelSourceEngine.withSearchThrottle {
                         NovelUpdateChecker.check(context, novel)
                     }
-                    checkingIds = checkingIds - novel.id
-                    // v0.211.0 审计修复：原来角标/失败态只改内存，全部
-                    // 跑完才串行写盘——中途退出书架，已查完的结果全丢，
-                    // 且目录已同步、角标从未落盘，下次检查按已同步总数
-                    // 算出 0，这批更新被永久静默吞掉。改成逐本随查随写盘。
-                    when (r) {
-                        is NovelUpdateChecker.Result.Updated -> {
-                            val total = (updates[novel.id]?.newChapters ?: 0) + r.newCount
-                            updates = updates + (novel.id to NovelUpdateInfo(novel.id, total, System.currentTimeMillis()))
-                            failedIds = failedIds - novel.id
-                            NovelUpdateStore.set(context, novel.id, r.newCount)
-                            BookshelfGroupStore.setFailedIds(context, failedIds)
-                        }
-                        is NovelUpdateChecker.Result.Failed -> {
-                            failedIds = failedIds + novel.id
-                            BookshelfGroupStore.setFailedIds(context, failedIds)
-                        }
-                        else -> {
-                            failedIds = failedIds - novel.id
-                            BookshelfGroupStore.setFailedIds(context, failedIds)
+                    // 回写段整体加锁：读-改-写三步不可被另一本的回调插进来。
+                    checkWriteMutex.withLock {
+                        checkingIds = checkingIds - novel.id
+                        when (r) {
+                            is NovelUpdateChecker.Result.Updated -> {
+                                val total = (updates[novel.id]?.newChapters ?: 0) + r.newCount
+                                updates = updates + (novel.id to NovelUpdateInfo(novel.id, total, System.currentTimeMillis()))
+                                failedIds = failedIds - novel.id
+                                NovelUpdateStore.set(context, novel.id, r.newCount)
+                                BookshelfGroupStore.setFailedIds(context, failedIds)
+                            }
+                            is NovelUpdateChecker.Result.Failed -> {
+                                failedIds = failedIds + novel.id
+                                BookshelfGroupStore.setFailedIds(context, failedIds)
+                            }
+                            else -> {
+                                failedIds = failedIds - novel.id
+                                BookshelfGroupStore.setFailedIds(context, failedIds)
+                            }
                         }
                     }
                     novel.id to r

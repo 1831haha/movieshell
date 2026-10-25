@@ -125,12 +125,16 @@ fun BookDetailDialog(
     // v0.211.0 审计修复：原来只以 novel.id 为 key 且 chapters 非空
     // 就不重拉——详情内换源后目录和“最新”仍是旧源的。key 加上
     // sourceKey，换源后强制重拉一次。
+    // v0.217.0（F37）：守卫条件只比 sourceKey，同源换书时条件为假、直接
+    // 跳过重拉，第二本详情里还是第一本的目录和“最新”；改记“书 id＋源 key”，
+    // 换书、换源都必重拉。
     LaunchedEffect(novel.id, novel.sourceKey) {
-        if (chapters == null || chaptersFor != novel.sourceKey) {
+        val key = novel.id + "|" + novel.sourceKey
+        if (chapters == null || chaptersFor != key) {
             chapters = withContext(Dispatchers.IO) {
                 runCatching { NovelStore.chapters(context, novel.id) }.getOrNull()
             }
-            chaptersFor = novel.sourceKey
+            chaptersFor = key
         }
     }
 
@@ -176,11 +180,11 @@ fun BookDetailDialog(
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 InfoChip("共 $total 章")
-                InfoChip(if (novel.lastReadChapter == 0) "未读" else "已读 $percent%")
+                InfoChip(if (!novel.hasStartedReading) "未读" else "已读 $percent%")
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                if (novel.lastReadChapter == 0) "还没读过"
+                if (!novel.hasStartedReading) "还没读过"
                 else "已读：第 ${read + 1} 章" + (novel.lastReadChapterTitle?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "") + " · 上次阅读：${formatLastReadTs(lastReadAt)}",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -335,10 +339,14 @@ fun BookDetailDialog(
                 // v0.211.0 审计修复：详情内换源算出的对齐下标原来被
                 // 丢弃（onSourceSwitched 是无参的），下次进阅读器仍按
                 // 旧下标恢复；这里先把对齐结果写进进度，再通知父级。
+                // v0.217.0（F44）：标题按新目录算——原来不写标题，书架行
+                // 仍挂旧源章名；新目录刚由换源写盘，从盘上取最准。
                 scope.launch {
+                    val newTitle = runCatching { NovelStore.chapters(context, novel.id) }
+                        .getOrNull()?.getOrNull(newIndex)?.title.orEmpty()
                     com.movieshell.data.repo.ReadingProgressStore.save(
                         context,
-                        com.movieshell.data.model.ReadingProgress(novel.id, newIndex, 0),
+                        com.movieshell.data.model.ReadingProgress(novel.id, newIndex, 0, chapterTitle = newTitle),
                     )
                 }
                 showChangeSource = false

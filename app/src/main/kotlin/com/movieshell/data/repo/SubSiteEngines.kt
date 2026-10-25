@@ -122,30 +122,51 @@ private class PooledDrpyEngine(
     private val siteKey: String,
     private val ruleFile: File,
 ) : DrpyEngine {
+    // v0.217.0（F53）：透传池内引擎的失败原因——原来适配器没覆写
+    // lastError，订阅 drpy 站失败时桥接读到的恒为 null，失败统计里
+    // 订阅站永远算“没数据”；每次调用后把内层引擎的原因记下来。
+    @Volatile
+    private var lastSeenError: String? = null
+    override val lastError: String? get() = lastSeenError
+
     override fun loadRule(js: String) {
         // 规则按站预载，不支持外部直接 load
     }
 
     override suspend fun home(): List<Vod> =
-        SubDrpyPool.withEngine(siteKey, ruleFile) { it.home() }
+        SubDrpyPool.withEngine(siteKey, ruleFile) { eng ->
+            eng.home().also { lastSeenError = eng.lastError }
+        }
 
     override suspend fun categories(): List<CategoryType> =
-        SubDrpyPool.withEngine(siteKey, ruleFile) { it.categories() }
+        SubDrpyPool.withEngine(siteKey, ruleFile) { eng ->
+            eng.categories().also { lastSeenError = eng.lastError }
+        }
 
     override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod> =
-        SubDrpyPool.withEngine(siteKey, ruleFile) { it.category(tid, pg, filter) }
+        SubDrpyPool.withEngine(siteKey, ruleFile) { eng ->
+            eng.category(tid, pg, filter).also { lastSeenError = eng.lastError }
+        }
 
     override suspend fun filters(tid: String): List<FilterGroup> =
-        SubDrpyPool.withEngine(siteKey, ruleFile) { it.filters(tid) }
+        SubDrpyPool.withEngine(siteKey, ruleFile) { eng ->
+            eng.filters(tid).also { lastSeenError = eng.lastError }
+        }
 
     override suspend fun detail(id: String): VodDetail =
-        SubDrpyPool.withEngine(siteKey, ruleFile) { it.detail(id) }
+        SubDrpyPool.withEngine(siteKey, ruleFile) { eng ->
+            eng.detail(id).also { lastSeenError = eng.lastError }
+        }
 
     override suspend fun search(wd: String): List<Vod> =
-        SubDrpyPool.withEngine(siteKey, ruleFile) { it.search(wd) }
+        SubDrpyPool.withEngine(siteKey, ruleFile) { eng ->
+            eng.search(wd).also { lastSeenError = eng.lastError }
+        }
 
     override suspend fun play(flag: String, id: String): String =
-        SubDrpyPool.withEngine(siteKey, ruleFile) { it.play(flag, id) }
+        SubDrpyPool.withEngine(siteKey, ruleFile) { eng ->
+            eng.play(flag, id).also { lastSeenError = eng.lastError }
+        }
 
     override fun release() {
         // 生命周期归池管理
@@ -214,9 +235,19 @@ private object SubDrpyPool {
     }
 }
 
-/** 订阅 PY 站的引擎适配器：PyApi 无状态，按 rulePath 直接调。 */
+/** 订阅 PY 站的引擎适配器：PyApi 无状态，按 rulePath 直接调。
+ * v0.217.0（F53）：与 PooledDrpyEngine 同款——原来失败只记日志、
+ * 原因没载体，桥接读到的恒为 null；现在失败原因记进 lastSeenError。 */
 private class SubPyEngine(private val rulePath: String) : DrpyEngine {
     private val api: PyApi by lazy { PyApi(ChaquopyEngine) }
+
+    @Volatile
+    private var lastSeenError: String? = null
+    override val lastError: String? get() = lastSeenError
+
+    private fun recordFailure(e: Throwable) {
+        lastSeenError = e.message?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName
+    }
 
     companion object {
         private const val TAG = "SubPyEngine"
@@ -226,31 +257,54 @@ private class SubPyEngine(private val rulePath: String) : DrpyEngine {
 
     override suspend fun home(): List<Vod> =
         runCatching { api.home(rulePath) }
-            .onFailure { LogBus.e(TAG, "PY home 失败 $rulePath: ${it.message}") }
+            .onFailure {
+                recordFailure(it)
+                LogBus.e(TAG, "PY home 失败 $rulePath: ${it.message}")
+            }
+            .onSuccess { lastSeenError = null }
             .getOrNull().orEmpty()
 
     override suspend fun categories(): List<CategoryType> =
         runCatching { api.categories(rulePath) }
-            .onFailure { LogBus.e(TAG, "PY categories 失败 $rulePath: ${it.message}") }
+            .onFailure {
+                recordFailure(it)
+                LogBus.e(TAG, "PY categories 失败 $rulePath: ${it.message}")
+            }
+            .onSuccess { lastSeenError = null }
             .getOrNull().orEmpty()
 
     override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod> =
         runCatching { api.category(rulePath, tid, pg) }
-            .onFailure { LogBus.e(TAG, "PY category 失败 $rulePath: ${it.message}") }
+            .onFailure {
+                recordFailure(it)
+                LogBus.e(TAG, "PY category 失败 $rulePath: ${it.message}")
+            }
+            .onSuccess { lastSeenError = null }
             .getOrNull().orEmpty()
 
     override suspend fun detail(id: String): VodDetail =
         runCatching { api.detail(rulePath, id) }
-            .onFailure { LogBus.e(TAG, "PY detail 失败 $rulePath: ${it.message}") }
+            .onFailure {
+                recordFailure(it)
+                LogBus.e(TAG, "PY detail 失败 $rulePath: ${it.message}")
+            }
+            .onSuccess { lastSeenError = null }
             .getOrNull() ?: VodDetail(vodId = id)
 
     override suspend fun search(wd: String): List<Vod> =
         runCatching { api.search(rulePath, wd) }
-            .onFailure { LogBus.e(TAG, "PY search 失败 $rulePath: ${it.message}") }
+            .onFailure {
+                recordFailure(it)
+                LogBus.e(TAG, "PY search 失败 $rulePath: ${it.message}")
+            }
+            .onSuccess { lastSeenError = null }
             .getOrNull().orEmpty()
 
     override suspend fun play(flag: String, id: String): String =
-        runCatching { api.play(rulePath, flag, id).first }.getOrNull().orEmpty()
+        runCatching { api.play(rulePath, flag, id).first }
+            .onFailure { recordFailure(it) }
+            .onSuccess { lastSeenError = null }
+            .getOrNull().orEmpty()
 
     override fun release() {}
 }

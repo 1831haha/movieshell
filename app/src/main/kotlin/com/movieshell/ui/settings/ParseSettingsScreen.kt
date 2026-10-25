@@ -213,13 +213,18 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
         var parseName by remember { mutableStateOf("") }
         var parseUrl by remember { mutableStateOf("") }
         var parseType by remember { mutableStateOf(1) }
+        var addError by remember { mutableStateOf<String?>(null) }
         TechDialog(
             onDismissRequest = { showAddDialog = false },
             title = "添加解析接口",
             confirmText = "添加",
             onConfirm = {
-                ParseStore.add(context, parseName, parseUrl, parseType)
-                showAddDialog = false
+                // v0.217.0（F62）：加不上时框内报错、不关对话框。
+                if (ParseStore.add(context, parseName, parseUrl, parseType)) {
+                    showAddDialog = false
+                } else {
+                    addError = "名称和接口地址不能为空（yt-dlp 通用线路地址可留空）"
+                }
             },
         ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -264,6 +269,14 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                         style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    addError?.let { err ->
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = err,
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
         }
     }

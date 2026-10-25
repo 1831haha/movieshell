@@ -224,6 +224,15 @@ object MusicPlayer {
                 queue = list
                 index = prefs.getInt(KEY_QUEUE_INDEX, -1).coerceIn(list.indices)
                 _queueState.value = QueueState(queue, index)
+                // v0.217.0（F26）：同时恢复当前曲目显示态（不起播）——原来只恢复
+                // 队列／下标，迷你条不显示、播放页说“还没有播放歌曲”，恢复的队列
+                // 根本没有入口能点播；现在迷你条与播放页先显示这首，点播入口见 playQueueItem。
+                if (index in list.indices) {
+                    _state.value = State(
+                        track = list[index], playing = false, loading = false,
+                        repeatMode = _state.value.repeatMode,
+                    )
+                }
             }
         }
     }
@@ -344,6 +353,9 @@ object MusicPlayer {
      * 首选源排最前，逐个脚本试，第一个报出平台的脚本说了算；内置 huibq
      * 没有脚本可报、脚本加载失败时返回空，调用方用已知平台兜底。
      * 复用本单例的引擎实例（与播放同一份脚本缓存），不另建 V8 会话。
+     * v0.217.0（F32）：平台行跟随全部启用源——原来第一个报出平台的脚本
+     * 直接 return，后面源独有的平台（如咪咕）永远不出现；改取并集、去重、排序，
+     * 加载失败的源跳过并记日志。
      */
     suspend fun sourcePlatforms(context: Context): List<String> {
         val appContext = context.applicationContext
@@ -357,17 +369,23 @@ object MusicPlayer {
             }
         if (sources.isEmpty()) return emptyList()
         val engine = getOrCreateLxEngine(appContext)
+        val all = linkedSetOf<String>()
         for (s in sources) {
-            runCatching { engine.loadScript(s.url) }
-            val codes = engine.getSourcePlatforms(s.url)
+            val ok = runCatching { engine.loadScript(s.url) }.getOrDefault(false)
+            if (!ok) {
+                LogBus.w("MusicPlayer", "平台枚举跳过加载失败的源：${s.name}")
+                continue
+            }
+            val codes = runCatching { engine.getSourcePlatforms(s.url) }
+                .getOrDefault(emptyList())
                 .map { raw ->
                     MusicApi.normalizeSource(raw).ifBlank { raw.trim().lowercase() }
                 }
                 .filter { it.isNotBlank() }
                 .distinct()
-            if (codes.isNotEmpty()) return codes
+            all += codes
         }
-        return emptyList()
+        return all.sorted()
     }
 
     /**
@@ -384,6 +402,14 @@ object MusicPlayer {
 
     private fun getOrCreateLxEngine(appContext: Context): LxMusicSourceEngine =
         lxEngine ?: LxMusicSourceEngine(appContext).also { lxEngine = it }
+
+    /**
+     * v0.217.0（F27）：让播放器侧单例引擎失效某脚本（音源管理页保存 Cookie 后调）。
+     * 引擎不存在时不新建——没建过就谈不上缓存，清管理页那台等于没清。
+     */
+    fun evictLxScript(scriptUrl: String) {
+        runCatching { lxEngine?.evictScript(scriptUrl) }
+    }
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -677,7 +703,16 @@ object MusicPlayer {
                 )
             }
             val mediaUri = resolved.url
-            val artworkUrl = artDeferred.await()
+            // v0.217.0（F34）：封面是装饰、直链是主链路——封面解析单独给 1.5 秒
+            // 短超时，超时先播无封面版，不再让封面接口拖住起播；超时后取消
+            // 封面任务，不留后台空转。直链与封面本就并发解析，多数情况下
+            // 封面早已到手，超时只在封面异常慢时生效。
+            val artworkUrl = try {
+                kotlinx.coroutines.withTimeout(1500) { artDeferred.await() }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                artDeferred.cancel()
+                ""
+            }
             withController(context) { c ->
                 if (gen != playGen) return@withController
                 runCatching {
@@ -732,7 +767,10 @@ object MusicPlayer {
         val songId = track.urlId
         val platform = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
         // v0.146.0：每轮先清试听标记（源为空直接返回时也不能留上一首的值）。
+        // v0.217.0（F30）：失败原因同理——早退路径（无 songId／无启用源）不清除，
+        // 上一首的 Cookie 过期提示会串到下一首的网络失败上。
         lastTrialOnly = false
+        lastLxFailures = emptyList()
         if (songId.isBlank()) return null
         // v0.108.0 B1：一次性指定源由 playAt 入口捕获传入（本地歌/取消
         // 路径不再泄漏到下一首）；该源不存在/已禁用时 sources 为空，
@@ -913,12 +951,19 @@ object MusicPlayer {
     /** v0.85.0：供 MusicService 通知栏上下首——队列多于一首才露出按钮 */
     internal fun hasPrev(): Boolean = queue.size > 1
 
-    /** v0.129.0：播放列表弹窗点选跳播（点当前曲目不重播）。 */
+    /** v0.129.0：播放列表弹窗点选跳播（点当前曲目不重播）。
+     * v0.217.0（F26）：当前曲目正在播时仍不重播；其他情况（恢复后未起播、
+     * 已暂停等）点按即重播——恢复的队列不再是“看得见、播不了”的孤儿。 */
     fun playQueueItem(context: Context, i: Int) {
-        if (i in queue.indices && i != index) playAt(context, i)
+        if (i in queue.indices && (i != index || _state.value.playing != true)) playAt(context, i)
     }
 
     fun stop() {
+        // v0.217.0（F25）：停播必须同时取消解析任务、淡出任务并推进代际——
+        // 原来只停进度与控制器，解析卡住时点关闭／清空，旧歌走完解析又自己播起来。
+        playJob?.cancel()
+        fadeJob?.cancel()
+        playGen += 1
         progressJob?.cancel()
         controller?.stop()
         _state.value = State(repeatMode = _state.value.repeatMode)
@@ -930,6 +975,10 @@ object MusicPlayer {
 
     /** 切 tab/退后台不自动停；App 退出时 MainActivity.onDestroy 可调 release */
     fun release() {
+        // v0.217.0（F25）：release 同理——在途解析不得在释放后复活起播。
+        playJob?.cancel()
+        fadeJob?.cancel()
+        playGen += 1
         progressJob?.cancel()
         controller?.release()
         controller = null

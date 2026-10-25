@@ -243,13 +243,16 @@ object SubSiteStore {
      * 规则文件是直接删除而非进回收站（TrashStore 只记订阅元数据），恢复订阅后刷新重下。
      */
     fun removeCache(context: Context, subUrl: String) {
-        val cache = getCached(context, subUrl) ?: getCached(context, subUrl.trim())
-        val all = loadAll(context).toMutableMap()
-        if (all.remove(subUrl) != null) saveAll(context, all)
-        // 当前源指向被删的订阅 -> 清掉
-        if (getCurrent(context)?.subUrl == subUrl) clearCurrent(context)
-        if (cache == null) return
+        // v0.217.0（F58）：入口先 trim 再全程用 trim 后的值——原来查缓存
+        // 用了 trim 兜底、删缓存却只删原样 key，调用方传了带空白的地址
+        // 就会“查得到、删不掉”，缓存记录残留成死链。
         val trimmedUrl = subUrl.trim()
+        val cache = getCached(context, trimmedUrl)
+        val all = loadAll(context).toMutableMap()
+        if (all.remove(trimmedUrl) != null) saveAll(context, all)
+        // 当前源指向被删的订阅 -> 清掉（两边都按 trim 后比）
+        if (getCurrent(context)?.subUrl?.trim() == trimmedUrl) clearCurrent(context)
+        if (cache == null) return
         cache.sites.forEach { rec ->
             if ((rec.kind == KIND_DRPY || rec.kind == KIND_PY) && rec.api.isNotBlank()) {
                 runCatching { File(rec.api).takeIf { it.isFile }?.delete() }

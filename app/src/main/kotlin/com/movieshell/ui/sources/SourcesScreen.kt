@@ -99,6 +99,7 @@ import com.movieshell.data.repo.HomeCache
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.SourceDeleteCleanup
 import com.movieshell.data.repo.SourceProbe
 import com.movieshell.data.repo.toResult
 import com.movieshell.data.repo.SourceProbeStore
@@ -240,21 +241,20 @@ private fun listLocalFolderEntries(
 
 // ---------- v0.9.0：文件网格 tab（JS / PY / PHP / 网页源） ----------
 
-/** 置顶顺序存 prefs "sources_pin"，每个 tab 一个 key，值是文件名按顺序 \n 拼接 */
-private const val PIN_PREFS = "sources_pin"
+/** 置顶顺序存 prefs（见 SourceDeleteCleanup.PIN_PREFS），每个 tab 一个 key，值是文件名按顺序 \n 拼接 */
 private const val TAB_JS = "js"
 private const val TAB_PY = "py"
 private const val TAB_PHP = "php"
 private const val TAB_WEB = "web"
 
 private fun loadPins(context: Context, tab: String): MutableList<String> {
-    val raw = context.getSharedPreferences(PIN_PREFS, Context.MODE_PRIVATE)
+    val raw = context.getSharedPreferences(SourceDeleteCleanup.PIN_PREFS, Context.MODE_PRIVATE)
         .getString(tab, "").orEmpty()
     return raw.split('\n').filter { it.isNotBlank() }.toMutableList()
 }
 
 private fun savePins(context: Context, tab: String, pins: List<String>) {
-    context.getSharedPreferences(PIN_PREFS, Context.MODE_PRIVATE)
+    context.getSharedPreferences(SourceDeleteCleanup.PIN_PREFS, Context.MODE_PRIVATE)
         .edit().putString(tab, pins.joinToString("\n")).apply()
 }
 
@@ -616,10 +616,23 @@ fun SourcesScreen(
     }
 
     // ---------- 激活逻辑：照抄 HomeScreen 切源 BottomSheet ----------
+    // v0.217.0（F51）：三入口消费 setActiveRule 的 Boolean——原来失败也照常
+    // 写激活态、弹“已切换”，下次进首页拿着个不存在的规则；失败时 toast、
+    // 不保存激活态，并尽量恢复切换前的规则。
     fun activateDrpy(name: String) {
+        val prevDrpy = DrpySourceManager.activeRuleName()
+        val prevPy = PySourceManager.activeRuleName()
+        val prevPhp = PhpSourceManager.activeRuleName()
         SubSiteStore.clearCurrent(context)
         PySourceManager.setActiveRule(null)
-        DrpySourceManager.setActiveRule(name)
+        PhpSourceManager.setActiveRule(null)
+        if (!DrpySourceManager.setActiveRule(name)) {
+            if (prevPy != null) PySourceManager.setActiveRule(prevPy)
+            else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
+            else if (prevDrpy != null && prevDrpy != name) DrpySourceManager.setActiveRule(prevDrpy)
+            AppToast.show(context, "切换失败：规则文件不存在或加载失败", long = false)
+            return
+        }
         SourceStateStore.setRuleEnabled(context, TAB_JS, name, true)
         SourceStateStore.saveActiveRule(context, TAB_JS, name)
         refreshDrpyRules()
@@ -627,18 +640,44 @@ fun SourcesScreen(
     }
 
     fun activatePy(name: String) {
+        val prevPy = PySourceManager.activeRuleName()
+        val prevDrpy = DrpySourceManager.activeRuleName()
+        val prevPhp = PhpSourceManager.activeRuleName()
         SubSiteStore.clearCurrent(context)
         DrpySourceManager.setActiveRule(null)
-        PySourceManager.setActiveRule(name)
+        PhpSourceManager.setActiveRule(null)
+        if (!PySourceManager.setActiveRule(name)) {
+            if (prevDrpy != null) DrpySourceManager.setActiveRule(prevDrpy)
+            else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
+            else if (prevPy != null && prevPy != name) PySourceManager.setActiveRule(prevPy)
+            AppToast.show(context, "切换失败：规则文件不存在或加载失败", long = false)
+            return
+        }
         SourceStateStore.setRuleEnabled(context, TAB_PY, name, true)
         SourceStateStore.saveActiveRule(context, TAB_PY, name)
         refreshPyRules()
         AppToast.show(context, "已切换为 $name", long = false)
     }
 
-    /** PHP 规则选中：v0.151.0 起走 CLI 引擎，选中后首页/详情/播放直接出内容。 */
+    /** PHP 规则选中：v0.151.0 起走 CLI 引擎，选中后首页/详情/播放直接出内容。
+     * v0.217.0（F52）：与 drpy／PY 入口对齐——原来只设 PHP、不清其他，
+     * 内存里 drpy／PY／PHP 可以同时“激活”，首页按哪路出内容全看调用方
+     * 优先级；现在先清订阅当前源与 drpy／PY，再设 PHP。 */
     fun selectPhpRule(name: String) {
-        PhpSourceManager.setActiveRule(name)
+        val prev = PhpSourceManager.activeRuleName()
+        val prevDrpy = DrpySourceManager.activeRuleName()
+        val prevPy = PySourceManager.activeRuleName()
+        SubSiteStore.clearCurrent(context)
+        DrpySourceManager.setActiveRule(null)
+        PySourceManager.setActiveRule(null)
+        if (!PhpSourceManager.setActiveRule(name)) {
+            if (prevDrpy != null) DrpySourceManager.setActiveRule(prevDrpy)
+            else if (prevPy != null) PySourceManager.setActiveRule(prevPy)
+            else if (prev != null && prev != name) PhpSourceManager.setActiveRule(prev)
+            AppToast.show(context, "选中失败：规则文件不存在或加载失败", long = false)
+            return
+        }
+        SourceStateStore.setRuleEnabled(context, TAB_PHP, name, true)
         SourceStateStore.saveActiveRule(context, TAB_PHP, name)
         refreshPhpEntries()
         AppToast.show(context, "已选中 $name", long = false)
@@ -715,42 +754,31 @@ fun SourcesScreen(
             TAB_PHP -> PhpSourceManager.rulesDir(context)
             else -> StoragePaths.webDir(context)
         }
-        TrashStore.trashFile(context, item.kind, File(dir, item.fileName), item.displayName)
-        when (item.kind) {
-            TAB_JS -> if (DrpySourceManager.activeRuleName() == item.fileName) {
-                DrpySourceManager.setActiveRule(null)
-                SourceStateStore.clearActiveRule(context)
-            }
-            TAB_PY -> if (PySourceManager.activeRuleName() == item.fileName) {
-                PySourceManager.setActiveRule(null)
-                SourceStateStore.clearActiveRule(context)
-            }
-            TAB_PHP -> if (PhpSourceManager.activeRuleName() == item.fileName) {
-                PhpSourceManager.setActiveRule(null)
-                SourceStateStore.clearActiveRule(context)
-            }
-            TAB_WEB -> if (WebSourceManager.activeSiteName() == item.fileName) {
-                WebSourceManager.setActiveSite(null)
-            }
+        // v0.217.0（F55）：回收站返回值原来被丢弃，文件因被占用／权限
+        // 问题没删掉也照常清状态、报成功，列表刷新后源又出现、状态却全
+        // 没了；失败时直接提示并 return，后续清理一律不跑。
+        // 文件已不存在是另一回事：源反正已经没了，清理照常跑，只是
+        // 不再谎报“已移入回收站”。
+        val target = File(dir, item.fileName)
+        val trashed = if (!target.isFile) {
+            null
+        } else {
+            TrashStore.trashFile(context, item.kind, target, item.displayName)
         }
-        // v0.186.0 M20：删源五项清理之禁用态与探活，与 SubSiteStore.removeCache 共用
-        // 同一入口；同名文件日后重新导入，旧禁用态与旧探活徽标不再复活
-        SourceStateStore.removeDisabled(context, item.kind, item.fileName)
-        SourceProbeStore.removeProbe(context, item.kind, item.fileName)
-        // v0.215.0：删源六项清理之首页缓存——原来首页缓存（推荐＋分类）不跟删源走，
-        // 同名源重装后先读到旧缓存，删掉的源也继续占着缓存文件。
-        when (item.kind) {
-            TAB_JS -> HomeCache.clear(context, "drpy_${item.fileName}")
-            TAB_PY -> HomeCache.clear(context, "py_${item.fileName}")
-            TAB_PHP -> HomeCache.clear(context, "php_${item.fileName}")
+        if (trashed == false) {
+            AppToast.show(context, "删除失败：文件未能移入回收站，状态未动", long = false)
+            return
         }
-        // 置顶记录同步清理
-        pins[item.kind]?.let {
-            it.remove(item.fileName)
-            savePins(context, item.kind, it)
-        }
+        // v0.217.0（F57）：六项清理走共用入口，与市场卸载同一套口径。
+        SourceDeleteCleanup.run(context, item.kind, item.fileName)
+        // 内存置顶同步清掉（持久化已由共用入口写盘）。
+        pins[item.kind]?.remove(item.fileName)
         refreshTab(item.kind)
-        AppToast.show(context, "已移入回收站", long = false)
+        AppToast.show(
+            context,
+            if (trashed == null) "源文件已不存在，已清理相关状态" else "已移入回收站",
+            long = false,
+        )
     }
 
     // ---------- 置顶 ----------

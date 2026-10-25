@@ -62,6 +62,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -111,6 +112,7 @@ import com.movieshell.data.repo.StoragePaths
 import com.movieshell.player.MagnetPlayer
 import com.movieshell.player.PlayResolveScope
 import com.movieshell.player.PlaySession
+import com.movieshell.player.EngineHost
 import com.movieshell.player.PicsViewerScreen
 import com.movieshell.player.PlayerScreen
 import com.movieshell.player.resolvePlayUrl
@@ -147,11 +149,25 @@ fun DetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // v0.217.0（F16）：详情页真离开时停播的开关——点全屏跳独立播放页时
+    // 先置 true，dispose 时跳过停播（独立页接管同一会话）；其他离开路径
+    // （返回、进演员页等）为 false，dispose 时停引擎、清会话、关可见标记。
+    var goingFullscreen by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        onDispose {
+            if (!goingFullscreen) {
+                EngineHost.stop()
+                PlaySession.clear()
+                PlaySession.playerVisible = false
+            }
+        }
+    }
+
     // ---- drpy / PY / PHP 规则接入（drpy 优先，其次 PY，再次 PHP CLI） ----
     // v0.5.1：从订阅站源点进来时带站点上下文（DetailSiteHolder），详情/播放按站走引擎；
     // 否则走本地规则旧逻辑。
-    val subSite = remember { DetailSiteHolder.site }
-    val drpyActive = remember {
+    val subSite = remember(vodId) { DetailSiteHolder.site }
+    val drpyActive = remember(vodId) {
         DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule() ||
             PhpSourceManager.activeRuleName() != null
     }
@@ -197,7 +213,11 @@ fun DetailScreen(
             }
         }
     }
-    LaunchedEffect(vodId) { reloadDetail() }
+    LaunchedEffect(vodId) {
+        // v0.217.0（F12）：换片（组合复用时）先清旧详情，不闪旧片；重查走世代号。
+        detail = null
+        reloadDetail()
+    }
     // 真实选集：vodPlayFrom/vodPlayUrl 对齐
     val episodes: List<Episode> = remember(detail) {
         detail?.let { SiteRepository().parseEpisodes(it) }.orEmpty()
@@ -207,7 +227,7 @@ fun DetailScreen(
         episodes.groupBy { it.flag.ifBlank { "默认线路" } }
             .map { (name, eps) -> PlayLine(name, eps) }
     }
-    var selectedLine by rememberSaveable { mutableIntStateOf(0) }
+    var selectedLine by rememberSaveable(vodId) { mutableIntStateOf(0) }
     val safeLine = if (playLines.isNotEmpty()) selectedLine.coerceIn(playLines.indices) else 0
     val lineEpisodes: List<Episode> = playLines.getOrNull(safeLine)?.episodes.orEmpty()
 
@@ -229,7 +249,7 @@ fun DetailScreen(
         }
     }
 
-    var selectedEpisode by rememberSaveable { mutableIntStateOf(0) }
+    var selectedEpisode by rememberSaveable(vodId) { mutableIntStateOf(0) }
     // v0.77.0：跳集弹窗
     var showJumpDialog by remember { mutableStateOf(false) }
     var jumpText by remember { mutableStateOf("") }
@@ -242,7 +262,7 @@ fun DetailScreen(
 
     /** v0.21.0：影片信息一键复制 */
     // 当前来源名：追剧时记下来，追剧列表里展示；订阅站同时记 site key 以便回跳
-    val sourceName = remember {
+    val sourceName = remember(vodId) {
         when {
             subSite != null -> subSite.name
             DrpySourceManager.hasActiveRule() ->
@@ -312,35 +332,55 @@ fun DetailScreen(
 
     /** 统一播放决策（v0.19.0）：解析走公共 resolvePlayUrl；磁力直接起播不进播放器 */
     // v0.65：嵌入播放器状态（详情页顶部 16:9 直接播）
-    var embeddedUrl by remember { mutableStateOf("") }
-    var embeddedTitle by remember { mutableStateOf("") }
+    var embeddedUrl by remember(vodId) { mutableStateOf("") }
+    var embeddedTitle by remember(vodId) { mutableStateOf("") }
     // v0.205.0：顶部播放区状态——解析中/失败时盖一层状态，不再只剩封面图
-    var embeddedResolving by remember { mutableStateOf(false) }
-    var embeddedError by remember { mutableStateOf<String?>(null) }
+    var embeddedResolving by remember(vodId) { mutableStateOf(false) }
+    var embeddedError by remember(vodId) { mutableStateOf<String?>(null) }
     // v0.164.0：pics:// 图片集不走嵌入视频播放器，单独全屏看图（见外层 Box 末尾的覆盖层）
-    var picsUrl by remember { mutableStateOf("") }
-    var picsTitle by remember { mutableStateOf("") }
+    var picsUrl by remember(vodId) { mutableStateOf("") }
+    var picsTitle by remember(vodId) { mutableStateOf("") }
     // v0.65：当前播放的线路/集数（高亮跟随）
-    var playingLine by remember { mutableIntStateOf(0) }
-    var playingEp by remember { mutableIntStateOf(0) }
+    var playingLine by remember(vodId) { mutableIntStateOf(0) }
+    var playingEp by remember(vodId) { mutableIntStateOf(0) }
+    // v0.217.0（F10）：播放解析世代号，只认最后一次点按
+    var playGen by remember(vodId) { mutableIntStateOf(0) }
+
+    /**
+     * v0.217.0（F11）：“当前规则是否可用”唯一入口——点播、下载共用。
+     * 订阅站源不在禁用表里，恒可用；本地规则查禁用表。
+     * 只返回判断，不弹提示，提示文案由调用方按入口写（播放／下载说法不同）。
+     */
+    fun isCurrentRuleEnabled(): Boolean {
+        if (subSite != null) return true
+        val rule: Pair<String, String?> = when {
+            DrpySourceManager.hasActiveRule() -> "js" to DrpySourceManager.activeRuleName()
+            PySourceManager.hasActiveRule() -> "py" to PySourceManager.activeRuleName()
+            PhpSourceManager.activeRuleName() != null -> "php" to PhpSourceManager.activeRuleName()
+            else -> "" to null
+        }
+        val ruleName = rule.second ?: return true
+        return SourceStateStore.isRuleEnabled(rule.first, ruleName)
+    }
 
     fun playEpisode(ep: Episode, lineIndex: Int, episodeIndex: Int) {
         LogBus.i("UI", "点击播放: ${ep.name.ifBlank { "未命名剧集" }} url=${ep.url.take(100)}")
         // v0.215.0：禁用源详情仍可播——点播前查禁用表，禁用的源不解析、只提示
         // （详情页打开时源还启用、进页后被禁用也会拦住；订阅站源不在此表，不受影响）。
-        if (subSite == null) {
-            val rule: Pair<String, String?> = when {
-                DrpySourceManager.hasActiveRule() -> "js" to DrpySourceManager.activeRuleName()
-                PySourceManager.hasActiveRule() -> "py" to PySourceManager.activeRuleName()
-                PhpSourceManager.activeRuleName() != null -> "php" to PhpSourceManager.activeRuleName()
-                else -> "" to null
-            }
-            val ruleName = rule.second
-            if (ruleName != null && !SourceStateStore.isRuleEnabled(rule.first, ruleName)) {
-                AppToast.show(context, "该源已禁用，启用后才能播放", long = false)
-                return
-            }
+        // v0.217.0（F11）：走共用入口 isCurrentRuleEnabled，不再各写各的。
+        if (!isCurrentRuleEnabled()) {
+            AppToast.show(context, "该源已禁用，启用后才能播放", long = false)
+            return
         }
+        // v0.217.0（F8）：选中态统一在 playEpisode 入口写——主选集分支点按
+        // 原来不写 selectedEpisode，失败后重试读的是旧选中态、播错集；
+        // 第二分支原来各写各的，现在入口一处写，两分支与重试、高亮同口径。
+        selectedLine = lineIndex
+        selectedEpisode = episodeIndex
+        // v0.217.0（F10）：播放解析世代号——连点选集时旧的慢解析结果到达
+        // 直接丢弃，不再覆盖新一集的播放与会话；只认最后一次点按。
+        playGen += 1
+        val myGen = playGen
         // v0.106.0：解析走应用级 PlayResolveScope——rememberCoroutineScope 会在切页/
         // 返回时取消，导致 "The coroutine scope left the composition"（16 条线路全灭）
         PlayResolveScope.launch {
@@ -350,6 +390,8 @@ fun DetailScreen(
                 val ok = runCatching {
                     MagnetPlayer.playIfReady(context, ep.url, vod?.title ?: displayTitle(vodId))
                 }.getOrDefault(false)
+                // 世代已过：新一集已在解析，本单不再动任何状态
+                if (myGen != playGen) return@launch
                 // 服务通则已直接起播；不通则弹窗提示
                 if (!ok) showMagnetDialog = true
                 embeddedResolving = false
@@ -360,11 +402,17 @@ fun DetailScreen(
                     LogBus.e("Detail", "解析异常：${t.message}")
                     ""
                 }
+                // 世代已过：迟到结果直接丢弃，不写地址、不记已看、不建会话
+                if (myGen != playGen) return@launch
                 // v0.171.0：无播放地址先拦截提示，不再静默记已看、不写播放会话、
                 // 不进只剩封面的空白播放区（此前 markWatched 与 PlaySession.start
                 // 都在空地址判定之前执行，点集没反应还被标成已看）
                 if (link.isBlank()) {
                     AppToast.show(context, "该集暂无播放地址", long = false)
+                    // v0.217.0（F9）：坏集失败切到错误态——旧 embeddedUrl 必须清掉，
+                    // 否则状态层（要求地址为空才渲染）永远出不来，用户既看不到重试、
+                    // 也分不清现在播的是哪集；重试读 F8 统一写的选中态，正好是这集。
+                    embeddedUrl = ""
                     embeddedError = "该集暂无播放地址"
                     embeddedResolving = false
                     return@launch
@@ -404,7 +452,7 @@ fun DetailScreen(
     // v0.62：进详情页自动播放（用户要求，不需要点播放键）
     // v0.73.0：断点续播——追剧的剧从"看到第几集"继续播，而不是永远第1集
     // v0.75.0：继续观看带集数进来时优先用它
-    var autoPlayed by remember { mutableStateOf(false) }
+    var autoPlayed by remember(vodId) { mutableStateOf(false) }
     LaunchedEffect(detail, lineEpisodes, resumeReady) {
         if (!autoPlayed && detail != null && lineEpisodes.isNotEmpty() && resumeReady) {
             autoPlayed = true
@@ -978,7 +1026,10 @@ fun DetailScreen(
                             vodId = vodId,
                             onBack = onBack,
                             embedded = true,
-                            onFullscreen = { onPlay(embeddedUrl, embeddedTitle) },
+                            onFullscreen = {
+                                goingFullscreen = true
+                                onPlay(embeddedUrl, embeddedTitle)
+                            },
                             onEpisodeChange = { lineIdx, epIdx ->
                                 playingLine = lineIdx
                                 playingEp = epIdx
@@ -1208,6 +1259,10 @@ fun DetailScreen(
                             AppButton(
                                 text = "下载选中（${selected.size}）",
                                 onClick = {
+                                    // v0.217.0（F11）：下载入口同样过禁用检查，不再绕过禁用。
+                                    if (!isCurrentRuleEnabled()) {
+                                        AppToast.show(context, "该源已禁用，启用后才能下载", long = false)
+                                    } else {
                                     resolving = true
                                     // v0.106.0：批量解析走应用级 scope，关弹窗/切页不中断
                                     PlayResolveScope.launch {
@@ -1242,6 +1297,7 @@ fun DetailScreen(
                                             AppToast.show(context, "已加入下载队列（${tasks.size}）", long = false)
                                         }
                                     }
+                                }
                                 },
                                 enabled = !resolving && selected.isNotEmpty(),
                             )

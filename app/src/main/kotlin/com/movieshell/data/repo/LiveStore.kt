@@ -358,11 +358,14 @@ object LiveStore {
             val m = extinfRe.matchEntire(lines[i])
             if (m != null) {
                 val attrs = attrRe.findAll(lines[i]).associate { it.groupValues[1] to it.groupValues[2] }
+                val name = m.groupValues[1].trim().ifBlank { "未知频道" }
                 var j = i + 1
-                while (j < lines.size && (lines[j].startsWith("#") || lines[j].isBlank())) j++
-                val url = if (j < lines.size) lines[j] else ""
-                if (url.isNotBlank() && !url.startsWith("#")) {
-                    val name = m.groupValues[1].trim().ifBlank { "未知频道" }
+                // v0.217.0（F20）：找地址时遇到下一个 #EXTINF 就停——无地址的频道
+                // 直接丢弃并记日志，不许越过下一台的台名行偷它的地址（原来跳所有
+                // # 行，一行脏数据污染两台：本台拿错地址、下台直接消失）。
+                while (j < lines.size && lines[j].startsWith("#") && !lines[j].startsWith("#EXTINF")) j++
+                if (j < lines.size && !lines[j].startsWith("#")) {
+                    val url = lines[j]
                     val id = "$sourceKey|$url"
                     out.add(
                         LiveChannel(
@@ -374,8 +377,12 @@ object LiveStore {
                             sourceKey = sourceKey,
                         ),
                     )
+                    i = j + 1
+                } else {
+                    LogBus.w("Live", "M3U 频道无地址已丢弃：$name（源 $sourceKey）")
+                    // j 处若是下一个 #EXTINF，下一轮重新处理它；若已到末尾，循环自然结束
+                    i = j
                 }
-                i = j + 1
             } else i++
         }
         return out

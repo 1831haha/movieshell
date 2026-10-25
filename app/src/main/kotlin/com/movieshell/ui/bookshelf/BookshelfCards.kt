@@ -87,11 +87,13 @@ fun Modifier.bookPressable(
         )
 }
 
-/** 书籍阅读进度（0..1）。 */
+/** 书籍阅读进度（0..1）。
+ * v0.217.0（F46）：按“是否动过书”算——正在读第 1 章时进度是 1/total，
+ * 不再因下标 0 被算成没读过。 */
 fun Novel.readFraction(): Float {
     val total = totalChapters.coerceAtLeast(1)
     val read = lastReadChapter.coerceIn(0, total - 1)
-    return if (lastReadChapter == 0) 0f else (read + 1).toFloat() / total
+    return if (!hasStartedReading) 0f else (read + 1).toFloat() / total
 }
 
 /** v0.197.0：阅读式列表行——不用玻璃卡片，plain 行 + 底部分隔线；四行信息
@@ -193,7 +195,7 @@ fun NovelListCard(
                 NovelMetaRow(
                     icon = Icons.Filled.MenuBook,
                     // v0.214.0：书架行补在读章节标题（有标题才拼，无标题回落只显章号）。
-                    text = if (novel.lastReadChapter == 0) "还没读过"
+                    text = if (!novel.hasStartedReading) "还没读过"
                     else "已读：第 ${read + 1} 章" + (novel.lastReadChapterTitle?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
                 )
                 Spacer(Modifier.height(2.dp))

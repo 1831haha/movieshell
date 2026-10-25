@@ -38,13 +38,27 @@ suspend fun resolvePlayUrl(
     val epUrl = episode.url
     return runCatching {
         when {
-            subSite == null ->
-                if (DrpySourceManager.hasActiveRule()) DrpySourceManager.playUrl(flag, epUrl)
-                else if (PySourceManager.hasActiveRule())
-                    finishPyPlay(context, null) { PySourceManager.playRaw(flag, epUrl) }
-                else if (PhpSourceManager.activeRuleName() != null)
-                    finishPyPlay(context, null) { PhpCliEngine.playRaw(context, flag, epUrl) }
-                else ""
+            subSite == null -> {
+                // v0.217.0（F22）：多路同时激活时，第一路返回空地址不再定局——
+                // 空了（或抛异常）顺延试下一路，三路都空才返回空，不再让用户
+                // 明明换个规则就能播的剧只看到“没地址”。
+                var result = runCatching {
+                    if (DrpySourceManager.hasActiveRule()) DrpySourceManager.playUrl(flag, epUrl) else ""
+                }.getOrDefault("")
+                if (result.isBlank()) {
+                    result = runCatching {
+                        if (PySourceManager.hasActiveRule())
+                            finishPyPlay(context, null) { PySourceManager.playRaw(flag, epUrl) } else ""
+                    }.getOrDefault("")
+                }
+                if (result.isBlank()) {
+                    result = runCatching {
+                        if (PhpSourceManager.activeRuleName() != null)
+                            finishPyPlay(context, null) { PhpCliEngine.playRaw(context, flag, epUrl) } else ""
+                    }.getOrDefault("")
+                }
+                result
+            }
             // CMS 站：vod_play_url 里就是直链，直接播
             // v0.21.0：防盗链兜底——CMS 直链默认带站点 Referer（经 SniffPlayHeaders 透传）
             subSite.isCmsSite() -> {

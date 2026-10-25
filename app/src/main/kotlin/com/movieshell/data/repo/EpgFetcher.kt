@@ -51,12 +51,15 @@ object EpgFetcher {
         cacheDir = dir
     }
 
-    private val timeFmt = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US).apply {
-        timeZone = TimeZone.getTimeZone("UTC")
-    }
-
+    // v0.217.0（F21）：SimpleDateFormat 不是线程安全的，原来是共享单例，
+    // 直播页与频道详情并发查节目单时会互相干扰、个别节目时间算错或被
+    // 静默过滤（外层 runCatching 把错吞成 0L）；每次新建解析器，代价可忽略。
     private fun parseTime(s: String): Long =
-        runCatching { timeFmt.parse(s.trim())?.time ?: 0L }.getOrDefault(0L)
+        runCatching {
+            SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }.parse(s.trim())?.time ?: 0L
+        }.getOrDefault(0L)
 
     private fun cacheFileFor(epgUrl: String): File? {
         val dir = cacheDir ?: return null

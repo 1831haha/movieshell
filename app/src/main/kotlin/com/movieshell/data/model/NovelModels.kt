@@ -15,6 +15,10 @@ data class Novel(
     val desc: String? = null,
     val totalChapters: Int = 0,
     val lastReadChapter: Int = 0, // 已读到的章节下标（从 0 起），0=没读过
+    // v0.217.0（F46）：是否动过这本书——进度记录存在即已开始。原来只看
+    // lastReadChapter==0，正在读第 1 章的书也被算成“没读过”、进度 0%。
+    // 派生自进度记录有无（list()/get() 里算），不由调用方手写。
+    val hasStartedReading: Boolean = false,
     // v0.214.0：书架行章节标题——在读章标题由阅读器落盘时写进度，
     // 最新章标题由入架/换源/追更写目录时写索引；老数据无此字段时回落只显章号。
     val lastReadChapterTitle: String? = null,

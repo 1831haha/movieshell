@@ -42,7 +42,10 @@ object OnlineSubtitleKit {
         val (content, ext) = source.download(item)
         val dir = File(context.filesDir, "subtitles").also { it.mkdirs() }
         val safeExt = ext.ifBlank { "srt" }
-        val file = File(dir, "${source.id}_${item.sid}.$safeExt")
+        // v0.217.0（F24）：文件名里的 sid 先按白名单清洗——插件源 sid 不受内置源
+        // “字母数字”约束，含 / 或 .. 时文件会写出字幕目录；与弹幕缓存同款做法。
+        val safeSid = item.sid.replace(Regex("[^a-zA-Z0-9_-]"), "_").ifBlank { "sub" }
+        val file = File(dir, "${source.id}_${safeSid}.$safeExt")
         file.writeText(content, Charsets.UTF_8)
         val url = "file://${file.absolutePath}"
         if (!vodId.isNullOrBlank()) {

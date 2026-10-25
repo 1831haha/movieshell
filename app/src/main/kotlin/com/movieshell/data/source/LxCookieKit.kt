@@ -41,10 +41,10 @@ object LxCookieKit {
         val header = HEADER_BLOCK.find(scriptText)?.value.orEmpty()
         DECL_LINE.findAll(header).forEach { add(it.groupValues[1], it.groupValues[2]) }
         DECL_BLOCK.findAll(scriptText).forEach { add(it.groupValues[1], it.groupValues[2]) }
-        // 用户还没填过声明时：从脚本正文的提及（如 parseHeader 正则对）反推支持哪些 key
-        if (seen.isEmpty()) {
-            ANY_DECL.findAll(scriptText).forEach { add(it.groupValues[1], "") }
-        }
+        // v0.217.0（F36）：正文提及的 key 也并入候选——原来只在头块一个 key
+        // 都没有时才反推，头块只声明一个平台时正文提到的其他平台填不了；
+        // add() 本就“先到先得”，头块已有的值优先，不会被正文空值覆盖。
+        ANY_DECL.findAll(scriptText).forEach { add(it.groupValues[1], "") }
         return seen.values.toList()
     }
 

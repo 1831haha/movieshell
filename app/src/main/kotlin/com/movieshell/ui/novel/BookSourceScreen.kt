@@ -83,6 +83,8 @@ import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -156,6 +158,22 @@ fun BookSourceScreen(
     var batchMode by remember { mutableStateOf(false) }
     var selectedSrcKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var batchDeleteConfirm by remember { mutableStateOf(false) }
+    // v0.217.0（F45）：批量删除确认框也要报受影响的在架本数——原来只有
+    // 单删确认框有，批量删完用户才知道书架断了多少本。
+    var batchAffectedCount by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(batchDeleteConfirm) {
+        batchAffectedCount = if (!batchDeleteConfirm) null
+        else withContext(Dispatchers.IO) {
+            selectedSrcKeys.sumOf { k ->
+                val key = when {
+                    k.startsWith("py_") -> PyBookSourceManager.SOURCE_KEY_PREFIX + k.removePrefix("py_")
+                    k.startsWith("json_") -> k.removePrefix("json_")
+                    else -> k
+                }
+                com.movieshell.data.repo.NovelStore.countBySourceKey(context, key)
+            }
+        }
+    }
     val shownPy = remember(pyRules, srcQuery) {
         if (srcQuery.isBlank()) pyRules else pyRules.filter {
             it.name.contains(srcQuery, ignoreCase = true) || it.title.contains(srcQuery, ignoreCase = true)
@@ -171,6 +189,10 @@ fun BookSourceScreen(
     }
     // v0.67.0：PY 源连通性测试
     var testingPy by remember { mutableStateOf<String?>(null) }
+    // v0.217.0（F42）：验证排队锁——原来多源测试并发跑、共用 testingPy／
+    // testResult，先跑完的把后跑的转圈清掉、结果互相顶掉；一次只测一个，
+    // 点多个源时按点击顺序排队出结果。
+    val testMutex = remember { Mutex() }
     // v0.96.1：净化规则生效数（按钮上展示）
     var purifyCount by remember { mutableIntStateOf(-1) }
     LaunchedEffect(Unit) {
@@ -458,17 +480,21 @@ fun BookSourceScreen(
                                 testingPy = r.name
                                 testResult = null
                                 scope.launch {
-                                    val path = PyBookSourceManager.rulePath(context, r.name)
-                                    val msg = if (path == null) {
-                                        "找不到源文件"
-                                    } else {
-                                        PyBookApi().testSearch(path).fold(
-                                            onSuccess = { n -> "测试通过：搜到 $n 本书" },
-                                            onFailure = { e -> "测试失败：${e.message}" },
-                                        )
+                                    // 排队：等前一个源的测试跑完再跑自己的，
+                                    // 转圈与结果不再被别的源顶掉。
+                                    testMutex.withLock {
+                                        val path = PyBookSourceManager.rulePath(context, r.name)
+                                        val msg = if (path == null) {
+                                            "找不到源文件"
+                                        } else {
+                                            PyBookApi().testSearch(path).fold(
+                                                onSuccess = { n -> "测试通过：搜到 $n 本书" },
+                                                onFailure = { e -> "测试失败：${e.message}" },
+                                            )
+                                        }
+                                        testResult = "《${r.title}》$msg"
                                     }
                                     testingPy = null
-                                    testResult = "《${r.title}》$msg"
                                 }
                             }) {
                                 Icon(
@@ -631,23 +657,44 @@ fun BookSourceScreen(
                 batchDeleteConfirm = false
                 val keys = selectedSrcKeys
                 scope.launch {
+                    // v0.217.0（F45）：报实删数——原来直接报勾选数，个别源
+                    // 写盘失败也算“已删除”；JSON 删除无返回值，按单删同款
+                    // “删完 key 还在即失败”逐个验。
+                    var okCount = 0
                     withContext(Dispatchers.IO) {
                         keys.forEach { k ->
                             when {
-                                k.startsWith("py_") ->
-                                    PyBookSourceManager.remove(context, k.removePrefix("py_"))
-                                k.startsWith("json_") ->
-                                    BookSourceManager.remove(context, k.removePrefix("json_"))
+                                k.startsWith("py_") -> {
+                                    if (PyBookSourceManager.remove(context, k.removePrefix("py_"))) okCount++
+                                }
+                                k.startsWith("json_") -> {
+                                    val key = k.removePrefix("json_")
+                                    BookSourceManager.remove(context, key)
+                                    if (BookSourceManager.sources.value.none { it.key == key }) okCount++
+                                }
                             }
                         }
                     }
                     selectedSrcKeys = emptySet()
                     batchMode = false
-                    AppToast.show(context, "已删除 ${keys.size} 个书源", long = false)
+                    AppToast.show(
+                        context,
+                        when {
+                            okCount == keys.size -> "已删除 $okCount 个书源"
+                            okCount > 0 -> "已删除 $okCount/${keys.size} 个书源，${keys.size - okCount} 个删除失败"
+                            else -> "删除失败，书源未删除"
+                        },
+                        long = false,
+                    )
                 }
             },
         ) {
-            Text("删除后找书不再用这些源；书架里用这些源的书将无法追更，阅读时需要换源。")
+            Text(
+                "删除后找书不再用这些源；书架里用这些源的书将无法追更，阅读时需要换源。" +
+                    (batchAffectedCount?.let { n ->
+                        if (n > 0) " 本次删除影响书架上 $n 本书。" else ""
+                    } ?: ""),
+            )
         }
     }
 

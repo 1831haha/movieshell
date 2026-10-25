@@ -43,7 +43,26 @@ object NovelUpdateChecker {
             }
             if (metas.isEmpty()) return@runCatching Result.Failed
             val newCount = metas.size - novel.totalChapters
-            if (newCount <= 0) return@runCatching Result.NoUpdate
+            if (newCount <= 0) {
+                // v0.217.0（F49）：章数没变时再比末章标题——源方同数换章／
+                // 改名时只比章数永远漏报；标题变了同样刷新目录并报更新
+                // （角标计 1 章，表示“内容有变化”而非新增章数；刷新后
+                // latestChapterTitle 已同步，下次检查不再重复报）。
+                // 老书无 latestChapterTitle 时无法比对，按无更新处理，
+                // 下次章数变化的刷新会把该字段补齐。
+                val remoteLast = metas.lastOrNull()?.title.orEmpty()
+                val localLast = novel.latestChapterTitle.orEmpty()
+                if (remoteLast.isBlank() || localLast.isBlank() || remoteLast == localLast) {
+                    return@runCatching Result.NoUpdate
+                }
+                val chapters = metas.map {
+                    Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url)
+                }
+                if (!NovelStore.updateSource(context, novel.id, novel.sourceKey, chapters)) {
+                    return@runCatching Result.Failed
+                }
+                return@runCatching Result.Updated(1)
+            }
             // 有更新：本地目录同步到最新（复用换源的写入逻辑，源 key 不变）
             val chapters = metas.map {
                 Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url)

@@ -352,8 +352,12 @@ class V8DrpyEngine(
 
     override suspend fun detail(id: String): VodDetail = withContext(Dispatchers.IO) {
         val json = evalForJsonWithRetry("(function(){return __drpyDetail(${JSONObject.quote(id)});})()")
-            ?: return@withContext VodDetail()
-        parseDetail(json)
+            // v0.217.0（F56）：执行失败原来交空白详情、id 丢了，管理器层
+            // 的兜底只在 null 时才补 id，空白详情直接穿过去，详情页加载
+            // 失败后显示空白、后续按 id 的事全拿不到 id；与 PY 口径对齐。
+            ?: return@withContext VodDetail(vodId = id)
+        // 规则成功返回但没给 vod_id 时同样补请求 id，不让空白 id 流到详情页。
+        parseDetail(json, id).let { if (it.vodId.isBlank()) it.copy(vodId = id) else it }
     }
 
     override suspend fun search(wd: String): List<Vod> = withContext(Dispatchers.IO) {
@@ -601,7 +605,7 @@ class V8DrpyEngine(
         }.getOrDefault(emptyList())
     }
 
-    private fun parseDetail(json: String): VodDetail {
+    private fun parseDetail(json: String, id: String): VodDetail {
         return runCatching {
             val o = JSONObject(json)
             VodDetail(
@@ -616,7 +620,7 @@ class V8DrpyEngine(
             val reason = "详情解析失败: ${it.message}"
             lastError = reason
             LogBus.w(TAG, reason)
-        }.getOrDefault(VodDetail())
+        }.getOrDefault(VodDetail(vodId = id))
     }
 
     private fun parsePlayUrl(json: String): String {

@@ -3,6 +3,8 @@ package com.movieshell.data.novel
 import android.util.Log
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DEFAULT_UA_CHROME120
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -682,9 +684,13 @@ object LegadoJsEngine {
         ctx: JsCtx,
         state: JsState,
         refetch: (suspend () -> BookRuleEngine.PageResult?)?,
-    ): BookRuleEngine.PageResult {
+    ): BookRuleEngine.PageResult = withContext(Dispatchers.IO) {
+        // v0.217.0（F50）：Rhino 求值与 java.ajax 都是同步阻塞，调用约束原来
+        // 只写在注释里（“调用方必须在 IO 线程”），UI 触发的新调用点一旦
+        // 漏包 IO 就直接在主线程跑校验；入口自己包进 IO，已包过的调用点
+        // 嵌套进 IO 仍是 IO，无额外代价，约束从此由代码保证。
         val js = substituteTemplates(source.loginCheckJs, ctx)
-        if (js.isBlank()) return page
+        if (js.isBlank()) return@withContext page
         state.lastPage = page
         val out = evalJs(
             js,
@@ -711,9 +717,9 @@ object LegadoJsEngine {
             (resultPage.body != page.body && resultPage.body.length < 200)
         if (needRefetch && refetch != null) {
             state.variableChanged = false
-            return refetch() ?: resultPage
+            return@withContext refetch() ?: resultPage
         }
-        return resultPage
+        resultPage
     }
 
     /**

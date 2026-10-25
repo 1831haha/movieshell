@@ -78,15 +78,6 @@ fun ChangeSourceDialog(
     var groups by remember { mutableStateOf<List<ChangeSourceGroup>>(emptyList()) }
     var switching by remember { mutableStateOf<String?>(null) }
 
-    val sources by BookSourceManager.sources.collectAsState()
-    val pyRules by PyBookSourceManager.rules.collectAsState()
-    val pyEnabled by PyBookSourceManager.enabled.collectAsState()
-
-    LaunchedEffect(Unit) {
-        BookSourceManager.load(context)
-        PyBookSourceManager.load(context)
-    }
-
     fun doSearch() {
         val kw = keyword.trim()
         if (kw.isBlank() || searching) return
@@ -94,8 +85,12 @@ fun ChangeSourceDialog(
         searching = true
         searched = true
         scope.launch {
-            val enabledSources = sources.filter { it.enabled }
-            val enabledPy = pyRules.filter { it.name in pyEnabled }
+            // v0.217.0（F38）：读管理器实时值，不读组合快照——载入完成到组合
+            // 重组有延迟，快照里还是空表，搜出来永远是空。
+            val enabledSources = BookSourceManager.sources.value.filter { it.enabled }
+            val enabledPy = PyBookSourceManager.rules.value.filter {
+                it.name in PyBookSourceManager.enabled.value
+            }
             val result = coroutineScope {
                 val jsonJob = async {
                     NovelSourceEngine.searchAll(enabledSources, kw, allowGate = true)
@@ -129,7 +124,7 @@ fun ChangeSourceDialog(
                 val metas = if (group.key.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
                     NovelSourceEngine.chaptersPy(context, item)
                 } else {
-                    val source = sources.firstOrNull { it.key == group.key }
+                    val source = BookSourceManager.sources.value.firstOrNull { it.key == group.key }
                         ?: return@runCatching -1
                     NovelSourceEngine.chapters(source, item)
                 }
@@ -159,7 +154,13 @@ fun ChangeSourceDialog(
         }
     }
 
-    LaunchedEffect(Unit) { doSearch() }
+    // v0.217.0（F38）：载入与首搜串成一个协程——原来两个 LaunchedEffect(Unit)
+    // 并发跑，搜索读的是载入前的空快照，第一次必定搜空；现在先 load 再搜。
+    LaunchedEffect(Unit) {
+        BookSourceManager.load(context)
+        PyBookSourceManager.load(context)
+        doSearch()
+    }
 
     TechDialog(
         onDismissRequest = onDismiss,

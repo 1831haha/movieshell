@@ -154,28 +154,47 @@ private val tabs = listOf(
 
 private const val DETAIL_ROUTE = "detail/{vodId}?title={title}&episode={episode}"
 
+/** 通知已消费路由在 savedInstanceState 里的 key（F69 去重用）。 */
+private const val KEY_CONSUMED_ROUTE = "consumed_notify_route"
+
 class MainActivity : ComponentActivity() {
 
     /** 通知点进来的待跳转路由（route to subKey），消费一次。 */
     private val pendingRoute = mutableStateOf<Pair<String, String>?>(null)
 
+    /**
+     * v0.217.0（F69）：已接受的通知路由——重建去重用。原来 onCreate 无条件
+     * 从 Intent 读路由，进程被杀恢复后同一条路由又被消费一次，返回栈里
+     * 多一层同样的详情页；现在接受时即记下，重建时 Intent 里还是同一条
+     * 就跳过（savedInstanceState 恢复）；onNewIntent 是新投递，照常接受。
+     */
+    private var consumedRoute: String? = null
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleRouteIntent(intent)
+        handleRouteIntent(intent, consumed = null)
     }
 
-    private fun handleRouteIntent(intent: Intent?) {
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        consumedRoute?.let { outState.putString(KEY_CONSUMED_ROUTE, it) }
+    }
+
+    private fun handleRouteIntent(intent: Intent?, consumed: String?) {
         if (intent?.action != Notify.ACTION_ROUTE) return
         val route = intent.getStringExtra(Notify.EXTRA_ROUTE).orEmpty()
-        if (route.isNotBlank()) {
+        if (route.isNotBlank() && route != consumed) {
+            consumedRoute = route
             pendingRoute.value = route to intent.getStringExtra(Notify.EXTRA_SUBKEY).orEmpty()
         }
+        // 消费后清掉 action，同一 Intent 对象再投递时不再重放。
+        intent.action = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        handleRouteIntent(intent)
+        handleRouteIntent(intent, savedInstanceState?.getString(KEY_CONSUMED_ROUTE))
         // v0.7.2：日志总线最先初始化（接住之后所有初始化的异常）
         LogBus.init(this)
         // v0.210.0：后台验证用的应用上下文（搜书验证先在后台 WebView 里过，不过才弹页）
@@ -498,7 +517,10 @@ class MainActivity : ComponentActivity() {
                                 onBack = { navController.popBackStack() },
                                 onVodClick = { item ->
                                     // 恢复站点上下文 / 激活对应规则，再进详情
-                                    when (item.sourceType) {
+                                    // v0.217.0（F51）：照抄继续观看分支——切源失败
+                                    // （源已删）时不进详情、不动当前源，只提示；
+                                    // 原来返回值被丢弃，失败也照常进详情。
+                                    val sourceOk = when (item.sourceType) {
                                         "drpy" -> {
                                             DetailSiteHolder.site = null
                                             DrpySourceManager.setActiveRule(item.sourceKey)
@@ -508,20 +530,32 @@ class MainActivity : ComponentActivity() {
                                             PySourceManager.setActiveRule(item.sourceKey)
                                         }
                                         else -> {
-                                            DetailSiteHolder.site = item.sourceKey
-                                                .takeIf { it.isNotBlank() }
-                                                ?.let { key ->
-                                                    SubSiteStore.findSite(
-                                                        this@MainActivity,
-                                                        key,
-                                                    )?.let { (u, r) -> SubSiteStore.toSite(u, r) }
-                                                }
+                                            if (item.sourceKey.isBlank()) {
+                                                DetailSiteHolder.site = null
+                                                true
+                                            } else {
+                                                SubSiteStore.findSite(
+                                                    this@MainActivity,
+                                                    item.sourceKey,
+                                                )?.let { (u, r) ->
+                                                    DetailSiteHolder.site = SubSiteStore.toSite(u, r)
+                                                    true
+                                                } ?: false
+                                            }
                                         }
                                     }
-                                    lifecycleScope.launch(Dispatchers.IO) {
-                                        FollowStore.clearNew(this@MainActivity, item.id)
+                                    if (sourceOk) {
+                                        lifecycleScope.launch(Dispatchers.IO) {
+                                            FollowStore.clearNew(this@MainActivity, item.id)
+                                        }
+                                        navController.navigate("detail/${Uri.encode(item.vodId)}")
+                                    } else {
+                                        android.widget.Toast.makeText(
+                                            this@MainActivity,
+                                            "该记录的源已删除或不可用，当前源未变",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
                                     }
-                                    navController.navigate("detail/${Uri.encode(item.vodId)}")
                                 },
                             )
                         }

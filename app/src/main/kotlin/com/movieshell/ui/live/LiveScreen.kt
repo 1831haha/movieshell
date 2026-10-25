@@ -189,6 +189,10 @@ fun LiveScreen(
                 restored?.let { LiveSelection.channelId = it.id }
             } else if (channels.none { it.id == selected?.id }) {
                 selected = restored ?: channels.first()
+            } else {
+                // v0.217.0（F19）：选中台还在列表里时，换成刷新后的新对象——
+                // 否则顶部卡拿着旧拷贝，收藏／过期状态刷新后不同步。
+                channels.firstOrNull { it.id == selected?.id }?.let { selected = it }
             }
             // 按台名选的源从单例恢复一次（切 tab 回来不丢源2）
             if (liveSourceByName.isEmpty() && LiveSelection.sourceByName.isNotEmpty()) {

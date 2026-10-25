@@ -756,7 +756,10 @@ object PluginMarket {
             else -> {
                 val dir = ruleDir(context, rec.engine)
                 rec.files.forEach { File(dir, it).delete() }
-                clearActiveIfGone(rec)
+                // v0.217.0（F57）：与站源页删除同一套六项清理——原来只清
+                // 内存激活态，禁用态／探活／首页缓存／置顶全残留，同名源
+                // 重装后旧状态复活。
+                rec.files.forEach { SourceDeleteCleanup.run(context, rec.engine, it) }
             }
         }
         PluginStore.removeInstalled(context, id)
@@ -1045,21 +1048,5 @@ object PluginMarket {
         "js" -> StoragePaths.jsDir(context)
         "php" -> PhpSourceManager.rulesDir(context)
         else -> throw IllegalStateException("不支持的源引擎：$engine")
-    }
-
-    /** 卸载后若 active 规则文件已不存在，清空 active，避免悬空。 */
-    private fun clearActiveIfGone(rec: InstalledPlugin) {
-        if (rec.files.contains(PySourceManager.activeRuleName())) {
-            LogBus.i(TAG, "active py 规则随插件卸载：${PySourceManager.activeRuleName()}")
-            PySourceManager.setActiveRule(null)
-        }
-        if (rec.files.contains(DrpySourceManager.activeRuleName())) {
-            LogBus.i(TAG, "active js 规则随插件卸载：${DrpySourceManager.activeRuleName()}")
-            DrpySourceManager.setActiveRule(null)
-        }
-        if (rec.files.contains(PhpSourceManager.activeRuleName())) {
-            LogBus.i(TAG, "active php 规则随插件卸载：${PhpSourceManager.activeRuleName()}")
-            PhpSourceManager.setActiveRule(null)
-        }
     }
 }

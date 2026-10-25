@@ -3,6 +3,7 @@ package com.movieshell.ui.settings
 import android.content.ClipData
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
+import com.movieshell.ui.search.currentSourceName as searchCurrentSourceName
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -118,6 +119,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.repo.ApiSourceStore
@@ -307,19 +310,11 @@ fun SettingsScreen(
                     PhpSourceManager.listRules().size
             }
         }
-        currentSourceName = runCatching {
-            val cur = SubSiteStore.getCurrent(context)
-            if (cur != null) {
-                SubSiteStore.getCached(context, cur.subUrl)
-                    ?.sites?.firstOrNull { it.key == cur.siteKey }?.name ?: "订阅源"
-            } else if (SourceStateStore.activeDrpyRule() != null) {
-                DrpySourceManager.activeRuleName() ?: "drpy 规则"
-            } else if (SourceStateStore.activePyRule() != null) {
-                PySourceManager.activeRuleName() ?: "py 规则"
-            } else {
-                "未设置"
-            }
-        }.getOrDefault("未设置")
+        // v0.217.0（F63）：当前源只展示搜索页同一口径——原来设置页自己
+        // 另写一套（只看缓存记录名，禁用／不支持的源也照样显示，缺 PHP
+        // 分支），与搜索页“未设置当前源”打架；现在复用搜索页的算法，
+        // 只有搜索页认的当前源才显示，否则显示“未设置”。
+        currentSourceName = runCatching { searchCurrentSourceName(context) }.getOrNull() ?: "未设置"
         statsFailed = failed
         statsLoaded = true
     }
@@ -967,6 +962,9 @@ fun SettingsScreen(
         var urlInput by remember { mutableStateOf(cfg.url) }
         var userInput by remember { mutableStateOf(cfg.user) }
         var passInput by remember { mutableStateOf(cfg.pass) }
+        // v0.217.0（F68）：密码默认遮掩，可点“显示”临时查看——原来
+        // 明文躺在对话框里，截屏、旁人瞥见都直接看到。
+        var showPass by remember { mutableStateOf(false) }
         // v0.186.0：局域网 http 风险确认，默认不勾选，勾选状态随配置持久化
         var allowLanHttp by remember { mutableStateOf(cfg.allowLanHttp) }
         TechDialog(
@@ -1003,7 +1001,24 @@ fun SettingsScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !cloudWorking,
+                        visualTransformation = if (showPass) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(
+                            onClick = { showPass = !showPass },
+                            enabled = !cloudWorking,
+                        ) {
+                            Text(if (showPass) "隐藏" else "显示", fontSize = 12.sp)
+                        }
+                    }
                     Spacer(Modifier.height(4.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),

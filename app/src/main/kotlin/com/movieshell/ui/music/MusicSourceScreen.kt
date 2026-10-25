@@ -42,6 +42,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicSource
 import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.repo.MusicSourceStore
@@ -91,6 +93,12 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val lxEngine = remember(context) { LxMusicSourceEngine(context) }
     var sources by remember { mutableStateOf<List<MusicSource>>(emptyList()) }
+    // v0.103.0：档次 chips 数据表（value=null=加载中，空 list=失败/无数据），
+    // 声明提前到 reload() 之前——reload 要 bump 下面的刷新计数触发重拉。
+    val qualityOf = remember { mutableStateMapOf<String, List<String>?>() }
+    // v0.217.0（F35）：档次刷新计数——reload 出的列表内容相等时 LaunchedEffect
+    // 不会重跑，光清失败条目没人重拉；计数一变 effect 必重跑。
+    var qualityRefresh by remember { mutableIntStateOf(0) }
     // v0.213.0：删源原来直接执行无确认，误删即丢脚本与 Cookie；
     // 改走歌单删除同款确认弹窗。
     var deleteSourceTarget by remember { mutableStateOf<MusicSource?>(null) }
@@ -116,6 +124,9 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
     // 注意：必须写在 reload() 之前，局部函数不提升，写在后面编译找不到。
     var showCorruptBanner by remember { mutableStateOf(false) }
     fun reload() {
+        // v0.217.0（F35）：刷新必重拉档次——计数变化强制 effect 重跑，
+        // effect 内先清失败／已删源条目再按“不在表里”重拉。
+        qualityRefresh += 1
         scope.launch {
             sources = MusicSourceStore.validateLocalScripts(context)
             showCorruptBanner = MusicSourceStore.hasCorruptBackup(context)
@@ -184,6 +195,8 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             cookieSlots.forEach { slot ->
                 newText = LxCookieKit.apply(newText, slot.key, cookieValues[slot.key].orEmpty())
             }
+            // v0.217.0（F28）：远端分支的注册表成败必须参与 ok 判断——原来
+            // add() 返回值根本没接，注册表写盘失败也报“已保存”。
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
                     if (src.url.startsWith("file://")) {
@@ -193,6 +206,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                             target.copyTo(File(target.parentFile, "${target.name}.bak"), overwrite = true)
                         }
                         if (!AtomicFile.writeText(target, newText)) throw IllegalStateException("脚本写盘失败")
+                        true
                     } else {
                         val dir = File(context.filesDir, "lx_sources")
                         if (!dir.isDirectory) dir.mkdirs()
@@ -203,20 +217,33 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                             src.copy(url = "file://${dest.absolutePath}"),
                         )
                     }
-                }.isSuccess
+                }.getOrDefault(false)
             }
-            lxEngine.evictScript(src.url)
-            cookieTarget = null
-            reload()
-            AppToast.show(context, if (ok) "Cookie 已保存，脚本已重载" else "保存失败", long = false)
+            if (ok) {
+                lxEngine.evictScript(src.url)
+                // v0.217.0（F27）：播放器侧单例引擎也要失效该脚本——原来只清
+                // 管理页这台引擎，当下播的歌还是旧脚本，换 Cookie 像没换。
+                // 下次起播生效（在播的歌不受影响），提示里说准。
+                MusicPlayer.evictLxScript(src.url)
+                cookieTarget = null
+                reload()
+                AppToast.show(context, "Cookie 已保存，脚本已重载，下次起播生效", long = false)
+            } else {
+                // 失败不关弹窗、不丢用户刚填的内容，可改完再点一次保存。
+                AppToast.show(context, "保存失败，Cookie 未写入", long = false)
+            }
         }
     }
 
     // v0.103.0：档次 chips——进入管理页对启用的自定义源并发 loadScript
     //（引擎内已有 15s 超时，不另起超时），成功后读 inited 上报的 qualitys；
     // file:// 本地源同样走 loadScript。value=null=加载中，空 list=失败/无数据
-    val qualityOf = remember { mutableStateMapOf<String, List<String>?>() }
-    LaunchedEffect(sources, lxEngine) {
+    LaunchedEffect(sources, lxEngine, qualityRefresh) {
+        // v0.217.0（F35）：失败态不再是终态——刷新后失败（空列表）条目先清掉，
+        // 下面按“不在表里”重拉；已删源的条目一并清掉。加载中（null）的不动。
+        qualityOf.keys
+            .filter { id -> sources.none { it.id == id } || qualityOf[id]?.isEmpty() == true }
+            .forEach { qualityOf.remove(it) }
         sources
             .filter { it.enabled && !it.builtin && it.url.isNotBlank() && it.id !in qualityOf }
             .forEach { s ->
@@ -286,6 +313,9 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             AppToast.show(context, "先播放一首歌再测试", long = false)
             return
         }
+        // v0.217.0（F31）：测试按当前曲目的平台走，不再写死 "wy"——
+        // 原来播 QQ／酷狗的歌却用网易云 id 去测，结果不可信。
+        val testPlatform = MusicApi.normalizeSource(curTrack?.source.orEmpty()).ifBlank { "wy" }
         testMsg = null
         testing = true
         testSource = source
@@ -302,8 +332,8 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     } else {
                         runCatching { lxEngine.loadScript(source.url) }
                             .getOrElse { e -> if (e is CancellationException) throw e else false }
-                        // v0.124.0：与播放同口径按平台（wy）取档，不拿别平台独占档空试
-                        LxMusicSourceEngine.sortHighToLow(lxEngine.getQualityIds(source.url, "wy"))
+                        // v0.124.0：与播放同口径按当前曲目平台取档，不拿别平台独占档空试
+                        LxMusicSourceEngine.sortHighToLow(lxEngine.getQualityIds(source.url, testPlatform))
                             .ifEmpty { listOf("320k", "128k") }
                     }
                     val results = ArrayList<String>()
@@ -311,9 +341,9 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     for (q in qualities) {
                         if (!isActive) break
                         val url = runCatching {
-                            if (source.builtin) resolveBuiltinHuibq("wy", urlId, q)
+                            if (source.builtin) resolveBuiltinHuibq(testPlatform, urlId, q)
                             else lxEngine.resolveMusicUrl(
-                                source.url, "wy", urlId, q,
+                                source.url, testPlatform, urlId, q,
                                 name = curTrack?.name.orEmpty(),
                                 singer = curTrack?.artist.orEmpty(),
                                 albumName = curTrack?.album.orEmpty(),

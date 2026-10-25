@@ -80,8 +80,11 @@ class Type4Api(
          * 分类列表内存缓存：memKey(site) -> types。PHP 站无独立取分类接口，
          * 每次切分类都要请求一次首页；缓存后同站切分类不再重复请求。
          * 只缓存非空结果（首页失败/包络错误时不污染缓存，下次重拉）。
+         * v0.217.0（F59）：加时间戳窗口——原来永久不过期，订阅站后台改了
+         * 分类要重启 App 才刷新；与 V8 首页缓存同档 60 秒。
          */
-        private val typeCache = ConcurrentHashMap<String, List<CategoryType>>()
+        private val typeCache = ConcurrentHashMap<String, Pair<Long, List<CategoryType>>>()
+        private const val TYPE_CACHE_TTL_MS = 60_000L
 
         /**
          * 播放模式 B 记忆：memKey(site) -> true 表示该站已确认走 ?play= 独立分支，
@@ -92,29 +95,30 @@ class Type4Api(
     }
 
     /**
-     * v0.187.0 H04：最近一次调用的失败原因（null = 最近一次成功或未跑过）。
-     * 此前全文件无日志、解析失败静默交空结果，调用方拿到空结果且 lastError 恒为 null
-     * 时无法判断是“源没数据”还是“请求/解析失败”。网络失败由 [ioSafeTracked] 写，
-     * 上游 code 500 与 JSON 解析失败由各 parse 函数写，成功时清。
+     * v0.217.0（F54）：失败原因按站分流——原来单例一份 lastError，
+     * 聚合搜索多 Type4 站并发时 A 站成功会把 B 站刚记下的失败原因清掉，
+     * 失败计数忽多忽少；现在每个站各记各的，调用方按站 key 取。
+     * v0.187.0 H04 起供调用方区分“源没数据”与“请求/解析失败”。
      */
-    @Volatile
-    var lastError: String? = null
-        private set
+    private val lastErrorBySite = ConcurrentHashMap<String, String>()
+
+    /** 取某站最近一次调用的失败原因（null=该站最近一次成功或未跑过）。 */
+    fun lastErrorFor(siteKey: String): String? = lastErrorBySite[siteKey]
 
     /**
      * 带失败原因的 ioSafe：与 SourceNetKit.ioSafe 同款语义（取消透传、其余异常交 fallback），
-     * 但异常进应用内 LogBus 并记 [lastError]，不再只走 android.util.Log 且原因全丢。
+     * 但异常进应用内 LogBus 并记 [lastErrorFor]，不再只走 android.util.Log 且原因全丢。
      */
-    private suspend fun <T> ioSafeTracked(fallback: T, block: suspend () -> T): T =
+    private suspend fun <T> ioSafeTracked(siteKey: String, fallback: T, block: suspend () -> T): T =
         withContext(Dispatchers.IO) {
-            lastError = null
+            lastErrorBySite.remove(siteKey)
             try {
                 block()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 val reason = "请求失败：${e.message?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName}"
-                lastError = reason
+                lastErrorBySite[siteKey] = reason
                 LogBus.w(TAG, reason)
                 fallback
             }
@@ -127,9 +131,9 @@ class Type4Api(
     // ---------------- 对外接口（5 个） ----------------
 
     /** 首页：分类 + 推荐列表（一次 GET {api}）。 */
-    suspend fun home(site: Site): List<Vod> = ioSafeTracked(emptyList()) {
+    suspend fun home(site: Site): List<Vod> = ioSafeTracked(site.key, emptyList()) {
         val url = buildUrl(site) ?: invalidApi(site)
-        parseHome(client.getText(url)).second
+        parseHome(client.getText(url), site.key).second
     }
 
     /**
@@ -138,21 +142,23 @@ class Type4Api(
      * 同一站切分类不再重复请求首页；切站或该站 api 变化时记忆键变化，自动失效重拉。
      */
     suspend fun category(site: Site, tid: String, pg: Int): Pair<List<CategoryType>, List<Vod>> =
-        ioSafeTracked(emptyList<CategoryType>() to emptyList()) {
+        ioSafeTracked(site.key, emptyList<CategoryType>() to emptyList()) {
             val types = cachedTypes(site)
             if (tid.isBlank()) return@ioSafeTracked types to emptyList()
             val url = buildUrl(site, "ac" to "detail", "t" to tid, "pg" to pg.toString())
                 ?: invalidApi(site)
-            types to parseCategory(client.getText(url))
+            types to parseCategory(client.getText(url), site.key)
         }
 
-    /** 分类列表内存缓存：命中直接返回；未命中请求一次首页，非空才缓存。 */
+    /** 分类列表内存缓存：命中且在 60 秒窗口内直接返回；过期重拉。 */
     private fun cachedTypes(site: Site): List<CategoryType> {
         val key = memKey(site)
-        typeCache[key]?.let { return it }
+        typeCache[key]?.let { (at, types) ->
+            if (System.currentTimeMillis() - at < TYPE_CACHE_TTL_MS) return types
+        }
         val homeUrl = buildUrl(site) ?: return emptyList()
-        val types = parseHome(client.getText(homeUrl)).first
-        if (types.isNotEmpty()) typeCache[key] = types
+        val types = parseHome(client.getText(homeUrl), site.key).first
+        if (types.isNotEmpty()) typeCache[key] = System.currentTimeMillis() to types
         return types
     }
 
@@ -161,11 +167,11 @@ class Type4Api(
      * 调用方（SiteRepository.search）目前只要列表；搜索页暂无分页 UI，UI 不动。
      */
     suspend fun searchPage(site: Site, wd: String, pg: Int = 1): Type4SearchPage =
-        ioSafeTracked(Type4SearchPage()) {
+        ioSafeTracked(site.key, Type4SearchPage()) {
             if (wd.isBlank()) return@ioSafeTracked Type4SearchPage()
             val url = buildUrl(site, "wd" to wd, "pg" to pg.toString())
                 ?: invalidApi(site)
-            parseSearchPage(client.getText(url))
+            parseSearchPage(client.getText(url), site.key)
         }
 
     /** 搜索：返回列表；需要总数/翻页时用 [searchPage]。 */
@@ -173,10 +179,10 @@ class Type4Api(
         searchPage(site, wd, pg).list
 
     /** 详情：取 list[0]。失败返回仅带 vodId 的空详情。 */
-    suspend fun detail(site: Site, vodId: String): VodDetail = ioSafeTracked(VodDetail(vodId = vodId)) {
+    suspend fun detail(site: Site, vodId: String): VodDetail = ioSafeTracked(site.key, VodDetail(vodId = vodId)) {
         val url = buildUrl(site, "ac" to "detail", "ids" to vodId)
             ?: invalidApi(site)
-        parseDetail(client.getText(url), vodId)
+        parseDetail(client.getText(url), vodId, site.key)
     }
 
     /**
@@ -189,30 +195,30 @@ class Type4Api(
      * 记住它，下次直接走第二分支（不改站点配置 JSON，用户侧配置原样不动）。
      */
     suspend fun play(site: Site, flag: String, id: String): Type4PlayResult =
-        ioSafeTracked(Type4PlayResult()) {
+        ioSafeTracked(site.key, Type4PlayResult()) {
             val key = memKey(site)
             if (modeB[key] != true) {
                 val first = buildUrl(site, "ac" to "play", "flag" to flag, "id" to id)
-                    ?.let { parsePlay(client.getText(it)) }
+                    ?.let { parsePlay(client.getText(it), site.key) }
                 if (first?.isPlayResponse() == true) return@ioSafeTracked first
             }
             val second = buildUrl(site, "play" to id) ?: invalidApi(site)
-            val result = parsePlay(client.getText(second))
+            val result = parsePlay(client.getText(second), site.key)
             if (result.isPlayResponse()) modeB[key] = true
             // 双试探里首试探失败是模式 B 的正常路径：最终拿到有效响应时清掉
             // 首试探留下的原因，否则一次成功的播放会背着失败原因。
-            if (result.isPlayResponse()) lastError = null
+            if (result.isPlayResponse()) lastErrorBySite.remove(site.key)
             result
         }
 
     // ---------------- 纯解析函数（输入 String 输出模型，便于测试） ----------------
 
     /** 首页 text -> (分类, 推荐列表)。{code:500} 或解析失败返回双空。 */
-    fun parseHome(text: String): Pair<List<CategoryType>, List<Vod>> = runCatching {
+    fun parseHome(text: String, siteKey: String? = null): Pair<List<CategoryType>, List<Vod>> = runCatching {
         val raw = text.toRootObject()
         if (raw != null && raw.isError()) {
             val reason = "上游返回 code 500：${raw.optString("msg").takeIf { it.isNotBlank() } ?: "无 msg"}"
-            lastError = reason
+            siteKey?.let { lastErrorBySite[it] = reason }
             LogBus.w(TAG, reason)
             return emptyList<CategoryType>() to emptyList()
         }
@@ -226,25 +232,25 @@ class Type4Api(
         types to list
     }.onFailure {
         val reason = "首页解析失败: ${it.message}"
-        lastError = reason
+        siteKey?.let { lastErrorBySite[it] = reason }
         LogBus.w(TAG, reason)
     }.getOrDefault(emptyList<CategoryType>() to emptyList())
 
     /** 分类/搜索 text -> 影片列表。{code:500} 或解析失败返回空。 */
-    fun parseCategory(text: String): List<Vod> = parseSearch(text)
+    fun parseCategory(text: String, siteKey: String? = null): List<Vod> = parseSearch(text, siteKey)
 
     /** 搜索 text -> 影片列表。 */
-    fun parseSearch(text: String): List<Vod> = parseSearchPage(text).list
+    fun parseSearch(text: String, siteKey: String? = null): List<Vod> = parseSearchPage(text, siteKey).list
 
     /**
      * 搜索 text -> (总数, 影片列表)。total 只有上游给了才透出，没有就是 null。
      * {code:500} 或解析失败返回 (null, 空列表)。
      */
-    fun parseSearchPage(text: String): Type4SearchPage = runCatching {
+    fun parseSearchPage(text: String, siteKey: String? = null): Type4SearchPage = runCatching {
         val raw = text.toRootObject()
         if (raw != null && raw.isError()) {
             val reason = "上游返回 code 500：${raw.optString("msg").takeIf { it.isNotBlank() } ?: "无 msg"}"
-            lastError = reason
+            siteKey?.let { lastErrorBySite[it] = reason }
             LogBus.w(TAG, reason)
             return Type4SearchPage()
         }
@@ -255,16 +261,16 @@ class Type4Api(
         )
     }.onFailure {
         val reason = "搜索解析失败: ${it.message}"
-        lastError = reason
+        siteKey?.let { lastErrorBySite[it] = reason }
         LogBus.w(TAG, reason)
     }.getOrDefault(Type4SearchPage())
 
     /** 详情 text -> VodDetail（取 list[0]）。失败返回仅带 vodId 的空详情。 */
-    fun parseDetail(text: String, vodId: String): VodDetail = runCatching {
+    fun parseDetail(text: String, vodId: String, siteKey: String? = null): VodDetail = runCatching {
         val raw = text.toRootObject()
         if (raw != null && raw.isError()) {
             val reason = "上游返回 code 500：${raw.optString("msg").takeIf { it.isNotBlank() } ?: "无 msg"}"
-            lastError = reason
+            siteKey?.let { lastErrorBySite[it] = reason }
             LogBus.w(TAG, reason)
             return VodDetail(vodId = vodId)
         }
@@ -274,16 +280,16 @@ class Type4Api(
         first.toVodDetail(picTransform = { it.fixPic() })
     }.onFailure {
         val reason = "详情解析失败: ${it.message}"
-        lastError = reason
+        siteKey?.let { lastErrorBySite[it] = reason }
         LogBus.w(TAG, reason)
     }.getOrDefault(VodDetail(vodId = vodId))
 
     /** 播放 text -> (直链, parse 标记, 白名单 header)。 */
-    fun parsePlay(text: String): Type4PlayResult = runCatching {
+    fun parsePlay(text: String, siteKey: String? = null): Type4PlayResult = runCatching {
         val raw = text.toRootObject()
         if (raw != null && raw.isError()) {
             val reason = "上游返回 code 500：${raw.optString("msg").takeIf { it.isNotBlank() } ?: "无 msg"}"
-            lastError = reason
+            siteKey?.let { lastErrorBySite[it] = reason }
             LogBus.w(TAG, reason)
             return Type4PlayResult()
         }
@@ -303,7 +309,7 @@ class Type4Api(
         )
     }.onFailure {
         val reason = "播放解析失败: ${it.message}"
-        lastError = reason
+        siteKey?.let { lastErrorBySite[it] = reason }
         LogBus.w(TAG, reason)
     }.getOrDefault(Type4PlayResult())
 

@@ -138,8 +138,8 @@ class SiteRepository(
         // 分支必须与 home/category/detail/search 的分流严格对齐：CMS/蜘蛛站没有
         // lastError 载体、小说站是主动跳过，都不能误读默认 drpy 引擎的旧原因。
         val reason = when {
-            site.isPhpSite() -> PhpCliEngine.lastError
-            site.isType4Site() -> type4Api.lastError
+            site.isPhpSite() -> PhpCliEngine.lastErrorFor(PhpCliEngine.scriptNameForSite(site.key, site.api))
+            site.isType4Site() -> type4Api.lastErrorFor(site.key)
             site.isPySite() -> (subOr(pyEngine) { pyEngineFor(site) } ?: pyEngine)?.lastError
             site.isCmsSite() || site.isJavaSpider() || site.isNovelOrComic() || site.isUnsupportedSite() -> null
             else -> (subOr(drpyEngine) { drpyEngineFor(site) } ?: drpyEngine)?.lastError
@@ -502,7 +502,7 @@ class SiteRepository(
             .getOrNull() ?: Type4PlayResult()
         // 本函数恒走 type4Api，不按站类型分流，直接读它（不用通用桥接）。
         if (result.url.isBlank()) {
-            type4Api.lastError?.let { lastFailureBySite.putIfAbsent(site.key, it) }
+            type4Api.lastErrorFor(site.key)?.let { lastFailureBySite.putIfAbsent(site.key, it) }
         }
         return result
     }

@@ -41,43 +41,45 @@ class AdFilteringDataSource(
             return length
         }
 
-        return try {
-            // 把播放列表全文读出来
-            val buf = if (length == C.LENGTH_UNSET.toLong()) {
-                // 未知长度：读到 EOF
-                val baos = java.io.ByteArrayOutputStream()
-                val tmp = ByteArray(8192)
-                while (true) {
-                    val n = upstream.read(tmp, 0, tmp.size)
-                    if (n == C.RESULT_END_OF_INPUT) break
-                    baos.write(tmp, 0, n)
-                }
-                baos.toByteArray()
-            } else {
-                val data = ByteArray(length.toInt())
-                var off = 0
-                while (off < data.size) {
-                    val n = upstream.read(data, off, data.size - off)
-                    if (n == C.RESULT_END_OF_INPUT) break
-                    off += n
-                }
-                data.copyOf(off)
+        // 把播放列表全文读出来（读本身失败直接抛给 Media3，不假装透传）
+        val buf = if (length == C.LENGTH_UNSET.toLong()) {
+            // 未知长度：读到 EOF
+            val baos = java.io.ByteArrayOutputStream()
+            val tmp = ByteArray(8192)
+            while (true) {
+                val n = upstream.read(tmp, 0, tmp.size)
+                if (n == C.RESULT_END_OF_INPUT) break
+                baos.write(tmp, 0, n)
             }
-
-            val text = buf.toString(Charsets.UTF_8)
-            val filtered = M3u8AdFilter.filter(text, url)
-            if (filtered != text) {
-                LogBus.i("AdFilter", "m3u8 去广告：播放列表已重写（${text.length} -> ${filtered.length} 字符）")
+            baos.toByteArray()
+        } else {
+            val data = ByteArray(length.toInt())
+            var off = 0
+            while (off < data.size) {
+                val n = upstream.read(data, off, data.size - off)
+                if (n == C.RESULT_END_OF_INPUT) break
+                off += n
             }
-            filteredBytes = filtered.toByteArray(Charsets.UTF_8)
-            filteredStream = ByteArrayInputStream(filteredBytes)
-            isFiltered = true
-            filteredBytes!!.size.toLong()
-        } catch (e: Exception) {
-            LogBus.e("AdFilter", "过滤失败，透传原文: ${e.message}")
-            isFiltered = false
-            length
+            data.copyOf(off)
         }
+
+        val text = buf.toString(Charsets.UTF_8)
+        // v0.217.0（F18）：过滤失败也走内存流、内容为原文——原来 catch 里
+        // 记“透传原文”却返回已读到头的上游流，Media3 读到的是 EOF，
+        // 兜底根本不成立；现在失败与成功同一条返回路径。
+        val filtered = try {
+            M3u8AdFilter.filter(text, url)
+        } catch (e: Exception) {
+            LogBus.e("AdFilter", "过滤失败，返回原文: ${e.message}")
+            text
+        }
+        if (filtered != text) {
+            LogBus.i("AdFilter", "m3u8 去广告：播放列表已重写（${text.length} -> ${filtered.length} 字符）")
+        }
+        filteredBytes = filtered.toByteArray(Charsets.UTF_8)
+        filteredStream = ByteArrayInputStream(filteredBytes)
+        isFiltered = true
+        return filteredBytes!!.size.toLong()
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
