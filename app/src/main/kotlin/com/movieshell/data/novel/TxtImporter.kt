@@ -3,6 +3,8 @@ package com.movieshell.data.novel
 import com.movieshell.data.model.Chapter
 import com.movieshell.data.model.Novel
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import java.util.UUID
 
 /**
@@ -46,7 +48,9 @@ object TxtImporter {
 
         for (rawLine in text.lineSequence()) {
             val line = rawLine.trimEnd()
-            if (curTitle == null && chapterRegex.containsMatchIn(line.trimStart())) {
+            // v0.215.0：首章与后续章同口径——标题行都要求短（≤40 字），
+            // 否则正文里一句“第一章……”也会把首章切错位置。
+            if (curTitle == null && chapterRegex.containsMatchIn(line.trimStart()) && line.trim().length <= 40) {
                 // 第一章标题出现：之前攒的是简介
                 curTitle = line.trim()
             } else if (curTitle != null && chapterRegex.containsMatchIn(line.trimStart()) && line.trim().length <= 40) {
@@ -83,7 +87,15 @@ object TxtImporter {
     }
 
     private fun readTextSmart(file: File): String? {
-        runCatching { return file.readText(Charsets.UTF_8).takeIf { it.isNotBlank() } }
-        return runCatching { file.readText(charset("GBK")) }.getOrNull()
+        val bytes = runCatching { file.readBytes() }.getOrNull() ?: return null
+        // v0.215.0：旧写法 file.readText(UTF_8) 遇到非法字节从不抛异常，
+        // 只会塞替换字符硬读，GBK 回退是死代码——GBK 中文 TXT 全读成乱码。
+        // 改严格解码：UTF-8 非法才落 GBK。
+        val strict = Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+        val utf8 = runCatching { strict.decode(ByteBuffer.wrap(bytes)).toString() }.getOrNull()
+        if (!utf8.isNullOrBlank()) return utf8
+        return runCatching { String(bytes, charset("GBK")) }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 }

@@ -325,8 +325,8 @@ fun PlayerScreen(
     val engineOverride by EngineHost.engineOverride.collectAsState()
     val engine = engineOverride ?: engineSetting
     // v0.21.0：定时关闭状态
-    val sleepRemaining by SleepTimer.remainingMs.collectAsState()
-    val sleepArmed by SleepTimer.afterEpisodeArmed.collectAsState()
+    val sleepRemaining by VideoSleepTimer.remainingMs.collectAsState()
+    val sleepArmed by VideoSleepTimer.afterEpisodeArmed.collectAsState()
 
     BackHandler(onBack = onBack)
 
@@ -1071,7 +1071,7 @@ fun PlayerScreen(
             if (dur <= 0) continue
             val pos = EngineHost.currentPosition()
             if (sleepArmed && pos >= dur - 2000) {
-                if (SleepTimer.consumeAfterEpisode()) {
+                if (VideoSleepTimer.consumeAfterEpisode()) {
                     EngineHost.pause()
                     AppToast.show(context, "定时关闭：本集播完已暂停", long = false)
                     LogBus.i("Player", "定时关闭触发：播完本集暂停")
@@ -1966,7 +1966,7 @@ fun PlayerScreen(
                 onDismiss = { showSleepDialog = false },
                 onPickMinutes = { m ->
                     showSleepDialog = false
-                    SleepTimer.startMinutes(m) {
+                    VideoSleepTimer.startMinutes(m) {
                         EngineHost.pause()
                         AppToast.show(context, "定时关闭：已暂停播放", long = false)
                         LogBus.i("Player", "定时关闭触发：${m}分钟到，暂停")
@@ -1975,12 +1975,12 @@ fun PlayerScreen(
                 },
                 onPickAfterEpisode = {
                     showSleepDialog = false
-                    SleepTimer.armAfterEpisode()
+                    VideoSleepTimer.armAfterEpisode()
                     AppToast.show(context, "本集播完后将停止播放", long = false)
                 },
                 onCancelTimer = {
                     showSleepDialog = false
-                    SleepTimer.cancel()
+                    VideoSleepTimer.cancel()
                     AppToast.show(context, "定时关闭已取消", long = false)
                 },
             )

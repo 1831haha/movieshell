@@ -120,8 +120,20 @@ object DrpySourceManager {
      * 同名重复调用直接复用；切换时先 bump 世代号（在途调用随后按旧结果丢弃）、
      * 再销毁旧引擎、为新规则建 V8DrpyEngine 并 loadRule。
      */
-    fun setActiveRule(name: String?) {
-        if (name == activeName) return
+    /**
+     * v0.215.0：返回是否切源成功——先验规则文件存在再动当前态。
+     * 原来先 release 旧引擎、置空 activeName 才验文件，继续观看点到
+     * 已删源时直接把当前好源毁掉（activeName=null、引擎已放）。
+     */
+    fun setActiveRule(name: String?): Boolean {
+        if (name == activeName) return true
+        if (name != null) {
+            val probe = File(rulesDirOrNull() ?: return false, name)
+            if (!probe.isFile) {
+                Log.w(TAG, "规则文件不存在: $name")
+                return false
+            }
+        }
         generation++
         try {
             engine?.release()
@@ -130,22 +142,24 @@ object DrpySourceManager {
         }
         engine = null
         activeName = null
-        if (name == null) return
-        val file = File(rulesDirOrNull() ?: return, name)
+        if (name == null) return true
+        val file = File(rulesDirOrNull() ?: return false, name)
         if (!file.isFile) {
             Log.w(TAG, "规则文件不存在: $name")
-            return
+            return false
         }
         try {
             val js = file.readText()
-            val ctx = appContext ?: return
+            val ctx = appContext ?: return false
             // v0.112.0 D2：删重复 release——旧引擎已在函数开头 try/catch 里释放并置空，
             // 此处的 engine?.release() 恒为 no-op。保留开头那一次。
             engine = V8DrpyEngine(ctx).also { it.loadRule(js) }
             activeName = name
             Log.i(TAG, "active 规则: $name")
+            true
         } catch (e: Exception) {
             Log.w(TAG, "载入规则失败: $name", e)
+            false
         }
     }
 

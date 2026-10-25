@@ -37,6 +37,9 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
+import com.movieshell.ui.components.AppToast
+import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -69,6 +72,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -302,6 +306,10 @@ fun HomeScreen(
     // v0.31.2：分类加载单飞——快速连点时取消上一次，保证同一时间只有一个分类请求在跑
     var categoryJob by remember { mutableStateOf<Job?>(null) }
     var shuffleSeed by remember { mutableIntStateOf(0) }
+    // v0.215.0：分类分页——页码／到底标记／加载更多进行态（切分类时重置）。
+    var catPage by remember { mutableIntStateOf(1) }
+    var catNoMore by remember { mutableStateOf(false) }
+    var catLoadingMore by remember { mutableStateOf(false) }
 
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
     // v0.53.0：drpyActive/drpyLoading/drpyCats/drpyList 已搬进 HomeViewModel（见上）。
@@ -556,6 +564,10 @@ fun HomeScreen(
     // v0.145.0 修：从下方挪到 applyHomePayload 之前——Kotlin 局部函数必须先声明后调用（首轮构建即挂于此）。
     /** v0.44.0：筛选改为多组 Map；切分类时清空（不同分类的筛选组不同）。 */
     fun loadDrpyCategory(index: Int, filters: Map<String, String> = emptyMap()) { // index >= 1，对应 drpyCats[index-1]
+        // v0.215.0：切分类重置分页（第 1 页起，到底标记清掉）。
+        catPage = 1
+        catNoMore = false
+        catLoadingMore = false
         // v0.145.0：分类一律读 VM 真值，不读组合快照（换源/刚写分类后快照还滞后，143 同类教训）。
         val cat = vm.categories.value.getOrNull(index - 1) ?: return
         // v0.31.2：单飞——快速连点时取消上一次，同一时间只有一个分类请求在跑
@@ -641,6 +653,46 @@ fun HomeScreen(
                     if (vm.loadingCategoryId.value == index) vm.loadingCategoryId.value = null
                 }
             }
+        }
+    }
+
+    /**
+     * v0.215.0：分类加载更多——下一页追加（按 id 去重），空页=到底；
+     * 切分类/换筛选期间不追加（选中分类变了就丢弃迟到结果）；无筛选时合并后落盘。
+     */
+    fun loadMoreCategory() {
+        if (catLoadingMore || catNoMore) return
+        val index = vm.selectedCategoryId.value
+        if (index < 1) return
+        val cat = vm.categories.value.getOrNull(index - 1) ?: return
+        val nextPage = catPage + 1
+        val curFilters = filterMap
+        val cacheKey = homeCacheKey()
+        catLoadingMore = true
+        scope.launch {
+            val page = withTimeoutOrNull(30_000) {
+                engineCategory(cat.typeId, nextPage, curFilters)
+            }
+            if (vm.selectedCategoryId.value != index) {
+                catLoadingMore = false
+                return@launch
+            }
+            if (page == null) {
+                AppToast.show(context, "加载更多失败，请重试", long = false)
+            } else if (page.isEmpty()) {
+                catNoMore = true
+            } else {
+                val merged = (vm.currentVideos.value + page)
+                    .distinctBy { it.id.ifBlank { "noid:${it.title}" } }
+                vm.setCategoryVideos(index, merged)
+                catPage = nextPage
+                if (curFilters.isEmpty() && cacheKey != null) {
+                    withContext(Dispatchers.IO) {
+                        HomeCache.saveCategoryVods(context, cacheKey, cat.typeId, merged)
+                    }
+                }
+            }
+            catLoadingMore = false
         }
     }
 
@@ -977,10 +1029,10 @@ fun HomeScreen(
                 if (selBefore >= 1) loadDrpyCategory(selBefore)
             })
         } else {
-            scope.launch {
-                delay(1200) // 占位：模拟刷新耗时
-                refreshing = false
-            }
+            // v0.215.0：无源时下拉原来空转 1.2 秒假装刷新——没源可刷，直接收指示条
+            // 并打开选源（与长按首页 tab 无源时同一口径），不演刷新。
+            refreshing = false
+            showSourceSheet = true
         }
     }
 
@@ -1182,13 +1234,31 @@ fun HomeScreen(
                                             modifier = Modifier.padding(12.dp),
                                             verticalArrangement = Arrangement.spacedBy(6.dp),
                                         ) {
-                                            Text(
-                                                text = h.title,
-                                                style = SoftType.CardTitle,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = h.title,
+                                                    style = SoftType.CardTitle,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                // v0.215.0：继续观看单条删除（原来只能去历史页清全部）。
+                                                IconButton(
+                                                    onClick = {
+                                                        HistoryStore.delete(context, h.url)
+                                                        reloadWatchHistory()
+                                                    },
+                                                    modifier = Modifier.size(22.dp),
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.Close,
+                                                        contentDescription = "删除这条记录",
+                                                        modifier = Modifier.size(14.dp),
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    )
+                                                }
+                                            }
                                             // v0.212.0 审计修复：时长未知（durationMs==0）
                                             // 原来恒算 0%，卡片写“看到 0%”其实是未知不是没看；
                                             // 未知时长不显示百分比，只显示集数。
@@ -1205,6 +1275,19 @@ fun HomeScreen(
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                             )
+                                            // v0.215.0：继续观看来源名（源 key 去扩展名；无源信息不显示）。
+                                            val continueSource = h.sourceKey
+                                                .removeSuffix(".js").removeSuffix(".py")
+                                                .takeIf { it.isNotBlank() }
+                                            if (continueSource != null) {
+                                                Text(
+                                                    text = "来源：$continueSource",
+                                                    style = SoftType.Caption,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
                                             LinearProgressIndicator(
                                                 progress = { progress },
                                                 // v0.212.0 审计修复：进度条原来走主题 primary
@@ -1413,6 +1496,34 @@ fun HomeScreen(
                                 modifier = Modifier.aspectRatio(3f / 4.6f),
                                 onClick = { goDetail(vod.id, vod.title) },
                             )
+                        }
+                    }
+                    // v0.215.0：分类分页脚——推荐视图（分类 0）不分页，只分类视图有“加载更多”；
+                    // 空页后显示“没有更多了”，不再重复请求。
+                    if (vm.selectedCategoryId.value >= 1 && filtered.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                when {
+                                    catLoadingMore -> Text(
+                                        "加载中…",
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    catNoMore -> Text(
+                                        "没有更多了",
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    else -> Button(onClick = { loadMoreCategory() }) {
+                                        Text("加载更多")
+                                    }
+                                }
+                            }
                         }
                     }
                 }

@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Palette
@@ -98,7 +99,7 @@ import com.movieshell.data.repo.MusicSourceStore
 import com.movieshell.data.repo.MusicStore
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.player.MusicPlayer
-import com.movieshell.player.SleepTimer
+import com.movieshell.player.MusicSleepTimer
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.TabTopBar
@@ -161,8 +162,8 @@ fun MusicPlayerScreen(
     var showSourceDialog by remember { mutableStateOf(false) }
     // v0.129.0：播放列表弹窗
     var showQueueDialog by remember { mutableStateOf(false) }
-    val sleepRemaining by SleepTimer.remainingMs.collectAsState()
-    val sleepArmed by SleepTimer.afterEpisodeArmed.collectAsState()
+    val sleepRemaining by MusicSleepTimer.remainingMs.collectAsState()
+    val sleepArmed by MusicSleepTimer.afterEpisodeArmed.collectAsState()
     // v0.89.0 的封面旋转，v0.130.0 恢复：只转大封面，参数沿用旧实现
     // （9 秒一圈匀速；暂停时 LaunchedEffect key 变化自动取消，停在当前
     // 角度；angle 不按曲目 key，切歌不重置）
@@ -682,7 +683,7 @@ fun MusicPlayerScreen(
             onDismiss = { showSleepDialog = false },
             onPickMinutes = { m ->
                 showSleepDialog = false
-                SleepTimer.startMinutes(m) {
+                MusicSleepTimer.startMinutes(m) {
                     MusicPlayer.fadeOutAndPause()
                     AppToast.show(context, "定时关闭：音乐已暂停", long = false)
                 }
@@ -690,12 +691,12 @@ fun MusicPlayerScreen(
             },
             onPickAfterTrack = {
                 showSleepDialog = false
-                SleepTimer.armAfterEpisode()
+                MusicSleepTimer.armAfterEpisode()
                 AppToast.show(context, "本首播完后将停止播放", long = false)
             },
             onCancelTimer = {
                 showSleepDialog = false
-                SleepTimer.cancel()
+                MusicSleepTimer.cancel()
                 AppToast.show(context, "定时关闭已取消", long = false)
             },
         )
@@ -924,10 +925,28 @@ private fun MusicQueueDialog(
         val cur = queueState.currentIndex
         if (cur in queueState.tracks.indices) queueListState.scrollToItem(cur)
     }
+    // v0.215.0：队列弹窗行内删除与清空（原来队列只能加不能减）。
+    val queueContext = LocalContext.current
     TechDialog(
         onDismissRequest = onDismiss,
         title = "播放列表",
     ) {
+        if (queueState.tracks.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "共 ${queueState.tracks.size} 首",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { MusicPlayer.clearQueue() }) {
+                    Text("清空", color = Color(0xFFE53935))
+                }
+            }
+        }
         if (queueState.tracks.isEmpty()) {
             Text(
                 "队列是空的",
@@ -992,6 +1011,15 @@ private fun MusicQueueDialog(
                                 contentDescription = "正在播放",
                                 modifier = Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        // v0.215.0：行内删除（删当前歌停播，其余修正下标）。
+                        IconButton(onClick = { MusicPlayer.removeQueueItem(queueContext, i) }) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "从队列删除",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }

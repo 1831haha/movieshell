@@ -5,6 +5,7 @@ import android.util.Log
 import com.movieshell.data.model.Chapter
 import com.movieshell.data.model.Novel
 import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.repo.ReadingProgressStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -55,6 +56,55 @@ object NovelUpdateChecker {
         }.onFailure { Log.w(TAG, "追更检查失败《${novel.title}》", it) }
             .getOrDefault(Result.Failed)
     }
+
+    /**
+     * v0.215.0：批量换源——在指定源里搜书名、按追更同款 pickBest 匹配、
+     * 拉目录替换（不挑具体结果，批量场景逐本点选不现实）。同源直接算成功；
+     * 换源后把在读章标题同步成新目录同下标的标题，书架行不挂旧源标题。
+     * 调用前确保 BookSourceManager / PyBookSourceManager 已 load。
+     */
+    suspend fun switchToSource(context: Context, novel: Novel, targetKey: String): Boolean =
+        withContext(Dispatchers.IO) {
+            if (targetKey == novel.sourceKey) return@withContext true
+            runCatching {
+                val isPy = targetKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)
+                val hits = if (isPy) {
+                    val rule = PyBookSourceManager.rules.value.firstOrNull {
+                        PyBookSourceManager.SOURCE_KEY_PREFIX + it.name == targetKey
+                    } ?: return@runCatching false
+                    NovelSourceEngine.searchPy(context, rule, novel.title)
+                } else {
+                    val source = BookSourceManager.sources.value.firstOrNull { it.key == targetKey }
+                        ?: return@runCatching false
+                    NovelSourceEngine.search(source, novel.title, allowGate = true)
+                }
+                val best = pickBest(hits, novel.title, novel.author.orEmpty())
+                    ?: return@runCatching false
+                val metas = if (isPy) {
+                    NovelSourceEngine.chaptersPy(context, best)
+                } else {
+                    val source = BookSourceManager.sources.value.firstOrNull { it.key == targetKey }
+                        ?: return@runCatching false
+                    NovelSourceEngine.chapters(source, best)
+                }
+                if (metas.isEmpty()) return@runCatching false
+                val chapters = metas.map {
+                    Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url)
+                }
+                if (!NovelStore.updateSource(context, novel.id, targetKey, chapters)) {
+                    return@runCatching false
+                }
+                // 在读章标题跟新目录对齐（只换标题，章内偏移不动）。
+                val prog = ReadingProgressStore.load(context, novel.id)
+                if (prog != null) {
+                    val t = chapters.getOrNull(prog.chapterIndex)?.title.orEmpty()
+                    if (t.isNotBlank() && t != prog.chapterTitle) {
+                        ReadingProgressStore.save(context, prog.copy(chapterTitle = t))
+                    }
+                }
+                true
+            }.getOrDefault(false)
+        }
 
     /** 批量检查（并发），返回有更新的书 id→新章节数。 */
     suspend fun checkAll(

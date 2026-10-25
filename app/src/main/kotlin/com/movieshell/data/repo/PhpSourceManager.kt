@@ -73,17 +73,26 @@ object PhpSourceManager {
     fun activeRuleName(): String? = activeName
 
     /** 选中规则。主线程调用；name=null 时清空。 */
-    fun setActiveRule(name: String?) {
-        if (name == activeName) return
+    /** v0.215.0：同 drpy——先验文件存在再动当前态，返回是否切源成功。 */
+    fun setActiveRule(name: String?): Boolean {
+        if (name == activeName) return true
+        if (name != null) {
+            val probe = File(rulesDirOrNull() ?: return false, name)
+            if (!probe.isFile) {
+                Log.w(TAG, "规则文件不存在: $name")
+                return false
+            }
+        }
         activeName = null
-        if (name == null) return
-        val file = File(rulesDirOrNull() ?: return, name)
+        if (name == null) return true
+        val file = File(rulesDirOrNull() ?: return false, name)
         if (!file.isFile) {
             Log.w(TAG, "规则文件不存在: $name")
-            return
+            return false
         }
         activeName = name
         Log.i(TAG, "选中 PHP 规则: $name")
+        true
     }
 
     // ---------------- 内部 ----------------

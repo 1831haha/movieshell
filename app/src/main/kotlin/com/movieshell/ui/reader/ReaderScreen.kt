@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -43,6 +44,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
+import com.movieshell.ui.components.TechTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -198,6 +200,9 @@ fun ReaderScreen(
     // v0.89.0：书签
     var showBookmarks by remember { mutableStateOf(false) }
     var bookmarks by remember { mutableStateOf<List<Bookmark>>(emptyList()) }
+    // v0.215.0：章内搜索（本章正文内找词、点结果跳转；滚动模式按恢复同款公式换算像素，翻页模式按页首偏移跳页）。
+    var showChapterSearch by remember { mutableStateOf(false) }
+    var chapterSearchQuery by remember { mutableStateOf("") }
     // v0.96.1：净化规则生效数（设置面板入口展示；打开面板时刷新）
     var purifyCount by remember { mutableIntStateOf(-1) }
     LaunchedEffect(showSettings) {
@@ -709,6 +714,10 @@ fun ReaderScreen(
                 IconButton(onClick = { showBookmarks = true }) {
                     Icon(Icons.Filled.Bookmark, "书签", tint = fg)
                 }
+                // v0.215.0：章内搜索入口。
+                IconButton(onClick = { showChapterSearch = true }) {
+                    Icon(Icons.Filled.Search, "章内搜索", tint = fg)
+                }
             }
         }
 
@@ -734,6 +743,81 @@ fun ReaderScreen(
                     }
                 },
             )
+        }
+
+        // v0.215.0：章内搜索弹窗——本章正文内找词，点结果跳转（不跨章）。
+        if (showChapterSearch) {
+            val content = chapter?.content.orEmpty()
+            val matches = remember(chapterSearchQuery, content) {
+                val q = chapterSearchQuery.trim()
+                if (q.isEmpty() || content.isEmpty()) emptyList()
+                else {
+                    val hits = mutableListOf<Int>()
+                    var from = 0
+                    while (true) {
+                        val i = content.indexOf(q, from, ignoreCase = true)
+                        if (i < 0) break
+                        hits += i
+                        from = i + q.length.coerceAtLeast(1)
+                    }
+                    hits
+                }
+            }
+            TechDialog(
+                onDismissRequest = { showChapterSearch = false },
+                title = "章内搜索",
+                subtitle = chapter?.title.orEmpty(),
+            ) {
+                TechTextField(
+                    value = chapterSearchQuery,
+                    onValueChange = { chapterSearchQuery = it },
+                    placeholder = "输入要找的词",
+                )
+                Spacer(Modifier.height(8.dp))
+                if (chapterSearchQuery.isNotBlank()) {
+                    Text(
+                        if (matches.isEmpty()) "本章没有找到" else "找到 ${matches.size} 处，点一条跳过去",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    matches.take(50).forEachIndexed { mi, off ->
+                        val q = chapterSearchQuery.trim()
+                        val start = (off - 12).coerceAtLeast(0)
+                        val end = (off + q.length + 12).coerceAtMost(content.length)
+                        Text(
+                            "…${content.substring(start, end).replace("\n", " ")}…",
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showChapterSearch = false
+                                    scope.launch {
+                                        if (pageMode == 0) {
+                                            val linePx = with(density) { (fontSize * lineHeightRatio).sp.toPx() }
+                                            val cpl = charsPerLine.coerceAtLeast(1)
+                                            scrollState.scrollTo((off / cpl.toFloat() * linePx).toInt().coerceAtLeast(0))
+                                        } else {
+                                            pagerState.scrollToPage(NovelPaginator.pageForOffset(pages, off))
+                                        }
+                                    }
+                                    AppToast.show(context, "第 ${mi + 1} / ${matches.size} 处", long = false)
+                                }
+                                .padding(vertical = 6.dp),
+                        )
+                    }
+                    if (matches.size > 50) {
+                        Text("只列出前 50 处", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
         }
 
         // 正文（v0.61.0：点中央切换沉浸模式；章节标题印在正文顶部）

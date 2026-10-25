@@ -201,6 +201,29 @@ object NovelStore {
         }
     }
 
+    /** v0.215.0：清除已缓存章节正文（目录保留）——净化规则改动后，
+     * 已缓存的旧正文不会自己变新，须清掉、下次打开重拉并走新规则。返回清掉的书本数。 */
+    suspend fun clearCachedContents(context: Context): Int = withContext(Dispatchers.IO) {
+        indexMutex.withLock {
+            var n = 0
+            for (novel in readIndex(context)) {
+                val cf = chaptersFile(context, novel.id)
+                if (!cf.isFile) continue
+                val chapters = runCatching {
+                    json.decodeFromString(ListSerializer(Chapter.serializer()), cf.readText())
+                }.getOrNull() ?: continue
+                if (chapters.none { it.content.isNotBlank() }) continue
+                if (AtomicFile.writeText(
+                        cf,
+                        json.encodeToString(ListSerializer(Chapter.serializer()), chapters.map { it.copy(content = "") }),
+                    )
+                ) n++
+            }
+            n
+        }
+    }
+
+
     /** v0.211.0 审计修复：源 key 变了（改地址/重命名），书架上
      *  用旧 key 的书要跟着迁，否则静默断源。返回迁移本数。 */
     suspend fun migrateSourceKey(context: Context, oldKey: String, newKey: String): Int =

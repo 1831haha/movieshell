@@ -88,6 +88,43 @@ object MusicPlayer {
     val badges: StateFlow<Map<String, Pair<String, String>>> = _badges
 
     /**
+     * v0.215.0：播过歌曲的时长（urlId 为空的本地歌用 id 作 key）——列表行
+     * 据此显示时长；没播过的歌不编时长、不显示。进程重建后从 prefs 恢复。
+     */
+    private val _durations = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val durations: StateFlow<Map<String, Long>> = _durations
+
+    fun durationKey(track: MusicApi.Track): String = track.urlId.ifBlank { track.id }
+
+    fun restoreDurations(context: Context) {
+        runCatching {
+            val raw = context.getSharedPreferences(MUSIC_PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_DURATIONS_JSON, null) ?: return@runCatching
+            val o = org.json.JSONObject(raw)
+            val map = mutableMapOf<String, Long>()
+            for (k in o.keys()) {
+                val v = o.optLong(k, 0L)
+                if (v > 0) map[k] = v
+            }
+            if (map.isNotEmpty()) _durations.value = map
+        }
+    }
+
+    private fun recordDuration(track: MusicApi.Track, ms: Long) {
+        if (ms <= 0) return
+        val key = durationKey(track)
+        if (key.isBlank() || _durations.value[key] == ms) return
+        _durations.value = _durations.value + (key to ms)
+        val ctx = appCtx ?: return
+        runCatching {
+            val o = org.json.JSONObject()
+            for ((k, v) in _durations.value) o.put(k, v)
+            ctx.getSharedPreferences(MUSIC_PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_DURATIONS_JSON, o.toString()).apply()
+        }
+    }
+
+    /**
      * v0.125.0 补充A：播放页海报匹配结果（track.id → 封面图地址；空串=匹配过没
      * 找到，不重复搜）。v0.123.0 时匹配挂在播放页的 composition scope 上，用户
      * 一切歌词视图/离页，组合销毁就把协程取消（日志实锤 "The coroutine scope
@@ -142,6 +179,8 @@ object MusicPlayer {
     // 重建后恢复队列快照（不自动起播，用户点队列项再播），下标越界钳制。
     private const val KEY_QUEUE_JSON = "queue_json"
     private const val KEY_QUEUE_INDEX = "queue_index"
+    // v0.215.0：播过歌曲的时长缓存（搜索结果本身不带时长，只能播到才知道）。
+    private const val KEY_DURATIONS_JSON = "durations_json"
     private var queueRestored = false
 
     private fun persistQueue(context: Context?) {
@@ -216,9 +255,38 @@ object MusicPlayer {
         persistQueue(context)
     }
     // v0.85.0：播放请求代际——连接 service 是异步的，旧请求回来时若已被取代则丢弃
+    // v0.215.0 补记：上一轮批量改动误删过本声明（只剩引用），编译不过，补回。
     private var playGen = 0
+
+    /** v0.215.0：队列弹窗行内删除——删当前歌停播清态（同 onTrackDeleted 口径），
+     * 其余剔出队列并修正下标、持久化；清空直接复用 stop。 */
+    fun removeQueueItem(context: Context, at: Int) {
+        if (at !in queue.indices) return
+        val wasCurrent = at == index
+        if (wasCurrent) {
+            playJob?.cancel()
+            progressJob?.cancel()
+            controller?.stop()
+            _state.value = State(repeatMode = _state.value.repeatMode)
+        }
+        queue = queue.toMutableList().also { it.removeAt(at) }
+        if (wasCurrent) {
+            index = -1
+            _queueState.value = QueueState(queue, -1)
+        } else {
+            if (at < index) index -= 1
+            _queueState.value = QueueState(queue, index)
+        }
+        persistQueue(context)
+    }
+
+    fun clearQueue() {
+        stop()
+    }
     // v0.146.0：上一轮 LX 解析是否撞上"只有试听"——供最终失败时给准提示（见 playAt）。
+    // v0.215.0：上一轮各源失败原因原文（同上，供 Cookie 过期指路用）。
     private var lastTrialOnly = false
+    private var lastLxFailures: List<String> = emptyList()
     // v0.131.0：当前解析协程句柄——切歌先 cancel 上一首未完成的解析，避免多代
     // 解析并发共用同一 V8 会话互踩、各自重试并重复上报失败
     private var playJob: Job? = null
@@ -577,7 +645,20 @@ object MusicPlayer {
                 LogBus.e("MusicPlayer", "取播放地址失败：${track.name}")
                 // v0.146.0：显示态没切过新曲，这里只提示，不动 state（旧曲该播还播）。
                 // LX 链撞上试听且备用线路也没拿到时，说准"只有试听片段"而不是泛泛的失败。
-                toast(if (lastTrialOnly) "该歌曲只有试听片段" else "取不到播放地址，请重试")
+                // v0.215.0：失败原因里带登录／过期／Cookie／验证字样时，指路到音源管理补 Cookie，
+                // 不再静默降级成一句"请重试"。
+                val cookieExpired = lastLxFailures.any { f ->
+                    f.contains("登录") || f.contains("过期") || f.contains("验证") ||
+                        f.contains("授权") || f.contains("cookie", ignoreCase = true) ||
+                        f.contains("login", ignoreCase = true)
+                }
+                toast(
+                    when {
+                        lastTrialOnly -> "该歌曲只有试听片段"
+                        cookieExpired -> "取不到播放地址，可能是音源 Cookie 过期，去音源管理里更新 Cookie 再试"
+                        else -> "取不到播放地址，请重试"
+                    },
+                )
                 return@launch
             }
             // v0.117.0：记下本曲的真实来源与音质（列表徽标 + 播放页展示用）；
@@ -714,6 +795,8 @@ object MusicPlayer {
         currentCoroutineContext().ensureActive()
         // v0.146.0：记下本轮是否撞上试听——最终失败时才能说准"只有试听片段"。
         lastTrialOnly = failures.any { it.contains("试听") }
+        // v0.215.0：本轮各源失败原因留给 playAt 最终提示用（Cookie 过期要指路到音源管理）。
+        lastLxFailures = failures
         LogBus.w("MusicPlayer", "LX 源全部解析失败，回退 GD Studio：${failures.joinToString("；")}")
         toast("LX 解析失败，已回退备用线路")
         return null
@@ -765,10 +848,13 @@ object MusicPlayer {
                 delay(500)
                 val c = controller ?: break
                 if (c.isPlaying) {
+                    val dur = c.duration.coerceAtLeast(0L)
                     _state.value = _state.value.copy(
                         positionMs = c.currentPosition.coerceAtLeast(0L),
-                        durationMs = c.duration.coerceAtLeast(0L),
+                        durationMs = dur,
                     )
+                    // v0.215.0：播到时长就记下来，供列表行显示（只在变化时写盘）。
+                    _state.value.track?.let { recordDuration(it, dur) }
                 }
             }
         }
@@ -790,7 +876,7 @@ object MusicPlayer {
 
     private fun onTrackEnded() {
         // v0.85.0：睡眠定时「播完本首停止」优先于播放模式，直接停
-        if (SleepTimer.consumeAfterEpisode()) {
+        if (MusicSleepTimer.consumeAfterEpisode()) {
             controller?.pause()
             _state.value = _state.value.copy(playing = false)
             return

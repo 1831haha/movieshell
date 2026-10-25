@@ -1,11 +1,6 @@
 package com.movieshell.ui.bookshelf
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -41,7 +36,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -91,19 +85,6 @@ fun Modifier.bookPressable(
             onClick = onClick,
             onLongClick = onLongClick,
         )
-}
-
-/** 更新角标呼吸脉冲。 */
-@Composable
-fun Modifier.pulseBadge(): Modifier {
-    val t = rememberInfiniteTransition(label = "badgePulse")
-    val alpha by t.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.55f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "badgeAlpha",
-    )
-    return this.alpha(alpha)
 }
 
 /** 书籍阅读进度（0..1）。 */
@@ -188,13 +169,13 @@ fun NovelListCard(
                     // 阅读式未读角标：只显示数字（蓝底小 pill），不再是“+N 章”
                     if (updateCount > 0) {
                         Spacer(Modifier.width(6.dp))
+                        // v0.215.0：角标样式统一——数字 pill，不再呼吸脉冲（多本更新时满屏闪）。
                         Text(
                             text = "$updateCount",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier
-                                .pulseBadge()
                                 .background(
                                     MaterialTheme.colorScheme.primary,
                                     RoundedCornerShape(10.dp),
@@ -352,19 +333,18 @@ fun NovelGridCard(
                     )
                 }
             }
-            // 更新角标（左上；失败标记在同一角，失败时不叠加）
+            // v0.215.0：网格角标与列表同款——数字 pill、主题 primary、无脉冲、无“+”。
             if (updateCount > 0 && !(checkFailed && !checking)) {
                 Text(
-                    text = "+$updateCount",
-                    fontSize = 10.sp,
+                    text = "$updateCount",
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(6.dp)
-                        .pulseBadge()
-                        .background(Color(0xFFE53935), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
             // 多选勾（右上）

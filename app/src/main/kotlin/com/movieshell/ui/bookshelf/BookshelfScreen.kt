@@ -157,6 +157,12 @@ fun BookshelfScreen(
     // v0.98.0：多选模式
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // v0.215.0：批量换源弹窗与进行态
+    var showBatchSource by remember { mutableStateOf(false) }
+    var batchSwitching by remember { mutableStateOf(false) }
+    val batchJsonSources by com.movieshell.data.novel.BookSourceManager.sources.collectAsState()
+    val batchPyRules by com.movieshell.data.novel.PyBookSourceManager.rules.collectAsState()
+    val batchPyEnabled by com.movieshell.data.novel.PyBookSourceManager.enabled.collectAsState()
 
     // v0.195.0：书架内直接搜（不用单独找书页）
     var searching by remember { mutableStateOf(false) }
@@ -199,6 +205,32 @@ fun BookshelfScreen(
         }
     }
     LaunchedEffect(Unit) { reload() }
+
+    // v0.215.0：批量换源执行——本地 TXT 跳过（没有源可换），逐本走限流，
+    // 搜不到或目录拉取失败的那本不动，最后统一报成功／失败本数。
+    fun runBatchSwitch(targetKey: String) {
+        val targets = books.filter { selectedIds.contains(it.id) && it.sourceKey != "local" }
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                com.movieshell.data.novel.BookSourceManager.load(context)
+                com.movieshell.data.novel.PyBookSourceManager.load(context)
+            }
+            var ok = 0
+            var fail = 0
+            for (n in targets) {
+                val done = NovelSourceEngine.withSearchThrottle {
+                    NovelUpdateChecker.switchToSource(context, n, targetKey)
+                }
+                if (done) ok++ else fail++
+            }
+            batchSwitching = false
+            showBatchSource = false
+            selectionMode = false
+            selectedIds = emptySet()
+            PluginUi.toast(context, "批量换源完成：成功 $ok 本，失败 $fail 本")
+            reload()
+        }
+    }
 
     // v0.84.0：检查全部在线书的更新（本地 TXT 跳过）。
     // v0.211.0：逐本状态——原来 checkAllDetailed 只在全部跑完才回结果，
@@ -387,7 +419,7 @@ fun BookshelfScreen(
         if (uri == null) return@rememberLauncherForActivityResult
         importing = true
         scope.launch {
-            val ok = withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val name = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
                         val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -396,17 +428,31 @@ fun BookshelfScreen(
                     val tmp = File(context.cacheDir, "import_${System.currentTimeMillis()}.txt")
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         tmp.outputStream().use { input.copyTo(it) }
-                    } ?: return@runCatching false
+                    } ?: return@runCatching "failed"
                     val named = File(tmp.parent, name)
                     tmp.renameTo(named)
-                    val imported = TxtImporter.import(named) ?: return@runCatching false
+                    val imported = TxtImporter.import(named)
                     named.delete()
-                    NovelStore.addNovel(context, imported.novel, imported.chapters)
-                }.getOrDefault(false)
+                    if (imported == null) return@runCatching "invalid"
+                    // v0.215.0：同一文件重复导入不再产生两本同名书（按本地书名判重）。
+                    val exists = NovelStore.list(context).any {
+                        it.sourceKey == "local" && it.title == imported.novel.title
+                    }
+                    if (exists) return@runCatching "exists"
+                    if (!NovelStore.addNovel(context, imported.novel, imported.chapters)) {
+                        return@runCatching "failed"
+                    }
+                    "added"
+                }.getOrDefault("failed")
             }
             importing = false
-            PluginUi.toast(context, if (ok) "已加入书架" else "导入失败：不是有效的 TXT")
-            if (ok) reload()
+            PluginUi.toast(context, when (result) {
+                "added" -> "已加入书架"
+                "exists" -> "已在书架，跳过重复导入"
+                "invalid" -> "导入失败：读不到有效文本"
+                else -> "导入失败：保存失败"
+            })
+            if (result == "added") reload()
         }
     }
 
@@ -443,6 +489,13 @@ fun BookshelfScreen(
                         },
                         enabled = selectedIds.isNotEmpty(),
                     ) { Text("分组") }
+                    // v0.215.0：批量换源（逐本在目标源搜书名、按追更同款匹配换目录）。
+                    TextButton(
+                        onClick = {
+                            if (selectedIds.isNotEmpty()) showBatchSource = true
+                        },
+                        enabled = selectedIds.isNotEmpty(),
+                    ) { Text("换源") }
                     IconButton(onClick = {
                         selectionMode = false
                         selectedIds = emptySet()
@@ -857,6 +910,54 @@ fun BookshelfScreen(
             },
         ) {
             Text("将从书架移除，阅读进度、书签与追更标记也会清除。")
+        }
+    }
+
+    // v0.215.0：批量换源——选目标源，逐本搜书名换目录（本地 TXT 不进换源）。
+    if (showBatchSource) {
+        TechDialog(
+            onDismissRequest = { if (!batchSwitching) showBatchSource = false },
+            title = "批量换源",
+            subtitle = "对已选的 ${selectedIds.size} 本逐本在目标源搜书名换目录；搜不到或目录拉取失败的那本不动",
+            dismissText = "取消",
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                if (batchSwitching) {
+                    Text("换源中…", fontSize = 13.sp)
+                } else {
+                    batchJsonSources.filter { it.enabled }.forEach { s ->
+                        Text(
+                            s.name,
+                            fontSize = 15.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    batchSwitching = true
+                                    runBatchSwitch(s.key)
+                                }
+                                .padding(vertical = 10.dp),
+                        )
+                    }
+                    batchPyRules.filter { it.name in batchPyEnabled }.forEach { r ->
+                        Text(
+                            "${r.title}（本地PY）",
+                            fontSize = 15.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    batchSwitching = true
+                                    runBatchSwitch(com.movieshell.data.novel.PyBookSourceManager.SOURCE_KEY_PREFIX + r.name)
+                                }
+                                .padding(vertical = 10.dp),
+                        )
+                    }
+                }
+            }
         }
     }
 

@@ -166,6 +166,7 @@ fun MusicScreen(
     LaunchedEffect(Unit) {
         MusicPlayer.restorePreferred(context)
         MusicPlayer.restoreQueue(context)
+        MusicPlayer.restoreDurations(context)
     }
     val currentSourceName = preferredSourceId
         ?.let { id -> musicSources.firstOrNull { it.id == id }?.name }
@@ -1208,6 +1209,12 @@ private fun qualityChipColor(quality: String): Color {
     }
 }
 
+/** v0.215.0：毫秒转 m:ss（列表时长 chip 用）。 */
+private fun formatDurationMs(ms: Long): String {
+    val total = (ms / 1000).coerceAtLeast(0)
+    return "${total / 60}:${(total % 60).toString().padStart(2, '0')}"
+}
+
 /** v0.84.0：改为 internal，供歌单详情页/历史页复用。 */
 @Composable
 internal fun TrackRow(
@@ -1224,6 +1231,9 @@ internal fun TrackRow(
 ) {
     // v0.89.0：封面走 picImageUrl 解析后的真实地址（接口包一层 {"url":...}）
     val artUrl = rememberArtworkUrl(track.picId, track.source)
+    // v0.215.0：播过才有时长（搜索结果本身不带时长），没播过的歌不编时长。
+    val durations by MusicPlayer.durations.collectAsState()
+    val trackDurationMs = durations[MusicPlayer.durationKey(track)]
     AppCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -1280,7 +1290,7 @@ internal fun TrackRow(
                     track.isLocal -> "本地"
                     else -> MusicApi.platformLabel(track.source)
                 }
-                if (sourceLabel != null || badge != null) {
+                if (sourceLabel != null || badge != null || trackDurationMs != null) {
                     Spacer(Modifier.height(3.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (sourceLabel != null) {
@@ -1300,6 +1310,12 @@ internal fun TrackRow(
                                     tint = qualityChipColor(badge.second),
                                 )
                             }
+                        }
+                        if (trackDurationMs != null) {
+                            BadgeChip(
+                                text = formatDurationMs(trackDurationMs),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }

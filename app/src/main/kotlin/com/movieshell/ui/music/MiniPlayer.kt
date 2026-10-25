@@ -3,6 +3,7 @@ package com.movieshell.ui.music
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,12 +12,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +57,7 @@ internal fun MiniPlayer(
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .clickable(onClick = onOpenPlayer),
     ) {
+        Column {
         Row(
             modifier = Modifier.padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -118,6 +122,18 @@ internal fun MiniPlayer(
             IconButton(onClick = { MusicPlayer.next(context) }) {
                 Icon(Icons.Filled.SkipNext, contentDescription = "下一首")
             }
+            // v0.215.0：迷你条关闭入口（停播并清掉迷你条；原来只能进播放页停）。
+            IconButton(onClick = { MusicPlayer.stop() }) {
+                Icon(Icons.Filled.Close, contentDescription = "关闭")
+            }
+        }
+        // v0.215.0：迷你条进度（读播放器 state 的 position/duration；未解析出时长时不画）。
+        if (playState.durationMs > 0) {
+            LinearProgressIndicator(
+                progress = { (playState.positionMs.toFloat() / playState.durationMs).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(2.dp),
+            )
+        }
         }
     }
 }

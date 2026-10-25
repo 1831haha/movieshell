@@ -95,6 +95,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.HomeCache
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PySourceManager
@@ -736,6 +737,13 @@ fun SourcesScreen(
         // 同一入口；同名文件日后重新导入，旧禁用态与旧探活徽标不再复活
         SourceStateStore.removeDisabled(context, item.kind, item.fileName)
         SourceProbeStore.removeProbe(context, item.kind, item.fileName)
+        // v0.215.0：删源六项清理之首页缓存——原来首页缓存（推荐＋分类）不跟删源走，
+        // 同名源重装后先读到旧缓存，删掉的源也继续占着缓存文件。
+        when (item.kind) {
+            TAB_JS -> HomeCache.clear(context, "drpy_${item.fileName}")
+            TAB_PY -> HomeCache.clear(context, "py_${item.fileName}")
+            TAB_PHP -> HomeCache.clear(context, "php_${item.fileName}")
+        }
         // 置顶记录同步清理
         pins[item.kind]?.let {
             it.remove(item.fileName)

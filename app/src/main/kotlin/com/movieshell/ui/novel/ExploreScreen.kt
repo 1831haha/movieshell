@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -35,11 +37,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import com.movieshell.ui.components.TechDialog
 import com.movieshell.data.novel.BookSource
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.NovelSearchResult
@@ -79,6 +85,8 @@ fun ExploreScreen(
     var pageUrl by remember(sourceKey) { mutableStateOf("") }
     var pageTitle by remember(sourceKey) { mutableStateOf("") }
     var webLoading by remember(sourceKey) { mutableStateOf(false) }
+    // v0.215.0：列表行详情预览——点行先看预览（封面／书名／作者／来源），确认才入架。
+    var previewItem by remember(sourceKey) { mutableStateOf<NovelSearchResult?>(null) }
 
     val categoryUrl = source?.let { src ->
         selected?.let { NovelSourceEngine.explorePageUrl(src, it.url) }
@@ -230,7 +238,7 @@ fun ExploreScreen(
                             Column(
                                 Modifier.fillMaxWidth()
                                     .clickable(enabled = !isJoining) {
-                                        if (group != null) searchVm.joinShelf(group, item)
+                                        previewItem = item
                                     }
                                     .padding(vertical = 10.dp),
                             ) {
@@ -283,6 +291,43 @@ fun ExploreScreen(
                     }
                 }
             }
+        }
+    }
+
+    // v0.215.0：列表行详情预览弹窗（确认才入架；取消不丢列表）。
+    previewItem?.let { item ->
+        val group = source?.let { SourceGroup(it.key, it.name, results) }
+        val isJoining = group != null && joining == group.key + item.remoteId
+        TechDialog(
+            onDismissRequest = { if (!isJoining) previewItem = null },
+            title = item.title,
+            subtitle = listOfNotNull(
+                item.author?.takeIf { it.isNotBlank() },
+                source?.name,
+            ).joinToString(" · ").takeIf { it.isNotBlank() },
+            confirmText = if (isJoining) "加入中…" else "加入书架",
+            confirmEnabled = !isJoining,
+            onConfirm = {
+                if (group != null) searchVm.joinShelf(group, item)
+                previewItem = null
+            },
+        ) {
+            if (!item.cover.isNullOrBlank()) {
+                AsyncImage(
+                    model = item.cover,
+                    contentDescription = item.title,
+                    modifier = Modifier
+                        .size(width = 110.dp, height = 148.dp)
+                        .clip(RoundedCornerShape(10.dp)),
+                    contentScale = ContentScale.Crop,
+                )
+                Spacer(Modifier.height(10.dp))
+            }
+            Text(
+                "点“加入书架”后会拉取该书目录并加入书架；来源：${source?.name.orEmpty()}",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

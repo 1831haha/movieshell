@@ -84,7 +84,16 @@ object HomeCache {
 
     /** 清某源缓存（源被删/禁用时调用，可选）。 */
     fun clear(context: Context, key: String) {
-        runCatching { file(context, key).delete() }
+        runCatching {
+            val dir = File(context.filesDir, "home_cache")
+            val safe = key.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(80).ifBlank { "default" }
+            file(context, key).delete()
+            // v0.215.0：原来只删主文件，分类缓存（${safe}_cat_*.json）全留成孤儿；
+            // 删源后重装同名源会先读到旧分类缓存。主文件与分类文件一起清。
+            dir.listFiles()?.forEach { f ->
+                if (f.name.startsWith("${safe}_cat_")) f.delete()
+            }
+        }
     }
 
     private fun file(context: Context, key: String): File {

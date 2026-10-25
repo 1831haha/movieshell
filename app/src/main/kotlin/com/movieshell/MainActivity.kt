@@ -368,32 +368,43 @@ class MainActivity : ComponentActivity() {
                                 // 否则详情按换源后的当前源拉，旧源的 vodId 和集数对不上。
                                 // 旧历史无源、订阅站查不到时保持当前源，不弹错、不清现有源。
                                 onContinueWatch = { vodId, title, episode, sourceType, sourceKey ->
-                                    when (sourceType) {
+                                    // v0.215.0：失效源不毁当前激活态——setActiveRule 先验文件，
+                                    // 切源失败（源已删）时不进详情页、不动当前源，只提示。
+                                    val sourceOk = when (sourceType) {
                                         "drpy" -> if (sourceKey.isNotBlank()) {
                                             DetailSiteHolder.site = null
                                             DrpySourceManager.setActiveRule(sourceKey)
-                                        }
+                                        } else true
                                         "py" -> if (sourceKey.isNotBlank()) {
                                             DetailSiteHolder.site = null
                                             PySourceManager.setActiveRule(sourceKey)
-                                        }
+                                        } else true
                                         "php" -> if (sourceKey.isNotBlank()) {
                                             DetailSiteHolder.site = null
                                             PhpSourceManager.setActiveRule(sourceKey)
-                                        }
+                                        } else true
                                         "sub" -> if (sourceKey.isNotBlank()) {
                                             SubSiteStore.findSite(
                                                 this@MainActivity,
                                                 sourceKey,
                                             )?.let { (u, r) ->
                                                 DetailSiteHolder.site = SubSiteStore.toSite(u, r)
-                                            }
-                                        }
-                                        else -> {}
+                                                true
+                                            } ?: false
+                                        } else true
+                                        else -> true
                                     }
-                                    navController.navigate(
-                                        "detail/${Uri.encode(vodId)}?title=${Uri.encode(title)}&episode=$episode",
-                                    )
+                                    if (sourceOk) {
+                                        navController.navigate(
+                                            "detail/${Uri.encode(vodId)}?title=${Uri.encode(title)}&episode=$episode",
+                                        )
+                                    } else {
+                                        android.widget.Toast.makeText(
+                                            this@MainActivity,
+                                            "该记录的源已删除或不可用，当前源未变",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
                                 },
                             )
                         }

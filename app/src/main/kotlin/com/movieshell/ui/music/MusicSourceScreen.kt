@@ -259,7 +259,10 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             val added = MusicSourceStore.addLocal(context, displayName, tmp)
             runCatching { tmp.delete() }
             if (added != null) {
-                AppToast.show(context, "已导入 ${added.name}", long = false)
+                // v0.215.0：导入新源后自动设为首选——原来只追加到注册表末尾，
+                // 按顺序轮询时可能长期轮不到，新源等于没导入。
+                MusicPlayer.setPreferredSource(context, added.id)
+                AppToast.show(context, "已导入 ${added.name}，已设为首选音源", long = false)
                 showAdd = false
                 reload()
             } else {
@@ -534,9 +537,13 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     return@TechDialog
                 }
                 scope.launch {
-                    MusicSourceStore.add(context, MusicSource(name = name.trim(), url = url.trim()))
+                    // v0.215.0：同本地导入——新源直接设为首选，不让它在注册表末尾空等轮询。
+                    val created = MusicSource(name = name.trim(), url = url.trim())
+                    MusicSourceStore.add(context, created)
+                    MusicPlayer.setPreferredSource(context, created.id)
                     showAdd = false
                     reload()
+                    AppToast.show(context, "已添加，已设为首选音源", long = false)
                 }
             },
         ) {

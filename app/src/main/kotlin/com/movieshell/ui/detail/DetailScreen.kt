@@ -103,6 +103,7 @@ import com.movieshell.data.repo.FollowItem
 import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PhpCliEngine
+import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
@@ -325,6 +326,21 @@ fun DetailScreen(
 
     fun playEpisode(ep: Episode, lineIndex: Int, episodeIndex: Int) {
         LogBus.i("UI", "点击播放: ${ep.name.ifBlank { "未命名剧集" }} url=${ep.url.take(100)}")
+        // v0.215.0：禁用源详情仍可播——点播前查禁用表，禁用的源不解析、只提示
+        // （详情页打开时源还启用、进页后被禁用也会拦住；订阅站源不在此表，不受影响）。
+        if (subSite == null) {
+            val rule: Pair<String, String?> = when {
+                DrpySourceManager.hasActiveRule() -> "js" to DrpySourceManager.activeRuleName()
+                PySourceManager.hasActiveRule() -> "py" to PySourceManager.activeRuleName()
+                PhpSourceManager.activeRuleName() != null -> "php" to PhpSourceManager.activeRuleName()
+                else -> "" to null
+            }
+            val ruleName = rule.second
+            if (ruleName != null && !SourceStateStore.isRuleEnabled(rule.first, ruleName)) {
+                AppToast.show(context, "该源已禁用，启用后才能播放", long = false)
+                return
+            }
+        }
         // v0.106.0：解析走应用级 PlayResolveScope——rememberCoroutineScope 会在切页/
         // 返回时取消，导致 "The coroutine scope left the composition"（16 条线路全灭）
         PlayResolveScope.launch {

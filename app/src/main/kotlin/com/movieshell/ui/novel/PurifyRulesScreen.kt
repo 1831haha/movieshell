@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,7 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.novel.PurifyRule
 import com.movieshell.data.novel.PurifyRuleStore
+import com.movieshell.data.repo.NovelStore
 import com.movieshell.ui.components.AppCard
+import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.goldTitleColor
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
@@ -82,6 +85,29 @@ fun PurifyRulesScreen(
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        // v0.215.0：规则改动后已缓存章节不会自己变新——这里手动清缓存正文
+        // （目录保留，下次打开重拉并走新规则），不清则旧章节一直是旧样子。
+        var showClearCache by remember { mutableStateOf(false) }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = { showClearCache = true }) {
+            Text("清除已缓存正文（规则改动后点这里）", fontSize = 13.sp)
+        }
+        if (showClearCache) {
+            TechDialog(
+                onDismissRequest = { showClearCache = false },
+                title = "清除已缓存正文？",
+                confirmText = "清除",
+                onConfirm = {
+                    showClearCache = false
+                    scope.launch {
+                        val n = NovelStore.clearCachedContents(context)
+                        AppToast.show(context, if (n > 0) "已清除 $n 本书的缓存正文，下次打开重拉" else "没有已缓存的正文可清", long = false)
+                    }
+                },
+            ) {
+                Text("只清正文缓存，目录和进度不动；清掉的章节下次打开时会重新拉取并按新规则净化。")
+            }
+        }
         Spacer(Modifier.height(12.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             itemsIndexed(rules, key = { i, r -> "$i-${r.name}-${r.regex}" }) { i, r ->

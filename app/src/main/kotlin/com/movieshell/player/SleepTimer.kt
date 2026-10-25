@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * 定时关闭单入口（v0.21.0）。
+ * 定时关闭（v0.21.0）。
  *
  * - [startMinutes]：N 分钟后到期，到期回调由调用方暂停播放；
  * - [armAfterEpisode]：布防「播完本集停止」，播放器在集尾用 [consumeAfterEpisode] 消费；
@@ -15,8 +15,11 @@ import kotlinx.coroutines.flow.StateFlow
  * - [cancel]：取消全部。
  *
  * 用 Handler + 单调时钟，App 退到后台也照常走。
+ *
+ * v0.215.0：视频与音乐各用一条独立定时——原来共用一个单例，
+ * 音乐定了时、再进视频一定时就把音乐的顶掉（反之亦然）。
  */
-object SleepTimer {
+open class SleepTimerLane {
 
     private val handler = Handler(Looper.getMainLooper())
     private var expireAt = 0L
@@ -77,3 +80,9 @@ object SleepTimer {
     /** 是否有定时在跑（倒计时或播完本集任一）。 */
     fun isActive(): Boolean = _remainingMs.value > 0 || _afterEpisodeArmed.value
 }
+
+/** 视频定时（独立于音乐）。 */
+object VideoSleepTimer : SleepTimerLane()
+
+/** 音乐定时（独立于视频）。 */
+object MusicSleepTimer : SleepTimerLane()
