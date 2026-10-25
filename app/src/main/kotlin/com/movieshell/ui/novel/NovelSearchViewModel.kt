@@ -227,8 +227,11 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
             // v0.220.0：忙状态改集合——原来单槽位，连点第二本时第一本的
             // 按钮就从“加入中”弹回“加入书架”，看着像没在跑，还能重复点。
             _joining.value = _joining.value + key
+            // 修推：ok 须在 try 外声明——Toast 在 try-finally 之后引用它，
+            // 放 try 里会报 Unresolved reference（run #423 失败根因）。
+            var ok = false
             try {
-                val ok = runCatching {
+                ok = runCatching {
                     val (metas, cover) = fetchJoinMetas(group, item, item.cover)
                     if (metas.isEmpty()) return@runCatching false
                 // v0.216.0（C10）：id 走新稳定拼法；书架里若已有同源同书
