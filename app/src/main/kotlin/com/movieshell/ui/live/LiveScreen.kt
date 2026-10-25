@@ -83,6 +83,8 @@ import com.movieshell.data.repo.LiveSource
 import com.movieshell.data.repo.LiveStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.TrashStore
+import com.movieshell.player.EngineHost
+import com.movieshell.player.PlaySession
 import com.movieshell.player.PlayerScreen
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
@@ -144,12 +146,24 @@ fun LiveScreen(
     var liveSourceByName by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val globalEpg by LiveStore.globalEpg.collectAsState()
 
+    // v0.219.0：切 tab 真离开时停播的开关——照详情页 goingFullscreen 的套路：
+    // 跳全屏独立播放页／直播管理页是页内跳转（会话延续），先置 true，
+    // dispose 时跳过停播；其他离开路径（切 tab 等）为 false，dispose 时
+    // 停引擎、清会话、关可见标记。否则切到小说页后直播还在后台响。
+    // plain remember 不随 saveState 恢复，回页重组自动变回 false，不用手动复位。
+    var goingToLivePage by remember { mutableStateOf(false) }
     // v0.96.2：横屏全屏播放（手动横屏按钮 / 物理横屏）且有在播频道时，播放器占满全屏
     val fullscreenPlayer = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE &&
         selected != null
     // v0.96.2：离页时恢复系统方向——手动横屏后切 tab / 跳独立播放页，不能把整个 App 锁在横屏
+    // v0.219.0：同 effect 内补真离开停播（见 goingToLivePage 注释）。
     DisposableEffect(Unit) {
         onDispose {
+            if (!goingToLivePage) {
+                EngineHost.stop()
+                PlaySession.clear()
+                PlaySession.playerVisible = false
+            }
             (context as? Activity)?.let {
                 if (it.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
                     it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -316,7 +330,10 @@ fun LiveScreen(
                         isLive = true,
                         onBack = {},
                         embedded = true,
-                        onFullscreen = { onFullscreenChannel(playing) },
+                        onFullscreen = {
+                            goingToLivePage = true
+                            onFullscreenChannel(playing)
+                        },
                         // v0.158.0：最终失败自动切同名源（同内核重拉+换内核已在播放器内走完）；
                         // 切到其他源时把换源过滤放回全部，避免列表与在播频道对不上
                         onLiveError = {
@@ -535,6 +552,7 @@ fun LiveScreen(
             },
             onManageClick = {
                 showLiveSettings = false
+                goingToLivePage = true
                 onManageClick()
             },
         )

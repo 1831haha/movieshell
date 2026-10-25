@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.219.0",
+        date = "2026-10-25",
+        title = "修切 tab 后直播还在后台响。",
+        details = listOf(
+            "直播页切到小说等其他 tab 后，直播声音还在后台继续播，现已在真离开时停播。",
+            "跳全屏独立播放页与进直播管理页是页内跳转，会话延续，不停播。",
+            "完整内容见仓库 docs/changelog/v0.219.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.218.0",
         date = "2026-10-25",
         title = "全量审查报告里“可精简”32 条的清理版（S1–S32 全做完）。",
