@@ -362,8 +362,8 @@ class MainActivity : ComponentActivity() {
                                 slideInVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { with(density) { 8.dp.roundToPx() } }
                         },
                         exitTransition = {
-                            if (initialState.destination.route in TAB_ROUTES &&
-                                targetState.destination.route in TAB_ROUTES
+                            if (initialState.destination.route?.let { it in TAB_ROUTES } == true &&
+                                targetState.destination.route?.let { it in TAB_ROUTES } == true
                             ) {
                                 null
                             } else {
@@ -374,8 +374,8 @@ class MainActivity : ComponentActivity() {
                             fadeIn(tween(SoftMotion.Fast, easing = SoftMotion.Ease))
                         },
                         popExitTransition = {
-                            if (initialState.destination.route in TAB_ROUTES &&
-                                targetState.destination.route in TAB_ROUTES
+                            if (initialState.destination.route?.let { it in TAB_ROUTES } == true &&
+                                targetState.destination.route?.let { it in TAB_ROUTES } == true
                             ) {
                                 null
                             } else {
