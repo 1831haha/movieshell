@@ -98,7 +98,7 @@ object NovelUpdateChecker {
         val source = BookSourceManager.sources.value.firstOrNull { it.key == novel.sourceKey }
             ?: return null
         val hits = NovelSourceEngine.search(source, novel.title)
-        val best = pickBest(hits, novel.title, novel.author) ?: return null
+        val best = pickBest(hits, novel.title, novel.author.orEmpty()) ?: return null
         return NovelSourceEngine.chapters(source, best).ifEmpty { null }
     }
 
@@ -106,7 +106,7 @@ object NovelUpdateChecker {
         val name = PyBookSourceManager.fileNameOf(novel.sourceKey) ?: return null
         val rule = PyBookSourceManager.rules.value.firstOrNull { it.name == name } ?: return null
         val hits = NovelSourceEngine.searchPy(context, rule, novel.title)
-        val best = pickBest(hits, novel.title, novel.author) ?: return null
+        val best = pickBest(hits, novel.title, novel.author.orEmpty()) ?: return null
         return NovelSourceEngine.chaptersPy(context, best).ifEmpty { null }
     }
 
