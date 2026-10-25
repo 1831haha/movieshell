@@ -675,7 +675,7 @@ fun HomeScreen(
      */
     fun loadMoreCategory() {
         val typeId = vm.selectedCategoryId.value
-        if (typeId == 0) return
+        if (typeId.isEmpty()) return
         if (catLoadingMore || vm.isCategoryNoMore(typeId)) return
         val cat = vm.categories.value.firstOrNull { it.typeId == typeId } ?: return
         val startPage = vm.categoryPage(typeId)
