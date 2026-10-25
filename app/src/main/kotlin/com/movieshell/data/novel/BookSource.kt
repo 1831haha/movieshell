@@ -25,6 +25,9 @@ data class BookSource(
     val ruleBookAuthor: String = "",
     val ruleBookIntro: String = "",
     val ruleBookCover: String = "",
+    // v0.229.0：详情类型标签（阅读式 ruleBookInfo.kind，如 999 的“类型：…”；
+    // 之前 fromJson 根本没读它，详情页标签行无数据可画）。
+    val ruleBookKind: String = "",
     val ruleBookTocUrl: String = "",
     val ruleTocList: String = "",
     val ruleTocTitle: String = "",
@@ -73,6 +76,7 @@ data class BookSource(
             put("author", ruleBookAuthor)
             put("intro", ruleBookIntro)
             put("coverUrl", ruleBookCover)
+            put("kind", ruleBookKind)
             put("tocUrl", ruleBookTocUrl)
         })
         put("ruleContent", JSONObject().apply {
@@ -135,6 +139,7 @@ data class BookSource(
                 ruleBookAuthor = rb?.optString("author").orEmpty(),
                 ruleBookIntro = rb?.optString("intro").orEmpty(),
                 ruleBookCover = rb?.optString("coverUrl").orEmpty(),
+                ruleBookKind = rb?.optString("kind").orEmpty(),
                 ruleBookTocUrl = rb?.optString("tocUrl").orEmpty(),
                 ruleTocList = rt?.optString("chapterList").orEmpty(),
                 ruleTocTitle = rt?.optString("chapterName").orEmpty(),

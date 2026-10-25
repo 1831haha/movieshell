@@ -431,6 +431,65 @@ object NovelSourceEngine {
         }
     }
 
+    /** v0.229.0：搜书详情页用——详情页规则一次求全（书名/作者/简介/封面/类型），
+     * 空规则返回空串，调用方回落搜索结果字段。走 detailCover 同款抓取链：
+     * fetchPage + runLoginCheck（refetch 必传，227 的教训：999 握手后不重抓
+     * 拿到的是“success”短串）；非 JS 源走纯 CSS 提取。 */
+    data class BookDetailInfo(
+        val name: String = "",
+        val author: String = "",
+        val intro: String = "",
+        val cover: String = "",
+        val kind: String = "",
+    )
+
+    suspend fun bookDetail(source: BookSource, book: NovelSearchResult): BookDetailInfo {
+        if (book.remoteId.isBlank()) return BookDetailInfo()
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                if (!isJsSource(source)) {
+                    val html = BookRuleEngine.getHtml(book.remoteId) ?: return@runCatching BookDetailInfo()
+                    val doc = BookRuleEngine.parseDoc(html, book.remoteId)
+                    fun ex(rule: String) =
+                        if (rule.isBlank()) "" else BookRuleEngine.extract(doc, book.remoteId, rule)
+                    BookDetailInfo(
+                        name = ex(source.ruleBookName),
+                        author = ex(source.ruleBookAuthor),
+                        intro = ex(source.ruleBookIntro),
+                        cover = ex(source.ruleBookCover),
+                        kind = ex(source.ruleBookKind),
+                    )
+                } else {
+                    val page = BookRuleEngine.fetchPage(book.remoteId, uaOf(source))
+                        ?: return@runCatching BookDetailInfo()
+                    val ctx = LegadoJsEngine.JsCtx(
+                        source = source,
+                        baseUrl = page.url,
+                        bookName = book.title,
+                        bookUrl = book.remoteId,
+                        bookAuthor = book.author.orEmpty(),
+                    )
+                    val state = LegadoJsEngine.JsState(source.key)
+                    val checked = LegadoJsEngine.runLoginCheck(source, page, ctx, state) {
+                        BookRuleEngine.fetchPage(book.remoteId, uaOf(source))
+                    }
+                    val doc = BookRuleEngine.parseDoc(checked.body, checked.url)
+                    val c2 = ctx.copy(baseUrl = checked.url)
+                    fun ev(rule: String) =
+                        if (rule.isBlank()) "" else LegadoJsEngine.evalTextRule(doc, checked.url, rule, c2, state)
+                    BookDetailInfo(
+                        name = ev(source.ruleBookName),
+                        author = ev(source.ruleBookAuthor),
+                        intro = ev(source.ruleBookIntro),
+                        cover = ev(source.ruleBookCover),
+                        kind = ev(source.ruleBookKind),
+                    )
+                }
+            }.onFailure { LogBus.w(TAG, "详情抓取失败 ${book.remoteId}: ${it.message}") }
+                .getOrDefault(BookDetailInfo())
+        }
+    }
+
     /**
      * v0.201.0：发现页——按分类 URL 抓一页，返回书目。
      * 规则取 ruleExplore，缺失项回落到 ruleSearch（源只有 exploreUrl 没写

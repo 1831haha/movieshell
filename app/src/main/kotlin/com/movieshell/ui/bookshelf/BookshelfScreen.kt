@@ -92,8 +92,10 @@ import com.movieshell.data.novel.TxtImporter
 import com.movieshell.data.repo.BookGroup
 import com.movieshell.data.repo.BookshelfGroupStore
 import com.movieshell.data.repo.NovelStore
+import com.movieshell.ui.novel.NovelSearchResult
 import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.novel.NovelSearchViewModel
+import com.movieshell.ui.novel.SourceGroup
 import com.movieshell.data.repo.NovelUpdateInfo
 import com.movieshell.data.repo.NovelUpdateStore
 import com.movieshell.data.repo.ReadingProgressStore
@@ -137,6 +139,8 @@ fun BookshelfScreen(
     onManageSourcesClick: () -> Unit = {},
     // v0.98.0：书籍详情里的净化规则快捷入口
     onOpenPurifyRules: () -> Unit = {},
+    // v0.229.0：内嵌找书点结果卡片进书籍信息整页（由宿主导航）。
+    onOpenDetail: (SourceGroup, NovelSearchResult) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -717,6 +721,7 @@ fun BookshelfScreen(
                             autoFocus = false,
                             hideSearchField = true,
                             onManageSources = onManageSourcesClick,
+                            onOpenDetail = onOpenDetail,
                         )
                     }
                 }

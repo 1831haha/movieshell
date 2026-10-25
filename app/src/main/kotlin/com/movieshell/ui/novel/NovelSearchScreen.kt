@@ -84,6 +84,8 @@ fun NovelSearchScreen(
     embedded: Boolean = false, // v0.79.0：嵌入书架子 tab 时隐藏头部
     autoFocus: Boolean = false, // v0.195.0：书架内嵌搜索时打开即聚焦键盘，直接输
     hideSearchField: Boolean = false, // v0.196.0：搜索框已上移到书架的“找书”标题行，这里不再重复画框
+    // v0.229.0：点结果卡片进书籍信息整页（卡片里的加入书架钮自己消费点击，不触发它）。
+    onOpenDetail: (SourceGroup, NovelSearchResult) -> Unit = { _, _ -> },
 ) {
     // v0.103.0：activity 级 VM——切后台/切 tab 不销毁，viewModelScope 里的多书源搜索不中断、结果保留
     val activity = LocalContext.current as ComponentActivity
@@ -315,7 +317,9 @@ fun NovelSearchScreen(
                     items(group.books.distinctBy { it.remoteId }, key = { "${group.key}_${it.remoteId}" }) { item ->
                         AppCard {
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                                    .clickable { onOpenDetail(group, item) }
+                                    .padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 // v0.211.0：结果卡片补封面——之前只画标题/作者，

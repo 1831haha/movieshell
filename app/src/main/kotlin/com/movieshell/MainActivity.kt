@@ -98,8 +98,11 @@ import com.movieshell.ui.novel.BookSourceScreen
 import com.movieshell.ui.novel.ExploreAggregateScreen
 import com.movieshell.ui.novel.ExploreScreen
 import com.movieshell.ui.novel.PurifyRulesScreen
+import com.movieshell.ui.novel.NovelSearchResult
 import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.novel.NovelSearchViewModel
+import com.movieshell.ui.novel.SearchBookDetailScreen
+import com.movieshell.ui.novel.SourceGroup
 import com.movieshell.ui.novel.VerifyGateDialog
 import com.movieshell.ui.detail.DetailScreen
 import com.movieshell.ui.download.DownloadScreen
@@ -599,6 +602,17 @@ class MainActivity : ComponentActivity() {
                                 onManageSourcesClick = { navController.navigate("book_source") },
                                 // v0.98.0：书籍详情里的净化规则快捷入口
                                 onOpenPurifyRules = { navController.navigate("purify_rules") },
+                                // v0.229.0：书架内嵌找书点卡片进书籍信息整页。
+                                onOpenDetail = { group, item ->
+                                    navController.navigate(
+                                        "novel_book_detail/${Uri.encode(group.key)}" +
+                                            "?sourceName=${Uri.encode(group.name)}" +
+                                            "&remoteId=${Uri.encode(item.remoteId)}" +
+                                            "&title=${Uri.encode(item.title)}" +
+                                            "&author=${Uri.encode(item.author.orEmpty())}" +
+                                            "&cover=${Uri.encode(item.cover.orEmpty())}",
+                                    )
+                                },
                             )
                         }
                         composable(
@@ -613,6 +627,47 @@ class MainActivity : ComponentActivity() {
                                 onManageSources = { navController.navigate("book_source") },
                                 pySourceName = entry.arguments?.getString("pySource")
                                     ?.takeIf { it.isNotBlank() },
+                                // v0.229.0：独立找书页点卡片进书籍信息整页。
+                                onOpenDetail = { group, item ->
+                                    navController.navigate(
+                                        "novel_book_detail/${Uri.encode(group.key)}" +
+                                            "?sourceName=${Uri.encode(group.name)}" +
+                                            "&remoteId=${Uri.encode(item.remoteId)}" +
+                                            "&title=${Uri.encode(item.title)}" +
+                                            "&author=${Uri.encode(item.author.orEmpty())}" +
+                                            "&cover=${Uri.encode(item.cover.orEmpty())}",
+                                    )
+                                },
+                            )
+                        }
+                        // v0.229.0：搜书结果书籍信息整页（对标图 1）。
+                        composable(
+                            route = "novel_book_detail/{sourceKey}?sourceName={sourceName}&remoteId={remoteId}&title={title}&author={author}&cover={cover}",
+                            arguments = listOf(
+                                navArgument("sourceKey") { type = NavType.StringType },
+                                navArgument("sourceName") { type = NavType.StringType; defaultValue = "" },
+                                navArgument("remoteId") { type = NavType.StringType; defaultValue = "" },
+                                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                                navArgument("author") { type = NavType.StringType; defaultValue = "" },
+                                navArgument("cover") { type = NavType.StringType; defaultValue = "" },
+                            ),
+                        ) { entry ->
+                            val detailKey = entry.arguments?.getString("sourceKey").orEmpty()
+                            SearchBookDetailScreen(
+                                group = SourceGroup(
+                                    key = detailKey,
+                                    name = entry.arguments?.getString("sourceName").orEmpty(),
+                                    books = emptyList(),
+                                ),
+                                item = NovelSearchResult(
+                                    sourceKey = detailKey,
+                                    remoteId = entry.arguments?.getString("remoteId").orEmpty(),
+                                    title = entry.arguments?.getString("title").orEmpty(),
+                                    author = entry.arguments?.getString("author")?.takeIf { it.isNotBlank() },
+                                    cover = entry.arguments?.getString("cover")?.takeIf { it.isNotBlank() },
+                                ),
+                                onBack = { navController.popBackStack() },
+                                onOpenReader = { id -> navController.navigate("reader/$id") },
                             )
                         }
                         // v0.83.0：音乐全屏播放页
