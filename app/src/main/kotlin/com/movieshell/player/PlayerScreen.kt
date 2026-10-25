@@ -40,6 +40,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -1658,9 +1659,12 @@ fun PlayerScreen(
                 }
                 }
                 // 第二行：暂停 + 时间 + 上一集/下一集 + 倍速 + 选集 + 引擎 + 全屏
+                // v0.221.0：按钮一共 9 个，窄屏上普通 Row 会把尾巴（自动、引擎、
+                // 全屏）推出屏外、只剩“自动”半个边露在右边缘——改横向滚动，
+                // 宽屏能放下时 weight 占位仍把全屏顶到右边缘，窄屏则可滑动点全。
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 ) {
                     RoundControlButton(
                         icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,

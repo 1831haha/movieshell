@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.221.0",
+        date = "2026-10-25",
+        title = "修播放器按钮被推出屏外、找书框留着上次的词。",
+        details = listOf(
+            "播放器第二行按钮太多，窄屏上“自动”、引擎、全屏被推出屏外，现改为横向可滑动，宽屏仍把全屏顶到右边缘。",
+            "离开展示页即清找书框里的词，只清框里的词，搜索历史与已出结果不动。",
+            "完整内容见仓库 docs/changelog/v0.221.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.220.0",
         date = "2026-10-25",
         title = "修找书页快速连点加入书架丢书。",

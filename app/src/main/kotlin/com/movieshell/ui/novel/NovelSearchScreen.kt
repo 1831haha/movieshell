@@ -40,6 +40,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.activity.ComponentActivity
@@ -84,6 +85,13 @@ fun NovelSearchScreen(
     // v0.103.0：activity 级 VM——切后台/切 tab 不销毁，viewModelScope 里的多书源搜索不中断、结果保留
     val activity = LocalContext.current as ComponentActivity
     val vm: NovelSearchViewModel = viewModel(activity)
+    // v0.221.0：离页清搜索框——活动级 VM 的 keyword 切 tab/切页也不销毁，
+    // 回找书页框里还留着上次的词；离页时清掉。只清框里的词，搜索历史
+    // （下方历史记录）与已出结果不动；独立找书页与书架内嵌共用此屏，
+    // 两处宿主离页都会走到这个 dispose。
+    DisposableEffect(Unit) {
+        onDispose { vm.setKeyword("") }
+    }
     // v0.109.0 A9：亮色主题白底金字对比度约 2.1:1，按底色明度自适应
     val gold = goldTitleColor()
 
