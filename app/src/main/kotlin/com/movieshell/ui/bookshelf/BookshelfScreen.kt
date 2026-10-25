@@ -124,6 +124,7 @@ private val shelfIoScope = kotlinx.coroutines.CoroutineScope(
     kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookshelfScreen(
     onNovelClick: (String) -> Unit = {},
