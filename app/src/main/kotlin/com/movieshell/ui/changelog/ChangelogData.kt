@@ -19,6 +19,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.225.0",
+        date = "2026-10-25",
+        title = "搜书全链路诊断进悬浮窗：首抓、后台验证、重抓三处结果全记出来。",
+        details = listOf(
+            "224 只看到一句“未抓到页”且没弹过验证窗，推断是后台验证“通过”但重抓还是空——但首抓是 403 还是重置、后台是真拿到 cf_clearance 还是空页通过，原来都没记。",
+            "gatedFetch 三处记 LogBus：首抓 httpCode、后台通过/失败与有无 cf_clearance 及页长、重抓 httpCode；抓取失败日志也改走 LogBus 并带异常类型。",
+            "本版不改验证与请求行为，只补证据；下一次搜 999 凭这几行一次分清是假通过、POST 单独被墙，还是间歇性重置。",
+            "完整内容见仓库 docs/changelog/v0.225.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.224.0",
         date = "2026-10-25",
         title = "搜书诊断日志改走应用内日志总线，悬浮窗里终于能看见。",

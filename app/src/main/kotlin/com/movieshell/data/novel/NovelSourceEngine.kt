@@ -72,11 +72,20 @@ object NovelSourceEngine {
         // v0.210.0：先后台验证（不弹页面，挑战自己过了直接重抓）；后台过不了
         // （真人验证码、超时）再弹可见验证页兜底。
         if (!allowGate) return null
-        val result = runCatching { VerifyGate.awaitVerifyBackground(gateUrl, ua) }.getOrNull()
-            ?: runCatching { VerifyGate.awaitVerify(gateUrl, source.name, ua) }.getOrNull()
-            ?: return null
+        // v0.225.0：全链路诊断——首抓、后台验证、重抓三处结果全记进悬浮窗，
+        // 只记状态码/长度/有无 cf_clearance，不记正文与 Cookie 值。
+        LogBus.w(TAG, "搜书抓取 ${source.name} 首抓空 httpCode=${first.httpCode}，进验证")
+        val bg = runCatching { VerifyGate.awaitVerifyBackground(gateUrl, ua) }.getOrNull()
+        LogBus.d(TAG, "搜书验证 ${source.name} 后台=${if (bg == null) "失败" else "通过 cf=${bg.cookieHeader.contains("cf_clearance=")} htmlLen=${bg.html.length} cookieLen=${bg.cookieHeader.length}"}")
+        val result = bg ?: runCatching { VerifyGate.awaitVerify(gateUrl, source.name, ua) }.getOrNull()
+        if (result == null) {
+            LogBus.w(TAG, "搜书验证 ${source.name} 可见验证未通过")
+            return null
+        }
         if (result.cookieHeader.isNotBlank()) CmsApi.putCookies(result.url, result.cookieHeader)
-        return fetch().page
+        val again = fetch()
+        if (again.page == null) LogBus.w(TAG, "搜书抓取 ${source.name} 重抓空 httpCode=${again.httpCode}")
+        return again.page
     }
 
     suspend fun search(source: BookSource, keyword: String, allowGate: Boolean = false): List<NovelSearchResult> {

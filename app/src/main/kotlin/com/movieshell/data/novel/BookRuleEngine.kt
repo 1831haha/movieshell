@@ -1,6 +1,6 @@
 package com.movieshell.data.novel
 
-import android.util.Log
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DEFAULT_UA_CHROME120
 import kotlinx.coroutines.Dispatchers
@@ -66,7 +66,7 @@ object BookRuleEngine {
                 val bytes = resp.body?.bytes() ?: return@use FetchOutcome(null, resp.code)
                 FetchOutcome(PageResult(decodeBytes(bytes), resp.request.url.toString()), resp.code)
             }
-        }.onFailure { Log.w(TAG, "抓取失败 $url", it) }.getOrNull() ?: FetchOutcome(null, null)
+        }.onFailure { LogBus.w(TAG, "抓取失败 $url ${it.javaClass.simpleName}: ${it.message}") }.getOrNull() ?: FetchOutcome(null, null)
     }
 
     /** v0.197.0：搜索请求（URL + 方法 + 表单体 + 编码 + 附加头）。 */
@@ -148,7 +148,7 @@ object BookRuleEngine {
                 val bytes = resp.body?.bytes() ?: return@use FetchOutcome(null, resp.code)
                 FetchOutcome(PageResult(decodeBytes(bytes), resp.request.url.toString()), resp.code)
             }
-        }.onFailure { Log.w(TAG, "搜索抓取失败 ${request.url}", it) }.getOrNull() ?: FetchOutcome(null, null)
+        }.onFailure { LogBus.w(TAG, "搜索抓取失败 ${request.url} ${it.javaClass.simpleName}: ${it.message}") }.getOrNull() ?: FetchOutcome(null, null)
     }
 
     /** 页面解码：先 UTF-8，出现替换符则转 GBK（中文小说站常见）。 */
