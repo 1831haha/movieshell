@@ -1413,7 +1413,7 @@ fun SourcesScreen(
                 }
                 MenuRow(Icons.Filled.Share, "分享文件") {
                     menuItem = null
-                    if (!shareFile(context, file)) {
+                    if (file == null || !shareFile(context, file)) {
                         AppToast.show(context, "分享失败", long = true)
                     }
                 }
