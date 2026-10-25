@@ -683,7 +683,7 @@ fun HomeScreen(
                 catNoMore = true
             } else {
                 val merged = (vm.currentVideos.value + page)
-                    .distinctBy { it.id.ifBlank { "noid:${it.title}" } }
+                    .distinctBy { it.vodId.ifBlank { "noid:${it.vodName}" } }
                 vm.setCategoryVideos(index, merged)
                 catPage = nextPage
                 if (curFilters.isEmpty() && cacheKey != null) {

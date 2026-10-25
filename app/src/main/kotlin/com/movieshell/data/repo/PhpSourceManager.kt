@@ -92,7 +92,7 @@ object PhpSourceManager {
         }
         activeName = name
         Log.i(TAG, "选中 PHP 规则: $name")
-        true
+        return true
     }
 
     // ---------------- 内部 ----------------

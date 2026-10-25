@@ -142,7 +142,7 @@ object PySourceManager {
         }
         activeName = name
         Log.i(TAG, "active PY 规则: $name")
-        true
+        return true
     }
 
     private fun activeRulePath(): String? {

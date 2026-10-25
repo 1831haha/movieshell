@@ -148,7 +148,7 @@ object DrpySourceManager {
             Log.w(TAG, "规则文件不存在: $name")
             return false
         }
-        try {
+        return try {
             val js = file.readText()
             val ctx = appContext ?: return false
             // v0.112.0 D2：删重复 release——旧引擎已在函数开头 try/catch 里释放并置空，
