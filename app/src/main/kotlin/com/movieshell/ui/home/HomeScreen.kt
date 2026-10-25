@@ -575,7 +575,7 @@ fun HomeScreen(
             // 结果会把旧源的筛选贴到新源同 typeId 分类上；只认发起时
             // 的世代与源 key，对不上直接丢弃。
             val filterGen = myGen
-            val filterKey = cacheKey
+            val filterKey = homeCacheKey()
             scope.launch(Dispatchers.IO) {
                 val groups = runCatching { fetchDrpyFilters(cat.typeId) }.getOrNull().orEmpty()
                 if (groups.isNotEmpty() && filterGen == contentGen && filterKey == homeCacheKey()) {
