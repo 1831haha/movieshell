@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -163,7 +164,10 @@ fun HomeScreen(
     onContinueWatch: (vodId: String, title: String, episodeIndex: Int, sourceType: String, sourceKey: String) -> Unit =
         { v, t, _, _, _ -> onVodClick(v, t) },
 ) {
-    val gridState = rememberLazyGridState()
+    // v0.212.0 审计修复：原来普通 remember，详情返回/切 tab 后
+    // 海报滚动位置每次回顶。改用官方 LazyGridState.Saver 存进
+    // SaveableState，返回时恢复到上次浏览位置。
+    val gridState = rememberSaveable(saver = LazyGridState.Saver) { LazyGridState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -567,9 +571,14 @@ fun HomeScreen(
         LogBus.i("UI", "点击分类: ${cat.typeName} (id=${cat.typeId}) filter=$filters")
         // v0.44.0：drpy 分类首次选中时懒加载筛选组（PY 的筛选 homeContent 已带，不重复拉）
         if (cat.filters.isEmpty() && isDrpySource()) {
+            // v0.212.0 审计修复：筛选组请求原来无世代/无源校验，迟到
+            // 结果会把旧源的筛选贴到新源同 typeId 分类上；只认发起时
+            // 的世代与源 key，对不上直接丢弃。
+            val filterGen = myGen
+            val filterKey = cacheKey
             scope.launch(Dispatchers.IO) {
                 val groups = runCatching { fetchDrpyFilters(cat.typeId) }.getOrNull().orEmpty()
-                if (groups.isNotEmpty()) {
+                if (groups.isNotEmpty() && filterGen == contentGen && filterKey == homeCacheKey()) {
                     vm.setCategories(vm.categories.value.map { c ->
                         if (c.typeId == cat.typeId) c.copy(filters = groups) else c
                     })
@@ -601,24 +610,36 @@ fun HomeScreen(
                 val list = netList ?: emptyList()
                 if (netList == null) {
                     // v0.110.0：失败只记日志+标失败态，不再静默写空缓存让转圈卡死（审查报告第 10 条）
+                    // v0.212.0 审计修复：失败原来仍走下面的 setCategoryVideos
+                    // 写空列表，把上次成功的内容从内存缓存里抹掉；失败只标
+                    // 失败态、不碰缓存，切走再切回仍能秒回旧内容。
                     LogBus.w("UI", "分类 ${cat.typeName} 加载失败（超时/规则异常），给可见重试")
                     vm.markCategoryFailed(index)
-                } else if (list.isEmpty()) {
-                    LogBus.i("UI", "分类 ${cat.typeName} 规则返回空（非失败）")
                 } else {
-                    LogBus.i("UI", "分类 ${cat.typeName} 加载 ${list.size} 条")
-                    // v0.52.0：分类内容落盘，下次秒回
-                    if (filters.isEmpty() && cacheKey != null) {
-                        withContext(Dispatchers.IO) {
-                            HomeCache.saveCategoryVods(context, cacheKey, cat.typeId, list)
+                    if (list.isEmpty()) {
+                        LogBus.i("UI", "分类 ${cat.typeName} 规则返回空（非失败）")
+                    } else {
+                        LogBus.i("UI", "分类 ${cat.typeName} 加载 ${list.size} 条")
+                        // v0.52.0：分类内容落盘，下次秒回
+                        if (filters.isEmpty() && cacheKey != null) {
+                            withContext(Dispatchers.IO) {
+                                HomeCache.saveCategoryVods(context, cacheKey, cat.typeId, list)
+                            }
                         }
                     }
+                    // v0.53.0：写 vm.categoryCache；成功空列表也写（覆盖旧缓存，
+                    // 避免旧内容残留），VM 收集器按“有条目”展示空态、不再转圈。
+                    vm.setCategoryVideos(index, list)
                 }
-                // v0.53.0：写 vm.categoryCache；空列表也写（覆盖旧缓存，避免旧内容残留）
-                vm.setCategoryVideos(index, list)
             } finally {
                 // 只有最新请求才清 loading，避免旧请求的 finally 把新请求的转圈灭掉
-                if (myGen == contentGen) vm.isLoading.value = false
+                // v0.212.0 审计修复：finally 原来只清 isLoading，从不碰
+                // loadingCategoryId，空结果/取消路径下分类转圈永久粘滞；
+                // 最新请求收尾时一并清掉本分类的 loading。
+                if (myGen == contentGen) {
+                    vm.isLoading.value = false
+                    if (vm.loadingCategoryId.value == index) vm.loadingCategoryId.value = null
+                }
             }
         }
     }
@@ -633,6 +654,9 @@ fun HomeScreen(
         payload: HomeLoadGate.HomePayload?,
         prevVods: List<ModelVod>,
         gen: Int = -1,
+        // v0.212.0 审计修复：下拉刷新原来和首次加载共用 resetSelection，
+        // 成功就被拽回分类 1；下拉时传 keepSelection=true，位置不动。
+        keepSelection: Boolean = false,
     ) {
         // v0.31.2：迟到结果丢弃——用户已经点了别的（分类/首页/筛选），旧 payload 不再应用，
         // 否则会出现"选中红果、内容却是首页"的错位。
@@ -657,13 +681,14 @@ fun HomeScreen(
         // v0.145.0：首页默认进第一个分类，不再回推荐流（推荐流不是源的分类）。
         // reset 或当前无选中（0）且有分类 → 进第 1 个分类；reset 且无分类 → 回推荐流兜底；
         // 非 reset 且已在某分类 → 保持浏览（下拉刷新不把用户拽出当前分类）。
-        if (payload.resetSelection || vm.selectedCategoryId.value == 0) {
+        val effectiveReset = payload.resetSelection && !keepSelection
+        if (effectiveReset || vm.selectedCategoryId.value == 0) {
             setFilters(emptyMap())
             if (payload.cats.isNotEmpty()) {
                 // 离开推荐流视图，3s 降级立起的推荐空态一并清掉，失败改走分类内联重试。
                 recommendEmpty = false
                 loadDrpyCategory(1)
-            } else if (payload.resetSelection) {
+            } else if (effectiveReset) {
                 vm.selectCategory(0)
             }
         }
@@ -704,7 +729,7 @@ fun HomeScreen(
      * （旧的 homeLoading 布尔防重入 + remember 内 homeFailStreak 是按 composition
      * 实例维度的，多个实例各自计数、各自触发，退避形同虚设，已删除。）
      */
-    fun loadHome(force: Boolean = false, onDone: () -> Unit = {}) {
+    fun loadHome(force: Boolean = false, onDone: () -> Unit = {}, keepSelection: Boolean = false) {
         val key = homeCacheKey() ?: return
         // v0.50.0：新触发取消旧的退避重调度
         HomeLoadGate.clearBackoff(key)
@@ -730,7 +755,7 @@ fun HomeScreen(
             LogBus.i("Home", "首页加载进行中，复用在途请求")
             scope.launch {
                 // 复用方只应用结果，不写缓存、不计数
-                applyHomePayload(awaitFlight(inFlight), prevVods, myGen)
+                applyHomePayload(awaitFlight(inFlight), prevVods, myGen, keepSelection)
                 onDone()
             }
             return
@@ -770,7 +795,7 @@ fun HomeScreen(
             // 极小竞态：start 前一刻刚有人登记，转复用
             deferred.cancel()
             scope.launch {
-                applyHomePayload(HomeLoadGate.flight(key)?.let { f: Deferred<HomeLoadGate.HomePayload?> -> awaitFlight(f) }, prevVods, myGen)
+                applyHomePayload(HomeLoadGate.flight(key)?.let { f: Deferred<HomeLoadGate.HomePayload?> -> awaitFlight(f) }, prevVods, myGen, keepSelection)
                 onDone()
             }
             return
@@ -782,13 +807,16 @@ fun HomeScreen(
             if (deferred.isCancelled) {
                 HomeLoadGate.abort(key, deferred)
                 LogBus.i("Home", "首页请求被取消，不计入失败")
+                // v0.212.0 审计修复：取消分支原来不走 applyHomePayload，
+                // isLoading 没人清，离页中断后回首页长期黄灯；这里清掉。
+                vm.isLoading.value = false
                 onDone()
                 return@launch
             }
             val ok = payload?.vods != null || prevVods.isNotEmpty()
             HomeLoadGate.finish(key, deferred, ok)
             if (!ok) LogBus.w("Home", "首页数据全失败且无缓存（连续 ${HomeLoadGate.streak(key)} 次）")
-            applyHomePayload(payload, prevVods, myGen)
+            applyHomePayload(payload, prevVods, myGen, keepSelection)
             onDone()
         }
     }
@@ -939,7 +967,15 @@ fun HomeScreen(
         if (drpyActive) {
             // v0.25.0：复用 loadHome 单入口（含缓存/并发/超时），结束收指示条
             // v0.29.0：手动下拉 force=true，绕过失败退避
-            loadHome(force = true, onDone = { refreshing = false })
+            // v0.212.0 审计修复：下拉原来成功就拽回分类 1，且推荐一失败
+            // 当前分类根本不刷新；下拉保持当前分类，完事后只刷当前分类。
+            val selBefore = vm.selectedCategoryId.value
+            loadHome(force = true, keepSelection = true, onDone = {
+                refreshing = false
+                // 下拉前已在某分类才刷该分类；推荐视图下拉时 apply 已按
+                // 默认进第一个分类，不在这里再重复刷一次。
+                if (selBefore >= 1) loadDrpyCategory(selBefore)
+            })
         } else {
             scope.launch {
                 delay(1200) // 占位：模拟刷新耗时
@@ -950,7 +986,11 @@ fun HomeScreen(
 
     // v0.27.4：首页不再自动加载，不再用演示数据冒充；无数据时显示干净空态
     // v0.53.0：drpyList 恒不为 null（currentVideos 派生），空列表=无数据
-    val drpyUiList: List<Vod>? = drpyList.takeIf { it.isNotEmpty() }?.map { it.toUiVod() }
+    // v0.212.0 审计修复：原来每次重组都重算全列表映射，filtered 的
+    // remember 键跟着失效、去重也每次重跑；按 drpyList 缓存一次。
+    val drpyUiList: List<Vod>? = remember(drpyList) {
+        drpyList.takeIf { it.isNotEmpty() }?.map { it.toUiVod() }
+    }
     val drpyReady = drpyUiList != null
     // v0.144.0：首格"全部"是 App 拼的（index==0 走首页推荐流，与规则无关），
     // 用户要求整个删掉：分类行只剩规则自己的分类；推荐流仍是默认首页
@@ -959,10 +999,13 @@ fun HomeScreen(
 
     val filtered: List<Vod> = when {
         drpyReady -> remember(shuffleSeed, drpyUiList) {
-            // 同一站首页/分类数据无去重保证，重复 vodId 会让网格 lazy key 撞车，先按 id 去重
-            val base = drpyUiList!!.distinctBy { it.id }
+            // 同一站首页/分类数据无去重保证，重复 vodId 会让网格 lazy key 撞车，先按 id 去重；
+            // v0.212.0 审计修复：vodId 为空的多条原来会被合并成一条，去重键用标题兜底。
+            val base = drpyUiList!!.distinctBy { it.id.ifBlank { "noid:${it.title}" } }
+            // v0.212.0 审计修复：“换一换”原来只是循环移位，点几次就回到
+            // 原样；改成按种子真随机洗牌（种子 0 仍是原顺序）。
             if (shuffleSeed == 0) base
-            else base.drop(shuffleSeed % base.size) + base.take(shuffleSeed % base.size)
+            else base.shuffled(kotlin.random.Random(shuffleSeed.toLong()))
         }
         else -> emptyList() // 无数据：空列表，UI 显示空态
     }
@@ -1117,7 +1160,9 @@ fun HomeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 contentPadding = PaddingValues(end = 4.dp),
                             ) {
-                                items(watchHistory.distinctBy { it.url }, key = { it.url }) { h ->
+                                // v0.212.0 审计修复：url 为空的多条老记录原来按空 url
+                                // 去重合并成一条；空 url 用 vodId 兜底去重。
+                                items(watchHistory.distinctBy { it.url.ifBlank { "vod:${it.vodId}" } }, key = { it.url.ifBlank { "vod:${it.vodId}" } }) { h ->
                                     val progress = if (h.durationMs > 0) {
                                         (h.positionMs.toFloat() / h.durationMs).coerceIn(0f, 1f)
                                     } else 0f
@@ -1144,12 +1189,17 @@ fun HomeScreen(
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                             )
+                                            // v0.212.0 审计修复：时长未知（durationMs==0）
+                                            // 原来恒算 0%，卡片写“看到 0%”其实是未知不是没看；
+                                            // 未知时长不显示百分比，只显示集数。
                                             Text(
-                                                text = if (h.episodeIndex >= 0) {
-                                                    "第${h.episodeIndex + 1}集 · 看到${(progress * 100).toInt()}%"
-                                                } else {
-                                                    "看到${(progress * 100).toInt()}%"
-                                                },
+                                                text = buildString {
+                                                    if (h.episodeIndex >= 0) append("第${h.episodeIndex + 1}集")
+                                                    if (h.durationMs > 0) {
+                                                        if (isNotEmpty()) append(" · ")
+                                                        append("看到${(progress * 100).toInt()}%")
+                                                    }
+                                                }.ifBlank { "继续观看" },
                                                 style = SoftType.Caption,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 maxLines = 1,
@@ -1157,6 +1207,10 @@ fun HomeScreen(
                                             )
                                             LinearProgressIndicator(
                                                 progress = { progress },
+                                                // v0.212.0 审计修复：进度条原来走主题 primary
+                                                // 系统紫，与青色/香槟金体系冲突；显式指定青色。
+                                                color = Color(0xFF4DD0E1),
+                                                trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .height(4.dp)
@@ -1194,7 +1248,7 @@ fun HomeScreen(
                             onAction = { loadHome(force = true) },
                         )
                     }
-                } else if (!drpyReady && drpyCats.isEmpty()) {
+                } else if (!drpyReady && drpyCats.isEmpty() && !drpyLoading && loadingCat == null) {
                     // v0.59：分类和视频都没有才显示空态；有分类无视频时走 else 显示分类行
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         EmptyState(
@@ -1246,12 +1300,28 @@ fun HomeScreen(
                         if (selectedCategory >= 1 && filterGroups.isNotEmpty()) {
                             filterGroups.forEach { filterGroup ->
                                 item(span = { GridItemSpan(maxLineSpan) }) {
+                                    // v0.212.0 审计修复：筛选行原来只画 chips，组名
+                                    // （年份/地区/类型）一行都没画，几组叠在一起分不清
+                                    // 哪行筛什么；组名固定在行首不随横滑走。
                                     Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
                                     ) {
+                                        if (filterGroup.name.isNotBlank()) {
+                                            Text(
+                                                text = filterGroup.name,
+                                                style = SoftType.Caption,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                modifier = Modifier.padding(end = 6.dp),
+                                            )
+                                        }
+                                        Row(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        ) {
                                         filterGroup.options.forEach { fv ->
                                             val isSel = filterMap[filterGroup.key] == fv.value
                                             AppChip(
@@ -1265,6 +1335,7 @@ fun HomeScreen(
                                                     loadDrpyCategory(selectedCategory, next)
                                                 },
                                             )
+                                        }
                                         }
                                     }
                                 }
@@ -1295,7 +1366,12 @@ fun HomeScreen(
                                         )
                                         Spacer(Modifier.width(8.dp))
                                     }
-                                    TextButton(onClick = { shuffleSeed++ }) {
+                                    TextButton(onClick = {
+                                        shuffleSeed++
+                                        // v0.212.0 审计修复：换一换原来不回顶，滑到底部
+                                        // 点换一换还停在底部看同一批；换批即回顶。
+                                        scope.launch { gridState.scrollToItem(0) }
+                                    }) {
                                         Icon(
                                             imageVector = Icons.Filled.Refresh,
                                             contentDescription = null,
@@ -1310,9 +1386,14 @@ fun HomeScreen(
                     }
     
                     // 网格海报墙 / 列表（v0.78.3：布局切换）
-                    items(filtered, key = { it.id }) { vod ->
+                    items(filtered, key = { it.id.ifBlank { "noid:${it.title}" } }) { vod ->
                         // v0.80.0：rating 已在海报底部跑马灯展示，副标题只留年份，不重复
-                        val subtitle = vod.year.takeIf { it.isNotBlank() }
+                        // v0.212.0 审计修复：分类（typeName）明明带回来了，首页三种
+                        // 布局却全程不显示；副标题改成“年份 · 分类”两段式。
+                        val subtitle = listOfNotNull(
+                            vod.year.takeIf { it.isNotBlank() },
+                            vod.category.takeIf { it.isNotBlank() },
+                        ).joinToString(" · ").takeIf { it.isNotBlank() }
                         when (homeLayout) {
                             HomeLayout.COMPACT_LIST -> HomeCompactRow(
                                 vod = vod,

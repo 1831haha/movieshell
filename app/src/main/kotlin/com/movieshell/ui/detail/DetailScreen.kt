@@ -184,7 +184,14 @@ fun DetailScreen(
             }.getOrNull()
             // 只有最新一代才能写回；旧请求即使后完成也直接丢弃
             if (myGen == detailGen) {
-                detail = result
+                // v0.212.0 审计修复：详情点“刷新”时网络一抖，原来无条件
+                // 把 detail 写成 null，整页先抹成失败态、播放也被打断；
+                // 刷新失败保留旧内容、只提示，首次加载失败仍走失败态。
+                if (result != null) {
+                    detail = result
+                } else if (detail != null) {
+                    AppToast.show(context, "刷新失败，已保留旧内容", long = false)
+                }
                 detailLoading = false
             }
         }

@@ -14,6 +14,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.LocalBrandGradient
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 
@@ -60,12 +63,16 @@ fun PosterCard(
                 .clip(shape)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
-            if (!posterUrl.isNullOrBlank()) {
+            // v0.212.0 审计修复：海报加载失败原来是空白块，地址有效但图
+            // 挂了时不回落占位；失败后改显示标题首字占位，与无图同款。
+            var imageFailed by remember(posterUrl) { mutableStateOf(false) }
+            if (!posterUrl.isNullOrBlank() && !imageFailed) {
                 AsyncImage(
                     model = posterUrl,
                     contentDescription = title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
+                    onError = { imageFailed = true },
                 )
                 // 底部压暗衬标题
                 Box(
@@ -87,31 +94,37 @@ fun PosterCard(
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            // v0.80.0：备注改海报底部一行炫彩跑马灯（不再大色块遮海报）
+            // v0.80.0：备注改海报底部一行（不再大色块遮海报）
+            // v0.212.0 审计修复：备注原来是四色渐变字 + 跑马灯，与香槟金/
+            // 青色体系冲突、一屏十几条同时跑很闹；改单色青色 + 省略号。
             if (badge != null) {
                 Text(
                     text = badge,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .fillMaxWidth()
-                        .basicMarquee()
                         .padding(horizontal = 6.dp, vertical = 4.dp),
                     style = TextStyle(
-                        brush = Brush.horizontalGradient(LocalBrandGradient.current),
+                        color = Color(0xFF4DD0E1),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                     ),
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
         Column(modifier = Modifier.padding(8.dp)) {
             // v0.90.0：片名底色改护眼绿胶囊 + 深色字保证对比度
+            // v0.212.0 审计修复：那块写死的浅绿底 + 深绿字与整页深底 +
+            // 毛玻璃 + 微光描边断裂，深色主题下最扎眼；改跟卡片同款
+            // 毛玻璃底 + 微光描边，字色跟主题 onSurface 走。
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFFE8F0E4))
+                    .background(LocalSoftExtra.current.glass)
+                    .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, RoundedCornerShape(8.dp))
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -121,7 +134,7 @@ fun PosterCard(
                     style = SoftType.CardTitle.copy(fontSize = 13.sp),
                     modifier = Modifier.basicMarquee(),
                     maxLines = 1,
-                    color = Color(0xFF2E3B2E),
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
             if (subtitle != null) {

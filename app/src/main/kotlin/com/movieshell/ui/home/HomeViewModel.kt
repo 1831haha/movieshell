@@ -86,18 +86,27 @@ class HomeViewModel(
             ) { catId, rec, catMap ->
                 Triple(catId, rec, catMap)
             }.collect { (catId, rec, catMap) ->
-                val target: List<ModelVod>? = if (catId == 0) rec else catMap[catId]
-                if (!target.isNullOrEmpty()) {
-                    _displayVideos.value = target
+                // v0.212.0 审计修复：原来“缓存里有空列表”和“根本没缓存”
+                // 分不清——规则真返回空时，空列表成功不走失败分支，收集器
+                // 见目标为空又把 loading 置回，整屏骨架屏一直盖着、无空态。
+                // 改按“有没有缓存条目”区分：有条目（哪怕是空列表）就按
+                // 该条目展示并停转圈；没条目才标记加载中、保留旧列表。
+                if (catId == 0) {
+                    if (rec.isNotEmpty()) {
+                        _displayVideos.value = rec
+                        if (failedCategoryId.value == 0) failedCategoryId.value = null
+                    }
+                    // catId==0 且推荐为空：首页加载中，保持旧展示不动
+                } else if (catMap.containsKey(catId)) {
+                    _displayVideos.value = catMap[catId].orEmpty()
                     if (loadingCategoryId.value == catId) loadingCategoryId.value = null
-                    // v0.110.0：有数据了，失败标记同步清除
+                    // v0.110.0：有缓存结果了，失败标记同步清除
                     if (failedCategoryId.value == catId) failedCategoryId.value = null
-                } else if (catId != 0 && failedCategoryId.value != catId) {
+                } else if (failedCategoryId.value != catId) {
                     // 无缓存：保留旧列表，标记正在加载（UI 显示顶部细条/骨架屏）；
                     // v0.110.0：已标记失败的不再转圈，失败态走 failedCategoryId（UI 给内联重试）
                     loadingCategoryId.value = catId
                 }
-                // catId==0 且推荐为空：首页加载中，保持旧展示不动
             }
         }
     }
