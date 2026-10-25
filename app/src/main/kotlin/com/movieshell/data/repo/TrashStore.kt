@@ -76,7 +76,24 @@ object TrashStore {
                 val dst = File(kindDir(context, item.kind), src.name.substringAfter('_'))
                 runCatching {
                     if (dst.exists()) return false
-                    src.copyTo(dst, overwrite = false); src.delete()
+                    // v0.216.0（C13）：原来先拷后删、删的返回值直接丢掉——
+                    // 删失败时源文件与恢复副本同时存在，回收站记录又已删，
+                    // 下次恢复因目标已存在被拒，等于丢了一份。改走改名（同盘
+                    // 原子移动），改名失败才回退拷贝，且删源失败时撤回副本。
+                    if (src.renameTo(dst)) {
+                        true
+                    } else {
+                        src.copyTo(dst, overwrite = false)
+                        if (dst.length() != src.length()) {
+                            dst.delete()
+                            false
+                        } else if (src.delete()) {
+                            true
+                        } else {
+                            dst.delete()
+                            false
+                        }
+                    }
                 }.getOrDefault(false)
             }
             "sub" -> {

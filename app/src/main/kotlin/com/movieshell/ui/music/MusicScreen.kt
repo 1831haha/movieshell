@@ -100,6 +100,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import com.movieshell.data.repo.MusicSource
 import com.movieshell.data.repo.MusicSourceStore
 import com.movieshell.data.repo.MusicStore
+import com.movieshell.data.repo.MusicHistoryStore
 import com.movieshell.data.repo.MusicPlaylist
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -163,10 +164,15 @@ fun MusicScreen(
     // v0.213.0：首选源改 StateFlow 后芯片跟 Flow 走——源管理页删/禁
     // 首选源回来时芯片不再拿旧快照说谎；首次进页恢复一次持久化值。
     val preferredSourceId by MusicPlayer.preferredSourceIdFlow.collectAsState()
+    // v0.216.0（C4）：本地音乐／历史数据损坏横幅（与音源管理页横幅同款语义）
+    // 注意：必须写在下面 LaunchedEffect 之前，写在后面编译找不到。
+    var showMusicCorruptBanner by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         MusicPlayer.restorePreferred(context)
         MusicPlayer.restoreQueue(context)
         MusicPlayer.restoreDurations(context)
+        showMusicCorruptBanner = MusicStore.hasCorruptBackup(context) ||
+            MusicHistoryStore.hasCorruptBackup(context)
     }
     val currentSourceName = preferredSourceId
         ?.let { id -> musicSources.firstOrNull { it.id == id }?.name }
@@ -199,6 +205,33 @@ fun MusicScreen(
                 .fillMaxSize()
                 .statusBarsPadding(),
         ) {
+            // v0.216.0（C4）：本地音乐／历史数据损坏横幅
+            if (showMusicCorruptBanner) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "本地音乐数据损坏，已保留备份，写盘已暂停",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = {
+                        scope.launch {
+                            MusicStore.clearCorrupt(context)
+                            MusicHistoryStore.clearCorrupt(context)
+                            showMusicCorruptBanner = false
+                        }
+                    }) { Text("重新开始") }
+                    TextButton(onClick = { showMusicCorruptBanner = false }) { Text("暂不处理") }
+                }
+            }
             // v0.181.0：三行并两行——第一行：搜索（仅在线）+ 歌单导入（仅在线）+ 源管理；
             // 非在线时第一行只留右对齐的源管理，顶栏高度切页签时不跳。
             Row(

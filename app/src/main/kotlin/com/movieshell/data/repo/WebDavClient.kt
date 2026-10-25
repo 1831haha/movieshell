@@ -40,6 +40,21 @@ object WebDavClient {
         }
     }
 
+    /** 删除：成功返回 null（不存在也算成功，调用方不因删不存在的文件报错） */
+    fun delete(baseUrl: String, user: String, pass: String, name: String): String? {
+        return try {
+            val req = authed(
+                join(baseUrl, name), user, pass,
+                Request.Builder().delete(),
+            )
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful || resp.code == 404) null else "删除失败（HTTP ${resp.code}）"
+            }
+        } catch (e: Exception) {
+            "删除失败：${e.message}"
+        }
+    }
+
     /** 下载：成功返回字节，失败返回 null（reason 写进 outReason[0]） */
     fun get(baseUrl: String, user: String, pass: String, name: String, outReason: Array<String?>): ByteArray? {
         return try {

@@ -189,10 +189,17 @@ object NovelStore {
             // 旧章数，旧源角标还挂在新源书上。下标越界钳制到末章，
             // 角标一律清掉重算（追更检查会在写盘后重新打角标）。
             val prog = ReadingProgressStore.load(context, novelId)
-            if (prog != null && prog.chapterIndex >= fixed.size) {
+            // v0.216.0（C8）：钳制只改下标不清标题——复用旧进度 copy，新标题取
+            // 新目录对应章；新目录为空时不写这条进度（不留指向不存在第 0 章的脏进度）。
+            if (prog != null && fixed.isNotEmpty() && prog.chapterIndex >= fixed.size) {
+                val newIndex = (fixed.size - 1).coerceAtLeast(0)
                 ReadingProgressStore.save(
                     context,
-                    ReadingProgress(novelId, (fixed.size - 1).coerceAtLeast(0), 0),
+                    prog.copy(
+                        chapterIndex = newIndex,
+                        charOffset = 0,
+                        chapterTitle = fixed[newIndex].title,
+                    ),
                 )
             }
             NovelUpdateStore.clear(context, novelId)

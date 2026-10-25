@@ -1,6 +1,7 @@
 package com.movieshell.data.repo
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONArray
@@ -61,6 +62,10 @@ object PluginStore {
 
     private val installed = mutableMapOf<String, InstalledPlugin>()
     private var inited = false
+    // v0.216.0（C12）：解析失败的单条原样留存——下次写盘时原样带回，
+    // 不因一条坏记录丢掉整张已装表；顶层 JSON 整个坏掉时置位，写盘直接拒写保全原串。
+    private val unparsedInstalled = mutableListOf<JSONObject>()
+    private var installedLoadFailed = false
 
     @Synchronized
     fun init(context: Context) {
@@ -74,19 +79,28 @@ object PluginStore {
         runCatching {
             val arr = JSONArray(prefs.getString(KEY_INSTALLED, "[]").orEmpty().ifBlank { "[]" })
             for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                val files = mutableListOf<String>()
-                val fa = o.optJSONArray("files")
-                if (fa != null) for (j in 0 until fa.length()) files.add(fa.getString(j))
-                installed[o.getString("id")] = InstalledPlugin(
-                    id = o.getString("id"),
-                    name = o.optString("name", o.getString("id")),
-                    version = o.optString("version", ""),
-                    type = o.optString("type", ""),
-                    engine = o.optString("engine", ""),
-                    files = files,
-                )
+                // 逐条容错：一条坏记录只跳过这一条，不再让整张表读一半就停
+                runCatching {
+                    val o = arr.getJSONObject(i)
+                    val files = mutableListOf<String>()
+                    val fa = o.optJSONArray("files")
+                    if (fa != null) for (j in 0 until fa.length()) files.add(fa.getString(j))
+                    installed[o.getString("id")] = InstalledPlugin(
+                        id = o.getString("id"),
+                        name = o.optString("name", o.getString("id")),
+                        version = o.optString("version", ""),
+                        type = o.optString("type", ""),
+                        engine = o.optString("engine", ""),
+                        files = files,
+                    )
+                }.onFailure {
+                    Log.w("PluginStore", "已装插件第 $i 条解析失败，已原样保留", it)
+                    runCatching { unparsedInstalled.add(arr.getJSONObject(i)) }
+                }
             }
+        }.onFailure {
+            Log.w("PluginStore", "已装插件表整体解析失败，写盘已暂停保全原串", it)
+            installedLoadFailed = true
         }
     }
 
@@ -218,10 +232,17 @@ object PluginStore {
     @Synchronized
     fun removeInstalled(context: Context, id: String) {
         installed.remove(id)
+        // 解析失败的单条也按 id 清掉，否则坏记录永远删不掉
+        unparsedInstalled.removeAll { it.optString("id") == id }
         persist(context)
     }
 
     private fun persist(context: Context) {
+        if (installedLoadFailed) {
+            // 顶层表整体读坏：拒写，保全 prefs 里的原串，不拿内存空表覆盖
+            Log.w("PluginStore", "已装表整体读坏，拒绝写盘覆盖")
+            return
+        }
         val arr = JSONArray()
         installed.values.forEach { p ->
             val o = JSONObject()
@@ -232,6 +253,8 @@ object PluginStore {
             o.put("files", fa)
             arr.put(o)
         }
+        // 解析失败的单条原样带回，不因一次写盘丢掉
+        unparsedInstalled.forEach { arr.put(it) }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY_INSTALLED, arr.toString()).apply()
     }

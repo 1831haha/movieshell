@@ -437,9 +437,15 @@ fun BookshelfScreen(
                     val imported = TxtImporter.import(named)
                     named.delete()
                     if (imported == null) return@runCatching "invalid"
-                    // v0.215.0：同一文件重复导入不再产生两本同名书（按本地书名判重）。
-                    val exists = NovelStore.list(context).any {
-                        it.sourceKey == "local" && it.title == imported.novel.title
+                    // v0.216.0（C10）：本地判重只看书名会把同名不同书当成同一本。
+                    // 改为书名＋章节数＋首章标题三项全对才算重复。
+                    val firstTitle = imported.chapters.firstOrNull()?.title
+                    val exists = NovelStore.list(context).any { shelf ->
+                        shelf.sourceKey == "local" && shelf.title == imported.novel.title &&
+                            shelf.totalChapters == imported.chapters.size &&
+                            runCatching {
+                                NovelStore.chapters(context, shelf.id).firstOrNull()?.title
+                            }.getOrNull() == firstTitle
                     }
                     if (exists) return@runCatching "exists"
                     if (!NovelStore.addNovel(context, imported.novel, imported.chapters)) {

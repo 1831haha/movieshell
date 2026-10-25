@@ -50,6 +50,27 @@ object HistoryStore {
     // prefs 的 apply 本身是平台级原子写（先写备份文件再改名），文件级 helper 不适用这里。
     private val json = Json { ignoreUnknownKeys = true }
 
+    /**
+     * v0.216.0（C5）：读坏标记——解析失败后置 true，此后 saveProgress/delete
+     * 一律拒绝写盘，直到用户在历史页点“重新开始”清掉损坏数据。防止
+     * “随便播一个视频就把旧的全部历史顶掉”。HistoryStore 无锁，标记用 Volatile。
+     */
+    @Volatile
+    private var corruptLoaded = false
+
+    /** 损坏备份是否还在，供历史页横幅判断。 */
+    fun hasCorruptBackup(context: Context): Boolean =
+        prefs(context).contains(KEY_LIST_CORRUPT_BAK)
+
+    /**
+     * 用户在横幅上点的“重新开始”：删掉损坏的历史与备份，标记清零
+     * （备份本身就是坏串，无法解析回表，变显式放弃而非静默丢失）。
+     */
+    fun clearCorrupt(context: Context) {
+        prefs(context).edit().remove(KEY_LIST).remove(KEY_LIST_CORRUPT_BAK).apply()
+        corruptLoaded = false
+    }
+
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -68,6 +89,12 @@ object HistoryStore {
     ) {
         if (url.isBlank()) return
         val list = getHistory(context).toMutableList()
+        if (corruptLoaded) {
+            // 注意：守卫必须在 getHistory 之后——第一次读坏时标记才刚立起来，
+            // 先判后读会漏过第一次覆盖。
+            Log.w(TAG, "历史记录读坏未处理，拒绝写盘覆盖（请先在历史页处理损坏数据）")
+            return
+        }
         list.removeAll { it.url == url }
         list.add(
             0,
@@ -100,6 +127,7 @@ object HistoryStore {
                 runCatching {
                     prefs(context).edit().putString(KEY_LIST_CORRUPT_BAK, raw).apply()
                 }
+                corruptLoaded = true
             }
             .getOrDefault(emptyList())
     }
@@ -111,13 +139,18 @@ object HistoryStore {
     /** v0.24.0：删单条（按 url） */
     fun delete(context: Context, url: String) {
         val list = getHistory(context).filterNot { it.url == url }
+        if (corruptLoaded) {
+            Log.w(TAG, "历史记录读坏未处理，拒绝写盘覆盖")
+            return
+        }
         prefs(context).edit()
             .putString(KEY_LIST, json.encodeToString(list))
             .apply()
     }
 
-    /** 清空全部历史 */
+    /** 清空全部历史（显式清空即用户主动放弃，连损坏备份一起清，标记复位） */
     fun clear(context: Context) {
-        prefs(context).edit().remove(KEY_LIST).apply()
+        prefs(context).edit().remove(KEY_LIST).remove(KEY_LIST_CORRUPT_BAK).apply()
+        corruptLoaded = false
     }
 }

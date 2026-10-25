@@ -88,7 +88,10 @@ object ReadingProgressStore {
     suspend fun clear(context: Context, novelId: String) = withContext(Dispatchers.IO) {
         saveMutex.withLock {
         runCatching {
-            val rest = readAll(context).filterNot { it.novelId == novelId }
+            // v0.216.0（C9）：clear 原来用 readAll（读坏直接给空表），文件损坏时
+            // 一次 clear 就把全书进度写成空表；改走 save 同款底本：读坏先试 .bak。
+            val base = readAllOrNull(context) ?: recoverBase(context)
+            val rest = base.filterNot { it.novelId == novelId }
             // v0.170.0：原子写盘
             AtomicFile.writeText(
                 fileOf(context),

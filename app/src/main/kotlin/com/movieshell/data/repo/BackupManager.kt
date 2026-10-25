@@ -217,6 +217,34 @@ object BackupManager {
     /** 备份格式版本；恢复时校验，不一致直接拒绝并提示 */
     const val BACKUP_VERSION = 1
 
+    /**
+     * v0.216.0（C15）：恢复前磁盘快照文件名。恢复动笔前先把当前状态写到这里；
+     * 恢复成功后删掉；中途被杀/失败则留着，设置页“备份与恢复”里可一键导回。
+     */
+    private const val PRE_RESTORE_SNAPSHOT = "backup_pre_restore.json"
+
+    /** 是否有中断/失败后留下的恢复前快照，供设置页入口判断。 */
+    fun hasPreRestoreSnapshot(context: Context): Boolean =
+        File(context.filesDir, PRE_RESTORE_SNAPSHOT).isFile
+
+    /**
+     * 从恢复前快照导回（中断恢复的补救入口）。快照本身不再套一层新快照
+     * （否则导回前先把好快照覆盖掉）；成功后删掉快照，失败则留着可重试。
+     */
+    suspend fun restorePreRestoreSnapshot(context: Context): RestoreResult {
+        val f = File(context.filesDir, PRE_RESTORE_SNAPSHOT)
+        if (!f.isFile) return RestoreResult.Failed("没有中断前的备份快照")
+        val text = runCatching { f.readText() }.getOrNull()
+            ?: return RestoreResult.Failed("快照读取失败")
+        return when (val r = importJson(context, text, writeSnapshot = false)) {
+            is RestoreResult.Ok -> {
+                runCatching { f.delete() }
+                RestoreResult.Ok
+            }
+            is RestoreResult.Failed -> r
+        }
+    }
+
     sealed interface RestoreResult {
         data object Ok : RestoreResult
         data class Failed(val reason: String) : RestoreResult
@@ -327,7 +355,7 @@ object BackupManager {
      * 整单拒绝，当前数据一动不动），写盘后回读比对，任一段失败则主段
      * 与各段一并回滚；老备份无新段时只恢复主段。
      */
-    suspend fun importJson(context: Context, json: String): RestoreResult {
+    suspend fun importJson(context: Context, json: String, writeSnapshot: Boolean = true): RestoreResult {
         val root = try {
             Json.parseToJsonElement(json).jsonObject
         } catch (e: Exception) {
@@ -417,6 +445,11 @@ object BackupManager {
         val prevBookshelf = if (bookshelf != null) snapshotBookshelf(context) else null
         val prevMusic = if (music != null) snapshotMusic(context) else null
         val prevLiveRaw = if (live != null) readLivePrefsRaw(context) else null
+        // ---- 2b. 磁盘快照（v0.216.0 C15）：内存快照中途被杀就没了。
+        // 动笔前先把当前完整备份落盘；成功后删，失败/被杀则留着可导回。
+        if (writeSnapshot) {
+            writePreRestoreSnapshot(context, prevBytes, prevDrpy, prevPy)
+        }
         fun rollback(): Boolean {
             var ok = ApiSourceStore.restoreRaw(context, prevBytes)
             runCatching { DrpySourceManager.setActiveRule(prevDrpy) }.onFailure { ok = false }
@@ -496,7 +529,41 @@ object BackupManager {
             return RestoreResult.Failed("$extraFailed，已还原")
         }
         // php / web：当前版本无 active 概念，恢复时忽略
+        // 恢复成功：删掉恢复前快照（已用不着；失败路径都留着快照可重试）
+        runCatching { File(context.filesDir, PRE_RESTORE_SNAPSHOT).delete() }
         return RestoreResult.Ok
+    }
+
+    /**
+     * v0.216.0（C15）：恢复前磁盘快照。完整导出能导就存完整备份；
+     * 本地已损坏导不出时，至少把主段（订阅文件原样 + 当前规则）写成一张
+     * 可导入的最小备份（其余段缺失按老备份口径只恢复主段）。
+     */
+    private suspend fun writePreRestoreSnapshot(
+        context: Context,
+        prevBytes: ByteArray?,
+        prevDrpy: String?,
+        prevPy: String?,
+    ) {
+        val json = when (val r = exportJson(context)) {
+            is ExportResult.Ok -> r.json
+            is ExportResult.Failed -> {
+                Log.w(TAG, "恢复前快照：完整导出失败（${r.reason}），退回最小主段快照")
+                val apiRaw = prevBytes?.toString(Charsets.UTF_8)?.takeIf { it.isNotBlank() } ?: "[]"
+                buildJsonObject {
+                    put("version", BACKUP_VERSION)
+                    put("apiSources", Json.parseToJsonElement(apiRaw))
+                    putJsonObject("activeRules") {
+                        put("drpy", prevDrpy)
+                        put("py", prevPy)
+                        put("php", null as String?)
+                        put("web", null as String?)
+                    }
+                }.toString()
+            }
+        }
+        runCatching { AtomicFile.writeText(File(context.filesDir, PRE_RESTORE_SNAPSHOT), json) }
+            .onFailure { Log.w(TAG, "恢复前磁盘快照写入失败", it) }
     }
 
     // ---------- 新段：解析（只校验，不写盘；返回 null = 格式或关键字段不对） ----------

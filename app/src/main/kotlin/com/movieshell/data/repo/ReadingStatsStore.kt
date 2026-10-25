@@ -6,6 +6,8 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -40,6 +42,9 @@ object ReadingStatsStore {
     private const val FILE_NAME = "reading_stats.json"
     private const val KEEP_DAYS = 90L
     private val json = Json { ignoreUnknownKeys = true }
+
+    // v0.216.0（C9）：recordSession 读-改-写串行化（loadStats 只读，不取锁）
+    private val mutex = Mutex()
 
     // SimpleDateFormat 非线程安全，每次新建实例
     private fun dayFmt() = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -82,7 +87,18 @@ object ReadingStatsStore {
         endMs: Long,
         chaptersRead: Int,
     ) = withContext(Dispatchers.IO) {
-        if (endMs <= startMs) return@withContext
+        mutex.withLock {
+            recordSessionLocked(context, startMs, endMs, chaptersRead)
+        }
+    }
+
+    private fun recordSessionLocked(
+        context: Context,
+        startMs: Long,
+        endMs: Long,
+        chaptersRead: Int,
+    ) {
+        if (endMs <= startMs) return
         val data = readFile(context)
         val days = data.days.toMutableMap()
         // 时长按天切分

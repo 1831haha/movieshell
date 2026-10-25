@@ -80,6 +80,8 @@ fun DownloadScreen(
     Notify.RequestNotificationPermissionOnce()
     val tasks by DownloadStore.tasks.collectAsState()
     var confirmDelete by remember { mutableStateOf<DownloadTask?>(null) }
+    // v0.216.0（C6）：批量清空确认态——此前一点就删全部已完成文件，无确认
+    var showClearDone by remember { mutableStateOf(false) }
     // v0.63.0：自动清理设置
     var showSettings by remember { mutableStateOf(false) }
     var autoDeleteWatched by remember { mutableStateOf(DownloadSettings.autoDeleteWatched(context)) }
@@ -217,6 +219,23 @@ fun DownloadScreen(
         }
     }
 
+    // v0.216.0（C6）：批量清空与单条删除同款确认，文案写明连文件一起删
+    if (showClearDone) {
+        TechDialog(
+            onDismissRequest = { showClearDone = false },
+            title = "清空已完成",
+            confirmText = "清空",
+            onConfirm = {
+                showClearDone = false
+                scope.launch { DownloadStore.clearDone(context) }
+            },
+        ) {
+            Text(
+                "将删除全部已完成任务的记录与已下载文件，此操作不可恢复。",
+                style = SoftType.Body,
+            )
+        }
+    }
     val active = tasks.filter { it.status != DlStatus.DONE }
     val done = tasks.filter { it.status == DlStatus.DONE }
 
@@ -229,9 +248,7 @@ fun DownloadScreen(
                                 if (done.isNotEmpty()) {
                                     AppButton(
                                         text = "清空已完成",
-                                        onClick = {
-                                            scope.launch { DownloadStore.clearDone(context) }
-                                        },
+                                        onClick = { showClearDone = true },
                                         variant = AppButtonVariant.Ghost,
                                     )
                                 }

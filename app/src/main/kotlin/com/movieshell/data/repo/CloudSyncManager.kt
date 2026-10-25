@@ -167,13 +167,23 @@ object CloudSyncManager {
                 LogBus.w("CloudSync", "备份上传失败：$err")
                 return@withContext SyncResult.Failed(err)
             }
+            // v0.216.0（C14）：摘要失败不再留“新文件＋旧摘要”的锁死态——
+            // 重试一次，仍失败就删掉刚上传的新备份（旧备份已被覆盖，删了不是
+            // 回到旧版，而是让下次恢复明确报“云端没有备份”而不是摘要不符卡住，
+            // 用户重传一次即恢复正常；不删的话新备份明明在却永远恢复不了）。
+            val digestBytes = sha256Hex(bytes).toByteArray(Charsets.UTF_8)
             val digestErr = WebDavClient.put(
-                c.url, c.user, c.pass, REMOTE_NAME + DIGEST_SUFFIX,
-                sha256Hex(bytes).toByteArray(Charsets.UTF_8),
+                c.url, c.user, c.pass, REMOTE_NAME + DIGEST_SUFFIX, digestBytes,
+            ) ?: WebDavClient.put(
+                c.url, c.user, c.pass, REMOTE_NAME + DIGEST_SUFFIX, digestBytes,
             )
             if (digestErr != null) {
-                LogBus.w("CloudSync", "备份摘要上传失败：$digestErr")
-                return@withContext SyncResult.Failed("备份已上传但摘要写入失败，未标记同步：$digestErr")
+                LogBus.w("CloudSync", "备份摘要上传失败（已重试）：$digestErr")
+                val delErr = WebDavClient.delete(c.url, c.user, c.pass, REMOTE_NAME)
+                if (delErr != null) LogBus.w("CloudSync", "清理新备份失败：$delErr")
+                return@withContext SyncResult.Failed(
+                    "备份摘要两次写入失败，已删除云端新备份避免新旧混搭，未标记同步；请检查网络后重新备份",
+                )
             }
             markSynced(context)
             LogBus.i("CloudSync", "备份已上传到 WebDAV")
@@ -192,7 +202,12 @@ object CloudSyncManager {
             is WebDavClient.SidecarResult.Found -> {
                 if (sidecar.digestHex != sha256Hex(bytes)) {
                     LogBus.w("CloudSync", "云端备份摘要不符，拒绝恢复")
-                    return@withContext SyncResult.Failed("云端备份校验失败（摘要不符，可能已截断或损坏），未恢复")
+                    // v0.216.0（C14）：原来只剩一句“校验失败”，用户不知道下一步干什么。
+                    // 摘要不符仍是硬拒绝（不拿可能截断的备份恢复），但文案给两条可走的路。
+                    return@withContext SyncResult.Failed(
+                        "云端备份校验失败（摘要不符，可能已截断或损坏），未恢复；" +
+                            "请删除云端备份后重新备份，或检查网络后重试恢复",
+                    )
                 }
             }
             is WebDavClient.SidecarResult.Failed -> {

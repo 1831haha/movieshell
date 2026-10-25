@@ -181,8 +181,15 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                     ms
                 }
                 if (metas.isEmpty()) return@runCatching false
+                // v0.216.0（C10）：id 走新稳定拼法；书架里若已有同源同书
+                // （新 id 或老 hash id），复用旧 id 走 addNovel 合并，不产生第二本。
+                val newId = shelfNovelId(group, item)
+                val legacyId = "bs_${group.key.hashCode()}_${item.remoteId.hashCode()}"
+                val existingId = NovelStore.list(getApplication()).firstOrNull {
+                    it.sourceKey == group.key && (it.id == newId || it.id == legacyId)
+                }?.id
                 val novel = Novel(
-                    id = "bs_${group.key.hashCode()}_${item.remoteId.hashCode()}",
+                    id = existingId ?: newId,
                     sourceKey = group.key,
                     title = item.title,
                     author = item.author,

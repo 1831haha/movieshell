@@ -111,8 +111,15 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         }
     }
 
+    // v0.216.0（C4）：注册表损坏横幅——读坏后写盘已暂停，横幅给用户可见提示
+    // 与“重新开始”入口（清掉损坏文件与备份，下次自动重建种子源）。
+    // 注意：必须写在 reload() 之前，局部函数不提升，写在后面编译找不到。
+    var showCorruptBanner by remember { mutableStateOf(false) }
     fun reload() {
-        scope.launch { sources = MusicSourceStore.validateLocalScripts(context) }
+        scope.launch {
+            sources = MusicSourceStore.validateLocalScripts(context)
+            showCorruptBanner = MusicSourceStore.hasCorruptBackup(context)
+        }
     }
     LaunchedEffect(Unit) { reload() }
 
@@ -368,6 +375,34 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
+                }
+            }
+            // v0.216.0（C4）：注册表损坏横幅
+            if (showCorruptBanner) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "音源注册表损坏，已保留备份，写盘已暂停",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = {
+                            scope.launch {
+                                MusicSourceStore.clearCorrupt(context)
+                                showCorruptBanner = false
+                                reload()
+                            }
+                        }) { Text("重新开始") }
+                        TextButton(onClick = { showCorruptBanner = false }) { Text("暂不处理") }
+                    }
                 }
             }
             // v0.213.0：无源时原来整页只剩引导条 + 悬浮钮，没有空态
@@ -660,8 +695,12 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             confirmText = "删除",
             onConfirm = {
                 scope.launch {
-                    MusicSourceStore.remove(context, src.id)
-                    MusicPlayer.clearPreferredSourceIf(context, src.id)
+                    val ok = MusicSourceStore.remove(context, src.id)
+                    if (ok) {
+                        MusicPlayer.clearPreferredSourceIf(context, src.id)
+                    } else {
+                        AppToast.show(context, "删除失败，音源未改动", long = false)
+                    }
                     deleteSourceTarget = null
                     reload()
                 }

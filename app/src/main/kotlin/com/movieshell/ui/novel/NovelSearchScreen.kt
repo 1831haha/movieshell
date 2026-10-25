@@ -321,8 +321,7 @@ fun NovelSearchScreen(
                                     )
                                 }
                                 Spacer(Modifier.width(8.dp))
-                                val nid = shelfNovelId(group, item)
-                                val onShelf = nid in shelfIds
+                                val onShelf = shelfNovelIds(group, item).any { it in shelfIds }
                                 val busy = joining == group.key + item.remoteId
                                 // v0.211.0：原生 Button（系统紫）改统一 AppButton；
                                 // 已在书架仍走 Secondary 灰底（v0.193.0 口径不变）。
@@ -350,7 +349,8 @@ fun NovelSearchScreen(
                 onConfirm = {
                     removeTarget = null
                     scope.launch {
-                        val rid = shelfNovelId(g, it)
+                        val rid = shelfNovelIds(g, it).firstOrNull { id -> id in shelfIds }
+                            ?: shelfNovelId(g, it)
                         val ok = NovelStore.deleteNovelCascade(appCtx, rid)
                         if (ok) shelfIds = shelfIds - rid
                         AppToast.show(appCtx, if (ok) "已移出书架" else "移出失败", long = false)
@@ -371,6 +371,25 @@ data class SourceGroup(
     val books: List<NovelSearchResult>,
 )
 
-/** v0.108.0 B4：书架小说 id——拼法与 NovelSearchViewModel.joinShelf() 保持一致。 */
-fun shelfNovelId(group: SourceGroup, item: NovelSearchResult): String =
-    "bs_${group.key.hashCode()}_${item.remoteId.hashCode()}"
+/** v0.216.0（C10）：书架小说 id——旧拼法是两个 hashCode，撞了会互相覆盖。
+ * 新拼法用净化后的源 key + 远端 id 全量拼接（只留字母数字与 - _ .，其余转 _），
+ * 超长时截断并缀一段 hash 作区分；老 id 仍认（见 shelfNovelIds），旧书不受影响。 */
+fun shelfNovelId(group: SourceGroup, item: NovelSearchResult): String {
+    val raw = "${group.key}__${item.remoteId}"
+    val safe = raw.map {
+        if (it.isLetterOrDigit() || it == '-' || it == '_' || it == '.') it else '_'
+    }.joinToString("")
+    val body = if (safe.length > 150) {
+        safe.take(120) + "_" + safe.hashCode().toString().replace("-", "m")
+    } else {
+        safe
+    }
+    return "bs_$body"
+}
+
+/** 新旧两种 id——书架里已有的老书仍用老 hash 拼法，判“已在书架”与移出时两边都要认。 */
+fun shelfNovelIds(group: SourceGroup, item: NovelSearchResult): List<String> =
+    listOf(
+        shelfNovelId(group, item),
+        "bs_${group.key.hashCode()}_${item.remoteId.hashCode()}",
+    )

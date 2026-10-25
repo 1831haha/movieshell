@@ -54,13 +54,31 @@ import java.io.File
 /** FileProvider authority：跟随 applicationId（debug/release 包名不同） */
 fun fileProviderAuthority(context: Context) = "${context.packageName}.fileprovider"
 
-/** 预览 kind → 对应 StoragePaths 目录（与 SourcesScreen 的 tab 对齐） */
-fun previewKindDir(context: Context, kind: String): File = when (kind) {
+/** 预览 kind → 对应 StoragePaths 目录（与 SourcesScreen 的 tab 对齐）。
+ * v0.216.0（C16）：kind 收进白名单——未知 kind 返回 null，不再 fallback
+ * 到 filesDir 下任意子目录（路由 fileName 可由外部构造，旧写法等于任意读）。 */
+fun previewKindDir(context: Context, kind: String): File? = when (kind) {
     "js" -> StoragePaths.jsDir(context)
     "py" -> StoragePaths.pyDir(context)
     "php" -> PhpSourceManager.rulesDir(context)
     "web" -> StoragePaths.webDir(context)
-    else -> File(context.filesDir, kind)
+    else -> null
+}
+
+/**
+ * 路由入口唯一解析函数：kind 白名单 + 规范化路径 containment 校验。
+ * fileName 含 ../、绝对路径或符号链接跳出 kind 目录时返回 null，
+ * 调用方按“文件不存在”处理，不读、不分享、不外发编辑。
+ */
+fun resolvePreviewFile(context: Context, kind: String, fileName: String): File? {
+    val dir = previewKindDir(context, kind) ?: return null
+    return runCatching {
+        val base = dir.canonicalFile
+        val target = File(dir, fileName).canonicalFile
+        if (target == base) return null
+        if (!target.path.startsWith(base.path + File.separator)) return null
+        target
+    }.getOrNull()
 }
 
 /** 用外部编辑器打开文件（ACTION_EDIT + FileProvider uri）；失败返回 false，由调用方 Toast */
@@ -171,13 +189,13 @@ fun FilePreviewScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    val file = remember(kind, fileName) { File(previewKindDir(context, kind), fileName) }
-    val exists = file.isFile
+    val file = remember(kind, fileName) { resolvePreviewFile(context, kind, fileName) }
+    val exists = file?.isFile == true
 
     // 大文件保护：超过 200KB 截断并提示
     val maxBytes = 200 * 1024
     val fullText = remember(file) {
-        if (exists) runCatching { file.readText() }.getOrDefault("") else ""
+        if (exists) runCatching { file!!.readText() }.getOrDefault("") else ""
     }
     val truncated = fullText.length > maxBytes
     val shownText = if (truncated) fullText.substring(0, maxBytes) else fullText
@@ -203,7 +221,8 @@ fun FilePreviewScreen(
                                     }
                                     IconButton(
                                         onClick = {
-                                            if (!openFileWithEditor(context, file)) {
+                                            val f = file
+                                            if (f == null || !openFileWithEditor(context, f)) {
                                                 AppToast.show(context, "没有可用的文本编辑器", long = true)
                                             }
                                         },

@@ -47,6 +47,37 @@ object MusicSourceStore {
 
     private fun fileOf(context: Context): File = File(context.filesDir, FILE_NAME)
 
+    /**
+     * v0.216.0（C4）：读坏标记——注册表解析失败后置 true，此后一切写盘
+     * （含种子回写、脚本自检回写）一律拒绝，直到用户在音源管理页点
+     * “重新开始”清掉损坏文件。防止“随手加一个源就把旧注册表永久覆盖”。
+     * 读写都在 mutex 内，标记不需要额外同步。
+     */
+    private var corruptLoaded = false
+
+    /** 损坏备份（<原名>.corrupt.bak）是否还在磁盘上，供 UI 横幅判断。 */
+    suspend fun hasCorruptBackup(context: Context): Boolean = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            File(context.filesDir, "$FILE_NAME.corrupt.bak").isFile
+        }
+    }
+
+    /**
+     * 用户在横幅上点的“重新开始”：删掉损坏的注册表与备份，标记清零，
+     * 下次读取自动重建种子源。不是“修好旧数据”（备份本身就是坏字节），
+     * 而是把“静默丢失”变成用户明确点的放弃。
+     */
+    suspend fun clearCorrupt(context: Context): Boolean = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                fileOf(context).delete()
+                File(context.filesDir, "$FILE_NAME.corrupt.bak").delete()
+                corruptLoaded = false
+                true
+            }.getOrDefault(false)
+        }
+    }
+
     private fun seeds(): List<MusicSource> =
         listOf(MusicSource(name = "huibq（内置）", builtin = true))
 
@@ -66,6 +97,7 @@ object MusicSourceStore {
                 LogBus.w(TAG, "音乐源读取失败：${it.message}")
                 // v0.170.0：读坏先保全原文件，种子源写盘不再悄悄清空旧数据
                 AtomicFile.preserveCorrupt(f)
+                corruptLoaded = true
             }
             .getOrDefault(seeds())
     }
@@ -161,25 +193,30 @@ object MusicSourceStore {
         }
 
     /**
-     * 内置源拒绝删除。url 以 file:// 开头时顺手删对应本地文件
-     * （runCatching 包住，删不掉不报错）。
+     * 内置源拒绝删除。v0.216.0（C3）：先写注册表、写成功再删本地文件，
+     * 写盘失败时文件不动、注册表不动，返回 false 让调用方提示，不再出现
+     * “文件已删、注册表还指着它”的悬空状态。
      */
-    suspend fun remove(context: Context, id: String) = mutex.withLock {
+    suspend fun remove(context: Context, id: String): Boolean = mutex.withLock {
         withContext(Dispatchers.IO) {
             runCatching {
                 val cur = loadUnlocked(context).toMutableList()
-                val target = cur.firstOrNull { it.id == id } ?: return@runCatching
+                val target = cur.firstOrNull { it.id == id } ?: return@runCatching false
                 if (target.builtin) {
                     LogBus.w(TAG, "内置源不可删除：${target.name}")
-                    return@runCatching
+                    return@runCatching false
                 }
+                cur.remove(target)
+                if (!writeAll(fileOf(context), cur)) return@runCatching false
                 if (target.url.startsWith("file://")) {
                     runCatching { File(URI(target.url)).delete() }
                         .onFailure { LogBus.w(TAG, "本地脚本删除失败：${it.message}") }
                 }
-                cur.remove(target)
-                writeAll(fileOf(context), cur)
-            }.onFailure { LogBus.w(TAG, "音乐源删除失败：${it.message}") }
+                true
+            }.getOrElse {
+                LogBus.w(TAG, "音乐源删除失败：${it.message}")
+                false
+            }
         }
     }
 
@@ -198,6 +235,10 @@ object MusicSourceStore {
         }
 
     private fun writeAll(f: File, sources: List<MusicSource>): Boolean {
+        if (corruptLoaded) {
+            LogBus.w(TAG, "注册表读坏未处理，拒绝写盘覆盖（请先在音源管理页处理损坏数据）")
+            return false
+        }
         val ok = runCatching {
             // v0.170.0：原子写盘
             AtomicFile.writeText(f, json.encodeToString(ser, sources))

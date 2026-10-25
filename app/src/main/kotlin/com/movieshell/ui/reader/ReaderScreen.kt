@@ -469,6 +469,10 @@ fun ReaderScreen(
     val latestTitle by rememberUpdatedState(chapter?.title.orEmpty())
     val latestOffset by rememberUpdatedState(computeOffset())
     val latestLen by rememberUpdatedState(chapter?.content?.length ?: 0)
+    // v0.216.0（C7）：退出保存沿用滚动停存同款守卫——没载入完、或 chapter
+    // 为空（书坏了／被删了）时不写盘，否则一次空打开就把真进度洗成第 0 章。
+    val latestLoaded by rememberUpdatedState(loaded)
+    val latestChapter by rememberUpdatedState(chapter)
     DisposableEffect(novelId) {
         onDispose {
             val len = latestLen
@@ -482,10 +486,12 @@ fun ReaderScreen(
             readerIoScope.launch {
                 // v0.188.0 M25：进度只写 ReadingProgressStore 一处；书架 lastReadChapter
                 // 由 NovelStore 读侧派生，不再双写 index，中间崩溃不再两处各说各话。
-                ReadingProgressStore.save(
-                    context,
-                    ReadingProgress(novelId, latestIndex, latestOffset.coerceIn(0, len), chapterTitle = latestTitle),
-                )
+                if (latestLoaded && latestChapter != null) {
+                    ReadingProgressStore.save(
+                        context,
+                        ReadingProgress(novelId, latestIndex, latestOffset.coerceIn(0, len), chapterTitle = latestTitle),
+                    )
+                }
                 ReadingStatsStore.recordSession(context, statStart, statEnd, statChapters)
             }
         }

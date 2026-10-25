@@ -1400,14 +1400,14 @@ fun SourcesScreen(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
-                val file = File(previewKindDir(context, item.kind), item.fileName)
+                val file = previewKindDir(context, item.kind)?.let { File(it, item.fileName) }
                 MenuRow(Icons.Filled.Visibility, "文件预览") {
                     menuItem = null
                     onPreview(item.kind, item.fileName)
                 }
                 MenuRow(Icons.Filled.Edit, "文件编辑") {
                     menuItem = null
-                    if (!openFileWithEditor(context, file)) {
+                    if (file == null || !openFileWithEditor(context, file)) {
                         AppToast.show(context, "没有可用的文本编辑器", long = true)
                     }
                 }
@@ -1446,7 +1446,7 @@ fun SourcesScreen(
 
     // ---- 文件信息 ----
     infoItem?.let { item ->
-        val file = File(previewKindDir(context, item.kind), item.fileName)
+        val file = previewKindDir(context, item.kind)?.let { File(it, item.fileName) } ?: return@let
         val modified = remember(item) {
             SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
                 .format(Date(file.lastModified()))

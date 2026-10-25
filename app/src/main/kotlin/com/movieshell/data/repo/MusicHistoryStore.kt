@@ -30,8 +30,34 @@ object MusicHistoryStore {
 
     /**
      * v0.186.0：搜索历史与播放历史两文件共用同一把锁；清空删文件也在锁内，不与写盘竞态。
+     * v0.216.0（C4）：读坏标记与 MusicStore 同款——解析失败即置 true，此后写盘拒绝，
+     * 直到用户清掉损坏文件，防止空表覆盖旧历史。
      */
     private val mutex = Mutex()
+    private var corruptLoaded = false
+
+    /** 任一历史文件的损坏备份是否还在，供 UI 横幅判断。 */
+    suspend fun hasCorruptBackup(context: Context): Boolean = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            listOf(SEARCH_FILE, PLAY_FILE).any {
+                File(context.filesDir, "$it.corrupt.bak").isFile
+            }
+        }
+    }
+
+    /** 用户点的“重新开始”：删掉损坏的历史文件与备份，标记清零。 */
+    suspend fun clearCorrupt(context: Context): Boolean = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                listOf(SEARCH_FILE, PLAY_FILE).forEach {
+                    File(context.filesDir, it).delete()
+                    File(context.filesDir, "$it.corrupt.bak").delete()
+                }
+                corruptLoaded = false
+                true
+            }.getOrDefault(false)
+        }
+    }
 
     private fun readStrings(f: File): List<String> = runCatching {
         if (!f.isFile) return emptyList()
@@ -41,6 +67,7 @@ object MusicHistoryStore {
         Log.w(TAG, "读取失败：${f.name}", it)
         // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
         AtomicFile.preserveCorrupt(f)
+        corruptLoaded = true
     }.getOrDefault(emptyList())
 
     private fun readTracks(f: File): List<Track> = runCatching {
@@ -51,10 +78,15 @@ object MusicHistoryStore {
         Log.w(TAG, "读取失败：${f.name}", it)
         // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
         AtomicFile.preserveCorrupt(f)
+        corruptLoaded = true
     }.getOrDefault(emptyList())
 
     /** v0.186.0：写盘成败如实返回，失败记 LogBus 日志，不再静默吞掉。 */
     private fun writeStrings(f: File, list: List<String>): Boolean {
+        if (corruptLoaded) {
+            Log.w(TAG, "音乐历史读坏未处理，拒绝写盘覆盖：${f.name}")
+            return false
+        }
         val ok = runCatching {
             // v0.170.0：原子写盘
             AtomicFile.writeText(f, json.encodeToString(ListSerializer(String.serializer()), list))
@@ -64,6 +96,10 @@ object MusicHistoryStore {
     }
 
     private fun writeTracks(f: File, list: List<Track>): Boolean {
+        if (corruptLoaded) {
+            Log.w(TAG, "音乐历史读坏未处理，拒绝写盘覆盖：${f.name}")
+            return false
+        }
         val ok = runCatching {
             // v0.170.0：原子写盘
             AtomicFile.writeText(f, json.encodeToString(ListSerializer(Track.serializer()), list))
@@ -102,6 +138,9 @@ object MusicHistoryStore {
         withContext(Dispatchers.IO) {
             runCatching { File(context.filesDir, SEARCH_FILE).delete() }
                 .onFailure { Log.w(TAG, "搜索历史清空失败", it) }
+            // 显式清空即用户主动放弃旧历史：连损坏备份一起清，标记复位
+            runCatching { File(context.filesDir, "$SEARCH_FILE.corrupt.bak").delete() }
+            corruptLoaded = false
         }
     }
 

@@ -37,8 +37,34 @@ object MusicStore {
 
     /**
      * v0.186.0：本地、收藏、歌单三文件共用同一把锁——同一 store 内任何读改写全程串行。
+     * v0.216.0（C4）：读坏标记与 MusicSourceStore 同款——任一文件解析失败即置 true，
+     * 此后一切写盘拒绝，直到用户点“重新开始”清掉损坏文件，防止空表覆盖旧数据。
      */
     private val mutex = Mutex()
+    private var corruptLoaded = false
+
+    /** 任一音乐数据文件的损坏备份是否还在，供 UI 横幅判断。 */
+    suspend fun hasCorruptBackup(context: Context): Boolean = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            listOf(LOCAL_FILE, FAV_FILE, PLAYLIST_FILE).any {
+                File(context.filesDir, "$it.corrupt.bak").isFile
+            }
+        }
+    }
+
+    /** 用户点的“重新开始”：删掉损坏的数据文件与备份，标记清零（旧数据不可恢复，变显式放弃）。 */
+    suspend fun clearCorrupt(context: Context): Boolean = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                listOf(LOCAL_FILE, FAV_FILE, PLAYLIST_FILE).forEach {
+                    File(context.filesDir, it).delete()
+                    File(context.filesDir, "$it.corrupt.bak").delete()
+                }
+                corruptLoaded = false
+                true
+            }.getOrDefault(false)
+        }
+    }
 
     private fun readTracks(f: File): List<Track> = runCatching {
         if (!f.isFile) return emptyList()
@@ -47,9 +73,14 @@ object MusicStore {
         Log.w(TAG, "读取失败：${f.name}", it)
         // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
         AtomicFile.preserveCorrupt(f)
+        corruptLoaded = true
     }.getOrDefault(emptyList())
 
     private fun writeTracks(f: File, list: List<Track>): Boolean {
+        if (corruptLoaded) {
+            LogBus.w(TAG, "音乐数据读坏未处理，拒绝写盘覆盖：${f.name}")
+            return false
+        }
         val ok = runCatching {
             // v0.170.0：原子写盘
             AtomicFile.writeText(f, json.encodeToString(ListSerializer(Track.serializer()), list))
@@ -170,9 +201,14 @@ object MusicStore {
         Log.w(TAG, "歌单读取失败", it)
         // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
         AtomicFile.preserveCorrupt(f)
+        corruptLoaded = true
     }.getOrDefault(emptyList())
 
     private fun writePlaylists(f: File, list: List<MusicPlaylist>): Boolean {
+        if (corruptLoaded) {
+            LogBus.w(TAG, "音乐数据读坏未处理，拒绝写盘覆盖：${f.name}")
+            return false
+        }
         val ok = runCatching {
             // v0.170.0：原子写盘
             AtomicFile.writeText(f, json.encodeToString(ListSerializer(MusicPlaylist.serializer()), list))

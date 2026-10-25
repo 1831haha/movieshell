@@ -3,6 +3,8 @@ package com.movieshell.data.repo
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -32,6 +34,9 @@ object BookmarkStore {
     private val json = Json { ignoreUnknownKeys = true }
     private val mapSer = MapSerializer(String.serializer(), ListSerializer(Bookmark.serializer()))
 
+    // v0.216.0（C9）：读-改-写串行化——连续快点两个书签时，后写不再用旧快照覆盖先写
+    private val mutex = Mutex()
+
     private fun readAll(f: File): Map<String, List<Bookmark>> = runCatching {
         if (!f.isFile) return emptyMap()
         json.decodeFromString(mapSer, f.readText())
@@ -55,19 +60,23 @@ object BookmarkStore {
     /** 同章节去重：同一 chapterIndex 只保留最新一条。 */
     suspend fun add(context: Context, novelId: String, bookmark: Bookmark) =
         withContext(Dispatchers.IO) {
-            val f = File(context.filesDir, FILE_NAME)
-            val cur = readAll(f).toMutableMap()
-            cur[novelId] = (cur[novelId].orEmpty()
-                .filterNot { it.chapterIndex == bookmark.chapterIndex } + bookmark)
-                .sortedByDescending { it.createdAt }
-            writeAll(f, cur)
+            mutex.withLock {
+                val f = File(context.filesDir, FILE_NAME)
+                val cur = readAll(f).toMutableMap()
+                cur[novelId] = (cur[novelId].orEmpty()
+                    .filterNot { it.chapterIndex == bookmark.chapterIndex } + bookmark)
+                    .sortedByDescending { it.createdAt }
+                writeAll(f, cur)
+            }
         }
 
     suspend fun remove(context: Context, novelId: String, createdAt: Long) =
         withContext(Dispatchers.IO) {
-            val f = File(context.filesDir, FILE_NAME)
-            val cur = readAll(f).toMutableMap()
-            cur[novelId] = cur[novelId].orEmpty().filterNot { it.createdAt == createdAt }
-            writeAll(f, cur)
+            mutex.withLock {
+                val f = File(context.filesDir, FILE_NAME)
+                val cur = readAll(f).toMutableMap()
+                cur[novelId] = cur[novelId].orEmpty().filterNot { it.createdAt == createdAt }
+                writeAll(f, cur)
+            }
         }
 }

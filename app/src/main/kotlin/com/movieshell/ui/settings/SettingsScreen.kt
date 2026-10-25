@@ -154,6 +154,11 @@ fun SettingsScreen(
     // v0.80.0：主题改内联三段选择，不再弹窗
     val themeMode by ThemeStore.mode.collectAsState()
     var backupExpanded by remember { mutableStateOf(false) }
+    // v0.216.0（C15）：中断恢复快照入口——展开备份区时查一次，恢复动作后刷新
+    var hasPreSnapshot by remember { mutableStateOf(false) }
+    LaunchedEffect(backupExpanded) {
+        if (backupExpanded) hasPreSnapshot = BackupManager.hasPreRestoreSnapshot(context)
+    }
     // v0.51.0：WebDAV 云同步
     val scope = rememberCoroutineScope()
     var showCloudDialog by remember { mutableStateOf(false) }
@@ -755,6 +760,26 @@ fun SettingsScreen(
                             subtitle = "从 JSON 备份文件恢复订阅、当前规则、追剧、书架、音乐、直播",
                             onClick = { importLauncher.launch("application/json") },
                         )
+                        // v0.216.0（C15）：上次恢复中断/失败后留下的恢复前快照
+                        if (hasPreSnapshot) {
+                            SettingsRow(
+                                icon = Icons.Filled.History,
+                                title = "恢复中断前的备份",
+                                subtitle = "上次恢复没完成，导回恢复开始前的数据",
+                                onClick = {
+                                    scope.launch {
+                                        when (val r = BackupManager.restorePreRestoreSnapshot(context)) {
+                                            is BackupManager.RestoreResult.Ok -> {
+                                                hasPreSnapshot = false
+                                                AppToast.show(context, "已恢复到中断前的数据", long = false)
+                                            }
+                                            is BackupManager.RestoreResult.Failed ->
+                                                AppToast.show(context, "恢复失败：${r.reason}", long = true)
+                                        }
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }

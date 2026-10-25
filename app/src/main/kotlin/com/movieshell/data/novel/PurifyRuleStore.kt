@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.movieshell.data.repo.AtomicFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -23,6 +25,10 @@ object PurifyRuleStore {
 
     private val json = Json { ignoreUnknownKeys = true }
     private val ser = ListSerializer(PurifyRule.serializer())
+
+    // v0.216.0（C9）：add/removeAt/toggle/saveAll 读-改-写串行化（list() 本身
+    // 不取锁，互调不死锁；种子补种是一次性幂等写，不在锁内也无害）
+    private val mutex = Mutex()
 
     private fun fileOf(context: Context): File = File(context.filesDir, FILE_NAME)
 
@@ -60,29 +66,35 @@ object PurifyRuleStore {
     }
 
     suspend fun saveAll(context: Context, rules: List<PurifyRule>) =
-        withContext(Dispatchers.IO) { writeAll(fileOf(context), rules) }
+        withContext(Dispatchers.IO) { mutex.withLock { writeAll(fileOf(context), rules) } }
 
     suspend fun add(context: Context, rule: PurifyRule) = withContext(Dispatchers.IO) {
-        val cur = list(context).toMutableList()
-        cur.removeAll { it.name == rule.name && it.regex == rule.regex }
-        cur.add(rule)
-        writeAll(fileOf(context), cur)
+        mutex.withLock {
+            val cur = list(context).toMutableList()
+            cur.removeAll { it.name == rule.name && it.regex == rule.regex }
+            cur.add(rule)
+            writeAll(fileOf(context), cur)
+        }
     }
 
     suspend fun removeAt(context: Context, index: Int) = withContext(Dispatchers.IO) {
-        val cur = list(context).toMutableList()
-        if (index in cur.indices) {
-            cur.removeAt(index)
-            writeAll(fileOf(context), cur)
+        mutex.withLock {
+            val cur = list(context).toMutableList()
+            if (index in cur.indices) {
+                cur.removeAt(index)
+                writeAll(fileOf(context), cur)
+            }
         }
     }
 
     suspend fun toggle(context: Context, index: Int, enable: Boolean) =
         withContext(Dispatchers.IO) {
-            val cur = list(context).toMutableList()
-            if (index in cur.indices) {
-                cur[index] = cur[index].copy(enable = enable)
-                writeAll(fileOf(context), cur)
+            mutex.withLock {
+                val cur = list(context).toMutableList()
+                if (index in cur.indices) {
+                    cur[index] = cur[index].copy(enable = enable)
+                    writeAll(fileOf(context), cur)
+                }
             }
         }
 

@@ -88,7 +88,11 @@ object NovelUpdateStore {
     }
 
     suspend fun clearAll(context: Context) = withContext(Dispatchers.IO) {
-        runCatching { File(context.filesDir, FILE_NAME).delete() }
-            .onFailure { Log.w(TAG, "追更标记清空失败", it) }
+        // v0.216.0（C9）：clearAll 原来绕过 storeMutex 删文件，与 set/clear 的
+        // 读-改-写竞态——删文件可能发生在 set 读完、写盘之前，角标死灰复燃。
+        storeMutex.withLock {
+            runCatching { File(context.filesDir, FILE_NAME).delete() }
+                .onFailure { Log.w(TAG, "追更标记清空失败", it) }
+        }
     }
 }

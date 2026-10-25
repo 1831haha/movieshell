@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +46,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
 import com.movieshell.ui.components.TabTopBar
@@ -103,8 +105,11 @@ fun HistoryScreen(
     // v0.86.0：子 tab（0=全部 1=点播 2=直播），切 tab 不丢
     var tab by rememberSaveable { mutableIntStateOf(0) }
 
+    // v0.216.0（C5）：历史损坏横幅（必须写在 reload() 之前，局部函数不提升）
+    var showCorruptBanner by remember { mutableStateOf(false) }
     fun reload() {
         entries = HistoryStore.getHistory(context)
+        showCorruptBanner = HistoryStore.hasCorruptBackup(context)
     }
 
     LaunchedEffect(Unit) { reload() }
@@ -196,6 +201,36 @@ fun HistoryScreen(
                 return@Column
             }
             LazyColumn(modifier = Modifier.fillMaxSize()) {
+                // v0.216.0（C5）：历史损坏横幅
+                if (showCorruptBanner) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    horizontal = SoftDimens.PagePadding,
+                                    vertical = 4.dp,
+                                )
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "历史记录损坏，已保留备份，写盘已暂停",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = {
+                                HistoryStore.clearCorrupt(context)
+                                showCorruptBanner = false
+                                reload()
+                            }) { Text("重新开始") }
+                            TextButton(onClick = { showCorruptBanner = false }) { Text("暂不处理") }
+                        }
+                    }
+                }
                 groups.forEach { (day, list) ->
                     item(key = "d:$day") {
                         Text(
