@@ -48,7 +48,6 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -214,6 +213,7 @@ class MainActivity : ComponentActivity() {
         ThemeStore.init(this)
         LogStore.init(this)
         PlayerSettings.init(this)
+        com.movieshell.data.repo.MusicSettings.init(this)
         com.movieshell.player.danmaku.DanmakuSettings.init(this) // v0.54：弹幕开关
         com.movieshell.player.danmaku.DanmakuSource.initCache(this) // v0.55：弹幕磁盘缓存
         ParseStore.load(this) // v0.19.0：自定义解析接口
@@ -777,11 +777,9 @@ class MainActivity : ComponentActivity() {
                             ),
                         ) { entry ->
                             val detailVodId = entry.arguments?.getString("vodId").orEmpty()
-                            val detailTitle = entry.arguments?.getString("title").orEmpty()
                             val detailEpisode = entry.arguments?.getInt("episode", -1) ?: -1
                             DetailScreen(
                                 vodId = detailVodId,
-                                initialTitle = detailTitle,
                                 initialEpisode = detailEpisode,
                                 onBack = { navController.popBackStack() },
                                 // v0.88.0：点演员名→演员作品页（专属海报墙，不再走搜索 tab）

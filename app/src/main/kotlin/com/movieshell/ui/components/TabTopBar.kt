@@ -18,7 +18,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -33,12 +32,6 @@ import com.movieshell.ui.theme.LocalBrandGradient
  * - 底部 1.5dp 四色渐变细线（呼应详情页 v0.78.2 的 2.5dp 线，更细更柔），既是分隔又是品牌点缀；
  * - 标题香槟金小字（沿用 v0.39.0 mockup 风格），右侧放操作图标。
  */
-val BrandGradientColors = listOf(
-    Color(0xFF22D3EE), // 青
-    Color(0xFF818CF8), // 靛
-    Color(0xFFE879F9), // 品红
-    Color(0xFFFBBF24), // 金
-)
 
 @Composable
 fun TabTopBar(

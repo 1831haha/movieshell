@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -78,101 +77,9 @@ fun TrashScreen(
         items = TrashStore.list(context)
     }
 
-    @Composable
-    fun TrashContent(modifier: Modifier = Modifier) {
-        if (items.isEmpty()) {
-            Box(
-                modifier = modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                EmptyState(
-                    kind = EmptyKind.Empty,
-                    icon = Icons.Filled.DeleteForever,
-                    title = "回收站是空的",
-                )
-            }
-            return
-        }
-        LazyColumn(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(horizontal = SoftDimens.PagePadding),
-        ) {
-            // embedded 模式没有顶栏，清空按钮放这里
-            if (embedded) {
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        TextButton(onClick = { showClearAll = true }) { Text("清空") }
-                    }
-                }
-            }
-            item {
-                Text(
-                    "删除的源和规则文件会先放这里，可恢复；彻底删除后无法找回",
-                    style = SoftType.Caption,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-            }
-            items(items, key = { it.id }) { item ->
-                AppCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(SoftDimens.CardSpacing),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = item.name,
-                                style = SoftType.CardTitle,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = "${kindLabel(item.kind)} · 删除于 ${timeFmt.format(Date(item.deletedAt))}",
-                                style = SoftType.Caption,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        AppButton(
-                            text = "恢复",
-                            variant = AppButtonVariant.Ghost,
-                            onClick = {
-                                if (TrashStore.restore(context, item)) {
-                                    AppToast.show(context, "已恢复", long = false)
-                                } else {
-                                    AppToast.show(context, "恢复失败（文件已存在或已丢失）", long = true)
-                                }
-                                reload()
-                            },
-                        )
-                        IconButton(onClick = { deleteTarget = item }) {
-                            Icon(
-                                Icons.Filled.DeleteForever, contentDescription = "彻底删除",
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
-                }
-            }
-            item { Spacer(Modifier.height(16.dp)) }
-        }
-    }
 
     if (embedded) {
-        TrashContent()
+        TrashContent(items, embedded, { showClearAll = true }, { deleteTarget = it }, { reload() })
     } else {
         Scaffold(
             topBar = {
@@ -187,7 +94,7 @@ fun TrashScreen(
                 )
             },
         ) { inner ->
-            TrashContent(Modifier.padding(inner))
+            TrashContent(items, embedded, { showClearAll = true }, { deleteTarget = it }, { reload() }, Modifier.padding(inner))
         }
     }
 
@@ -220,5 +127,106 @@ fun TrashScreen(
         ) {
             Text("彻底删除回收站里的 ${items.size} 项吗？无法恢复。")
         }
+    }
+}
+
+@Composable
+private fun TrashContent(
+    items: List<TrashItem>,
+    embedded: Boolean,
+    onClearAll: () -> Unit,
+    onDelete: (TrashItem) -> Unit,
+    onReload: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    if (items.isEmpty()) {
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            EmptyState(
+                kind = EmptyKind.Empty,
+                icon = Icons.Filled.DeleteForever,
+                title = "回收站是空的",
+            )
+        }
+        return
+    }
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = SoftDimens.PagePadding),
+    ) {
+        // embedded 模式没有顶栏，清空按钮放这里
+        if (embedded) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = { onClearAll() }) { Text("清空") }
+                }
+            }
+        }
+        item {
+            Text(
+                "删除的源和规则文件会先放这里，可恢复；彻底删除后无法找回",
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+        }
+        items(items, key = { it.id }) { item ->
+            AppCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(SoftDimens.CardSpacing),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = item.name,
+                            style = SoftType.CardTitle,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = "${kindLabel(item.kind)} · 删除于 ${timeFmt.format(Date(item.deletedAt))}",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    AppButton(
+                        text = "恢复",
+                        variant = AppButtonVariant.Ghost,
+                        onClick = {
+                            if (TrashStore.restore(context, item)) {
+                                AppToast.show(context, "已恢复", long = false)
+                            } else {
+                                AppToast.show(context, "恢复失败（文件已存在或已丢失）", long = true)
+                            }
+                            onReload()
+                        },
+                    )
+                    IconButton(onClick = { onDelete(item) }) {
+                        Icon(
+                            Icons.Filled.DeleteForever, contentDescription = "彻底删除",
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+        }
+        item { Spacer(Modifier.height(16.dp)) }
     }
 }

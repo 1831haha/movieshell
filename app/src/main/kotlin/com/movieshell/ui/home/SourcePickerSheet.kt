@@ -10,6 +10,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.movieshell.data.repo.ApiSource
+import com.movieshell.data.repo.RuleInfo
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.HomeSettings
@@ -122,9 +124,9 @@ fun SourcePickerSheet(
     val context = LocalContext.current
     // v0.17.0：异步加载，避免主线程扫文件卡顿（复用旧逻辑）
     var cur by remember { mutableStateOf<SubCurrent?>(null) }
-    var drpyRules by remember { mutableStateOf<List<DrpySourceManager.RuleInfo>>(emptyList()) }
-    var pyRules by remember { mutableStateOf<List<PySourceManager.RuleInfo>>(emptyList()) }
-    var phpRules by remember { mutableStateOf<List<PhpSourceManager.RuleInfo>>(emptyList()) }
+    var drpyRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
+    var pyRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
+    var phpRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
     var drpyHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     var pyHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     var phpHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
@@ -699,37 +701,63 @@ private fun kindLabel(kind: String): String = when (kind) {
 private fun originLabel(id: String): String =
     if (id.startsWith("sub:")) "订阅站源" else "本地规则"
 
-/** 截图式 2 列大卡：左边源名（可换两行），右边类型小标签，第二行是来源/当前源。 */
+/**
+ * v0.218.0（S2）：源卡片共用外框——原来 5 套卡片各抄一遍“当前源描边 +
+ * 底色 + 点击”，改样式要改 5 处；现在框只此一处，5 套只留各自的内部排版。
+ * 两种框：gradientRing=true 时当前源走 1.5dp 炫彩渐变描边（2 列大卡、
+ * 网格卡），false 时一律细描边（列表、宽卡、紧凑行）；圆角与内边距
+ * 各卡自传，视觉与原来一字不动。
+ */
 @Composable
-private fun SourceCard2Col(item: PickerItem) {
+private fun SourceCardFrame(
+    item: PickerItem,
+    corner: Dp,
+    contentPadding: PaddingValues,
+    gradientRing: Boolean,
+    contentAlignment: Alignment = Alignment.TopStart,
+    content: @Composable BoxScope.() -> Unit,
+) {
     val brandColors = LocalBrandGradient.current
     Box(
         modifier = Modifier
             .then(
-                if (item.isCurrent) {
+                if (gradientRing && item.isCurrent) {
                     Modifier
                         .background(
                             Brush.linearGradient(brandColors),
-                            RoundedCornerShape(16.dp),
+                            RoundedCornerShape(corner),
                         )
                         .padding(1.5.dp)
                 } else Modifier,
             )
-            .clip(RoundedCornerShape(16.dp))
-            // v0.184.0：源框太不明显——原来毛玻璃底太透，改实色底 + 细描边；
-            // 当前源底色直接取主题品牌色第一色浅 tint，换主题色时它也跟着变，
-            // 不再是写死的绿。
+            .clip(RoundedCornerShape(corner))
             .background(
                 if (item.isCurrent) brandColors.first().copy(alpha = 0.16f)
                 else MaterialTheme.colorScheme.surface,
             )
             .then(
-                if (item.isCurrent) Modifier
-                else Modifier.border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(16.dp)),
+                if (gradientRing && item.isCurrent) Modifier
+                else Modifier.border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(corner)),
             )
             .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
             .clickable(onClick = item.onPick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(contentPadding),
+        contentAlignment = contentAlignment,
+        content = content,
+    )
+}
+
+/** 截图式 2 列大卡：左边源名（可换两行），右边类型小标签，第二行是来源/当前源。 */
+@Composable
+private fun SourceCard2Col(item: PickerItem) {
+    // v0.184.0：源框太不明显——原来毛玻璃底太透，改实色底 + 细描边；
+    // 当前源底色直接取主题品牌色第一色浅 tint，换主题色时它也跟着变，
+    // 不再是写死的绿。
+    SourceCardFrame(
+        item = item,
+        corner = 16.dp,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        gradientRing = true,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             // v0.183.0：大卡也带高清图标，顶上一排“图标 + 类型标签”，
@@ -779,18 +807,11 @@ private fun SourceCard2Col(item: PickerItem) {
 /** 列表式一行：图标 + 名 + 类型/来源，名字长也不怕，适合源多时翻找。 */
 @Composable
 private fun SourceListRow(item: PickerItem) {
-    val brandColors = LocalBrandGradient.current
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(
-                if (item.isCurrent) brandColors.first().copy(alpha = 0.16f)
-                else MaterialTheme.colorScheme.surface,
-            )
-            .border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(16.dp))
-            .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
-            .clickable(onClick = item.onPick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+    SourceCardFrame(
+        item = item,
+        corner = 16.dp,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        gradientRing = false,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SourceLogo(logoUrl = item.logoUrl, name = item.name, size = 36.dp)
@@ -828,18 +849,11 @@ private fun SourceListRow(item: PickerItem) {
 /** v0.184.0：1 列宽卡——图标 + 名 + 类型/来源一排到底，名字长、想看清时用。 */
 @Composable
 private fun SourceWideCard(item: PickerItem) {
-    val brandColors = LocalBrandGradient.current
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(
-                if (item.isCurrent) brandColors.first().copy(alpha = 0.16f)
-                else MaterialTheme.colorScheme.surface,
-            )
-            .border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(16.dp))
-            .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
-            .clickable(onClick = item.onPick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+    SourceCardFrame(
+        item = item,
+        corner = 16.dp,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        gradientRing = false,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SourceLogo(logoUrl = item.logoUrl, name = item.name, size = 48.dp)
@@ -877,18 +891,11 @@ private fun SourceWideCard(item: PickerItem) {
 /** v0.184.0：紧凑列表——一行到底，图标小、字小，源多时一屏看得多。 */
 @Composable
 private fun SourceCompactRow(item: PickerItem) {
-    val brandColors = LocalBrandGradient.current
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(
-                if (item.isCurrent) brandColors.first().copy(alpha = 0.16f)
-                else MaterialTheme.colorScheme.surface,
-            )
-            .border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(12.dp))
-            .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
-            .clickable(onClick = item.onPick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+    SourceCardFrame(
+        item = item,
+        corner = 12.dp,
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+        gradientRing = false,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SourceLogo(logoUrl = item.logoUrl, name = item.name, size = 28.dp)
@@ -926,32 +933,12 @@ private data class PickerItem(
 /** 4 列网格里的单个源卡片：图标 + 名。v0.140.0：方形紧凑（圆角收至 14dp，间距收紧）。 */
 @Composable
 private fun SourceGridCard(item: PickerItem) {
-    val brandColors = LocalBrandGradient.current
     // 选中态：1.5dp 炫彩渐变描边（照 SourcesScreen.RainbowRingCard 口径）
-    Box(
-        modifier = Modifier
-            .then(
-                if (item.isCurrent) {
-                    Modifier
-                        .background(
-                            Brush.linearGradient(brandColors),
-                            RoundedCornerShape(16.dp),
-                        )
-                        .padding(1.5.dp)
-                } else Modifier,
-            )
-            .clip(RoundedCornerShape(16.dp))
-            .background(
-                if (item.isCurrent) brandColors.first().copy(alpha = 0.16f)
-                else MaterialTheme.colorScheme.surface,
-            )
-            .then(
-                if (item.isCurrent) Modifier
-                else Modifier.border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(16.dp)),
-            )
-            .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
-            .clickable(onClick = item.onPick)
-            .padding(vertical = 10.dp, horizontal = 4.dp),
+    SourceCardFrame(
+        item = item,
+        corner = 16.dp,
+        contentPadding = PaddingValues(vertical = 10.dp, horizontal = 4.dp),
+        gradientRing = true,
         contentAlignment = Alignment.Center,
     ) {
         Column(

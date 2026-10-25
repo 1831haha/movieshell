@@ -293,10 +293,14 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             val added = MusicSourceStore.addLocal(context, displayName, tmp)
             runCatching { tmp.delete() }
             if (added != null) {
-                // v0.215.0：导入新源后自动设为首选——原来只追加到注册表末尾，
-                // 按顺序轮询时可能长期轮不到，新源等于没导入。
-                MusicPlayer.setPreferredSource(context, added.id)
-                AppToast.show(context, "已导入 ${added.name}，已设为首选音源", long = false)
+                // v0.218.0（S18）：只在当前无首选时自动设首选——原来
+                // 导入／添加就直接抢成首选，悄悄换掉用户已有的显式选择。
+                if (MusicPlayer.preferredSourceIdFlow.value == null) {
+                    MusicPlayer.setPreferredSource(context, added.id)
+                    AppToast.show(context, "已导入 ${added.name}，已设为首选音源", long = false)
+                } else {
+                    AppToast.show(context, "已导入 ${added.name}，新源在自动顺序里", long = false)
+                }
                 showAdd = false
                 reload()
             } else {
@@ -602,13 +606,17 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     return@TechDialog
                 }
                 scope.launch {
-                    // v0.215.0：同本地导入——新源直接设为首选，不让它在注册表末尾空等轮询。
+                    // v0.218.0（S18）：同本地导入——只在无首选时自动设首选。
                     val created = MusicSource(name = name.trim(), url = url.trim())
                     MusicSourceStore.add(context, created)
-                    MusicPlayer.setPreferredSource(context, created.id)
+                    if (MusicPlayer.preferredSourceIdFlow.value == null) {
+                        MusicPlayer.setPreferredSource(context, created.id)
+                        AppToast.show(context, "已添加，已设为首选音源", long = false)
+                    } else {
+                        AppToast.show(context, "已添加，新源在自动顺序里", long = false)
+                    }
                     showAdd = false
                     reload()
-                    AppToast.show(context, "已添加，已设为首选音源", long = false)
                 }
             },
         ) {

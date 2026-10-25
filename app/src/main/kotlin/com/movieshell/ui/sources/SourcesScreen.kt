@@ -93,6 +93,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.ApiSource
+import com.movieshell.data.repo.RuleInfo
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.HomeCache
@@ -391,8 +392,8 @@ fun SourcesScreen(
     // v0.27.4：单页两 section（订阅源 / 本地源），不再分 tab
 
     // 各 tab 的真实数据
-    val drpyRules = remember { mutableStateListOf<DrpySourceManager.RuleInfo>() }
-    val pyRules = remember { mutableStateListOf<PySourceManager.RuleInfo>() }
+    val drpyRules = remember { mutableStateListOf<RuleInfo>() }
+    val pyRules = remember { mutableStateListOf<RuleInfo>() }
     val phpEntries = remember { mutableStateListOf<SourceEntry>() }
     val webSites = remember { mutableStateListOf<WebSourceManager.WebSite>() }
     // 各 tab 置顶列表

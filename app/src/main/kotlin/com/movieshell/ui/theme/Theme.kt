@@ -12,7 +12,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import com.movieshell.data.repo.ThemeStore
-import com.movieshell.ui.components.BrandGradientColors
+
+/**
+ * v0.218.0（S28）：品牌渐变色带从顶栏组件文件搬到主题层——原来主题层
+ * 反向依赖组件层，动顶栏文件会动到全仓主题；值与之前一致。
+ */
+val BrandGradientColors = listOf(
+    Color(0xFF22D3EE), // 青
+    Color(0xFF818CF8), // 靛
+    Color(0xFFE879F9), // 品红
+    Color(0xFFFBBF24), // 金
+)
 
 /**
  * v0.87.1：品牌渐变 CompositionLocal。

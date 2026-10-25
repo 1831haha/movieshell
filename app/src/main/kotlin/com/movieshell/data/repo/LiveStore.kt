@@ -135,8 +135,16 @@ object LiveStore {
     }
 
     fun removeSource(context: Context, url: String) {
+        val name = _sources.value.firstOrNull { it.url == url }?.name
         _sources.value = _sources.value.filterNot { it.url == url }
         persistSources(context)
+        // v0.218.0（S11）：删源即清掉该源频道并重写缓存——原来只删
+        // 订阅记录，频道还留在内存和盘上，全靠调用方事后补一次刷新兜底。
+        // 订阅频道的 sourceKey 就是 "m3u:<订阅名>"（见 fetchSource）。
+        if (name != null) {
+            _channels.value = _channels.value.filterNot { it.sourceKey == "m3u:$name" }
+            saveCachedChannels(context, _channels.value)
+        }
     }
 
     /** 本地 M3U 文件导入：拷进 liveDir 当 LOCAL_FILE 订阅 */
@@ -177,6 +185,9 @@ object LiveStore {
 
     fun removeManual(context: Context, id: String) {
         persistManual(context, readManual(context).filterNot { it.id == id })
+        // v0.218.0（S11）：同 removeSource，手动频道删除也同步清内存与盘上缓存。
+        _channels.value = _channels.value.filterNot { it.id == id }
+        saveCachedChannels(context, _channels.value)
     }
 
     // ---------------- 收藏 ----------------

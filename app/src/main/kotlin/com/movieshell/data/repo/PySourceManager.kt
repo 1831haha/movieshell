@@ -43,10 +43,11 @@ import kotlinx.coroutines.cancelChildren
  */
 object PySourceManager {
 
-    data class RuleInfo(val name: String, val title: String, val sizeKb: Long)
-
     private const val TAG = "PySourceManager"
     private const val RULES_DIR = "py"
+
+    /** PY 标题正则（class XxxSpider），抠标题只此一处（见 RuleFileStore）。 */
+    private val TITLE_REGEX = Regex("""class\s+(\w+Spider)""")
 
     private var appContext: Context? = null
     private var initialized = false
@@ -86,10 +87,14 @@ object PySourceManager {
      * v0.187.0 H03 如实说明：这里的取消只取消协程等待，停不掉桥上正在
      * 执行的 Python（同步阻塞接口不响应取消）；旧 Python 跑完的结果被丢弃，不回写。
      */
+    /**
+     * v0.218.0（S24）：槽位更新原子化——原来“取旧、建新、存新”三步，
+     * 交错时后建的请求可能被先建的请求覆盖槽位、取消信号发错对象；
+     * 现在先建 deferred 再一次 getAndSet 完成“取旧＋存新”。
+     */
     private suspend fun <T> latest(slot: AtomicReference<Deferred<T>?>, block: suspend () -> T): T {
-        slot.getAndSet(null)?.cancel()
         val d = readScope.async { block() }
-        slot.set(d)
+        slot.getAndSet(d)?.cancel()
         return d.await() // 被更新的请求取消时向调用方抛 CancellationException（标准语义）
     }
 
@@ -99,40 +104,15 @@ object PySourceManager {
         initialized = true
         appContext = context.applicationContext
         ChaquopyEngine.init(context)
-        try {
-            val dir = rulesDir()
-            dir.mkdirs()
-            val assets = appContext!!.assets
-            (assets.list(RULES_DIR) ?: emptyArray())
-                .filter { it.endsWith(".py") }
-                .forEach { name ->
-                    val dst = File(dir, name)
-                    if (!dst.exists()) {
-                        assets.open("$RULES_DIR/$name").use { input ->
-                            dst.outputStream().use { input.copyTo(it) }
-                        }
-                        Log.i(TAG, "拷贝内置规则: $name")
-                    }
-                }
-        } catch (e: Exception) {
-            Log.w(TAG, "init 拷贝规则失败", e)
-        }
+        RuleFileStore.copyBuiltinAssets(appContext!!.assets, RULES_DIR, rulesDir(), ".py", emptySet(), TAG)
     }
 
     /** 扫描 StoragePaths.pyDir()（/storage/emulated/0/xiaying/py/) 下的 py 文件。 */
-    fun listRules(): List<RuleInfo> {
-        val dir = rulesDirOrNull() ?: return emptyList()
-        return dir.listFiles { f -> f.isFile && f.name.endsWith(".py") }
-            .orEmpty()
-            .sortedBy { it.name }
-            .map { f ->
-                RuleInfo(
-                    name = f.name,
-                    title = extractTitle(f) ?: f.nameWithoutExtension,
-                    sizeKb = f.length() / 1024
-                )
-            }
-    }
+    fun listRules(): List<RuleInfo> = RuleFileStore.listRules(
+        rulesDirOrNull(),
+        { f -> f.isFile && f.name.endsWith(".py") },
+        { f -> RuleFileStore.extractTitle(f, TITLE_REGEX) },
+    )
 
     fun activeRuleName(): String? = activeName
 
@@ -302,20 +282,7 @@ object PySourceManager {
     /** 是否含 Spider 子类（桥接/工具类 py 文件没有，不计入检测）。 */
     fun hasSpiderSubclass(name: String): Boolean {
         val ctx = appContext ?: return false
-        return extractTitle(File(StoragePaths.pyDir(ctx), name)) != null
+        return RuleFileStore.extractTitle(File(StoragePaths.pyDir(ctx), name), TITLE_REGEX) != null
     }
 
-    /** 从规则源码里抠类名/中文名（class XxxSpider / # 注释），抠不到返回 null。 */
-    private fun extractTitle(file: File): String? {
-        return try {
-            val head = file.inputStream().use { input ->
-                val buf = ByteArray(4096)
-                val n = input.read(buf)
-                if (n > 0) String(buf, 0, n) else ""
-            }
-            Regex("""class\s+(\w+Spider)""").find(head)?.groupValues?.get(1)
-        } catch (e: Exception) {
-            null
-        }
-    }
 }

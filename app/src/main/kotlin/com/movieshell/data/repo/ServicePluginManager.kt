@@ -58,21 +58,7 @@ object ServicePluginManager {
     /** v0.138.0：启动中宽限窗——进程活着但未满该时长时显示黄灯，满后转绿灯。 */
     private const val STARTING_GRACE_MS = 5000L
 
-    /**
-     * v0.186.0：解压上限（H14，与 PluginMarket 同阈值）。条目数按实际解压的
-     * 文件计，上限 2000；解压后总字节数按实际写出字节累计，上限 500MB，
-     * 超限即中止并清暂存目录（install 的 catch 已清暂存）。
-     */
-    private const val MAX_ZIP_ENTRIES = 2000
-    private const val MAX_UNPACKED_BYTES = 500L * 1024L * 1024L
-
-    /** v0.186.0：解压预算累计器（条目数与解压后字节数）。 */
-    private class UnpackBudget {
-        var entries = 0
-        var bytes = 0L
-    }
-
-    data class PluginInfo(
+        data class PluginInfo(
         val id: String,
         val name: String,
         val version: String,
@@ -622,7 +608,7 @@ object ServicePluginManager {
         }
         val spec = readInstalledSpec(context, entry.id)
         val root = File(installRoot(context), entry.id)
-        val workDir = safeDst(root, spec.workDir)
+        val workDir = ZipInstall.safeDst(root, spec.workDir)
         return EffectiveLaunch(
             workDir = workDir,
             exe = File(workDir, spec.command),
@@ -708,18 +694,18 @@ object ServicePluginManager {
                     val entries = zf.entries().asSequence().filter { !it.isDirectory }.toList()
                     if (entries.isEmpty()) throw IllegalStateException("插件包为空")
                     // v0.186.0：解压上限（H14），超限即抛，catch 清暂存、旧版不动。
-                    if (entries.size > MAX_ZIP_ENTRIES) {
-                        throw IllegalStateException("插件包条目数超限（上限 $MAX_ZIP_ENTRIES）")
+                    if (entries.size > ZipInstall.MAX_ZIP_ENTRIES) {
+                        throw IllegalStateException("插件包条目数超限（上限 $ZipInstall.MAX_ZIP_ENTRIES）")
                     }
-                    val budget = UnpackBudget()
+                    val budget = ZipInstall.UnpackBudget()
                     entries.forEach { e ->
-                        val dst = safeDst(staging, e.name)
+                        val dst = ZipInstall.safeDst(staging, e.name)
                         dst.parentFile?.mkdirs()
-                        copyEntryBounded(zf, e, dst, budget)
+                        ZipInstall.copyEntryBounded(zf, e, dst, budget)
                     }
                 }
                 verifyExecutable(staging, spec)
-                swapInstallDir(root, staging)
+                ZipInstall.swapDir(root, staging)
                 // v0.192.0：落盘后写 .nomedia（与市场 server 分支同款，见
                 // StoragePaths.ensureNomedia）：服务脚本目录也在公开存储，
                 // 包里带 .ts 之类媒体味后缀的文件不再被相册收成假视频。
@@ -779,52 +765,14 @@ object ServicePluginManager {
         }
     }
 
-    /** zip-slip 防护：解压目标必须落在 dir 内（复用 PluginMarket 口径）。 */
-    private fun safeDst(dir: File, name: String): File {
-        val dst = File(dir, name)
-        if (!dst.canonicalPath.startsWith(dir.canonicalPath + File.separator)) {
-            throw IllegalStateException("插件包路径非法：$name")
-        }
-        return dst
-    }
-
-    /**
-     * v0.171.0：暂存目录整体替换安装目录。旧目录先改名备份，暂存目录改名
-     * 到位后再删备份；改名失败时把备份改回来，旧版不丢（同 PluginMarket.swapDir 口径）。
-     */
-    private fun swapInstallDir(root: File, staging: File) {
-        val parent = root.parentFile ?: throw IllegalStateException("插件目录无父目录：${root.path}")
-        val backup = File(parent, "${root.name}.bak-${System.currentTimeMillis()}")
-        val hadOld = root.exists()
-        if (hadOld && !root.renameTo(backup)) {
-            throw IllegalStateException("旧版备份失败，安装已中止，旧版未动：${root.name}")
-        }
-        try {
-            if (!staging.renameTo(root)) {
-                throw IllegalStateException("新版落盘改名失败，安装已中止")
-            }
-            if (hadOld) runCatching { backup.deleteRecursively() }
-        } catch (e: Exception) {
-            if (hadOld && !root.exists()) {
-                runCatching { backup.renameTo(root) }
-                    .onFailure { LogBus.e(TAG, "旧版回滚失败，备份留在：${backup.path}") }
-            }
-            throw e
-        }
-    }
-
-    /**
-     * v0.186.0：带解压预算的单条目拷贝（H14，与 PluginMarket 同口径）。
-     * 只解到暂存区，超限即抛异常，install 的 catch 清暂存、旧版不动。
-     */
-    private fun copyEntryBounded(
+    private fun ZipInstall.copyEntryBounded(
         zf: ZipFile,
         e: java.util.zip.ZipEntry,
         dst: File,
-        budget: UnpackBudget,
+        budget: ZipInstall.UnpackBudget,
     ) {
-        if (++budget.entries > MAX_ZIP_ENTRIES) {
-            throw IllegalStateException("插件包解压条目数超限（上限 $MAX_ZIP_ENTRIES）")
+        if (++budget.entries > ZipInstall.MAX_ZIP_ENTRIES) {
+            throw IllegalStateException("插件包解压条目数超限（上限 $ZipInstall.MAX_ZIP_ENTRIES）")
         }
         dst.parentFile?.mkdirs()
         zf.getInputStream(e).use { input ->
@@ -834,7 +782,7 @@ object ServicePluginManager {
                 while (input.read(buf).also { n = it } >= 0) {
                     if (n == 0) continue
                     budget.bytes += n
-                    if (budget.bytes > MAX_UNPACKED_BYTES) {
+                    if (budget.bytes > ZipInstall.MAX_UNPACKED_BYTES) {
                         throw IllegalStateException("插件包解压后大小超限（上限 500MB）")
                     }
                     out.write(buf, 0, n)
@@ -868,8 +816,8 @@ object ServicePluginManager {
             }
             val fileEntries = zf.entries().asSequence()
                 .filter { !it.isDirectory && it.name != "server.json" }.toList()
-            if (fileEntries.size > MAX_ZIP_ENTRIES) {
-                throw IllegalStateException("插件包条目数超限（上限 $MAX_ZIP_ENTRIES）")
+            if (fileEntries.size > ZipInstall.MAX_ZIP_ENTRIES) {
+                throw IllegalStateException("插件包条目数超限（上限 $ZipInstall.MAX_ZIP_ENTRIES）")
             }
             val fileKeys = files.keys().asSequence().toList()
             val actual = fileEntries

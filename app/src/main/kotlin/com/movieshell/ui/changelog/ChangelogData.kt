@@ -19,6 +19,23 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.218.0",
+        date = "2026-10-25",
+        title = "全量审查报告里“可精简”32 条的清理版（S1–S32 全做完）。",
+        details = listOf(
+            "S1 首页 VM 状态收敛：公开流只读＋写方法，换源清空收进 VM 单一入口。",
+            "S2 换源弹窗 5 套源卡片抽共用外框，视觉不动。",
+            "S4 首页三路任务取消联动：deferred 取消时三路一并取消，正常结算不影响后台回填。",
+            "S13 音乐平台与歌词颜色迁出视频播放器设置，独立 MusicSettings，旧设置自动迁移。",
+            "S21 三规则管理器抽共用 RuleFileStore，标题正则各传各的。",
+            "S22 两套 zip 解压防护抽共用 ZipInstall，上限与换入逻辑只此一处。",
+            "S23 站源五路分发收成 route() 一个函数，本地 drpy 站的筛选定义补齐。",
+            "S27 界面 Vod 删除，首页／搜索／演员／详情直接用数据层 Vod。",
+            "其余 24 条：删死代码与无用 import、修退避与缓存语义、删源清理收敛、并发计数加原子保护。",
+            "本版共 32 条，完整内容见仓库 docs/changelog/v0.218.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.217.0",
         date = "2026-10-25",
         title = "全量审查报告里“功能错误”71 条的修复版（F1–F71 全改完）。",

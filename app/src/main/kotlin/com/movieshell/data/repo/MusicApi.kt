@@ -182,10 +182,8 @@ object MusicApi {
     ): List<Track> {
         val lx = normalizeSource(platform).ifBlank { "wy" }
         if (lx != "wy") return PlatformMusicApi.search(lx, query, page, count)
-        if (lx !in GD_SUPPORTED_PLATFORMS) {
-            LogBus.w(TAG, "GD 不支持平台 $lx 的搜索，返回空")
-            return emptyList()
-        }
+        // v0.218.0（S16）：删走不到的 GD 兜底——非 wy 早已 return，wy 又恒在
+        // GD_SUPPORTED_PLATFORMS（setOf("wy")）里，这段恒为假。
         val q = URLEncoder.encode(query, "UTF-8")
         val body = get("$BASE?types=search&source=${gdSourceOf(lx)}&name=$q&count=$count&pages=$page")
         val tracks = mutableListOf<Track>()

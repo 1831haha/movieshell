@@ -40,10 +40,12 @@ class HomeViewModel(
         savedState.getStateFlow("selectedCatTypeId", "")
 
     /** 分类列表（37 个分类那种） */
-    val categories = MutableStateFlow<List<CategoryType>>(emptyList())
+    private val _categories = MutableStateFlow<List<CategoryType>>(emptyList())
+    val categories: StateFlow<List<CategoryType>> = _categories
 
     /** 要点1：推荐流缓存（首页默认内容） */
-    val recommendCache = MutableStateFlow<List<ModelVod>>(emptyList())
+    private val _recommendCache = MutableStateFlow<List<ModelVod>>(emptyList())
+    val recommendCache: StateFlow<List<ModelVod>> = _recommendCache
 
     /** 要点1：分类内容缓存：typeId -> videos（内存级，返回秒回，与磁盘缓存同口径） */
     private val _categoryCache = MutableStateFlow<Map<String, List<ModelVod>>>(emptyMap())
@@ -75,24 +77,31 @@ class HomeViewModel(
      * 正在加载的分类 typeId，null=空闲。切到无缓存分类时不清空旧列表，
      * UI 层据此显示顶部细条 loading（有旧数据）或骨架屏（无旧数据）。
      */
-    val loadingCategoryId = MutableStateFlow<String?>(null)
+    private val _loadingCategoryId = MutableStateFlow<String?>(null)
+    val loadingCategoryId: StateFlow<String?> = _loadingCategoryId
 
     /**
      * v0.110.0：分类内容加载失败的分类 typeId（超时/规则异常），null=无失败。
      * 失败后 loadingCategoryId 同步清掉（不再转圈），UI 据此给内联错误+重试；
      * 之前失败只写空缓存，顶部细条转圈卡死、用户无任何反馈（审查报告第 10 条）。
      */
-    val failedCategoryId = MutableStateFlow<String?>(null)
+    private val _failedCategoryId = MutableStateFlow<String?>(null)
+    val failedCategoryId: StateFlow<String?> = _failedCategoryId
 
     /** 标记某分类内容加载失败：停掉它的转圈，UI 切失败态 */
     fun markCategoryFailed(catId: String) {
-        failedCategoryId.value = catId
-        if (loadingCategoryId.value == catId) loadingCategoryId.value = null
+        _failedCategoryId.value = catId
+        if (_loadingCategoryId.value == catId) _loadingCategoryId.value = null
     }
 
     /** 发起新一轮分类加载时，清掉该分类的旧失败标记 */
     fun clearCategoryFailed(catId: String) {
-        if (failedCategoryId.value == catId) failedCategoryId.value = null
+        if (_failedCategoryId.value == catId) _failedCategoryId.value = null
+    }
+
+    /** 清掉某分类的加载标记（仅当标记正指着它时，防清掉新一轮的标记） */
+    fun clearLoadingCategory(catId: String) {
+        if (_loadingCategoryId.value == catId) _loadingCategoryId.value = null
     }
 
     /**
@@ -107,7 +116,7 @@ class HomeViewModel(
         // 选中的分类/缓存变化时，决定展示什么（只在有数据时更新，不闪空）
         viewModelScope.launch {
             combine(
-                selectedCategoryId, recommendCache, _categoryCache,
+                selectedCategoryId, _recommendCache, _categoryCache,
             ) { catId, rec, catMap ->
                 Triple(catId, rec, catMap)
             }.collect { (catId, rec, catMap) ->
@@ -119,29 +128,49 @@ class HomeViewModel(
                 if (catId == "") {
                     if (rec.isNotEmpty()) {
                         _displayVideos.value = rec
-                        if (failedCategoryId.value == "") failedCategoryId.value = null
+                        if (_failedCategoryId.value == "") _failedCategoryId.value = null
                     }
                     // catId=="" 且推荐为空：首页加载中，保持旧展示不动
                 } else if (catMap.containsKey(catId)) {
                     _displayVideos.value = catMap[catId].orEmpty()
-                    if (loadingCategoryId.value == catId) loadingCategoryId.value = null
+                    if (_loadingCategoryId.value == catId) _loadingCategoryId.value = null
                     // v0.110.0：有缓存结果了，失败标记同步清除
-                    if (failedCategoryId.value == catId) failedCategoryId.value = null
-                } else if (failedCategoryId.value != catId) {
+                    if (_failedCategoryId.value == catId) _failedCategoryId.value = null
+                } else if (_failedCategoryId.value != catId) {
                     // 无缓存：保留旧列表，标记正在加载（UI 显示顶部细条/骨架屏）；
                     // v0.110.0：已标记失败的不再转圈，失败态走 failedCategoryId（UI 给内联重试）
-                    loadingCategoryId.value = catId
+                    _loadingCategoryId.value = catId
                 }
             }
         }
     }
 
     /** 是否正在加载（局部转圈用） */
-    val isLoading = MutableStateFlow(false)
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading
+
+    /** 写加载态（原来界面层各处直写 vm.isLoading.value） */
+    fun setLoading(v: Boolean) {
+        _isLoading.value = v
+    }
+
+    /**
+     * v0.218.0（S1）：换源清空单一入口——原来调用方要按顺序调齐
+     * setRecommend／setCategories／clearCategoryCache／clearDisplay／
+     * selectCategory，漏一个就残留旧源内容；现在 VM 内一次清完。
+     * （筛选 Map 是界面层本地态，调用方仍需自己 setFilters(emptyMap())。）
+     */
+    fun clearForSourceSwitch() {
+        setRecommend(emptyList())
+        setCategories(emptyList())
+        clearCategoryCache()
+        clearDisplay()
+        selectCategory("")
+    }
 
     /** 写推荐缓存 */
     fun setRecommend(videos: List<ModelVod>) {
-        recommendCache.value = videos
+        _recommendCache.value = videos
     }
 
     /** 写某分类缓存（key 为 typeId，与磁盘缓存同口径） */
@@ -156,7 +185,7 @@ class HomeViewModel(
      * （SavedStateHandle 里存的老序号也会在这里被纠回推荐态。）
      */
     fun setCategories(cats: List<CategoryType>) {
-        categories.value = cats
+        _categories.value = cats
         val typeIds = cats.map { it.typeId }.toSet()
         _categoryCache.value = _categoryCache.value.filterKeys { it in typeIds }
         _categoryPages.value = _categoryPages.value.filterKeys { it in typeIds }
@@ -164,11 +193,11 @@ class HomeViewModel(
         if (selectedCategoryId.value != "" && selectedCategoryId.value !in typeIds) {
             selectCategory("")
         }
-        if (loadingCategoryId.value != null && loadingCategoryId.value !in typeIds) {
-            loadingCategoryId.value = null
+        if (_loadingCategoryId.value != null && _loadingCategoryId.value !in typeIds) {
+            _loadingCategoryId.value = null
         }
-        if (failedCategoryId.value != null && failedCategoryId.value !in typeIds) {
-            failedCategoryId.value = null
+        if (_failedCategoryId.value != null && _failedCategoryId.value !in typeIds) {
+            _failedCategoryId.value = null
         }
     }
 
@@ -185,8 +214,8 @@ class HomeViewModel(
      */
     fun clearDisplay() {
         _displayVideos.value = emptyList()
-        loadingCategoryId.value = null
-        failedCategoryId.value = null
+        _loadingCategoryId.value = null
+        _failedCategoryId.value = null
     }
 
     /** 切分类：只换 selectedCategoryId（typeId，写回 SavedStateHandle），展示层按缓存情况决定切不切 */

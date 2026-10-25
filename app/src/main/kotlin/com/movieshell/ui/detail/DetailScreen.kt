@@ -122,10 +122,9 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.ui.components.GradientBlock
+import com.movieshell.ui.components.PlainBlock
 import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.SectionTitle
-import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
@@ -137,8 +136,6 @@ import kotlinx.coroutines.withTimeout
 @Composable
 fun DetailScreen(
     vodId: String,
-    // v0.47.0：列表页带过来的标题，加载中顶栏先显示它，不再显示裸 vodId（如 50767）
-    initialTitle: String = "",
     // v0.75.0：继续观看带过来的起播集（-1=不指定，走断点续播/默认逻辑）
     initialEpisode: Int = -1,
     onBack: () -> Unit,
@@ -231,23 +228,9 @@ fun DetailScreen(
     val safeLine = if (playLines.isNotEmpty()) selectedLine.coerceIn(playLines.indices) else 0
     val lineEpisodes: List<Episode> = playLines.getOrNull(safeLine)?.episodes.orEmpty()
 
-    // v0.27.6：detail 失败时不再回退 DemoData 假数据（曾冒出"星海追光者"），直接为 null 走失败态
-    val vod: Vod? = remember(detail) {
-        detail?.let {
-            Vod(
-                id = it.vodId.ifBlank { vodId },
-                // v0.27.1：detail 失败/回退时不展示裸 `@@` 打包串和纯 URL
-                title = it.vodName.ifBlank { displayTitle(vodId) },
-                category = it.typeName,
-                year = it.vodYear,
-                rating = it.vodRemarks,
-                area = "",
-                actors = it.vodActor.ifBlank { "未知" },
-                desc = it.vodDesc.ifBlank { "暂无简介" },
-                episodes = episodes.size,
-            )
-        }
-    }
+    // v0.218.0（S27）：界面 Vod 已删，详情页直接读 VodDetail——标题／评分／
+    // 年份／简介／主演见下面各处，集数读解析出的 episodes；地区原来恒空，
+    // 对应的 MetaChip 一并删掉。detail 失败时直接为 null 走失败态。
 
     var selectedEpisode by rememberSaveable(vodId) { mutableIntStateOf(0) }
     // v0.77.0：跳集弹窗
@@ -388,7 +371,7 @@ fun DetailScreen(
             embeddedError = null
             if (MagnetPlayer.isMagnet(ep.url)) {
                 val ok = runCatching {
-                    MagnetPlayer.playIfReady(context, ep.url, vod?.title ?: displayTitle(vodId))
+                    MagnetPlayer.playIfReady(context, ep.url, detailTitle(detail, vodId))
                 }.getOrDefault(false)
                 // 世代已过：新一集已在解析，本单不再动任何状态
                 if (myGen != playGen) return@launch
@@ -419,7 +402,7 @@ fun DetailScreen(
                 }
                 // v0.164.0：pics:// 图片集直接进看图，不写视频播放会话、不进嵌入播放器
                 if (com.movieshell.player.isPicsUrl(link)) {
-                    picsTitle = "${vod?.title ?: displayTitle(vodId)} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}"
+                    picsTitle = "${detailTitle(detail, vodId)} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}"
                     picsUrl = link
                     embeddedResolving = false
                     return@launch
@@ -437,7 +420,7 @@ fun DetailScreen(
                 // v0.65：不再跳独立播放页，嵌入播放器直接播
                 playingLine = lineIndex
                 playingEp = episodeIndex
-                embeddedTitle = "${vod?.title ?: displayTitle(vodId)} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}"
+                embeddedTitle = "${detailTitle(detail, vodId)} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}"
                 embeddedResolving = false
                 embeddedUrl = link
             }
@@ -511,8 +494,8 @@ fun DetailScreen(
                     .statusBarsPadding(),
             )
         } else {
-            // vod 非空才进内容区；内层 vod 遮蔽外层可空引用，调用点零改动
-            vod?.let { vod ->
+            // detail 非空才进内容区
+            detail?.let {
                 // v0.68：小窗悬浮——播放器滚出屏幕后缩到右下角继续播
                 val listState = rememberLazyListState()
                 val playerOffScreen by remember {
@@ -540,8 +523,7 @@ fun DetailScreen(
                                     .aspectRatio(16f / 9f),
                             )
                         } else {
-                            GradientBlock(
-                                key = vod.id,
+                            PlainBlock(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .aspectRatio(16f / 9f)
@@ -645,14 +627,14 @@ fun DetailScreen(
                                         // 胶囊一行太长就被卡片边缘截掉（月鳞绮纪那例）；放标题行永不被截。
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text(
-                                                text = vod.title,
+                                                text = detailTitle(detail, vodId),
                                                 style = SoftType.CardTitle,
                                                 color = MaterialTheme.colorScheme.onSurface,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                                 modifier = Modifier.weight(1f),
                                             )
-                                            if (vod.rating.isNotBlank()) {
+                                            if (detail?.vodRemarks?.isNotBlank() == true) {
                                                 Spacer(Modifier.width(6.dp))
                                                 Icon(
                                                     imageVector = Icons.Filled.Star,
@@ -662,7 +644,7 @@ fun DetailScreen(
                                                 )
                                                 Spacer(Modifier.width(3.dp))
                                                 Text(
-                                                    text = vod.rating,
+                                                    text = detail?.vodRemarks.orEmpty(),
                                                     style = SoftType.Caption,
                                                     color = LocalSoftExtra.current.warning,
                                                     maxLines = 1,
@@ -678,9 +660,8 @@ fun DetailScreen(
                                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                                         ) {
                                             // v0.121.0：空字段不渲染 chip（之前年份/地区为空时是两个灰点）
-                                            MetaChip("${vod.episodes}集")
-                                            if (vod.year.isNotBlank()) MetaChip(vod.year)
-                                            if (vod.area.isNotBlank()) MetaChip(vod.area)
+                                            MetaChip("${episodes.size}集")
+                                            detail?.vodYear?.takeIf { it.isNotBlank() }?.let { MetaChip(it) }
                                             // v0.84.0：源胶囊上移到缩略图右边（紧凑版）
                                             if (playLines.isNotEmpty()) {
                                                 Spacer(Modifier.width(8.dp))
@@ -712,9 +693,10 @@ fun DetailScreen(
                                                 }
                                             }
                                         }
-                                        if (vod.actors.isNotBlank()) {
+                                        val actorsText = detail?.vodActor?.ifBlank { "未知" }.orEmpty()
+                                        if (actorsText.isNotBlank()) {
                                             Spacer(Modifier.height(4.dp))
-                                            val actorNames = vod.actors.split("、", "/", "，", ",", " ")
+                                            val actorNames = actorsText.split("、", "/", "，", ",", " ")
                                                 .map { it.trim() }
                                                 .filter { it.isNotEmpty() }
                                             val actorText = buildAnnotatedString {
@@ -751,7 +733,7 @@ fun DetailScreen(
                                                     withStyle(
                                                         SpanStyle(fontWeight = FontWeight.Bold),
                                                     ) { append("简介：") }
-                                                    append(vod.desc)
+                                                    append(detail?.vodDesc?.ifBlank { "暂无简介" }.orEmpty())
                                                 },
                                                 style = SoftType.Body.copy(fontSize = 12.sp),
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -791,7 +773,7 @@ fun DetailScreen(
                                                             FollowItem(
                                                                 id = followId,
                                                                 vodId = vodId,
-                                                                name = vod.title,
+                                                                name = detailTitle(detail, vodId),
                                                                 pic = detail?.vodPic.orEmpty(),
                                                                 sourceType = followSourceType,
                                                                 sourceKey = followSourceKey,
@@ -905,7 +887,7 @@ fun DetailScreen(
                                         lineEpisodes.size,
                                         // v0.188.0：按集身份取 key，不用下标；换线路后下标复用不再串位。
                                         // Episode 无 id 字段，用线路名加集名加地址拼身份。
-                                        key = { lineEpisodes[it].let { ep -> "${ep.flag}|${ep.name}|${ep.url}" } },
+                                        key = { episodeKey(lineEpisodes[it]) },
                                     ) { i ->
                                         val ep = lineEpisodes[i]
                                         // v0.71.0：已看角标
@@ -922,10 +904,10 @@ fun DetailScreen(
                                 Spacer(Modifier.height(24.dp))
                             }
                         }
-                        vod.episodes > 1 -> {
+                        episodes.size > 1 -> {
                             item {
                                 SectionTitle(
-                                    title = "选集（共 ${vod.episodes} 集）",
+                                    title = "选集（共 ${episodes.size} 集）",
                                     modifier = Modifier.padding(
                                         horizontal = SoftDimens.PagePadding,
                                         vertical = 8.dp,
@@ -940,7 +922,7 @@ fun DetailScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    repeat(vod.episodes) { i ->
+                                    repeat(episodes.size) { i ->
                                         // v0.71.0：已看角标
                                         EpisodeChip(
                                             index = i,
@@ -1203,7 +1185,7 @@ fun DetailScreen(
                                 lineEpisodes.size,
                                 // v0.188.0：按集身份取 key，不用下标；换线路后下标复用不再串位。
                                 // Episode 无 id 字段，用线路名加集名加地址拼身份。
-                                key = { lineEpisodes[it].let { ep -> "${ep.flag}|${ep.name}|${ep.url}" } },
+                                key = { episodeKey(lineEpisodes[it]) },
                             ) { i ->
                                 val ep = lineEpisodes[i]
                                 Row(
@@ -1274,7 +1256,7 @@ fun DetailScreen(
                                             if (url.isBlank()) return@forEach
                                             tasks.add(
                                                 DownloadTask(
-                                                    title = "${vod?.title.orEmpty()} ${ep.name.ifBlank { "第${i + 1}集" }}",
+                                                    title = "${detailTitle(detail, vodId)} ${ep.name.ifBlank { "第${i + 1}集" }}",
                                                     pic = detail?.vodPic.orEmpty(),
                                                     url = url,
                                                     kind = if (DownloadManager.isM3u8(url)) "m3u8" else "file",
@@ -1386,3 +1368,18 @@ private fun displayTitle(vodId: String): String {
     if (vodId.startsWith("http://") || vodId.startsWith("https://")) return "未知标题"
     return vodId.ifBlank { "未知标题" }
 }
+
+/**
+ * v0.218.0（S10）：选集身份 key——原来选集行与下载行各写一遍
+ * `"${ep.flag}|${ep.name}|${ep.url}"`，改一处漏一处；现在只此一处。
+ */
+private fun episodeKey(ep: Episode): String = "${ep.flag}|${ep.name}|${ep.url}"
+
+/**
+ * v0.218.0（S10）：详情标题回退——原来三处各写一遍
+ * `vod?.title ?: displayTitle(vodId)`；现在只此一处。
+ * v0.218.0（S27）：界面 Vod 已删，入参改成 VodDetail，直接读 vodName
+ * （空时仍回退 displayTitle，与原来经 Vod 中转的语义一致）。
+ */
+private fun detailTitle(detail: VodDetail?, vodId: String): String =
+    detail?.vodName?.takeIf { it.isNotBlank() } ?: displayTitle(vodId)

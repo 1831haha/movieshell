@@ -68,7 +68,7 @@ import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.data.repo.MusicApi
-import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.data.repo.MusicSettings
 import com.movieshell.player.MusicPlayer
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
@@ -589,7 +589,7 @@ private fun OnlineTab(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // v0.126.0：搜索平台切换（单选、持久化到 PlayerSettings）。
+        // v0.126.0：搜索平台切换（单选、持久化到 MusicSettings）。
         // v0.127.0：wy 走 GD，其余走 PlatformMusicApi 各家原生接口（逐家实测），
         // 切换后搜索结果与下方榜单都跟随平台刷新，不再一成不变。
         // v0.180.0：平台行不再写死五家五等分——行里列的是音源自报的平台
@@ -597,7 +597,7 @@ private fun OnlineTab(
         // 可搜索平台兜底），以后音源多一个平台就多一个 chip，横滑排布，
         // 再多也不会被挤扁；短标签由 MusicApi.platformShortLabel 派生，
         // 音源自带但搜索接口还没接的平台置灰（下面有小字说明原因）。
-        val musicPlatform by PlayerSettings.musicPlatform.collectAsState()
+        val musicPlatform by MusicSettings.musicPlatform.collectAsState()
         val activity = LocalContext.current as ComponentActivity
         val vm: MusicSearchViewModel = viewModel(activity)
         val availablePlatforms by vm.availablePlatforms.collectAsState()
@@ -615,7 +615,7 @@ private fun OnlineTab(
                     selected = musicPlatform == code,
                     enabled = code in MusicApi.SEARCHABLE_PLATFORMS,
                     onClick = {
-                        PlayerSettings.setMusicPlatform(context, code)
+                        MusicSettings.setMusicPlatform(context, code)
                         // v0.146.0：空关键词切平台也要有变化——之前只有关键词非空才重搜，
                         // 空着切平台列表还是上次旧结果、榜单区也被已搜状态藏着，看着像没反应。
                         // 空关键词时回榜单态（榜单跟随平台刷新），有关键词时重搜。
@@ -864,7 +864,7 @@ private fun OnlineTab(
                         val isFav = track.id in favIds
                         TrackRow(
                             track = track,
-                            badge = badges[track.urlId],
+                            badge = badges[MusicPlayer.durationKey(track)],
                             isCurrent = playState.track?.id == track.id,
                             isPlaying = playState.track?.id == track.id && playState.playing,
                             isFav = isFav,
@@ -1029,7 +1029,7 @@ private fun LocalTab() {
                             itemsIndexed(locals, key = { _, t -> t.id }) { idx, track ->
                                 TrackRow(
                                     track = track,
-                                    badge = badges[track.urlId],
+                                    badge = badges[MusicPlayer.durationKey(track)],
                                     isCurrent = playState.track?.id == track.id,
                                     isPlaying = playState.track?.id == track.id && playState.playing,
                                     onDeleteClick = { deleteTrackTarget = track },
@@ -1081,7 +1081,7 @@ private fun LocalTab() {
                                     itemsIndexed(glist, key = { _, t -> t.id }) { idx, track ->
                                         TrackRow(
                                             track = track,
-                                            badge = badges[track.urlId],
+                                            badge = badges[MusicPlayer.durationKey(track)],
                                             isCurrent = playState.track?.id == track.id,
                                             isPlaying = playState.track?.id == track.id &&
                                                 playState.playing,
@@ -1182,7 +1182,7 @@ private fun FavTab() {
                 itemsIndexed(favs, key = { _, t -> t.id }) { idx, track ->
                     TrackRow(
                         track = track,
-                        badge = badges[track.urlId],
+                        badge = badges[MusicPlayer.durationKey(track)],
                         isCurrent = playState.track?.id == track.id,
                         isPlaying = playState.track?.id == track.id && playState.playing,
                         isFav = true,

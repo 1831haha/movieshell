@@ -82,7 +82,9 @@ object HomeCache {
         val e = runCatching {
             json.decodeFromString(CatEntry.serializer(), catFile(context, key, typeId).readText())
         }.getOrNull() ?: return null
-        if (e.vods.isEmpty()) return null
+        // v0.218.0（S7）：空列表也是有效缓存——原来空直接按“没有缓存”
+        // 处理，真没内容的分类每次点进去都要重新走网络；现在“文件存在”
+        // 即有条目，与内存“有条目即空态”的口径对齐。
         return e.vods to (System.currentTimeMillis() - e.savedAt < VALID_MS)
     }
 

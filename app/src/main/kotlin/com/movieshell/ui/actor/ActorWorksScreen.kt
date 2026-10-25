@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.model.Site
+import com.movieshell.data.model.Vod as ModelVod
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
@@ -39,10 +40,8 @@ import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.components.TabTopBar
-import com.movieshell.ui.data.Vod
 import com.movieshell.ui.search.buildSearchConfigJson
 import com.movieshell.ui.search.goDetail
-import com.movieshell.ui.search.toUiVod
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
@@ -71,7 +70,7 @@ fun ActorWorksScreen(
     var failed by remember { mutableStateOf(false) }
     // v0.217.0（F14）：全部源失败（非“搜到 0 部”）单独成态，走带重试的失败态
     var allFailed by remember { mutableStateOf(false) }
-    var works by remember { mutableStateOf<List<Pair<Site, Vod>>>(emptyList()) }
+    var works by remember { mutableStateOf<List<Pair<Site, ModelVod>>>(emptyList()) }
     var sourceCount by remember { mutableStateOf(0) }
     // v0.217.0（F13）：搜索世代号——换演员时旧搜索的迟到结果直接丢弃
     var searchGen by remember { mutableIntStateOf(0) }
@@ -106,13 +105,13 @@ fun ActorWorksScreen(
                 // v0.217.0（F15）：年份为空时不再仅凭片名去重（同名同年不同片、
                 // 或同名片年份缺失时会被误删），此时按源区分、宁可并列展示。
                 works = groups
-                    .flatMap { g -> g.vods.map { vod -> g.site to vod.toUiVod() } }
+                    .flatMap { g -> g.vods.map { vod -> g.site to vod } }
                     .distinctBy { (site, vod) ->
-                        val year = vod.year.trim()
+                        val year = vod.vodYear.trim()
                         if (year.isEmpty()) {
-                            vod.title.trim().lowercase() + "|site:" + site.key
+                            vod.vodName.trim().lowercase() + "|site:" + site.key
                         } else {
-                            (vod.title.trim() + "|" + year).lowercase()
+                            (vod.vodName.trim() + "|" + year).lowercase()
                         }
                     }
             }
@@ -189,17 +188,17 @@ fun ActorWorksScreen(
                     verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
                     horizontalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
                 ) {
-                    items(works, key = { (site, vod) -> "${site.key}:${vod.id}" }) { (site, vod) ->
-                        val subtitle = vod.year.ifBlank { vod.category }.takeIf { it.isNotBlank() }
+                    items(works, key = { (site, vod) -> "${site.key}:${vod.vodId}" }) { (site, vod) ->
+                        val subtitle = vod.vodYear.ifBlank { vod.typeName }.takeIf { it.isNotBlank() }
                         PosterCard(
-                            title = vod.title,
+                            title = vod.vodName,
                             subtitle = subtitle,
-                            badge = vod.rating.ifBlank { null },
-                            posterUrl = vod.poster,
+                            badge = vod.vodRemarks.ifBlank { null },
+                            posterUrl = vod.vodPic,
                             modifier = Modifier.aspectRatio(3f / 4.6f),
                             onClick = {
                                 // v0.217.0（F51）：源已删时不进详情，只提示。
-                                if (!goDetail(site, vod.id, onVodClick)) {
+                                if (!goDetail(site, vod.vodId, onVodClick)) {
                                     AppToast.show(context, "该结果的源已删除或不可用", long = false)
                                 }
                             },

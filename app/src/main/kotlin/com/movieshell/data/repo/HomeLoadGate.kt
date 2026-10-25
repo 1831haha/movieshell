@@ -66,10 +66,20 @@ object HomeLoadGate {
     fun streak(key: String): Int = synchronized(lock) { streaks[key] ?: 0 }
 
     /**
+     * v0.218.0（S5）：按 key 清失败计数——原来删源只清磁盘缓存
+     * （HomeCache.clear），内存里的 streak 还在，删源重装同名源会
+     * 接着旧计数走更长退避；删源清理时与 HomeCache.clear 一并调。
+     */
+    fun clearStreak(key: String) = synchronized(lock) { streaks.remove(key) }
+
+    /**
      * v0.50.0：指数退避间隔——连续失败 2 次后 5s→15s→30s→60s（用户要求）。
      * 之前 streak>=3 只跳过不重试，等于静默放弃；现在跳过时按此延迟自动重调度。
      */
+    // v0.218.0（S6）：0／1 次失败显式返回 0——原来 else 覆盖了所有
+    // 未列出的次数（含 0、1），注释写 >=5 但代码语义是“没失败也等 60 秒”。
     fun backoffMs(key: String): Long = when (streak(key)) {
+        0, 1 -> 0L
         2 -> 5_000L
         3 -> 15_000L
         4 -> 30_000L

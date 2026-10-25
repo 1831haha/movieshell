@@ -57,7 +57,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -110,7 +109,6 @@ import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.color
 import com.movieshell.ui.settings.SettingsRow
-import com.movieshell.ui.data.Vod
 import com.movieshell.ui.theme.FlowingGlowBackground
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
@@ -120,27 +118,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.basicMarquee
 import com.movieshell.data.repo.BackgroundStore
-
-/** drpy 影片 -> 界面 Vod（id=vodId, title=vodName, category=typeName, year=vodYear, rating=vodRemarks） */
-private fun ModelVod.toUiVod() = Vod(
-    id = vodId,
-    title = vodName,
-    category = typeName,
-    year = vodYear,
-    rating = vodRemarks,
-    area = "",
-    actors = "",
-    desc = "",
-    episodes = 0,
-    poster = vodPic,
-)
 
 // v0.27.6：进程级标记，区分冷启动和 tab 切回（切 tab 时 HomeScreen 被 dispose，重进 composition）。
 // 冷启动保持干净空态，切回才静默恢复缓存。
@@ -415,7 +398,7 @@ fun HomeScreen(
         // v0.166.0：首屏等待队列 5s 截断——两路挂外层 scope，结算最多等 5s；
         // 慢路不取消，25s 上限内回来照样前台补填（v0.31.1 慢规则保留）。
         // 降级计时与推荐路平级（不当子协程），免得子协程拖住推荐路的 join。
-        scope.launch {
+        val timerJob = scope.launch {
             try {
                 // v0.166.0：降级 3s——推荐没回来先降级，不白屏等 5s
                 delay(3_000)
@@ -430,7 +413,7 @@ fun HomeScreen(
                 } else {
                     recommendEmpty = true
                 }
-                vm.isLoading.value = false
+                vm.setLoading(false)
                 LogBus.i("Home", "推荐 3s 未回，首屏降级（${if (stale != null) "stale缓存" else "空态"}）")
             } catch (e: CancellationException) {
                 throw e
@@ -524,6 +507,17 @@ fun HomeScreen(
             }
         }
         // 首屏结算最多等 5s；超时按快照结算（未回的路记 null，走缓存/失败分支），慢路回来照样补填。
+        // v0.218.0（S4）：三路挂外层 scope 是历史遗留——deferred 被取消
+        // （如 start 竞态）时它们不跟着停，全靠世代号人工兜底；现在把
+        // 取消信号接过来：deferred 取消时三路一并取消；正常 5s 结算
+        // （cause 为 null）不触动，慢路仍可在 25s 上限内后台回填。
+        coroutineContext[Job]?.invokeOnCompletion { cause ->
+            if (cause is CancellationException) {
+                timerJob.cancel()
+                recJob.cancel()
+                catJob.cancel()
+            }
+        }
         withTimeoutOrNull(5_000) {
             recJob.join()
             catJob.join()
@@ -622,7 +616,7 @@ fun HomeScreen(
             }
         }
         categoryJob = scope.launch {
-            vm.isLoading.value = true
+            vm.setLoading(true)
             try {
                 // v0.17.3：加超时，避免 PY 卡死导致无响应
                 // v0.110.0：null=超时/规则异常（失败，给可见反馈）；emptyList=规则真没内容（非失败）
@@ -643,11 +637,12 @@ fun HomeScreen(
                         LogBus.i("UI", "分类 ${cat.typeName} 规则返回空（非失败）")
                     } else {
                         LogBus.i("UI", "分类 ${cat.typeName} 加载 ${list.size} 条")
-                        // v0.52.0：分类内容落盘，下次秒回
-                        if (filters.isEmpty() && cacheKey != null) {
-                            withContext(Dispatchers.IO) {
-                                HomeCache.saveCategoryVods(context, cacheKey, cat.typeId, list)
-                            }
+                    }
+                    // v0.218.0（S7）：成功空列表也落盘——原来只存非空，
+                    // 空分类每次点进来都要重新走网络；现在与内存口径对齐。
+                    if (filters.isEmpty() && cacheKey != null) {
+                        withContext(Dispatchers.IO) {
+                            HomeCache.saveCategoryVods(context, cacheKey, cat.typeId, list)
                         }
                     }
                     // v0.53.0：写 vm.categoryCache；成功空列表也写（覆盖旧缓存，
@@ -660,8 +655,8 @@ fun HomeScreen(
                 // loadingCategoryId，空结果/取消路径下分类转圈永久粘滞；
                 // 最新请求收尾时一并清掉本分类的 loading。
                 if (myGen == contentGen) {
-                    vm.isLoading.value = false
-                    if (vm.loadingCategoryId.value == cat.typeId) vm.loadingCategoryId.value = null
+                    vm.setLoading(false)
+                    vm.clearLoadingCategory(cat.typeId)
                 }
             }
         }
@@ -743,7 +738,7 @@ fun HomeScreen(
         // v0.31.2：迟到结果丢弃——用户已经点了别的（分类/首页/筛选），旧 payload 不再应用，
         // 否则会出现"选中红果、内容却是首页"的错位。
         if (gen != -1 && gen != contentGen) return
-        vm.isLoading.value = false
+        vm.setLoading(false)
         // v0.152.0：payload 自带 PHP 失败原因时透出；成功 payload（phpError=null）则清掉旧原因。
         if (payload != null) phpHomeError = payload.phpError
         if (payload == null) {
@@ -826,7 +821,7 @@ fun HomeScreen(
         // 且无任何失败提示（旧内容非空，homeError/recommendEmpty 全不触发、状态环还是绿灯）。
         // 同源下拉刷新时 VM 真值就是本源内容，失败保留展示的语义不变。
         val prevVods = vm.currentVideos.value
-        vm.isLoading.value = true
+        vm.setLoading(true)
         homeError = null
         phpHomeError = null
         recommendStale = false
@@ -847,7 +842,7 @@ fun HomeScreen(
         //（5s→15s→30s→60s，用户要求；per-key Job 防叠加）
         val streak = HomeLoadGate.streak(key)
         if (!force && streak >= 3) {
-            vm.isLoading.value = false
+            vm.setLoading(false)
             val waitMs = HomeLoadGate.backoffMs(key)
             LogBus.i("Home", "首页连续失败 $streak 次，${waitMs / 1000}s 后自动重试（下拉可手动重试）")
             HomeLoadGate.setBackoffJob(key, scope.launch {
@@ -891,7 +886,7 @@ fun HomeScreen(
                 LogBus.i("Home", "首页请求被取消，不计入失败")
                 // v0.212.0 审计修复：取消分支原来不走 applyHomePayload，
                 // isLoading 没人清，离页中断后回首页长期黄灯；这里清掉。
-                vm.isLoading.value = false
+                vm.setLoading(false)
                 onDone()
                 return@launch
             }
@@ -909,7 +904,7 @@ fun HomeScreen(
         val key = homeCacheKey() ?: return
         catsFailed = false
         scope.launch {
-            vm.isLoading.value = true
+            vm.setLoading(true)
             val cats = runCatching {
                 withTimeoutOrNull(25_000) {
                     withContext(Dispatchers.IO) { engineCats() }
@@ -923,7 +918,7 @@ fun HomeScreen(
                 catsFailed = true
                 LogBus.w("Home", "分类重试仍失败")
             }
-            vm.isLoading.value = false
+            vm.setLoading(false)
         }
     }
 
@@ -964,11 +959,8 @@ fun HomeScreen(
         // 源变化时清掉旧数据，不再显示过期缓存
         // v0.53.0：清 VM 的推荐/分类/分类内存缓存（换源了旧缓存不能留）
         if (changed || siteChanged || switched) {
-            vm.setRecommend(emptyList())
-            vm.setCategories(emptyList())
-            vm.clearCategoryCache()
-            vm.clearDisplay() // v0.58：旧源列表不保留
-            vm.selectCategory("")
+            // v0.218.0（S1）：换源清空走 VM 单一入口，不再由调用方调齐 5 个方法。
+            vm.clearForSourceSwitch()
             setFilters(emptyMap())
             homeError = null
             // v0.31.0：失败计数按数据源 key 记在 HomeLoadGate 单例里，切源自然用新 key 的计数，无需手动清零
@@ -1079,22 +1071,19 @@ fun HomeScreen(
 
     // v0.27.4：首页不再自动加载，不再用演示数据冒充；无数据时显示干净空态
     // v0.53.0：drpyList 恒不为 null（currentVideos 派生），空列表=无数据
-    // v0.212.0 审计修复：原来每次重组都重算全列表映射，filtered 的
-    // remember 键跟着失效、去重也每次重跑；按 drpyList 缓存一次。
-    val drpyUiList: List<Vod>? = remember(drpyList) {
-        drpyList.takeIf { it.isNotEmpty() }?.map { it.toUiVod() }
-    }
-    val drpyReady = drpyUiList != null
+    // v0.218.0（S27）：界面 Vod 已删，首页直接用数据层 Vod，不再映射一遍；
+    // drpyReady 即“推荐流非空”，filtered 直接对 drpyList 去重洗牌。
+    val drpyReady = drpyList.isNotEmpty()
     // v0.144.0：首格"全部"是 App 拼的（index==0 走首页推荐流，与规则无关），
     // 用户要求整个删掉：分类行只剩规则自己的分类；推荐流仍是默认首页
     // （selectedCategory=="" 时无格高亮），进分类后下拉刷新回推荐。
     val chipLabels: List<String> = drpyCats.map { it.typeName }
 
-    val filtered: List<Vod> = when {
-        drpyReady -> remember(shuffleSeed, drpyUiList) {
+    val filtered: List<ModelVod> = when {
+        drpyReady -> remember(shuffleSeed, drpyList) {
             // 同一站首页/分类数据无去重保证，重复 vodId 会让网格 lazy key 撞车，先按 id 去重；
             // v0.212.0 审计修复：vodId 为空的多条原来会被合并成一条，去重键用标题兜底。
-            val base = drpyUiList!!.distinctBy { it.id.ifBlank { "noid:${it.title}" } }
+            val base = drpyList.distinctBy { it.vodId.ifBlank { "noid:${it.vodName}" } }
             // v0.212.0 审计修复：“换一换”原来只是循环移位，点几次就回到
             // 原样；改成按种子真随机洗牌（种子 0 仍是原顺序）。
             if (shuffleSeed == 0) base
@@ -1510,38 +1499,38 @@ fun HomeScreen(
                     }
     
                     // 网格海报墙 / 列表（v0.78.3：布局切换）
-                    items(filtered, key = { it.id.ifBlank { "noid:${it.title}" } }) { vod ->
+                    items(filtered, key = { it.vodId.ifBlank { "noid:${it.vodName}" } }) { vod ->
                         // v0.80.0：rating 已在海报底部跑马灯展示，副标题只留年份，不重复
                         // v0.212.0 审计修复：分类（typeName）明明带回来了，首页三种
                         // 布局却全程不显示；副标题改成“年份 · 分类”两段式。
                         val subtitle = listOfNotNull(
-                            vod.year.takeIf { it.isNotBlank() },
-                            vod.category.takeIf { it.isNotBlank() },
+                            vod.vodYear.takeIf { it.isNotBlank() },
+                            vod.typeName.takeIf { it.isNotBlank() },
                         ).joinToString(" · ").takeIf { it.isNotBlank() }
                         when (homeLayout) {
                             HomeLayout.COMPACT_LIST -> HomeCompactRow(
                                 vod = vod,
                                 subtitle = subtitle,
-                                onClick = { goDetail(vod.id, vod.title) },
+                                onClick = { goDetail(vod.vodId, vod.vodName) },
                             )
                             HomeLayout.TEXT_ONLY -> HomeTextRow(
                                 vod = vod,
                                 subtitle = subtitle,
-                                onClick = { goDetail(vod.id, vod.title) },
+                                onClick = { goDetail(vod.vodId, vod.vodName) },
                             )
                             else -> PosterCard(
-                                title = vod.title,
+                                title = vod.vodName,
                                 subtitle = subtitle,
-                                badge = vod.rating,
-                                posterUrl = vod.poster,
+                                badge = vod.vodRemarks,
+                                posterUrl = vod.vodPic,
                                 modifier = Modifier.aspectRatio(3f / 4.6f),
-                                onClick = { goDetail(vod.id, vod.title) },
+                                onClick = { goDetail(vod.vodId, vod.vodName) },
                             )
                         }
                     }
                     // v0.215.0：分类分页脚——推荐视图（分类 0）不分页，只分类视图有“加载更多”；
                     // 空页后显示“没有更多了”，不再重复请求。
-                    if (vm.selectedCategoryId.value != "" && filtered.isNotEmpty()) {
+                    if (selectedCategory != "" && filtered.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             Box(
                                 modifier = Modifier
@@ -1671,7 +1660,7 @@ fun HomeScreen(
 
 /** v0.78.3：紧凑列表行——小海报 + 标题 + 副标题 */
 @Composable
-private fun HomeCompactRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
+private fun HomeCompactRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1681,9 +1670,9 @@ private fun HomeCompactRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (vod.poster.isNotBlank()) {
+        if (vod.vodPic.isNotBlank()) {
             AsyncImage(
-                model = vod.poster,
+                model = vod.vodPic,
                 contentDescription = null,
                 modifier = Modifier
                     .size(width = 48.dp, height = 68.dp)
@@ -1699,7 +1688,7 @@ private fun HomeCompactRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = vod.title.take(1),
+                    text = vod.vodName.take(1),
                     style = SoftType.CardTitle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1708,7 +1697,7 @@ private fun HomeCompactRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = vod.title,
+                text = vod.vodName,
                 style = SoftType.Body,
                 // v0.82.0：显示不全跑马灯
                 modifier = Modifier.basicMarquee(),
@@ -1726,9 +1715,9 @@ private fun HomeCompactRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
                 )
             }
         }
-        if (vod.rating.isNotBlank()) {
+        if (vod.vodRemarks.isNotBlank()) {
             Text(
-                text = vod.rating,
+                text = vod.vodRemarks,
                 style = SoftType.Body,
                 color = LocalSoftExtra.current.warning,
             )
@@ -1738,7 +1727,7 @@ private fun HomeCompactRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
 
 /** v0.78.3：无图文字行——纯文字，密度最高 */
 @Composable
-private fun HomeTextRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
+private fun HomeTextRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1749,7 +1738,7 @@ private fun HomeTextRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = vod.title,
+                text = vod.vodName,
                 style = SoftType.Body,
                 // v0.82.0：显示不全跑马灯
                 modifier = Modifier.basicMarquee(),
@@ -1766,10 +1755,10 @@ private fun HomeTextRow(vod: Vod, subtitle: String?, onClick: () -> Unit) {
                 )
             }
         }
-        if (vod.rating.isNotBlank()) {
+        if (vod.vodRemarks.isNotBlank()) {
             Spacer(Modifier.width(8.dp))
             Text(
-                text = vod.rating,
+                text = vod.vodRemarks,
                 style = SoftType.Body,
                 color = LocalSoftExtra.current.warning,
             )

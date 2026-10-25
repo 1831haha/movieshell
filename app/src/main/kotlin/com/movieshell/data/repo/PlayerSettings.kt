@@ -57,9 +57,7 @@ object PlayerSettings {
     /** v0.125.0：全屏画面比例档位（0=适应 1=裁剪 2=拉伸） */
     private const val KEY_RESIZE_MODE = "player_resize_mode"
     /** v0.125.0：歌词颜色 ARGB（0=跟随主题色） */
-    private const val KEY_LYRIC_COLOR = "lyric_color"
     /** v0.126.0：音乐在线搜索平台（LX code，默认 wy） */
-    private const val KEY_MUSIC_PLATFORM = "music_search_platform"
 
     private val _engine = MutableStateFlow(PlayerEngine.MEDIA3)
     val engine: StateFlow<PlayerEngine> = _engine
@@ -72,13 +70,7 @@ object PlayerSettings {
     val gravityRotate: StateFlow<Boolean> = _gravityRotate
 
     /** v0.125.0：歌词颜色（0=跟随主题 primary，正值=ARGB 预设色） */
-    private val _lyricColor = MutableStateFlow(0)
-    val lyricColor: StateFlow<Int> = _lyricColor
-
     /** v0.126.0：音乐在线搜索平台（LX code，归一后取值，认不出回 wy） */
-    private val _musicPlatform = MutableStateFlow("wy")
-    val musicPlatform: StateFlow<String> = _musicPlatform
-
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         _engine.value = runCatching {
@@ -92,13 +84,6 @@ object PlayerSettings {
             offsetMs = prefs.getLong(KEY_SUB_OFFSET, 0L).coerceIn(-10_000L, 10_000L),
         )
         _gravityRotate.value = prefs.getBoolean(KEY_GRAVITY_ROTATE, true)
-        _lyricColor.value = prefs.getInt(KEY_LYRIC_COLOR, 0)
-        // v0.180.0：别名先归一，认不出的 code 原样保留（小写）——
-        // 音源以后报出新平台时，已选平台不能被 normalize 的“认不出”打回 wy。
-        val savedPlatform = prefs.getString(KEY_MUSIC_PLATFORM, "wy").orEmpty()
-        _musicPlatform.value = MusicApi.normalizeSource(savedPlatform)
-            .ifBlank { savedPlatform.trim().lowercase() }
-            .ifBlank { "wy" }
     }
 
     /**
@@ -309,21 +294,4 @@ object PlayerSettings {
             .edit().putInt(KEY_RESIZE_MODE, mode.coerceIn(0, 2)).apply()
     }
 
-    /** v0.126.0：记忆音乐搜索平台（LX code，归一后落盘）。
-     *  v0.180.0：认不出的 code 原样落盘，不打回 wy（见 init 的注释）。 */
-    fun setMusicPlatform(context: Context, code: String) {
-        val lx = MusicApi.normalizeSource(code)
-            .ifBlank { code.trim().lowercase() }
-            .ifBlank { "wy" }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY_MUSIC_PLATFORM, lx).apply()
-        _musicPlatform.value = lx
-    }
-
-    /** v0.125.0：记忆歌词颜色（0=跟随主题）。 */
-    fun setLyricColor(context: Context, color: Int) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putInt(KEY_LYRIC_COLOR, color).apply()
-        _lyricColor.value = color
-    }
 }

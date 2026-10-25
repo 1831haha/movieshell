@@ -30,7 +30,6 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -224,18 +223,6 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = SoftDimens.PagePadding),
             ) {
-                // 热搜词（v0.27.6：假热搜词下线，无数据时隐藏该区）
-                val hotWords: List<String> = emptyList()
-                if (hotWords.isNotEmpty()) {
-                    item {
-                        SectionHeader(icon = Icons.Filled.TrendingUp, title = "热搜")
-                        HotSearchFlow(
-                            words = hotWords,
-                            onPick = { vm.setQuery(it); doSearch(it) },
-                        )
-                        Spacer(Modifier.height(20.dp))
-                    }
-                }
                 // 搜索历史
                 item {
                     Row(
@@ -485,19 +472,19 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             visibleGroups.forEach { group ->
-                                val uiVods = group.vods.map { it.toUiVod() }.distinctBy { it.id }
-                                items(uiVods, key = { "vod:${group.site.key}:${it.id}" }) { vod ->
+                                val vods = group.vods.distinctBy { it.vodId }
+                                items(vods, key = { "vod:${group.site.key}:${it.vodId}" }) { vod ->
                                     PosterCard(
-                                        title = vod.title,
+                                        title = vod.vodName,
                                         // 全部混排时片下带源名，单源时源名已在左栏、不重复写。
                                         subtitle = if (selectedSiteKey == null) group.site.name else null,
-                                        posterUrl = vod.poster,
+                                        posterUrl = vod.vodPic,
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(208.dp),
                                         onClick = {
                                             // v0.217.0（F51）：源已删时不进详情，只提示。
-                                            if (!goDetail(group.site, vod.id, onVodClick)) {
+                                            if (!goDetail(group.site, vod.vodId, onVodClick)) {
                                                 AppToast.show(activity, "该结果的源已删除或不可用", long = false)
                                             }
                                         },
@@ -582,23 +569,3 @@ private fun SectionHeader(
     Spacer(Modifier.height(10.dp))
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun HotSearchFlow(
-    words: List<String>,
-    onPick: (String) -> Unit,
-) {
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        words.forEachIndexed { index, word ->
-            AppChip(
-                text = "${index + 1}. $word",
-                selected = index < 3,
-                onClick = { onPick(word) },
-            )
-        }
-    }
-}

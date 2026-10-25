@@ -81,25 +81,16 @@ object BookSourceManager {
         ok
     }
 
-    /** 导入：返回成功条数。写盘失败时内存回滚、返回 0。 */
-    suspend fun import(context: Context, json: String): Int = mutex.withLock {
+    /**
+     * 导入：返回成功条数。写盘失败时内存回滚、返回 0。
+     * v0.218.0（S20）：收敛成“解析＋调 importSources”一层——原来
+     * import 与 importSources 的去重／回滚／返回值逻辑逐行相同。
+     * 注意不套 mutex：Mutex 不可重入，解析是纯函数，锁只留在 importSources 里。
+     */
+    suspend fun import(context: Context, json: String): Int {
         val list = BookSource.listFromJson(json)
-        if (list.isEmpty()) return@withLock 0
-        val old = _sources.value
-        val cur = old.toMutableList()
-        var added = 0
-        list.forEach { s ->
-            if (cur.none { it.key == s.key }) {
-                cur.add(s)
-                added++
-            }
-        }
-        _sources.value = cur
-        if (!save(context)) {
-            _sources.value = old
-            return@withLock 0
-        }
-        added
+        if (list.isEmpty()) return 0
+        return importSources(context, list)
     }
 
     /**

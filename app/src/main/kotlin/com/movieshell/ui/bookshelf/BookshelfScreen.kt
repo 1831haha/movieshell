@@ -435,11 +435,24 @@ fun BookshelfScreen(
                         if (i >= 0 && c.moveToFirst()) c.getString(i) else null
                     } ?: "导入小说.txt"
                     val tmp = File(context.cacheDir, "import_${System.currentTimeMillis()}.txt")
-                    context.contentResolver.openInputStream(uri)?.use { input ->
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    if (inputStream == null) {
+                        // v0.218.0（S19）：原来直接返回 failed，临时文件留在缓存里。
+                        tmp.delete()
+                        return@runCatching "failed"
+                    }
+                    inputStream.use { input ->
                         tmp.outputStream().use { input.copyTo(it) }
-                    } ?: return@runCatching "failed"
+                    }
                     val named = File(tmp.parent, name)
-                    tmp.renameTo(named)
+                    // v0.218.0（S19）：先清掉上次残留的同名文件，否则改名
+                    // 可能失败；改名失败直接判失败并删 tmp，不再拿着旧文件
+                    // 往下走（会读错文件、提示却还是“已加入书架”）。
+                    if (named.exists()) named.delete()
+                    if (!tmp.renameTo(named)) {
+                        tmp.delete()
+                        return@runCatching "failed"
+                    }
                     val imported = TxtImporter.import(named)
                     named.delete()
                     if (imported == null) return@runCatching "invalid"

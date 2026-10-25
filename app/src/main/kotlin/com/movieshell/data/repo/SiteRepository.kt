@@ -9,7 +9,6 @@ import com.movieshell.data.model.Site
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.model.isCmsSite
-import com.movieshell.data.model.isDrpySite
 import com.movieshell.data.model.isJavaSpider
 import com.movieshell.data.model.isNovelOrComic
 import com.movieshell.data.model.isPhpSite
@@ -128,6 +127,33 @@ class SiteRepository(
             .getOrNull()
 
     /**
+     * v0.218.0（S23）：按站取引擎的唯一分发——原来 home／category／detail／
+     * search 各写一遍 if-else 链，分支必须处处对齐（注释里 M15 就是补漏的
+     * 证据）；现在分发只此一处，五路＋失败原因桥接都调它。
+     * 顺序与原来一致：PHP → spider → 小说漫画（跳过）→ 本地 drpy 合成站
+     * （search 的 local:drpy: 规则，home／category／detail／filters 一并对齐，
+     * 原来这些路把本地规则误走到 Type4Api）→ type4 → CMS → PY →
+     * 不支持（跳过）→ 其余 drpy。
+     */
+    private enum class EngineRoute { Php, JavaSpider, SkipNovel, Drpy, Type4, Cms, Py, SkipUnsupported }
+
+    private fun route(site: Site): EngineRoute = when {
+        site.isPhpSite() -> EngineRoute.Php
+        site.isJavaSpider() -> EngineRoute.JavaSpider
+        site.isNovelOrComic() -> EngineRoute.SkipNovel
+        site.key == "drpy:active" || site.key.startsWith("local:drpy:") -> EngineRoute.Drpy
+        site.isType4Site() -> EngineRoute.Type4
+        site.isCmsSite() -> EngineRoute.Cms
+        site.isPySite() -> EngineRoute.Py
+        site.isUnsupportedSite() -> EngineRoute.SkipUnsupported
+        else -> EngineRoute.Drpy
+    }
+
+    private fun logSkipUnsupported(site: Site) {
+        LogBus.w(TAG, "不支持的站源，已跳过：${site.name} type=${site.type} api=${site.api.take(80)}")
+    }
+
+    /**
      * v0.187.0 H04：引擎“没抛异常但交了空结果”时的原因桥接。
      * 引擎内部失败（如 V8 超时、Type4 请求失败、PHP 退出码）只写自家 lastError、
      * 不抛异常，logged 抓不到；空结果时把对应引擎的 lastError 记进按站 map，
@@ -135,14 +161,16 @@ class SiteRepository(
      */
     private fun recordEngineFailureIfEmpty(site: Site, isEmpty: Boolean) {
         if (!isEmpty) return
-        // 分支必须与 home/category/detail/search 的分流严格对齐：CMS/蜘蛛站没有
-        // lastError 载体、小说站是主动跳过，都不能误读默认 drpy 引擎的旧原因。
-        val reason = when {
-            site.isPhpSite() -> PhpCliEngine.lastErrorFor(PhpCliEngine.scriptNameForSite(site.key, site.api))
-            site.isType4Site() -> type4Api.lastErrorFor(site.key)
-            site.isPySite() -> (subOr(pyEngine) { pyEngineFor(site) } ?: pyEngine)?.lastError
-            site.isCmsSite() || site.isJavaSpider() || site.isNovelOrComic() || site.isUnsupportedSite() -> null
-            else -> (subOr(drpyEngine) { drpyEngineFor(site) } ?: drpyEngine)?.lastError
+        // v0.218.0（S23）：与五路共用 route()——原来这里另写一串 when，
+        // 注释还得提醒“必须与分流严格对齐”；现在对齐由构造保证。
+        // CMS/蜘蛛站没有 lastError 载体、小说站是主动跳过，都不能误读默认
+        // drpy 引擎的旧原因。
+        val reason = when (route(site)) {
+            EngineRoute.Php -> PhpCliEngine.lastErrorFor(PhpCliEngine.scriptNameForSite(site.key, site.api))
+            EngineRoute.Type4 -> type4Api.lastErrorFor(site.key)
+            EngineRoute.Py -> (subOr(pyEngine) { pyEngineFor(site) } ?: pyEngine)?.lastError
+            EngineRoute.JavaSpider, EngineRoute.Cms, EngineRoute.SkipNovel, EngineRoute.SkipUnsupported -> null
+            EngineRoute.Drpy -> (subOr(drpyEngine) { drpyEngineFor(site) } ?: drpyEngine)?.lastError
         } ?: return
         lastFailureBySite.putIfAbsent(site.key, reason)
     }
@@ -212,18 +240,20 @@ class SiteRepository(
     suspend fun home(site: Site): List<Vod> {
         lastFailureBySite.remove(site.key)
         LogBus.i(TAG, "home site=${site.name}")
-        val r = if (site.isPhpSite()) logged(site, "php.home ${site.name}") { PhpCliEngine.home(scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }.orEmpty()
-        else if (site.isJavaSpider()) logged(site, "spider.home ${site.name}") { SpiderEngine.home(site) }.orEmpty()
-        else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
-        else if (site.isType4Site()) logged(site, "type4.home ${site.name}") { type4Api.home(site) }.orEmpty()
-        else if (site.isCmsSite()) logged(site, "cms.home ${site.name}") { cmsApi.home(site) }.orEmpty()
-        else if (site.isPySite()) logged(site, "py.home ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.home() }.orEmpty()
-        else if (site.isUnsupportedSite()) {
+        val r = when (route(site)) {
+            EngineRoute.Php -> logged(site, "php.home ${site.name}") { PhpCliEngine.home(scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }.orEmpty()
+            EngineRoute.JavaSpider -> logged(site, "spider.home ${site.name}") { SpiderEngine.home(site) }.orEmpty()
+            EngineRoute.SkipNovel -> emptyList() // 小说/漫画站：只做视频点播，跳过
+            EngineRoute.Type4 -> logged(site, "type4.home ${site.name}") { type4Api.home(site) }.orEmpty()
+            EngineRoute.Cms -> logged(site, "cms.home ${site.name}") { cmsApi.home(site) }.orEmpty()
+            EngineRoute.Py -> logged(site, "py.home ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.home() }.orEmpty()
             // v0.188.0 M15：未知类型/地址不再静默按 drpy 跑，明确走不支持空态。
-            LogBus.w(TAG, "不支持的站源，已跳过：${site.name} type=${site.type} api=${site.api.take(80)}")
-            emptyList()
+            EngineRoute.SkipUnsupported -> {
+                logSkipUnsupported(site)
+                emptyList()
+            }
+            EngineRoute.Drpy -> logged(site, "drpy.home ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.home() }.orEmpty()
         }
-        else logged(site, "drpy.home ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.home() }.orEmpty()
         recordEngineFailureIfEmpty(site, r.isEmpty())
         LogBus.i(TAG, "home site=${site.name} 结果 ${r.size} 条")
         return r
@@ -242,29 +272,31 @@ class SiteRepository(
     ): Pair<List<CategoryType>, List<Vod>> {
         lastFailureBySite.remove(site.key)
         LogBus.i(TAG, "category site=${site.name} tid=$tid pg=$pg")
-        val r = if (site.isPhpSite()) run {
-            val script = PhpCliEngine.scriptNameForSite(site.key, site.api)
-            val types = logged(site, "php.categories ${site.name}") { PhpCliEngine.categories(scriptName = script) }.orEmpty()
-            if (tid.isBlank()) types to emptyList()
-            else types to (logged(site, "php.category ${site.name}") { PhpCliEngine.category(tid = tid, pg = pg, scriptName = script) }.orEmpty())
+        val r = when (route(site)) {
+            EngineRoute.Php -> run {
+                val script = PhpCliEngine.scriptNameForSite(site.key, site.api)
+                val types = logged(site, "php.categories ${site.name}") { PhpCliEngine.categories(scriptName = script) }.orEmpty()
+                if (tid.isBlank()) types to emptyList()
+                else types to (logged(site, "php.category ${site.name}") { PhpCliEngine.category(tid = tid, pg = pg, scriptName = script) }.orEmpty())
+            }
+            EngineRoute.JavaSpider -> logged(site, "spider.category ${site.name}") { SpiderEngine.category(site, tid, pg) }
+                .orEmptyCategory()
+            // v0.188.0 M15：category 补小说站跳过分支，与 home/search 口径对齐
+            // （此前小说站进分类仍走引擎链路）。
+            EngineRoute.SkipNovel -> emptyList<CategoryType>() to emptyList()
+            EngineRoute.Type4 -> logged(site, "type4.category ${site.name}") { type4Api.category(site, tid, pg) }
+                .orEmptyCategory()
+            EngineRoute.Cms -> logged(site, "cms.category ${site.name}") { cmsApi.category(site, tid, pg) }
+                .orEmptyCategory()
+            EngineRoute.Py -> logged(site, "py.categories ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.categories() }.orEmpty() to
+                logged(site, "py.category ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
+            EngineRoute.SkipUnsupported -> {
+                logSkipUnsupported(site)
+                emptyList<CategoryType>() to emptyList()
+            }
+            EngineRoute.Drpy -> emptyList<CategoryType>() to
+                logged(site, "drpy.category ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
         }
-        else if (site.isJavaSpider()) logged(site, "spider.category ${site.name}") { SpiderEngine.category(site, tid, pg) }
-            .orEmptyCategory()
-        // v0.188.0 M15：category 补小说站跳过分支，与 home/search 口径对齐
-        // （此前小说站进分类仍走引擎链路）。
-        else if (site.isNovelOrComic()) emptyList<CategoryType>() to emptyList()
-        else if (site.isType4Site()) logged(site, "type4.category ${site.name}") { type4Api.category(site, tid, pg) }
-            .orEmptyCategory()
-        else if (site.isCmsSite()) logged(site, "cms.category ${site.name}") { cmsApi.category(site, tid, pg) }
-            .orEmptyCategory()
-        else if (site.isPySite()) logged(site, "py.categories ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.categories() }.orEmpty() to
-            logged(site, "py.category ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
-        else if (site.isUnsupportedSite()) {
-            LogBus.w(TAG, "不支持的站源，已跳过：${site.name} type=${site.type} api=${site.api.take(80)}")
-            emptyList<CategoryType>() to emptyList()
-        }
-        else emptyList<CategoryType>() to
-            logged(site, "drpy.category ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
         recordEngineFailureIfEmpty(site, r.second.isEmpty())
         LogBus.i(TAG, "category site=${site.name} 结果 ${r.second.size} 条")
         return r
@@ -282,8 +314,10 @@ class SiteRepository(
      * 非 drpy 站本来就没有筛选定义，返回空即等于隐藏筛选入口，不另起一套 UI。
      */
     suspend fun filters(site: Site, tid: String): List<FilterGroup> {
-        if (site.isNovelOrComic()) return emptyList()
-        if (!site.isDrpySite()) return emptyList()
+        // v0.218.0（S23）：drpy 判定与 search 的 local:drpy: 分流对齐——
+        // 原来 isDrpySite 排除 type=4，local:drpy: 站（type=4、api 是 .js 路径）
+        // 能搜能播却拿不到筛选定义；现在 route() 统一认 drpy。
+        if (route(site) != EngineRoute.Drpy) return emptyList()
         lastFailureBySite.remove(site.key)
         val result = runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.filters(tid) }
             .onFailure {
@@ -300,24 +334,26 @@ class SiteRepository(
     suspend fun detail(site: Site, vodId: String): VodDetail {
         lastFailureBySite.remove(site.key)
         LogBus.i(TAG, "detail site=${site.name} id=$vodId")
-        val r = if (site.isPhpSite()) logged(site, "php.detail ${site.name}") { PhpCliEngine.detail(vodId = vodId, scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }
-            ?: VodDetail(vodId = vodId)
-        else if (site.isJavaSpider()) logged(site, "spider.detail ${site.name}") { SpiderEngine.detail(site, vodId) }
-            ?: VodDetail(vodId = vodId)
-        // v0.188.0 M15：detail 补小说站跳过分支，与 home/search 口径对齐。
-        else if (site.isNovelOrComic()) VodDetail(vodId = vodId)
-        else if (site.isType4Site()) logged(site, "type4.detail ${site.name}") { type4Api.detail(site, vodId) }
-            ?: VodDetail(vodId = vodId)
-        else if (site.isCmsSite()) logged(site, "cms.detail ${site.name}") { cmsApi.detail(site, vodId) }
-            ?: VodDetail(vodId = vodId)
-        else if (site.isPySite()) logged(site, "py.detail ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.detail(vodId) }
-            ?: VodDetail(vodId = vodId)
-        else if (site.isUnsupportedSite()) {
-            LogBus.w(TAG, "不支持的站源，已跳过：${site.name} type=${site.type} api=${site.api.take(80)}")
-            VodDetail(vodId = vodId)
+        val r = when (route(site)) {
+            EngineRoute.Php -> logged(site, "php.detail ${site.name}") { PhpCliEngine.detail(vodId = vodId, scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }
+                ?: VodDetail(vodId = vodId)
+            EngineRoute.JavaSpider -> logged(site, "spider.detail ${site.name}") { SpiderEngine.detail(site, vodId) }
+                ?: VodDetail(vodId = vodId)
+            // v0.188.0 M15：detail 补小说站跳过分支，与 home/search 口径对齐。
+            EngineRoute.SkipNovel -> VodDetail(vodId = vodId)
+            EngineRoute.Type4 -> logged(site, "type4.detail ${site.name}") { type4Api.detail(site, vodId) }
+                ?: VodDetail(vodId = vodId)
+            EngineRoute.Cms -> logged(site, "cms.detail ${site.name}") { cmsApi.detail(site, vodId) }
+                ?: VodDetail(vodId = vodId)
+            EngineRoute.Py -> logged(site, "py.detail ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.detail(vodId) }
+                ?: VodDetail(vodId = vodId)
+            EngineRoute.SkipUnsupported -> {
+                logSkipUnsupported(site)
+                VodDetail(vodId = vodId)
+            }
+            EngineRoute.Drpy -> logged(site, "drpy.detail ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.detail(vodId) }
+                ?: VodDetail(vodId = vodId)
         }
-        else logged(site, "drpy.detail ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.detail(vodId) }
-            ?: VodDetail(vodId = vodId)
         recordEngineFailureIfEmpty(site, r.vodName.isBlank() && r.vodPlayUrl.isBlank())
         LogBus.i(TAG, "detail site=${site.name} 播放源 ${if (r.vodPlayUrl.isBlank()) "空" else "有数据"}")
         // v0.14.5：详情播放地址明细（截断）
@@ -335,23 +371,22 @@ class SiteRepository(
         lastFailureBySite.remove(site.key)
         if (!site.searchable || wd.isBlank()) return emptyList()
         LogBus.i(TAG, "search site=${site.name} wd=$wd")
-        val r = if (site.isPhpSite()) logged(site, "php.search ${site.name}") { PhpCliEngine.search(wd = wd, scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }.orEmpty()
-        else if (site.isJavaSpider()) logged(site, "spider.search ${site.name}") { SpiderEngine.search(site, wd) }.orEmpty()
-        else if (site.isNovelOrComic()) emptyList() // 小说/漫画站：只做视频点播，跳过
-        // v0.189.0：聚合搜索的本地 drpy 合成站（key=drpy:active，type=4）必须先于
-        // type4 分发，否则会被当成 PHP 远端站走 Type4Api、api="drpy" 建不出 URL、
-        // 聚合搜索里的 drpy 条目一直空着；这里按 key 分流到当前激活 drpy 引擎。
-        // v0.190.0：逐条搜本地规则的 local:drpy: 站同理（type=4、api 是文件路径），
-        // 也先于 type4 分发，按站取池化引擎；否则每条都会错走到远端 PHP。
-        else if (site.key == "drpy:active" || site.key.startsWith("local:drpy:")) logged(site, "drpy.search ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.orEmpty()
-        else if (site.isType4Site()) logged(site, "type4.search ${site.name}") { type4Api.search(site, wd) }.orEmpty()
-        else if (site.isCmsSite()) logged(site, "cms.search ${site.name}") { cmsApi.search(site, wd) }.orEmpty()
-        else if (site.isPySite()) logged(site, "py.search ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.search(wd) }.orEmpty()
-        else if (site.isUnsupportedSite()) {
-            LogBus.w(TAG, "不支持的站源，已跳过：${site.name} type=${site.type} api=${site.api.take(80)}")
-            emptyList()
+        val r = when (route(site)) {
+            EngineRoute.Php -> logged(site, "php.search ${site.name}") { PhpCliEngine.search(wd = wd, scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }.orEmpty()
+            EngineRoute.JavaSpider -> logged(site, "spider.search ${site.name}") { SpiderEngine.search(site, wd) }.orEmpty()
+            EngineRoute.SkipNovel -> emptyList() // 小说/漫画站：只做视频点播，跳过
+            EngineRoute.Type4 -> logged(site, "type4.search ${site.name}") { type4Api.search(site, wd) }.orEmpty()
+            EngineRoute.Cms -> logged(site, "cms.search ${site.name}") { cmsApi.search(site, wd) }.orEmpty()
+            EngineRoute.Py -> logged(site, "py.search ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.search(wd) }.orEmpty()
+            EngineRoute.SkipUnsupported -> {
+                logSkipUnsupported(site)
+                emptyList()
+            }
+            // v0.189.0／v0.190.0：本地 drpy 合成站（key=drpy:active，type=4）
+            // 与逐条搜本地规则的 local:drpy: 站先于 type4 分发（见 route()），
+            // 否则会被当成 PHP 远端站走 Type4Api、建不出 URL。
+            EngineRoute.Drpy -> logged(site, "drpy.search ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.orEmpty()
         }
-        else logged(site, "drpy.search ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.orEmpty()
         recordEngineFailureIfEmpty(site, r.isEmpty())
         LogBus.i(TAG, "search site=${site.name} 结果 ${r.size} 条")
         return r

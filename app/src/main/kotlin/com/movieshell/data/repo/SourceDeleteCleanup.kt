@@ -38,10 +38,21 @@ object SourceDeleteCleanup {
         SourceStateStore.removeDisabled(context, kind, fileName)
         SourceProbeStore.removeProbe(context, kind, fileName)
         // v0.215.0：删源清理之首页缓存——同名源重装后不再先读到旧缓存。
+        // v0.218.0（S5）：内存失败计数同款清理，否则删源重装同名源会
+        // 接着旧 streak 走更长退避。
         when (kind) {
-            "js" -> HomeCache.clear(context, "drpy_$fileName")
-            "py" -> HomeCache.clear(context, "py_$fileName")
-            "php" -> HomeCache.clear(context, "php_$fileName")
+            "js" -> {
+                HomeCache.clear(context, "drpy_$fileName")
+                HomeLoadGate.clearStreak("drpy_$fileName")
+            }
+            "py" -> {
+                HomeCache.clear(context, "py_$fileName")
+                HomeLoadGate.clearStreak("py_$fileName")
+            }
+            "php" -> {
+                HomeCache.clear(context, "php_$fileName")
+                HomeLoadGate.clearStreak("php_$fileName")
+            }
         }
         // 置顶记录同步清理（持久化；站源页内存 map 由刷新时重读）。
         val prefs = context.getSharedPreferences(PIN_PREFS, Context.MODE_PRIVATE)

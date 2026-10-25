@@ -252,16 +252,7 @@ object MusicPlayer {
         }
         val at = queue.indexOfFirst { it.id == trackId }
         if (at < 0) return
-        val wasCurrent = at == index
-        queue = queue.toMutableList().also { it.removeAt(at) }
-        if (wasCurrent) {
-            index = -1
-            _queueState.value = QueueState(queue, -1)
-        } else {
-            if (at < index) index -= 1
-            _queueState.value = QueueState(queue, index)
-        }
-        persistQueue(context)
+        removeQueueAt(context, at)
     }
     // v0.85.0：播放请求代际——连接 service 是异步的，旧请求回来时若已被取代则丢弃
     // v0.215.0 补记：上一轮批量改动误删过本声明（只剩引用），编译不过，补回。
@@ -271,13 +262,23 @@ object MusicPlayer {
      * 其余剔出队列并修正下标、持久化；清空直接复用 stop。 */
     fun removeQueueItem(context: Context, at: Int) {
         if (at !in queue.indices) return
-        val wasCurrent = at == index
-        if (wasCurrent) {
+        if (at == index) {
             playJob?.cancel()
             progressJob?.cancel()
             controller?.stop()
             _state.value = State(repeatMode = _state.value.repeatMode)
         }
+        removeQueueAt(context, at)
+    }
+
+    /**
+     * v0.218.0（S14）：按下标删队列项的共用尾巴——原来 onTrackDeleted
+     * 与 removeQueueItem 各抄一遍（剔出队列、修正下标、写队列态、持久化）；
+     * 停播清态的条件两处各异（按 id／按下标），仍由调用方各自判断。
+     */
+    private fun removeQueueAt(context: Context, at: Int) {
+        if (at !in queue.indices) return
+        val wasCurrent = at == index
         queue = queue.toMutableList().also { it.removeAt(at) }
         if (wasCurrent) {
             index = -1
@@ -323,11 +324,6 @@ object MusicPlayer {
             context.getSharedPreferences(MUSIC_PREFS, Context.MODE_PRIVATE)
                 .edit().putString(KEY_PREFERRED_SOURCE, sourceId).apply()
         }
-    }
-
-    /** 兼容旧调用：无 Context 时只改内存（持久化由带 Context 的重载负责）。 */
-    fun setPreferredSource(sourceId: String?) {
-        _preferredSourceId.value = sourceId
     }
 
     /** 进程启动后读一次持久化的首选源（重复调用只生效一次）。 */
@@ -696,7 +692,7 @@ object MusicPlayer {
                     track = track, playing = false, loading = true,
                     repeatMode = _state.value.repeatMode,
                 )
-                _badges.value = _badges.value + (track.urlId to (resolved.source to resolved.quality))
+                _badges.value = _badges.value + (durationKey(track) to (resolved.source to resolved.quality))
                 _state.value = _state.value.copy(
                     resolvedSource = resolved.source,
                     resolvedQuality = resolved.quality,

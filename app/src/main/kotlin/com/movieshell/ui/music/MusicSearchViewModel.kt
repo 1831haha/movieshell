@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicHistoryStore
-import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.data.repo.MusicSettings
 import com.movieshell.player.MusicPlayer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -61,7 +61,7 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
                 MusicPlayer.sourcePlatforms(getApplication())
             }.getOrDefault(emptyList())
             if (discovered.isEmpty()) return@launch
-            val current = PlayerSettings.musicPlatform.value
+            val current = MusicSettings.musicPlatform.value
             _availablePlatforms.value =
                 (discovered + listOf(current)).filter { it.isNotBlank() }.distinct()
         }
@@ -134,8 +134,8 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
                 _searchHistory.value = MusicHistoryStore.searchHistory(getApplication())
                 // 注意：runCatching 会吞 CancellationException，这里显式重抛，
                 // 否则旧慢请求被取消后仍会走到 onFailure 把 _tracks 清空覆盖新结果
-                // v0.126.0：按持久化的所选平台搜索（PlayerSettings.musicPlatform）
-                runCatching { MusicApi.search(q, platform = PlayerSettings.musicPlatform.value) }
+                // v0.126.0：按持久化的所选平台搜索（MusicSettings.musicPlatform）
+                runCatching { MusicApi.search(q, platform = MusicSettings.musicPlatform.value) }
                     .onSuccess { _tracks.value = it }
                     .onFailure {
                         if (it is CancellationException) throw it

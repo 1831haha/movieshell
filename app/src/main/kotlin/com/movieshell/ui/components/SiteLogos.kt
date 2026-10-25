@@ -75,11 +75,19 @@ fun extLooksLikeImageUrl(ext: String): Boolean {
 /**
  * 从 http(s) URL 里取 host（去端口、去路径/参数），非 URL 返回 null。
  * 供订阅站源（api 是接口 URL）与本地规则（文件头里的 host/首个 URL）取站点域用。
+ * v0.218.0（S32）：注释早说去端口，实现却没剥——现在补上；IPv6
+ * 地址形如 [::1]:8080，括号内冒号不是端口分隔符，按括号处理。
  */
 fun hostFromUrl(url: String): String? {
     val u = url.trim()
     if (!u.startsWith("http://") && !u.startsWith("https://")) return null
-    val host = u.substringAfter("://").substringBefore("/").substringBefore("?").substringBefore("#")
+    val authority = u.substringAfter("://").substringBefore("/").substringBefore("?").substringBefore("#")
+    val host = if (authority.startsWith("[")) {
+        authority.substringBefore("]")
+            .let { if (it.length > 1) "$it]" else it }
+    } else {
+        authority.substringBefore(":")
+    }
     return host.ifBlank { null }
 }
 

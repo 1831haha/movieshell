@@ -152,8 +152,7 @@ fun PosterCard(
 
 /** 纯色块（用于详情页头图、搜索结果缩略图等）。 */
 @Composable
-fun GradientBlock(
-    key: String,
+fun PlainBlock(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit = {},
 ) {

@@ -23,11 +23,12 @@ import java.io.File
  */
 object DrpySourceManager {
 
-    data class RuleInfo(val name: String, val title: String, val sizeKb: Long)
-
     private const val TAG = "DrpySourceManager"
     private const val RULES_DIR = "drpy"
     private const val SHIM_NAME = "shim.js"
+
+    /** drpy 标题正则（title: '...'），抠标题只此一处（见 RuleFileStore）。 */
+    private val TITLE_REGEX = Regex("""title\s*:\s*['"]([^'"]{1,40})['"]""")
 
     private var appContext: Context? = null
     private var initialized = false
@@ -76,40 +77,15 @@ object DrpySourceManager {
         if (initialized) return
         initialized = true
         appContext = context.applicationContext
-        try {
-            val dir = rulesDir()
-            dir.mkdirs()
-            val assets = appContext!!.assets
-            (assets.list(RULES_DIR) ?: emptyArray())
-                .filter { it.endsWith(".js") && it != SHIM_NAME }
-                .forEach { name ->
-                    val dst = File(dir, name)
-                    if (!dst.exists()) {
-                        assets.open("$RULES_DIR/$name").use { input ->
-                            dst.outputStream().use { input.copyTo(it) }
-                        }
-                        Log.i(TAG, "拷贝内置规则: $name")
-                    }
-                }
-        } catch (e: Exception) {
-            Log.w(TAG, "init 拷贝规则失败", e)
-        }
+        RuleFileStore.copyBuiltinAssets(appContext!!.assets, RULES_DIR, rulesDir(), ".js", setOf(SHIM_NAME), TAG)
     }
 
     /** 扫描 StoragePaths.jsDir()（/storage/emulated/0/xiaying/js/) 下的 js 文件。 */
-    fun listRules(): List<RuleInfo> {
-        val dir = rulesDirOrNull() ?: return emptyList()
-        return dir.listFiles { f -> f.isFile && f.name.endsWith(".js") && f.name != SHIM_NAME }
-            .orEmpty()
-            .sortedBy { it.name }
-            .map { f ->
-                RuleInfo(
-                    name = f.name,
-                    title = extractTitle(f) ?: f.nameWithoutExtension,
-                    sizeKb = f.length() / 1024
-                )
-            }
-    }
+    fun listRules(): List<RuleInfo> = RuleFileStore.listRules(
+        rulesDirOrNull(),
+        { f -> f.isFile && f.name.endsWith(".js") && f.name != SHIM_NAME },
+        { f -> RuleFileStore.extractTitle(f, TITLE_REGEX) },
+    )
 
     fun activeRuleName(): String? = activeName
 
@@ -291,17 +267,4 @@ object DrpySourceManager {
         return StoragePaths.jsDir(ctx)
     }
 
-    /** 从规则源码里抠 title（@header 或 title: '...'），抠不到返回 null。 */
-    private fun extractTitle(file: File): String? {
-        return try {
-            val head = file.inputStream().use { input ->
-                val buf = ByteArray(4096)
-                val n = input.read(buf)
-                if (n > 0) String(buf, 0, n) else ""
-            }
-            Regex("""title\s*:\s*['"]([^'"]{1,40})['"]""").find(head)?.groupValues?.get(1)
-        } catch (e: Exception) {
-            null
-        }
-    }
 }

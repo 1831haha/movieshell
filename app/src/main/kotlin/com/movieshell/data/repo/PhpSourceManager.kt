@@ -19,9 +19,11 @@ import java.io.File
  */
 object PhpSourceManager {
 
-    data class RuleInfo(val name: String, val title: String, val sizeKb: Long)
-
     private const val TAG = "PhpSourceManager"
+
+    /** PHP 标题正则：类名优先，注释名兜底（见 RuleFileStore）。 */
+    private val CLASS_REGEX = Regex("""class\s+(\w+Spider)""")
+    private val COMMENT_REGEX = Regex("""\*\s*([^\r\n*]{2,40})""")
 
     /** 非源文件：控制台首页、源列表生成器、框架文件。 */
     private val EXCLUDED_FILES = setOf("index.php", "config.php", "spider.php", "HtmlParser.php")
@@ -56,19 +58,11 @@ object PhpSourceManager {
     }
 
     /** 扫描规则目录下的源文件。 */
-    fun listRules(): List<RuleInfo> {
-        val dir = rulesDirOrNull() ?: return emptyList()
-        return dir.listFiles { f -> isSourceFile(f) }
-            .orEmpty()
-            .sortedBy { it.name }
-            .map { f ->
-                RuleInfo(
-                    name = f.name,
-                    title = extractTitle(f) ?: f.nameWithoutExtension,
-                    sizeKb = f.length() / 1024
-                )
-            }
-    }
+    fun listRules(): List<RuleInfo> = RuleFileStore.listRules(
+        rulesDirOrNull(),
+        { f -> isSourceFile(f) },
+        { f -> RuleFileStore.extractTitle(f, CLASS_REGEX) ?: RuleFileStore.extractTitle(f, COMMENT_REGEX) },
+    )
 
     fun activeRuleName(): String? = activeName
 
@@ -102,18 +96,4 @@ object PhpSourceManager {
         return rulesDir(ctx)
     }
 
-    /** 从 PHP 源码头抠类名/注释名，抠不到返回 null。 */
-    private fun extractTitle(file: File): String? {
-        return try {
-            val head = file.inputStream().use { input ->
-                val buf = ByteArray(4096)
-                val n = input.read(buf)
-                if (n > 0) String(buf, 0, n) else ""
-            }
-            Regex("""class\s+(\w+Spider)""").find(head)?.groupValues?.get(1)
-                ?: Regex("""\*\s*([^\r\n*]{2,40})""").find(head)?.groupValues?.get(1)?.trim()
-        } catch (e: Exception) {
-            null
-        }
-    }
 }

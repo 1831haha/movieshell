@@ -97,7 +97,7 @@ import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicSource
 import com.movieshell.data.repo.MusicSourceStore
 import com.movieshell.data.repo.MusicStore
-import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.data.repo.MusicSettings
 import com.movieshell.player.MusicPlayer
 import com.movieshell.player.MusicSleepTimer
 import com.movieshell.ui.components.StatusRing
@@ -134,8 +134,8 @@ fun MusicPlayerScreen(
     // v0.125.0 补充A：海报匹配结果由 MusicPlayer 持有（匹配跑在播放器 scope，
     // 页面只读，切歌词视图/离页不再取消匹配）
     val matchedArtMap by MusicPlayer.matchedArt.collectAsState()
-    // v0.125.0：歌词颜色（0=跟随主题，PlayerSettings 持久化）
-    val lyricColorInt by PlayerSettings.lyricColor.collectAsState()
+    // v0.125.0：歌词颜色（0=跟随主题，MusicSettings 持久化）
+    val lyricColorInt by MusicSettings.lyricColor.collectAsState()
     val track = playState.track
 
     // v0.129.0：封面地址提到组合顶层——氛围背景与大封面共用一份结果
@@ -428,7 +428,7 @@ fun MusicPlayerScreen(
                                                         shape = CircleShape,
                                                     )
                                                     .clickable {
-                                                        PlayerSettings.setLyricColor(
+                                                        MusicSettings.setLyricColor(
                                                             context, preset,
                                                         )
                                                         showLyricColors = false
@@ -1251,7 +1251,7 @@ private fun MusicSleepTimerDialog(
         }
     }
 
-/** v0.125.0：歌词预设色（0=默认跟随主题色，其余为 ARGB；与 PlayerSettings.lyricColor 对应）。 */
+/** v0.125.0：歌词预设色（0=默认跟随主题色，其余为 ARGB；与 MusicSettings.lyricColor 对应）。 */
 private val LYRIC_COLOR_PRESETS = listOf(
     0,
     0xFFFFFFFF.toInt(), // 纯白

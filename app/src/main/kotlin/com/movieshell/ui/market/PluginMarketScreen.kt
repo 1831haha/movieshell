@@ -4,6 +4,8 @@ import android.os.SystemClock
 import com.movieshell.ui.components.AppDropdownMenu
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -205,8 +207,10 @@ fun PluginMarketScreen(
             firstLoadDone = true
             return@LaunchedEffect
         }
-        var failCount = 0
-        var firstError: String? = null
+        // v0.218.0（S25）：多市场并发拉取，失败计数与首错用原子容器——
+        // 原来多协程直接改 var，失败数可能少算、首错可能被后到的覆盖。
+        val failCount = AtomicInteger(0)
+        val firstErrorRef = AtomicReference<String?>(null)
         coroutineScope {
             val jobs = targets.map { src ->
                 async {
@@ -217,10 +221,8 @@ fun PluginMarketScreen(
                         }
                         .onFailure { e ->
                             if (e is CancellationException) throw e
-                            failCount++
-                            if (firstError == null) {
-                                firstError = e.message ?: e.toString()
-                            }
+                            failCount.incrementAndGet()
+                            firstErrorRef.compareAndSet(null, e.message ?: e.toString())
                             LogBus.e("PluginMarket", "市场拉取失败(${src.name})：${e.message}")
                         }
                 }
@@ -231,13 +233,15 @@ fun PluginMarketScreen(
         val mergedNow = enabledSources
             .flatMap { infosByUrl[it.url]?.plugins.orEmpty() }
             .distinctBy { it.id }
-        if (failCount > 0) {
+        val failCountNow = failCount.get()
+        val firstError = firstErrorRef.get()
+        if (failCountNow > 0) {
             if (mergedNow.isEmpty()) {
                 error = firstError
                 // v0.25.0：超时/失败给明确中文 Toast，不只记日志
                 AppToast.show(context, "插件市场加载失败：$firstError", long = true)
             } else {
-                AppToast.show(context, "$failCount 个市场刷新失败，已显示缓存", long = false)
+                AppToast.show(context, "$failCountNow 个市场刷新失败，已显示缓存", long = false)
             }
         }
     }

@@ -64,7 +64,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -80,7 +79,6 @@ import com.movieshell.data.novel.PyBookApi
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.source.CmsApi
 import com.movieshell.ui.components.TechDialog
-import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex

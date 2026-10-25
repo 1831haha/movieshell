@@ -2,7 +2,6 @@ package com.movieshell.ui.search
 
 import android.content.Context
 import com.movieshell.data.model.Site
-import com.movieshell.data.model.Vod as ModelVod
 import com.movieshell.data.model.isPhpSite
 import com.movieshell.data.model.isSubSite
 import com.movieshell.data.repo.ApiSourceStore
@@ -14,7 +13,6 @@ import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubSiteStore
-import com.movieshell.ui.data.Vod
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
@@ -31,20 +29,6 @@ internal const val LOCAL_PY_PREFIX = "local:py:"
  * 各只有一条合成站（drpy:active / py:active，走当前激活规则引擎），
  * 用户手机里有多个 PY 规则时也只搜激活的那一个，这就是 189 收到反馈的根因。
  */
-
-/** drpy 影片 -> 界面 Vod */
-internal fun ModelVod.toUiVod() = Vod(
-    id = vodId,
-    title = vodName,
-    category = typeName,
-    year = vodYear,
-    rating = vodRemarks,
-    area = "",
-    actors = "",
-    desc = vodContent,
-    episodes = 0,
-    poster = vodPic,
-)
 
 /**
  * v0.189.0：搜索范围的“当前源”，口径与首页一致：
