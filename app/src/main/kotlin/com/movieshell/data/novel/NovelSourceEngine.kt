@@ -1,7 +1,7 @@
 package com.movieshell.data.novel
 
 import android.content.Context
-import android.util.Log
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.Dispatchers
@@ -111,7 +111,7 @@ object NovelSourceEngine {
             }
             if (page == null) {
                 // v0.223.0：搜书诊断——未抓到页以前是静默空，记一行才能分清是请求问题还是解析问题。
-                Log.w(TAG, "搜书诊断 ${source.name} 未抓到页")
+                LogBus.w(TAG, "搜书诊断 ${source.name} 未抓到页")
                 return@withContext emptyList()
             }
             // v0.209.0：登录后重抓也过验证通道——999 这类源先握手再被墙时，
@@ -127,7 +127,7 @@ object NovelSourceEngine {
             val pageCtx = ctx.copy(baseUrl = page.url)
             val items = LegadoJsEngine.evalListRule(page.body, page.url, source.ruleSearchList, pageCtx, state)
             // v0.223.0：搜书诊断——只记长度与条数，不记正文；校验前后长度一变就说明 1234 握手改写了页。
-            Log.d(TAG, "搜书诊断 ${source.name} 校验前长=$beforeLoginLen 校验后长=${page.body.length} 解析出 ${items.size} 条")
+            LogBus.d(TAG, "搜书诊断 ${source.name} 校验前长=$beforeLoginLen 校验后长=${page.body.length} 解析出 ${items.size} 条")
             items.mapNotNull { el ->
                 val name = LegadoJsEngine.evalTextRule(el, page.url, source.ruleSearchName.ifBlank { "@text" }, pageCtx, state)
                 val bookUrl = LegadoJsEngine.evalTextRule(el, page.url, source.ruleSearchBookUrl.ifBlank { "a@href" }, pageCtx, state)
@@ -153,7 +153,7 @@ object NovelSourceEngine {
             async {
                 s to searchSemaphore.withPermit {
                     runCatching { search(s, keyword, allowGate) }
-                        .onFailure { Log.w(TAG, "搜索失败 ${s.name}", it) }
+                        .onFailure { LogBus.w(TAG, "搜索失败 ${s.name}: ${it.message}") }
                         .getOrDefault(emptyList())
                 }
             }
@@ -491,7 +491,7 @@ object NovelSourceEngine {
     ): List<NovelSearchResult> {
         val path = PyBookSourceManager.rulePath(context, rule.name) ?: return emptyList()
         return runCatching { pyBookApi.search(path, keyword) }
-            .onFailure { Log.w(TAG, "PY 书源搜索失败 ${rule.name}", it) }
+            .onFailure { LogBus.w(TAG, "PY 书源搜索失败 ${rule.name}: ${it.message}") }
             .getOrDefault(emptyList())
             .map { it.copy(sourceKey = PyBookSourceManager.SOURCE_KEY_PREFIX + rule.name) }
     }
@@ -519,7 +519,7 @@ object NovelSourceEngine {
     suspend fun chaptersPy(context: Context, book: NovelSearchResult): List<ChapterMeta> {
         val path = pyRulePath(context, book) ?: return emptyList()
         return runCatching { pyBookApi.detail(path, book.remoteId)?.chapters.orEmpty() }
-            .onFailure { Log.w(TAG, "PY 书源目录失败 ${book.sourceKey}", it) }
+            .onFailure { LogBus.w(TAG, "PY 书源目录失败 ${book.sourceKey}: ${it.message}") }
             .getOrDefault(emptyList())
             // v0.194.0：导航章兜底过滤（见 NovelStore.isNavChapterTitle）。
             .filterNot { NovelStore.isNavChapterTitle(it.title) }
@@ -532,7 +532,7 @@ object NovelSourceEngine {
         val path = PyBookSourceManager.rulePath(context, name) ?: return ""
         if (chapter.url.isBlank()) return ""
         return runCatching { pyBookApi.chapter(path, chapter.url) }
-            .onFailure { Log.w(TAG, "PY 书源正文失败 $sourceKey", it) }
+            .onFailure { LogBus.w(TAG, "PY 书源正文失败 $sourceKey: ${it.message}") }
             .getOrDefault("")
     }
 }

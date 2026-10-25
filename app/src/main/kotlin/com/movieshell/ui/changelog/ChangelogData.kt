@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.224.0",
+        date = "2026-10-25",
+        title = "搜书诊断日志改走应用内日志总线，悬浮窗里终于能看见。",
+        details = listOf(
+            "223 的诊断日志用系统 Log 只进 logcat，悬浮窗只订阅 LogBus，所以搜 999 时诊断行从来没出现过——不是搜索没跑，是日志走错了道。",
+            "NovelSourceEngine 全部 6 处搜书日志改走 LogBus，logcat 可见性不变；装上 224 再搜 999，悬浮窗里就能看到“搜书诊断”那行。",
+            "完整内容见仓库 docs/changelog/v0.224.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.223.0",
         date = "2026-10-25",
         title = "书源管理页卡片化、找书框与加载圈重设计，999 搜书加诊断日志。",
