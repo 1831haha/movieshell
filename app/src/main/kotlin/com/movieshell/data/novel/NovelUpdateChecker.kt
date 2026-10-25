@@ -98,7 +98,7 @@ object NovelUpdateChecker {
         val source = BookSourceManager.sources.value.firstOrNull { it.key == novel.sourceKey }
             ?: return null
         val hits = NovelSourceEngine.search(source, novel.title)
-        val best = pickBest(hits, novel.title) ?: return null
+        val best = pickBest(hits, novel.title, novel.author) ?: return null
         return NovelSourceEngine.chapters(source, best).ifEmpty { null }
     }
 
@@ -106,19 +106,29 @@ object NovelUpdateChecker {
         val name = PyBookSourceManager.fileNameOf(novel.sourceKey) ?: return null
         val rule = PyBookSourceManager.rules.value.firstOrNull { it.name == name } ?: return null
         val hits = NovelSourceEngine.searchPy(context, rule, novel.title)
-        val best = pickBest(hits, novel.title) ?: return null
+        val best = pickBest(hits, novel.title, novel.author) ?: return null
         return NovelSourceEngine.chaptersPy(context, best).ifEmpty { null }
     }
 
-    /** 选最像的一条：标题完全一致优先，其次互相包含，其次第一条。 */
+    /** 选最像的一条：标题完全一致且作者对得上优先，其次标题完全一致，
+     *  其次标题互相包含且作者对得上，其次标题互相包含。
+     *  v0.211.0 审计修复：原来最后兜底取第一条，同名/近似书会把
+     *  别本书的目录整本写进本地书且不可逆——宁可判失败也不写错书。 */
     private fun pickBest(
         hits: List<NovelSearchResult>,
         title: String,
+        author: String = "",
     ): NovelSearchResult? {
         if (hits.isEmpty()) return null
         val t = title.trim()
-        return hits.firstOrNull { it.title.trim() == t }
+        val a = author.trim()
+        val authorOk: (NovelSearchResult) -> Boolean = { hit ->
+            a.isBlank() || hit.author.isNullOrBlank() ||
+                hit.author!!.contains(a) || a.contains(hit.author!!)
+        }
+        return hits.firstOrNull { it.title.trim() == t && authorOk(it) }
+            ?: hits.firstOrNull { it.title.trim() == t }
+            ?: hits.firstOrNull { (it.title.contains(t) || t.contains(it.title)) && authorOk(it) }
             ?: hits.firstOrNull { it.title.contains(t) || t.contains(it.title) }
-            ?: hits.firstOrNull()
     }
 }

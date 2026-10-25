@@ -1,6 +1,6 @@
 package com.movieshell.ui.subtitle
 
-import android.widget.Toast
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -67,7 +67,7 @@ fun OnlineSubtitleSearchDialog(
     // v0.49.0：SubHD 内置，source 恒不为 null；保留防御分支
     if (source == null) {
         LaunchedEffect(Unit) {
-            Toast.makeText(context, "字幕源不可用", Toast.LENGTH_SHORT).show()
+            AppToast.show(context, "字幕源不可用", long = false)
             onDismiss()
         }
         return
@@ -81,7 +81,7 @@ fun OnlineSubtitleSearchDialog(
         scope.launch {
             results = runCatching { source.search(k) }.onFailure {
                 LogBus.w("Subtitle", "在线字幕搜索失败：${it.message}")
-                Toast.makeText(context, "搜索失败：${it.message}", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "搜索失败：${it.message}", long = false)
             }.getOrDefault(emptyList())
             searching = false
             searched = true
@@ -159,11 +159,7 @@ fun OnlineSubtitleSearchDialog(
                                             onPick(url)
                                         }.onFailure {
                                             LogBus.w("Subtitle", "字幕下载失败：${it.message}")
-                                            Toast.makeText(
-                                                context,
-                                                "下载失败：${it.message}",
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
+                                            AppToast.show(context, "下载失败：${it.message}", long = false)
                                         }
                                         downloading = false
                                     }

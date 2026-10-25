@@ -3,6 +3,7 @@ package com.movieshell.data.novel
 import android.content.Context
 import android.util.Log
 import com.movieshell.data.repo.AtomicFile
+import com.movieshell.data.repo.NovelStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,8 +48,11 @@ object BookSourceManager {
             }
             val list = runCatching {
                 val arr = JSONArray(f.readText())
+                // v0.211.0 审计修复：原来任一元素非对象时 getJSONObject
+                // 抛错，整个 runCatching 兜底返回空表，之后一次写盘就
+                // 覆盖原文件。逐条隔离：坏条目跳过，好条目照常载入。
                 (0 until arr.length()).mapNotNull {
-                    BookSource.fromJson(arr.getJSONObject(it).toString())
+                    runCatching { BookSource.fromJson(arr.getJSONObject(it).toString()) }.getOrNull()
                 }
             }.onFailure {
                 Log.w(TAG, "书源文件读取失败", it)
@@ -177,6 +181,9 @@ object BookSourceManager {
             _sources.value = old
             return@withLock false
         }
+        // v0.211.0 审计修复：地址变了 key 跟着变，书架上用旧 key 的书
+        // 要跟着迁，否则静默断源（写盘成功后再迁，失败不迁）。
+        if (updated.key != oldKey) NovelStore.migrateSourceKey(context, oldKey, updated.key)
         true
     }
 
@@ -194,6 +201,8 @@ object BookSourceManager {
             _sources.value = old
             return@withLock false
         }
+        // v0.211.0 审计修复：同上，整条 JSON 替换导致 key 变时迁书架。
+        if (parsed.key != oldKey) NovelStore.migrateSourceKey(context, oldKey, parsed.key)
         true
     }
 

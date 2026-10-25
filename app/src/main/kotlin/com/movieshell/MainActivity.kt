@@ -1,13 +1,14 @@
 package com.movieshell
 
 import android.net.Uri
+import com.movieshell.ui.components.AppToast
+import com.movieshell.ui.components.AppToastOverlay
 import android.os.Bundle
 import android.content.Intent
 import android.content.res.Configuration
 import android.util.Rational
 import android.view.KeyEvent
 import android.app.PictureInPictureParams
-import android.widget.Toast
 import com.movieshell.ui.reader.VolumeKeyRouter
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -183,12 +184,12 @@ class MainActivity : ComponentActivity() {
         // root/模拟器只警告不拦；验签不做（云构建每轮新签名，写死必误杀，见 changelog）。
         val guard = com.movieshell.data.repo.AppGuard.check(this)
         if (guard.hardFail) {
-            Toast.makeText(this, "安全检查未通过（${guard.hardReasons.joinToString("、")}），已退出", Toast.LENGTH_LONG).show()
+            AppToast.show(this, "安全检查未通过（${guard.hardReasons.joinToString("、")}），已退出", long = true)
             finish()
             return
         }
         if (guard.warnings.isNotEmpty()) {
-            Toast.makeText(this, "当前为${guard.warnings.joinToString("、")}，继续使用风险自担", Toast.LENGTH_LONG).show()
+            AppToast.show(this, "当前为${guard.warnings.joinToString("、")}，继续使用风险自担", long = true)
         }
         ThemeStore.init(this)
         LogStore.init(this)
@@ -198,7 +199,7 @@ class MainActivity : ComponentActivity() {
         ParseStore.load(this) // v0.19.0：自定义解析接口
         // v0.7.2：存储迁移必须在各 Manager init 之前（Manager 的目录现在走 StoragePaths）
         if (!StoragePaths.migrateFromPrivate(this) && StoragePaths.hasAccess(this)) {
-            Toast.makeText(this, "文件迁移失败，旧文件保留在原处（旧位置：${filesDir.absolutePath} 下的 drpy、py、php、web，新位置：${StoragePaths.publicRoot().absolutePath}）", Toast.LENGTH_LONG).show()
+            AppToast.show(this, "文件迁移失败，旧文件保留在原处（旧位置：${filesDir.absolutePath} 下的 drpy、py、php、web，新位置：${StoragePaths.publicRoot().absolutePath}）", long = true)
         }
         PlayerManager.init(this)
         DrpySourceManager.init(this)
@@ -764,6 +765,8 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                // v0.211.0：全仓统一精致提示悬浮层（替代系统 Toast，挂根 Box 最上层）
+                AppToastOverlay()
                 // v0.7.2：运行日志悬浮窗（应用内悬浮）
                 LogBubbleOverlay()
                 // v0.27.2：PY 缺库一键安装引导

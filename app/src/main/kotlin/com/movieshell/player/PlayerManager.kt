@@ -1,12 +1,12 @@
 package com.movieshell.player
 
 import android.content.Context
+import com.movieshell.ui.components.AppToast
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.TypedValue
-import android.widget.Toast
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -89,7 +89,7 @@ object PlayerManager {
                 decoderFallbackDone = true
                 val app = appContext
                 if (app != null && MpvPluginLoader.isInstalled(app)) {
-                    Toast.makeText(app, "硬解失败，已自动切换 libmpv 重播", Toast.LENGTH_SHORT).show()
+                    AppToast.show(app, "硬解失败，已自动切换 libmpv 重播", long = false)
                     LogBus.i("Player", "硬解初始化失败，自动切 libmpv 重播")
                     // v0.186.0 第 5 组：换内核三步固定——先取断点，再显式停
                     // ExoPlayer，最后改覆盖起播；同时把已试过的 Media3 记入
@@ -101,7 +101,7 @@ object PlayerManager {
                     EngineHost.play(app, lastUrl, lastHeaders, pos, lastSubtitleUrl)
                     return
                 } else if (app != null) {
-                    Toast.makeText(app, "硬解失败，可在设置安装 libmpv 插件切换", Toast.LENGTH_SHORT).show()
+                    AppToast.show(app, "硬解失败，可在设置安装 libmpv 插件切换", long = false)
                 }
             }
             onError?.invoke(error)

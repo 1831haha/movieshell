@@ -1,9 +1,10 @@
 package com.movieshell.ui.settings
 
 import android.content.ClipData
+import com.movieshell.ui.components.AppSwitch
+import com.movieshell.ui.components.AppToast
 import android.content.Context
 import android.content.Intent
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -59,7 +60,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
@@ -193,21 +193,21 @@ fun SettingsScreen(
                     is BackupManager.ExportResult.Ok -> r.json
                     is BackupManager.ExportResult.Failed -> {
                         LogBus.e("Backup", "备份导出失败：${r.reason}")
-                        Toast.makeText(context, "导出失败：${r.reason}", Toast.LENGTH_LONG).show()
+                        AppToast.show(context, "导出失败：${r.reason}", long = true)
                         return@launch
                     }
                 }
                 // v0.170.0：原子写盘，写盘失败如实报错，不谎报已导出
                 if (!AtomicFile.writeText(file, json)) {
                     LogBus.e("Backup", "备份导出失败：写盘失败")
-                    Toast.makeText(context, "导出失败：写盘失败", Toast.LENGTH_LONG).show()
+                    AppToast.show(context, "导出失败：写盘失败", long = true)
                     return@launch
                 }
                 LogBus.i("Backup", "备份已导出：${file.absolutePath}")
-                Toast.makeText(context, "备份已导出：${file.absolutePath}", Toast.LENGTH_LONG).show()
+                AppToast.show(context, "备份已导出：${file.absolutePath}", long = true)
             } catch (e: Exception) {
                 LogBus.e("Backup", "备份导出失败：${e.message}")
-                Toast.makeText(context, "导出失败：${e.message}", Toast.LENGTH_LONG).show()
+                AppToast.show(context, "导出失败：${e.message}", long = true)
             }
         }
     }
@@ -217,7 +217,7 @@ fun SettingsScreen(
         try {
             val zip = CrashHandler.exportZip(context)
             if (zip == null) {
-                Toast.makeText(context, "暂无崩溃日志", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "暂无崩溃日志", long = false)
                 return
             }
             val uri = FileProvider.getUriForFile(
@@ -233,7 +233,7 @@ fun SettingsScreen(
             LogBus.i("CrashHandler", "崩溃日志已导出分享：${zip.name}")
         } catch (e: Exception) {
             LogBus.e("CrashHandler", "崩溃日志导出失败：${e.message}")
-            Toast.makeText(context, "导出失败：${e.message}", Toast.LENGTH_LONG).show()
+            AppToast.show(context, "导出失败：${e.message}", long = true)
         }
     }
     // 恢复仍需用户选文件，保留 picker
@@ -249,12 +249,12 @@ fun SettingsScreen(
                 } ?: return@launch
                 when (val r = BackupManager.importJson(context, text)) {
                     is BackupManager.RestoreResult.Ok ->
-                        Toast.makeText(context, "恢复成功", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "恢复成功", long = false)
                     is BackupManager.RestoreResult.Failed ->
-                        Toast.makeText(context, "恢复失败：${r.reason}", Toast.LENGTH_LONG).show()
+                        AppToast.show(context, "恢复失败：${r.reason}", long = true)
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "恢复失败：${e.message}", Toast.LENGTH_LONG).show()
+                AppToast.show(context, "恢复失败：${e.message}", long = true)
             }
         }
     }
@@ -277,11 +277,7 @@ fun SettingsScreen(
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val ok = BackgroundStore.setCustomBg(context, uri)
-            Toast.makeText(
-                context,
-                if (ok) "背景底图已更换" else "设置失败，换张图片试试",
-                Toast.LENGTH_SHORT,
-            ).show()
+            AppToast.show(context, if (ok) "背景底图已更换" else "设置失败，换张图片试试", long = false)
         }
     }
     LaunchedEffect(Unit) {
@@ -637,7 +633,7 @@ fun SettingsScreen(
                         subtitle = "播放时随手机方向自动横竖屏",
                         onClick = { PlayerSettings.setGravityRotate(context, !gravityRotate) },
                         trailing = {
-                            Switch(
+                            AppSwitch(
                                 checked = gravityRotate,
                                 onCheckedChange = {
                                     PlayerSettings.setGravityRotate(context, it)
@@ -666,7 +662,7 @@ fun SettingsScreen(
                         PluginStore.setShowIncompatible(context, !showIncompatible)
                     },
                     trailing = {
-                        Switch(
+                        AppSwitch(
                             checked = showIncompatible,
                             onCheckedChange = {
                                 PluginStore.setShowIncompatible(context, it)
@@ -686,7 +682,7 @@ fun SettingsScreen(
                         SubRefreshWorker.reschedule(context)
                     },
                     trailing = {
-                        Switch(
+                        AppSwitch(
                             checked = subRefreshEnabled,
                             onCheckedChange = {
                                 SubRefreshStore.setEnabled(context, it)
@@ -707,7 +703,7 @@ fun SettingsScreen(
                         FollowCheckWorker.reschedule(context)
                     },
                     trailing = {
-                        Switch(
+                        AppSwitch(
                             checked = followCheckEnabled,
                             onCheckedChange = {
                                 FollowStore.setCheckEnabled(context, it)
@@ -803,7 +799,7 @@ fun SettingsScreen(
                         subtitle = if (logEnabled) "已开启：小泡可拖动，点开看日志" else "关闭",
                         onClick = { LogStore.setEnabled(context, !logEnabled) },
                         trailing = {
-                            Switch(
+                            AppSwitch(
                                 checked = logEnabled,
                                 onCheckedChange = { LogStore.setEnabled(context, it) },
                             )
@@ -881,7 +877,7 @@ fun SettingsScreen(
                     )
                     showEngineDialog = false
                 } else {
-                    Toast.makeText(context, "去 设置-插件中心 安装 libmpv 播放器引擎", Toast.LENGTH_LONG).show()
+                    AppToast.show(context, "去 设置-插件中心 安装 libmpv 播放器引擎", long = true)
                 }
             },
         )
@@ -903,7 +899,7 @@ fun SettingsScreen(
                     }
                     cacheSize = refreshCacheSize(context)
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "缓存已清理", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "缓存已清理", long = false)
                     }
                 }
             },
@@ -925,11 +921,7 @@ fun SettingsScreen(
                 showClearLegacySubtitleDialog = false
                 val n = PlayerSettings.clearLegacyPerShowKeys(context)
                 legacySubtitleCount = -1
-                Toast.makeText(
-                    context,
-                    if (n > 0) "已清理旧字幕记忆 $n 条" else "没有旧字幕记忆可清理",
-                    Toast.LENGTH_SHORT,
-                ).show()
+                AppToast.show(context, if (n > 0) "已清理旧字幕记忆 $n 条" else "没有旧字幕记忆可清理", long = false)
             },
         ) {
             Text(
@@ -1015,23 +1007,15 @@ fun SettingsScreen(
                                         context, urlInput, userInput, passInput, allowLanHttp,
                                     )
                                 ) {
-                                    Toast.makeText(
-                                        context,
-                                        CloudSyncManager.validateUrl(urlInput.trim(), allowLanHttp)
-                                            ?: "地址无效",
-                                        Toast.LENGTH_LONG,
-                                    ).show()
+                                    AppToast.show(context, CloudSyncManager.validateUrl(urlInput.trim(), allowLanHttp)
+                                            ?: "地址无效", long = true)
                                     return@AppButton
                                 }
                                 cloudWorking = true
                                 scope.launch {
                                     val err = CloudSyncManager.test(context)
                                     cloudWorking = false
-                                    Toast.makeText(
-                                        context,
-                                        err ?: "连接成功",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
+                                    AppToast.show(context, err ?: "连接成功", long = false)
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -1045,21 +1029,17 @@ fun SettingsScreen(
                                         context, urlInput, userInput, passInput, allowLanHttp,
                                     )
                                 ) {
-                                    Toast.makeText(
-                                        context,
-                                        CloudSyncManager.validateUrl(urlInput.trim(), allowLanHttp)
-                                            ?: "地址无效",
-                                        Toast.LENGTH_LONG,
-                                    ).show()
+                                    AppToast.show(context, CloudSyncManager.validateUrl(urlInput.trim(), allowLanHttp)
+                                            ?: "地址无效", long = true)
                                     return@AppButton
                                 }
                                 cloudWorking = true
                                 scope.launch {
                                     when (val r = CloudSyncManager.backup(context)) {
                                         is CloudSyncManager.SyncResult.Ok ->
-                                            Toast.makeText(context, "备份已上传", Toast.LENGTH_SHORT).show()
+                                            AppToast.show(context, "备份已上传", long = false)
                                         is CloudSyncManager.SyncResult.Failed ->
-                                            Toast.makeText(context, r.reason, Toast.LENGTH_LONG).show()
+                                            AppToast.show(context, r.reason, long = true)
                                         is CloudSyncManager.SyncResult.Conflict -> {
                                             cloudConflictText = r.reason
                                             showCloudConflict = true
@@ -1082,23 +1062,19 @@ fun SettingsScreen(
                                     context, urlInput, userInput, passInput, allowLanHttp,
                                 )
                             ) {
-                                Toast.makeText(
-                                    context,
-                                    CloudSyncManager.validateUrl(urlInput.trim(), allowLanHttp)
-                                        ?: "地址无效",
-                                    Toast.LENGTH_LONG,
-                                ).show()
+                                AppToast.show(context, CloudSyncManager.validateUrl(urlInput.trim(), allowLanHttp)
+                                        ?: "地址无效", long = true)
                                 return@AppButton
                             }
                             cloudWorking = true
                             scope.launch {
                                 when (val r = CloudSyncManager.restore(context)) {
                                     is CloudSyncManager.SyncResult.Ok ->
-                                        Toast.makeText(context, "已从云端恢复", Toast.LENGTH_SHORT).show()
+                                        AppToast.show(context, "已从云端恢复", long = false)
                                     is CloudSyncManager.SyncResult.Failed ->
-                                        Toast.makeText(context, r.reason, Toast.LENGTH_LONG).show()
+                                        AppToast.show(context, r.reason, long = true)
                                     is CloudSyncManager.SyncResult.Conflict ->
-                                        Toast.makeText(context, r.reason, Toast.LENGTH_LONG).show()
+                                        AppToast.show(context, r.reason, long = true)
                                 }
                                 cloudWorking = false
                                 lastSyncText = CloudSyncManager.lastSyncText(context)
@@ -1123,11 +1099,11 @@ fun SettingsScreen(
                 scope.launch {
                     when (val r = CloudSyncManager.backup(context, force = true)) {
                         is CloudSyncManager.SyncResult.Ok ->
-                            Toast.makeText(context, "备份已上传", Toast.LENGTH_SHORT).show()
+                            AppToast.show(context, "备份已上传", long = false)
                         is CloudSyncManager.SyncResult.Failed ->
-                            Toast.makeText(context, r.reason, Toast.LENGTH_LONG).show()
+                            AppToast.show(context, r.reason, long = true)
                         is CloudSyncManager.SyncResult.Conflict ->
-                            Toast.makeText(context, r.reason, Toast.LENGTH_LONG).show()
+                            AppToast.show(context, r.reason, long = true)
                     }
                     cloudWorking = false
                     lastSyncText = CloudSyncManager.lastSyncText(context)
@@ -1156,7 +1132,7 @@ fun SettingsScreen(
                     showBgMenu = false
                     scope.launch {
                         BackgroundStore.clearCustomBg(context)
-                        Toast.makeText(context, "已恢复默认背景", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "已恢复默认背景", long = false)
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),

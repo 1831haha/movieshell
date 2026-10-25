@@ -1,6 +1,7 @@
 package com.movieshell.ui.music
 
-import android.widget.Toast
+import com.movieshell.ui.components.AppSwitch
+import com.movieshell.ui.components.AppToast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -32,7 +33,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -193,11 +193,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             lxEngine.evictScript(src.url)
             cookieTarget = null
             reload()
-            Toast.makeText(
-                context,
-                if (ok) "Cookie 已保存，脚本已重载" else "保存失败",
-                Toast.LENGTH_SHORT,
-            ).show()
+            AppToast.show(context, if (ok) "Cookie 已保存，脚本已重载" else "保存失败", long = false)
         }
     }
 
@@ -236,7 +232,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                 text.orEmpty().contains("EVENT_NAMES") ||
                 text.orEmpty().contains("globalThis.lx")
             if (text.isNullOrBlank() || !looksJs) {
-                Toast.makeText(context, "不是有效的洛雪音源脚本", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "不是有效的洛雪音源脚本", long = false)
                 return@launch
             }
             val tmp = withContext(Dispatchers.IO) {
@@ -247,7 +243,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                 }.getOrNull()
             }
             if (tmp == null) {
-                Toast.makeText(context, "导入失败：无法读取文件", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "导入失败：无法读取文件", long = false)
                 return@launch
             }
             val displayName = uri.lastPathSegment?.takeIf { it.isNotBlank() }
@@ -255,11 +251,11 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             val added = MusicSourceStore.addLocal(context, displayName, tmp)
             runCatching { tmp.delete() }
             if (added != null) {
-                Toast.makeText(context, "已导入 ${added.name}", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "已导入 ${added.name}", long = false)
                 showAdd = false
                 reload()
             } else {
-                Toast.makeText(context, "导入失败", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "导入失败", long = false)
             }
         }
     }
@@ -269,7 +265,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
         val curTrack = MusicPlayer.state.value.track
         val urlId = curTrack?.urlId
         if (urlId.isNullOrBlank()) {
-            Toast.makeText(context, "先播放一首歌再测试", Toast.LENGTH_SHORT).show()
+            AppToast.show(context, "先播放一首歌再测试", long = false)
             return
         }
         testMsg = null
@@ -425,7 +421,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                                 )
                             }
                             Spacer(Modifier.width(8.dp))
-                            Switch(
+                            AppSwitch(
                                 checked = source.enabled,
                                 onCheckedChange = { enabled ->
                                     scope.launch {
@@ -515,7 +511,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             confirmText = "添加",
             onConfirm = {
                 if (name.isBlank() || url.isBlank()) {
-                    Toast.makeText(context, "名称和脚本地址不能为空", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "名称和脚本地址不能为空", long = false)
                     return@TechDialog
                 }
                 scope.launch {
@@ -830,7 +826,7 @@ private fun CookieSlotCard(
                     if (text.isNotBlank()) {
                         onValueChange(text)
                     } else {
-                        Toast.makeText(context, "剪贴板是空的", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "剪贴板是空的", long = false)
                     }
                 },
             ) {

@@ -1,8 +1,8 @@
 package com.movieshell.ui.log
 
 import android.content.ClipData
+import com.movieshell.ui.components.AppToast
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -277,10 +277,10 @@ private fun exportLog(context: Context) {
         // v0.188.0：导出走 AtomicFile（L25）；提示只写相对位置（M31：不贴绝对路径）。
         if (!AtomicFile.writeText(file, LogBus.dumpText())) throw IllegalStateException("日志写盘失败")
         LogBus.i("Log", "日志已导出：${file.name}")
-        Toast.makeText(context, "日志已导出到 log 目录：${file.name}", Toast.LENGTH_LONG).show()
+        AppToast.show(context, "日志已导出到 log 目录：${file.name}", long = true)
     } catch (e: Exception) {
         LogBus.e("Log", "日志导出失败：${e.message}")
-        Toast.makeText(context, "导出失败：${e.message}", Toast.LENGTH_LONG).show()
+        AppToast.show(context, "导出失败：${e.message}", long = true)
     }
 }
 
@@ -289,8 +289,8 @@ private fun copyLog(context: Context) {
     try {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("movieshell_log", LogBus.dumpText()))
-        Toast.makeText(context, "日志已复制到剪贴板", Toast.LENGTH_SHORT).show()
+        AppToast.show(context, "日志已复制到剪贴板", long = false)
     } catch (e: Exception) {
-        Toast.makeText(context, "复制失败：${e.message}", Toast.LENGTH_LONG).show()
+        AppToast.show(context, "复制失败：${e.message}", long = true)
     }
 }

@@ -3,6 +3,8 @@ package com.movieshell.data.repo
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
@@ -41,6 +43,10 @@ object NovelUpdateStore {
             .getOrDefault(emptyMap())
     }
 
+    // v0.211.0 审计修复：手动检查收尾与后台 Worker 原来无锁
+    // 读-改-写，后写者用旧快照覆盖先写者的角标；set/clear 同锁串行化。
+    private val storeMutex = Mutex()
+
     private fun writeAll(context: Context, map: Map<String, NovelUpdateInfo>) {
         runCatching {
             // v0.170.0：原子写盘
@@ -54,22 +60,31 @@ object NovelUpdateStore {
     suspend fun getAll(context: Context): Map<String, NovelUpdateInfo> =
         withContext(Dispatchers.IO) { readAll(context) }
 
+    /** v0.211.0 审计修复：角标原来直接覆盖——第一轮 +3 未读、
+     *  第二轮又多 2 章时角标被写成 2，越查越少。set 语义改为
+     *  累加未读存量（读过书后 clear 清零，下一轮从 0 起算）；
+     *  调用方传的是本轮新增数，不是总量。 */
     suspend fun set(context: Context, novelId: String, newChapters: Int) =
         withContext(Dispatchers.IO) {
-            if (newChapters <= 0) return@withContext
-            val cur = readAll(context).toMutableMap()
-            cur[novelId] = NovelUpdateInfo(
-                novelId = novelId,
-                newChapters = newChapters,
-                checkedAt = System.currentTimeMillis(),
-            )
-            writeAll(context, cur)
+            storeMutex.withLock {
+                if (newChapters <= 0) return@withLock
+                val cur = readAll(context).toMutableMap()
+                val total = (cur[novelId]?.newChapters ?: 0) + newChapters
+                cur[novelId] = NovelUpdateInfo(
+                    novelId = novelId,
+                    newChapters = total,
+                    checkedAt = System.currentTimeMillis(),
+                )
+                writeAll(context, cur)
+            }
         }
 
     /** 打开书后清除角标。 */
     suspend fun clear(context: Context, novelId: String) = withContext(Dispatchers.IO) {
-        val cur = readAll(context).toMutableMap()
-        if (cur.remove(novelId) != null) writeAll(context, cur)
+        storeMutex.withLock {
+            val cur = readAll(context).toMutableMap()
+            if (cur.remove(novelId) != null) writeAll(context, cur)
+        }
     }
 
     suspend fun clearAll(context: Context) = withContext(Dispatchers.IO) {

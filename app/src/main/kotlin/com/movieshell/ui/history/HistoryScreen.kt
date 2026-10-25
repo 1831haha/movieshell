@@ -1,7 +1,7 @@
 package com.movieshell.ui.history
 
-import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -215,7 +215,7 @@ fun HistoryScreen(
                             // v0.171.0：空地址历史点进去不再是黑屏播放器，先提示
                             onClick = {
                                 if (e.url.isBlank()) {
-                                    Toast.makeText(context, "该条历史没有播放地址", Toast.LENGTH_SHORT).show()
+                                    AppToast.show(context, "该条历史没有播放地址", long = false)
                                 } else {
                                     onPlay(e)
                                 }
@@ -259,7 +259,7 @@ fun HistoryScreen(
                 }
                 showClearAll = false
                 reload()
-                Toast.makeText(context, "已清空播放历史", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "已清空播放历史", long = false)
             },
         ) {
             Text("确定清空${tabName}的 ${kindFiltered.size} 条播放记录吗？此操作不可恢复。")

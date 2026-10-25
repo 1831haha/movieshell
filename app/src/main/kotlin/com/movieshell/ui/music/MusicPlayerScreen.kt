@@ -1,7 +1,7 @@
 package com.movieshell.ui.music
 
-import android.widget.Toast
 import androidx.compose.animation.core.Animatable
+import com.movieshell.ui.components.AppToast
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -684,19 +684,19 @@ fun MusicPlayerScreen(
                 showSleepDialog = false
                 SleepTimer.startMinutes(m) {
                     MusicPlayer.fadeOutAndPause()
-                    Toast.makeText(context, "定时关闭：音乐已暂停", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "定时关闭：音乐已暂停", long = false)
                 }
-                Toast.makeText(context, "将在 $m 分钟后停止播放", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "将在 $m 分钟后停止播放", long = false)
             },
             onPickAfterTrack = {
                 showSleepDialog = false
                 SleepTimer.armAfterEpisode()
-                Toast.makeText(context, "本首播完后将停止播放", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "本首播完后将停止播放", long = false)
             },
             onCancelTimer = {
                 showSleepDialog = false
                 SleepTimer.cancel()
-                Toast.makeText(context, "定时关闭已取消", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "定时关闭已取消", long = false)
             },
         )
     }
@@ -717,7 +717,7 @@ fun MusicPlayerScreen(
             },
             onPick = { src ->
                 showSourceDialog = false
-                Toast.makeText(context, "正在用「${src.name}」重新解析", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "正在用「${src.name}」重新解析", long = false)
                 MusicPlayer.playWithSource(context, src.id)
             },
         )

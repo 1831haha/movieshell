@@ -1,6 +1,8 @@
 package com.movieshell.ui.web
 
 import android.annotation.SuppressLint
+import com.movieshell.ui.components.AppDropdownMenu
+import com.movieshell.ui.components.AppToast
 import android.graphics.Bitmap
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
@@ -9,7 +11,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -33,7 +34,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -458,7 +458,7 @@ fun WebSniffScreen(
                         candidateUrls.remove(candidate.url)
                         hitDone.set(false)
                         picked = false
-                        Toast.makeText(context, "该地址返回的是网页不是视频流，已拦截", Toast.LENGTH_LONG).show()
+                        AppToast.show(context, "该地址返回的是网页不是视频流，已拦截", long = true)
                     } else {
                         if (candidate.headers.isNotEmpty()) {
                             SniffPlayHeaders.put(candidate.url, candidate.headers)
@@ -503,7 +503,7 @@ fun WebSniffScreen(
                         candidateUrls.remove(candidate.url)
                         hitDone.set(false)
                         picked = false
-                        Toast.makeText(context, "该地址返回的是网页不是视频流，已拦截", Toast.LENGTH_LONG).show()
+                        AppToast.show(context, "该地址返回的是网页不是视频流，已拦截", long = true)
                     } else {
                         SniffPlayHeaders.put(candidate.url, headersToUse)
                         view.stopLoading()
@@ -602,7 +602,7 @@ fun WebSniffScreen(
         if (hitDone.get() || !blobDug.compareAndSet(false, true)) return
         LogBus.i("WebSniff", "检测到 blob 播放器，正在深挖…")
         view.post {
-            Toast.makeText(context, "检测到 blob 播放器，正在深挖…", Toast.LENGTH_SHORT).show()
+            AppToast.show(context, "检测到 blob 播放器，正在深挖…", long = false)
         }
         view.evaluateJavascript(JS_BLOB_DIG) { raw ->
             if (hitDone.get()) return@evaluateJavascript
@@ -661,7 +661,7 @@ fun WebSniffScreen(
     fun showTimeoutToast() {
         if (!timeoutToasted && !picked && candidates.isEmpty()) {
             timeoutToasted = true
-            Toast.makeText(context, "未嗅探到可播放直链，可继续手动浏览", Toast.LENGTH_LONG).show()
+            AppToast.show(context, "未嗅探到可播放直链，可继续手动浏览", long = true)
         }
     }
 
@@ -707,7 +707,7 @@ fun WebSniffScreen(
                 testing = false
                 testResults = results
                 if (results.isEmpty()) {
-                    Toast.makeText(context, "嗅探测试：未发现可播直链", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "嗅探测试：未发现可播直链", long = false)
                 }
             }
         }
@@ -776,7 +776,7 @@ fun WebSniffScreen(
             withContext(Dispatchers.Main) {
                 deepSniffing = false
                 if (!hitDone.get() && added.get() == 0) {
-                    Toast.makeText(context, "深度嗅探也没找到，可试手动复制地址", Toast.LENGTH_LONG).show()
+                    AppToast.show(context, "深度嗅探也没找到，可试手动复制地址", long = true)
                 }
             }
         }
@@ -794,7 +794,7 @@ fun WebSniffScreen(
                             IconButton(onClick = { menuOpen = true }) {
                                 Icon(Icons.Filled.MoreVert, contentDescription = "嗅探设置")
                             }
-                            DropdownMenu(
+                            AppDropdownMenu(
                                 expanded = menuOpen,
                                 onDismissRequest = { menuOpen = false },
                             ) {
@@ -812,7 +812,7 @@ fun WebSniffScreen(
                                         menuOpen = false
                                         SniffConfig.update(context, adFilter = !adFilter)
                                         adFilter = SniffConfig.adFilterEnabled
-                                        Toast.makeText(context, "已生效", Toast.LENGTH_SHORT).show()
+                                        AppToast.show(context, "已生效", long = false)
                                     },
                                 )
                             }
@@ -936,11 +936,7 @@ fun WebSniffScreen(
                                     ) {
                                         challengeToastedUrl = mainUrl
                                         LogBus.w("WebSniff", "检测到验证页，等用户手动通过后嗅探自动继续：$mainUrl")
-                                        Toast.makeText(
-                                            context,
-                                            "检测到验证页，请手动完成验证，验证通过后嗅探自动继续",
-                                            Toast.LENGTH_LONG,
-                                        ).show()
+                                        AppToast.show(context, "检测到验证页，请手动完成验证，验证通过后嗅探自动继续", long = true)
                                     }
                                     // v0.149 player_aaaa 加密壳检测：只记日志，不伪造解密——
                                     // 解密逻辑在 DS Flutter 侧 libapp.so 内、APK 里拿不到；
@@ -1158,7 +1154,7 @@ fun WebSniffScreen(
                                 retryCount = SniffConfig.probeRetry
                             }
                             cfgDialog = null
-                            Toast.makeText(context, "已生效", Toast.LENGTH_SHORT).show()
+                            AppToast.show(context, "已生效", long = false)
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -1191,7 +1187,7 @@ fun WebSniffScreen(
         )
         if (picked) return@LaunchedEffect
         if (candidates.isNotEmpty()) {
-            Toast.makeText(context, "嗅探超时，已保留 ${candidates.size} 条候选，点选播放", Toast.LENGTH_LONG).show()
+            AppToast.show(context, "嗅探超时，已保留 ${candidates.size} 条候选，点选播放", long = true)
         } else if (!autoRetried) {
             // v0.149 案例 2 重试轮回：零候选时自动把已拦截队列全量再探一轮；
             // 全灭时深度嗅探自己会 Toast，用户无需再点一次按钮

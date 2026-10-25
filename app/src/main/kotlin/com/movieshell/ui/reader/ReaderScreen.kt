@@ -1,7 +1,8 @@
 package com.movieshell.ui.reader
 
 import android.app.Activity
-import android.widget.Toast
+import com.movieshell.ui.components.AppSlider
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,11 +32,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -43,8 +41,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
 import androidx.compose.material3.TextButton
@@ -118,6 +114,19 @@ import androidx.compose.material.icons.filled.SwapHoriz
  * v0.89.0：背景主题四档（白/米黄/护眼绿/夜间黑，替代旧夜间开关）；
  * 翻页模式三档（上下滚动/左右覆盖/仿真翻页，默认左右覆盖）；书签。
  */
+// v0.211.0 审计修复：不随组合销毁的写盘作用域（退出保存用）。
+private val readerIoScope = kotlinx.coroutines.CoroutineScope(
+    kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+)
+
+/** v0.211.0 审计修复：详情目录点某章要直达该章——路由只带
+ *  书 id、不带章节参数，原来目录点击只能按旧进度打开。书架点
+ *  目录时先把目标章写进这个一次性请求，阅读器载入时消费它
+ *  （消费后立即清零，别的入口进阅读器不受影响）。 */
+object ReaderJumpRequest {
+    var chapter: Int? = null
+}
+
 @Composable
 fun ReaderScreen(
     novelId: String,
@@ -263,7 +272,7 @@ fun ReaderScreen(
             contentLoading = false
             if (!ok) {
                 contentLoadError = true
-                Toast.makeText(context, "正文拉取失败，点击正文区重试", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "正文拉取失败，点击正文区重试", long = false)
                 return@launch
             }
             // v0.72.0：预加载下一章（后台静默，不碰 contentLoading）
@@ -288,7 +297,14 @@ fun ReaderScreen(
         }
         novel = n
         chapters = cs
-        if (p != null && p.chapterIndex in cs.indices) {
+        // v0.211.0 审计修复：目录直达——有一次性跳转请求时优先用它，
+        // 而不是按旧进度恢复；无请求时走原有进度恢复。
+        val jump = ReaderJumpRequest.chapter
+        ReaderJumpRequest.chapter = null
+        if (jump != null && jump in cs.indices) {
+            chapterIndex = jump
+            restoreOffset = 0
+        } else if (p != null && p.chapterIndex in cs.indices) {
             chapterIndex = p.chapterIndex
             restoreOffset = p.charOffset
         }
@@ -357,9 +373,14 @@ fun ReaderScreen(
         val len = chapter?.content?.length ?: 0
         if (pageMode == 0) {
             if (restoreOffset > 0 && len > 0) {
-                val approxLine = fontSize * 1.8f // 每行像素粗估
-                val charsPerLine = 22 // 按常见行宽粗估
-                val targetPx = (restoreOffset / charsPerLine.toFloat() * approxLine).toInt()
+                // v0.211.0 审计修复：保存用“滚动像素/最大值×全文长度”，
+                // 恢复原来却用写死的每行 22 字、行高 1.8，两公式不互逆，
+                // 同一位置每次重进都漂移。改用与保存同口径的真实值：
+                // 每行字数用 charsPerLine（屏宽/字号算出），行高用
+                // 字号×行距，与 computeOffset 的像素比例对应。
+                val linePx = with(density) { (fontSize * lineHeightRatio).sp.toPx() }
+                val cpl = charsPerLine.coerceAtLeast(1)
+                val targetPx = (restoreOffset / cpl.toFloat() * linePx).toInt()
                 scrollState.scrollTo(targetPx.coerceAtLeast(0))
                 restoreOffset = 0 // 只恢复一次
             } else {
@@ -381,6 +402,10 @@ fun ReaderScreen(
     var lastPageOffset by remember { mutableIntStateOf(0) }
     val latestChapterIndex by rememberUpdatedState(chapterIndex)
     LaunchedEffect(pagerState.currentPage, pages) {
+        // v0.211.0 回归修复（静态审计）：这路翻页保存原来没有 pageMode
+        // 守卫，滚动模式下字号/章节一变引起 pages 重算，2 秒后就用
+        // 翻页页码算出的偏移覆盖滚动停存的正确位置；只在翻页模式跑。
+        if (pageMode == 0) return@LaunchedEffect
         lastPageOffset = NovelPaginator.pageStartOffset(pages, pagerState.currentPage)
         // v0.99.0 P1-9：翻页 2 秒 debounce 自动存进度，App 崩溃/被杀不丢进度
         saveJob?.cancel()
@@ -390,6 +415,24 @@ fun ReaderScreen(
             val off = NovelPaginator.pageStartOffset(pages, pagerState.currentPage)
             ReadingProgressStore.save(context, ReadingProgress(novelId, idx, off))
         }
+    }
+    // v0.211.0：上下滚动模式以前没有这个——滚动时进度只在退出阅读页
+    // 那一刻存一次，App 被划掉/崩溃就丢到上次切章的位置。补上滚动停止
+    // 即存：手指一停（拖动/惯性都结束）就存当前滚动位置，和翻页模式
+    // 的“翻页后自动存”对齐。只在滚动模式生效，翻页模式不走这条。
+    // 注意不用 scrollState.value 当 key——那样每滚一个像素就重组整页，
+    // 改用 isScrollInProgress（一次手势只变两次），滚动停下才存一次。
+    LaunchedEffect(scrollState.isScrollInProgress) {
+        // v0.211.0 回归修复（流程审计 H1）：首帧 isScrollInProgress 本来就是
+        // false，效果一进页就跑一次，那时进度还没载入（loaded=false、
+        // chapterIndex 仍是初始 0），会把进度写成第 0 章覆盖真进度。
+        // 加 loaded/chapter 守卫：没载入完不写盘；载入完后 key 没变、
+        // 效果不会重跑，第一次真正滚动停下时才存，不丢也不误写。
+        if (pageMode != 0 || scrollState.isScrollInProgress || !loaded || chapter == null) return@LaunchedEffect
+        ReadingProgressStore.save(
+            context,
+            ReadingProgress(novelId, latestChapterIndex, computeOffset()),
+        )
     }
     LaunchedEffect(charsPerPage) {
         if (lastCpp > 0 && lastCpp != charsPerPage && pages.isNotEmpty() && pageMode != 0) {
@@ -409,7 +452,10 @@ fun ReaderScreen(
             val statStart = sessionStartMs
             val statChapters = chaptersSeen.size
             val statEnd = System.currentTimeMillis()
-            scope.launch {
+            // v0.211.0 审计修复：退出保存原来用随组合销毁的 scope，
+            // 组合销毁时该 scope 可能已被取消，正常退出也可能丢最后
+            // 一段进度；改走不随组合销毁的应用级作用域。
+            readerIoScope.launch {
                 // v0.188.0 M25：进度只写 ReadingProgressStore 一处；书架 lastReadChapter
                 // 由 NovelStore 读侧派生，不再双写 index，中间崩溃不再两处各说各话。
                 ReadingProgressStore.save(
@@ -425,10 +471,16 @@ fun ReaderScreen(
         if (index in chapters.indices) {
             // v0.188.0 M25：切章即把目标章位置写进唯一事实源（旧写法存旧章偏移
             // 却写新章 index，两处自相矛盾；现只写进度，书架派生跟随）。
+            // v0.211.0 审计修复：回上一章末页用的 1_000_000_000 哨兵
+            // 原来原样落盘，进度文件里长期存着超章长的非法偏移；
+            // 本次会话的恢复仍用哨兵（恢复处会钳制到末页），落盘
+            // 时按当前章长钳制，未拉到正文时先存章首。
+            val len = chapters.getOrNull(index)?.content?.length ?: 0
+            val safeOffset = if (len > 0) restoreTo.coerceIn(0, len) else 0
             scope.launch {
                 ReadingProgressStore.save(
                     context,
-                    ReadingProgress(novelId, index, restoreTo),
+                    ReadingProgress(novelId, index, safeOffset),
                 )
             }
             restoreOffset = restoreTo
@@ -559,7 +611,7 @@ fun ReaderScreen(
                 ),
             )
             refreshBookmarks()
-            Toast.makeText(context, "已添加书签", Toast.LENGTH_SHORT).show()
+            AppToast.show(context, "已添加书签", long = false)
         }
     }
 
@@ -624,11 +676,11 @@ fun ReaderScreen(
                         Icon(Icons.Filled.SwapHoriz, "换源", tint = fg)
                     }
                 }
-                // v0.89.0：书签（加当前进度为书签 / 打开书签列表）
-                IconButton(onClick = { addBookmark() }) {
-                    Icon(Icons.Filled.BookmarkBorder, "添加书签", tint = fg)
+                // v0.211.0：书签只留一个入口——点图标开书签列表，列表里已有
+                // “＋ 添加当前进度”，顶栏不再同时摆“加书签图标 + 书签文字”。
+                IconButton(onClick = { showBookmarks = true }) {
+                    Icon(Icons.Filled.Bookmark, "书签", tint = fg)
                 }
-                TextButton(onClick = { showBookmarks = true }) { Text("书签", color = fg) }
             }
         }
 
@@ -795,37 +847,14 @@ fun ReaderScreen(
             }
         }
 
-        // 底栏：阅读式底菜单（v0.197.0）——第一行 上一章 / 进度条 / 下一章，
-        // 第二行 目录 / 界面 / 设置；右上悬浮钮 书签 / 亮度 / 刷新
-        // （沉浸模式时隐藏；v0.61.0 的沉浸规则不变）。
-        // 注意：界面与设置目前同指一个设置面板（咱的设置本就是一页全量、无滚动），
-        // 等阅读反编译稿到了再按阅读的面板分拆；朗读按用户定不做，故不占位。
-        // 章内搜索（阅读悬浮钮里的搜索）咱没有对应功能，不摆空壳。
+        // 底栏：阅读式底菜单（v0.211.0 去重版）——第一行 上一章 / 进度条 / 下一章，
+        // 第二行只留 目录 / 设置；右侧悬浮三钮（书签/亮度/刷新）全部删掉：
+        // 书签只走顶栏一个图标，亮度只在设置里调，刷新（重读本章）本就极少用，
+        // 不再在正文上叠一排紫色悬浮钮挡字。朗读按用户定不做，故不占位。
         if (!immersive) {
             // 拖动进度条只跟手，松手才跳章，避免拖动中反复加载
             var sliderPos by remember { mutableStateOf<Float?>(null) }
             Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(end = 12.dp),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        SmallFloatingActionButton(onClick = { showBookmarks = true }) {
-                            Icon(Icons.Filled.Bookmark, "书签")
-                        }
-                        SmallFloatingActionButton(onClick = { openSettings() }) {
-                            Icon(Icons.Filled.BrightnessMedium, "亮度")
-                        }
-                        SmallFloatingActionButton(onClick = { jumpTo(chapterIndex) }) {
-                            Icon(Icons.Filled.Refresh, "刷新")
-                        }
-                    }
-                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -836,7 +865,7 @@ fun ReaderScreen(
                         onClick = { jumpTo(chapterIndex - 1) },
                         enabled = chapterIndex > 0,
                     ) { Text("上一章", color = fg) }
-                    Slider(
+                    AppSlider(
                         value = sliderPos ?: chapterIndex.toFloat(),
                         onValueChange = { sliderPos = it },
                         onValueChangeFinished = {
@@ -864,7 +893,6 @@ fun ReaderScreen(
                             Text("目录", color = fg)
                         }
                     }
-                    TextButton(onClick = { openSettings() }) { Text("界面", color = fg) }
                     TextButton(onClick = { openSettings() }) { Text("设置", color = fg) }
                 }
             }
@@ -989,15 +1017,24 @@ fun ReaderScreen(
             confirmText = "完成",
             onConfirm = { closeSettings() },
         ) {
-            // v0.196.0：紧凑一页版——不滚动、不用原生 Slider/Switch，全部走胶囊与步进器；
-            // 标签 12sp、组标题 11sp、行距 6dp，九行设置 + 预览 + 四组标题塞进一页。
+            // v0.211.0：更紧凑一版——行距 6dp→4dp，胶囊/步进器同步收小，
+            // “章节”一行整段删掉（底栏已有上一章/进度/下一章/目录，全重复），
+            // 只剩 显示/阅读/管理 三组，卡片不再撑满屏。
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                // 预览：当前字体/字号/行距实时效果（单行）
+                // v0.211.0：预览不再是写死的“山重水复…”——取当前章节正文
+                // 第一个非空段落（没有正文时回落章节名），在哪本书打开
+                // 就显示哪本书的字，字体/字号/行距仍实时跟随设置。
+                val previewText = chapter?.content
+                    ?.split("\n")
+                    ?.firstOrNull { it.isNotBlank() }
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: chapter?.title.orEmpty()
                 Text(
-                    "山重水复疑无路，柳暗花明又一村。",
+                    previewText.ifBlank { "暂无正文预览" },
                     fontSize = fontSize.sp,
                     lineHeight = (fontSize * lineHeightRatio).sp,
                     fontFamily = readerFont,
@@ -1067,17 +1104,6 @@ fun ReaderScreen(
                     )
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                ReaderSectionHeader("章节")
-                // 章节快捷：上一章 / 目录 / 下一章
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("章节", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    ReaderPill("上一章", false) { if (chapterIndex > 0) { closeSettings(); jumpTo(chapterIndex - 1) } }
-                    Spacer(Modifier.width(4.dp))
-                    ReaderPill("目录", false, accent = true) { closeSettings(); showToc = true }
-                    Spacer(Modifier.width(4.dp))
-                    ReaderPill("下一章", false) { if (chapterIndex < chapters.size - 1) { closeSettings(); jumpTo(chapterIndex + 1) } }
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                 ReaderSectionHeader("管理")
                 // 净化规则快捷入口
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1140,7 +1166,7 @@ private fun ReaderPill(
             .clip(RoundedCornerShape(50))
             .background(bg)
             .clickable(onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 5.dp),
+            .padding(horizontal = 7.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (dotColor != null || dotFollowSystem) {
@@ -1222,7 +1248,7 @@ private fun ReaderStepper(
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.width(48.dp),
+            modifier = Modifier.width(44.dp),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             maxLines = 1,
         )
@@ -1234,13 +1260,13 @@ private fun ReaderStepper(
 private fun ReaderRoundIconButton(icon: ImageVector, desc: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(28.dp)
+            .size(24.dp)
             .clip(CircleShape)
             .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f), CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, desc, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+        Icon(icon, desc, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
     }
 }
 

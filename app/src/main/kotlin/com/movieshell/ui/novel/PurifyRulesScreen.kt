@@ -1,6 +1,7 @@
 package com.movieshell.ui.novel
 
 import androidx.compose.foundation.border
+import com.movieshell.ui.components.AppSwitch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,7 +21,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -112,7 +112,7 @@ fun PurifyRulesScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Switch(
+                        AppSwitch(
                             checked = r.enable,
                             onCheckedChange = { en ->
                                 scope.launch {

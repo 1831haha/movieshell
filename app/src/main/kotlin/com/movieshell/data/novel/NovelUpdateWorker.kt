@@ -10,6 +10,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.movieshell.data.download.Notify
+import com.movieshell.data.repo.BookshelfGroupStore
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.NovelUpdateStore
 import java.util.concurrent.TimeUnit
@@ -35,6 +36,12 @@ class NovelUpdateWorker(
         val checked = NovelUpdateChecker.checkAllDetailed(context, books)
         val result = checked.updated
         result.forEach { (id, n) -> NovelUpdateStore.set(context, id, n) }
+        // v0.211.0 审计修复：后台原来从不写/清失败 id，失败页签与
+        // 后台结果脱节——本轮查过的书：失败的进页签、查过的从旧
+        // 失败集合里摘掉，未查的书（本地书等）原样保留。
+        val checkedIds = books.filter { it.sourceKey != "local" }.map { it.id }.toSet()
+        val oldFailed = BookshelfGroupStore.failedIds(context)
+        BookshelfGroupStore.setFailedIds(context, (oldFailed - checkedIds) + checked.failedIds)
         if (result.isNotEmpty()) {
             Notify.novelUpdate(context, result.size, result.values.sum())
         }

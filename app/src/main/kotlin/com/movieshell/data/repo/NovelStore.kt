@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.movieshell.data.model.Chapter
 import com.movieshell.data.model.Novel
+import com.movieshell.data.model.ReadingProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -95,8 +96,17 @@ object NovelStore {
         withContext(Dispatchers.IO) {
             indexMutex.withLock {
             runCatching {
+                // v0.211.0 审计修复：重复入架原来用空目录全量覆盖旧章节
+                // 文件，已缓存的正文一次清光。先按标题读旧缓存，新章
+                // content 为空时沿用旧正文（与 updateSource 同款 graft）。
+                val oldByTitle = runCatching {
+                    val cf = chaptersFile(context, novel.id)
+                    if (!cf.isFile) emptyList()
+                    else json.decodeFromString(ListSerializer(Chapter.serializer()), cf.readText())
+                }.getOrDefault(emptyList()).associateBy { it.title }
                 val fixed = chapters.mapIndexed { i, c ->
-                    c.copy(novelId = novel.id, index = i)
+                    val keep = c.content.ifBlank { oldByTitle[c.title]?.content.orEmpty() }
+                    c.copy(novelId = novel.id, index = i, content = keep)
                 }
                 // v0.170.0：原子写盘；写盘失败如实返回 false，不谎报导入成功
                 if (!AtomicFile.writeText(
@@ -158,10 +168,43 @@ object NovelStore {
                 totalChapters = fixed.size,
             )
             writeIndex(context, list)
+            // v0.211.0 审计修复：换源后进度不重映射、角标不清——
+            // 新目录变短时旧下标越界，阅读器回第 0 章、书架还显示
+            // 旧章数，旧源角标还挂在新源书上。下标越界钳制到末章，
+            // 角标一律清掉重算（追更检查会在写盘后重新打角标）。
+            val prog = ReadingProgressStore.load(context, novelId)
+            if (prog != null && prog.chapterIndex >= fixed.size) {
+                ReadingProgressStore.save(
+                    context,
+                    ReadingProgress(novelId, (fixed.size - 1).coerceAtLeast(0), 0),
+                )
+            }
+            NovelUpdateStore.clear(context, novelId)
             true
         }.onFailure { Log.w(TAG, "换源失败", it) }.getOrDefault(false)
         }
     }
+
+    /** v0.211.0 审计修复：源 key 变了（改地址/重命名），书架上
+     *  用旧 key 的书要跟着迁，否则静默断源。返回迁移本数。 */
+    suspend fun migrateSourceKey(context: Context, oldKey: String, newKey: String): Int =
+        withContext(Dispatchers.IO) {
+            indexMutex.withLock {
+                val list = readIndex(context)
+                if (list.none { it.sourceKey == oldKey }) return@withContext 0
+                val migrated = list.map {
+                    if (it.sourceKey == oldKey) it.copy(sourceKey = newKey) else it
+                }
+                writeIndex(context, migrated)
+                list.count { it.sourceKey == oldKey }
+            }
+        }
+
+    /** v0.211.0 审计修复：删源前给用户看受影响本数（删源确认用）。 */
+    suspend fun countBySourceKey(context: Context, key: String): Int =
+        withContext(Dispatchers.IO) {
+            readIndex(context).count { it.sourceKey == key }
+        }
 
     suspend fun removeNovel(context: Context, id: String): Boolean = withContext(Dispatchers.IO) {
         indexMutex.withLock {
@@ -189,6 +232,10 @@ object NovelStore {
             }
             BookshelfGroupStore.removeNovelEverywhere(context, id)
             NovelUpdateStore.clear(context, id)
+            // v0.211.0 审计修复：删书原来不碰 update_failed_ids，
+            // 失败页签计数永远含死 id。删书时同步清掉该 id。
+            val failed = BookshelfGroupStore.failedIds(context)
+            if (id in failed) BookshelfGroupStore.setFailedIds(context, failed - id)
             true
         }
 
@@ -225,14 +272,20 @@ object NovelStore {
             }.onFailure { Log.w(TAG, "阅读进度更新失败", it) }
         }
 
-    /** 更新单章正文（在线书源按需拉取后缓存）。 */
+    /** 更新单章正文（在线书源按需拉取后缓存）。
+     *  v0.211.0 审计修复：调用方传的是过滤导航章后的下标，
+     *  原来直接按磁盘原始 index 匹配，含导航章的老书会把正文
+     *  写到错一格的章节。先按过滤口径定位目标章，再按它在
+     *  磁盘里的原始 index 写回。 */
     suspend fun updateChapterContent(context: Context, novelId: String, index: Int, content: String) =
         withContext(Dispatchers.IO) {
             runCatching {
                 val f = chaptersFile(context, novelId)
                 if (!f.isFile) return@runCatching
                 val list = json.decodeFromString(ListSerializer(Chapter.serializer()), f.readText())
-                val updated = list.map { if (it.index == index) it.copy(content = content) else it }
+                val target = list.filterNot { isNavChapterTitle(it.title) }.getOrNull(index)
+                    ?: return@runCatching
+                val updated = list.map { if (it.index == target.index) it.copy(content = content) else it }
                 // v0.170.0：原子写盘
                 AtomicFile.writeText(
                     f,

@@ -1,7 +1,8 @@
 package com.movieshell.ui.download
 
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import com.movieshell.ui.components.AppSwitch
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,7 +27,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.Composable
@@ -91,7 +91,7 @@ fun DownloadScreen(
     LaunchedEffect(Unit) {
         val missing = DownloadStore.verifyDoneFiles(context)
         if (missing > 0) {
-            Toast.makeText(context, "$missing 个已完成任务的本地文件已丢失，已标为失败", Toast.LENGTH_LONG).show()
+            AppToast.show(context, "$missing 个已完成任务的本地文件已丢失，已标为失败", long = true)
         }
     }
 
@@ -155,7 +155,7 @@ fun DownloadScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Switch(
+                        AppSwitch(
                             checked = autoDeleteWatched,
                             onCheckedChange = {
                                 autoDeleteWatched = it
@@ -205,7 +205,7 @@ fun DownloadScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Switch(
+                        AppSwitch(
                             checked = lowSpaceWarn,
                             onCheckedChange = {
                                 lowSpaceWarn = it
@@ -276,14 +276,14 @@ fun DownloadScreen(
                                     DownloadManager.pause(context, task.id)
                                 } else {
                                     DownloadManager.resume(context, task.id)
-                                    Toast.makeText(context, "已加入下载队列", Toast.LENGTH_SHORT).show()
+                                    AppToast.show(context, "已加入下载队列", long = false)
                                 }
                             },
                             onDelete = { confirmDelete = task },
                             onPreview = {
                                 val path = previewPath(context, task)
                                 if (path != null) onPlayLocal(path, task.title)
-                                else Toast.makeText(context, "还没下到可播的部分", Toast.LENGTH_SHORT).show()
+                                else AppToast.show(context, "还没下到可播的部分", long = false)
                             },
                         )
                     }
@@ -301,7 +301,7 @@ fun DownloadScreen(
                             onPlay = {
                                 val p = task.localPath
                                 if (p.isNotBlank() && File(p).isFile) onPlayLocal(p, task.title)
-                                else Toast.makeText(context, "本地文件已丢失", Toast.LENGTH_SHORT).show()
+                                else AppToast.show(context, "本地文件已丢失", long = false)
                             },
                         )
                     }

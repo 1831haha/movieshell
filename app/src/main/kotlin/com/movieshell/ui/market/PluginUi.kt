@@ -1,6 +1,7 @@
 package com.movieshell.ui.market
 
 import android.content.Context
+import com.movieshell.ui.components.AppToast
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -79,7 +80,8 @@ object PluginUi {
      * 长文案调用方显式传 LONG（原 PyDepGuideOverlay 口径不变）。
      */
     fun toast(context: Context, msg: String, duration: Int = Toast.LENGTH_SHORT) =
-        Toast.makeText(context, msg, duration).show()
+        // v0.211.0：委托统一精致提示，duration 原样映射（LONG 才长显）。
+        AppToast.show(context, msg, long = duration == Toast.LENGTH_LONG)
 
     fun categoryLabel(category: String): String = when (category) {
         "env" -> "环境"

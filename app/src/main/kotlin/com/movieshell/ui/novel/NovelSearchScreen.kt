@@ -1,10 +1,12 @@
 package com.movieshell.ui.novel
 
-import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,8 +24,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Source
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import coil.compose.AsyncImage
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.goldTitleColor
 import com.movieshell.ui.components.StatusRing
@@ -33,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,11 +51,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.novel.BookSourceManager
@@ -152,6 +159,12 @@ fun NovelSearchScreen(
                 singleLine = true,
                 // v0.139.0：搜索框改胶囊圆角，与系统干净风格对齐
                 shape = RoundedCornerShape(50),
+                // v0.211.0：聚焦青色描边、未聚焦低对比描边，不再是默认原生灰框。
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF4DD0E1),
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    cursorColor = Color(0xFF4DD0E1),
+                ),
                 modifier = Modifier.weight(1f).focusRequester(searchFocus),
             )
             IconButton(onClick = { vm.doSearch() }, modifier = Modifier.padding(start = 4.dp)) {
@@ -241,7 +254,11 @@ fun NovelSearchScreen(
                     }
                 }
             }
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // v0.211.0：底部留 96dp，最后一行不再被底部 dock / 精致提示盖住。
+            else -> LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 96.dp),
+            ) {
                 results.forEach { group ->
                     item(key = "header_${group.key}") {
                         Text(
@@ -252,43 +269,72 @@ fun NovelSearchScreen(
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
-                    items(group.books.distinctBy { it.remoteId }, key = { "${group.key}_${it.remoteId}" }) { item ->
+                    items(group.books.distinctBy { it.remoteId }, key = "${group.key}_${it.remoteId}") { item ->
                         AppCard {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
+                                // v0.211.0：结果卡片补封面——之前只画标题/作者，
+                                // 截图里那种“左图右文”才是用户一眼能认的书。无封面时
+                                // 用书名首字占位，不留空白方块。
+                                val coverShape = RoundedCornerShape(10.dp)
+                                if (!item.cover.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = item.cover,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(56.dp, 76.dp).clip(coverShape),
+                                        contentScale = ContentScale.Crop,
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier.size(56.dp, 76.dp)
+                                            .clip(coverShape)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            item.title.firstOrNull()?.toString() ?: "书",
+                                            fontSize = 20.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = gold,
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(item.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    // 标题/作者各只占一行，超长用 …，不再把卡片撑成三四行。
+                                    Text(
+                                        item.title,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(Modifier.height(4.dp))
                                     Text(
                                         item.author ?: "佚名",
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                 }
                                 Spacer(Modifier.width(8.dp))
                                 val nid = shelfNovelId(group, item)
                                 val onShelf = nid in shelfIds
                                 val busy = joining == group.key + item.remoteId
-                                Button(
+                                // v0.211.0：原生 Button（系统紫）改统一 AppButton；
+                                // 已在书架仍走 Secondary 灰底（v0.193.0 口径不变）。
+                                AppButton(
+                                    text = if (busy) "加入中" else if (onShelf) "已在书架" else "加入书架",
                                     onClick = {
                                         if (onShelf) removeTarget = group to item
                                         else vm.joinShelf(group, item)
                                     },
                                     enabled = !busy,
-                                    // v0.193.0：已在书架改灰底灰字，与紫色“加入书架”
-                                    // 一眼区分（用户原话“加入之后换个不同的颜色，或者就是灰色”）。
-                                    colors = if (onShelf) {
-                                        ButtonDefaults.buttonColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    } else {
-                                        ButtonDefaults.buttonColors()
-                                    },
-                                ) {
-                                    Text(if (busy) "加入中" else if (onShelf) "已在书架" else "加入书架")
-                                }
+                                    variant = if (onShelf) AppButtonVariant.Secondary else AppButtonVariant.Primary,
+                                )
                             }
                         }
                     }
@@ -307,11 +353,7 @@ fun NovelSearchScreen(
                         val rid = shelfNovelId(g, it)
                         val ok = NovelStore.deleteNovelCascade(appCtx, rid)
                         if (ok) shelfIds = shelfIds - rid
-                        Toast.makeText(
-                            appCtx,
-                            if (ok) "已移出书架" else "移出失败",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        AppToast.show(appCtx, if (ok) "已移出书架" else "移出失败", long = false)
                     }
                 },
             ) {

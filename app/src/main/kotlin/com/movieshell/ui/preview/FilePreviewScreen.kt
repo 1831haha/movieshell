@@ -1,10 +1,10 @@
 package com.movieshell.ui.preview
 
 import android.content.ClipData
+import com.movieshell.ui.components.AppToast
 import android.content.Context
 import android.content.Intent
 import android.content.ClipboardManager
-import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -192,7 +192,7 @@ fun FilePreviewScreen(
                                         onClick = {
                                             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                             cm.setPrimaryClip(ClipData.newPlainText("file", fullText))
-                                            Toast.makeText(context, "已复制全文", Toast.LENGTH_SHORT).show()
+                                            AppToast.show(context, "已复制全文", long = false)
                                         },
                                         enabled = exists,
                                     ) {
@@ -204,7 +204,7 @@ fun FilePreviewScreen(
                                     IconButton(
                                         onClick = {
                                             if (!openFileWithEditor(context, file)) {
-                                                Toast.makeText(context, "没有可用的文本编辑器", Toast.LENGTH_LONG).show()
+                                                AppToast.show(context, "没有可用的文本编辑器", long = true)
                                             }
                                         },
                                         enabled = exists,

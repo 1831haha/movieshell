@@ -1,7 +1,7 @@
 package com.movieshell.ui.market
 
-import android.widget.Toast
 import androidx.compose.foundation.background
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -120,7 +120,7 @@ private fun InstalledPluginsBody(onDetail: (String) -> Unit) {
         scope.launch {
             val (ok, msg) = PluginUi.installWithProgress(context, mp) { installState = it }
             installState = null
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            AppToast.show(context, msg, long = false)
             if (ok) tick++
         }
     }
@@ -218,7 +218,7 @@ private fun InstalledPluginsBody(onDetail: (String) -> Unit) {
                             "已卸载 ${p.name}"
                         }.getOrElse { "卸载失败：${it.message}" }
                     }
-                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, msg, long = false)
                     tick++
                 }
             },

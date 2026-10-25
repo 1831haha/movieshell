@@ -1,6 +1,7 @@
 package com.movieshell.ui.bookshelf
 
 import android.provider.OpenableColumns
+import com.movieshell.ui.components.AppDropdownMenu
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -46,7 +47,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -81,6 +81,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.movieshell.data.model.Novel
 import com.movieshell.data.model.ReadingProgress
 import com.movieshell.data.novel.BookSourceManager
+import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.NovelUpdateChecker
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.novel.TxtImporter
@@ -99,6 +100,8 @@ import com.movieshell.ui.market.PluginUi
 import com.movieshell.ui.theme.LocalBrandGradient
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -115,6 +118,12 @@ import kotlinx.coroutines.withContext
  * v0.180.0：全部提真顶行左侧，最近阅读行提顶行下面、自定义分组上面。
  */
 @OptIn(ExperimentalMaterial3Api::class)
+// v0.211.0 审计修复：不随组合销毁的写盘作用域——点开书清角标等
+// 写盘动作导航后仍要跑完，不能绑在书架 scope 上。
+private val shelfIoScope = kotlinx.coroutines.CoroutineScope(
+    kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+)
+
 @Composable
 fun BookshelfScreen(
     onNovelClick: (String) -> Unit = {},
@@ -131,6 +140,9 @@ fun BookshelfScreen(
     var customGroups by remember { mutableStateOf<List<BookGroup>>(emptyList()) }
     var importing by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
+    // v0.211.0：下拉刷新逐本状态——正在查的书 id 集合，查完一本摘一本；
+    // 本地 TXT 不联网，永不进这个集合、不转圈。
+    var checkingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     // v0.98.0：视图/排序/分组偏好
     var viewMode by remember { mutableStateOf(BookshelfGroupStore.viewMode(context)) }
@@ -151,7 +163,6 @@ fun BookshelfScreen(
     // 弹窗状态
     var deleteTarget by remember { mutableStateOf<Novel?>(null) }
     var batchDelete by remember { mutableStateOf(false) }
-    var actionTarget by remember { mutableStateOf<Novel?>(null) }
     var detailTarget by remember { mutableStateOf<Novel?>(null) }
     var groupPickerFor by remember { mutableStateOf<List<String>?>(null) }
     var showCreateGroup by remember { mutableStateOf(false) }
@@ -188,7 +199,13 @@ fun BookshelfScreen(
     }
     LaunchedEffect(Unit) { reload() }
 
-    // v0.84.0：检查全部在线书的更新（本地 TXT 跳过）
+    // v0.84.0：检查全部在线书的更新（本地 TXT 跳过）。
+    // v0.211.0：逐本状态——原来 checkAllDetailed 只在全部跑完才回结果，
+    // 刷新时每本书后面没有自己的状态，只剩顶部一行“正在检查更新…”。
+    // 改成每本书一个 async，查完立刻把自己从 checkingIds 摘掉：
+    // 圈圈还在转 = 这本还没查完；圈圈停了 + 数字角标 = 有更新；
+    // 圈圈停了 + 红色“失败” = 这本没查到。写盘也在逐本回调里
+    // 随查随做（NovelUpdateStore 自带锁串行化，不怕互相覆盖）。
     fun checkUpdates() {
         if (checking) return
         checking = true
@@ -197,20 +214,56 @@ fun BookshelfScreen(
                 BookSourceManager.load(context)
                 PyBookSourceManager.load(context)
             }
-            // v0.186.0 第 9 组：用带失败计数的批量检查——全失败时不再谎报“都追上了”
-            val checked = NovelUpdateChecker.checkAllDetailed(context, books)
-            val result = checked.updated
-            result.forEach { (id, n) -> NovelUpdateStore.set(context, id, n) }
-            // v0.197.0：失败 id 存起来供“更新失败”页签用
-            failedIds = checked.failedIds
-            BookshelfGroupStore.setFailedIds(context, checked.failedIds)
+            val online = books.filter { it.sourceKey != "local" }
+            checkingIds = online.map { it.id }.toSet()
+            val results = online.map { novel ->
+                async {
+                    // v0.211.0 回归修复（流程审计 H2）：逐本 async 时丢了
+                    // checkAllDetailed 里包的 Semaphore(4) 限流，几百本书会
+                    // 齐发搜索+拉目录重蹈 v0.109 前被反爬封 IP 的覆辙；逐本
+                    // 完成回调里包一层 withSearchThrottle，限流和逐本状态兼得。
+                    val r = NovelSourceEngine.withSearchThrottle {
+                        NovelUpdateChecker.check(context, novel)
+                    }
+                    checkingIds = checkingIds - novel.id
+                    // v0.211.0 审计修复：原来角标/失败态只改内存，全部
+                    // 跑完才串行写盘——中途退出书架，已查完的结果全丢，
+                    // 且目录已同步、角标从未落盘，下次检查按已同步总数
+                    // 算出 0，这批更新被永久静默吞掉。改成逐本随查随写盘。
+                    when (r) {
+                        is NovelUpdateChecker.Result.Updated -> {
+                            val total = (updates[novel.id]?.newChapters ?: 0) + r.newCount
+                            updates = updates + (novel.id to NovelUpdateInfo(novel.id, total, System.currentTimeMillis()))
+                            failedIds = failedIds - novel.id
+                            NovelUpdateStore.set(context, novel.id, r.newCount)
+                            BookshelfGroupStore.setFailedIds(context, failedIds)
+                        }
+                        is NovelUpdateChecker.Result.Failed -> {
+                            failedIds = failedIds + novel.id
+                            BookshelfGroupStore.setFailedIds(context, failedIds)
+                        }
+                        else -> {
+                            failedIds = failedIds - novel.id
+                            BookshelfGroupStore.setFailedIds(context, failedIds)
+                        }
+                    }
+                    novel.id to r
+                }
+            }.awaitAll()
+            val result = results.mapNotNull { (id, r) ->
+                (r as? NovelUpdateChecker.Result.Updated)?.let { id to it.newCount }
+            }.toMap()
+            val failed = results.count { (_, r) -> r is NovelUpdateChecker.Result.Failed }
+            // 角标与失败态已在逐本回调里随查随写盘，这里不再批量重写
+            // （批量重写会把中途已写盘的结果再覆盖一遍，还丢累加语义）。
             checking = false
+            checkingIds = emptySet()
             reload()
-            PluginUi.toast(context, 
+            PluginUi.toast(context,
                 when {
                     result.isNotEmpty() -> "${result.size} 本有更新"
-                    checked.checked > 0 && checked.failed == checked.checked -> "检查失败，稍后再试"
-                    checked.failed > 0 -> "已检查，${checked.failed} 本检查失败"
+                    online.isNotEmpty() && failed == online.size -> "检查失败，稍后再试"
+                    failed > 0 -> "已检查，$failed 本检查失败"
                     else -> "都追上了，没有新章节"
                 },
             )
@@ -218,25 +271,30 @@ fun BookshelfScreen(
     }
 
     fun openNovel(novel: Novel) {
-        scope.launch {
-            NovelUpdateStore.clear(context, novel.id)
-            updates = updates - novel.id
-        }
+        // v0.211.0 审计修复：原来清角标放在书架 scope 里，导航一走
+        // 组合处置就可能取消写盘，返回书架角标复活。清角标走独立
+        // 的应用级作用域，不随书架组合销毁；内存角标先摘掉。
+        updates = updates - novel.id
+        shelfIoScope.launch { NovelUpdateStore.clear(context, novel.id) }
         onNovelClick(novel.id)
     }
 
     fun deleteNovels(targets: List<Novel>) {
         scope.launch {
-            withContext(Dispatchers.IO) {
+            val deleted = withContext(Dispatchers.IO) {
                 // v0.186.0 第 9 组：走删书唯一入口，与搜索页清理范围一致
                 // （本体 + 进度 + 书签 + 分组 + 追更角标）
-                targets.forEach { t ->
-                    NovelStore.deleteNovelCascade(context, t.id)
-                }
+                // v0.211.0 审计修复：原来丢弃返回值无条件报“已删除 N 本”，
+                // 删失败的书还在架上。按实际删掉的本数报，失败的如实说。
+                targets.count { NovelStore.deleteNovelCascade(context, it.id) }
             }
             selectionMode = false
             selectedIds = emptySet()
-            PluginUi.toast(context, "已删除 ${targets.size} 本")
+            PluginUi.toast(
+                context,
+                if (deleted == targets.size) "已删除 $deleted 本"
+                else "已删除 $deleted 本，${targets.size - deleted} 本删除失败",
+            )
             reload()
         }
     }
@@ -443,7 +501,7 @@ fun BookshelfScreen(
                         IconButton(onClick = { showTopMenu = true }) {
                             Icon(Icons.Filled.MoreVert, "更多")
                         }
-                        DropdownMenu(
+                        AppDropdownMenu(
                             expanded = showTopMenu,
                             onDismissRequest = { showTopMenu = false },
                         ) {
@@ -576,7 +634,7 @@ fun BookshelfScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    DropdownMenu(
+                    AppDropdownMenu(
                         expanded = showSortMenu,
                         onDismissRequest = { showSortMenu = false },
                     ) {
@@ -685,7 +743,7 @@ fun BookshelfScreen(
                         Text(
                             // v0.197.0：更新失败页签空态单独说明
                             if (shelfTab == 1) "还没有更新失败的书\n下拉刷新检查后，失败的会列在这里"
-                            else "这个分组还没有书\n长按书籍可全选/分组/收藏",
+                            else "这个分组还没有书\n长按书籍看书籍信息",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 20.sp,
@@ -707,6 +765,8 @@ fun BookshelfScreen(
                             NovelGridCard(
                                 novel = novel,
                                 updateCount = updates[novel.id]?.newChapters ?: 0,
+                                checking = checkingIds.contains(novel.id),
+                                checkFailed = failedIds.contains(novel.id),
                                 selectionMode = selectionMode,
                                 selected = selectedIds.contains(novel.id),
                                 onClick = {
@@ -714,8 +774,10 @@ fun BookshelfScreen(
                                     else openNovel(novel)
                                 },
                                 onLongClick = {
+                                    // v0.211.0：长按直接进书籍详情（用户截图口径），
+                                    // 不再弹长按操作表；分组/换源/删除/收藏都在详情里。
                                     if (selectionMode) toggleSelect(novel.id)
-                                    else actionTarget = novel
+                                    else detailTarget = novel
                                 },
                             )
                         }
@@ -734,6 +796,8 @@ fun BookshelfScreen(
                                 novel = novel,
                                 lastReadAt = progressMap[novel.id]?.updatedAt ?: 0L,
                                 updateCount = updates[novel.id]?.newChapters ?: 0,
+                                checking = checkingIds.contains(novel.id),
+                                checkFailed = failedIds.contains(novel.id),
                                 selectionMode = selectionMode,
                                 selected = selectedIds.contains(novel.id),
                                 onClick = {
@@ -741,8 +805,10 @@ fun BookshelfScreen(
                                     else openNovel(novel)
                                 },
                                 onLongClick = {
+                                    // v0.211.0：长按直接进书籍详情（用户截图口径），
+                                    // 不再弹长按操作表；分组/换源/删除/收藏都在详情里。
                                     if (selectionMode) toggleSelect(novel.id)
-                                    else actionTarget = novel
+                                    else detailTarget = novel
                                 },
                             )
                         }
@@ -786,27 +852,6 @@ fun BookshelfScreen(
         }
     }
 
-    // 长按操作表（v0.178.0：新增全选/收藏，分组沿用移入分组）
-    actionTarget?.let { target ->
-        BookActionSheet(
-            novel = target,
-            isFavorite = customGroups.find { it.name == "收藏" }
-                ?.novelIds?.contains(target.id) == true,
-            onDismiss = { actionTarget = null },
-            onRead = { actionTarget = null; openNovel(target) },
-            onDetail = { actionTarget = null; detailTarget = target },
-            onMoveGroup = { actionTarget = null; groupPickerFor = listOf(target.id) },
-            onChangeSource = { actionTarget = null; detailTarget = target },
-            onDelete = { actionTarget = null; deleteTarget = target },
-            onSelectAll = {
-                actionTarget = null
-                selectionMode = true
-                selectedIds = visibleBooks.map { it.id }.toSet()
-            },
-            onToggleFavorite = { actionTarget = null; toggleFavorite(target) },
-        )
-    }
-
     // 书籍详情
     detailTarget?.let { target ->
         // 用最新数据（换源后 totalChapters 可能变）
@@ -816,9 +861,20 @@ fun BookshelfScreen(
             lastReadAt = progressMap[fresh.id]?.updatedAt ?: 0L,
             onDismiss = { detailTarget = null },
             onRead = { detailTarget = null; openNovel(fresh) },
+            // v0.211.0 审计修复：详情目录点某章直达该章（一次性请求，
+            // 阅读器载入时消费，别的入口不受影响）。
+            onReadChapter = { idx ->
+                detailTarget = null
+                com.movieshell.ui.reader.ReaderJumpRequest.chapter = idx
+                openNovel(fresh)
+            },
             onMoveGroup = { detailTarget = null; groupPickerFor = listOf(fresh.id) },
             onDelete = { detailTarget = null; deleteTarget = fresh },
             onOpenPurifyRules = { detailTarget = null; onOpenPurifyRules() },
+            // v0.211.0：详情页显示真实分组名与收藏态；收藏切换后不关详情，reload 后状态翻过来。
+            groupName = customGroups.find { fresh.id in it.novelIds }?.name ?: "未分组",
+            isFavorite = customGroups.find { it.name == "收藏" }?.novelIds?.contains(fresh.id) == true,
+            onToggleFavorite = { toggleFavorite(fresh) },
             onSourceSwitched = {
                 PluginUi.toast(context, "已换源")
                 reload()

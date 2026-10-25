@@ -1,7 +1,7 @@
 package com.movieshell.ui.trash
 
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -151,9 +151,9 @@ fun TrashScreen(
                             variant = AppButtonVariant.Ghost,
                             onClick = {
                                 if (TrashStore.restore(context, item)) {
-                                    Toast.makeText(context, "已恢复", Toast.LENGTH_SHORT).show()
+                                    AppToast.show(context, "已恢复", long = false)
                                 } else {
-                                    Toast.makeText(context, "恢复失败（文件已存在或已丢失）", Toast.LENGTH_LONG).show()
+                                    AppToast.show(context, "恢复失败（文件已存在或已丢失）", long = true)
                                 }
                                 reload()
                             },
@@ -215,7 +215,7 @@ fun TrashScreen(
                 TrashStore.clearAll(context)
                 showClearAll = false
                 reload()
-                Toast.makeText(context, "回收站已清空", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "回收站已清空", long = false)
             },
         ) {
             Text("彻底删除回收站里的 ${items.size} 项吗？无法恢复。")

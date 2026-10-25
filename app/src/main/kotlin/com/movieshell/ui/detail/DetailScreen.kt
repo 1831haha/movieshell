@@ -1,6 +1,6 @@
 package com.movieshell.ui.detail
 
-import android.widget.Toast
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -341,7 +341,7 @@ fun DetailScreen(
                 // 不进只剩封面的空白播放区（此前 markWatched 与 PlaySession.start
                 // 都在空地址判定之前执行，点集没反应还被标成已看）
                 if (link.isBlank()) {
-                    Toast.makeText(context, "该集暂无播放地址", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "该集暂无播放地址", long = false)
                     embeddedError = "该集暂无播放地址"
                     embeddedResolving = false
                     return@launch
@@ -709,10 +709,10 @@ fun DetailScreen(
                                                     if (following) {
                                                         if (FollowStore.unfollow(context, followId)) {
                                                             following = false
-                                                            Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
+                                                            AppToast.show(context, "已取消追剧", long = false)
                                                         } else {
                                                             // v0.171.0：失败也给提示，不再点了没反应
-                                                            Toast.makeText(context, "取消追剧失败，请重试", Toast.LENGTH_SHORT).show()
+                                                            AppToast.show(context, "取消追剧失败，请重试", long = false)
                                                         }
                                                     } else {
                                                         val ok = FollowStore.follow(
@@ -729,9 +729,9 @@ fun DetailScreen(
                                                         )
                                                         if (ok) {
                                                             following = true
-                                                            Toast.makeText(context, "已追剧，有更新会提醒你", Toast.LENGTH_SHORT).show()
+                                                            AppToast.show(context, "已追剧，有更新会提醒你", long = false)
                                                         } else {
-                                                            Toast.makeText(context, "追剧失败，请重试", Toast.LENGTH_SHORT).show()
+                                                            AppToast.show(context, "追剧失败，请重试", long = false)
                                                         }
                                                     }
                                                 }
@@ -886,11 +886,7 @@ fun DetailScreen(
                                                 if (ep != null) {
                                                     playEpisode(ep, safeLine, i)
                                                 } else {
-                                                    Toast.makeText(
-                                                        context,
-                                                        "该源未返回可播地址",
-                                                        Toast.LENGTH_SHORT,
-                                                    ).show()
+                                                    AppToast.show(context, "该源未返回可播地址", long = false)
                                                 }
                                             },
                                         )
@@ -1104,11 +1100,7 @@ fun DetailScreen(
                 vodId = vodId,
                 onPick = {
                     showOnlineSubtitle = false
-                    android.widget.Toast.makeText(
-                        context,
-                        "字幕已保存（按所选集记忆）",
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
+                    AppToast.show(context, "字幕已保存（按所选集记忆）", long = false)
                 },
                 onDismiss = { showOnlineSubtitle = false },
                 sourceKey = followSourceKey,
@@ -1214,25 +1206,17 @@ fun DetailScreen(
                                         resolving = false
                                         showDownloadDialog = false
                                         if (tasks.isEmpty()) {
-                                            Toast.makeText(context, "没有可下载的剧集", Toast.LENGTH_SHORT).show()
+                                            AppToast.show(context, "没有可下载的剧集", long = false)
                                         } else {
                                             // v0.63.0：空间不足提醒
                                             if (DownloadSettings.lowSpaceWarn(context)) {
                                                 val free = StoragePaths.downloadDir(context).usableSpace
                                                 if (free < DownloadSettings.LOW_SPACE_BYTES) {
-                                                    Toast.makeText(
-                                                        context,
-                                                        "存储空间不足（剩余 ${free / 1024 / 1024}MB），可能下不完",
-                                                        Toast.LENGTH_LONG,
-                                                    ).show()
+                                                    AppToast.show(context, "存储空间不足（剩余 ${free / 1024 / 1024}MB），可能下不完", long = true)
                                                 }
                                             }
                                             DownloadManager.enqueue(context, tasks)
-                                            Toast.makeText(
-                                                context,
-                                                "已加入下载队列（${tasks.size}）",
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
+                                            AppToast.show(context, "已加入下载队列（${tasks.size}）", long = false)
                                         }
                                     }
                                 },

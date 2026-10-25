@@ -122,6 +122,10 @@ fun NovelListCard(
     novel: Novel,
     lastReadAt: Long,
     updateCount: Int = 0,
+    // v0.211.0：下拉刷新逐本状态——checking 转圈、checkFailed 红色“失败”，
+    // 转圈优先于失败（正在查的书不先贴失败）。
+    checking: Boolean = false,
+    checkFailed: Boolean = false,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onClick: () -> Unit,
@@ -216,6 +220,27 @@ fun NovelListCard(
                     text = "共 $total 章 · ${formatLastReadTs(lastReadAt)}",
                 )
             }
+            // v0.211.0：行尾逐本状态——转圈 = 这本还在查，停了就是查完了；
+            // 失败贴红色“失败”，有更新的数字角标本来就在书名旁。
+            if (checking) {
+                Spacer(Modifier.width(8.dp))
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.dp,
+                )
+            } else if (checkFailed) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "失败",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier
+                        .background(Color(0xFFE53935), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
     }
@@ -227,6 +252,8 @@ fun NovelListCard(
 fun NovelGridCard(
     novel: Novel,
     updateCount: Int = 0,
+    checking: Boolean = false,
+    checkFailed: Boolean = false,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onClick: () -> Unit,
@@ -292,8 +319,38 @@ fun NovelGridCard(
                     )
                 }
             }
-            // 更新角标（左上）
-            if (updateCount > 0) {
+            // v0.211.0：逐本状态——查完失败贴左上红“失败”（有更新时角标在，
+            // 失败不可能同时有更新，不冲突）；正在查则盖一层转圈在封面中央。
+            if (checkFailed && !checking) {
+                Text(
+                    text = "失败",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .background(Color(0xFFE53935), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+            if (checking) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(36.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                    )
+                }
+            }
+            // 更新角标（左上；失败标记在同一角，失败时不叠加）
+            if (updateCount > 0 && !(checkFailed && !checking)) {
                 Text(
                     text = "+$updateCount",
                     fontSize = 10.sp,

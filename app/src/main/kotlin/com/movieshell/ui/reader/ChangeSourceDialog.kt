@@ -1,7 +1,7 @@
 package com.movieshell.ui.reader
 
-import android.widget.Toast
 import androidx.compose.foundation.clickable
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -151,10 +151,10 @@ fun ChangeSourceDialog(
             }.getOrDefault(-1)
             switching = null
             if (ok >= 0) {
-                Toast.makeText(context, "已换源", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "已换源", long = false)
                 onSwitched(ok)
             } else {
-                Toast.makeText(context, "换源失败（目录拉取失败）", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "换源失败（目录拉取失败）", long = false)
             }
         }
     }

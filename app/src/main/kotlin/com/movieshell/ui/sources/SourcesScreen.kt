@@ -1,9 +1,10 @@
 package com.movieshell.ui.sources
 
 import android.content.Context
+import com.movieshell.ui.components.AppToast
+import com.movieshell.ui.components.AppSwitch
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -59,7 +60,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -467,30 +467,22 @@ fun SourcesScreen(
                             added.forEach { parseSubscription(it, quiet = true) }
                         }
                         if (!quiet) {
-                            Toast.makeText(
-                                context,
-                                "多仓解析完成：${cache.warehouses.size} 个子仓",
-                                Toast.LENGTH_LONG,
-                            ).show()
+                            AppToast.show(context, "多仓解析完成：${cache.warehouses.size} 个子仓", long = true)
                         }
                         return@onSuccess
                     }
                     if (!quiet) {
                         val ok = cache.sites.count { it.kind != SubSiteStore.KIND_UNSUPPORTED }
                         val bad = cache.sites.size - ok
-                        Toast.makeText(
-                            context,
-                            "解析完成：${cache.sites.size} 个站点，$ok 个可用" +
-                                if (bad > 0) "，$bad 个不支持" else "",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                        AppToast.show(context, "解析完成：${cache.sites.size} 个站点，$ok 个可用" +
+                                if (bad > 0) "，$bad 个不支持" else "", long = true)
                     }
                 }
                 .onFailure { e ->
                     // v0.46.0：手动刷新失败也记，"已失效" badge 及时更新
                     SubRefreshStore.recordResult(context, subUrl, false)
                     if (!quiet) {
-                        Toast.makeText(context, "解析失败：${e.message}", Toast.LENGTH_LONG).show()
+                        AppToast.show(context, "解析失败：${e.message}", long = true)
                     }
                 }
             subParsing[subUrl] = false
@@ -501,10 +493,10 @@ fun SourcesScreen(
     fun setCurrentSubSite(subUrl: String, siteKey: String, siteName: String) {
         if (SubSiteStore.setCurrent(context, subUrl, siteKey)) {
             currentSubSiteKey = SubSiteStore.currentSiteKey(context)
-            Toast.makeText(context, "点播页当前源：$siteName", Toast.LENGTH_SHORT).show()
+            AppToast.show(context, "点播页当前源：$siteName", long = false)
             onGoHome()
         } else {
-            Toast.makeText(context, "设置失败：该站点不可用", Toast.LENGTH_SHORT).show()
+            AppToast.show(context, "设置失败：该站点不可用", long = false)
         }
     }
 
@@ -606,7 +598,7 @@ fun SourcesScreen(
         SubSiteStore.appScope.launch(Dispatchers.IO) {
             if (SourceProbeWorker.isRunningBlocking(context)) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "检测正在进行中", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "检测正在进行中", long = false)
                 }
                 return@launch
             }
@@ -630,7 +622,7 @@ fun SourcesScreen(
         SourceStateStore.setRuleEnabled(context, TAB_JS, name, true)
         SourceStateStore.saveActiveRule(context, TAB_JS, name)
         refreshDrpyRules()
-        Toast.makeText(context, "已切换为 $name", Toast.LENGTH_SHORT).show()
+        AppToast.show(context, "已切换为 $name", long = false)
     }
 
     fun activatePy(name: String) {
@@ -640,7 +632,7 @@ fun SourcesScreen(
         SourceStateStore.setRuleEnabled(context, TAB_PY, name, true)
         SourceStateStore.saveActiveRule(context, TAB_PY, name)
         refreshPyRules()
-        Toast.makeText(context, "已切换为 $name", Toast.LENGTH_SHORT).show()
+        AppToast.show(context, "已切换为 $name", long = false)
     }
 
     /** PHP 规则选中：v0.151.0 起走 CLI 引擎，选中后首页/详情/播放直接出内容。 */
@@ -648,13 +640,13 @@ fun SourcesScreen(
         PhpSourceManager.setActiveRule(name)
         SourceStateStore.saveActiveRule(context, TAB_PHP, name)
         refreshPhpEntries()
-        Toast.makeText(context, "已选中 $name", Toast.LENGTH_SHORT).show()
+        AppToast.show(context, "已选中 $name", long = false)
     }
 
     fun activateWeb(site: WebSourceManager.WebSite) {
         WebSourceManager.setActiveSite(site.fileName)
         refreshWebSites()
-        Toast.makeText(context, "已切换为 ${site.name}", Toast.LENGTH_SHORT).show()
+        AppToast.show(context, "已切换为 ${site.name}", long = false)
     }
 
     fun openWebSniff(site: WebSourceManager.WebSite) {
@@ -750,7 +742,7 @@ fun SourcesScreen(
             savePins(context, item.kind, it)
         }
         refreshTab(item.kind)
-        Toast.makeText(context, "已移入回收站", Toast.LENGTH_SHORT).show()
+        AppToast.show(context, "已移入回收站", long = false)
     }
 
     // ---------- 置顶 ----------
@@ -758,10 +750,10 @@ fun SourcesScreen(
         val tabPins = pins.getOrPut(item.kind) { mutableListOf() }
         if (tabPins.contains(item.fileName)) {
             tabPins.remove(item.fileName)
-            Toast.makeText(context, "已取消置顶", Toast.LENGTH_SHORT).show()
+            AppToast.show(context, "已取消置顶", long = false)
         } else {
             tabPins.add(item.fileName)
-            Toast.makeText(context, "已置顶到首", Toast.LENGTH_SHORT).show()
+            AppToast.show(context, "已置顶到首", long = false)
         }
         savePins(context, item.kind, tabPins)
     }
@@ -791,45 +783,33 @@ fun SourcesScreen(
                         if (DrpySourceManager.activeRuleName() == null) {
                             activateDrpy(r.fileName)
                         }
-                        Toast.makeText(context, "已导入 ${r.fileName}", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "已导入 ${r.fileName}", long = false)
                     }
                     "py" -> {
                         refreshPyRules()
                         if (PySourceManager.activeRuleName() == null) {
                             activatePy(r.fileName)
                         }
-                        Toast.makeText(context, "已导入 ${r.fileName}", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "已导入 ${r.fileName}", long = false)
                     }
                     "php" -> {
                         refreshPhpEntries()
-                        Toast.makeText(
-                            context,
-                            "已保存到PHP文件夹",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        AppToast.show(context, "已保存到PHP文件夹", long = false)
                     }
                     "web" -> {
                         refreshWebSites()
-                        Toast.makeText(context, "已导入 ${r.fileName}，可直接打开嗅探", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "已导入 ${r.fileName}，可直接打开嗅探", long = false)
                     }
                     else -> {
                         refreshTab(target.dirName)
-                        Toast.makeText(
-                            context,
-                            "已保存到${target.label}，该类型执行引擎开发中",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                        AppToast.show(context, "已保存到${target.label}，该类型执行引擎开发中", long = true)
                     }
                 }
             }
             is ImportResult.WrongExt ->
-                Toast.makeText(
-                    context,
-                    "请选择 ${target.extensions.joinToString(" / ")} 文件",
-                    Toast.LENGTH_LONG,
-                ).show()
+                AppToast.show(context, "请选择 ${target.extensions.joinToString(" / ")} 文件", long = true)
             is ImportResult.Failed ->
-                Toast.makeText(context, "导入失败：${r.reason}", Toast.LENGTH_LONG).show()
+                AppToast.show(context, "导入失败：${r.reason}", long = true)
         }
     }
 
@@ -881,7 +861,7 @@ fun SourcesScreen(
         webUrlInput = ""
         webUrlError = false
         showWebAddDialog = false
-        Toast.makeText(context, "已添加 ${site.name}", Toast.LENGTH_SHORT).show()
+        AppToast.show(context, "已添加 ${site.name}", long = false)
     }
 
     fun addSubscription() {
@@ -1420,13 +1400,13 @@ fun SourcesScreen(
                 MenuRow(Icons.Filled.Edit, "文件编辑") {
                     menuItem = null
                     if (!openFileWithEditor(context, file)) {
-                        Toast.makeText(context, "没有可用的文本编辑器", Toast.LENGTH_LONG).show()
+                        AppToast.show(context, "没有可用的文本编辑器", long = true)
                     }
                 }
                 MenuRow(Icons.Filled.Share, "分享文件") {
                     menuItem = null
                     if (!shareFile(context, file)) {
-                        Toast.makeText(context, "分享失败", Toast.LENGTH_LONG).show()
+                        AppToast.show(context, "分享失败", long = true)
                     }
                 }
                 MenuRow(Icons.Filled.Info, "文件信息") {
@@ -1771,7 +1751,7 @@ private fun FileCard(
             }
             Spacer(Modifier.width(2.dp))
             // v0.24.0：源级启停（禁用后首页/搜索/检测跳过该源）
-            Switch(
+            AppSwitch(
                 checked = item.enabled,
                 onCheckedChange = { onToggleEnabled(item, it) },
             )
@@ -2002,7 +1982,7 @@ private fun SubscriptionGridCard(
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
+                AppSwitch(
                     checked = entry.enabled,
                     onCheckedChange = onToggle,
                 )
@@ -2065,7 +2045,7 @@ private fun SubscriptionExpandedCard(
             )
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
+                AppSwitch(
                     checked = entry.enabled,
                     onCheckedChange = onToggle,
                 )
@@ -2107,7 +2087,7 @@ private fun SubscriptionExpandedCard(
                 IconButton(
                     onClick = {
                         clipboard.setText(AnnotatedString(subUrl))
-                        Toast.makeText(context, "订阅链接已复制", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "订阅链接已复制", long = false)
                     },
                     modifier = Modifier.size(36.dp),
                 ) {
@@ -2209,7 +2189,7 @@ private fun SubscriptionCacheBody(
                         IconButton(
                             onClick = {
                                 clipboard.setText(AnnotatedString(wh.url))
-                                Toast.makeText(context, "子仓链接已复制", Toast.LENGTH_SHORT).show()
+                                AppToast.show(context, "子仓链接已复制", long = false)
                             },
                             modifier = Modifier.size(36.dp),
                         ) {
@@ -2340,11 +2320,7 @@ private fun SubscriptionSiteRows(
                     if (supported) {
                         onSetCurrent(cacheUrl, rec.key, rec.name)
                     } else {
-                        Toast.makeText(
-                            context,
-                            rec.reason.ifBlank { "该站点暂不支持" },
-                            Toast.LENGTH_LONG,
-                        ).show()
+                        AppToast.show(context, rec.reason.ifBlank { "该站点暂不支持" }, long = true)
                     }
                 }
                 .padding(vertical = 6.dp),
@@ -2392,7 +2368,7 @@ private fun SubscriptionSiteRows(
             }
             Spacer(Modifier.width(4.dp))
             // v0.24.0：站点级启停（禁用后聚合搜索跳过）
-            Switch(
+            AppSwitch(
                 checked = rec.enabled,
                 onCheckedChange = { enabled ->
                     SubSiteStore.setSiteEnabled(

@@ -166,6 +166,15 @@ object PyBookSourceManager {
         val dst = File(dir, newName)
         if (!src.isFile || dst.exists()) return@withContext false
         if (!src.renameTo(dst)) return@withContext false
+        // v0.211.0 审计修复：PY 重命名原来只改文件名，书架上
+        // pybook:旧文件名的书静默断源；重命名成功后跟着迁 key。
+        runCatching {
+            com.movieshell.data.repo.NovelStore.migrateSourceKey(
+                context,
+                "$SOURCE_KEY_PREFIX$oldName",
+                "$SOURCE_KEY_PREFIX$newName",
+            )
+        }
         runCatching { ChaquopyEngine.resetRuleCache(src.absolutePath) }
         val wasEnabled = isEnabled(oldName)
         setEnabled(context, oldName, false)

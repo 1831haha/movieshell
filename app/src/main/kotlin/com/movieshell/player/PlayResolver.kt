@@ -1,7 +1,7 @@
 package com.movieshell.player
 
 import android.content.Context
-import android.widget.Toast
+import com.movieshell.ui.components.AppToast
 import com.movieshell.data.model.Episode
 import com.movieshell.data.model.ParseConfig
 import com.movieshell.data.model.Site
@@ -66,7 +66,7 @@ suspend fun resolvePlayUrl(
                     subSite, flag, epUrl, effectiveParses(context, subSite), context
                 )
                 if (r.parse == 1 && r.url.isBlank()) {
-                    Toast.makeText(context, "解析失败", Toast.LENGTH_LONG).show()
+                    AppToast.show(context, "解析失败", long = true)
                 }
                 if (r.url.isNotBlank() && r.header.isNotEmpty()) {
                     SniffPlayHeaders.put(r.url, r.header)
@@ -87,7 +87,7 @@ suspend fun resolvePlayUrl(
                     subSite, flag, epUrl, effectiveParses(context, subSite), context
                 )
                 if (r.parse == 1 && r.url.isBlank()) {
-                    Toast.makeText(context, "解析失败", Toast.LENGTH_LONG).show()
+                    AppToast.show(context, "解析失败", long = true)
                 }
                 if (r.url.isNotBlank() && r.header.isNotEmpty()) {
                     SniffPlayHeaders.put(r.url, r.header)
@@ -119,7 +119,7 @@ private suspend fun finishPyPlay(
     }
     val (url, parse, header) = r
     if (url.isBlank()) {
-        Toast.makeText(context, "该规则未返回播放地址", Toast.LENGTH_LONG).show()
+        AppToast.show(context, "该规则未返回播放地址", long = true)
         return ""
     }
     if (header.isNotEmpty()) SniffPlayHeaders.put(url, header)
@@ -128,7 +128,7 @@ private suspend fun finishPyPlay(
     else ParseStore.merged(context, emptyList())
     val direct = ParseApi().parse(parses, url, context)
     if (direct.isBlank()) {
-        Toast.makeText(context, "解析失败", Toast.LENGTH_LONG).show()
+        AppToast.show(context, "解析失败", long = true)
         return ""
     }
     // v0.186.0：parse=1 解析出的 direct 也要再 put 一次原规则头，否则

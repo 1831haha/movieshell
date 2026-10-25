@@ -1,6 +1,7 @@
 package com.movieshell.player
 
 import android.app.Activity
+import com.movieshell.ui.components.AppToast
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.pm.ActivityInfo
@@ -8,7 +9,6 @@ import android.content.res.Configuration
 import android.media.AudioManager
 import android.os.Build
 import android.util.Rational
-import android.widget.Toast
 import com.movieshell.data.model.PlayLine
 import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DownloadSettings
@@ -656,11 +656,7 @@ fun PlayerScreen(
                     // v0.175.0：自动换线路也要通知外部——之前只改了 PlaySession，
                     // 详情页的选中线路没收到通知，Tab 和源胶囊还停在旧线路上。
                     onEpisodeChange(targetLine, targetEpIdx)
-                    Toast.makeText(
-                        context,
-                        "已自动切换到「${lines[targetLine].name}」",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    AppToast.show(context, "已自动切换到「${lines[targetLine].name}」", long = false)
                     LogBus.i("Player", "播放失败，自动换线路：${lines[targetLine].name}")
                     autoSwitching = true
                     playUrl = link
@@ -739,7 +735,7 @@ fun PlayerScreen(
                     "Player",
                     "自动换内核异常：${t::class.java.simpleName}: ${t.message}",
                 )
-                Toast.makeText(context, "切换内核失败，尝试换线路", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "切换内核失败，尝试换线路", long = false)
                 tryNextLine(msg)
             }
             return
@@ -843,7 +839,7 @@ fun PlayerScreen(
             throw e
         } catch (t: Throwable) {
             LogBus.e("Player", "起播链路异常：${t::class.java.simpleName}: ${t.message}")
-            Toast.makeText(context, "播放启动失败，请重试", Toast.LENGTH_SHORT).show()
+            AppToast.show(context, "播放启动失败，请重试", long = false)
         }
     }
 
@@ -934,10 +930,10 @@ fun PlayerScreen(
                     startPositionMs = pos, subtitleUrl = sub,
                 )
                 if (ok) EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
-                else Toast.makeText(context, "字幕应用失败", Toast.LENGTH_SHORT).show()
+                else AppToast.show(context, "字幕应用失败", long = false)
             } catch (t: Throwable) {
                 LogBus.e("Player", "重播异常：${t.message}")
-                Toast.makeText(context, "操作失败，请重试", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "操作失败，请重试", long = false)
             }
         }
     }
@@ -961,21 +957,13 @@ fun PlayerScreen(
                 val pos = EngineHost.currentPosition()
                 // v0.123.0：手动切 libmpv 前先查插件在不在，没装别把用户带进黑屏
                 if (target == PlayerEngine.LIBMPV && !MpvPluginLoader.isInstalled(context)) {
-                    Toast.makeText(
-                        context,
-                        "libmpv 插件未安装，请先到插件市场安装",
-                        Toast.LENGTH_LONG,
-                    ).show()
+                    AppToast.show(context, "libmpv 插件未安装，请先到插件市场安装", long = true)
                     return@launch
                 }
                 EngineHost.stop()
                 EngineHost.setEngineOverride(null)
                 PlayerSettings.setEngine(context, target)
-                Toast.makeText(
-                    context,
-                    "播放内核已切换为 ${if (target == PlayerEngine.MEDIA3) "Media3" else "libmpv"}",
-                    Toast.LENGTH_SHORT,
-                ).show()
+                AppToast.show(context, "播放内核已切换为 ${if (target == PlayerEngine.MEDIA3) "Media3" else "libmpv"}", long = false)
                 LogBus.i("Player", "切换播放内核 → $target")
                 val sub = runCatching { currentSubtitleUrl() }.getOrNull()
                 val ok = EngineHost.play(
@@ -983,10 +971,10 @@ fun PlayerScreen(
                     startPositionMs = pos, subtitleUrl = sub,
                 )
                 if (ok) EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
-                else Toast.makeText(context, "切换后起播失败", Toast.LENGTH_SHORT).show()
+                else AppToast.show(context, "切换后起播失败", long = false)
             } catch (t: Throwable) {
                 LogBus.e("Player", "手动切换内核异常：${t::class.java.simpleName}: ${t.message}")
-                Toast.makeText(context, "切换内核失败", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "切换内核失败", long = false)
             } finally {
                 switchingEngine = false
             }
@@ -1085,7 +1073,7 @@ fun PlayerScreen(
             if (sleepArmed && pos >= dur - 2000) {
                 if (SleepTimer.consumeAfterEpisode()) {
                     EngineHost.pause()
-                    Toast.makeText(context, "定时关闭：本集播完已暂停", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "定时关闭：本集播完已暂停", long = false)
                     LogBus.i("Player", "定时关闭触发：播完本集暂停")
                 }
                 break
@@ -1436,7 +1424,7 @@ fun PlayerScreen(
                     icon = Icons.Filled.Cast,
                     desc = "投屏",
                     onClick = {
-                        Toast.makeText(context, "投屏功能开发中，敬请期待", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "投屏功能开发中，敬请期待", long = false)
                         LogBus.i("Player", "投屏按钮：功能开发中")
                     },
                 )
@@ -1579,11 +1567,7 @@ fun PlayerScreen(
                                     EngineHost.currentPosition(),
                                 )
                             }
-                            Toast.makeText(
-                                context,
-                                if (file != null) "截图已保存：${file.name}" else "截图失败",
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            AppToast.show(context, if (file != null) "截图已保存：${file.name}" else "截图失败", long = false)
                         }
                     },
                 )
@@ -1759,7 +1743,7 @@ fun PlayerScreen(
                         // v0.65：清晰度（对标目标界面"自动"；当前直链无多清晰度，展示占位）
                         TextButton(
                             onClick = {
-                                Toast.makeText(context, "当前为自动清晰度", Toast.LENGTH_SHORT).show()
+                                AppToast.show(context, "当前为自动清晰度", long = false)
                             },
                             modifier = Modifier.height(SoftDimens.TouchTarget),
                         ) {
@@ -1984,20 +1968,20 @@ fun PlayerScreen(
                     showSleepDialog = false
                     SleepTimer.startMinutes(m) {
                         EngineHost.pause()
-                        Toast.makeText(context, "定时关闭：已暂停播放", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "定时关闭：已暂停播放", long = false)
                         LogBus.i("Player", "定时关闭触发：${m}分钟到，暂停")
                     }
-                    Toast.makeText(context, "将在 $m 分钟后停止播放", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "将在 $m 分钟后停止播放", long = false)
                 },
                 onPickAfterEpisode = {
                     showSleepDialog = false
                     SleepTimer.armAfterEpisode()
-                    Toast.makeText(context, "本集播完后将停止播放", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "本集播完后将停止播放", long = false)
                 },
                 onCancelTimer = {
                     showSleepDialog = false
                     SleepTimer.cancel()
-                    Toast.makeText(context, "定时关闭已取消", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "定时关闭已取消", long = false)
                 },
             )
         }

@@ -1,7 +1,9 @@
 package com.movieshell.ui.market
 
 import android.os.SystemClock
-import android.widget.Toast
+import com.movieshell.ui.components.AppDropdownMenu
+import com.movieshell.ui.components.AppSwitch
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,7 +30,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -36,7 +37,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -235,13 +235,9 @@ fun PluginMarketScreen(
             if (mergedNow.isEmpty()) {
                 error = firstError
                 // v0.25.0：超时/失败给明确中文 Toast，不只记日志
-                Toast.makeText(context, "插件市场加载失败：$firstError", Toast.LENGTH_LONG).show()
+                AppToast.show(context, "插件市场加载失败：$firstError", long = true)
             } else {
-                Toast.makeText(
-                    context,
-                    "$failCount 个市场刷新失败，已显示缓存",
-                    Toast.LENGTH_SHORT,
-                ).show()
+                AppToast.show(context, "$failCount 个市场刷新失败，已显示缓存", long = false)
             }
         }
     }
@@ -628,7 +624,7 @@ private fun ManageMarketsSheet(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            Switch(
+                            AppSwitch(
                                 checked = src.enabled,
                                 onCheckedChange = {
                                     PluginStore.setMarketEnabled(context, src.id, it)
@@ -640,7 +636,7 @@ private fun ManageMarketsSheet(
                                 IconButton(onClick = { menuOpen = true }) {
                                     Icon(Icons.Filled.MoreVert, contentDescription = "更多")
                                 }
-                                DropdownMenu(
+                                AppDropdownMenu(
                                     expanded = menuOpen,
                                     onDismissRequest = { menuOpen = false },
                                 ) {
@@ -663,9 +659,7 @@ private fun ManageMarketsSheet(
                                                     "market", src.url,
                                                 ),
                                             )
-                                            Toast.makeText(
-                                                context, "地址已复制", Toast.LENGTH_SHORT,
-                                            ).show()
+                                            AppToast.show(context, "地址已复制", long = false)
                                         },
                                     )
                                     DropdownMenuItem(
@@ -742,9 +736,7 @@ private fun ManageMarketsSheet(
             onConfirm = {
                 val url = urlInput.trim()
                 if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                    Toast.makeText(
-                        context, "地址要以 http:// 或 https:// 开头", Toast.LENGTH_SHORT,
-                    ).show()
+                    AppToast.show(context, "地址要以 http:// 或 https:// 开头", long = false)
                     return@TechDialog
                 }
                 validating = true
@@ -760,12 +752,8 @@ private fun ManageMarketsSheet(
                             }
                             validating = false
                             if (!ok) {
-                                Toast.makeText(
-                                    context,
-                                    if (isAdd) "该地址已在列表中"
-                                    else "名称/地址为空或地址已被其他市场占用",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                                AppToast.show(context, if (isAdd) "该地址已在列表中"
+                                    else "名称/地址为空或地址已被其他市场占用", long = false)
                             } else {
                                 if (editing != null && editing.url != url) {
                                     PluginMarket.deleteCache(context, editing.url)
@@ -776,9 +764,7 @@ private fun ManageMarketsSheet(
                         }
                         .onFailure { e ->
                             validating = false
-                            Toast.makeText(
-                                context, "保存失败：${e.message}", Toast.LENGTH_LONG,
-                            ).show()
+                            AppToast.show(context, "保存失败：${e.message}", long = true)
                         }
                 }
             },

@@ -162,7 +162,10 @@ data class BookSource(
             val t = json.trim()
             if (t.startsWith("[")) {
                 val arr = org.json.JSONArray(t)
-                (0 until arr.length()).mapNotNull { fromJson(arr.getJSONObject(it).toString()) }
+                // v0.211.0 审计修复：同 load，坏条目隔离，不整批失败。
+                (0 until arr.length()).mapNotNull {
+                    runCatching { fromJson(arr.getJSONObject(it).toString()) }.getOrNull()
+                }
             } else {
                 listOfNotNull(fromJson(t))
             }

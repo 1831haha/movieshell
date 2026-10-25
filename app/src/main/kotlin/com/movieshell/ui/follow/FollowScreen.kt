@@ -1,7 +1,7 @@
 package com.movieshell.ui.follow
 
-import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -74,7 +74,7 @@ fun FollowScreen(
                 confirmUnfollow = null
                 scope.launch {
                     if (FollowStore.unfollow(context, item.id)) {
-                        Toast.makeText(context, "已取消追剧", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "已取消追剧", long = false)
                     }
                 }
             },

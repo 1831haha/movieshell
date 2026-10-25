@@ -1,9 +1,9 @@
 package com.movieshell.player
 
 import android.content.Context
+import com.movieshell.ui.components.AppToast
 import android.net.Uri
 import android.os.SystemClock
-import android.widget.Toast
 import androidx.media3.common.PlaybackException
 import androidx.media3.ui.PlayerView
 import com.movieshell.data.repo.LogBus
@@ -75,7 +75,7 @@ object EngineHost {
             // 别只说"无效"让用户懵——说清楚是"该源返回的地址格式暂不支持"
             val msg = if (url.isBlank()) "未获取到播放地址"
             else "该源返回的地址格式暂不支持播放"
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            AppToast.show(context, msg, long = false)
             return false
         }
         // v0.164.0：pics:// 是图片集，不是视频——绝不能进 Media3/libmpv。
@@ -95,12 +95,12 @@ object EngineHost {
             val proto = if (isRtmp) "RTMP" else "RTP"
             if (!MpvPluginLoader.isInstalled(context)) {
                 LogBus.w("Play", "$proto 需 libmpv 插件，未安装已拒绝")
-                Toast.makeText(context, "$proto 需 libmpv 插件，请先到插件市场安装", Toast.LENGTH_LONG).show()
+                AppToast.show(context, "$proto 需 libmpv 插件，请先到插件市场安装", long = true)
                 return false
             }
             if (MpvPlayerManager.initFailed) {
                 LogBus.w("Play", "$proto 需 libmpv，但 libmpv 初始化失败过，已拒绝")
-                Toast.makeText(context, "libmpv 不可用，$proto 无法播放", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "libmpv 不可用，$proto 无法播放", long = false)
                 return false
             }
             if (engine() == PlayerEngine.MEDIA3) {
@@ -111,7 +111,7 @@ object EngineHost {
         var eng = engine()
         if (eng == PlayerEngine.LIBMPV && MpvPlayerManager.initFailed) {
             LogBus.w("Play", "libmpv 已禁用（初始化失败过），回退 Media3")
-            Toast.makeText(context, "libmpv 不可用，已切回 Media3", Toast.LENGTH_SHORT).show()
+            AppToast.show(context, "libmpv 不可用，已切回 Media3", long = false)
             setEngineOverride(PlayerEngine.MEDIA3)
             eng = PlayerEngine.MEDIA3
         }

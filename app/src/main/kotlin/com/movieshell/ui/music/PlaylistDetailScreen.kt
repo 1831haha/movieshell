@@ -1,6 +1,6 @@
 package com.movieshell.ui.music
 
-import android.widget.Toast
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -88,7 +88,7 @@ fun PlaylistDetailScreen(
         scope.launch {
             // v0.188.0：moveTrack 返回写盘成败，失败提示保存失败而非静默丢排序。
             if (!MusicStore.moveTrack(context, playlistId, from, to)) {
-                Toast.makeText(context, "保存失败，请重试", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "保存失败，请重试", long = false)
             }
             reload()
         }
@@ -329,11 +329,7 @@ fun PlaylistDetailScreen(
                     val ok = MusicStore.removeFromPlaylist(context, playlistId, t.id)
                     deleteTarget = null
                     reload()
-                    Toast.makeText(
-                        context,
-                        if (ok) "已移除" else "保存失败，请重试",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    AppToast.show(context, if (ok) "已移除" else "保存失败，请重试", long = false)
                 }
             },
         ) {
@@ -360,11 +356,7 @@ fun PlaylistDetailScreen(
                         // v0.188.0：写盘失败不再谎报已排序。
                         val ok = MusicStore.sortByName(context, playlistId)
                         reload()
-                        Toast.makeText(
-                            context,
-                            if (ok) "已按名称排序" else "保存失败，请重试",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        AppToast.show(context, if (ok) "已按名称排序" else "保存失败，请重试", long = false)
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -388,11 +380,7 @@ fun PlaylistDetailScreen(
                     selecting = false
                     selectedIds = emptySet()
                     reload()
-                    Toast.makeText(
-                        context,
-                        if (ok) "已删除 $n 首" else "保存失败，请重试",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    AppToast.show(context, if (ok) "已删除 $n 首" else "保存失败，请重试", long = false)
                 }
             },
         ) { }

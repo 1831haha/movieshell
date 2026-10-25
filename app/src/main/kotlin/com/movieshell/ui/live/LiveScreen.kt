@@ -1,12 +1,12 @@
 package com.movieshell.ui.live
 
 import android.content.ContentResolver
+import com.movieshell.ui.components.AppToast
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.app.Activity
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -166,14 +166,10 @@ fun LiveScreen(
                 // v0.107.0 P0-9：订阅 0 频道不再静默，给可见提示
                 .onSuccess { empties ->
                     if (empties.isNotEmpty()) {
-                        Toast.makeText(
-                            context,
-                            "以下订阅未解析出频道：${empties.joinToString("、")}",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                        AppToast.show(context, "以下订阅未解析出频道：${empties.joinToString("、")}", long = true)
                     }
                 }
-                .onFailure { Toast.makeText(context, "刷新失败：${it.message}", Toast.LENGTH_LONG).show() }
+                .onFailure { AppToast.show(context, "刷新失败：${it.message}", long = true) }
             refreshing = false
         }
     }
@@ -326,17 +322,13 @@ fun LiveScreen(
                             val tried = liveTriedIds + (cur?.id.orEmpty())
                             val next = same.firstOrNull { it.id !in tried }
                             if (next == null) {
-                                Toast.makeText(context, "同名源均播放失败", Toast.LENGTH_SHORT).show()
+                                AppToast.show(context, "同名源均播放失败", long = false)
                             } else {
                                 liveTriedIds = tried
                                 if (selectedLiveSource != null && next.sourceKey != selectedLiveSource) {
                                     selectedLiveSource = null
                                 }
-                                Toast.makeText(
-                                    context,
-                                    "当前源播放失败，已自动切到源${same.indexOf(next) + 1}",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                                AppToast.show(context, "当前源播放失败，已自动切到源${same.indexOf(next) + 1}", long = false)
                                 liveSourceByName = liveSourceByName + (next.name to next.id)
                                 LiveSelection.sourceByName[next.name] = next.id
                                 LiveSelection.channelId = next.id
@@ -556,7 +548,7 @@ fun LiveScreen(
                 TrashStore.trashLiveManual(context, ch)
                 LiveStore.removeManual(context, ch.id)
                 scope.launch { LiveStore.refresh(context) }
-                Toast.makeText(context, "已移入回收站", Toast.LENGTH_LONG).show()
+                AppToast.show(context, "已移入回收站", long = true)
             },
         )
     }
@@ -700,11 +692,7 @@ private fun LiveSettingsSheet(
                         text = "保存",
                         onClick = {
                             LiveStore.setGlobalEpgUrl(context, epgText)
-                            Toast.makeText(
-                                context,
-                                if (epgText.isBlank()) "已清除全局节目单地址" else "已保存全局节目单地址",
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            AppToast.show(context, if (epgText.isBlank()) "已清除全局节目单地址" else "已保存全局节目单地址", long = false)
                         },
                         variant = AppButtonVariant.Primary,
                     )
@@ -1152,7 +1140,7 @@ private fun ChannelDetailSheet(
                     text = "复制地址",
                     onClick = {
                         clipboard.setText(AnnotatedString(channel.url))
-                        Toast.makeText(context, "播放地址已复制", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "播放地址已复制", long = false)
                     },
                     variant = AppButtonVariant.Secondary,
                 )
@@ -1211,11 +1199,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                 LogBus.e("Live", "导入本地 M3U 失败: ${e.message}")
                 false
             }
-            Toast.makeText(
-                context,
-                if (ok) "已导入本地 M3U" else "导入失败",
-                Toast.LENGTH_SHORT,
-            ).show()
+            AppToast.show(context, if (ok) "已导入本地 M3U" else "导入失败", long = false)
             refreshing = false
         }
     }
@@ -1305,11 +1289,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                                 text = "保存",
                                 onClick = {
                                     LiveStore.setGlobalEpgUrl(context, globalEpgText)
-                                    Toast.makeText(
-                                        context,
-                                        if (globalEpgText.isBlank()) "已清除全局节目单地址" else "已保存全局节目单地址",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
+                                    AppToast.show(context, if (globalEpgText.isBlank()) "已清除全局节目单地址" else "已保存全局节目单地址", long = false)
                                 },
                                 variant = AppButtonVariant.Primary,
                             )
@@ -1390,7 +1370,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                     showAddSub = false
                     scope.launch { LiveStore.refresh(context) }
                 } else {
-                    Toast.makeText(context, "该订阅已存在", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "该订阅已存在", long = false)
                 }
             },
         ) {
@@ -1449,7 +1429,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                     showAddChannel = false
                     scope.launch { LiveStore.refresh(context) }
                 } else {
-                    Toast.makeText(context, "该频道已存在", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "该频道已存在", long = false)
                 }
             },
         ) {

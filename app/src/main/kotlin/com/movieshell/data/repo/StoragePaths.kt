@@ -1,6 +1,7 @@
 package com.movieshell.data.repo
 
 import android.Manifest
+import com.movieshell.ui.components.AppToast
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -10,7 +11,6 @@ import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import android.util.Log
-import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.io.File
@@ -450,11 +450,7 @@ object StoragePaths {
             }
             if (moved > 0) {
                 runCatching {
-                    Toast.makeText(
-                        context,
-                        "存储位置已切换：旧文件从 ${context.filesDir.absolutePath} 下的 drpy、py、php、web 迁移到 ${publicRoot().absolutePath}",
-                        Toast.LENGTH_LONG,
-                    ).show()
+                    AppToast.show(context, "存储位置已切换：旧文件从 ${context.filesDir.absolutePath} 下的 drpy、py、php、web 迁移到 ${publicRoot().absolutePath}", long = true)
                 }
             }
             LogBus.i(TAG, "存储迁移完成，共搬运 $moved 个文件到 $PUBLIC_ROOT_PATH")

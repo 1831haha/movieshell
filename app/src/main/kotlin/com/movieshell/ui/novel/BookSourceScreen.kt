@@ -1,6 +1,7 @@
 package com.movieshell.ui.novel
 
-import android.widget.Toast
+import com.movieshell.ui.components.AppSwitch
+import com.movieshell.ui.components.AppToast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -45,7 +46,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.goldTitleColor
@@ -118,6 +118,27 @@ fun BookSourceScreen(
     var urlChecked by remember { mutableStateOf<Set<String>>(emptySet()) }
     var deleteTarget by remember { mutableStateOf<BookSource?>(null) }
     var deletePyTarget by remember { mutableStateOf<PyBookSourceManager.PyBookRule?>(null) }
+    // v0.211.0 审计修复：删源确认要显示受影响的在架本数（原来文案
+    // 说“书架里已有的书不受影响”，与实际断源行为相反）。
+    var deleteAffectedCount by remember { mutableStateOf<Int?>(null) }
+    var deletePyAffectedCount by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(deleteTarget) {
+        deleteAffectedCount = deleteTarget?.let {
+            withContext(Dispatchers.IO) {
+                com.movieshell.data.repo.NovelStore.countBySourceKey(context, it.key)
+            }
+        }
+    }
+    LaunchedEffect(deletePyTarget) {
+        deletePyAffectedCount = deletePyTarget?.let {
+            withContext(Dispatchers.IO) {
+                com.movieshell.data.repo.NovelStore.countBySourceKey(
+                    context,
+                    "${PyBookSourceManager.SOURCE_KEY_PREFIX}${it.name}",
+                )
+            }
+        }
+    }
     // v0.196.0：长按卡片编辑（仿阅读书源列表）——JSON 改名/地址/分组，PY 改文件名
     var editTarget by remember { mutableStateOf<BookSource?>(null) }
     var editPyTarget by remember { mutableStateOf<PyBookSourceManager.PyBookRule?>(null) }
@@ -168,19 +189,15 @@ fun BookSourceScreen(
         scope.launch {
             when (val r = PyBookSourceManager.import(context, uri)) {
                 is PyBookSourceManager.ImportResult.Ok ->
-                    Toast.makeText(context, "已导入 ${r.fileName}", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "已导入 ${r.fileName}", long = false)
                 PyBookSourceManager.ImportResult.WrongExt ->
-                    Toast.makeText(context, "请选择 .py 文件", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "请选择 .py 文件", long = false)
                 PyBookSourceManager.ImportResult.InvalidRule ->
-                    Toast.makeText(
-                        context,
-                        "不是有效的书源文件（需要实现 bookSearch 方法）",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    AppToast.show(context, "不是有效的书源文件（需要实现 bookSearch 方法）", long = false)
                 // v0.76.0：是影视 spider——弹窗，不再只是一句 toast 打发
                 PyBookSourceManager.ImportResult.IsVideoSpider -> videoSpiderUri = uri
                 is PyBookSourceManager.ImportResult.Failed ->
-                    Toast.makeText(context, "导入失败：${r.msg}", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "导入失败：${r.msg}", long = false)
             }
         }
     }
@@ -199,7 +216,7 @@ fun BookSourceScreen(
                 }.getOrNull()
             }
             if (json.isNullOrBlank()) {
-                Toast.makeText(context, "读取文件失败", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "读取文件失败", long = false)
                 return@launch
             }
             // v0.186.0：import 返回 0 有三种含义——没识别、已存在、写盘失败；
@@ -207,16 +224,12 @@ fun BookSourceScreen(
             val parsed = BookSource.listFromJson(json)
             val hasNew = parsed.any { p -> BookSourceManager.sources.value.none { it.key == p.key } }
             val n = BookSourceManager.import(context, json)
-            Toast.makeText(
-                context,
-                when {
+            AppToast.show(context, when {
                     n > 0 -> "导入 $n 个书源"
                     parsed.isEmpty() -> "没有识别出书源，检查 JSON 格式"
                     hasNew -> "保存失败，书源未导入，请重试"
                     else -> "书源已存在，无需重复导入"
-                },
-                Toast.LENGTH_SHORT,
-            ).show()
+                }, long = false)
         }
     }
 
@@ -242,7 +255,7 @@ fun BookSourceScreen(
                         is com.movieshell.ui.sources.ImportResult.Failed ->
                             "导入失败：${r.reason}"
                     }
-                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    AppToast.show(context, msg, long = true)
                 }
             },
         ) {
@@ -319,15 +332,11 @@ fun BookSourceScreen(
                     // 内置源 key 与 BookSourceManager 的内置 key 一致：quanben 网址去协议去尾斜杠。
                     val hadBuiltin = BookSourceManager.sources.value.any { it.key == "www.quanben.io" }
                     val added = BookSourceManager.restoreBuiltin(context)
-                    Toast.makeText(
-                        context,
-                        when {
+                    AppToast.show(context, when {
                             added -> "已恢复内置书源（全本小说网）"
                             hadBuiltin -> "内置书源已存在，无需恢复"
                             else -> "保存失败，内置书源未恢复，请重试"
-                        },
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                        }, long = false)
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -381,7 +390,7 @@ fun BookSourceScreen(
                                     scope.launch {
                                         val text = PyBookSourceManager.readContent(context, r.name)
                                         if (text == null) {
-                                            Toast.makeText(context, "读取失败，请重试", Toast.LENGTH_SHORT).show()
+                                            AppToast.show(context, "读取失败，请重试", long = false)
                                         } else {
                                             textEditPyText = text
                                             textEditPy = r
@@ -415,11 +424,11 @@ fun BookSourceScreen(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        Switch(
+                        AppSwitch(
                             checked = r.name in pyEnabled,
                             onCheckedChange = {
                                 if (!PyBookSourceManager.setEnabled(context, r.name, it)) {
-                                    Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
+                                    AppToast.show(context, "保存失败", long = false)
                                 }
                             },
                         )
@@ -526,18 +535,14 @@ fun BookSourceScreen(
                                     }
                                 }
                             }
-                            Switch(
+                            AppSwitch(
                                 checked = s.enabled,
                                 onCheckedChange = {
                                     scope.launch {
                                         // v0.188.0：写盘失败提示“保存失败”；管理器已回滚
                                         // 内存表，开关随 StateFlow 旧值自动弹回，不用手动复位。
                                         if (!BookSourceManager.setEnabled(context, s.key, it)) {
-                                            Toast.makeText(
-                                                context,
-                                                "保存失败",
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
+                                            AppToast.show(context, "保存失败", long = false)
                                         }
                                     }
                                 },
@@ -623,11 +628,11 @@ fun BookSourceScreen(
                     }
                     selectedSrcKeys = emptySet()
                     batchMode = false
-                    Toast.makeText(context, "已删除 ${keys.size} 个书源", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "已删除 ${keys.size} 个书源", long = false)
                 }
             },
         ) {
-            Text("删除后找书不再用这些源，书架里已有的书不受影响。")
+            Text("删除后找书不再用这些源；书架里用这些源的书将无法追更，阅读时需要换源。")
         }
     }
 
@@ -646,16 +651,12 @@ fun BookSourceScreen(
                     val hasNew = parsed.any { p -> BookSourceManager.sources.value.none { it.key == p.key } }
                     val n = BookSourceManager.import(context, importText)
                     showImport = false
-                    Toast.makeText(
-                        context,
-                        when {
+                    AppToast.show(context, when {
                             n > 0 -> "导入 $n 个书源"
                             parsed.isEmpty() -> "没有识别出书源，检查 JSON 格式"
                             hasNew -> "保存失败，书源未导入，请重试"
                             else -> "书源已存在，无需重复导入"
-                        },
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                        }, long = false)
                 }
             },
         ) {
@@ -693,16 +694,13 @@ fun BookSourceScreen(
                     }
                     importingUrl = false
                     if (json.isNullOrBlank()) {
-                        Toast.makeText(context, "下载失败，检查 URL", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "下载失败，检查 URL", long = false)
                         return@launch
                     }
                     // v0.84.0：先解析预览，勾选再导入（对标阅读3.0网络导入）
                     val parsed = BookSource.listFromJson(json)
                     if (parsed.isEmpty()) {
-                        Toast.makeText(
-                            context, "没有识别出书源，检查 JSON 格式",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        AppToast.show(context, "没有识别出书源，检查 JSON 格式", long = false)
                         return@launch
                     }
                     // v0.133.0：外部订阅文件可含同址重复条目（http 与 https、同址尾斜杠
@@ -739,15 +737,11 @@ fun BookSourceScreen(
                     val hasNew = selected.any { s -> BookSourceManager.sources.value.none { it.key == s.key } }
                     val n = BookSourceManager.importSources(context, selected)
                     urlPreview = null
-                    Toast.makeText(
-                        context,
-                        when {
+                    AppToast.show(context, when {
                             n > 0 -> "导入 $n 个书源"
                             hasNew -> "保存失败，书源未导入，请重试"
                             else -> "所选书源都已存在，无需重复导入"
-                        },
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                        }, long = false)
                 }
             },
             confirmEnabled = urlChecked.isNotEmpty(),
@@ -811,13 +805,18 @@ fun BookSourceScreen(
                     // 删完 key 还在就是保存失败；成功时保持原来不弹提示。
                     BookSourceManager.remove(context, s.key)
                     if (BookSourceManager.sources.value.any { it.key == s.key }) {
-                        Toast.makeText(context, "删除失败：保存失败，请重试", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "删除失败：保存失败，请重试", long = false)
                     }
                 }
                 deleteTarget = null
             },
         ) {
-            Text("确定删除「${s.name}」？")
+            Text(
+                "确定删除「${s.name}」？" +
+                    (deleteAffectedCount?.let { n ->
+                        if (n > 0) " 书架上有 $n 本书在用这个源，删后这些书将无法追更，阅读时需要换源。" else ""
+                    } ?: ""),
+            )
         }
     }
 
@@ -833,13 +832,18 @@ fun BookSourceScreen(
                     // 成功时保持原来不弹提示。
                     val ok = PyBookSourceManager.remove(context, r.name)
                     if (!ok) {
-                        Toast.makeText(context, "删除失败：保存失败，请重试", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "删除失败：保存失败，请重试", long = false)
                     }
                 }
                 deletePyTarget = null
             },
         ) {
-            Text("确定删除本地 PY 书源「${r.title}」？文件也会被删除。")
+            Text(
+                "确定删除本地 PY 书源「${r.title}」？文件也会被删除。" +
+                    (deletePyAffectedCount?.let { n ->
+                        if (n > 0) " 书架上有 $n 本书在用这个源，删后这些书将无法追更，阅读时需要换源。" else ""
+                    } ?: ""),
+            )
         }
     }
 
@@ -856,7 +860,7 @@ fun BookSourceScreen(
                 scope.launch {
                     val ok = BookSourceManager.updateSource(context, s.key, editName.trim(), editUrl.trim(), editGroup.trim())
                     if (!ok) {
-                        Toast.makeText(context, "保存失败：名称或地址为空、地址与已有书源重复", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "保存失败：名称或地址为空、地址与已有书源重复", long = false)
                     }
                 }
                 editTarget = null
@@ -917,7 +921,7 @@ fun BookSourceScreen(
                 scope.launch {
                     val ok = PyBookSourceManager.rename(context, r.name, newBase.trim())
                     if (!ok) {
-                        Toast.makeText(context, "重命名失败：名称为空、含非法字符或已存在同名文件", Toast.LENGTH_SHORT).show()
+                        AppToast.show(context, "重命名失败：名称为空、含非法字符或已存在同名文件", long = false)
                     }
                 }
                 editPyTarget = null
@@ -1014,10 +1018,10 @@ private fun SourceTextEditorDialog(
                         scope.launch {
                             val err = onSave(text)
                             if (err == null) {
-                                Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
+                                AppToast.show(context, "已保存", long = false)
                                 onDismiss()
                             } else {
-                                Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                                AppToast.show(context, err, long = false)
                             }
                         }
                     }) { Text("保存") }

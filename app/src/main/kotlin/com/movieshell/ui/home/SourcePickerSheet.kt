@@ -1,6 +1,7 @@
 package com.movieshell.ui.home
 
-import android.widget.Toast
+import com.movieshell.ui.components.AppDropdownMenu
+import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,7 +34,6 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -199,12 +199,8 @@ fun SourcePickerSheet(
                 "SourcePicker",
                 "换源弹窗刷新：订阅 $subTotal 个，失败 $failCount 个，共 $total 个源",
             )
-            Toast.makeText(
-                context,
-                if (failCount == 0) "已刷新，共 $total 个源"
-                else "已刷新，共 $total 个源；$failCount 个订阅刷新失败，已保留旧列表",
-                Toast.LENGTH_SHORT,
-            ).show()
+            AppToast.show(context, if (failCount == 0) "已刷新，共 $total 个源"
+                else "已刷新，共 $total 个源；$failCount 个订阅刷新失败，已保留旧列表", long = false)
         }
     }
 
@@ -314,7 +310,7 @@ fun SourcePickerSheet(
                     unsupportedReason = if (unsupported) rec.reason else null,
                     onPick = {
                         if (unsupported) {
-                            Toast.makeText(context, rec.reason, Toast.LENGTH_SHORT).show()
+                            AppToast.show(context, rec.reason, long = false)
                         } else {
                             pickSub(sub, rec)
                         }
@@ -504,7 +500,7 @@ fun SourcePickerSheet(
                         )
                     }
                 }
-                DropdownMenu(
+                AppDropdownMenu(
                     expanded = showLayoutMenu,
                     onDismissRequest = { showLayoutMenu = false },
                 ) {

@@ -1,10 +1,11 @@
 package com.movieshell.ui.market
 
 import android.content.ClipData
+import com.movieshell.ui.components.AppSwitch
+import com.movieshell.ui.components.AppToast
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,7 +41,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -145,7 +145,7 @@ fun ServerPluginScreen(
             }
             val def = loaded?.first
             if (def == null) {
-                Toast.makeText(context, "读取服务配置失败", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "读取服务配置失败", long = false)
             } else {
                 editingPid = launchInfos[p.id]?.pid ?: loaded?.second
                 editing = def
@@ -174,11 +174,9 @@ fun ServerPluginScreen(
                 } else {
                     "已保存"
                 }
-                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                AppToast.show(context, msg, long = false)
             }.onFailure {
-                Toast.makeText(
-                    context, it.message ?: "保存失败", Toast.LENGTH_LONG,
-                ).show()
+                AppToast.show(context, it.message ?: "保存失败", long = true)
             }
         }
     }
@@ -191,20 +189,16 @@ fun ServerPluginScreen(
                     .getOrNull()
             }
             if (text == null) {
-                Toast.makeText(context, "导出失败", Toast.LENGTH_SHORT).show()
+                AppToast.show(context, "导出失败", long = false)
                 return@launch
             }
             runCatching {
                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE)
                     as android.content.ClipboardManager
                 cm.setPrimaryClip(ClipData.newPlainText("movieshell_services", text))
-                Toast.makeText(
-                    context, "服务配置已复制到剪贴板", Toast.LENGTH_SHORT,
-                ).show()
+                AppToast.show(context, "服务配置已复制到剪贴板", long = false)
             }.onFailure {
-                Toast.makeText(
-                    context, "复制失败：${it.message}", Toast.LENGTH_LONG,
-                ).show()
+                AppToast.show(context, "复制失败：${it.message}", long = true)
             }
         }
     }
@@ -240,7 +234,7 @@ fun ServerPluginScreen(
                     }
                 }.getOrElse { "生成示例失败：${it.message}" }
             }
-            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            AppToast.show(context, msg, long = true)
             generatingExamples = false
             reload()
         }
@@ -285,7 +279,7 @@ fun ServerPluginScreen(
                     }
                 }.getOrElse { "安装失败：${it.message}" }
             }
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            AppToast.show(context, msg, long = false)
             reload()
         }
     }
@@ -307,7 +301,7 @@ fun ServerPluginScreen(
                     }
                 }.getOrElse { "操作失败：${it.message}" }
             }
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            AppToast.show(context, msg, long = false)
             busyId = null
             reload()
         }
@@ -591,14 +585,10 @@ fun ServerPluginScreen(
                                 val ok = ServicePluginManager.healthCheck(context, p.id)
                                 if (ok) {
                                     webReady = webReady + p.id
-                                    Toast.makeText(
-                                        context, "探活通过：服务可达", Toast.LENGTH_SHORT,
-                                    ).show()
+                                    AppToast.show(context, "探活通过：服务可达", long = false)
                                 } else {
                                     webReady = webReady - p.id
-                                    Toast.makeText(
-                                        context, "探活失败：服务未响应", Toast.LENGTH_SHORT,
-                                    ).show()
+                                    AppToast.show(context, "探活失败：服务未响应", long = false)
                                 }
                             }
                         }) { Text("探活") }
@@ -649,19 +639,15 @@ fun ServerPluginScreen(
                                 "movieshell_log", logLines.joinToString("\n"),
                             ),
                         )
-                        Toast.makeText(
-                            context, "日志已复制到剪贴板", Toast.LENGTH_SHORT,
-                        ).show()
+                        AppToast.show(context, "日志已复制到剪贴板", long = false)
                     }.onFailure {
-                        Toast.makeText(
-                            context, "复制失败：${it.message}", Toast.LENGTH_LONG,
-                        ).show()
+                        AppToast.show(context, "复制失败：${it.message}", long = true)
                     }
                 }) { Text("复制") }
                 TextButton(onClick = {
                     ServicePluginManager.clearLogs(p.id)
                     logLines = emptyList()
-                    Toast.makeText(context, "日志已清空", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "日志已清空", long = false)
                 }) { Text("清空") }
             }
             Column(
@@ -689,7 +675,7 @@ fun ServerPluginScreen(
             confirmText = "导入",
             onConfirm = {
                 if (importText.isBlank()) {
-                    Toast.makeText(context, "请先粘贴 JSON", Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, "请先粘贴 JSON", long = false)
                     return@TechDialog
                 }
                 val text = importText
@@ -702,12 +688,10 @@ fun ServerPluginScreen(
                     result.onSuccess { summary ->
                         showImport = false
                         importText = ""
-                        Toast.makeText(context, summary, Toast.LENGTH_LONG).show()
+                        AppToast.show(context, summary, long = true)
                         reload()
                     }.onFailure {
-                        Toast.makeText(
-                            context, it.message ?: "导入失败", Toast.LENGTH_LONG,
-                        ).show()
+                        AppToast.show(context, it.message ?: "导入失败", long = true)
                     }
                 }
             },
@@ -742,7 +726,7 @@ fun ServerPluginScreen(
                             "已卸载 ${p.name}"
                         }.getOrElse { "卸载失败：${it.message}" }
                     }
-                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    AppToast.show(context, msg, long = false)
                     reload()
                 }
             },
@@ -890,7 +874,7 @@ private fun ServiceEditor(
 
     fun doSave() {
         if (name.isBlank()) {
-            Toast.makeText(context, "名称不能为空", Toast.LENGTH_SHORT).show()
+            AppToast.show(context, "名称不能为空", long = false)
             return
         }
         onSave(
@@ -1009,7 +993,7 @@ private fun ServiceEditor(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
-                Switch(checked = autoStart, onCheckedChange = { autoStart = it })
+                AppSwitch(checked = autoStart, onCheckedChange = { autoStart = it })
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1027,7 +1011,7 @@ private fun ServiceEditor(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.width(8.dp))
-                Switch(checked = resident, onCheckedChange = { resident = it })
+                AppSwitch(checked = resident, onCheckedChange = { resident = it })
             }
             }
             EditorSection(title = "占位符") {

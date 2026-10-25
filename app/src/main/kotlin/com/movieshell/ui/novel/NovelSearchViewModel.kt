@@ -1,7 +1,7 @@
 package com.movieshell.ui.novel
 
 import android.app.Application
-import android.widget.Toast
+import com.movieshell.ui.components.AppToast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.movieshell.data.model.Chapter
@@ -108,7 +108,7 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         }
         if (kw.isEmpty() || !canSearch) {
             if (!canSearch) {
-                Toast.makeText(getApplication(), "没有启用的书源，先去书源管理添加", Toast.LENGTH_SHORT).show()
+                AppToast.show(getApplication(), "没有启用的书源，先去书源管理添加", long = false)
             }
             return
         }
@@ -202,11 +202,7 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                 NovelStore.addNovel(getApplication(), novel, chapters)
             }.getOrDefault(false)
             _joining.value = null
-            Toast.makeText(
-                getApplication(),
-                if (ok) "已加入书架" else "加入失败（目录拉取失败）",
-                Toast.LENGTH_SHORT,
-            ).show()
+            AppToast.show(getApplication(), if (ok) "已加入书架" else "加入失败（目录拉取失败）", long = false)
         }
     }
 }
