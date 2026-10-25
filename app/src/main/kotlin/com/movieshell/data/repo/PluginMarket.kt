@@ -107,7 +107,6 @@ object PluginMarket {
     // v0.218.0（S25）：多市场并发拉取时 lastList 赋值无锁——原来
     // rememberPlugins 加了 @Synchronized，lastList 三处赋值没加，详情页
     // 兜底可能读到别家市场的旧列表；Volatile 保证跨线程可见性。
-    @Volatile
     private var lastList: List<MarketPlugin> = emptyList()
 
     /** v0.79.0：进程级最近一次完整市场信息（按请求 URL key），供市场页首帧秒开（内存→磁盘→网络三级）。 */

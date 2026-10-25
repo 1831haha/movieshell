@@ -1152,7 +1152,7 @@ fun DetailScreen(
         // PlaySession 现值。
         if (showOnlineSubtitle) {
             com.movieshell.ui.subtitle.OnlineSubtitleSearchDialog(
-                keyword = vod?.title.orEmpty().ifBlank { displayTitle(vodId) },
+                keyword = detailTitle(detail, vodId),
                 vodId = vodId,
                 onPick = {
                     showOnlineSubtitle = false

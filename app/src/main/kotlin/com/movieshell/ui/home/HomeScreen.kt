@@ -115,6 +115,7 @@ import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -511,7 +512,7 @@ fun HomeScreen(
         // （如 start 竞态）时它们不跟着停，全靠世代号人工兜底；现在把
         // 取消信号接过来：deferred 取消时三路一并取消；正常 5s 结算
         // （cause 为 null）不触动，慢路仍可在 25s 上限内后台回填。
-        coroutineContext[Job]?.invokeOnCompletion { cause ->
+        currentCoroutineContext()[Job]?.invokeOnCompletion { cause ->
             if (cause is CancellationException) {
                 timerJob.cancel()
                 recJob.cancel()
