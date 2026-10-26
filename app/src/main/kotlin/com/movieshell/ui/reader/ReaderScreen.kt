@@ -80,8 +80,10 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -406,11 +408,24 @@ fun ReaderScreen(
     // 同一章只恢复一次；正文没到时等着不滚；滑到底前等一帧让新
     // 正文完成布局，否则 maxValue 还是旧值/0，照样滑到顶。
     var restoredForChapter by remember { mutableIntStateOf(-1) }
-    LaunchedEffect(chapterIndex, loaded, chapter?.content?.length) {
+    // v0.241.0：跨章落点认领——240 只修了恢复效果本身，但翻页模式下
+    // 还有两路会把刚落好的末页洗回章首：①重分页效果（charsPerPage
+    // 一变就跑）用旧章页码对应的陈旧偏移重定位，用户从旧章第 0 页
+    // 回来时那个偏移就是 0；②手指越界手势未结束时 pager 的回弹
+    // settling 也会把页码拽回 0。故换章时立 pending：恢复效果只在
+    // 手势结束且分页就绪时落点，落到目标才清 pending；重分页效果
+    // 在换章当次直接跳过，落点只归恢复效果管。
+    var landingChapter by remember { mutableIntStateOf(-1) }
+    var landingPending by remember { mutableStateOf(false) }
+    LaunchedEffect(chapterIndex, loaded, chapter?.content?.length, pagerState.isScrollInProgress) {
         if (!loaded) return@LaunchedEffect
-        if (restoredForChapter == chapterIndex) return@LaunchedEffect
+        if (restoredForChapter == chapterIndex && !(landingPending && landingChapter == chapterIndex)) return@LaunchedEffect
         val len = chapter?.content?.length ?: 0
         if (len <= 0) return@LaunchedEffect // 正文没到：等着，不滚顶
+        // v0.241.0：手指越界手势还没结束时先不落点——pager 回弹会把
+        // 页码拽回 0；等手势结束（isScrollInProgress 变 false 触发重跑）
+        // 再落点，落点才是最终位置。按钮换章无手势，不受影响。
+        if (pageMode != 0 && landingPending && pagerState.isScrollInProgress) return@LaunchedEffect
         if (pageMode == 0) {
             if (restoreOffset > 0) {
                 // v0.211.0 审计修复：保存用“滚动像素/最大值×全文长度”，
@@ -437,19 +452,26 @@ fun ReaderScreen(
             }
         } else {
             // v0.95.0：翻页模式按字符偏移定位页；正文还没到时等下一次 content 长度变化再恢复
-            if (restoreOffset > 0 && pages.isNotEmpty()) {
+            // v0.241.0：分页未就绪时不消费哨兵——否则末页落点被吞掉，
+            // 恢复效果又已认领过本章，之后再无重跑机会，必然停章首。
+            if (pages.isEmpty()) return@LaunchedEffect
+            if (restoreOffset > 0) {
                 pagerState.scrollToPage(NovelPaginator.pageForOffset(pages, restoreOffset))
-            } else if (pages.isNotEmpty()) {
+            } else {
                 pagerState.scrollToPage(0)
             }
         }
         restoredForChapter = chapterIndex
         restoreOffset = 0 // 只恢复一次
+        landingPending = false
     }
 
     // v0.95.0：字号/行距/窗口变化导致重分页时，按字符偏移尽量保持阅读位置
     var lastCpp by remember { mutableIntStateOf(0) }
     var lastPageOffset by remember { mutableIntStateOf(0) }
+    // v0.241.0：重分页效果上次处理过的章节——换章当次它若跑起来，
+    // 就会用旧章页码对应的陈旧偏移把恢复效果刚落好的末页盖回章首。
+    var cppChapter by remember { mutableIntStateOf(-1) }
     val latestChapterIndex by rememberUpdatedState(chapterIndex)
     LaunchedEffect(pagerState.currentPage, pages) {
         // v0.211.0 回归修复（静态审计）：这路翻页保存原来没有 pageMode
@@ -485,6 +507,15 @@ fun ReaderScreen(
         )
     }
     LaunchedEffect(charsPerPage) {
+        // v0.241.0：换章当次（或落点未定）直接跳过——换章落点只归
+        // 恢复效果管；这里若跑，旧章页码对应的陈旧偏移（用户从旧章
+        // 第 0 页回来时就是 0）会把刚落好的末页盖回章首。同章内
+        // 改字号/行距/转屏仍走原逻辑，按偏移保持位置。
+        if (landingPending || cppChapter != chapterIndex) {
+            cppChapter = chapterIndex
+            lastCpp = charsPerPage
+            return@LaunchedEffect
+        }
         if (lastCpp > 0 && lastCpp != charsPerPage && pages.isNotEmpty() && pageMode != 0) {
             pagerState.scrollToPage(NovelPaginator.pageForOffset(pages, lastPageOffset))
         }
@@ -541,6 +572,13 @@ fun ReaderScreen(
                 )
             }
             restoreOffset = restoreTo
+            // v0.241.0：只有真换章才立落点认领——目录点当前章、
+            // 书签跳本章时 index 不变，恢复效果不会重跑，pending
+            // 若立了就再也清不掉，会一直压住重分页定位。
+            if (index != chapterIndex) {
+                landingChapter = index
+                landingPending = true
+            }
             chapterIndex = index
             showToc = false
             showBookmarks = false
@@ -728,6 +766,9 @@ fun ReaderScreen(
         else -> Color(0xFF2B2B2B)
     }
 
+    // v0.241.0：根布局改 Box 包 Column——设置面板要贴底悬浮且不遮罩
+    // （边调边看正文实时变化），Column 里贴不了底，改由 Box 承接。
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1052,6 +1093,157 @@ fun ReaderScreen(
         }
     }
 
+    // 设置面板（v0.241.0：195 的居中大弹窗改回底部面板——用户要边调
+    // 边看正文变化。贴底悬浮、最高只占屏高 45%、无遮罩，正文区
+    // 全程可见且实时跟随字号/字体/行距/背景；内容超高时面板内滚，
+    // 不再把整页盖住。完成/取消都在面板底行，返回键同样关闭。）
+    if (showSettings) {
+        BackHandler { closeSettings() }
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.45f).dp)
+                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                .background(MaterialTheme.colorScheme.surface),
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp, 4.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)),
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    // v0.211.0：预览不再是写死的“山重水复…”——取当前章节正文
+                    // 第一个非空段落（没有正文时回落章节名），在哪本书打开
+                    // 就显示哪本书的字，字体/字号/行距仍实时跟随设置。
+                    val previewText = chapter?.content
+                        ?.split("\n")
+                        ?.firstOrNull { it.isNotBlank() }
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?: chapter?.title.orEmpty()
+                    Text(
+                        previewText.ifBlank { "暂无正文预览" },
+                        fontSize = fontSize.sp,
+                        lineHeight = (fontSize * lineHeightRatio).sp,
+                        fontFamily = readerFont,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    ReaderSectionHeader("显示")
+                    // 字号：步进器（去滑杆）
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("字号", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        ReaderStepper(
+                            valueText = "${fontSize}sp",
+                            onMinus = { if (fontSize > 14) fontSize-- },
+                            onPlus = { if (fontSize < 24) fontSize++ },
+                        )
+                    }
+                    // 字体：五档，胶囊字本身就用对应字体渲染
+                    ReaderFontRow(fontFamily) { fontFamily = it }
+                    // 行距
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("行距", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        listOf(1.2f to "紧凑", 1.8f to "适中", 2.4f to "疏朗").forEachIndexed { i, (ratio, label) ->
+                            if (i > 0) Spacer(Modifier.width(4.dp))
+                            ReaderPill(label, lineHeightRatio == ratio) { lineHeightRatio = ratio }
+                        }
+                    }
+                    // 背景：五档，最后一档跟随系统（深浅渐变点）
+                    ReaderBgRow(bgTheme) { bgTheme = it }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                    ReaderSectionHeader("阅读")
+                    // 翻页模式
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("翻页", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        listOf(0 to "上下滚动", 1 to "左右覆盖", 2 to "仿真翻页").forEachIndexed { i, (mode, label) ->
+                            if (i > 0) Spacer(Modifier.width(4.dp))
+                            ReaderPill(label, pageMode == mode) { pageMode = mode }
+                        }
+                    }
+                    // 音量键翻页
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("音量键翻页", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        ReaderPill("开", volumePageTurn) { volumePageTurn = true }
+                        Spacer(Modifier.width(4.dp))
+                        ReaderPill("关", !volumePageTurn) { volumePageTurn = false }
+                    }
+                    // 亮度（-1=跟随系统）：自动档 + 步进器（去滑杆）
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (brightness < 0) "亮度：跟随系统" else "亮度",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        ReaderPill("自动", brightness < 0, accent = true) { brightness = -1f }
+                        Spacer(Modifier.width(4.dp))
+                        ReaderStepper(
+                            valueText = if (brightness < 0) "—" else "${(brightness * 100).toInt()}%",
+                            onMinus = {
+                                brightness = (if (brightness < 0) 0.5f else brightness)
+                                    .minus(0.05f).coerceIn(0.05f, 1f)
+                            },
+                            onPlus = {
+                                brightness = (if (brightness < 0) 0.5f else brightness)
+                                    .plus(0.05f).coerceIn(0.05f, 1f)
+                            },
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                    ReaderSectionHeader("管理")
+                    // 净化规则快捷入口
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "净化规则" +
+                                if (purifyCount >= 0) "（$purifyCount 条生效）" else "",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        ReaderPill("管理", false, accent = true) {
+                            closeSettings()
+                            onOpenPurifyRules()
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = { closeSettings() }) {
+                        Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = { closeSettings() }) {
+                        Text("完成")
+                    }
+                }
+            }
+        }
+    }
+    } // v0.241.0：根 Box 闭合
+
     // 目录弹窗（v0.61.0：打开自动滚到当前章节）
     if (showToc) {
         val tocListState = rememberLazyListState()
@@ -1162,119 +1354,6 @@ fun ReaderScreen(
         }
     }
 
-    // 设置弹窗：v0.195.0恢复悬浮弹窗（194 的底部面板改回），内容按组分层
-    if (showSettings) {
-        TechDialog(
-            onDismissRequest = { closeSettings() },
-            title = "阅读设置",
-            confirmText = "完成",
-            onConfirm = { closeSettings() },
-        ) {
-            // v0.211.0：更紧凑一版——行距 6dp→4dp，胶囊/步进器同步收小，
-            // “章节”一行整段删掉（底栏已有上一章/进度/下一章/目录，全重复），
-            // 只剩 显示/阅读/管理 三组，卡片不再撑满屏。
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                // v0.211.0：预览不再是写死的“山重水复…”——取当前章节正文
-                // 第一个非空段落（没有正文时回落章节名），在哪本书打开
-                // 就显示哪本书的字，字体/字号/行距仍实时跟随设置。
-                val previewText = chapter?.content
-                    ?.split("\n")
-                    ?.firstOrNull { it.isNotBlank() }
-                    ?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-                    ?: chapter?.title.orEmpty()
-                Text(
-                    previewText.ifBlank { "暂无正文预览" },
-                    fontSize = fontSize.sp,
-                    lineHeight = (fontSize * lineHeightRatio).sp,
-                    fontFamily = readerFont,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                ReaderSectionHeader("显示")
-                // 字号：步进器（去滑杆）
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("字号", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    ReaderStepper(
-                        valueText = "${fontSize}sp",
-                        onMinus = { if (fontSize > 14) fontSize-- },
-                        onPlus = { if (fontSize < 24) fontSize++ },
-                    )
-                }
-                // 字体：五档，胶囊字本身就用对应字体渲染
-                ReaderFontRow(fontFamily) { fontFamily = it }
-                // 行距
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("行距", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    listOf(1.2f to "紧凑", 1.8f to "适中", 2.4f to "疏朗").forEachIndexed { i, (ratio, label) ->
-                        if (i > 0) Spacer(Modifier.width(4.dp))
-                        ReaderPill(label, lineHeightRatio == ratio) { lineHeightRatio = ratio }
-                    }
-                }
-                // 背景：五档，最后一档跟随系统（深浅渐变点）
-                ReaderBgRow(bgTheme) { bgTheme = it }
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                ReaderSectionHeader("阅读")
-                // 翻页模式
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("翻页", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    listOf(0 to "上下滚动", 1 to "左右覆盖", 2 to "仿真翻页").forEachIndexed { i, (mode, label) ->
-                        if (i > 0) Spacer(Modifier.width(4.dp))
-                        ReaderPill(label, pageMode == mode) { pageMode = mode }
-                    }
-                }
-                // 音量键翻页
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("音量键翻页", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    ReaderPill("开", volumePageTurn) { volumePageTurn = true }
-                    Spacer(Modifier.width(4.dp))
-                    ReaderPill("关", !volumePageTurn) { volumePageTurn = false }
-                }
-                // 亮度（-1=跟随系统）：自动档 + 步进器（去滑杆）
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (brightness < 0) "亮度：跟随系统" else "亮度",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
-                    ReaderPill("自动", brightness < 0, accent = true) { brightness = -1f }
-                    Spacer(Modifier.width(4.dp))
-                    ReaderStepper(
-                        valueText = if (brightness < 0) "—" else "${(brightness * 100).toInt()}%",
-                        onMinus = {
-                            brightness = (if (brightness < 0) 0.5f else brightness)
-                                .minus(0.05f).coerceIn(0.05f, 1f)
-                        },
-                        onPlus = {
-                            brightness = (if (brightness < 0) 0.5f else brightness)
-                                .plus(0.05f).coerceIn(0.05f, 1f)
-                        },
-                    )
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                ReaderSectionHeader("管理")
-                // 净化规则快捷入口
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "净化规则" +
-                            if (purifyCount >= 0) "（$purifyCount 条生效）" else "",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
-                    ReaderPill("管理", false, accent = true) {
-                        closeSettings()
-                        onOpenPurifyRules()
-                    }
-                }
-            }
-        }
-    }
     }
 
 /** v0.196.0：设置弹窗组标题——紧凑一页版，11sp。 */

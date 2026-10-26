@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.241.0",
+        date = "2026-10-26",
+        title = "回上一章落末页根治、阅读设置改底部小面板。",
+        details = listOf(
+            "回上一章落末页根治：换章立落点认领，手势结束且分页就绪时才落点；重分页效果换章当次跳过，不再用陈旧偏移把末页盖回章首；分页未就绪时不消费末页哨兵。",
+            "阅读设置改底部面板：贴底悬浮、最高占屏高 45%、无遮罩，正文全程可见且实时跟随字号/字体/行距/背景；内容超高时面板内滚，完成/取消在面板底行。",
+            "完整内容见仓库 docs/changelog/v0.241.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.240.0",
         date = "2026-10-26",
         title = "三处纠偏：详情弹窗真正改小、越界回上一章落末页、进度条改回本章进度。",
