@@ -31,8 +31,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -76,18 +74,17 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -96,7 +93,6 @@ import com.movieshell.data.model.Novel
 import com.movieshell.data.model.ReadingProgress
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.ChapterMeta
-import com.movieshell.data.novel.NovelPaginator
 import com.movieshell.data.novel.NovelPurifyEngine
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.PurifyRuleStore
@@ -116,7 +112,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.absoluteValue
-import kotlin.math.roundToInt
 import androidx.compose.material.icons.filled.SwapHoriz
 
 /**
@@ -140,6 +135,18 @@ private val readerIoScope = kotlinx.coroutines.CoroutineScope(
  *  （消费后立即清零，别的入口进阅读器不受影响）。 */
 object ReaderJumpRequest {
     var chapter: Int? = null
+}
+
+/**
+ * v0.244.0：定位目标（目录/书签/滑杆/上下章/恢复共用）。
+ * Offset = 章内字符位置；Title = 章首（标题锚点）；LastText = 上一章末页
+ * （该章最后一个正文字符所在的全局页）。三者分开定义、分开映射，不混用。
+ */
+private sealed class LandingTarget {
+    abstract val chapter: Int
+    data class Offset(override val chapter: Int, val offset: Int) : LandingTarget()
+    data class Title(override val chapter: Int) : LandingTarget()
+    data class LastText(override val chapter: Int) : LandingTarget()
 }
 
 @Composable
@@ -189,7 +196,6 @@ fun ReaderScreen(
     var pageMode by remember { mutableIntStateOf(savedSettings.pageMode) }
     var showToc by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    var restoreOffset by remember { mutableIntStateOf(0) }
     // v0.36.0：行距三档、亮度（-1=跟随系统）
     // v0.194.0追加：字体五档（0=系统默认 1=无衬线 2=衬线 3=等宽 4=手写），
     // 旧版衬线开关迁移见 ReaderSettings.load；胶囊字本身用对应字体渲染。
@@ -208,6 +214,24 @@ fun ReaderScreen(
     var pageHeight by remember { mutableIntStateOf(0) }
     // v0.89.0：翻页模式分页用正文区宽
     var pageWidth by remember { mutableIntStateOf(0) }
+
+    // v0.244.0：连续阅读——视口状态（两种模式统一）：视口顶部所在章节 + 该章字符偏移。
+    // chapterIndex 跟随视口走；进度保存/书签/底栏/顶栏都读这一组，不再各算各的。
+    var viewportChapter by remember { mutableIntStateOf(0) }
+    var viewportOffset by remember { mutableIntStateOf(0) }
+    // v0.244.0：定位请求（目录/书签/滑杆/上下章/恢复共用）：发请求只立 landing，
+    // 落点由履行效果在内容与排版就绪、滚动停稳后执行；用户中途换目标直接覆盖。
+    var landing by remember { mutableStateOf<LandingTarget?>(null) }
+    // v0.244.0：全局分页布局版本——字号/行距/字体/屏宽高/刷新本章时 +1，
+    // 分页整体重建，落点按视口章节 + 偏移重新定位。
+    var layoutVersion by remember { mutableIntStateOf(0) }
+    // v0.244.0：滚动模式布局缓存（非 state，不触发重组）：章内正文布局与标题高度，
+    // 供视口换算与精确定位校准用；内容一变 onTextLayout 就会刷新。
+    val chapterLayouts = remember { mutableMapOf<Int, TextLayoutResult>() }
+    val titleHeights = remember { mutableMapOf<Int, Float>() }
+    // v0.244.0：加载中章节集合（去重用）：同一章并发只拉一次。
+    val loadingChapters = remember { mutableSetOf<Int>() }
+    var locateJob by remember { mutableStateOf<Job?>(null) }
 
     // v0.89.0：书签
     var showBookmarks by remember { mutableStateOf(false) }
@@ -242,8 +266,6 @@ fun ReaderScreen(
         )
     }
 
-    val scrollState = rememberScrollState()
-
     // v0.36.0：亮度 Slider 直接写 Activity 的 Window
     val activity = context as? Activity
     LaunchedEffect(brightness) {
@@ -267,7 +289,6 @@ fun ReaderScreen(
     // v0.61.0：在线书源章节正文按需拉取（本地 TXT 导入的 content 本来就有，不走这里）
     // v0.64.0：本地 PY 书源的书（sourceKey 以 "pybook:" 开头）走 PY 链路
     // v0.99.0 P1-8/P1-9：预加载任务与翻页自动存档任务，翻章时取消上一次
-    var preloadJob by remember { mutableStateOf<Job?>(null) }
     var saveJob by remember { mutableStateOf<Job?>(null) }
     // 注意：局部 fun 必须先声明后调用，故放在 LaunchedEffect 之前
     /** v0.72.0：拉取章节正文并写库（纯 IO，不碰 UI 状态），返回是否拿到正文。 */
@@ -299,25 +320,48 @@ fun ReaderScreen(
     fun ensureContent(index: Int) {
         val c = chapters.getOrNull(index) ?: return
         if (c.content.isNotBlank() || c.url.isBlank()) return
+        if (!loadingChapters.add(index)) return
         scope.launch {
-            contentLoading = true
-            contentLoadError = false
-            // v0.109.0 A7：fetchChapter 返回值别再丢掉——失败时 Toast + 置错误态给重试入口
-            val ok = fetchChapter(index)
-            contentLoading = false
-            if (!ok) {
-                contentLoadError = true
-                AppToast.show(context, "正文拉取失败，点击正文区重试", long = false)
-                return@launch
+            try {
+                contentLoading = true
+                contentLoadError = false
+                // v0.109.0 A7：fetchChapter 返回值别再丢掉——失败时 Toast + 置错误态给重试入口
+                val ok = fetchChapter(index)
+                if (!ok) {
+                    contentLoadError = true
+                    AppToast.show(context, "正文拉取失败，点击正文区重试", long = false)
+                    // v0.244.0：正对着这章的定位请求别让用户空等——退回当前视口位置。
+                    if (landing?.chapter == index) {
+                        landing = LandingTarget.Offset(viewportChapter, viewportOffset)
+                    }
+                    return@launch
+                }
+            } finally {
+                loadingChapters.remove(index)
+                contentLoading = false
             }
-            // v0.72.0：预加载下一章（后台静默，不碰 contentLoading）
-            // v0.95.0：同时预加载上一章（回看不转圈）
-            // v0.99.0 P1-8：取消上一次预加载，快速翻章不产生请求风暴
-            preloadJob?.cancel()
-            preloadJob = scope.launch {
-                fetchChapter(index + 1)
-                fetchChapter(index - 1)
+        }
+    }
+
+    /** v0.244.0：静默拉一章（窗口预加载用）：不碰 contentLoading、不 Toast，失败就失败。 */
+    fun loadChapterSilent(index: Int) {
+        val c = chapters.getOrNull(index) ?: return
+        if (c.content.isNotBlank() || c.url.isBlank()) return
+        if (!loadingChapters.add(index)) return
+        scope.launch {
+            try {
+                fetchChapter(index)
+            } finally {
+                loadingChapters.remove(index)
             }
+        }
+    }
+
+    /** v0.244.0：窗口加载——当前章走 ensureContent（带失败反馈），前后各 2 章静默预载。 */
+    fun ensureContentWindow(center: Int, radius: Int = 2) {
+        ensureContent(center)
+        for (i in (center - radius)..(center + radius)) {
+            if (i != center) loadChapterSilent(i)
         }
     }
 
@@ -330,6 +374,8 @@ fun ReaderScreen(
         if (c.url.isBlank()) return
         chapters = chapters.map { if (it.index == idx) it.copy(content = "") else it }
         contentLoadError = false
+        // v0.244.0：正文换了，全局分页整体重建（布局版本 +1），落点按视口重定位。
+        layoutVersion++
         ensureContent(idx)
     }
 
@@ -350,199 +396,259 @@ fun ReaderScreen(
         ReaderJumpRequest.chapter = null
         if (jump != null && jump in cs.indices) {
             chapterIndex = jump
-            restoreOffset = 0
+            landing = LandingTarget.Title(jump)
         } else if (p != null && p.chapterIndex in cs.indices) {
             chapterIndex = p.chapterIndex
-            restoreOffset = p.charOffset
+            // v0.244.0：offset 0 就是章首（标题可见），大于 0 才按字符偏移落点。
+            landing = if (p.charOffset <= 0) LandingTarget.Title(p.chapterIndex)
+                else LandingTarget.Offset(p.chapterIndex, p.charOffset)
         }
         loaded = true
-        ensureContent(chapterIndex)
+        ensureContentWindow(chapterIndex)
     }
 
     val chapter = chapters.getOrNull(chapterIndex)
 
-    // v0.95.0：真分页引擎（段落感知，见 NovelPaginator）
+    // v0.244.0：连续阅读——滚动模式用 LazyColumn 连续流，不再按章切页；
+    // 翻页模式用全局分页（见 ContinuousBookLayout），页表来自实测排版。
     val density = LocalDensity.current
-    val charsPerPage = remember(pageWidth, pageHeight, fontSize, lineHeightRatio, density, chapter?.content) {
-        val fontPx = with(density) { fontSize.sp.toPx() }
-        val innerW = (pageWidth - with(density) { 40.dp.toPx() }).coerceAtLeast(0f)
-        val innerH = (pageHeight - with(density) { 24.dp.toPx() }).coerceAtLeast(0f)
-        // v0.102.0 P2-1（降级）：按正文中英文混排比例微调字符宽度系数
-        NovelPaginator.charsPerPage(fontPx, lineHeightRatio, innerW, innerH, chapter?.content.orEmpty())
-    }
-    // v0.193.0：每行字符数（与上面同口径），翻页模式少排一行、滚动模式算步长都用它。
-    val charsPerLine = remember(pageWidth, fontSize, density, chapter?.content) {
-        val fontPx = with(density) { fontSize.sp.toPx() }
-        val innerW = (pageWidth - with(density) { 40.dp.toPx() }).coerceAtLeast(0f)
-        NovelPaginator.charsPerLine(fontPx, innerW, chapter?.content.orEmpty())
-    }
-    // v0.193.0：音量翻页开着时，翻页模式分页少排一行，给页首重叠行腾位置；
-    // 关着或滚动模式时分页原样不动。
-    val pagingCharsPerPage = if (pageMode != 0 && volumePageTurn) {
-        (charsPerPage - charsPerLine).coerceAtLeast(200)
-    } else charsPerPage
-    val pages = remember(chapter?.content, pagingCharsPerPage) {
-        NovelPaginator.paginate(chapter?.content.orEmpty(), pagingCharsPerPage)
-    }
-    // v0.194.0追加：一屏步长（屏高减一行，翻页留重叠行）——音量键与点击分区共用。
+    val continuousListState = rememberLazyListState()
+    // 正文区内边距与旧分支一致：左右 20dp、上下 12dp。
+    val bodyStyle = TextStyle(
+        fontSize = fontSize.sp,
+        lineHeight = (fontSize * lineHeightRatio).sp,
+        fontFamily = readerFont,
+    )
+    val titleStyle = TextStyle(
+        fontSize = (fontSize + 2).sp,
+        fontWeight = FontWeight.Bold,
+    )
+    val titleBottomPx = with(density) { 16.dp.toPx() }
+    val innerWidthPx = (pageWidth - with(density) { 40.dp.toPx() }).toInt().coerceAtLeast(0)
+    val innerHeightPx = (pageHeight - with(density) { 24.dp.toPx() }).coerceAtLeast(0f)
+    // v0.194.0追加：一屏步长（屏高减一行）——音量键与点击分区共用。
     val pageStep = remember(pageHeight, fontSize, lineHeightRatio, density) {
         val linePx = with(density) { (fontSize * lineHeightRatio).sp.toPx() }.toInt()
         (pageHeight - linePx).coerceAtLeast(pageHeight / 2)
     }
-    // v0.193.0：首尾行重叠——翻页模式下分页先少排一行，显示时把上一页
-    // 末行贴到下一页页首；分页本身仍是原文的无重叠切分，进度偏移计算
-    // 继续用 pages，不受显示层重叠影响。
-    val displayPages = remember(pages, charsPerLine, pageMode, volumePageTurn) {
-        if (pageMode != 0 && volumePageTurn && pages.size > 1) {
-            pages.mapIndexed { i, p ->
-                if (i == 0) p else pages[i - 1].takeLast(charsPerLine) + "\n" + p
-            }
-        } else pages
-    }
-    val pagerState = rememberPagerState(pageCount = { pages.size.coerceAtLeast(1) })
-
-    /** v0.89.0：当前阅读位置换算成字符偏移（进度保存/书签用，两种模式统一）。 */
-    fun computeOffset(): Int {
-        val len = chapter?.content?.length ?: 0
-        return if (pageMode == 0) {
-            val max = scrollState.maxValue.coerceAtLeast(1)
-            if (len > 0) (scrollState.value.toFloat() / max * len).toInt().coerceIn(0, len) else 0
-        } else {
-            // v0.95.0：翻页模式用分页引擎的页首偏移（段落感知分页下更精确）
-            NovelPaginator.pageStartOffset(pages, pagerState.currentPage).coerceIn(0, len)
-        }
-    }
-
-
-    // 章节切换后：回到顶部，或按保存的字符偏移恢复位置
-    // v0.240.0：恢复逻辑重写——原来效果键里有正文长度，正文一到就
-    // 无条件滚一次（没到先滚顶、到了滚偏移、之后正文再变又滚顶），
-    // 回上一章末页的哨兵常被后到的一次长度变化洗成章首，手指越界
-    // 回上一章看着就是“直接到了上一章开头”。现改按章认领：
-    // 同一章只恢复一次；正文没到时等着不滚；滑到底前等一帧让新
-    // 正文完成布局，否则 maxValue 还是旧值/0，照样滑到顶。
-    var restoredForChapter by remember { mutableIntStateOf(-1) }
-    // v0.241.0：跨章落点认领——240 只修了恢复效果本身，但翻页模式下
-    // 还有两路会把刚落好的末页洗回章首：①重分页效果（charsPerPage
-    // 一变就跑）用旧章页码对应的陈旧偏移重定位，用户从旧章第 0 页
-    // 回来时那个偏移就是 0；②手指越界手势未结束时 pager 的回弹
-    // settling 也会把页码拽回 0。故换章时立 pending：恢复效果只在
-    // 手势结束且分页就绪时落点，落到目标才清 pending；重分页效果
-    // 在换章当次直接跳过，落点只归恢复效果管。
-    var landingChapter by remember { mutableIntStateOf(-1) }
-    var landingPending by remember { mutableStateOf(false) }
-    LaunchedEffect(chapterIndex, loaded, chapter?.content?.length, pagerState.isScrollInProgress, scrollState.isScrollInProgress) {
-        if (!loaded) return@LaunchedEffect
-        if (restoredForChapter == chapterIndex && !(landingPending && landingChapter == chapterIndex)) return@LaunchedEffect
-        val len = chapter?.content?.length ?: 0
-        if (len <= 0) return@LaunchedEffect // 正文没到：等着，不滚顶
-        // v0.241.0：手指越界手势还没结束时先不落点——pager 回弹会把
-        // 页码拽回 0；等手势结束（isScrollInProgress 变 false 触发重跑）
-        // 再落点，落点才是最终位置。按钮换章无手势，不受影响。
-        // v0.243.0：守门统一到两种模式——241 只守了翻页模式，滚动模式
-        // 的恢复效果没有这一条，音量键/按钮在惯性未停时切章同样会被
-        // 拖回章首。所有切章落点（landingPending）都等本模式滚动停稳
-        // （拖动 + 惯性都结束）再落；无手势时立即落，原有路径不动。
-        // scrollState.isScrollInProgress 已进 key，停稳时效果重跑补落点，
-        // 不会卡住。
-        if (landingPending) {
-            val settling = if (pageMode == 0) scrollState.isScrollInProgress else pagerState.isScrollInProgress
-            if (settling) return@LaunchedEffect
-        }
-        if (pageMode == 0) {
-            if (restoreOffset > 0) {
-                // v0.211.0 审计修复：保存用“滚动像素/最大值×全文长度”，
-                // 恢复原来却用写死的每行 22 字、行高 1.8，两公式不互逆，
-                // 同一位置每次重进都漂移。改用与保存同口径的真实值：
-                // 每行字数用 charsPerLine（屏宽/字号算出），行高用
-                // 字号×行距，与 computeOffset 的像素比例对应。
-                val linePx = with(density) { (fontSize * lineHeightRatio).sp.toPx() }
-                val cpl = charsPerLine.coerceAtLeast(1)
-                if (restoreOffset >= len) {
-                    // 末页哨兵（回上一章末页）：等布局出 maxValue 再滑到底
-                    var frames = 0
-                    while (scrollState.maxValue == 0 && frames < 10) {
-                        withFrameNanos { }
-                        frames++
-                    }
-                    scrollState.scrollTo(Int.MAX_VALUE)
-                } else {
-                    val targetPx = (restoreOffset / cpl.toFloat() * linePx).toInt()
-                    scrollState.scrollTo(targetPx.coerceAtLeast(0))
-                }
-            } else {
-                scrollState.scrollTo(0)
-            }
-        } else {
-            // v0.95.0：翻页模式按字符偏移定位页；正文还没到时等下一次 content 长度变化再恢复
-            // v0.241.0：分页未就绪时不消费哨兵——否则末页落点被吞掉，
-            // 恢复效果又已认领过本章，之后再无重跑机会，必然停章首。
-            if (pages.isEmpty()) return@LaunchedEffect
-            if (restoreOffset > 0) {
-                pagerState.scrollToPage(NovelPaginator.pageForOffset(pages, restoreOffset))
-            } else {
-                pagerState.scrollToPage(0)
-            }
-        }
-        restoredForChapter = chapterIndex
-        restoreOffset = 0 // 只恢复一次
-        landingPending = false
-    }
-
-    // v0.95.0：字号/行距/窗口变化导致重分页时，按字符偏移尽量保持阅读位置
-    var lastCpp by remember { mutableIntStateOf(0) }
-    var lastPageOffset by remember { mutableIntStateOf(0) }
-    // v0.241.0：重分页效果上次处理过的章节——换章当次它若跑起来，
-    // 就会用旧章页码对应的陈旧偏移把恢复效果刚落好的末页盖回章首。
-    var cppChapter by remember { mutableIntStateOf(-1) }
-    val latestChapterIndex by rememberUpdatedState(chapterIndex)
-    LaunchedEffect(pagerState.currentPage, pages) {
-        // v0.211.0 回归修复（静态审计）：这路翻页保存原来没有 pageMode
-        // 守卫，滚动模式下字号/章节一变引起 pages 重算，2 秒后就用
-        // 翻页页码算出的偏移覆盖滚动停存的正确位置；只在翻页模式跑。
+    var pagination by remember { mutableStateOf(BookPagination.empty(0)) }
+    val pagerState = rememberPagerState(pageCount = { pagination.displayPageCount.coerceAtLeast(1) })
+    val textMeasurer = rememberTextMeasurer()
+    // v0.244.0：全局分页增量构建（只翻页模式跑）：从 frontier 起每帧排 5 章，
+    // 遇到未到正文的章先静默拉取、等正文到了再续；样式/尺寸/布局版本一变
+    // 就整体重建（key 对不上时先清零再排，不把新旧样式的页混在一起）。
+    var paginationBuiltKey by remember { mutableStateOf("") }
+    LaunchedEffect(pageMode, layoutVersion, pageWidth, pageHeight, fontSize, lineHeightRatio, readerFont, chapters) {
         if (pageMode == 0) return@LaunchedEffect
-        lastPageOffset = NovelPaginator.pageStartOffset(pages, pagerState.currentPage)
-        // v0.99.0 P1-9：翻页 2 秒 debounce 自动存进度，App 崩溃/被杀不丢进度
+        val key = "$fontSize|$lineHeightRatio|$fontFamily|$pageWidth|$pageHeight|$layoutVersion"
+        if (paginationBuiltKey != key) {
+            pagination = BookPagination.empty(layoutVersion)
+            paginationBuiltKey = key
+        }
+        while (true) {
+            val cur = pagination
+            if (cur.fullyDone || innerWidthPx <= 0 || innerHeightPx <= 0f) break
+            val next = chapters.getOrNull(cur.frontierChapter) ?: break
+            if (next.content.isBlank() && next.url.isNotBlank()) {
+                loadChapterSilent(next.index)
+                break
+            }
+            pagination = paginateChapterRange(
+                measurer = textMeasurer,
+                chapters = chapters,
+                base = cur,
+                maxChapters = 5,
+                bodyStyle = bodyStyle,
+                titleStyle = titleStyle,
+                titleBottomPx = titleBottomPx,
+                innerWidthPx = innerWidthPx,
+                innerHeightPx = innerHeightPx,
+            )
+            withFrameNanos { }
+        }
+    }
+    // v0.244.0：显示条件一变（字号/行距/字体/屏尺寸），布局版本 +1——分页
+    // 整体重建，落点按视口重新定位（下面的 layoutVersion 效果接管）。
+    LaunchedEffect(fontSize, lineHeightRatio, fontFamily, pageWidth, pageHeight) {
+        if (loaded) layoutVersion++
+    }
+
+    /** v0.244.0：当前阅读位置换算成字符偏移（进度保存/书签用，两种模式统一）。
+     * 视口状态就是唯一事实源：滚动模式由连续流视口跟踪写，翻页模式由
+     * 全局页切换写，不再用像素比例或单章页码反推。 */
+    fun computeOffset(): Int = viewportOffset
+
+
+    /** v0.244.0：滚动模式章首定位：把目标章顶（标题）带到视口顶。 */
+    suspend fun scrollToChapterTop(index: Int) {
+        continuousListState.scrollToItem(index)
+        var frames = 0
+        while (frames < 30) {
+            val hasItem = continuousListState.layoutInfo.visibleItemsInfo.any { it.index == index }
+            if (hasItem) break
+            withFrameNanos { }
+            frames++
+        }
+    }
+
+    // v0.244.0：定位履行——滚动模式：目标章正文未到先拉取，等到了再精确定位。
+    // 滚动停稳才落点（241/243 的守门原则保留）；新请求直接覆盖旧请求。
+    LaunchedEffect(landing, pageMode, loaded, chapters, continuousListState.isScrollInProgress) {
+        val target = landing ?: return@LaunchedEffect
+        if (!loaded || pageMode != 0) return@LaunchedEffect
+        if (continuousListState.isScrollInProgress) return@LaunchedEffect
+        val tc = chapters.getOrNull(target.chapter) ?: return@LaunchedEffect
+        if (tc.content.isBlank()) {
+            if (tc.url.isNotBlank()) ensureContentWindow(target.chapter)
+            return@LaunchedEffect
+        }
+        locateJob?.cancel()
+        locateJob = scope.launch {
+            val len = tc.content.length
+            val linePx = with(density) { (fontSize * lineHeightRatio).sp.toPx() }
+            val ok = when (target) {
+                is LandingTarget.Offset -> if (target.offset <= 0) {
+                    scrollToChapterTop(target.chapter)
+                    true
+                } else {
+                    calibrateScrollToChar(
+                        continuousListState, target.chapter, target.offset, len,
+                        { chapterLayouts[it] }, { titleHeights[it] ?: 0f }, 0f,
+                    )
+                }
+                is LandingTarget.Title -> {
+                    scrollToChapterTop(target.chapter)
+                    true
+                }
+                is LandingTarget.LastText -> calibrateScrollToChar(
+                    continuousListState, target.chapter, len, len,
+                    { chapterLayouts[it] }, { titleHeights[it] ?: 0f },
+                    (pageHeight - linePx).coerceAtLeast(0f),
+                )
+            }
+            if (ok) landing = null
+        }
+    }
+
+    // v0.244.0：定位履行——翻页模式：目标页没排出来先等（分页效果在向后排，
+    // 目标章正文未到时先拉取）；滚动停稳才跳页；布局版本对不上时等重建。
+    LaunchedEffect(landing, pageMode, loaded, pagination.displayPageCount, pagination.frontierChapter, pagination.fullyDone, pagerState.isScrollInProgress) {
+        val target = landing ?: return@LaunchedEffect
+        if (!loaded || pageMode == 0) return@LaunchedEffect
+        if (pagerState.isScrollInProgress) return@LaunchedEffect
+        if (pagination.layoutVersion != layoutVersion) return@LaunchedEffect
+        val page = when (target) {
+            is LandingTarget.Offset -> pagination.pageIndexForPosition(target.chapter, target.offset)
+            is LandingTarget.Title -> pagination.titlePage(target.chapter)
+            is LandingTarget.LastText -> pagination.lastTextPage(target.chapter)
+        }
+        if (page == null) {
+            val tc = chapters.getOrNull(target.chapter)
+            if (tc != null && tc.content.isBlank() && tc.url.isNotBlank()) {
+                ensureContentWindow(target.chapter)
+            }
+            return@LaunchedEffect
+        }
+        pagerState.scrollToPage(page)
+        // 落点后视口直接跟新页走，不依赖页码变化触发跟随效果。
+        pagination.displayPages.getOrNull(page)?.firstPosition()?.let { (ch, off) ->
+            viewportChapter = ch
+            viewportOffset = off
+            chapterIndex = ch
+        }
+        landing = null
+    }
+
+    // v0.244.0：布局版本一变（字号/行距/字体/屏尺寸/刷新本章），按视口章节 +
+    // 偏移重新定位——分页重建后履行效果按新布局落点，滚动模式同理校准。
+    LaunchedEffect(layoutVersion) {
+        if (!loaded) return@LaunchedEffect
+        if (landing != null) return@LaunchedEffect
+        val ch = viewportChapter
+        if (ch !in chapters.indices) return@LaunchedEffect
+        landing = if (viewportOffset <= 0) LandingTarget.Title(ch)
+            else LandingTarget.Offset(ch, viewportOffset)
+    }
+
+    // v0.244.0：翻页 2 秒 debounce 自动存进度（只翻页模式）：页一切换就重计时，
+    // 存的是视口章节 + 偏移（全局页只是排版结果，不进进度文件）。
+    LaunchedEffect(pagerState.currentPage) {
+        if (pageMode == 0 || !loaded) return@LaunchedEffect
         saveJob?.cancel()
         saveJob = scope.launch {
             delay(2000)
-            val idx = latestChapterIndex
-            val off = NovelPaginator.pageStartOffset(pages, pagerState.currentPage)
-            ReadingProgressStore.save(context, ReadingProgress(novelId, idx, off, chapterTitle = chapters.getOrNull(idx)?.title.orEmpty()))
+            if (pageMode == 0 || !loaded) return@launch
+            ReadingProgressStore.save(
+                context,
+                ReadingProgress(novelId, viewportChapter, viewportOffset, chapterTitle = chapters.getOrNull(viewportChapter)?.title.orEmpty()),
+            )
         }
     }
-    // v0.211.0：上下滚动模式以前没有这个——滚动时进度只在退出阅读页
-    // 那一刻存一次，App 被划掉/崩溃就丢到上次切章的位置。补上滚动停止
-    // 即存：手指一停（拖动/惯性都结束）就存当前滚动位置，和翻页模式
-    // 的“翻页后自动存”对齐。只在滚动模式生效，翻页模式不走这条。
-    // 注意不用 scrollState.value 当 key——那样每滚一个像素就重组整页，
-    // 改用 isScrollInProgress（一次手势只变两次），滚动停下才存一次。
-    LaunchedEffect(scrollState.isScrollInProgress) {
-        // v0.211.0 回归修复（流程审计 H1）：首帧 isScrollInProgress 本来就是
-        // false，效果一进页就跑一次，那时进度还没载入（loaded=false、
-        // chapterIndex 仍是初始 0），会把进度写成第 0 章覆盖真进度。
-        // 加 loaded/chapter 守卫：没载入完不写盘；载入完后 key 没变、
-        // 效果不会重跑，第一次真正滚动停下时才存，不丢也不误写。
-        if (pageMode != 0 || scrollState.isScrollInProgress || !loaded || chapter == null) return@LaunchedEffect
+
+    // v0.244.0：滚动停止即存（只滚动模式）：isScrollInProgress 一次手势只变两次，
+    // 不拿滚动像素当 key，避免每滚一像素就重组。
+    LaunchedEffect(continuousListState.isScrollInProgress) {
+        if (pageMode != 0 || continuousListState.isScrollInProgress || !loaded || chapter == null) return@LaunchedEffect
         ReadingProgressStore.save(
             context,
-            ReadingProgress(novelId, latestChapterIndex, computeOffset(), chapterTitle = chapters.getOrNull(latestChapterIndex)?.title.orEmpty()),
+            ReadingProgress(novelId, viewportChapter, viewportOffset, chapterTitle = chapters.getOrNull(viewportChapter)?.title.orEmpty()),
         )
     }
-    LaunchedEffect(charsPerPage) {
-        // v0.241.0：换章当次（或落点未定）直接跳过——换章落点只归
-        // 恢复效果管；这里若跑，旧章页码对应的陈旧偏移（用户从旧章
-        // 第 0 页回来时就是 0）会把刚落好的末页盖回章首。同章内
-        // 改字号/行距/转屏仍走原逻辑，按偏移保持位置。
-        if (landingPending || cppChapter != chapterIndex) {
-            cppChapter = chapterIndex
-            lastCpp = charsPerPage
-            return@LaunchedEffect
+
+    // v0.244.0：翻页模式视口跟随全局页：页一切换，视口章节 + 偏移就取该页
+    // 首个片段位置；定位进行中（landing 非空）时不抢，由履行效果统一落点。
+    LaunchedEffect(pagerState.currentPage) {
+        if (pageMode == 0 || landing != null) return@LaunchedEffect
+        val page = pagination.displayPages.getOrNull(pagerState.currentPage) ?: return@LaunchedEffect
+        val (ch, off) = page.firstPosition()
+        viewportChapter = ch
+        viewportOffset = off
+        chapterIndex = ch
+    }
+
+    // v0.244.0：视口章节一切换就保证前后 2 章正文在手（滚动模式跟随手指，
+    // 翻页模式跟随页码；定位目标章由 locate 另外保证）。
+    LaunchedEffect(chapterIndex, loaded) {
+        if (!loaded) return@LaunchedEffect
+        ensureContentWindow(chapterIndex)
+    }
+
+    /** v0.244.0：定位总入口（目录/书签/滑杆/上下章/恢复共用）：只立请求 + 即时存进度，落点归履行效果。 */
+    fun locate(target: LandingTarget) {
+        if (target.chapter !in chapters.indices) return
+        // 即时存进度（旧 jumpTo 同款）：目标章位置先写盘，落点随后跟上。
+        val len = chapters.getOrNull(target.chapter)?.content?.length ?: 0
+        val off = when (target) {
+            is LandingTarget.Offset -> target.offset.coerceIn(0, len)
+            is LandingTarget.Title -> 0
+            is LandingTarget.LastText -> len
         }
-        if (lastCpp > 0 && lastCpp != charsPerPage && pages.isNotEmpty() && pageMode != 0) {
-            pagerState.scrollToPage(NovelPaginator.pageForOffset(pages, lastPageOffset))
+        scope.launch {
+            ReadingProgressStore.save(
+                context,
+                ReadingProgress(novelId, target.chapter, off, chapterTitle = chapters.getOrNull(target.chapter)?.title.orEmpty()),
+            )
         }
-        lastCpp = charsPerPage
+        landing = target
+        showToc = false
+        showBookmarks = false
+        ensureContentWindow(target.chapter)
+    }
+
+    /** offset 0 就是章首（标题可见），大于 0 按字符偏移落点。 */
+    fun locateChapterOffset(chapter: Int, offset: Int) {
+        if (offset <= 0) locate(LandingTarget.Title(chapter))
+        else locate(LandingTarget.Offset(chapter, offset))
+    }
+
+    /** 上一章按钮：回上一章末页（233 定论，GPT 第三轮的标题页说法已纠正）。 */
+    fun locatePrevChapter() {
+        if (chapterIndex > 0) locate(LandingTarget.LastText(chapterIndex - 1))
+    }
+
+    /** 下一章按钮：进下一章章首（标题锚点）。 */
+    fun locateNextChapter() {
+        if (chapterIndex < chapters.size - 1) locate(LandingTarget.Title(chapterIndex + 1))
     }
 
     // 退出时保存进度。用 rememberUpdatedState 保证 onDispose 拿到最新的章节和偏移值。
@@ -578,72 +684,42 @@ fun ReaderScreen(
         }
     }
 
-    fun jumpTo(index: Int, restoreTo: Int = 0) {
-        if (index in chapters.indices) {
-            // v0.188.0 M25：切章即把目标章位置写进唯一事实源（旧写法存旧章偏移
-            // 却写新章 index，两处自相矛盾；现只写进度，书架派生跟随）。
-            // v0.211.0 审计修复：回上一章末页用的 1_000_000_000 哨兵
-            // 原来原样落盘，进度文件里长期存着超章长的非法偏移；
-            // 本次会话的恢复仍用哨兵（恢复处会钳制到末页），落盘
-            // 时按当前章长钳制，未拉到正文时先存章首。
-            val len = chapters.getOrNull(index)?.content?.length ?: 0
-            val safeOffset = if (len > 0) restoreTo.coerceIn(0, len) else 0
-            scope.launch {
-                ReadingProgressStore.save(
-                    context,
-                    ReadingProgress(novelId, index, safeOffset, chapterTitle = chapters.getOrNull(index)?.title.orEmpty()),
-                )
-            }
-            restoreOffset = restoreTo
-            // v0.241.0：只有真换章才立落点认领——目录点当前章、
-            // 书签跳本章时 index 不变，恢复效果不会重跑，pending
-            // 若立了就再也清不掉，会一直压住重分页定位。
-            if (index != chapterIndex) {
-                landingChapter = index
-                landingPending = true
-            }
-            chapterIndex = index
-            showToc = false
-            showBookmarks = false
-            ensureContent(index)
-        }
-    }
-
 
     /** v0.194.0追加：统一翻页动作——音量键与点击分区共用同一套逻辑。 */
     fun pageUp() {
         if (pageMode == 0) {
-            if (scrollState.value > 0) {
-                scope.launch { scrollState.animateScrollTo((scrollState.value - pageStep).coerceAtLeast(0)) }
-            } else if (chapterIndex > 0) {
-                jumpTo(chapterIndex - 1, 1_000_000_000)
+            val info = continuousListState.layoutInfo
+            val first = info.visibleItemsInfo.minByOrNull { it.offset }
+            val atTop = first == null || (first.index == 0 && first.offset >= 0)
+            if (atTop) {
+                locatePrevChapter()
+            } else {
+                scope.launch { continuousListState.scroll { scrollBy(-pageStep.toFloat()) } }
             }
         } else {
             if (pagerState.currentPage > 0) {
                 scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
-            } else if (chapterIndex > 0) {
-                jumpTo(chapterIndex - 1, 1_000_000_000)
             }
+            // 翻页模式已是整本全局页：第 0 页就是书首，停住，不再跨章跳。
         }
     }
 
     fun pageDown() {
         if (pageMode == 0) {
-            if (scrollState.value < scrollState.maxValue) {
-                scope.launch {
-                    scrollState.animateScrollTo(
-                        (scrollState.value + pageStep).coerceAtMost(scrollState.maxValue),
-                    )
-                }
-            } else if (chapterIndex < chapters.size - 1) {
-                jumpTo(chapterIndex + 1)
+            val info = continuousListState.layoutInfo
+            val last = info.visibleItemsInfo.maxByOrNull { it.offset }
+            val atEnd = last != null && last.index == chapters.size - 1 &&
+                last.offset + last.size <= info.viewportSize.height
+            if (atEnd) {
+                locateNextChapter()
+            } else {
+                scope.launch { continuousListState.scroll { scrollBy(pageStep.toFloat()) } }
             }
         } else {
             if (pagerState.currentPage < (pagerState.pageCount - 1).coerceAtLeast(0)) {
                 scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
-            } else if (chapterIndex < chapters.size - 1) {
-                jumpTo(chapterIndex + 1)
             }
+            // 已到已确认末页：分页效果在向后排，排到了再按；全书排完就是书末，停住。
         }
     }
 
@@ -685,91 +761,21 @@ fun ReaderScreen(
         }
     }
 
-    // v0.195.0：滑动跨章——滚动模式下手指滑到章末继续上滑进下一章、
-    // 滑到章首继续下滑回上一章（之前只有音量键能跨章，手指滑到头就停住）。
-    // 用 NestedScroll 拿手指剩下的滑动量：已到边界、且本手势还没跳过章时才跳；
-    // 手势结束（isScrollInProgress 变 false）后重置，避免短章一次滑过连跳多章。
-    var boundaryJumped by remember { mutableStateOf(false) }
-    LaunchedEffect(scrollState.isScrollInProgress) {
-        if (!scrollState.isScrollInProgress) boundaryJumped = false
-    }
-    val boundaryScroll = remember {
-        object : NestedScrollConnection {
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                if (!boundaryJumped) {
-                    if (available.y < 0 && scrollState.value >= scrollState.maxValue &&
-                        chapterIndex < chapters.size - 1
-                    ) {
-                        boundaryJumped = true
-                        jumpTo(chapterIndex + 1)
-                    } else if (available.y > 0 && scrollState.value <= 0 && chapterIndex > 0) {
-                        // v0.243.0（GPT 修复，审过）：下拉越界回上一章不再手势中途
-                        // 就切章——手势没结束时落点会被旧章滚动干扰，恢复效果刚
-                        // 滑到底就被拖回章首（与 241 翻页手势回弹同类问题）。等
-                        // 滚动完全停稳再 jumpTo，末页哨兵与恢复效果原样接管。
-                        boundaryJumped = true
-                        val targetChapter = chapterIndex - 1
-                        scope.launch {
-                            while (scrollState.isScrollInProgress) {
-                                withFrameNanos { }
-                            }
-                            jumpTo(targetChapter, 1_000_000_000)
-                        }
-                    }
-                }
-                return Offset.Zero
-            }
-        }
-    }
-
-    // v0.233.0：翻页模式手指越界跨章——滚动模式 195 已有 boundaryScroll，
-    // 翻页模式的 HorizontalPager 一直没有越界处理，滑到章末/章首就
-    // 弹回原地、进不了上下章，只能靠按钮/音量键。复用同款 NestedScroll
-    // 机制：pager 在边界吃不下的横向余量会走到 onPostScroll 的 available.x
-    //（左滑为负→下一章、右滑为正→上一章尾页），一手势只跳一次。
-    var pagerBoundaryJumped by remember { mutableStateOf(false) }
-    LaunchedEffect(pagerState.isScrollInProgress) {
-        if (!pagerState.isScrollInProgress) pagerBoundaryJumped = false
-    }
-    val pagerBoundaryScroll = remember {
-        object : NestedScrollConnection {
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                if (!pagerBoundaryJumped) {
-                    if (available.x < 0 && pagerState.currentPage >= pagerState.pageCount - 1 &&
-                        chapterIndex < chapters.size - 1
-                    ) {
-                        pagerBoundaryJumped = true
-                        jumpTo(chapterIndex + 1)
-                    } else if (available.x > 0 && pagerState.currentPage <= 0 && chapterIndex > 0) {
-                        pagerBoundaryJumped = true
-                        jumpTo(chapterIndex - 1, 1_000_000_000)
-                    }
-                }
-                return Offset.Zero
-            }
-        }
-    }
-
     // v0.72.0：音量键翻页注册（开着才接管音量键，离开页面/关掉即释放）
     // v0.89.0：翻页模式下音量键改为前后翻页
     // v0.193.0：滚动模式按页滚时留一行重叠（上一页末行 = 下一页首行），
     // 免得翻页后接不上；步长随字号/行距/屏高变，故都进 key。
-    // v0.194.0：章末/章首跨章——原来翻到章末就停住，进不了下一章（用户原话）；
-    // 章末按下一页键进下一章、章首按上一页键回上一章末页；chapterIndex
-    // 进 key，重注册时 handler 拿到的是当前章。本块调用 jumpTo，局部函数
-    // 先声明后调用，故必须放在 jumpTo 定义之后。
-    DisposableEffect(volumePageTurn, pageMode, fontSize, lineHeightRatio, pageHeight, density, chapterIndex, chapters.size) {
+    // v0.194.0：章末/章首跨章——滚动模式到头/到底进上下章（上一章末页/
+    // 下一章章首），翻页模式全局页到头/到底即停；handler 走 rememberUpdatedState，
+    // 不用靠一长串 key 重注册。局部函数先声明后调用，故必须放在 pageUp 定义之后。
+    // v0.244.0：音量键 handler 改走 rememberUpdatedState——pageUp/pageDown 每帧
+    // 都是新闭包，旧写法靠一长串 key 重注册才拿到当前章，新写法注册一次即可。
+    val latestPageUp by rememberUpdatedState { pageUp() }
+    val latestPageDown by rememberUpdatedState { pageDown() }
+    DisposableEffect(volumePageTurn) {
         if (volumePageTurn) {
-            VolumeKeyRouter.onVolumeUp = { pageUp(); true }
-            VolumeKeyRouter.onVolumeDown = { pageDown(); true }
+            VolumeKeyRouter.onVolumeUp = { latestPageUp(); true }
+            VolumeKeyRouter.onVolumeDown = { latestPageDown(); true }
         }
         onDispose {
             VolumeKeyRouter.onVolumeUp = null
@@ -974,15 +980,7 @@ fun ReaderScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     showChapterSearch = false
-                                    scope.launch {
-                                        if (pageMode == 0) {
-                                            val linePx = with(density) { (fontSize * lineHeightRatio).sp.toPx() }
-                                            val cpl = charsPerLine.coerceAtLeast(1)
-                                            scrollState.scrollTo((off / cpl.toFloat() * linePx).toInt().coerceAtLeast(0))
-                                        } else {
-                                            pagerState.scrollToPage(NovelPaginator.pageForOffset(pages, off))
-                                        }
-                                    }
+                                    locateChapterOffset(chapterIndex, off)
                                     AppToast.show(context, "第 ${mi + 1} / ${matches.size} 处", long = false)
                                 }
                                 .padding(vertical = 6.dp),
@@ -1047,35 +1045,32 @@ fun ReaderScreen(
                     }
                 }
             } else if (pageMode == 0) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .nestedScroll(boundaryScroll)
-                        .verticalScroll(scrollState)
-                        .clickable { immersive = !immersive }
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                ) {
-                    Text(
-                        text = chapter.title,
-                        color = fg,
-                        fontSize = (fontSize + 2).sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 16.dp),
-                    )
-                    Text(
-                        text = chapter.content,
-                        color = fg,
-                        fontSize = fontSize.sp,
-                        lineHeight = (fontSize * lineHeightRatio).sp,
-                        fontFamily = readerFont,
-                    )
-                }
+                ContinuousReaderFlow(
+                    chapters = chapters,
+                    listState = continuousListState,
+                    fontSize = fontSize,
+                    lineHeightRatio = lineHeightRatio,
+                    readerFont = readerFont,
+                    fg = fg,
+                    background = bg,
+                    onToggleImmersive = { immersive = !immersive },
+                    getBodyLayout = { chapterLayouts[it] },
+                    getTitleHeight = { titleHeights[it] ?: 0f },
+                    onChapterLayout = { idx, layout, titleH ->
+                        chapterLayouts[idx] = layout
+                        titleHeights[idx] = titleH
+                    },
+                    onViewportChanged = { idx, off ->
+                        viewportChapter = idx
+                        viewportOffset = off
+                        chapterIndex = idx
+                    },
+                )
             } else {
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .nestedScroll(pagerBoundaryScroll)
                         .pointerInput(Unit) {
                             detectTapGestures(onTap = { immersive = !immersive })
                         },
@@ -1100,22 +1095,41 @@ fun ReaderScreen(
                                 .fillMaxSize()
                                 .padding(horizontal = 20.dp, vertical = 12.dp),
                         ) {
-                            if (page == 0) {
+                            // v0.244.0：全局页按片段渲染——标题与正文同属一页时
+                            // 自然同页，标题不再只挂在每章第 0 页；定位进行中
+                            // （landing 非空）或页表未建好时先显示加载态，别闪旧章。
+                            val gpages = pagination.displayPages
+                            if (landing != null || gpages.isEmpty()) {
                                 Text(
-                                    text = chapter.title,
-                                    color = fg,
-                                    fontSize = (fontSize + 2).sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 16.dp),
+                                    text = "正文加载中…",
+                                    color = fg.copy(alpha = 0.6f),
+                                    fontSize = 13.sp,
                                 )
+                            } else {
+                                gpages.getOrNull(page)?.fragments?.forEach { frag ->
+                                    val fch = chapters.getOrNull(frag.chapterIndex)
+                                    if (frag.isTitle) {
+                                        Text(
+                                            text = fch?.title.orEmpty(),
+                                            color = fg,
+                                            fontSize = (fontSize + 2).sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(bottom = 16.dp),
+                                        )
+                                    } else {
+                                        val content = fch?.content.orEmpty()
+                                        val start = frag.startOffset.coerceIn(0, content.length)
+                                        val end = frag.endOffset.coerceIn(start, content.length)
+                                        Text(
+                                            text = content.substring(start, end),
+                                            color = fg,
+                                            fontSize = fontSize.sp,
+                                            lineHeight = (fontSize * lineHeightRatio).sp,
+                                            fontFamily = readerFont,
+                                        )
+                                    }
+                                }
                             }
-                            Text(
-                                text = displayPages.getOrNull(page).orEmpty(),
-                                color = fg,
-                                fontSize = fontSize.sp,
-                                lineHeight = (fontSize * lineHeightRatio).sp,
-                                fontFamily = readerFont,
-                            )
                         }
                         // v0.89.0 仿真翻页：翻页中的页面叠一层随偏移渐变的黑色遮罩
                         if (pageMode == 2 && pageOffset != 0f) {
@@ -1155,10 +1169,12 @@ fun ReaderScreen(
                 )
                 Text(
                     if (pageMode == 0) {
-                        val max = scrollState.maxValue
-                        "本章 " + (if (max > 0) scrollState.value * 100 / max else 0) + "%"
-                    } else {
+                        val len = chapter?.content?.length ?: 0
+                        "本章 " + (if (len > 0) viewportOffset * 100 / len else 0) + "%"
+                    } else if (pagination.fullyDone) {
                         "${pagerState.currentPage + 1}/${pagerState.pageCount}  $progressPct%"
+                    } else {
+                        "${pagerState.currentPage + 1}/计算中  $progressPct%"
                     },
                     color = fg.copy(alpha = 0.6f),
                     fontSize = 12.sp,
@@ -1176,13 +1192,17 @@ fun ReaderScreen(
                 fg = fg,
                 chapterIndex = chapterIndex,
                 chapterCount = chapters.size,
-                pageMode = pageMode,
-                scrollState = scrollState,
-                pagerState = pagerState,
-                // v0.233.0：上一章必须回上一章尾页——音量键/滚动越界两路早已用
-                // 1_000_000_000 哨兵，唯独这个按钮漏了（一直落章首），补齐。
-                onPrevChapter = { jumpTo(chapterIndex - 1, 1_000_000_000) },
-                onNextChapter = { jumpTo(chapterIndex + 1) },
+                chapterFraction = run {
+                    val len = chapter?.content?.length ?: 0
+                    if (len > 0) (viewportOffset.toFloat() / len).coerceIn(0f, 1f) else 0f
+                },
+                // v0.233.0：上一章必须回上一章尾页（244 起走 LAST_TEXT 锚点，不再用哨兵）。
+                onPrevChapter = { locatePrevChapter() },
+                onNextChapter = { locateNextChapter() },
+                onChapterFractionCommit = { frac ->
+                    val len = chapter?.content?.length ?: 0
+                    locateChapterOffset(chapterIndex, (frac * len).toInt())
+                },
                 onShowToc = { showToc = true },
                 onOpenSettings = { openSettings() },
                 onOpenDisplaySettings = { openDisplaySettings() },
@@ -1443,7 +1463,7 @@ fun ReaderScreen(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { jumpTo(c.index) }
+                                .clickable { locate(LandingTarget.Title(c.index)) }
                                 .padding(vertical = 10.dp, horizontal = 4.dp),
                         )
                     }
@@ -1488,8 +1508,7 @@ fun ReaderScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clickable {
-                                        showBookmarks = false
-                                        jumpTo(b.chapterIndex, b.charOffset)
+                                        locateChapterOffset(b.chapterIndex, b.charOffset)
                                     }
                                     .padding(vertical = 10.dp, horizontal = 4.dp),
                             ) {
@@ -1717,35 +1736,25 @@ private fun ReaderBgRow(selected: Int, onSelect: (Int) -> Unit) {
  * 阅读器底栏——第一行 上一章 / 进度条 / 下一章，第二行 目录 / 设置。
  * v0.240.0：滑杆改回本章进度——v0.239.0 把它改成全本位置，
  * 是理解错了用户原话（用户要的是本章进度，不是全本）。
- * 本版：滑杆即本章进度（滚动模式取滚动比例，翻页模式取当前页比例），
+ * 本版：滑杆即本章进度（视口章节内比例，两种模式统一），
  * 拖动松手只在本章内定位，不跨章；换章仍走上一章/下一章按钮。
- * 单抽成独立 composable：章内滚动每像素都变 scrollState.value，只重组底栏这一小块，
- * 不触发整页重组。
+ * 单抽成独立 composable：视口状态只传给底栏这一小块，不触发整页重组。
  */
 @Composable
 private fun ReaderBottomBar(
     fg: Color,
     chapterIndex: Int,
     chapterCount: Int,
-    pageMode: Int,
-    scrollState: ScrollState,
-    pagerState: PagerState,
+    chapterFraction: Float,
     onPrevChapter: () -> Unit,
     onNextChapter: () -> Unit,
+    onChapterFractionCommit: (Float) -> Unit,
     onShowToc: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDisplaySettings: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
     // 拖动进度条只跟手，松手才定位，避免拖动中反复加载
     var sliderPos by remember { mutableStateOf<Float?>(null) }
-    val chapterFraction = if (pageMode == 0) {
-        val max = scrollState.maxValue
-        if (max > 0) scrollState.value.toFloat() / max else 0f
-    } else {
-        val pc = pagerState.pageCount
-        if (pc > 1) pagerState.currentPage.toFloat() / (pc - 1) else 0f
-    }
     Column(modifier = Modifier.fillMaxWidth()) {
         // v0.240.0：底栏精细化——原来是两排裸文字按钮加一根深色粗滑杆，
         // 糊在正文底下没分隔，看着生硬；现加顶部细分隔线、滑杆改柔和
@@ -1776,15 +1785,7 @@ private fun ReaderBottomBar(
                 onValueChange = { sliderPos = it },
                 onValueChangeFinished = {
                     sliderPos?.let { frac ->
-                        scope.launch {
-                            if (pageMode == 0) {
-                                val max = scrollState.maxValue
-                                scrollState.scrollTo((frac * max).toInt().coerceIn(0, max))
-                            } else {
-                                val pc = pagerState.pageCount
-                                if (pc > 1) pagerState.scrollToPage((frac * (pc - 1)).roundToInt().coerceIn(0, pc - 1))
-                            }
-                        }
+                        onChapterFractionCommit(frac)
                     }
                     sliderPos = null
                 },
