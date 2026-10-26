@@ -19,6 +19,18 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.237.0",
+        date = "2026-10-26",
+        title = "浅色高密度改版：跟参考图走浅色，三列密排，内容一屏看更多。",
+        details = listOf(
+            "主题改浅色：纯白底、近黑字、参考蓝主色；没选过主题模式的老用户一次性切到浅色，新装默认浅色。",
+            "首页 Hero 大卡撤掉，网格直接三列密排，边距和间距收紧；浅色下不画流动光斑和自定义底图。",
+            "海报卡按参考图：无底无边、角标右上角黑底白字胶囊、标题 plain 黑字一行；筛选 chip 选中浅蓝底＋蓝字。",
+            "底栏浅色下改白底、浅灰描边、参考蓝选中；6 个 TAB、32 个路由、全部功能入口都不动。",
+            "完整内容见仓库 docs/changelog/v0.237.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.236.0",
         date = "2026-10-26",
         title = "全量风格统一：青色系取代紫加金，6 个 TAB 与全部功能不动。",

@@ -56,8 +56,8 @@ fun PurifyRulesScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // v0.109.0 A9：亮色主题白底金字对比度约 2.1:1，按底色明度自适应
-    val gold = accentTitleColor()
+    // v0.109.0 A9：亮色主题白底青字按底色明度自适应
+    val accent = accentTitleColor()
 
     var rules by remember { mutableStateOf<List<PurifyRule>>(emptyList()) }
     var showAdd by remember { mutableStateOf(false) }
@@ -70,12 +70,12 @@ fun PurifyRulesScreen(
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = gold)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = accent)
             }
-            Text("净化规则", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = gold)
+            Text("净化规则", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = accent)
             Spacer(Modifier.weight(1f))
             IconButton(onClick = { showAdd = true }) {
-                Icon(Icons.Filled.Add, "新增规则", tint = gold)
+                Icon(Icons.Filled.Add, "新增规则", tint = accent)
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -124,9 +124,9 @@ fun PurifyRulesScreen(
                                     Text(
                                         "内置",
                                         fontSize = 11.sp,
-                                        color = gold,
+                                        color = accent,
                                         modifier = Modifier
-                                            .border(1.dp, gold, RoundedCornerShape(4.dp))
+                                            .border(1.dp, accent, RoundedCornerShape(4.dp))
                                             .padding(horizontal = 6.dp, vertical = 2.dp),
                                     )
                                 }

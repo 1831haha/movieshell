@@ -161,16 +161,19 @@ fun AppChip(
     modifier: Modifier = Modifier,
     small: Boolean = false, // v0.30.1：二级筛选行用小一号
 ) {
-    // v0.33.0：选中态微光描边——主色 1dp 边 + 柔光阴影
+    // v0.237.0 浅色高密度：浅色下按参考图——选中浅蓝底＋参考蓝字、
+    // 未选中浅灰底＋灰字，无描边无阴影；深色保持原来的微光描边。
+    val isLight = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    // v0.33.0：选中态微光描边——主色 1dp 边 + 柔光阴影（深色）
     val glowColor = MaterialTheme.colorScheme.primary
     FilterChip(
         selected = selected,
         onClick = onClick,
         label = { Text(text, style = SoftType.Caption) },
         modifier = modifier
-            .height(if (small) 30.dp else 36.dp)
+            .height(if (small) if (isLight) 28.dp else 30.dp else if (isLight) 32.dp else 36.dp)
             .then(
-                if (selected) Modifier.shadow(
+                if (selected && !isLight) Modifier.shadow(
                     elevation = 8.dp,
                     shape = RoundedCornerShape(SoftDimens.ChipCorner),
                     ambientColor = glowColor.copy(alpha = 0.35f),
@@ -178,7 +181,12 @@ fun AppChip(
                 ) else Modifier
             ),
         shape = RoundedCornerShape(SoftDimens.ChipCorner),
-        colors = FilterChipDefaults.filterChipColors(
+        colors = if (isLight) FilterChipDefaults.filterChipColors(
+            containerColor = Color(0xFFF1F3F4),
+            selectedContainerColor = Color(0xFFE3F0FD),
+            labelColor = Color(0xFF5F6364),
+            selectedLabelColor = Color(0xFF1E88E5),
+        ) else FilterChipDefaults.filterChipColors(
             containerColor = LocalSoftExtra.current.glass,
             selectedContainerColor = glowColor.copy(alpha = 0.22f),
             // v0.107.0 P0-10：照 v0.105.0 口径（CapsuleTabBar 同款），浅色主题色下选中字取深色，
@@ -188,8 +196,8 @@ fun AppChip(
         border = FilterChipDefaults.filterChipBorder(
             enabled = true,
             selected = selected,
-            borderColor = Color.White.copy(alpha = 0.10f),
-            selectedBorderColor = glowColor.copy(alpha = 0.9f),
+            borderColor = if (isLight) Color.Transparent else Color.White.copy(alpha = 0.10f),
+            selectedBorderColor = if (isLight) Color.Transparent else glowColor.copy(alpha = 0.9f),
             borderWidth = SoftDimens.BorderWidth,
         ),
     )
@@ -200,10 +208,11 @@ fun AppChip(
  * 亮色主题下页面/玻璃卡片为白色系，青字在其上需加深保证对比度，
  * 按底色明度自适应改用深青 #0E7490（对白约 5:1）。
  * 固定深色底（如 TechDialog 弹窗体、#171B28 图标圆）上的青字不受影响，继续用原色。
+ * v0.237.0：浅色高密度改版后，浅色下分区标题按参考图用近黑，不再用深青。
  */
 @Composable
 fun accentTitleColor(): Color =
-    if (MaterialTheme.colorScheme.background.luminance() > 0.5f) Color(0xFF0E7490)
+    if (MaterialTheme.colorScheme.background.luminance() > 0.5f) Color(0xFF202124)
     else Color(0xFF4DD0E1)
 
 /** 分区标题：15sp Medium + 可选右侧操作。风格统一后为青色强调色。 */
@@ -348,22 +357,25 @@ fun SoftBottomDock(
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(32.dp)
-    val unselected = Color(0xFF8491A1)
-    val accent = Color(0xFF4DD0E1) // v0.36.0：青色强调色（mockup 风格），固定
+    // v0.237.0：浅色下底栏按参考图——白底、浅灰描边、参考蓝选中、灰字未选中、
+    // 阴影收淡；深色保持夜航极简原样。
+    val isLight = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    val unselected = if (isLight) Color(0xFF5F6364) else Color(0xFF8491A1)
+    val accent = if (isLight) Color(0xFF1E88E5) else Color(0xFF4DD0E1)
     Surface(
         modifier = modifier
             .padding(horizontal = 16.dp)
             .padding(bottom = 12.dp)
             .height(64.dp)
             .shadow(
-                elevation = 16.dp,
+                elevation = if (isLight) 8.dp else 16.dp,
                 shape = shape,
-                ambientColor = accent.copy(alpha = 0.10f),
-                spotColor = Color.Black.copy(alpha = 0.35f),
+                ambientColor = if (isLight) Color.Black.copy(alpha = 0.05f) else accent.copy(alpha = 0.10f),
+                spotColor = if (isLight) Color.Black.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.35f),
             )
-            .border(1.dp, Color(0x1FFFFFFF), shape),
+            .border(1.dp, if (isLight) Color(0xFFE8EAED) else Color(0x1FFFFFFF), shape),
         shape = shape,
-        color = Color(0xF2121720),
+        color = if (isLight) Color.White else Color(0xF2121720),
         tonalElevation = 0.dp,
     ) {
         Row(

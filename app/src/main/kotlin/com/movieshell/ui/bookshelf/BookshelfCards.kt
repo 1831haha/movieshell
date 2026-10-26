@@ -162,7 +162,7 @@ fun NovelListCard(
                         novel.title,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
-                        // v0.109.0 A9：书名在玻璃卡片上，亮色主题白底金字难读，用明度自适应金
+                        // v0.109.0 A9：书名在玻璃卡片上，亮色主题白底青字难读，用明度自适应青色
                         color = accentTitleColor(),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

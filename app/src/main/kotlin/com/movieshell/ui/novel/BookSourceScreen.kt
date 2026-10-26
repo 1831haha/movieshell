@@ -105,8 +105,8 @@ fun BookSourceScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // v0.109.0 A9：亮色主题白底金字对比度约 2.1:1，按底色明度自适应
-    val gold = accentTitleColor()
+    // v0.109.0 A9：亮色主题白底青字按底色明度自适应
+    val accent = accentTitleColor()
 
     val sources by BookSourceManager.sources.collectAsState()
     // v0.64.0：本地 PY 书源
@@ -299,13 +299,13 @@ fun BookSourceScreen(
         // 钮，点开弹窗再选方式；原来四个均分大钮占的一行省掉。
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = gold)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = accent)
             }
             Text(
                 "书源管理",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
-                color = gold,
+                color = accent,
                 modifier = Modifier.weight(1f),
             )
             FilledTonalButton(
@@ -408,7 +408,7 @@ fun BookSourceScreen(
                         "本地 PY 书源（${pyRules.count { it.name in pyEnabled }} 已启用）",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = gold,
+                        color = accent,
                     )
                 }
             }
@@ -495,12 +495,12 @@ fun BookSourceScreen(
                                 Icon(
                                     Icons.Filled.PlayArrow,
                                     "测试",
-                                    tint = gold,
+                                    tint = accent,
                                 )
                             }
                         }
                         IconButton(onClick = { editPyTarget = r }) {
-                            Icon(Icons.Filled.Edit, "编辑", tint = gold)
+                            Icon(Icons.Filled.Edit, "编辑", tint = accent)
                         }
                         IconButton(onClick = { deletePyTarget = r }) {
                             Icon(
@@ -518,7 +518,7 @@ fun BookSourceScreen(
                         "JSON 书源",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = gold,
+                        color = accent,
                     )
                 }
             }
@@ -580,7 +580,7 @@ fun BookSourceScreen(
                                     Text(
                                         s.group,
                                         fontSize = 12.sp,
-                                        color = gold,
+                                        color = accent,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
@@ -593,7 +593,7 @@ fun BookSourceScreen(
                                 }
                             }
                             IconButton(onClick = { editTarget = s }) {
-                                Icon(Icons.Filled.Edit, "编辑", tint = gold)
+                                Icon(Icons.Filled.Edit, "编辑", tint = accent)
                             }
                             IconButton(onClick = { deleteTarget = s }) {
                                 Icon(

@@ -50,19 +50,24 @@ private fun darkScheme(primary: Color) = darkColorScheme(
     onError = Color(0xFF2B0A0A),
 )
 
-private fun lightScheme(primary: Color) = lightColorScheme(
-    primary = primary,
-    onPrimary = if (primary.luminance() > 0.5f) Color(0xFF06202B) else Color.White,
-    secondary = lerp(primary, Color.Black, 0.25f),
-    background = Color(0xFFF4F6FA),
+/**
+ * v0.237.0 浅色高密度改版：浅色主题按参考图固定——纯白底、近黑字、
+ * 参考蓝主色，不跟主题色选择走（主题色与炫彩预设只作用于深色主题）；
+ * 这样不管之前选过什么主题色，装上就是参考图的浅色样子。
+ */
+private fun lightScheme() = lightColorScheme(
+    primary = Color(0xFF1E88E5),
+    onPrimary = Color.White,
+    secondary = Color(0xFF42A5F5),
+    background = Color(0xFFFFFFFF),
     surface = Color(0xFFFFFFFF),
-    surfaceVariant = Color(0xFFEDF1F7),
-    onBackground = Color(0xFF1B1E24),
-    onSurface = Color(0xFF1B1E24),
-    onSurfaceVariant = Color(0xFF5C6675),
-    outline = Color(0xFFE2E8F0),
-    outlineVariant = Color(0xFFE2E8F0),
-    error = Color(0xFFDC2626),
+    surfaceVariant = Color(0xFFF1F3F4),
+    onBackground = Color(0xFF202124),
+    onSurface = Color(0xFF202124),
+    onSurfaceVariant = Color(0xFF5F6364),
+    outline = Color(0xFFE8EAED),
+    outlineVariant = Color(0xFFE8EAED),
+    error = Color(0xFFD32F2F),
 )
 
 @Composable
@@ -72,14 +77,19 @@ fun MovieShellTheme(
     content: @Composable () -> Unit,
 ) {
     // v0.87.1：炫彩渐变主题时，品牌渐变面跟随预设色带
+    // v0.237.0：浅色下品牌渐变固定参考蓝单色系，不跟预设走
     val brandArgb by ThemeStore.brandGradient.collectAsState()
-    val brandColors = brandArgb?.map { Color(it) } ?: BrandGradientColors
+    val brandColors = if (darkTheme) {
+        brandArgb?.map { Color(it) } ?: BrandGradientColors
+    } else {
+        listOf(Color(0xFF1E88E5), Color(0xFF42A5F5))
+    }
     CompositionLocalProvider(
         LocalSoftExtra provides if (darkTheme) SoftExtraDark else SoftExtraLight,
         LocalBrandGradient provides brandColors,
     ) {
         MaterialTheme(
-            colorScheme = if (darkTheme) darkScheme(themeColor) else lightScheme(themeColor),
+            colorScheme = if (darkTheme) darkScheme(themeColor) else lightScheme(),
             content = content,
         )
     }

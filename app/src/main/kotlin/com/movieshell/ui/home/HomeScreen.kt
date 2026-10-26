@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -101,8 +102,8 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
+import com.movieshell.data.repo.ThemeStore
 import com.movieshell.ui.components.FilterBar
-import com.movieshell.ui.components.HeroCard
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
@@ -1108,27 +1109,40 @@ fun HomeScreen(
     // v0.82.0：用户自定义背景底图（设置页更换）优先
     val customBg by BackgroundStore.customBg.collectAsState()
     LaunchedEffect(Unit) { BackgroundStore.load(context) }
+    // v0.237.0 浅色高密度：浅色下不要光斑、自定义底图、半透明罩，
+    // 直接纯白底，内容密度优先；深色保持原样（与 MainActivity 同款模式判定）。
+    val themeMode by ThemeStore.mode.collectAsState()
+    val darkTheme = when (themeMode) {
+        ThemeStore.MODE_LIGHT -> false
+        ThemeStore.MODE_DARK -> true
+        else -> isSystemInDarkTheme()
+    }
     Box(modifier = Modifier.fillMaxSize()) {
-        if (customBg != null) {
-            AsyncImage(
-                model = customBg,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-            // 深色罩：保证文字可读
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.55f)),
-            )
-        } else {
-            FlowingGlowBackground(modifier = Modifier.fillMaxSize())
+        if (darkTheme) {
+            if (customBg != null) {
+                AsyncImage(
+                    model = customBg,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+                // 深色罩：保证文字可读
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.55f)),
+                )
+            } else {
+                FlowingGlowBackground(modifier = Modifier.fillMaxSize())
+            }
         }
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.55f)),
+                .background(
+                    if (darkTheme) MaterialTheme.colorScheme.background.copy(alpha = 0.55f)
+                    else MaterialTheme.colorScheme.background
+                ),
         ) {
             // v0.45.0：官方 Material3 下拉刷新（替换手搓版）
             // v0.58：切分类 loading 覆盖层——Box 包一层，顶部细条/骨架屏
@@ -1141,12 +1155,14 @@ fun HomeScreen(
             ) {
             LazyVerticalGrid(
                 // v0.78.3：列数跟布局走（海报网格 3 列/大海报 2 列/列表模式 1 列）
+                // v0.237.0：浅色下边距与间距收紧（12/8dp），一屏多放内容
                 columns = GridCells.Fixed(homeLayout.columns),
                 state = gridState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(SoftDimens.PagePadding),
-                verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
-                horizontalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                contentPadding = if (darkTheme) PaddingValues(SoftDimens.PagePadding)
+                else PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(if (darkTheme) SoftDimens.CardSpacing else 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (darkTheme) SoftDimens.CardSpacing else 8.dp),
             ) {
                 // v0.60：顶栏合一——搜索收成放大镜图标，历史/追剧/换源放一行（用户要求）
                 // v0.62：历史/追剧按内容自适应（不许被挤竖排），换源胶囊弹性收窄
@@ -1459,26 +1475,8 @@ fun HomeScreen(
                         }
                     }
     
-                    // v0.234.0 新 UI：Hero 大卡领头——当前列表第一条放大成宽幅卡，
-                    // 只在海报网格布局出现（列表/纯文字布局保持原样）；网格里跳过这一条，不重复。
-                    val showHero = filtered.isNotEmpty() &&
-                        homeLayout != HomeLayout.COMPACT_LIST && homeLayout != HomeLayout.TEXT_ONLY
-                    if (showHero) {
-                        val hero = filtered.first()
-                        val heroSubtitle = listOfNotNull(
-                            hero.vodYear.takeIf { it.isNotBlank() },
-                            hero.typeName.takeIf { it.isNotBlank() },
-                        ).joinToString(" · ").takeIf { it.isNotBlank() }
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            HeroCard(
-                                title = hero.vodName,
-                                subtitle = heroSubtitle,
-                                badge = hero.vodRemarks,
-                                coverUrl = hero.vodPic,
-                                onClick = { goDetail(hero.vodId, hero.vodName) },
-                            )
-                        }
-                    }
+                    // v0.237.0 浅色高密度：首页 Hero 大卡撤掉——一屏少一条大卡，
+                    // 网格直接三列密排；HeroCard 组件仍留给书架继续读用。
 
                     // 分区标题 + 换一换（v0.39.0：mockup 风格"今日推荐"）
                     // v0.50.0：stale 时标题旁小字提示"旧内容·刷新中"
@@ -1516,7 +1514,7 @@ fun HomeScreen(
                     }
     
                     // 网格海报墙 / 列表（v0.78.3：布局切换）
-                    items(if (showHero) filtered.drop(1) else filtered, key = { it.vodId.ifBlank { "noid:${it.vodName}" } }) { vod ->
+                    items(filtered, key = { it.vodId.ifBlank { "noid:${it.vodName}" } }) { vod ->
                         // v0.80.0：rating 已在海报底部跑马灯展示，副标题只留年份，不重复
                         // v0.212.0 审计修复：分类（typeName）明明带回来了，首页三种
                         // 布局却全程不显示；副标题改成“年份 · 分类”两段式。

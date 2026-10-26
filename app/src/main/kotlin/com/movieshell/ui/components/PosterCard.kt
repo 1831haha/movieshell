@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -48,12 +49,20 @@ fun PosterCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
-    val shape = RoundedCornerShape(SoftDimens.PosterCorner)
+    // v0.237.0 浅色高密度：浅色下按参考图——卡片本身无底无边，
+    // 只有海报图带小圆角；角标放右上角黑底白字胶囊；标题 plain 黑字
+    // 一行省略（不跑马灯）；深色保持原来的毛玻璃卡片。
+    val isLight = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    val shape = RoundedCornerShape(if (isLight) 8.dp else SoftDimens.PosterCorner)
     Column(
         modifier = modifier
-            .clip(shape)
-            .background(LocalSoftExtra.current.glass)
-            .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
+            .then(
+                if (isLight) Modifier
+                else Modifier
+                    .clip(shape)
+                    .background(LocalSoftExtra.current.glass)
+                    .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
+            )
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         Box(
@@ -74,17 +83,19 @@ fun PosterCard(
                     contentScale = ContentScale.Crop,
                     onError = { imageFailed = true },
                 )
-                // 底部压暗衬标题
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0.6f to Color.Transparent,
-                                1f to Color(0x88000000),
+                // 底部压暗衬标题（浅色下角标已挪到右上角，不用压暗）
+                if (!isLight) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    0.6f to Color.Transparent,
+                                    1f to Color(0x88000000),
+                                )
                             )
-                        )
-                )
+                    )
+                }
             } else {
                 Text(
                     text = title.firstOrNull()?.toString() ?: "",
@@ -97,45 +108,80 @@ fun PosterCard(
             // v0.80.0：备注改海报底部一行（不再大色块遮海报）
             // v0.212.0 审计修复：备注原来是四色渐变字 + 跑马灯，与香槟金/
             // 青色体系冲突、一屏十几条同时跑很闹；改单色青色 + 省略号。
+            // v0.237.0：浅色下角标按参考图放右上角黑底白字胶囊。
             if (badge != null) {
-                Text(
-                    text = badge,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                    style = TextStyle(
-                        color = Color(0xFF4DD0E1),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (isLight) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = badge,
+                            style = TextStyle(
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            maxLines = 1,
+                        )
+                    }
+                } else {
+                    Text(
+                        text = badge,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        style = TextStyle(
+                            color = Color(0xFF4DD0E1),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
-        Column(modifier = Modifier.padding(8.dp)) {
-            // v0.90.0：片名底色改护眼绿胶囊 + 深色字保证对比度
-            // v0.212.0 审计修复：那块写死的浅绿底 + 深绿字与整页深底 +
-            // 毛玻璃 + 微光描边断裂，深色主题下最扎眼；改跟卡片同款
-            // 毛玻璃底 + 微光描边，字色跟主题 onSurface 走。
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(LocalSoftExtra.current.glass)
-                    .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
+        Column(
+            modifier = if (isLight) Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp)
+            else Modifier.padding(8.dp)
+        ) {
+            if (isLight) {
                 Text(
                     text = title,
-                    // v0.82.0：片名字体调小 + 显示不全跑马灯
-                    style = SoftType.CardTitle.copy(fontSize = 13.sp),
-                    modifier = Modifier.basicMarquee(),
+                    style = SoftType.CardTitle.copy(fontSize = 14.sp),
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
+            } else {
+                // v0.90.0：片名底色改护眼绿胶囊 + 深色字保证对比度
+                // v0.212.0 审计修复：那块写死的浅绿底 + 深绿字与整页深底 +
+                // 毛玻璃 + 微光描边断裂，深色主题下最扎眼；改跟卡片同款
+                // 毛玻璃底 + 微光描边，字色跟主题 onSurface 走。
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(LocalSoftExtra.current.glass)
+                        .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = title,
+                        // v0.82.0：片名字体调小 + 显示不全跑马灯
+                        style = SoftType.CardTitle.copy(fontSize = 13.sp),
+                        modifier = Modifier.basicMarquee(),
+                        maxLines = 1,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
             if (subtitle != null) {
                 Text(

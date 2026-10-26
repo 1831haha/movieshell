@@ -501,15 +501,15 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                             }
                             if (source.builtin) {
                                 Spacer(Modifier.width(6.dp))
-                                // v0.109.0 A9：内置 chip 金底 16% 透在亮色主题下近白，金字难读，用明度自适应金
-                                val goldChip = accentTitleColor()
+                                // v0.109.0 A9：内置 chip 青底 16% 透，文字用明度自适应青色
+                                val accentChip = accentTitleColor()
                                 Text(
                                     text = "内置",
                                     fontSize = 11.sp,
-                                    color = goldChip,
+                                    color = accentChip,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(goldChip.copy(alpha = 0.16f))
+                                        .background(accentChip.copy(alpha = 0.16f))
                                         .padding(horizontal = 8.dp, vertical = 2.dp),
                                 )
                             }

@@ -108,9 +108,10 @@ object ThemeStore {
     /** 启动时读回上次保存的模式和主题；未知值回退默认。 */
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val saved = prefs.getString(KEY_MODE, MODE_SYSTEM)
+        // v0.237.0：默认主题改浅色（跟参考图走）；老用户迁移见 MainActivity。
+        val saved = prefs.getString(KEY_MODE, MODE_LIGHT)
             .takeIf { it == MODE_DARK || it == MODE_LIGHT || it == MODE_SYSTEM }
-            ?: MODE_SYSTEM
+            ?: MODE_LIGHT
         _mode.value = saved
         val preset = presetOf(prefs.getString(KEY_GRADIENT, null))
         if (preset != null) {

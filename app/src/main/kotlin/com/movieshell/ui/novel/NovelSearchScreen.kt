@@ -97,8 +97,8 @@ fun NovelSearchScreen(
     DisposableEffect(Unit) {
         onDispose { vm.setKeyword("") }
     }
-    // v0.109.0 A9：亮色主题白底金字对比度约 2.1:1，按底色明度自适应
-    val gold = accentTitleColor()
+    // v0.109.0 A9：亮色主题白底青字按底色明度自适应
+    val accent = accentTitleColor()
 
     val sources by BookSourceManager.sources.collectAsState()
     val pyRules by PyBookSourceManager.rules.collectAsState()
@@ -137,12 +137,12 @@ fun NovelSearchScreen(
         if (!embedded) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = gold)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = accent)
             }
             Text(
                 // v0.66.0：锁定单源时标题显示源名
                 if (lockedPyRule != null) lockedPyRule.title else "找书",
-                fontSize = 22.sp, fontWeight = FontWeight.Bold, color = gold,
+                fontSize = 22.sp, fontWeight = FontWeight.Bold, color = accent,
                 maxLines = 1,
             )
             Spacer(Modifier.weight(1f))
@@ -150,8 +150,8 @@ fun NovelSearchScreen(
             if (lockedPyRule == null) {
                 TextButton(onClick = onManageSources) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Source, "书源管理", tint = gold, modifier = Modifier.padding(end = 4.dp))
-                        Text("书源($totalEnabled)", color = gold, fontSize = 13.sp)
+                        Icon(Icons.Filled.Source, "书源管理", tint = accent, modifier = Modifier.padding(end = 4.dp))
+                        Text("书源($totalEnabled)", color = accent, fontSize = 13.sp)
                     }
                 }
             }
@@ -192,7 +192,7 @@ fun NovelSearchScreen(
                         onClick = { vm.doSearch() },
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                     ) {
-                        Text("搜索", color = gold, fontSize = 14.sp)
+                        Text("搜索", color = accent, fontSize = 14.sp)
                     }
                 }
             },
@@ -252,7 +252,7 @@ fun NovelSearchScreen(
                                     "搜索历史",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = gold,
+                                    color = accent,
                                     modifier = Modifier.weight(1f),
                                 )
                                 TextButton(onClick = {
@@ -309,7 +309,7 @@ fun NovelSearchScreen(
                         Text(
                             "来自 ${group.name}（${group.books.size} 本）",
                             fontSize = 13.sp,
-                            color = gold,
+                            color = accent,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(top = 4.dp),
                         )
@@ -346,7 +346,7 @@ fun NovelSearchScreen(
                                             item.title.firstOrNull()?.toString() ?: "书",
                                             fontSize = 20.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = gold,
+                                            color = accent,
                                         )
                                     }
                                 }

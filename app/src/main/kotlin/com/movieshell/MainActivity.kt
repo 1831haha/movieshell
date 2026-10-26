@@ -226,6 +226,14 @@ class MainActivity : ComponentActivity() {
             AppToast.show(this, "当前为${guard.warnings.joinToString("、")}，继续使用风险自担", long = true)
         }
         ThemeStore.init(this)
+        // v0.237.0：浅色高密度改版——没显式选过主题模式的老用户（跟随系统）
+        // 一次性切到浅色，保证装上就是参考图的浅色样子；显式选过深色的不动；
+        // 设置→外观里仍可切回跟随系统/深色。
+        val migPrefs = getSharedPreferences("movieshell_migrations", android.content.Context.MODE_PRIVATE)
+        if (!migPrefs.getBoolean("theme_light_default_v237", false)) {
+            if (ThemeStore.mode.value == ThemeStore.MODE_SYSTEM) ThemeStore.setMode(this, ThemeStore.MODE_LIGHT)
+            migPrefs.edit().putBoolean("theme_light_default_v237", true).apply()
+        }
         LogStore.init(this)
         PlayerSettings.init(this)
         com.movieshell.data.repo.MusicSettings.init(this)
