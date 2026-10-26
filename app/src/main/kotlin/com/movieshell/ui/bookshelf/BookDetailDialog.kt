@@ -154,9 +154,10 @@ fun BookDetailDialog(
         ) {
             // v0.211.0：截图式信息头——大封面居中 + 蓝色标签居中；
             // 弹窗标题已是书名，头里不再重复写一遍。
+            // v0.239.0：弹窗瘦身——封面 110x148 改 84x112，间距同步收紧。
             Box(
                 modifier = Modifier
-                    .size(width = 110.dp, height = 148.dp)
+                    .size(width = 84.dp, height = 112.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
@@ -177,25 +178,25 @@ fun BookDetailDialog(
                     )
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 InfoChip("共 $total 章")
                 InfoChip(if (!novel.hasStartedReading) "未读" else "已读 $percent%")
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
                 if (!novel.hasStartedReading) "还没读过"
                 else "已读：第 ${read + 1} 章" + (novel.lastReadChapterTitle?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "") + " · 上次阅读：${formatLastReadTs(lastReadAt)}",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             // v0.211.0：截图式信息行——左侧图标 + 标签 + 值，右侧蓝色小钮；
             // 字数/分类/状态/人气咱没有真实数据，不编假标签，只列有的项。
             // “最新”用本地目录最后一章的真实标题，目录还没拉到时回落“共 N 章”。
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 InfoRow(icon = Icons.Filled.Person, label = "作者", value = novel.author?.takeIf { it.isNotBlank() } ?: "未知作者")
                 InfoRow(icon = Icons.Filled.Public, label = "来源", value = sourceName, actionText = "换源", onAction = { showChangeSource = true })
                 InfoRow(icon = Icons.Filled.Explore, label = "最新", value = chapters?.lastOrNull()?.title?.takeIf { it.isNotBlank() } ?: "共 $total 章")
@@ -250,7 +251,7 @@ fun BookDetailDialog(
                 }
                 InfoRow(icon = Icons.Filled.FilterAlt, label = "净化规则", actionText = "管理", onAction = onOpenPurifyRules)
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             if (!novel.desc.isNullOrBlank()) {
                 Text(
                     novel.desc,
@@ -260,7 +261,7 @@ fun BookDetailDialog(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(8.dp))
             }
             if (showToc) {
                 Spacer(Modifier.height(8.dp))
@@ -304,9 +305,9 @@ fun BookDetailDialog(
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             // v0.211.0：截图式底部双钮——左灰删除、右蓝阅读，各占一半宽。
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -422,7 +423,7 @@ private fun InfoRow(
                     .clip(RoundedCornerShape(6.dp))
                     .background(MaterialTheme.colorScheme.primary)
                     .clickable(onClick = onAction)
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
                 Text(actionText, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimary, maxLines = 1)
             }

@@ -257,20 +257,30 @@ fun MusicScreen(
                     }) {
                         Icon(Icons.Filled.Search, contentDescription = "搜索")
                     }
-                    TextButton(
-                        onClick = { showPlaylistDialog = true },
-                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    Spacer(Modifier.width(8.dp))
+                    // v0.239.0：两个入口改胶囊钮——原来是裸蓝色文字链，
+                    // 视觉上像没做完的半成品；现跟下方页签胶囊同款（浅灰底＋深字）。
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { showPlaylistDialog = true }
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
                     ) {
-                        Text("歌单导入", maxLines = 1)
+                        Text("歌单导入", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
                     }
                 } else {
                     Spacer(Modifier.weight(1f))
                 }
-                TextButton(
-                    onClick = onOpenMusicSource,
-                    contentPadding = PaddingValues(horizontal = 4.dp),
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable(onClick = onOpenMusicSource)
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
                 ) {
-                    Text("源管理", maxLines = 1)
+                    Text("源管理", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
                 }
             }
             // v0.181.0：第二行：页签胶囊 + 当前音源小芯片（点开即切换音源，名字过长截断）；

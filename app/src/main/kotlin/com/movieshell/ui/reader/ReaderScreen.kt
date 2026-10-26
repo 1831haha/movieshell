@@ -25,6 +25,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -1008,52 +1010,21 @@ fun ReaderScreen(
         // 书签只走顶栏一个图标，亮度只在设置里调，刷新（重读本章）本就极少用，
         // 不再在正文上叠一排紫色悬浮钮挡字。朗读按用户定不做，故不占位。
         if (!immersive) {
-            // 拖动进度条只跟手，松手才跳章，避免拖动中反复加载
-            var sliderPos by remember { mutableStateOf<Float?>(null) }
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // v0.233.0：上一章必须回上一章尾页——音量键/滚动越界两路早已用
-                    // 1_000_000_000 哨兵，唯独这个按钮漏了（一直落章首），补齐。
-                    TextButton(
-                        onClick = { jumpTo(chapterIndex - 1, 1_000_000_000) },
-                        enabled = chapterIndex > 0,
-                    ) { Text("上一章", color = fg) }
-                    AppSlider(
-                        value = sliderPos ?: chapterIndex.toFloat(),
-                        onValueChange = { sliderPos = it },
-                        onValueChangeFinished = {
-                            sliderPos?.toInt()?.let { jumpTo(it) }
-                            sliderPos = null
-                        },
-                        valueRange = 0f..(chapters.size - 1).coerceAtLeast(1).toFloat(),
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        onClick = { jumpTo(chapterIndex + 1) },
-                        enabled = chapterIndex < chapters.size - 1,
-                    ) { Text("下一章", color = fg) }
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = { showToc = true }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.List, "目录", tint = fg, modifier = Modifier.padding(end = 4.dp))
-                            Text("目录", color = fg)
-                        }
-                    }
-                    TextButton(onClick = { openSettings() }) { Text("设置", color = fg) }
-                }
-            }
+            ReaderBottomBar(
+                fg = fg,
+                chapterIndex = chapterIndex,
+                chapterCount = chapters.size,
+                pageMode = pageMode,
+                scrollState = scrollState,
+                pagerState = pagerState,
+                // v0.233.0：上一章必须回上一章尾页——音量键/滚动越界两路早已用
+                // 1_000_000_000 哨兵，唯独这个按钮漏了（一直落章首），补齐。
+                onPrevChapter = { jumpTo(chapterIndex - 1, 1_000_000_000) },
+                onNextChapter = { jumpTo(chapterIndex + 1) },
+                onJumpToChapter = { jumpTo(it) },
+                onShowToc = { showToc = true },
+                onOpenSettings = { openSettings() },
+            )
         }
     }
 
@@ -1454,6 +1425,83 @@ private fun ReaderBgRow(selected: Int, onSelect: (Int) -> Unit) {
             ReaderPill("护眼绿", selected == 2, dotColor = Color(0xFFE8F0E4)) { onSelect(2) }
             ReaderPill("夜间黑", selected == 3, dotColor = Color(0xFF121212)) { onSelect(3) }
             ReaderPill("跟随系统", selected == 4, dotFollowSystem = true) { onSelect(4) }
+        }
+    }
+}
+
+/**
+ * v0.239.0：阅读器底栏——第一行 上一章 / 进度条 / 下一章，第二行 目录 / 设置。
+ * 进度条改全本进度：原来只取章序号，章内滚动时滑块纹丝不动，看着像“这一章的进度”；
+ * 现把章内进度折进章序号（滚动模式取滚动比例，翻页模式取当前页比例），滑块即全本位置，
+ * 拖动松手仍按章跳（与原来一致，不改跳转语义）。
+ * 单抽成独立 composable：章内滚动每像素都变 scrollState.value，只重组底栏这一小块，
+ * 不触发整页重组。
+ */
+@Composable
+private fun ReaderBottomBar(
+    fg: Color,
+    chapterIndex: Int,
+    chapterCount: Int,
+    pageMode: Int,
+    scrollState: ScrollState,
+    pagerState: PagerState,
+    onPrevChapter: () -> Unit,
+    onNextChapter: () -> Unit,
+    onJumpToChapter: (Int) -> Unit,
+    onShowToc: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    // 拖动进度条只跟手，松手才跳章，避免拖动中反复加载
+    var sliderPos by remember { mutableStateOf<Float?>(null) }
+    val chapterFraction = if (pageMode == 0) {
+        val max = scrollState.maxValue
+        if (max > 0) scrollState.value.toFloat() / max else 0f
+    } else {
+        val pc = pagerState.pageCount
+        if (pc > 1) pagerState.currentPage.toFloat() / (pc - 1) else 0f
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
+                onClick = onPrevChapter,
+                enabled = chapterIndex > 0,
+            ) { Text("上一章", color = fg) }
+            AppSlider(
+                // 末章读到底时章序号＋章内比例会顶出滑杆上限，钳到上限（即全本终点）。
+                value = sliderPos ?: (chapterIndex + chapterFraction)
+                    .coerceIn(0f, (chapterCount - 1).coerceAtLeast(1).toFloat()),
+                onValueChange = { sliderPos = it },
+                onValueChangeFinished = {
+                    sliderPos?.toInt()?.let { onJumpToChapter(it) }
+                    sliderPos = null
+                },
+                valueRange = 0f..(chapterCount - 1).coerceAtLeast(1).toFloat(),
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                onClick = onNextChapter,
+                enabled = chapterIndex < chapterCount - 1,
+            ) { Text("下一章", color = fg) }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = onShowToc) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.List, "目录", tint = fg, modifier = Modifier.padding(end = 4.dp))
+                    Text("目录", color = fg)
+                }
+            }
+            TextButton(onClick = onOpenSettings) { Text("设置", color = fg) }
         }
     }
 }
