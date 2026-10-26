@@ -101,7 +101,9 @@ fun SearchBookDetailScreen(
     var pendingRead by remember { mutableStateOf<Int?>(null) }
 
     val title = detail?.name?.takeIf { it.isNotBlank() } ?: item.title
-    val author = detail?.author?.takeIf { it.isNotBlank() } ?: item.author
+    // v0.230.0：搜书结果的 author 自带“作者：”前缀（999 搜索规则原样带出），详情页已有“作者”标签列，去掉前缀防“作者 作者：…”重复。
+    val author = (detail?.author?.takeIf { it.isNotBlank() } ?: item.author)
+        ?.removePrefix("作者：")?.removePrefix("作者:")?.trim()
     val cover = detail?.cover?.takeIf { it.isNotBlank() } ?: item.cover
     val intro = detail?.intro?.takeIf { it.isNotBlank() }
     val kindTags = detail?.kind?.takeIf { it.isNotBlank() }

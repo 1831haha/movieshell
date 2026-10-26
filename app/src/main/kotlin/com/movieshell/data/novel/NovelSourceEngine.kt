@@ -4,6 +4,7 @@ import android.content.Context
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.source.CmsApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -239,7 +240,10 @@ object NovelSourceEngine {
                 val resolved = LegadoJsEngine.evalTextRule(doc, checked.url, source.ruleBookTocUrl, ctx, state)
                 if (resolved.isNotBlank()) tocUrl = resolved
             }
-            val firstPage = BookRuleEngine.fetchPage(tocUrl, ua) ?: return@withContext emptyList()
+            // v0.230.0：首抓失败不直接判空——站慢/抖动时给一次重试机会，仍失败记一行诊断（上次日志缺这行，分不清是没抓到还是规则没命中）。
+            val firstPage = BookRuleEngine.fetchPage(tocUrl, ua)
+                ?: BookRuleEngine.fetchPage(tocUrl, ua)
+                ?: run { LogBus.d(TAG, "目录首抓失败 ${source.name} $tocUrl"); return@withContext emptyList() }
             val firstLen = firstPage.body.length
             var curPage = LegadoJsEngine.runLoginCheck(source, firstPage, ctx, state) {
                 BookRuleEngine.fetchPage(tocUrl, ua)
@@ -485,7 +489,11 @@ object NovelSourceEngine {
                         kind = ev(source.ruleBookKind),
                     )
                 }
-            }.onFailure { LogBus.w(TAG, "详情抓取失败 ${book.remoteId}: ${it.message}") }
+            }.onFailure {
+                // v0.230.0：取消不算失败——页面离开导致的效果取消此前被当成抓取失败记了一笔噪音，原样抛出让协程正常取消。
+                if (it is CancellationException) throw it
+                LogBus.w(TAG, "详情抓取失败 ${book.remoteId}: ${it.message}")
+            }
                 .getOrDefault(BookDetailInfo())
         }
     }
