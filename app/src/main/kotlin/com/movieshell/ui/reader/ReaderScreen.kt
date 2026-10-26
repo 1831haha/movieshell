@@ -3,6 +3,8 @@ package com.movieshell.ui.reader
 import android.app.Activity
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -317,6 +319,18 @@ fun ReaderScreen(
                 fetchChapter(index - 1)
             }
         }
+    }
+
+    // v0.242.0：重读本章（图2顶栏/悬浮刷新钮）——清掉本章正文缓存
+    // 再重拉；页码/滚动位置不动（恢复效果认领过本章会直接放行，
+    // 不重定位）。本地 TXT 书没有可拉的链接，直接返回。
+    fun refreshChapter() {
+        val idx = chapterIndex
+        val c = chapters.getOrNull(idx) ?: return
+        if (c.url.isBlank()) return
+        chapters = chapters.map { if (it.index == idx) it.copy(content = "") else it }
+        contentLoadError = false
+        ensureContent(idx)
     }
 
     // 载入书 + 章节 + 进度（v0.84.0：换源后 sourceVersion 递增触发重载）
@@ -637,6 +651,31 @@ fun ReaderScreen(
         immersive = wasImmersiveBeforeSettings
     }
 
+    // v0.242.0：界面面板（图2底栏“界面”）与设置面板分开——界面只放
+    // 显示组（字号/字体/行距/背景），设置只放阅读组+管理组；两个面板
+    // 各自不到半屏，互不重复入口。
+    var showDisplaySettings by remember { mutableStateOf(false) }
+    fun openDisplaySettings() {
+        wasImmersiveBeforeSettings = immersive
+        immersive = false
+        showDisplaySettings = true
+    }
+    fun closeDisplaySettings() {
+        showDisplaySettings = false
+        immersive = wasImmersiveBeforeSettings
+    }
+
+    // v0.242.0：夜间切换（图2悬浮月亮钮）——切走时记住当前背景，
+    // 再点回原来的背景（跟随系统档也照此恢复）。
+    var lastNonNightBg by remember { mutableIntStateOf(if (bgTheme != 3) bgTheme else 1) }
+    fun toggleNight() {
+        if (bgTheme == 3) bgTheme = lastNonNightBg
+        else {
+            lastNonNightBg = bgTheme
+            bgTheme = 3
+        }
+    }
+
     // v0.195.0：滑动跨章——滚动模式下手指滑到章末继续上滑进下一章、
     // 滑到章首继续下滑回上一章（之前只有音量键能跨章，手指滑到头就停住）。
     // 用 NestedScroll 拿手指剩下的滑动量：已到边界、且本手势还没跳过章时才跳；
@@ -823,6 +862,12 @@ fun ReaderScreen(
                 // v0.215.0：章内搜索入口。
                 IconButton(onClick = { showChapterSearch = true }) {
                     Icon(Icons.Filled.Search, "章内搜索", tint = fg)
+                }
+                // v0.242.0：刷新（图2顶栏 ↻）——重读本章，本地书无链接可拉的不摆。
+                if (novel?.sourceKey != "local") {
+                    IconButton(onClick = { refreshChapter() }) {
+                        Icon(Icons.Filled.Refresh, "刷新", tint = fg)
+                    }
                 }
             }
         }
@@ -1071,10 +1116,42 @@ fun ReaderScreen(
             }
         }
 
-        // 底栏：阅读式底菜单（v0.211.0 去重版）——第一行 上一章 / 进度条 / 下一章，
-        // 第二行只留 目录 / 设置；右侧悬浮三钮（书签/亮度/刷新）全部删掉：
-        // 书签只走顶栏一个图标，亮度只在设置里调，刷新（重读本章）本就极少用，
-        // 不再在正文上叠一排紫色悬浮钮挡字。朗读按用户定不做，故不占位。
+        // v0.242.0：沉浸页脚（对标图 1 底部）——沉浸时正文底下只留
+        // 一行小字：章节名 + 页码/全书进度；点一下正文就出图 2 那套
+        // chrome（顶栏 + 悬浮圆钮 + 底栏），再点收回。
+        if (immersive) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    chapter?.title ?: "",
+                    color = fg.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    if (pageMode == 0) {
+                        val max = scrollState.maxValue
+                        "本章 " + (if (max > 0) scrollState.value * 100 / max else 0) + "%"
+                    } else {
+                        "${pagerState.currentPage + 1}/${pagerState.pageCount}  $progressPct%"
+                    },
+                    color = fg.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                )
+            }
+        }
+
+        // 底栏：阅读式底菜单（v0.211.0 去重版，v0.242.0 对标图 2 改为
+        // 第一行 上一章 / 进度条 / 下一章，第二行 目录 / 界面 / 设置；
+        // 211 删掉的悬浮钮按图 2 加回来，改白色圆钮贴左下竖排）。
+        // 朗读按用户定不做，故不占位；亮度仍在设置面板里调。
         if (!immersive) {
             ReaderBottomBar(
                 fg = fg,
@@ -1089,16 +1166,16 @@ fun ReaderScreen(
                 onNextChapter = { jumpTo(chapterIndex + 1) },
                 onShowToc = { showToc = true },
                 onOpenSettings = { openSettings() },
+                onOpenDisplaySettings = { openDisplaySettings() },
             )
         }
     }
 
-    // 设置面板（v0.241.0：195 的居中大弹窗改回底部面板——用户要边调
-    // 边看正文变化。贴底悬浮、最高只占屏高 45%、无遮罩，正文区
-    // 全程可见且实时跟随字号/字体/行距/背景；内容超高时面板内滚，
-    // 不再把整页盖住。完成/取消都在面板底行，返回键同样关闭。）
-    if (showSettings) {
-        BackHandler { closeSettings() }
+    // 界面面板（v0.242.0：图 2 底栏“界面”）——只放显示组（字号/
+    // 字体/行距/背景），与设置面板分开；同样贴底、最高占屏高 45%、
+    // 无遮罩，改动实时映在上面的正文里。
+    if (showDisplaySettings) {
+        BackHandler { closeDisplaySettings() }
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -1128,9 +1205,6 @@ fun ReaderScreen(
                         .padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    // v0.211.0：预览不再是写死的“山重水复…”——取当前章节正文
-                    // 第一个非空段落（没有正文时回落章节名），在哪本书打开
-                    // 就显示哪本书的字，字体/字号/行距仍实时跟随设置。
                     val previewText = chapter?.content
                         ?.split("\n")
                         ?.firstOrNull { it.isNotBlank() }
@@ -1168,7 +1242,62 @@ fun ReaderScreen(
                     }
                     // 背景：五档，最后一档跟随系统（深浅渐变点）
                     ReaderBgRow(bgTheme) { bgTheme = it }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = { closeDisplaySettings() }) {
+                        Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = { closeDisplaySettings() }) {
+                        Text("完成")
+                    }
+                }
+            }
+        }
+    }
+
+    // 设置面板（v0.241.0：195 的居中大弹窗改回底部面板——用户要边调
+    // 边看正文变化。贴底悬浮、最高只占屏高 45%、无遮罩，正文区
+    // 全程可见且实时跟随字号/字体/行距/背景；内容超高时面板内滚，
+    // 不再把整页盖住。完成/取消都在面板底行，返回键同样关闭。
+    // v0.242.0：显示组拆到界面面板，这里只剩阅读组 + 管理组。）
+    if (showSettings) {
+        BackHandler { closeSettings() }
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.45f).dp)
+                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                .background(MaterialTheme.colorScheme.surface),
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp, 4.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)),
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     ReaderSectionHeader("阅读")
                     // 翻页模式
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1240,6 +1369,23 @@ fun ReaderScreen(
                     }
                 }
             }
+        }
+    }
+    // 悬浮圆钮（v0.242.0：对标图 2 左侧竖排白圆钮）——只在 chrome
+    // 展开且无面板时出现，贴左下、在底栏之上：章内搜索、刷新、夜间。
+    // 亮度仍在设置面板里调，不另起入口；本地书无链接可拉，不摆刷新。
+    if (!immersive && !showSettings && !showDisplaySettings) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 12.dp, bottom = 140.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ReaderFloatButton(Icons.Filled.Search, "章内搜索") { showChapterSearch = true }
+            if (novel?.sourceKey != "local") {
+                ReaderFloatButton(Icons.Filled.Refresh, "刷新") { refreshChapter() }
+            }
+            ReaderFloatButton(Icons.Filled.DarkMode, "夜间") { toggleNight() }
         }
     }
     } // v0.241.0：根 Box 闭合
@@ -1355,6 +1501,22 @@ fun ReaderScreen(
     }
 
     }
+
+/** v0.242.0：悬浮圆钮（图 2 左侧白圆钮）——白底细边圆钮，贴左下竖排。 */
+@Composable
+private fun ReaderFloatButton(icon: ImageVector, desc: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, desc, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(22.dp))
+    }
+}
 
 /** v0.196.0：设置弹窗组标题——紧凑一页版，11sp。 */
 @Composable
@@ -1553,6 +1715,7 @@ private fun ReaderBottomBar(
     onNextChapter: () -> Unit,
     onShowToc: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenDisplaySettings: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     // 拖动进度条只跟手，松手才定位，避免拖动中反复加载
@@ -1635,6 +1798,14 @@ private fun ReaderBottomBar(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.List, "目录", tint = fg, modifier = Modifier.padding(end = 4.dp))
                     Text("目录", color = fg)
+                }
+            }
+            // v0.242.0：图 2 底栏第二排是 目录 / 朗读 / 界面 / 设置；
+            // 朗读按用户定不做，界面用 Aa 字样（与图 2 一致），开显示面板。
+            TextButton(onClick = onOpenDisplaySettings) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Aa", color = fg, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 4.dp))
+                    Text("界面", color = fg)
                 }
             }
             TextButton(onClick = onOpenSettings) {

@@ -19,6 +19,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.242.0",
+        date = "2026-10-26",
+        title = "阅读界面对标图 2：点一下出全套 chrome，再点收回纯文字。",
+        details = listOf(
+            "沉浸页脚：沉浸时正文底下只留一行小字——章节名 + 页码/全书进度；点一下正文就出顶栏 + 悬浮圆钮 + 底栏。",
+            "顶栏加刷新钮：重读本章（清缓存再重拉，位置不动）；悬浮圆钮贴左下：章内搜索、刷新、夜间（切走记住原背景，再点恢复）。",
+            "底栏第二排改成 目录 / 界面 / 设置：界面开显示面板，设置开阅读 + 管理面板，各自贴底、最高占屏高 45%、无遮罩。",
+            "朗读按既定不做，下载是新功能暂不搭；完整内容见仓库 docs/changelog/v0.242.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.241.0",
         date = "2026-10-26",
         title = "回上一章落末页根治、阅读设置改底部小面板。",
