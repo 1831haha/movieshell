@@ -100,6 +100,7 @@ import com.movieshell.data.repo.NovelUpdateInfo
 import com.movieshell.data.repo.NovelUpdateStore
 import com.movieshell.data.repo.ReadingProgressStore
 import com.movieshell.ui.components.TabTopBar
+import com.movieshell.ui.components.HeroCard
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.goldTitleColor
 import com.movieshell.ui.market.PluginUi
@@ -416,6 +417,25 @@ fun BookshelfScreen(
             BookshelfGroupStore.SORT_PROGRESS -> filtered.sortedByDescending { it.readFraction() }
             else -> filtered.sortedByDescending { progressMap[it.id]?.updatedAt ?: 0L }
         }
+    }
+
+    // v0.234.0 新 UI：继续读 Hero——最近读过的那本放大成宽幅卡领头，
+    // 点进直接续读；多选模式下不出现（多选只对列表里的书操作，语义干净）。
+    val continueBook = remember(visibleBooks, progressMap, selectionMode) {
+        if (selectionMode) null
+        else visibleBooks.filter { (progressMap[it.id]?.updatedAt ?: 0L) > 0L }
+            .maxByOrNull { progressMap[it.id]?.updatedAt ?: 0L }
+    }
+    val heroBooks = if (continueBook != null) visibleBooks.filter { it.id != continueBook.id } else visibleBooks
+    // v0.234.0：Hero 副标题共用一段（作者 · 在读章 · 更新数），网格/列表两处同调。
+    fun continueHeroSubtitle(novel: Novel): String? {
+        val p = progressMap[novel.id]
+        val ups = updates[novel.id]?.newChapters ?: 0
+        return listOfNotNull(
+            novel.author?.takeIf { it.isNotBlank() },
+            (p?.chapterTitle?.takeIf { it.isNotBlank() } ?: p?.let { "第 ${it.chapterIndex + 1} 章" }),
+            if (ups > 0) "更新 $ups 章" else null,
+        ).joinToString(" · ").takeIf { it.isNotBlank() }
     }
 
     fun toggleSelect(id: String) {
@@ -881,7 +901,18 @@ fun BookshelfScreen(
                                 CheckingRow()
                             }
                         }
-                        items(visibleBooks, key = { it.id }) { novel ->
+                        if (continueBook != null) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                HeroCard(
+                                    title = continueBook.title,
+                                    subtitle = continueHeroSubtitle(continueBook),
+                                    badge = "继续读",
+                                    coverUrl = continueBook.cover,
+                                    onClick = { openNovel(continueBook) },
+                                )
+                            }
+                        }
+                        items(heroBooks, key = { it.id }) { novel ->
                             NovelGridCard(
                                 novel = novel,
                                 updateCount = updates[novel.id]?.newChapters ?: 0,
@@ -911,7 +942,18 @@ fun BookshelfScreen(
                         if (checking) {
                             item(key = "checking") { CheckingRow() }
                         }
-                        items(visibleBooks, key = { it.id }) { novel ->
+                        if (continueBook != null) {
+                            item(key = "continue-hero") {
+                                HeroCard(
+                                    title = continueBook.title,
+                                    subtitle = continueHeroSubtitle(continueBook),
+                                    badge = "继续读",
+                                    coverUrl = continueBook.cover,
+                                    onClick = { openNovel(continueBook) },
+                                )
+                            }
+                        }
+                        items(heroBooks, key = { it.id }) { novel ->
                             NovelListCard(
                                 novel = novel,
                                 lastReadAt = progressMap[novel.id]?.updatedAt ?: 0L,

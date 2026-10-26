@@ -101,6 +101,7 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
+import com.movieshell.ui.components.HeroCard
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
@@ -1464,6 +1465,27 @@ fun HomeScreen(
                         }
                     }
     
+                    // v0.234.0 新 UI：Hero 大卡领头——当前列表第一条放大成宽幅卡，
+                    // 只在海报网格布局出现（列表/纯文字布局保持原样）；网格里跳过这一条，不重复。
+                    val showHero = filtered.isNotEmpty() &&
+                        homeLayout != HomeLayout.COMPACT_LIST && homeLayout != HomeLayout.TEXT_ONLY
+                    if (showHero) {
+                        val hero = filtered.first()
+                        val heroSubtitle = listOfNotNull(
+                            hero.vodYear.takeIf { it.isNotBlank() },
+                            hero.typeName.takeIf { it.isNotBlank() },
+                        ).joinToString(" · ").takeIf { it.isNotBlank() }
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            HeroCard(
+                                title = hero.vodName,
+                                subtitle = heroSubtitle,
+                                badge = hero.vodRemarks,
+                                coverUrl = hero.vodPic,
+                                onClick = { goDetail(hero.vodId, hero.vodName) },
+                            )
+                        }
+                    }
+
                     // 分区标题 + 换一换（v0.39.0：mockup 风格"今日推荐"）
                     // v0.50.0：stale 时标题旁小字提示"旧内容·刷新中"
                     // v0.145.0：进分类后标题跟当前分类走（选中 0 的推荐流视图才叫今日推荐）。
@@ -1500,7 +1522,7 @@ fun HomeScreen(
                     }
     
                     // 网格海报墙 / 列表（v0.78.3：布局切换）
-                    items(filtered, key = { it.vodId.ifBlank { "noid:${it.vodName}" } }) { vod ->
+                    items(if (showHero) filtered.drop(1) else filtered, key = { it.vodId.ifBlank { "noid:${it.vodName}" } }) { vod ->
                         // v0.80.0：rating 已在海报底部跑马灯展示，副标题只留年份，不重复
                         // v0.212.0 审计修复：分类（typeName）明明带回来了，首页三种
                         // 布局却全程不显示；副标题改成“年份 · 分类”两段式。
