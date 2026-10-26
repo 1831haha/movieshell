@@ -131,7 +131,8 @@ fun paginateChapterRange(
             if (chapter.url.isNotBlank()) break // 正文未到：停住，等拉到再续排
             // 本地空章：只排标题。
             val titleLayout = measurer.measure(
-                chapter.title, titleStyle, Constraints(maxWidth = innerWidthPx),
+                text = chapter.title, style = titleStyle,
+                constraints = Constraints(maxWidth = innerWidthPx),
             )
             placeBlock(
                 titleLayout.size.height + titleBottomPx,
@@ -141,14 +142,16 @@ fun paginateChapterRange(
             continue
         }
         val titleLayout = measurer.measure(
-            chapter.title, titleStyle, Constraints(maxWidth = innerWidthPx),
+            text = chapter.title, style = titleStyle,
+            constraints = Constraints(maxWidth = innerWidthPx),
         )
         placeBlock(
             titleLayout.size.height + titleBottomPx,
             GlobalTextFragment(chapter.index, true, 0, 0),
         )
         val bodyLayout = measurer.measure(
-            content, bodyStyle, Constraints(maxWidth = innerWidthPx),
+            text = content, style = bodyStyle,
+            constraints = Constraints(maxWidth = innerWidthPx),
         )
         val lineCount = bodyLayout.lineCount
         for (i in 0 until lineCount) {
