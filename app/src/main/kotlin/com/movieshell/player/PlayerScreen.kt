@@ -2110,6 +2110,8 @@ private fun PlayerSeekBar(
                     if (span <= 0f) 0f
                     else ((sliderState.value - r.start) / span).coerceIn(0f, 1f)
                 }
+                // Canvas 的 onDraw 不是 @Composable 上下文，主题色必须在外层先取出来。
+                val trackPrimary = MaterialTheme.colorScheme.primary
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2131,7 +2133,7 @@ private fun PlayerSeekBar(
                             cap = StrokeCap.Round,
                         )
                         drawLine(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                            color = trackPrimary.copy(alpha = 0.9f),
                             start = Offset(0f, y),
                             end = Offset(size.width * fraction, y),
                             strokeWidth = w,
