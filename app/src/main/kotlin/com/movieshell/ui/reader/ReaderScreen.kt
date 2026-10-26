@@ -603,6 +603,38 @@ fun ReaderScreen(
         }
     }
 
+    // v0.233.0：翻页模式手指越界跨章——滚动模式 195 已有 boundaryScroll，
+    // 翻页模式的 HorizontalPager 一直没有越界处理，滑到章末/章首就
+    // 弹回原地、进不了上下章，只能靠按钮/音量键。复用同款 NestedScroll
+    // 机制：pager 在边界吃不下的横向余量会走到 onPostScroll 的 available.x
+    //（左滑为负→下一章、右滑为正→上一章尾页），一手势只跳一次。
+    var pagerBoundaryJumped by remember { mutableStateOf(false) }
+    LaunchedEffect(pagerState.isScrollInProgress) {
+        if (!pagerState.isScrollInProgress) pagerBoundaryJumped = false
+    }
+    val pagerBoundaryScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (!pagerBoundaryJumped) {
+                    if (available.x < 0 && pagerState.currentPage >= pagerState.pageCount - 1 &&
+                        chapterIndex < chapters.size - 1
+                    ) {
+                        pagerBoundaryJumped = true
+                        jumpTo(chapterIndex + 1)
+                    } else if (available.x > 0 && pagerState.currentPage <= 0 && chapterIndex > 0) {
+                        pagerBoundaryJumped = true
+                        jumpTo(chapterIndex - 1, 1_000_000_000)
+                    }
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
     // v0.72.0：音量键翻页注册（开着才接管音量键，离开页面/关掉即释放）
     // v0.89.0：翻页模式下音量键改为前后翻页
     // v0.193.0：滚动模式按页滚时留一行重叠（上一页末行 = 下一页首行），
@@ -911,6 +943,7 @@ fun ReaderScreen(
                     state = pagerState,
                     modifier = Modifier
                         .fillMaxSize()
+                        .nestedScroll(pagerBoundaryScroll)
                         .pointerInput(Unit) {
                             detectTapGestures(onTap = { immersive = !immersive })
                         },
@@ -984,8 +1017,10 @@ fun ReaderScreen(
                         .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // v0.233.0：上一章必须回上一章尾页——音量键/滚动越界两路早已用
+                    // 1_000_000_000 哨兵，唯独这个按钮漏了（一直落章首），补齐。
                     TextButton(
-                        onClick = { jumpTo(chapterIndex - 1) },
+                        onClick = { jumpTo(chapterIndex - 1, 1_000_000_000) },
                         enabled = chapterIndex > 0,
                     ) { Text("上一章", color = fg) }
                     AppSlider(
