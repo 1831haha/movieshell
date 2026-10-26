@@ -5,6 +5,7 @@ import com.movieshell.ui.components.AppDropdownMenu
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -178,6 +179,9 @@ fun BookshelfScreen(
 
     // v0.195.0：书架内直接搜（不用单独找书页）
     var searching by remember { mutableStateOf(false) }
+    // v0.243.0：找书态按系统返回先回书架——找书只是书架内的一个状态、
+    // 不是导航路由，不拦截时返回会直接 pop 书架路由落到首页；与“取消”同义。
+    BackHandler(enabled = searching) { searching = false }
 
     // 弹窗状态
     var deleteTarget by remember { mutableStateOf<Novel?>(null) }

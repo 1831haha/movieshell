@@ -431,7 +431,7 @@ fun ReaderScreen(
     // 在换章当次直接跳过，落点只归恢复效果管。
     var landingChapter by remember { mutableIntStateOf(-1) }
     var landingPending by remember { mutableStateOf(false) }
-    LaunchedEffect(chapterIndex, loaded, chapter?.content?.length, pagerState.isScrollInProgress) {
+    LaunchedEffect(chapterIndex, loaded, chapter?.content?.length, pagerState.isScrollInProgress, scrollState.isScrollInProgress) {
         if (!loaded) return@LaunchedEffect
         if (restoredForChapter == chapterIndex && !(landingPending && landingChapter == chapterIndex)) return@LaunchedEffect
         val len = chapter?.content?.length ?: 0
@@ -439,7 +439,16 @@ fun ReaderScreen(
         // v0.241.0：手指越界手势还没结束时先不落点——pager 回弹会把
         // 页码拽回 0；等手势结束（isScrollInProgress 变 false 触发重跑）
         // 再落点，落点才是最终位置。按钮换章无手势，不受影响。
-        if (pageMode != 0 && landingPending && pagerState.isScrollInProgress) return@LaunchedEffect
+        // v0.243.0：守门统一到两种模式——241 只守了翻页模式，滚动模式
+        // 的恢复效果没有这一条，音量键/按钮在惯性未停时切章同样会被
+        // 拖回章首。所有切章落点（landingPending）都等本模式滚动停稳
+        // （拖动 + 惯性都结束）再落；无手势时立即落，原有路径不动。
+        // scrollState.isScrollInProgress 已进 key，停稳时效果重跑补落点，
+        // 不会卡住。
+        if (landingPending) {
+            val settling = if (pageMode == 0) scrollState.isScrollInProgress else pagerState.isScrollInProgress
+            if (settling) return@LaunchedEffect
+        }
         if (pageMode == 0) {
             if (restoreOffset > 0) {
                 // v0.211.0 审计修复：保存用“滚动像素/最大值×全文长度”，
@@ -698,8 +707,18 @@ fun ReaderScreen(
                         boundaryJumped = true
                         jumpTo(chapterIndex + 1)
                     } else if (available.y > 0 && scrollState.value <= 0 && chapterIndex > 0) {
+                        // v0.243.0（GPT 修复，审过）：下拉越界回上一章不再手势中途
+                        // 就切章——手势没结束时落点会被旧章滚动干扰，恢复效果刚
+                        // 滑到底就被拖回章首（与 241 翻页手势回弹同类问题）。等
+                        // 滚动完全停稳再 jumpTo，末页哨兵与恢复效果原样接管。
                         boundaryJumped = true
-                        jumpTo(chapterIndex - 1, 1_000_000_000)
+                        val targetChapter = chapterIndex - 1
+                        scope.launch {
+                            while (scrollState.isScrollInProgress) {
+                                withFrameNanos { }
+                            }
+                            jumpTo(targetChapter, 1_000_000_000)
+                        }
                     }
                 }
                 return Offset.Zero
