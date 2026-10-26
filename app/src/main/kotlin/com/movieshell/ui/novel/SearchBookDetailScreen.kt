@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -72,6 +73,7 @@ import kotlinx.coroutines.withContext
  * 阅读器只认书架条目，所以“阅读/点某章”在未入架时先入架再打开，
  * 入架失败（joinShelf 自己会 toast）就取消待阅读，不擅自跳转。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SearchBookDetailScreen(
     group: SourceGroup,
