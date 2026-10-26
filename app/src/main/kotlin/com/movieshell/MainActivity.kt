@@ -98,7 +98,7 @@ import com.movieshell.ui.novel.BookSourceScreen
 import com.movieshell.ui.novel.ExploreAggregateScreen
 import com.movieshell.ui.novel.ExploreScreen
 import com.movieshell.ui.novel.PurifyRulesScreen
-import com.movieshell.ui.novel.NovelSearchResult
+import com.movieshell.data.novel.NovelSearchResult
 import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.novel.NovelSearchViewModel
 import com.movieshell.ui.novel.SearchBookDetailScreen

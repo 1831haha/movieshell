@@ -92,7 +92,7 @@ import com.movieshell.data.novel.TxtImporter
 import com.movieshell.data.repo.BookGroup
 import com.movieshell.data.repo.BookshelfGroupStore
 import com.movieshell.data.repo.NovelStore
-import com.movieshell.ui.novel.NovelSearchResult
+import com.movieshell.data.novel.NovelSearchResult
 import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.novel.NovelSearchViewModel
 import com.movieshell.ui.novel.SourceGroup
