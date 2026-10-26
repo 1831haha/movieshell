@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.232.0",
+        date = "2026-10-26",
+        title = "231 推出后通盘复查补的最后一处：详情页拉目录加兜底，再不崩 App。",
+        details = listOf(
+            "09:46:10 的崩溃就是这条没兜：详情页拉目录直接调 chapters()，一抛异常就把 App 带走；入架链路有兜底才只变 toast。本版拉目录包进 runCatching，失败只显示“加载目录失败”。",
+            "复查结论：搜书、详情信息、目录首抓、列表规则、下一页 JS、入架重试链均已对上；唯一盲区是沙箱拿不到详情页 HTML，页面结构只能凭规则本身判断，诊断行会在真机上直接定真因。",
+            "完整内容见仓库 docs/changelog/v0.232.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.231.0",
         date = "2026-10-26",
         title = "230 真机验跟进：目录下一页数组绑定崩溃修掉，重进找书不留上次记录。",
