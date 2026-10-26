@@ -41,7 +41,7 @@ import com.movieshell.data.novel.PurifyRuleStore
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppToast
-import com.movieshell.ui.components.goldTitleColor
+import com.movieshell.ui.components.accentTitleColor
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.launch
@@ -57,7 +57,7 @@ fun PurifyRulesScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // v0.109.0 A9：亮色主题白底金字对比度约 2.1:1，按底色明度自适应
-    val gold = goldTitleColor()
+    val gold = accentTitleColor()
 
     var rules by remember { mutableStateOf<List<PurifyRule>>(emptyList()) }
     var showAdd by remember { mutableStateOf(false) }

@@ -44,7 +44,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -254,10 +253,10 @@ fun SearchBookDetailScreen(
                                 modifier = Modifier
                                     .padding(end = 6.dp)
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0xFF2196F3))
+                                    .background(MaterialTheme.colorScheme.primary)
                                     .padding(horizontal = 10.dp, vertical = 4.dp),
                             ) {
-                                Text(tag, fontSize = 12.sp, color = Color.White)
+                                Text(tag, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimary)
                             }
                         }
                     }
@@ -352,9 +351,9 @@ fun SearchBookDetailScreen(
             Button(
                 onClick = { requestRead(-1) },
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3)),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             ) {
-                Text("阅读", fontSize = 15.sp, color = Color.White)
+                Text("阅读", fontSize = 15.sp)
             }
         }
     }

@@ -76,7 +76,7 @@ import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
-import com.movieshell.ui.components.goldTitleColor
+import com.movieshell.ui.components.accentTitleColor
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import kotlinx.coroutines.launch
@@ -1235,7 +1235,7 @@ private fun qualityChipColor(quality: String): Color {
         quality.contains("无损") || quality.contains("母带") || quality.contains("超高清") ||
             listOf("flac", "hires", "atmos", "master").any {
                 quality.contains(it, ignoreCase = true)
-            } -> goldTitleColor()
+            } -> accentTitleColor()
         quality.contains("高清") || quality.contains("320k") ->
             if (lightBg) Color(0xFF1D4ED8) else Color(0xFF60A5FA)
         else -> MaterialTheme.colorScheme.onSurfaceVariant

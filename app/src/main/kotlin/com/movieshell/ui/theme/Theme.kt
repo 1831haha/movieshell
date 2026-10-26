@@ -18,10 +18,9 @@ import com.movieshell.data.repo.ThemeStore
  * 反向依赖组件层，动顶栏文件会动到全仓主题；值与之前一致。
  */
 val BrandGradientColors = listOf(
-    Color(0xFF22D3EE), // 青
-    Color(0xFF818CF8), // 靛
-    Color(0xFFE879F9), // 品红
-    Color(0xFFFBBF24), // 金
+    Color(0xFF4DD0E1), // 青
+    Color(0xFF22D3EE), // 亮青
+    Color(0xFF2086FF), // 蓝
 )
 
 /**
@@ -32,7 +31,7 @@ val BrandGradientColors = listOf(
 val LocalBrandGradient = compositionLocalOf { BrandGradientColors }
 
 /**
- * v0.33.0 影院黑配色：底 #050508 + 紫主色（按设计稿对齐）。
+ * v0.33.0 影院黑配色：底 #050508 + 青主色（风格统一后取代紫主色）。
  * 主题换色器只替换 primary，其余 token 固定；onPrimary 按主色明度自动取深/白保证对比度。
  */
 private fun darkScheme(primary: Color) = darkColorScheme(
@@ -69,7 +68,7 @@ private fun lightScheme(primary: Color) = lightColorScheme(
 @Composable
 fun MovieShellTheme(
     darkTheme: Boolean = true,
-    themeColor: Color = Color(0xFF6344FF),
+    themeColor: Color = Color(0xFF4DD0E1),
     content: @Composable () -> Unit,
 ) {
     // v0.87.1：炫彩渐变主题时，品牌渐变面跟随预设色带

@@ -125,6 +125,7 @@ import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.PlainBlock
 import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.theme.BrandGradientColors
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
@@ -561,15 +562,8 @@ fun DetailScreen(
                         ) {
                             Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
                                 // v0.165.0：ActionIcon 定义前置（右列内调用，局部函数须先声明后调用）
-                                val rainbowBrush = remember {
-                                    Brush.linearGradient(
-                                        colors = listOf(
-                                            Color(0xFF22D3EE),
-                                            Color(0xFF818CF8),
-                                            Color(0xFFE879F9),
-                                            Color(0xFFFBBF24),
-                                        ),
-                                    )
+                                val accentBrush = remember {
+                                    Brush.linearGradient(colors = BrandGradientColors)
                                 }
 
                                 @Composable
@@ -595,7 +589,7 @@ fun DetailScreen(
                                         Text(
                                             text = label,
                                             style = TextStyle(
-                                                brush = rainbowBrush,
+                                                brush = accentBrush,
                                                 fontSize = 10.sp,
                                             ),
                                             maxLines = 1,

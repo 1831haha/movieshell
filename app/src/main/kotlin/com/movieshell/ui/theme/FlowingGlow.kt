@@ -16,7 +16,7 @@ import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.launch
 
 /**
- * v0.33.0 影院黑：首页顶部流动渐变光斑（按设计稿：紫 #6344FF / 蓝 #2086FF / 粉 #FF4499）。
+ * v0.33.0 影院黑：首页顶部流动渐变光斑（风格统一后：青 #4DD0E1 / 蓝 #2086FF / 青绿 #2DD4BF）。
  *
  * 三团径向渐变以 18-30 秒长周期缓慢漂移，透明度压到 0.12 以下，
  * 不晃眼。省电：长周期意味着每帧位移极小；App 进后台时 Compose 停止重组，动画自然暂停。
@@ -53,7 +53,7 @@ fun FlowingGlowBackground(modifier: Modifier = Modifier) {
         val glowH = h * 0.55f
         drawCircle(
             brush = Brush.radialGradient(
-                0f to Color(0xFF6344FF).copy(alpha = 0.12f),
+                0f to Color(0xFF4DD0E1).copy(alpha = 0.12f),
                 1f to Color.Transparent,
                 center = Offset(w * (0.15f + 0.5f * driftA.value), glowH * 0.35f),
                 radius = w * 0.55f,
@@ -73,7 +73,7 @@ fun FlowingGlowBackground(modifier: Modifier = Modifier) {
         )
         drawCircle(
             brush = Brush.radialGradient(
-                0f to Color(0xFFFF4499).copy(alpha = 0.09f),
+                0f to Color(0xFF2DD4BF).copy(alpha = 0.09f),
                 1f to Color.Transparent,
                 center = Offset(w * (0.3f + 0.4f * driftC.value), glowH * 0.75f),
                 radius = w * 0.45f,

@@ -196,17 +196,17 @@ fun AppChip(
 }
 
 /**
- * v0.109.0 A9：香槟金标题色（mockup 风格）——暗底用品牌香槟金 #D9C39A（影图风）；
- * 亮色主题下页面/玻璃卡片为白色系，金字在其上对比度仅约 2.1:1，
- * 按底色明度自适应改用深金 #8A6A2B（对白约 5:1）。
- * 固定深色底（如 TechDialog 弹窗体、#171B28 图标圆）上的金字不受影响，继续用原色。
+ * v0.109.0 A9：强调标题色——暗底用青色 #4DD0E1（风格统一后取代香槟金）；
+ * 亮色主题下页面/玻璃卡片为白色系，青字在其上需加深保证对比度，
+ * 按底色明度自适应改用深青 #0E7490（对白约 5:1）。
+ * 固定深色底（如 TechDialog 弹窗体、#171B28 图标圆）上的青字不受影响，继续用原色。
  */
 @Composable
-fun goldTitleColor(): Color =
-    if (MaterialTheme.colorScheme.background.luminance() > 0.5f) Color(0xFF8A6A2B)
-    else Color(0xFFD9C39A)
+fun accentTitleColor(): Color =
+    if (MaterialTheme.colorScheme.background.luminance() > 0.5f) Color(0xFF0E7490)
+    else Color(0xFF4DD0E1)
 
-/** 分区标题：15sp Medium + 可选右侧操作。v0.38.0：香槟金（mockup 风格）。 */
+/** 分区标题：15sp Medium + 可选右侧操作。风格统一后为青色强调色。 */
 @Composable
 fun SectionTitle(
     title: String,
@@ -218,7 +218,7 @@ fun SectionTitle(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(title, style = SoftType.CardTitle, color = goldTitleColor())
+        Text(title, style = SoftType.CardTitle, color = accentTitleColor())
         action?.invoke()
     }
 }

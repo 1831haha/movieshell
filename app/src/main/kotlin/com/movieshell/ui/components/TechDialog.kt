@@ -81,11 +81,11 @@ fun TechDialog(
                     text = title,
                     fontSize = 19.sp,
                     fontWeight = FontWeight.Bold,
-                    // v0.194.0：深底金字、浅底深金棕（金色在浅底上对比度不够）。
-                    color = if (isDark) Color(0xFFD9C39A) else Color(0xFF7A5C1F),
+                    // v0.194.0：深底青字、浅底深青（风格统一后取代金字）。
+                    color = accentTitleColor(),
                 )
                 Spacer(Modifier.height(6.dp))
-                // 标题下四色渐变细线（呼应顶栏品牌线）
+                // 标题下渐变细线（呼应顶栏品牌线）
                 Box(
                     modifier = Modifier
                         .width(46.dp)

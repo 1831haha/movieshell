@@ -1769,7 +1769,7 @@ fun PlayerScreen(
                             }
                         }
                     }
-                    // 引擎切换（目标界面显示 Exo，蓝色；v0.209.0：点开菜单直选，点谁切谁）
+                    // 引擎切换（目标界面显示 Exo，青色；v0.209.0：点开菜单直选，点谁切谁）
                     Box {
                         TextButton(
                             onClick = { showEngineMenu = true },
@@ -1779,13 +1779,13 @@ fun PlayerScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     if (engine == PlayerEngine.MEDIA3) "Exo" else "mpv",
-                                    color = Color(0xFF2196F3),
+                                    color = MaterialTheme.colorScheme.primary,
                                     style = SoftType.Body,
                                 )
                                 Icon(
                                     Icons.Filled.ArrowDropDown,
                                     contentDescription = null,
-                                    tint = Color(0xFF2196F3),
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp),
                                 )
                             }
@@ -2101,7 +2101,7 @@ private fun PlayerSeekBar(
             modifier = modifier.height(28.dp),
             colors = SliderDefaults.colors(
                 thumbColor = Color.White,
-                activeTrackColor = Color(0xFF2196F3),
+                activeTrackColor = MaterialTheme.colorScheme.primary,
                 inactiveTrackColor = Color.White.copy(alpha = 0.3f),
             ),
             track = { sliderState ->
@@ -2131,7 +2131,7 @@ private fun PlayerSeekBar(
                             cap = StrokeCap.Round,
                         )
                         drawLine(
-                            color = Color(0xFF2196F3).copy(alpha = 0.9f),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
                             start = Offset(0f, y),
                             end = Offset(size.width * fraction, y),
                             strokeWidth = w,

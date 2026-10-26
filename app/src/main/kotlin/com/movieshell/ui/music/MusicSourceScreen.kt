@@ -69,7 +69,7 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
-import com.movieshell.ui.components.goldTitleColor
+import com.movieshell.ui.components.accentTitleColor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -502,7 +502,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                             if (source.builtin) {
                                 Spacer(Modifier.width(6.dp))
                                 // v0.109.0 A9：内置 chip 金底 16% 透在亮色主题下近白，金字难读，用明度自适应金
-                                val goldChip = goldTitleColor()
+                                val goldChip = accentTitleColor()
                                 Text(
                                     text = "内置",
                                     fontSize = 11.sp,
@@ -838,7 +838,8 @@ private fun cookieCardModifier(): Modifier = Modifier
 @Composable
 private fun CookieStatusCard(filled: Int, total: Int) {
     val done = total > 0 && filled == total
-    val accent = if (done) Color(0xFF4ADE80) else Color(0xFFD9C39A)
+    // 未配完是提醒态，用琥珀色（不再用旧品牌金）。
+    val accent = if (done) Color(0xFF4ADE80) else Color(0xFFFCD34D)
     Row(
         modifier = cookieCardModifier(),
         verticalAlignment = Alignment.CenterVertically,

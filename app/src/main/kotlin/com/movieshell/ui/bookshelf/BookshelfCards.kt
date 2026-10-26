@@ -51,7 +51,7 @@ import coil.compose.AsyncImage
 import com.movieshell.data.model.Novel
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
-import com.movieshell.ui.components.goldTitleColor
+import com.movieshell.ui.components.accentTitleColor
 import com.movieshell.ui.theme.LocalBrandGradient
 
 /**
@@ -163,7 +163,7 @@ fun NovelListCard(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         // v0.109.0 A9：书名在玻璃卡片上，亮色主题白底金字难读，用明度自适应金
-                        color = goldTitleColor(),
+                        color = accentTitleColor(),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
@@ -432,7 +432,7 @@ fun BookshelfEmptyState(
                 Icon(
                     imageVector = Icons.Filled.LibraryBooks,
                     contentDescription = null,
-                    tint = Color(0xFFD9C39A),
+                    tint = accentTitleColor(),
                     modifier = Modifier.size(40.dp),
                 )
             }

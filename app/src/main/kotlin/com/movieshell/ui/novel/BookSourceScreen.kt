@@ -51,7 +51,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
-import com.movieshell.ui.components.goldTitleColor
+import com.movieshell.ui.components.accentTitleColor
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -106,7 +106,7 @@ fun BookSourceScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // v0.109.0 A9：亮色主题白底金字对比度约 2.1:1，按底色明度自适应
-    val gold = goldTitleColor()
+    val gold = accentTitleColor()
 
     val sources by BookSourceManager.sources.collectAsState()
     // v0.64.0：本地 PY 书源

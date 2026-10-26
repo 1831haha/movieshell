@@ -64,7 +64,7 @@ fun TabTopBar(
                 text = title,
                 style = SoftType.Title,
                 // v0.109.0 A9：顶栏透明跟页面底融为一体，亮色主题白底上金字难读，用明度自适应金
-                color = goldTitleColor(),
+                color = accentTitleColor(),
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

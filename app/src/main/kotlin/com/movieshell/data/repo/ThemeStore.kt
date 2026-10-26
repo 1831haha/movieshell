@@ -23,8 +23,8 @@ object ThemeStore {
     /** v0.87.1：炫彩渐变主题 id；有值=渐变模式，无值=单色模式 */
     private const val KEY_GRADIENT = "theme_gradient"
 
-    /** 默认主题色：紫（v0.33.0 按设计稿对齐） */
-    const val DEFAULT_COLOR = 0xFF6344FF.toInt()
+    /** 默认主题色：青（风格统一：与底栏选中色同款青色） */
+    const val DEFAULT_COLOR = 0xFF4DD0E1.toInt()
 
     /** DsPlayer 式候选色 */
     // v0.80.0：12 种主题色（对标 DsPlayer 我的页主题卡）

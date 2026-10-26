@@ -19,6 +19,18 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.236.0",
+        date = "2026-10-26",
+        title = "全量风格统一：青色系取代紫加金，6 个 TAB 与全部功能不动。",
+        details = listOf(
+            "主色从紫改成青，和底栏选中色同款；开关、按钮、进度、选中态全跟着变。",
+            "品牌渐变从彩虹改成青到蓝；分区标题从金改成青；弹窗、Toast、空态里的旧金一并清掉。",
+            "找书详情的标签和阅读按钮、播放页的引擎标和进度条，原来写死的蓝全部改成跟主题主色走。",
+            "6 个 TAB、32 个路由、全部功能入口都不动；榜单色、音质档、阅读纸、状态环这些语义色刻意没动。",
+            "完整内容见仓库 docs/changelog/v0.236.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.235.0",
         date = "2026-10-26",
         title = "全量 UI 重做第一批：底栏 6 TAB、dock 夜航极简、设置页 6 分组。",

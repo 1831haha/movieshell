@@ -31,7 +31,7 @@ import coil.compose.AsyncImage
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.goldTitleColor
+import com.movieshell.ui.components.accentTitleColor
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.TechDialog
@@ -98,7 +98,7 @@ fun NovelSearchScreen(
         onDispose { vm.setKeyword("") }
     }
     // v0.109.0 A9：亮色主题白底金字对比度约 2.1:1，按底色明度自适应
-    val gold = goldTitleColor()
+    val gold = accentTitleColor()
 
     val sources by BookSourceManager.sources.collectAsState()
     val pyRules by PyBookSourceManager.rules.collectAsState()

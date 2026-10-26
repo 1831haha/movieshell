@@ -115,7 +115,7 @@ fun AppToastOverlay() {
                     .shadow(16.dp, RoundedCornerShape(24.dp))
                     .clip(RoundedCornerShape(24.dp))
                     .background(Color(0xFF171B28))
-                    .border(1.dp, Color(0xFFD9C39A).copy(alpha = 0.35f), RoundedCornerShape(24.dp))
+                    .border(1.dp, Color(0xFF4DD0E1).copy(alpha = 0.35f), RoundedCornerShape(24.dp))
                     .clickable { AppToast.dismiss(m.id) }
                     .padding(horizontal = 18.dp, vertical = 13.dp),
                 verticalAlignment = Alignment.CenterVertically,
