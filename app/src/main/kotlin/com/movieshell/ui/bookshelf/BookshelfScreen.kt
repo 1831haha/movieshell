@@ -2,6 +2,8 @@ package com.movieshell.ui.bookshelf
 
 import android.provider.OpenableColumns
 import com.movieshell.ui.components.AppDropdownMenu
+import com.movieshell.ui.components.EmptyKind
+import com.movieshell.ui.components.EmptyState
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -44,6 +46,7 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -880,13 +883,13 @@ fun BookshelfScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            // v0.197.0：更新失败页签空态单独说明
-                            if (shelfTab == 1) "还没有更新失败的书\n下拉刷新检查后，失败的会列在这里"
-                            else "这个分组还没有书\n长按书籍看书籍信息",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 20.sp,
+                        // 全量重做：分组空态走共享 EmptyState（文案与原来逐字一致，
+                        // v0.197.0 更新失败页签单独说明保留）。
+                        EmptyState(
+                            kind = EmptyKind.Empty,
+                            icon = Icons.Filled.MenuBook,
+                            title = if (shelfTab == 1) "还没有更新失败的书" else "这个分组还没有书",
+                            hint = if (shelfTab == 1) "下拉刷新检查后，失败的会列在这里" else "长按书籍看书籍信息",
                         )
                     }
                 } else if (viewMode == BookshelfGroupStore.VIEW_GRID) {

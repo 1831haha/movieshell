@@ -101,6 +101,7 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
+import com.movieshell.ui.components.FilterBar
 import com.movieshell.ui.components.HeroCard
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.player.HistoryEntry
@@ -1379,25 +1380,18 @@ fun HomeScreen(
                     // 分类行：只在有真实分类时显示（v0.28.1：横向滚动，分类多时可左滑）
                     if (drpyCats.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                chipLabels.forEachIndexed { index, label ->
-                                    // v0.144.0：首格"全部"已删，格下标与分类序号错一位：
-                                    // 第 index 格对应第 index+1 个分类（loadDrpyCategory 按 1 计）。
-                                    AppChip(
-                                        text = label,
-                                        selected = selectedPosition == index + 1,
-                                        onClick = {
-                                            // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
-                                            loadDrpyCategory(index + 1)
-                                        },
-                                    )
-                                }
-                            }
+                            // 全量重做：分类行收成共享 FilterBar（DaoBox filter_bar）。
+                            // v0.144.0：首格"全部"已删，格下标与分类序号错一位：
+                            // 第 index 格对应第 index+1 个分类（loadDrpyCategory 按 1 计）；
+                            // 在“推荐”时 selectedPosition==0，selectedIndex==-1，都不选中。
+                            FilterBar(
+                                labels = chipLabels,
+                                selectedIndex = selectedPosition - 1,
+                                onSelect = { index ->
+                                    // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
+                                    loadDrpyCategory(index + 1)
+                                },
+                            )
                         }
                         // v0.110.0：分类内容加载失败（超时/规则异常）给内联错误+重试，
                         // 口径照抄 v0.29.0 分类行的"分类加载失败，点击重试"；

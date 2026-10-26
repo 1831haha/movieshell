@@ -476,26 +476,11 @@ fun SettingsScreen(
                 )
             }
         }
-        // 3. 主题卡片：三段切换 + 12 种主题色横滑
+        // 3. 外观
         item {
             Spacer(Modifier.height(12.dp))
-            AppCard(modifier = Modifier.fillMaxWidth()) {
+            SettingsGroup(title = "外观") {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Filled.Palette,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "主题",
-                            style = SoftType.CardTitle,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                    Spacer(Modifier.height(12.dp))
                     // 亮色 / 暗色 / 跟随系统
                     Row(
                         modifier = Modifier
@@ -593,25 +578,24 @@ fun SettingsScreen(
                             }
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
-                    // v0.82.0：背景底图
-                    val customBg by BackgroundStore.customBg.collectAsState()
-                    SettingsRow(
-                        icon = Icons.Filled.Image,
-                        title = "背景底图",
-                        subtitle = if (customBg != null) "已自定义（首页生效）" else "默认",
-                        onClick = {
-                            if (customBg != null) showBgMenu = true
-                            else bgPicker.launch("image/*")
-                        },
-                    )
                 }
+                // v0.82.0：背景底图
+                val customBg by BackgroundStore.customBg.collectAsState()
+                SettingsRow(
+                    icon = Icons.Filled.Image,
+                    title = "背景底图",
+                    subtitle = if (customBg != null) "已自定义（首页生效）" else "默认",
+                    onClick = {
+                        if (customBg != null) showBgMenu = true
+                        else bgPicker.launch("image/*")
+                    },
+                )
             }
         }
-        // 4. 播放与解析
+        // 4. 播放
         item {
             Spacer(Modifier.height(12.dp))
-            SettingsGroup(title = "播放与解析") {
+            SettingsGroup(title = "播放") {
                 // v0.20.0：播放器内核——Media3（默认）/ libmpv，播放器内也可一键切换
                 // v0.29.0：libmpv 已插件化，未安装时标注
                 SettingsRow(
@@ -644,32 +628,40 @@ fun SettingsScreen(
                 }
             }
         }
-        // 5. 插件与同步
+        // 5. 解析
         item {
             Spacer(Modifier.height(12.dp))
-            SettingsGroup(title = "插件与同步") {
-                SettingsRow(
-                    icon = Icons.Filled.Store,
-                    title = "插件市场源",
-                    subtitle = "已添加 ${marketSources.size} 个市场，在插件中心 → 市场 → 管理中维护",
-                    onClick = onPluginCenterClick,
-                )
-                SettingsRow(
-                    icon = Icons.Filled.Visibility,
-                    title = "显示不兼容插件",
-                    subtitle = "显示 apk/import 等侠影不支持的插件（仅查看，不可安装）",
-                    onClick = {
-                        PluginStore.setShowIncompatible(context, !showIncompatible)
-                    },
-                    trailing = {
-                        AppSwitch(
-                            checked = showIncompatible,
-                            onCheckedChange = {
-                                PluginStore.setShowIncompatible(context, it)
-                            },
-                        )
-                    },
-                )
+            SettingsGroup(title = "解析") {
+                // v0.114.0：JS 引擎（V8）状态——WebView 过旧时 JS 源会被禁用并给出原因，
+                // 点按执行一次真实连接检测（首次使用 JS 源前也能提前知道结果）
+                run {
+                    var jsTick by remember { mutableStateOf(0) }
+                    val jsSubtitle = remember(jsTick) {
+                        when {
+                            JsRuntime.jsSourcesSupported -> "V8 引擎可用，JS 源正常"
+                            JsRuntime.lastDisableReason != null ->
+                                "JS 源已禁用：" + JsRuntime.lastDisableReason
+                            else -> "未检测，点按检测"
+                        }
+                    }
+                    SettingsRow(
+                        icon = Icons.Filled.Memory,
+                        title = "JS 引擎状态",
+                        subtitle = jsSubtitle,
+                        onClick = {
+                            scope.launch {
+                                runCatching { JsRuntime.sandbox() }
+                                jsTick++
+                            }
+                        },
+                    )
+                }
+            }
+        }
+        // 6. 数据
+        item {
+            Spacer(Modifier.height(12.dp))
+            SettingsGroup(title = "数据") {
                 // v0.46.0：订阅自动刷新开关
                 SettingsRow(
                     icon = Icons.Filled.CloudSync,
@@ -777,12 +769,6 @@ fun SettingsScreen(
                         }
                     }
                 }
-            }
-        }
-        // 6. 存储与帮助
-        item {
-            Spacer(Modifier.height(12.dp))
-            SettingsGroup(title = "存储与帮助") {
                 SettingsRow(
                     icon = Icons.Filled.Speed,
                     title = "同时下载数",
@@ -811,6 +797,40 @@ fun SettingsScreen(
                         showClearLegacySubtitleDialog = true
                     },
                 )
+            }
+        }
+        // 7. 插件
+        item {
+            Spacer(Modifier.height(12.dp))
+            SettingsGroup(title = "插件") {
+                SettingsRow(
+                    icon = Icons.Filled.Store,
+                    title = "插件市场源",
+                    subtitle = "已添加 ${marketSources.size} 个市场，在插件中心 → 市场 → 管理中维护",
+                    onClick = onPluginCenterClick,
+                )
+                SettingsRow(
+                    icon = Icons.Filled.Visibility,
+                    title = "显示不兼容插件",
+                    subtitle = "显示 apk/import 等侠影不支持的插件（仅查看，不可安装）",
+                    onClick = {
+                        PluginStore.setShowIncompatible(context, !showIncompatible)
+                    },
+                    trailing = {
+                        AppSwitch(
+                            checked = showIncompatible,
+                            onCheckedChange = {
+                                PluginStore.setShowIncompatible(context, it)
+                            },
+                        )
+                    },
+                )
+            }
+        }
+        // 8. 帮助
+        item {
+            Spacer(Modifier.height(12.dp))
+            SettingsGroup(title = "帮助") {
                 run {
                     val logEnabled by LogStore.enabled.collectAsState()
                     SettingsRow(
@@ -852,30 +872,6 @@ fun SettingsScreen(
                     subtitle = "每一版的更新内容",
                     onClick = onChangelogClick,
                 )
-                // v0.114.0：JS 引擎（V8）状态——WebView 过旧时 JS 源会被禁用并给出原因，
-                // 点按执行一次真实连接检测（首次使用 JS 源前也能提前知道结果）
-                run {
-                    var jsTick by remember { mutableStateOf(0) }
-                    val jsSubtitle = remember(jsTick) {
-                        when {
-                            JsRuntime.jsSourcesSupported -> "V8 引擎可用，JS 源正常"
-                            JsRuntime.lastDisableReason != null ->
-                                "JS 源已禁用：" + JsRuntime.lastDisableReason
-                            else -> "未检测，点按检测"
-                        }
-                    }
-                    SettingsRow(
-                        icon = Icons.Filled.Memory,
-                        title = "JS 引擎状态",
-                        subtitle = jsSubtitle,
-                        onClick = {
-                            scope.launch {
-                                runCatching { JsRuntime.sandbox() }
-                                jsTick++
-                            }
-                        },
-                    )
-                }
             }
             Spacer(Modifier.height(16.dp))
         }

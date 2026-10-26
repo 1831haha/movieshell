@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -43,8 +44,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftMotion
@@ -333,6 +336,9 @@ data class SoftDockItem(
  * v0.32.0：选中色固定雾蓝 #7DD3FC，不跟随主题主色，避免冲突；
  * v0.36.0：选中色改青色 #4DD0E1（mockup 风格）；未选中用 Outlined 图标，选中用 Filled 图标；
  * 未选中 #9AA4B2。
+ * 全量重做：dock 改版方案三（夜航极简，GPT 方案）——无选中底块，选中只靠青色
+ * 图标＋文字＋14dp 短线；高 64dp、圆角 32dp、95% 不透明深底、1dp 弱白描边；
+ * 未选中 #8491A1；图标 22dp、文字 10sp；指示线常驻占位（未选中透明），切 tab 不跳布局。
  */
 @Composable
 fun SoftBottomDock(
@@ -341,28 +347,30 @@ fun SoftBottomDock(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // v0.139.0：胶囊优化——真胶囊圆角（50）+ 微光描边，与毛玻璃卡片同口径
-    val shape = RoundedCornerShape(50)
-    val unselected = Color(0xFF9AA4B2)
+    val shape = RoundedCornerShape(32.dp)
+    val unselected = Color(0xFF8491A1)
     val accent = Color(0xFF4DD0E1) // v0.36.0：青色强调色（mockup 风格），固定
     Surface(
         modifier = modifier
             .padding(horizontal = 16.dp)
             .padding(bottom = 12.dp)
+            .height(64.dp)
             .shadow(
                 elevation = 16.dp,
                 shape = shape,
                 ambientColor = accent.copy(alpha = 0.10f),
                 spotColor = Color.Black.copy(alpha = 0.35f),
             )
-            .border(1.dp, Color.White.copy(alpha = 0.08f), shape),
+            .border(1.dp, Color(0x1FFFFFFF), shape),
         shape = shape,
-        color = Color(0xFF1E242F),
+        color = Color(0xF2121720),
         tonalElevation = 0.dp,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(0.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             items.forEachIndexed { i, item ->
@@ -371,11 +379,6 @@ fun SoftBottomDock(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(50))
-                        .background(
-                            if (selected) accent.copy(alpha = 0.18f)
-                            else Color.Transparent
-                        )
                         .clickable { onSelect(i) }
                         .padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -384,10 +387,24 @@ fun SoftBottomDock(
                         imageVector = if (selected) item.selectedIcon else item.icon,
                         contentDescription = item.label,
                         tint = fg,
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(22.dp),
                     )
                     Spacer(Modifier.height(2.dp))
-                    Text(item.label, style = SoftType.Caption, color = fg)
+                    Text(
+                        item.label,
+                        fontSize = 10.sp,
+                        fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                        color = fg,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    // 指示线常驻占位：未选中时透明，切 tab 时布局不跳。
+                    Box(
+                        modifier = Modifier
+                            .size(width = 14.dp, height = 2.dp)
+                            .clip(RoundedCornerShape(1.dp))
+                            .background(if (selected) accent else Color.Transparent),
+                    )
                 }
             }
         }

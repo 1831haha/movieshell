@@ -19,6 +19,19 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.235.0",
+        date = "2026-10-26",
+        title = "全量 UI 重做第一批：底栏 6 TAB、dock 夜航极简、设置页 6 分组。",
+        details = listOf(
+            "底栏 6 TAB：首页／直播／书架／音乐／AI／设置；AI 先空着，不做假对话、假功能；dock 布局不用改。",
+            "dock 改版方案三（夜航极简）：选中不再有青底块，改成青色图标＋文字＋一条青色短线，没选中时短线位置留空，切 tab 不跳布局。",
+            "设置页旧 3 组改成新 6 组：外观／播放／解析／数据／插件／帮助；37 个设置行逐一核对，一行没丢；嗅探正则仍只在快捷宫格。",
+            "首页分类行收成共享筛选条，行为与原来一致；书架分组空态走共享空态，文案逐字一致。",
+            "32 个路由逐一对过全部可达；找书／书源／分组／插件／备份子结构全通，顶层仍 6 TAB。",
+            "完整内容见仓库 docs/changelog/v0.235.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.234.0",
         date = "2026-10-26",
         title = "新 UI 第一版：首页与书架 Hero 大卡领头，全页面入口逐一核对无丢失。",

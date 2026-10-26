@@ -40,11 +40,13 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.OndemandVideo
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
@@ -93,6 +95,7 @@ import com.movieshell.player.PlayerManager
 import com.movieshell.player.PlaySession
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
+import com.movieshell.ui.ai.AiScreen
 import com.movieshell.ui.bookshelf.BookshelfScreen
 import com.movieshell.ui.novel.BookSourceScreen
 import com.movieshell.ui.novel.ExploreAggregateScreen
@@ -146,19 +149,22 @@ private data class Tab(
 
 // v0.36.0：5 tab 按 mockup 重排——首页/直播/书架/音乐/设置；站源 tab 删除，管理入口搬进设置页。
 // v0.79.0：实验室 tab 改为音乐；实验室功能（插件市场/嗅探正则）搬进设置页。
+// 全量重做：底栏 6 TAB——首页/直播/书架/音乐/AI/设置；框架先起来，
+// AI 具体内容后面再完善（AiScreen 目前只有新风格外壳，不做假功能）。
 // 未选中用 Outlined，选中用 Filled＋青色（SoftBottomDock 里处理）。
 private val tabs = listOf(
     Tab("home", "首页", Icons.Outlined.Home, Icons.Filled.Home),
     Tab("live", "直播", Icons.Outlined.OndemandVideo, Icons.Filled.OndemandVideo),
     Tab("bookshelf", "书架", Icons.Outlined.Book, Icons.Filled.Book),
     Tab("music", "音乐", Icons.Outlined.MusicNote, Icons.Filled.MusicNote),
+    Tab("ai", "AI", Icons.Outlined.SmartToy, Icons.Filled.SmartToy),
     Tab("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings),
 )
 
 // v0.222.0：tab 级目的地（含经 navigateTab 到达的 search）——tab 切换的
 // 退出混合判定用：两边都是 tab 时旧页瞬间撤掉，不再有双页叠在一起的
 // 300ms 重影帧；tab 与子页之间仍走原转场。
-private val TAB_ROUTES = setOf("home", "live", "bookshelf", "music", "settings", "search")
+private val TAB_ROUTES = setOf("home", "live", "bookshelf", "music", "ai", "settings", "search")
 
 private const val DETAIL_ROUTE = "detail/{vodId}?title={title}&episode={episode}"
 
@@ -770,6 +776,10 @@ class MainActivity : ComponentActivity() {
                                 pluginId = entry.arguments?.getString("id").orEmpty(),
                                 onBack = { navController.popBackStack() },
                             )
+                        }
+                        // 全量重做：AI TAB——框架先起来，内容后面再完善。
+                        composable("ai") {
+                            AiScreen()
                         }
                         composable("settings") {
                             SettingsScreen(
