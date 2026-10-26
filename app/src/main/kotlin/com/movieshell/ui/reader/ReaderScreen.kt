@@ -1,7 +1,11 @@
 package com.movieshell.ui.reader
 
 import android.app.Activity
-import com.movieshell.ui.components.AppSlider
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -59,6 +63,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -107,6 +112,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.absoluteValue
+import kotlin.math.roundToInt
 import androidx.compose.material.icons.filled.SwapHoriz
 
 /**
@@ -393,11 +399,20 @@ fun ReaderScreen(
 
 
     // 章节切换后：回到顶部，或按保存的字符偏移恢复位置
+    // v0.240.0：恢复逻辑重写——原来效果键里有正文长度，正文一到就
+    // 无条件滚一次（没到先滚顶、到了滚偏移、之后正文再变又滚顶），
+    // 回上一章末页的哨兵常被后到的一次长度变化洗成章首，手指越界
+    // 回上一章看着就是“直接到了上一章开头”。现改按章认领：
+    // 同一章只恢复一次；正文没到时等着不滚；滑到底前等一帧让新
+    // 正文完成布局，否则 maxValue 还是旧值/0，照样滑到顶。
+    var restoredForChapter by remember { mutableIntStateOf(-1) }
     LaunchedEffect(chapterIndex, loaded, chapter?.content?.length) {
         if (!loaded) return@LaunchedEffect
+        if (restoredForChapter == chapterIndex) return@LaunchedEffect
         val len = chapter?.content?.length ?: 0
+        if (len <= 0) return@LaunchedEffect // 正文没到：等着，不滚顶
         if (pageMode == 0) {
-            if (restoreOffset > 0 && len > 0) {
+            if (restoreOffset > 0) {
                 // v0.211.0 审计修复：保存用“滚动像素/最大值×全文长度”，
                 // 恢复原来却用写死的每行 22 字、行高 1.8，两公式不互逆，
                 // 同一位置每次重进都漂移。改用与保存同口径的真实值：
@@ -405,21 +420,31 @@ fun ReaderScreen(
                 // 字号×行距，与 computeOffset 的像素比例对应。
                 val linePx = with(density) { (fontSize * lineHeightRatio).sp.toPx() }
                 val cpl = charsPerLine.coerceAtLeast(1)
-                val targetPx = (restoreOffset / cpl.toFloat() * linePx).toInt()
-                scrollState.scrollTo(targetPx.coerceAtLeast(0))
-                restoreOffset = 0 // 只恢复一次
+                if (restoreOffset >= len) {
+                    // 末页哨兵（回上一章末页）：等布局出 maxValue 再滑到底
+                    var frames = 0
+                    while (scrollState.maxValue == 0 && frames < 10) {
+                        withFrameNanos { }
+                        frames++
+                    }
+                    scrollState.scrollTo(Int.MAX_VALUE)
+                } else {
+                    val targetPx = (restoreOffset / cpl.toFloat() * linePx).toInt()
+                    scrollState.scrollTo(targetPx.coerceAtLeast(0))
+                }
             } else {
                 scrollState.scrollTo(0)
             }
         } else {
             // v0.95.0：翻页模式按字符偏移定位页；正文还没到时等下一次 content 长度变化再恢复
-            if (restoreOffset > 0 && len > 0 && pages.isNotEmpty()) {
+            if (restoreOffset > 0 && pages.isNotEmpty()) {
                 pagerState.scrollToPage(NovelPaginator.pageForOffset(pages, restoreOffset))
-                restoreOffset = 0 // 只恢复一次
-            } else {
+            } else if (pages.isNotEmpty()) {
                 pagerState.scrollToPage(0)
             }
         }
+        restoredForChapter = chapterIndex
+        restoreOffset = 0 // 只恢复一次
     }
 
     // v0.95.0：字号/行距/窗口变化导致重分页时，按字符偏移尽量保持阅读位置
@@ -1021,7 +1046,6 @@ fun ReaderScreen(
                 // 1_000_000_000 哨兵，唯独这个按钮漏了（一直落章首），补齐。
                 onPrevChapter = { jumpTo(chapterIndex - 1, 1_000_000_000) },
                 onNextChapter = { jumpTo(chapterIndex + 1) },
-                onJumpToChapter = { jumpTo(it) },
                 onShowToc = { showToc = true },
                 onOpenSettings = { openSettings() },
             )
@@ -1430,10 +1454,11 @@ private fun ReaderBgRow(selected: Int, onSelect: (Int) -> Unit) {
 }
 
 /**
- * v0.239.0：阅读器底栏——第一行 上一章 / 进度条 / 下一章，第二行 目录 / 设置。
- * 进度条改全本进度：原来只取章序号，章内滚动时滑块纹丝不动，看着像“这一章的进度”；
- * 现把章内进度折进章序号（滚动模式取滚动比例，翻页模式取当前页比例），滑块即全本位置，
- * 拖动松手仍按章跳（与原来一致，不改跳转语义）。
+ * 阅读器底栏——第一行 上一章 / 进度条 / 下一章，第二行 目录 / 设置。
+ * v0.240.0：滑杆改回本章进度——v0.239.0 把它改成全本位置，
+ * 是理解错了用户原话（用户要的是本章进度，不是全本）。
+ * 本版：滑杆即本章进度（滚动模式取滚动比例，翻页模式取当前页比例），
+ * 拖动松手只在本章内定位，不跨章；换章仍走上一章/下一章按钮。
  * 单抽成独立 composable：章内滚动每像素都变 scrollState.value，只重组底栏这一小块，
  * 不触发整页重组。
  */
@@ -1447,11 +1472,11 @@ private fun ReaderBottomBar(
     pagerState: PagerState,
     onPrevChapter: () -> Unit,
     onNextChapter: () -> Unit,
-    onJumpToChapter: (Int) -> Unit,
     onShowToc: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    // 拖动进度条只跟手，松手才跳章，避免拖动中反复加载
+    val scope = rememberCoroutineScope()
+    // 拖动进度条只跟手，松手才定位，避免拖动中反复加载
     var sliderPos by remember { mutableStateOf<Float?>(null) }
     val chapterFraction = if (pageMode == 0) {
         val max = scrollState.maxValue
@@ -1461,6 +1486,15 @@ private fun ReaderBottomBar(
         if (pc > 1) pagerState.currentPage.toFloat() / (pc - 1) else 0f
     }
     Column(modifier = Modifier.fillMaxWidth()) {
+        // v0.240.0：底栏精细化——原来是两排裸文字按钮加一根深色粗滑杆，
+        // 糊在正文底下没分隔，看着生硬；现加顶部细分隔线、滑杆改柔和
+        // 轨道色、上下章加小箭头、设置补图标，底栏自成一块。
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(fg.copy(alpha = 0.08f)),
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1470,23 +1504,46 @@ private fun ReaderBottomBar(
             TextButton(
                 onClick = onPrevChapter,
                 enabled = chapterIndex > 0,
-            ) { Text("上一章", color = fg) }
-            AppSlider(
-                // 末章读到底时章序号＋章内比例会顶出滑杆上限，钳到上限（即全本终点）。
-                value = sliderPos ?: (chapterIndex + chapterFraction)
-                    .coerceIn(0f, (chapterCount - 1).coerceAtLeast(1).toFloat()),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.ChevronLeft, "上一章", tint = fg, modifier = Modifier.size(18.dp))
+                    Text("上一章", color = fg)
+                }
+            }
+            Slider(
+                value = sliderPos ?: chapterFraction,
                 onValueChange = { sliderPos = it },
                 onValueChangeFinished = {
-                    sliderPos?.toInt()?.let { onJumpToChapter(it) }
+                    sliderPos?.let { frac ->
+                        scope.launch {
+                            if (pageMode == 0) {
+                                val max = scrollState.maxValue
+                                scrollState.scrollTo((frac * max).toInt().coerceIn(0, max))
+                            } else {
+                                val pc = pagerState.pageCount
+                                if (pc > 1) pagerState.scrollToPage((frac * (pc - 1)).roundToInt().coerceIn(0, pc - 1))
+                            }
+                        }
+                    }
                     sliderPos = null
                 },
-                valueRange = 0f..(chapterCount - 1).coerceAtLeast(1).toFloat(),
+                valueRange = 0f..1f,
                 modifier = Modifier.weight(1f),
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = fg.copy(alpha = 0.15f),
+                ),
             )
             TextButton(
                 onClick = onNextChapter,
                 enabled = chapterIndex < chapterCount - 1,
-            ) { Text("下一章", color = fg) }
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("下一章", color = fg)
+                    Icon(Icons.Filled.ChevronRight, "下一章", tint = fg, modifier = Modifier.size(18.dp))
+                }
+            }
         }
         Row(
             modifier = Modifier
@@ -1501,7 +1558,12 @@ private fun ReaderBottomBar(
                     Text("目录", color = fg)
                 }
             }
-            TextButton(onClick = onOpenSettings) { Text("设置", color = fg) }
+            TextButton(onClick = onOpenSettings) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Settings, "设置", tint = fg, modifier = Modifier.padding(end = 4.dp))
+                    Text("设置", color = fg)
+                }
+            }
         }
     }
 }

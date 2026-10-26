@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.movieshell.ui.theme.LocalBrandGradient
 
 /**
@@ -59,16 +60,21 @@ fun TechDialog(
     confirmEnabled: Boolean = true,
     /** 取消按钮文案；传 null 则隐藏取消按钮（如不可取消的进度弹窗） */
     dismissText: String? = "取消",
+    /** v0.240.0：弹窗宽度占屏幕宽的比例；null 则走平台默认宽（其他弹窗不受影响）。 */
+    widthFraction: Float? = null,
     // content 放最后：调用处用尾随 lambda 写法时必须对应最后一个参数
     content: @Composable ColumnScope.() -> Unit,
 ) {
     // v0.194.0：用主题背景明度判深浅（App 主题默认跟随系统），不用写死深色。
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val dialogBg = if (isDark) Color(0xFF171B28) else MaterialTheme.colorScheme.surface
-    Dialog(onDismissRequest = onDismissRequest) {
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = if (widthFraction != null) DialogProperties(usePlatformDefaultWidth = false) else DialogProperties(),
+    ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(widthFraction ?: 1f)
                 .clip(RoundedCornerShape(22.dp))
                 .background(Brush.linearGradient(LocalBrandGradient.current))
                 .padding(1.5.dp)

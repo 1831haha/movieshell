@@ -145,6 +145,9 @@ fun BookDetailDialog(
         subtitle = null,
         onConfirm = null,
         dismissText = "关闭",
+        // v0.240.0：弹窗真正改小——宽度收进屏幕 80%，239 那版只收了封面和间距，
+        // 整体还是接近满屏，看着像没改。
+        widthFraction = 0.80f,
     ) {
         // v0.211.0：详情内容可上下滚——大封面 + 7 行信息 + 简介 + 目录展开后
         // 在小屏上会超一屏，不滚就被裁掉（原弹窗就有这个隐患，目录展开时最明显）。
@@ -155,9 +158,10 @@ fun BookDetailDialog(
             // v0.211.0：截图式信息头——大封面居中 + 蓝色标签居中；
             // 弹窗标题已是书名，头里不再重复写一遍。
             // v0.239.0：弹窗瘦身——封面 110x148 改 84x112，间距同步收紧。
+            // v0.240.0：再收一圈——封面改 72x96，行距与间距同步收紧。
             Box(
                 modifier = Modifier
-                    .size(width = 84.dp, height = 112.dp)
+                    .size(width = 72.dp, height = 96.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
@@ -178,7 +182,7 @@ fun BookDetailDialog(
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 InfoChip("共 $total 章")
                 InfoChip(if (!novel.hasStartedReading) "未读" else "已读 $percent%")
@@ -190,13 +194,13 @@ fun BookDetailDialog(
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
             // v0.211.0：截图式信息行——左侧图标 + 标签 + 值，右侧蓝色小钮；
             // 字数/分类/状态/人气咱没有真实数据，不编假标签，只列有的项。
             // “最新”用本地目录最后一章的真实标题，目录还没拉到时回落“共 N 章”。
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 InfoRow(icon = Icons.Filled.Person, label = "作者", value = novel.author?.takeIf { it.isNotBlank() } ?: "未知作者")
                 InfoRow(icon = Icons.Filled.Public, label = "来源", value = sourceName, actionText = "换源", onAction = { showChangeSource = true })
                 InfoRow(icon = Icons.Filled.Explore, label = "最新", value = chapters?.lastOrNull()?.title?.takeIf { it.isNotBlank() } ?: "共 $total 章")
@@ -251,7 +255,7 @@ fun BookDetailDialog(
                 }
                 InfoRow(icon = Icons.Filled.FilterAlt, label = "净化规则", actionText = "管理", onAction = onOpenPurifyRules)
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
             if (!novel.desc.isNullOrBlank()) {
                 Text(
                     novel.desc,
@@ -305,9 +309,9 @@ fun BookDetailDialog(
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
             // v0.211.0：截图式底部双钮——左灰删除、右蓝阅读，各占一半宽。
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -394,7 +398,7 @@ private fun InfoRow(
                 icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.width(8.dp))
         }
@@ -423,7 +427,7 @@ private fun InfoRow(
                     .clip(RoundedCornerShape(6.dp))
                     .background(MaterialTheme.colorScheme.primary)
                     .clickable(onClick = onAction)
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
             ) {
                 Text(actionText, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimary, maxLines = 1)
             }
