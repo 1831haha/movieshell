@@ -3,6 +3,10 @@ package com.movieshell.ui.market
 import androidx.compose.foundation.background
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -68,6 +72,7 @@ fun PluginCenterScreen(
         mutableIntStateOf(initialTab.coerceIn(0, 2))
     }
     Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
         topBar = {
             Column {
                 TabTopBar(title = "插件中心", onBack = onBack)

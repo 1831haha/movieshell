@@ -1,6 +1,10 @@
 package com.movieshell.ui.manual
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -293,6 +297,7 @@ private val MANUAL_SECTIONS = listOf(
 @Composable
 fun ManualScreen(onBack: () -> Unit) {
     Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
         topBar = {
             TabTopBar(
                 title = "使用手册",

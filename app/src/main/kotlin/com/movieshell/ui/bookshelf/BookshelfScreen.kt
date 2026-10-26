@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -516,7 +515,7 @@ fun BookshelfScreen(
 
     // v0.177.0：书架页正常模式顶部标题栏整行去掉——数据条直接贴顶（仅留状态栏高度）；
     // 多选模式的“已选 N 本”标题栏保留，那是批量操作的操作栏，不是正常顶栏。
-    Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+    Column(modifier = Modifier.fillMaxSize()) { // v0.238.0：顶部贴顶，去掉多余的状态栏内边距
         if (selectionMode) {
             TabTopBar(
                 title = "已选 ${selectedIds.size} 本",

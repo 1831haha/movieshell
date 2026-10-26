@@ -262,7 +262,7 @@ private fun LogLine(e: LogBus.Entry) {
     Text(
         text = "${fmt.format(Date(e.time))} ${e.level}/${e.tag}: ${e.msg}",
         style = MaterialTheme.typography.bodySmall,
-        fontFamily = FontFamily.Monospace,
+        fontFamily = FontFamily.Default,
         color = color,
         modifier = Modifier.padding(vertical = 1.dp),
     )

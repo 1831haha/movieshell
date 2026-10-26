@@ -326,8 +326,8 @@ fun SettingsScreen(
             .padding(horizontal = SoftDimens.PagePadding),
     ) {
         // 1. 顶部信息卡：头像 + 侠影 + 版本徽章 + 当前源 + 统计
+        // v0.238.0：顶部贴顶——首项上方的 12dp 间隔去掉，信息卡贴顶
         item {
-            Spacer(Modifier.height(12.dp))
             AppCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

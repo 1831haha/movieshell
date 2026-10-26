@@ -21,8 +21,12 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -357,6 +361,10 @@ class MainActivity : ComponentActivity() {
                 val showMiniPlayer = musicState.track != null && onMusicTab
 
                 Scaffold(
+                    // v0.238.0 顶部贴顶：Scaffold 默认把状态栏高度算进内容内边距，
+                    // 本 App 窗口本身已在状态栏下方排布（未开 edge-to-edge），再算一遍就是双倍顶距；
+                    // 只保留底部与水平方向，顶部内边距归零，各页顶栏贴到内容顶。
+                    contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
                     bottomBar = {
                         Column {
                             if (showMiniPlayer) {

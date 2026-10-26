@@ -1159,8 +1159,9 @@ fun HomeScreen(
                 columns = GridCells.Fixed(homeLayout.columns),
                 state = gridState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = if (darkTheme) PaddingValues(SoftDimens.PagePadding)
-                else PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                // v0.238.0：顶部贴顶——网格顶边距归零，顶栏贴到内容顶
+                contentPadding = if (darkTheme) PaddingValues(start = SoftDimens.PagePadding, top = 0.dp, end = SoftDimens.PagePadding, bottom = SoftDimens.PagePadding)
+                else PaddingValues(start = 12.dp, top = 0.dp, end = 12.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(if (darkTheme) SoftDimens.CardSpacing else 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(if (darkTheme) SoftDimens.CardSpacing else 8.dp),
             ) {

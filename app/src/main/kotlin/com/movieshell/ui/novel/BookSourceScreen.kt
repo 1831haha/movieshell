@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -1164,9 +1163,8 @@ private fun SourceTextEditorDialog(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding(),
-            ) {
+                    .fillMaxSize(),
+            ) { // v0.238.0：顶部贴顶，去掉多余的状态栏内边距
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1214,7 +1212,7 @@ private fun SourceTextEditorDialog(
                             textStyle = MaterialTheme.typography.bodyMedium.copy(
                                 fontSize = 12.sp,
                                 lineHeight = 17.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = FontFamily.Default,
                                 color = MaterialTheme.colorScheme.onSurface,
                             ),
                         )

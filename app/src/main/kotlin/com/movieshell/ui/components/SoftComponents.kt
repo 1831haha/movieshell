@@ -346,8 +346,8 @@ data class SoftDockItem(
  * v0.36.0：选中色改青色 #4DD0E1（mockup 风格）；未选中用 Outlined 图标，选中用 Filled 图标；
  * 未选中 #9AA4B2。
  * 全量重做：dock 改版方案三（夜航极简，GPT 方案）——无选中底块，选中只靠青色
- * 图标＋文字＋14dp 短线；高 64dp、圆角 32dp、95% 不透明深底、1dp 弱白描边；
- * 未选中 #8491A1；图标 22dp、文字 10sp；指示线常驻占位（未选中透明），切 tab 不跳布局。
+ * 图标＋文字＋14dp 短线；未选中 #8491A1；图标 22dp、文字 10sp；指示线常驻占位（未选中透明），切 tab 不跳布局。
+ * v0.238.0：悬浮药丸改通栏贴底——高 60dp、直角、无阴影、无侧边与底部边距。
  */
 @Composable
 fun SoftBottomDock(
@@ -356,23 +356,18 @@ fun SoftBottomDock(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(32.dp)
-    // v0.237.0：浅色下底栏按参考图——白底、浅灰描边、参考蓝选中、灰字未选中、
-    // 阴影收淡；深色保持夜航极简原样。
+    // v0.238.0：底栏贴底拉平——去掉悬浮边距与圆角，通栏贴底；
+    // 高 60dp、直角、无阴影，只留顶部一道描边；选中色与图标字体不动。
+    val shape = RoundedCornerShape(0.dp)
+    // v0.237.0：浅色下底栏按参考图——白底、浅灰描边、参考蓝选中、灰字未选中；
+    // 深色保持夜航极简原样（颜色）。
     val isLight = MaterialTheme.colorScheme.background.luminance() > 0.5f
     val unselected = if (isLight) Color(0xFF5F6364) else Color(0xFF8491A1)
     val accent = if (isLight) Color(0xFF1E88E5) else Color(0xFF4DD0E1)
     Surface(
         modifier = modifier
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 12.dp)
-            .height(64.dp)
-            .shadow(
-                elevation = if (isLight) 8.dp else 16.dp,
-                shape = shape,
-                ambientColor = if (isLight) Color.Black.copy(alpha = 0.05f) else accent.copy(alpha = 0.10f),
-                spotColor = if (isLight) Color.Black.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.35f),
-            )
+            .fillMaxWidth()
+            .height(60.dp)
             .border(1.dp, if (isLight) Color(0xFFE8EAED) else Color(0x1FFFFFFF), shape),
         shape = shape,
         color = if (isLight) Color.White else Color(0xF2121720),
@@ -392,7 +387,7 @@ fun SoftBottomDock(
                     modifier = Modifier
                         .weight(1f)
                         .clickable { onSelect(i) }
-                        .padding(vertical = 8.dp),
+                        .padding(vertical = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Icon(

@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -313,8 +312,9 @@ fun LiveScreen(
             // v0.124.0：横屏全屏时不套状态栏内边距——窗口层全出血在
             // PlayerScreen 的 applyImmersiveFullscreen 一并处理；
             // 竖屏只留状态栏高度，播放器贴在状态栏正下方，不压系统时间电量。
+            // v0.238.0：顶部贴顶——竖屏分支去掉多余的状态栏内边距；横屏全屏分支不动
             modifier = if (fullscreenPlayer) Modifier.fillMaxSize()
-            else Modifier.fillMaxSize().statusBarsPadding(),
+            else Modifier.fillMaxSize(),
         ) {
             // 顶部 16:9 播放器；v0.96.2：横屏全屏时占满（PlayerScreen 调用点唯一，不重建播放器）
             val playing = selected

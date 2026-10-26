@@ -11,6 +11,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -333,6 +337,7 @@ fun ServerPluginScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
         topBar = {
             if (!embedded) {
                 TabTopBar(
@@ -461,7 +466,7 @@ fun ServerPluginScreen(
                                 Text(
                                     ":${p.port}",
                                     style = SoftType.Caption,
-                                    fontFamily = FontFamily.Monospace,
+                                    fontFamily = FontFamily.Default,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -511,7 +516,7 @@ fun ServerPluginScreen(
                             Text(
                                 info.commandLine,
                                 style = SoftType.Caption,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = FontFamily.Default,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -658,7 +663,7 @@ fun ServerPluginScreen(
                     Text("（暂无日志）", style = SoftType.Body)
                 } else {
                     logLines.forEach { line ->
-                        Text(line, style = SoftType.Caption, fontFamily = FontFamily.Monospace)
+                        Text(line, style = SoftType.Caption, fontFamily = FontFamily.Default)
                         Spacer(Modifier.height(2.dp))
                     }
                 }
@@ -780,7 +785,7 @@ private fun ConfigRow(label: String, value: String) {
         Text(
             value,
             style = SoftType.Caption,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = FontFamily.Default,
             modifier = Modifier.weight(1f),
         )
     }
@@ -900,6 +905,7 @@ private fun ServiceEditor(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
         topBar = {
             TabTopBar(
                 title = if (initial.id.isBlank()) "新建服务" else "编辑服务",

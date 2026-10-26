@@ -19,6 +19,18 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.238.0",
+        date = "2026-10-26",
+        title = "底栏贴底拉平、所有顶部贴顶、字体统一成 tab 同款，内容空间更大。",
+        details = listOf(
+            "底栏去掉悬浮边距与圆角，改通栏贴底、直角、高 60dp；图标、文字、选中色都不动。",
+            "主 Scaffold 与 10 个子页 Scaffold 顶部内边距归零，各页多余的状态栏内边距一并去掉，顶栏贴到内容顶。",
+            "日志、文件预览、插件输出、书源页的等宽字体全部改成默认无衬线，与底栏 tab 字体同款。",
+            "6 个 TAB、32 个路由、全部功能入口都不动；播放器全屏逻辑与阅读器字体选择不动。",
+            "完整内容见仓库 docs/changelog/v0.238.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.237.0",
         date = "2026-10-26",
         title = "浅色高密度改版：跟参考图走浅色，三列密排，内容一屏看更多。",

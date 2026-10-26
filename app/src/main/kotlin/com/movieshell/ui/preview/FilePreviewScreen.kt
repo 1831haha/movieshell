@@ -6,6 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.ClipboardManager
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -201,6 +205,7 @@ fun FilePreviewScreen(
     val shownText = if (truncated) fullText.substring(0, maxBytes) else fullText
 
     Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
         topBar = {
             TabTopBar(
                 title = fileName,
@@ -284,7 +289,7 @@ fun FilePreviewScreen(
                         MaterialTheme.colorScheme.primary,
                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     ),
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = FontFamily.Default,
                     fontSize = 13.sp,
                     lineHeight = 19.sp,
                     modifier = Modifier

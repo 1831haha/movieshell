@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -202,8 +201,7 @@ fun MusicScreen(
     Scaffold {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding(),
+                .fillMaxSize(), // v0.238.0：顶部贴顶，去掉多余的状态栏内边距
         ) {
             // v0.216.0（C4）：本地音乐／历史数据损坏横幅
             if (showMusicCorruptBanner) {
