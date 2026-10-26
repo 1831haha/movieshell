@@ -1,13 +1,15 @@
 package com.movieshell.ui.reader
 
 import android.app.Activity
+import android.graphics.Typeface
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SliderState
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -750,16 +752,8 @@ fun ReaderScreen(
         immersive = wasImmersiveBeforeSettings
     }
 
-    // v0.242.0：夜间切换（图2悬浮月亮钮）——切走时记住当前背景，
-    // 再点回原来的背景（跟随系统档也照此恢复）。
-    var lastNonNightBg by remember { mutableIntStateOf(if (bgTheme != 3) bgTheme else 1) }
-    fun toggleNight() {
-        if (bgTheme == 3) bgTheme = lastNonNightBg
-        else {
-            lastNonNightBg = bgTheme
-            bgTheme = 3
-        }
-    }
+    // v0.245.0：悬浮夜间钮已删——夜间只走背景档里的夜间黑/深灰/墨绿，
+    // toggleNight 随悬浮钮一并删除，不再留第二条夜间入口。
 
     // v0.72.0：音量键翻页注册（开着才接管音量键，离开页面/关掉即释放）
     // v0.89.0：翻页模式下音量键改为前后翻页
@@ -821,13 +815,54 @@ fun ReaderScreen(
         2 -> Color(0xFFE8F0E4)
         3 -> Color(0xFF121212)
         4 -> if (followDark) Color(0xFF121212) else Color(0xFFFFFFFF)
+        5 -> Color(0xFFDCE8EF)
+        6 -> Color(0xFFD8D4CA)
+        7 -> Color(0xFF20242B)
+        8 -> Color(0xFFFBE9EC)
+        9 -> Color(0xFFE9E4F3)
+        10 -> Color(0xFF1E2B26)
         else -> Color(0xFFF7F3E8)
     }
     val fg = when (bgTheme) {
         2 -> Color(0xFF2E3B2E)
         3 -> Color(0xFFD8D8D8)
         4 -> if (followDark) Color(0xFFD8D8D8) else Color(0xFF2B2B2B)
+        5 -> Color(0xFF263746)
+        6 -> Color(0xFF34322E)
+        7 -> Color(0xFFD9DEE7)
+        8 -> Color(0xFF4A3238)
+        9 -> Color(0xFF38324A)
+        10 -> Color(0xFFD6E2D8)
         else -> Color(0xFF2B2B2B)
+    }
+    // v0.245.0：阅读背景的实际深浅——弹窗/面板跟它走，不跟系统主题走。
+    // 深色档：3 夜间黑、7 深灰、10 墨绿；4 跟随系统档按系统深浅算。
+    val isReaderDark = bgTheme == 3 || bgTheme == 7 || bgTheme == 10 ||
+        (bgTheme == 4 && followDark)
+    // 跟阅读背景走的配色副本：深浅与系统一致时原样用系统配色，不一致时
+    // 只换底/字/次要字/描边/主按钮这几项，弹窗和面板不再发白或发黑。
+    val readerScheme = if (isReaderDark == followDark) {
+        MaterialTheme.colorScheme
+    } else if (isReaderDark) {
+        MaterialTheme.colorScheme.copy(
+            background = Color(0xFF171B28),
+            surface = Color(0xFF232839),
+            surfaceVariant = Color(0xFF2E3342),
+            onSurface = Color(0xFFE8EAF0),
+            onSurfaceVariant = Color(0xFFB0B7C3),
+            outline = Color(0xFF454B56),
+            primary = Color(0xFF7AA7F7),
+            onPrimary = Color(0xFF18243A),
+        )
+    } else {
+        MaterialTheme.colorScheme.copy(
+            background = Color.White,
+            surface = Color.White,
+            surfaceVariant = Color(0xFFF0F0F0),
+            onSurface = Color(0xFF242424),
+            onSurfaceVariant = Color(0xFF666666),
+            outline = Color(0xFFE0E0E0),
+        )
     }
 
     // v0.241.0：根布局改 Box 包 Column——设置面板要贴底悬浮且不遮罩
@@ -904,6 +939,7 @@ fun ReaderScreen(
                 novel = curNovel,
                 currentChapterTitle = chapter?.title.orEmpty(),
                 currentChapterIndex = chapterIndex,
+                forceDark = isReaderDark,
                 onDismiss = { showChangeSource = false },
                 onSwitched = { newIndex ->
                     showChangeSource = false
@@ -948,6 +984,7 @@ fun ReaderScreen(
                 onDismissRequest = { showChapterSearch = false },
                 title = "章内搜索",
                 subtitle = chapter?.title.orEmpty(),
+                forceDark = isReaderDark,
             ) {
                 TechTextField(
                     value = chapterSearchQuery,
@@ -1215,13 +1252,22 @@ fun ReaderScreen(
     // 无遮罩，改动实时映在上面的正文里。
     if (showDisplaySettings) {
         BackHandler { closeDisplaySettings() }
+        // v0.245.0：面板跟阅读背景深浅走（readerScheme），不再跟系统主题。
+        // 注意：Box 的 align 只能在根 Box 作用域里用，MaterialTheme 不能包
+        // 在 Box 外面；所以面板底色直接取 readerScheme.surface，内容再包
+        // MaterialTheme，胶囊和文字才跟着深浅走。
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.45f).dp)
                 .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                .background(MaterialTheme.colorScheme.surface),
+                .background(readerScheme.surface),
+        ) {
+        MaterialTheme(
+            colorScheme = readerScheme,
+            typography = MaterialTheme.typography,
+            shapes = MaterialTheme.shapes,
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Box(
@@ -1269,7 +1315,7 @@ fun ReaderScreen(
                             onPlus = { if (fontSize < 24) fontSize++ },
                         )
                     }
-                    // 字体：五档，胶囊字本身就用对应字体渲染
+                    // 字体：八档，胶囊字本身就用对应字体渲染
                     ReaderFontRow(fontFamily) { fontFamily = it }
                     // 行距
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1279,7 +1325,7 @@ fun ReaderScreen(
                             ReaderPill(label, lineHeightRatio == ratio) { lineHeightRatio = ratio }
                         }
                     }
-                    // 背景：五档，最后一档跟随系统（深浅渐变点）
+                    // 背景：十一档，最后一档跟随系统（深浅渐变点）
                     ReaderBgRow(bgTheme) { bgTheme = it }
                 }
                 Row(
@@ -1289,32 +1335,39 @@ fun ReaderScreen(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TextButton(onClick = { closeDisplaySettings() }) {
-                        Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Spacer(Modifier.width(8.dp))
+                    // v0.245.0：设置改动即保存，取消和完成做的事完全一样
+                    // （都是关面板），只留完成；返回键同样关闭。
                     Button(onClick = { closeDisplaySettings() }) {
                         Text("完成")
                     }
                 }
             }
         }
+        }
     }
 
     // 设置面板（v0.241.0：195 的居中大弹窗改回底部面板——用户要边调
     // 边看正文变化。贴底悬浮、最高只占屏高 45%、无遮罩，正文区
     // 全程可见且实时跟随字号/字体/行距/背景；内容超高时面板内滚，
-    // 不再把整页盖住。完成/取消都在面板底行，返回键同样关闭。
-    // v0.242.0：显示组拆到界面面板，这里只剩阅读组 + 管理组。）
+    // 不再把整页盖住。完成在面板底行，返回键同样关闭。
+    // v0.242.0：显示组拆到界面面板，这里只剩阅读组 + 管理组。
+    // v0.245.0：面板跟阅读背景深浅走（readerScheme），同界面面板。）
     if (showSettings) {
         BackHandler { closeSettings() }
+        // v0.245.0：同界面面板，align 只能在根 Box 作用域里，MaterialTheme
+        // 包在 Box 里面，面板底色直接取 readerScheme.surface。
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.45f).dp)
                 .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                .background(MaterialTheme.colorScheme.surface),
+                .background(readerScheme.surface),
+        ) {
+        MaterialTheme(
+            colorScheme = readerScheme,
+            typography = MaterialTheme.typography,
+            shapes = MaterialTheme.shapes,
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Box(
@@ -1399,34 +1452,17 @@ fun ReaderScreen(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TextButton(onClick = { closeSettings() }) {
-                        Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Spacer(Modifier.width(8.dp))
+                    // v0.245.0：同界面面板，取消与完成做的事一样，只留完成。
                     Button(onClick = { closeSettings() }) {
                         Text("完成")
                     }
                 }
             }
         }
-    }
-    // 悬浮圆钮（v0.242.0：对标图 2 左侧竖排白圆钮）——只在 chrome
-    // 展开且无面板时出现，贴左下、在底栏之上：章内搜索、刷新、夜间。
-    // 亮度仍在设置面板里调，不另起入口；本地书无链接可拉，不摆刷新。
-    if (!immersive && !showSettings && !showDisplaySettings) {
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 12.dp, bottom = 140.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            ReaderFloatButton(Icons.Filled.Search, "章内搜索") { showChapterSearch = true }
-            if (novel?.sourceKey != "local") {
-                ReaderFloatButton(Icons.Filled.Refresh, "刷新") { refreshChapter() }
-            }
-            ReaderFloatButton(Icons.Filled.DarkMode, "夜间") { toggleNight() }
         }
     }
+    // v0.245.0：左下悬浮圆钮已整体删除——搜索、刷新只留顶栏，夜间只走
+    // 背景档；悬浮钮压正文左边缘的问题随之消失，不再留占位。
     } // v0.241.0：根 Box 闭合
 
     // 目录弹窗（v0.61.0：打开自动滚到当前章节）
@@ -1441,6 +1477,7 @@ fun ReaderScreen(
             onDismissRequest = { showToc = false },
             title = "目录（${chapters.size} 章）",
             dismissText = "关闭",
+            forceDark = isReaderDark,
         ) {
                 LazyColumn(
                     modifier = Modifier
@@ -1480,6 +1517,7 @@ fun ReaderScreen(
             title = "书签",
             subtitle = novel?.title,
             dismissText = "关闭",
+            forceDark = isReaderDark,
         ) {
             Button(
                 onClick = { addBookmark() },
@@ -1540,21 +1578,7 @@ fun ReaderScreen(
 
     }
 
-/** v0.242.0：悬浮圆钮（图 2 左侧白圆钮）——白底细边圆钮，贴左下竖排。 */
-@Composable
-private fun ReaderFloatButton(icon: ImageVector, desc: String, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, desc, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(22.dp))
-    }
-}
+/** v0.245.0：悬浮圆钮已随去重删除，此处不再留占位组件。 */
 
 /** v0.196.0：设置弹窗组标题——紧凑一页版，11sp。 */
 @Composable
@@ -1628,12 +1652,18 @@ private fun ReaderPill(
     }
 }
 
-/** v0.194.0追加：字体档位 → Compose 字体（系统自带五种，不用外挂字体文件）。 */
+/** v0.194.0追加：字体档位 → Compose 字体（系统自带五种，不用外挂字体文件）。
+ * v0.245.0追加：5/6/7 走 Android 系统字体名（FontFamily(Typeface)，
+ * ui-text 1.7.2  sources 已核实该构造存在），仍不打包字体文件；
+ * 中文字形在部分机型上可能回退到默认中文字体，以真机为准。 */
 private fun readerFontFamilyOf(v: Int): FontFamily = when (v) {
     0 -> FontFamily.Default
     2 -> FontFamily.Serif
     3 -> FontFamily.Monospace
     4 -> FontFamily.Cursive
+    5 -> FontFamily(Typeface.create("sans-serif-light", Typeface.NORMAL))
+    6 -> FontFamily(Typeface.create("sans-serif-condensed", Typeface.NORMAL))
+    7 -> FontFamily(Typeface.create("sans-serif-medium", Typeface.NORMAL))
     else -> FontFamily.SansSerif
 }
 
@@ -1656,7 +1686,10 @@ private fun ReaderFontRow(
             horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            listOf(0 to "系统默认", 1 to "无衬线", 2 to "衬线", 3 to "等宽", 4 to "手写").forEach { (v, label) ->
+            listOf(
+                0 to "系统默认", 1 to "无衬线", 2 to "衬线", 3 to "等宽", 4 to "手写",
+                5 to "细体", 6 to "紧凑", 7 to "中粗",
+            ).forEach { (v, label) ->
                 ReaderPill(label, selected == v, font = readerFontFamilyOf(v)) { onSelect(v) }
             }
         }
@@ -1728,6 +1761,12 @@ private fun ReaderBgRow(selected: Int, onSelect: (Int) -> Unit) {
             ReaderPill("护眼绿", selected == 2, dotColor = Color(0xFFE8F0E4)) { onSelect(2) }
             ReaderPill("夜间黑", selected == 3, dotColor = Color(0xFF121212)) { onSelect(3) }
             ReaderPill("跟随系统", selected == 4, dotFollowSystem = true) { onSelect(4) }
+            ReaderPill("雾蓝", selected == 5, dotColor = Color(0xFFDCE8EF)) { onSelect(5) }
+            ReaderPill("暖灰", selected == 6, dotColor = Color(0xFFD8D4CA)) { onSelect(6) }
+            ReaderPill("深灰", selected == 7, dotColor = Color(0xFF20242B)) { onSelect(7) }
+            ReaderPill("樱粉", selected == 8, dotColor = Color(0xFFFBE9EC)) { onSelect(8) }
+            ReaderPill("淡紫", selected == 9, dotColor = Color(0xFFE9E4F3)) { onSelect(9) }
+            ReaderPill("墨绿", selected == 10, dotColor = Color(0xFF1E2B26)) { onSelect(10) }
         }
     }
 }
@@ -1739,7 +1778,12 @@ private fun ReaderBgRow(selected: Int, onSelect: (Int) -> Unit) {
  * 本版：滑杆即本章进度（视口章节内比例，两种模式统一），
  * 拖动松手只在本章内定位，不跨章；换章仍走上一章/下一章按钮。
  * 单抽成独立 composable：视口状态只传给底栏这一小块，不触发整页重组。
+ * v0.245.0：进度条改细轨道 + 轨道上小球——Material3 1.3.1 的默认 Slider
+ * 是 16dp 粗轨道 + 4×44dp 竖线滑块（截图里那根竖线就是它），且带末尾
+ * 圆点；现改走 SliderState 自定义 thumb/track：轨道 4dp、无刻度无末尾
+ * 圆点、滑块 12dp 圆球居中在轨道上；拖动松手才定位的语义不变。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReaderBottomBar(
     fg: Color,
@@ -1753,8 +1797,14 @@ private fun ReaderBottomBar(
     onOpenSettings: () -> Unit,
     onOpenDisplaySettings: () -> Unit,
 ) {
-    // 拖动进度条只跟手，松手才定位，避免拖动中反复加载
-    var sliderPos by remember { mutableStateOf<Float?>(null) }
+    // 拖动进度条只跟手，松手才定位，避免拖动中反复加载。
+    // SliderState 由 Slider 内部在拖动时更新；没拖动时跟外部视口进度同步，
+    // 拖动时不覆盖，避免手指还没松开就被滚动进度拽回去。
+    val sliderState = remember { SliderState(value = chapterFraction, steps = 0, valueRange = 0f..1f) }
+    sliderState.onValueChangeFinished = { onChapterFractionCommit(sliderState.value) }
+    if (!sliderState.isDragging) {
+        sliderState.value = chapterFraction
+    }
     Column(modifier = Modifier.fillMaxWidth()) {
         // v0.240.0：底栏精细化——原来是两排裸文字按钮加一根深色粗滑杆，
         // 糊在正文底下没分隔，看着生硬；现加顶部细分隔线、滑杆改柔和
@@ -1781,21 +1831,41 @@ private fun ReaderBottomBar(
                 }
             }
             Slider(
-                value = sliderPos ?: chapterFraction,
-                onValueChange = { sliderPos = it },
-                onValueChangeFinished = {
-                    sliderPos?.let { frac ->
-                        onChapterFractionCommit(frac)
-                    }
-                    sliderPos = null
-                },
-                valueRange = 0f..1f,
-                modifier = Modifier.weight(1f),
+                state = sliderState,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(36.dp),
                 colors = SliderDefaults.colors(
                     thumbColor = MaterialTheme.colorScheme.primary,
                     activeTrackColor = MaterialTheme.colorScheme.primary,
                     inactiveTrackColor = fg.copy(alpha = 0.15f),
                 ),
+                thumb = {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                },
+                track = { state ->
+                    val frac = state.value.coerceIn(0f, 1f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(fg.copy(alpha = 0.15f)),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(frac)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
+                    }
+                },
             )
             TextButton(
                 onClick = onNextChapter,

@@ -62,16 +62,51 @@ fun TechDialog(
     dismissText: String? = "取消",
     /** v0.240.0：弹窗宽度占屏幕宽的比例；null 则走平台默认宽（其他弹窗不受影响）。 */
     widthFraction: Float? = null,
+    /** v0.245.0：强制深浅；null=跟系统主题（其他页面默认），阅读页传
+     * 阅读背景的实际深浅，系统浅色时夜间黑阅读页的弹窗也不再发白。 */
+    forceDark: Boolean? = null,
     // content 放最后：调用处用尾随 lambda 写法时必须对应最后一个参数
     content: @Composable ColumnScope.() -> Unit,
 ) {
     // v0.194.0：用主题背景明度判深浅（App 主题默认跟随系统），不用写死深色。
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val dialogBg = if (isDark) Color(0xFF171B28) else MaterialTheme.colorScheme.surface
+    // v0.245.0：forceDark 非空时按它走，并把整套配色换成对应深浅的副本，
+    // 否则系统浅色下深底弹窗里的字会是深色、看不见。
+    val systemDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val isDark = forceDark ?: systemDark
+    val baseScheme = MaterialTheme.colorScheme
+    val effectiveScheme = if (forceDark == null || forceDark == systemDark) {
+        baseScheme
+    } else if (isDark) {
+        baseScheme.copy(
+            background = Color(0xFF171B28),
+            surface = Color(0xFF171B28),
+            surfaceVariant = Color(0xFF232839),
+            onSurface = Color(0xFFE8EAF0),
+            onSurfaceVariant = Color(0xFFB0B7C3),
+            outline = Color(0xFF454B56),
+            primary = Color(0xFF7AA7F7),
+            onPrimary = Color(0xFF18243A),
+        )
+    } else {
+        baseScheme.copy(
+            background = Color.White,
+            surface = Color.White,
+            surfaceVariant = Color(0xFFF0F0F0),
+            onSurface = Color(0xFF242424),
+            onSurfaceVariant = Color(0xFF666666),
+            outline = Color(0xFFE0E0E0),
+        )
+    }
+    val dialogBg = if (isDark) Color(0xFF171B28) else effectiveScheme.surface
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = if (widthFraction != null) DialogProperties(usePlatformDefaultWidth = false) else DialogProperties(),
     ) {
+        MaterialTheme(
+            colorScheme = effectiveScheme,
+            typography = MaterialTheme.typography,
+            shapes = MaterialTheme.shapes,
+        ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth(widthFraction ?: 1f)
@@ -143,6 +178,7 @@ fun TechDialog(
                     }
                 }
             }
+        }
         }
     }
 }

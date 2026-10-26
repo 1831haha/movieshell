@@ -66,6 +66,8 @@ fun ChangeSourceDialog(
     currentChapterIndex: Int,
     onDismiss: () -> Unit,
     onSwitched: (Int) -> Unit,
+    /** v0.245.0：阅读页传阅读背景深浅，其他调用方不传、跟系统主题。 */
+    forceDark: Boolean? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -164,6 +166,7 @@ fun ChangeSourceDialog(
     TechDialog(
         onDismissRequest = onDismiss,
         title = "换源",
+        forceDark = forceDark,
     ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
