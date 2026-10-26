@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.231.0",
+        date = "2026-10-26",
+        title = "230 真机验跟进：目录下一页数组绑定崩溃修掉，重进找书不留上次记录。",
+        details = listOf(
+            "入架失败＋崩 App 同一根因：目录下一页 JS 把 Java 数组塞进 JS 作用域，Rhino 包它时查 java.lang.Object 成员撞上安全禁令；入架链路兜着变 toast，详情页那条没兜就崩了。本版数组转 JS 原生数组，绑定与求值同进异常兜底。",
+            "重进找书不留上次记录：228 只清了框词，结果列表还留在 ViewModel 里；本版进找书路由时结果一起清掉，在途搜索一并取消。",
+            "完整内容见仓库 docs/changelog/v0.231.0.md。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.230.0",
         date = "2026-10-26",
         title = "229 真机验跟进：作者行去重，目录首抓失败重试一次＋记诊断行。",

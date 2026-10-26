@@ -285,19 +285,36 @@ object LegadoJsEngine {
             })
             cx.setInstructionObserverThreshold(50000)
             val scope = cx.initStandardObjects()
-            bindings.forEach { (k, v) ->
-                if (v == null) return@forEach
-                val jsValue = when (v) {
-                    is JsObj -> {
-                        val o = cx.newObject(scope)
-                        v.props.forEach { (pk, pv) -> ScriptableObject.putProperty(o, pk, pv) }
-                        o
+            // v0.231.0：绑定与求值同进 runCatching——之前绑定在 runCatching 外，
+            // Java 数组进 scope 时 Rhino 包成 NativeJavaArray，成员查找走到
+            // java.lang.Object，正撞 ClassShutter 禁令，999 目录下一页 JS
+            //（result = arrayOf(stage1)）直接崩 App；数组/列表一律转 JS
+            // 原生数组，绑定再出问题也只记日志不崩。
+            return runCatching {
+                bindings.forEach { (k, v) ->
+                    if (v == null) return@forEach
+                    val jsValue = when (v) {
+                        is JsObj -> {
+                            val o = cx.newObject(scope)
+                            v.props.forEach { (pk, pv) -> ScriptableObject.putProperty(o, pk, pv) }
+                            o
+                        }
+                        is Array<*> -> {
+                            val arr = cx.newArray(scope, v.size)
+                            v.forEachIndexed { i, e -> ScriptableObject.putProperty(arr, i, e) }
+                            arr
+                        }
+                        is List<*> -> {
+                            val arr = cx.newArray(scope, v.size)
+                            v.forEachIndexed { i, e -> ScriptableObject.putProperty(arr, i, e) }
+                            arr
+                        }
+                        else -> Context.javaToJS(v, scope)
                     }
-                    else -> Context.javaToJS(v, scope)
+                    ScriptableObject.putProperty(scope, k, jsValue)
                 }
-                ScriptableObject.putProperty(scope, k, jsValue)
+                cx.evaluateString(scope, full, "rule", 1, null)
             }
-            return runCatching { cx.evaluateString(scope, full, "rule", 1, null) }
                 .onFailure { LogBus.w(TAG, "JS 求值失败: ${it.message}") }
                 .getOrNull()
         } finally {

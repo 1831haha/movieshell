@@ -323,6 +323,10 @@ class MainActivity : ComponentActivity() {
                     if (curRoute != null && curRoute != "bookshelf" && curRoute != "search") {
                         novelSearchVm.setKeyword("")
                     }
+                    // v0.231.0：重进找书不留上次记录——228 只清了框词，结果列表还留在 ViewModel 里，空框配旧结果；进找书路由时把结果也清掉。
+                    if (curRoute == "search") {
+                        novelSearchVm.clearResults()
+                    }
                 }
                 val liveLandscape = curRoute == "live" &&
                     LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE

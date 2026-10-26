@@ -88,6 +88,14 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         _keyword.value = k
     }
 
+    // v0.231.0：重进找书不留上次记录——清结果＋清已搜标记，在途搜索一并取消，免得旧结果晚一步又填回来。
+    fun clearResults() {
+        searchJob?.cancel()
+        searchJob = null
+        _results.value = emptyList()
+        _searched.value = false
+    }
+
     fun refreshHistory() {
         _history.value = SearchHistoryStore.list(getApplication(), "novel")
     }
