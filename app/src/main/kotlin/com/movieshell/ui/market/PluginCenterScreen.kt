@@ -66,7 +66,9 @@ import kotlinx.coroutines.withContext
 fun PluginCenterScreen(
     initialTab: Int = 0,
     onBack: () -> Unit = {},
-    onDetail: (String) -> Unit = {},
+    // v0.246.0：详情带市场——原来只传 id，多市场同 id 时详情可能显示另一家；
+    // 改传 (id, sourceMarket)，详情按市场 + id 精确查。
+    onDetail: (String, String) -> Unit = { _, _ -> },
 ) {
     var tab by rememberSaveable(initialTab) {
         mutableIntStateOf(initialTab.coerceIn(0, 2))
@@ -96,7 +98,7 @@ fun PluginCenterScreen(
 
 /** 「插件」页签：已安装插件列表（名 + 版本 + 一句话作用 + 类型标签 + 卸载/更新）。 */
 @Composable
-private fun InstalledPluginsBody(onDetail: (String) -> Unit) {
+private fun InstalledPluginsBody(onDetail: (String, String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var tick by remember { mutableIntStateOf(0) }
@@ -193,7 +195,7 @@ private fun InstalledPluginsBody(onDetail: (String) -> Unit) {
                         horizontalArrangement = Arrangement.End,
                     ) {
                         if (mp != null) {
-                            TextButton(onClick = { onDetail(p.id) }) { Text("详情") }
+                            TextButton(onClick = { onDetail(p.id, mp.sourceMarket) }) { Text("详情") }
                         }
                         if (hasUpdate && mp != null) {
                             TextButton(onClick = { doUpdate(mp) }) { Text("更新") }

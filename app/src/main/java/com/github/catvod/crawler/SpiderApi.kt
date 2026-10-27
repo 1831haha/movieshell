@@ -103,7 +103,11 @@ object SpiderApi {
                     override fun onPageFinished(view: WebView, url: String) {
                         runCatching {
                             view.evaluateJavascript(script) {
-                                result = it.orEmpty().trim('"')
+                                // v0.246.0：evaluateJavascript 回调是 JSON 编码值，
+                                // 原来只 trim('"') 去首尾引号，\n \" \\ 等转义原样残留、
+                                // 含引号/换行的返回值失真。改按 JSON 字符串解码，
+                                // 非字符串（数字/布尔/null/对象）原样返回，解码失败回退旧逻辑。
+                                result = decodeJsValue(it.orEmpty())
                                 runCatching { view.destroy() }
                                 latch.countDown()
                             }
@@ -135,5 +139,19 @@ object SpiderApi {
         }
         latch.await(32, TimeUnit.SECONDS)
         return result
+    }
+
+    /**
+     * v0.246.0：解码 evaluateJavascript 回调值。回调是 JSON 编码：
+     * 字符串带引号 + 转义（\n \" \\ \uXXXX），数字/布尔/null/对象无引号。
+     * 字符串走 JSONObject 解码转义；其他原样；解码失败回退 trim 引号。
+     */
+    private fun decodeJsValue(raw: String): String {
+        if (raw.length >= 2 && raw.startsWith("\"") && raw.endsWith("\"")) {
+            return runCatching {
+                org.json.JSONObject("{\"v\":$raw}").getString("v")
+            }.getOrDefault(raw.trim('"'))
+        }
+        return raw
     }
 }

@@ -77,12 +77,19 @@ object SpiderEngine {
      * dex——AOSP 逻辑是 access(path, W_OK)==0 即拒（dalvik_system_DexFile.cc），跟目录无关。
      * 所以 copy 到私有目录后必须 setReadOnly()；刷新覆盖前先 setWritable(true)。
      * 幂等：目标存在且大小一致则跳过（并补 setReadOnly）；失败记日志返回 null。
+     * v0.246.0：只比大小不够——同长度不同内容的 JAR 会被跳过、继续用旧版。
+     * 改大小 + SHA-256 双重判断，任一不同都重拷。
      */
     fun privateJarFile(filesDir: File, src: File): File? {
         return runCatching {
             val dst = privateJarTarget(filesDir, src.name)
             val len = src.length()
-            if (len > 0 && dst.isFile && dst.length() == len) {
+            // v0.246.0：摘要任一算不出时不跳过（重拷最安全），防 null == null 误判为相同
+            val srcHash = sha256(src)
+            val dstHash = if (dst.isFile) sha256(dst) else null
+            if (len > 0 && dst.isFile && dst.length() == len &&
+                srcHash != null && srcHash == dstHash
+            ) {
                 if (!dst.setReadOnly()) LogBus.w(TAG, "jar 设只读失败 ${dst.name}")
                 return dst
             }
@@ -93,6 +100,19 @@ object SpiderEngine {
         }.onFailure { LogBus.e(TAG, "jar 拷入私有目录失败 ${src.name}：${it.message}") }
             .getOrNull()
     }
+
+    private fun sha256(file: File): String? = runCatching {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buf = ByteArray(8192)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                digest.update(buf, 0, n)
+            }
+        }
+        digest.digest().joinToString("") { "%02x".format(it) }
+    }.getOrNull()
 
     /**
      * v0.13.0：解析 spider ext 中的相对路径。

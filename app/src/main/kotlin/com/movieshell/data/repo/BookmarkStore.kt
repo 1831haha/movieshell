@@ -46,10 +46,12 @@ object BookmarkStore {
         AtomicFile.preserveCorrupt(f)
     }.getOrDefault(emptyMap())
 
-    private fun writeAll(f: File, map: Map<String, List<Bookmark>>) = runCatching {
+    // v0.246.0：返回写盘成败——原来返回 Result 但调用方都不查，
+    // 书签写失败重启后丢变更、用户无感知。改显式 Boolean。
+    private fun writeAll(f: File, map: Map<String, List<Bookmark>>): Boolean = runCatching {
         // v0.170.0：原子写盘（临时文件 + fsync + 改名），写中途被杀不留截断文件
         AtomicFile.writeText(f, json.encodeToString(mapSer, map))
-    }.onFailure { Log.w(TAG, "书签写入失败", it) }
+    }.onFailure { Log.w(TAG, "书签写入失败", it) }.getOrDefault(false)
 
     suspend fun list(context: Context, novelId: String): List<Bookmark> =
         withContext(Dispatchers.IO) {
@@ -58,7 +60,7 @@ object BookmarkStore {
         }
 
     /** 同章节去重：同一 chapterIndex 只保留最新一条。 */
-    suspend fun add(context: Context, novelId: String, bookmark: Bookmark) =
+    suspend fun add(context: Context, novelId: String, bookmark: Bookmark): Boolean =
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 val f = File(context.filesDir, FILE_NAME)
@@ -70,7 +72,7 @@ object BookmarkStore {
             }
         }
 
-    suspend fun remove(context: Context, novelId: String, createdAt: Long) =
+    suspend fun remove(context: Context, novelId: String, createdAt: Long): Boolean =
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 val f = File(context.filesDir, FILE_NAME)

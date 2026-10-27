@@ -79,6 +79,8 @@ fun ExploreScreen(
     var results by remember(sourceKey) { mutableStateOf<List<NovelSearchResult>>(emptyList()) }
     var page by remember(sourceKey) { mutableStateOf(1) }
     var loading by remember(sourceKey) { mutableStateOf(false) }
+    // v0.246.0：加载代际——切分类时旧请求结果不许覆盖新分类
+    var loadGen by remember(sourceKey) { mutableStateOf(0) }
     var notice by remember(sourceKey) { mutableStateOf<String?>(null) }
     var webMode by remember(sourceKey) { mutableStateOf(true) }
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -93,11 +95,15 @@ fun ExploreScreen(
     }.orEmpty()
 
     fun load(src: BookSource, cat: NovelSourceEngine.ExploreCategory, p: Int, append: Boolean) {
-        if (loading) return
+        // v0.246.0：代际保护——原来 loading 时新请求直接 return，
+        // 切分类后旧请求完成仍把旧分类结果写进 results（selected 已是新分类）。
+        // 改每次 load 递增代际，写回时只认最新一代；旧请求结果直接丢弃。
+        val myGen = ++loadGen
         loading = true
         notice = null
         scope.launch {
             val list = runCatching { NovelSourceEngine.explore(src, cat.url, p, allowGate = true) }.getOrDefault(emptyList())
+            if (myGen != loadGen) return@launch
             results = if (append) (results + list).distinctBy { it.remoteId } else list
             if (list.isEmpty() && !append) notice = "这一页没有结果（可能撞上验证，稍后重试）"
             loading = false

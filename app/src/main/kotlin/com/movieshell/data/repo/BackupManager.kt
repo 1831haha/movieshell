@@ -62,10 +62,22 @@ object ApiSourceStore {
      * 老用户已有 api_sources.json 的不受影响。
      * v0.170.0：文件存在但解析失败时保全原文件为 .corrupt.bak 再返回空列表——
      * 空列表只代表"本次读不到"，绝不能由下次写盘把旧数据悄悄清掉。
+     * v0.246.0：内存缓存 + 文件修改时间校验——原来每次 load 都全量读盘解析，
+     * 首页/搜索/源选择页等主线程调用点频繁触发。缓存命中直接返回内存；
+     * 文件被外部改动（备份恢复等）时时间戳变化，自动重读，不怕 stale。
      */
+    private var cached: List<ApiSource>? = null
+    private var cachedModified = -1L
+
     fun load(context: Context): List<ApiSource> {
-        val list = parseFile(File(context.filesDir, FILE_NAME)) ?: return emptyList()
-        return purgeBuiltinDefaultsOnce(context, list)
+        val file = File(context.filesDir, FILE_NAME)
+        val modified = if (file.isFile) file.lastModified() else 0L
+        if (cached != null && cachedModified == modified) return cached!!
+        val list = parseFile(file) ?: return emptyList()
+        val result = purgeBuiltinDefaultsOnce(context, list)
+        cached = result
+        cachedModified = if (file.isFile) file.lastModified() else 0L
+        return result
     }
 
     /** 文件存在但解析失败时为 true（导出/云同步用：拒绝用空表覆盖好备份）。 */
@@ -85,8 +97,11 @@ object ApiSourceStore {
     /** 回滚用：bytes 为 null 删文件，否则原子写回。返回是否成功。 */
     fun restoreRaw(context: Context, bytes: ByteArray?): Boolean {
         val file = File(context.filesDir, FILE_NAME)
-        if (bytes == null) return runCatching { if (file.isFile) file.delete() else true }.getOrDefault(false)
-        return AtomicFile.writeText(file, bytes.toString(Charsets.UTF_8))
+        val result = if (bytes == null) runCatching { if (file.isFile) file.delete() else true }.getOrDefault(false)
+        else AtomicFile.writeText(file, bytes.toString(Charsets.UTF_8))
+        // v0.246.0：绕开 save 直接写文件，显式失效缓存（时间戳毫秒粒度可能撞上）
+        if (result) invalidateCache()
+        return result
     }
 
     /** 解析文件；返回 null = 文件存在但解析失败（已保全原文件）。缺 name/url 的单条静默跳过（读侧容错）。 */
@@ -151,7 +166,18 @@ object ApiSourceStore {
         }
         val ok = AtomicFile.writeText(File(context.filesDir, FILE_NAME), arr.toString())
         if (!ok) Log.w(TAG, "写入 $FILE_NAME 失败")
+        // v0.246.0：写盘成功同步缓存，失败不更新（盘上还是旧的，下次读按时间戳重读）
+        if (ok) {
+            cached = list
+            cachedModified = File(context.filesDir, FILE_NAME).lastModified()
+        }
         return ok
+    }
+
+    /** 回滚写回后缓存失效——restoreRaw 绕开 save 直接写文件，时间戳变了下次 load 自动重读。 */
+    fun invalidateCache() {
+        cached = null
+        cachedModified = -1L
     }
 }
 
@@ -455,8 +481,12 @@ object BackupManager {
         val prevLiveRaw = if (live != null) readLivePrefsRaw(context) else null
         // ---- 2b. 磁盘快照（v0.216.0 C15）：内存快照中途被杀就没了。
         // 动笔前先把当前完整备份落盘；成功后删，失败/被杀则留着可导回。
+        // v0.246.0：快照写失败直接中止恢复——原来只记日志继续恢复，
+        // 恢复中途再异常就没快照可回滚；且快照都写不出的盘，恢复写盘也大概率失败。
         if (writeSnapshot) {
-            writePreRestoreSnapshot(context, prevBytes, prevDrpy, prevPy)
+            if (!writePreRestoreSnapshot(context, prevBytes, prevDrpy, prevPy)) {
+                return RestoreResult.Failed("恢复前安全快照写入失败，当前数据未动，请检查存储空间后重试")
+            }
         }
         fun rollback(): Boolean {
             var ok = ApiSourceStore.restoreRaw(context, prevBytes)
@@ -552,7 +582,7 @@ object BackupManager {
         prevBytes: ByteArray?,
         prevDrpy: String?,
         prevPy: String?,
-    ) {
+    ): Boolean {
         val json = when (val r = exportJson(context)) {
             is ExportResult.Ok -> r.json
             is ExportResult.Failed -> {
@@ -570,8 +600,10 @@ object BackupManager {
                 }.toString()
             }
         }
-        runCatching { AtomicFile.writeText(File(context.filesDir, PRE_RESTORE_SNAPSHOT), json) }
-            .onFailure { Log.w(TAG, "恢复前磁盘快照写入失败", it) }
+        // v0.246.0：返回写盘成败——原来失败只记日志、恢复照样继续，
+        // 恢复中途再出异常或进程被杀就没快照可回滚。调用方失败时直接中止恢复。
+        return runCatching { AtomicFile.writeText(File(context.filesDir, PRE_RESTORE_SNAPSHOT), json) }
+            .onFailure { Log.w(TAG, "恢复前磁盘快照写入失败", it) }.getOrDefault(false)
     }
 
     // ---------- 新段：解析（只校验，不写盘；返回 null = 格式或关键字段不对） ----------

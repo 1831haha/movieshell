@@ -87,28 +87,47 @@ object DownloadStore {
     @Synchronized
     fun isActive(id: String): Boolean = id in activeIds
 
-    @Synchronized
+    // v0.246.0：任务列表修改统一基准——内存 _tasks.value 为准。
+    // 原来各入口各自 readAll，update 节流没落盘的进度会被
+    // claimNext/addTasks/remove 等从盘读回的旧值覆盖。调用方须已持 lock。
+    // v0.246.0 三轮（GPT 审）：用 inited 区分“未初始化”与“已初始化但空列表”——
+    // 原来用 isNotEmpty 判断，空列表时每次都回退读盘，写盘失败或外部写入时
+    // 可能重新引入旧数据；且本应用是单进程，跨进程场景不作兼容承诺。
+    // v0.246.0 四轮（GPT 审）：初始化屏障——原来 init 放后台协程后，
+    // Worker 可能先认领（QUEUED→DOWNLOADING），init 后跑又把状态覆回 PAUSED，
+    // 锁只保证临界区串行、不保证时序。改所有入口首次调用先 ensure init：
+    // 谁先拿到锁谁把 init 做完（幂等），认领/修改只在 init 完成后发生。
+    // init 内 autoClear/sweep 也在同一把锁内（可重入），不存在“init 半截、认领插队”。
+    private fun baseList(context: Context): MutableList<DownloadTask> {
+        if (!inited) init(context)
+        return _tasks.value.toMutableList()
+    }
+
+    // v0.246.0：init 改走 lock——原来 init 用 @Synchronized（this 锁），
+    // 其他修改入口用 lock，两把锁不一致，init 与修改可能交错。
     fun init(context: Context) {
-        if (inited) return
-        inited = true
-        val all = readAll(context).map {
-            // 进程重建：上次下到一半的任务回到 PAUSED，不自动续下
-            if (it.status == DlStatus.DOWNLOADING || it.status == DlStatus.QUEUED)
-                it.copy(status = DlStatus.PAUSED) else it
+        synchronized(lock) {
+            if (inited) return
+            inited = true
+            val all = readAll(context).map {
+                // 进程重建：上次下到一半的任务回到 PAUSED，不自动续下
+                if (it.status == DlStatus.DOWNLOADING || it.status == DlStatus.QUEUED)
+                    it.copy(status = DlStatus.PAUSED) else it
+            }
+            writeAll(context, all)
+            _tasks.value = all
+            // v0.63.0：启动时自动清理 N 天前的已完成任务（含文件）
+            autoClearOldDone(context)
+            // v0.188.0：启动时扫一次无记录的 Download/<id>/ 孤儿目录（L25）——
+            // 删文件与删记录同块仍防不住“删记录后、删文件前进程被杀”的窗口，
+            // 启动扫是第二道：无记录的任务目录只可能是残留，直接清掉。
+            sweepOrphanDirs(context)
         }
-        writeAll(context, all)
-        _tasks.value = all
-        // v0.63.0：启动时自动清理 N 天前的已完成任务（含文件）
-        autoClearOldDone(context)
-        // v0.188.0：启动时扫一次无记录的 Download/<id>/ 孤儿目录（L25）——
-        // 删文件与删记录同块仍防不住“删记录后、删文件前进程被杀”的窗口，
-        // 启动扫是第二道：无记录的任务目录只可能是残留，直接清掉。
-        sweepOrphanDirs(context)
     }
 
     /** v0.188.0：删 Download/ 下无任务记录的子目录（只删目录，不碰文件）。 */
     private fun sweepOrphanDirs(context: Context) {
-        val ids = synchronized(lock) { readAll(context).map { it.id }.toSet() }
+        val ids = synchronized(lock) { baseList(context).map { it.id }.toSet() }
         val root = StoragePaths.downloadDir(context)
         val orphans = root.listFiles { f -> f.isDirectory && f.name !in ids }.orEmpty()
         if (orphans.isEmpty()) return
@@ -128,7 +147,7 @@ object DownloadStore {
         val old = synchronized(lock) {
             // v0.171.0：按完成时间算，不再按入队时间——8 天前入队、昨天才下完
             // 的剧以前到期即被删；老记录无完成时间时回退到入队时间
-            readAll(context).filter { it.status == DlStatus.DONE &&
+            baseList(context).filter { it.status == DlStatus.DONE &&
                 (if (it.completedAt > 0) it.completedAt else it.createdAt) < cutoff }
         }
         if (old.isEmpty()) return
@@ -142,7 +161,7 @@ object DownloadStore {
                     if (dir.isDirectory) dir.deleteRecursively()
                 }.onFailure { Log.w(TAG, "自动清理删文件失败", it) }
             }
-            val rest = readAll(context).filterNot { it.id in ids }
+            val rest = baseList(context).filterNot { it.id in ids }
             ids.forEach { lastPersisted.remove(it) }
             writeAll(context, rest)
             _tasks.value = rest
@@ -159,7 +178,7 @@ object DownloadStore {
     suspend fun addTasks(context: Context, tasks: List<DownloadTask>) {
         withContext(Dispatchers.IO) {
             synchronized(lock) {
-                val all = readAll(context).toMutableList()
+                val all = baseList(context)
                 tasks.forEach { t ->
                     if (all.none { it.id == t.id }) all.add(0, t)
                 }
@@ -169,10 +188,13 @@ object DownloadStore {
         }
     }
 
-    /** 更新任务；进度变化 <5% 且状态未变时只刷内存不落盘。 */
+    /** 更新任务；进度变化 <5% 且状态未变时只刷内存不落盘。
+     * v0.246.0：基准改内存 _tasks.value——原来每次 readAll 从磁盘读，
+     * 节流没落盘的小进度（<5%）会被磁盘旧值覆盖，重启后进度回退甚至卡 0%。
+     * 内存里找不到时才回退读盘一次（init 未跑或跨进程场景）。 */
     fun update(context: Context, id: String, force: Boolean = false, fn: (DownloadTask) -> DownloadTask) {
         synchronized(lock) {
-            val all = readAll(context).toMutableList()
+            val all = baseList(context)
             val i = all.indexOfFirst { it.id == id }
             if (i < 0) return
             val nt = fn(all[i])
@@ -192,10 +214,12 @@ object DownloadStore {
         update(context, id, force = true) { it.copy(status = status, error = error) }
     }
 
-    /** 原子认领：最早入队的 QUEUED → DOWNLOADING；无任务返回 null。 */
+    /** 原子认领：最早入队的 QUEUED → DOWNLOADING；无任务返回 null。
+     * v0.246.0：基准改内存——原来 readAll 从盘读，update 节流没落盘的进度
+     * 会被认领写回的旧值覆盖。 */
     fun claimNext(context: Context): DownloadTask? {
         synchronized(lock) {
-            val all = readAll(context).toMutableList()
+            val all = baseList(context)
             val i = all.indexOfFirst { it.status == DlStatus.QUEUED }
             if (i < 0) return null
             val nt = all[i].copy(status = DlStatus.DOWNLOADING, error = "")
@@ -212,7 +236,7 @@ object DownloadStore {
             // v0.188.0：删文件与删记录放同一 synchronized 块（L25）
             synchronized(lock) {
                 if (deleteFiles) {
-                    val task = readAll(context).firstOrNull { it.id == id }
+                    val task = baseList(context).firstOrNull { it.id == id }
                     if (task != null) {
                         runCatching {
                             val dir = java.io.File(StoragePaths.downloadDir(context), task.id)
@@ -220,7 +244,7 @@ object DownloadStore {
                         }.onFailure { Log.w(TAG, "删除下载文件失败", it) }
                     }
                 }
-                val all = readAll(context).filterNot { it.id == id }
+                val all = baseList(context).filterNot { it.id == id }
                 lastPersisted.remove(id)
                 writeAll(context, all)
                 _tasks.value = all
@@ -234,7 +258,7 @@ object DownloadStore {
             // 下的视频与分片成孤儿，且此后自动清理再也认不到它们）
             // v0.188.0：删文件与删记录放同一 synchronized 块（L25）
             synchronized(lock) {
-                val done = readAll(context).filter { it.status == DlStatus.DONE }
+                val done = baseList(context).filter { it.status == DlStatus.DONE }
                 val ids = done.map { it.id }.toSet()
                 done.forEach { task ->
                     runCatching {
@@ -242,7 +266,7 @@ object DownloadStore {
                         if (dir.isDirectory) dir.deleteRecursively()
                     }.onFailure { Log.w(TAG, "清理已完成文件失败", it) }
                 }
-                val all = readAll(context).filterNot { it.id in ids }
+                val all = baseList(context).filterNot { it.id in ids }
                 ids.forEach { lastPersisted.remove(it) }
                 writeAll(context, all)
                 _tasks.value = all
@@ -259,7 +283,7 @@ object DownloadStore {
     suspend fun verifyDoneFiles(context: Context): Int = withContext(Dispatchers.IO) {
         val missing: List<DownloadTask>
         synchronized(lock) {
-            val all = readAll(context)
+            val all = baseList(context)
             // v0.187.0 H15：当前根下找不到、但另一根下还有同名文件时不算
             // 丢失（只是权限切换导致根目录暂时变了），权限恢复后仍可找回
             missing = all.filter { it.status == DlStatus.DONE &&

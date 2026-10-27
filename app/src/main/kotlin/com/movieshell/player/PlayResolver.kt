@@ -20,6 +20,7 @@ import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.source.ParseApi
+import kotlinx.coroutines.CancellationException
 
 /**
  * 播放决策公共入口（v0.19.0）：从 DetailScreen 抽取，详情页与播放器内切线路共用。
@@ -36,26 +37,40 @@ suspend fun resolvePlayUrl(
     if (MagnetPlayer.isMagnet(episode.url)) return episode.url
     val flag = episode.flag.ifBlank { "" }
     val epUrl = episode.url
-    return runCatching {
+    // v0.246.0：取消重抛——原来外层 runCatching 把取消当普通失败吞掉返回 ""，
+    // 调用方以为只是没地址，实际是任务被取消。内层三路顺延同理。
+    return try {
         when {
             subSite == null -> {
                 // v0.217.0（F22）：多路同时激活时，第一路返回空地址不再定局——
                 // 空了（或抛异常）顺延试下一路，三路都空才返回空，不再让用户
                 // 明明换个规则就能播的剧只看到“没地址”。
-                var result = runCatching {
+                var result = try {
                     if (DrpySourceManager.hasActiveRule()) DrpySourceManager.playUrl(flag, epUrl) else ""
-                }.getOrDefault("")
-                if (result.isBlank()) {
-                    result = runCatching {
-                        if (PySourceManager.hasActiveRule())
-                            finishPyPlay(context, null) { PySourceManager.playRaw(flag, epUrl) } else ""
-                    }.getOrDefault("")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    ""
                 }
                 if (result.isBlank()) {
-                    result = runCatching {
+                    result = try {
+                        if (PySourceManager.hasActiveRule())
+                            finishPyPlay(context, null) { PySourceManager.playRaw(flag, epUrl) } else ""
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        ""
+                    }
+                }
+                if (result.isBlank()) {
+                    result = try {
                         if (PhpSourceManager.activeRuleName() != null)
                             finishPyPlay(context, null) { PhpCliEngine.playRaw(context, flag, epUrl) } else ""
-                    }.getOrDefault("")
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        ""
+                    }
                 }
                 result
             }
@@ -111,7 +126,11 @@ suspend fun resolvePlayUrl(
             else ->
                 SubSiteEngines.drpyEngineFor(subSite)?.play(flag, epUrl).orEmpty()
         }
-    }.getOrDefault("")
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        ""
+    }
 }
 
 /**
@@ -129,7 +148,14 @@ private suspend fun finishPyPlay(
     var r = produce()
     if (r.first.isBlank()) {
         LogBus.w("Play", "PY 规则首次未返回播放地址，重试一次")
-        r = runCatching { produce() }.getOrDefault(Triple("", 0, emptyMap()))
+        // v0.246.0：重试的 runCatching 也会吞取消，取消时应直接抛、不走“未返回地址” Toast。
+        r = try {
+            produce()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            Triple("", 0, emptyMap())
+        }
     }
     val (url, parse, header) = r
     if (url.isBlank()) {

@@ -63,14 +63,16 @@ object NovelStore {
         }.getOrDefault(emptyList())
     }
 
-    private fun writeIndex(context: Context, list: List<Novel>) {
-        runCatching {
+    // v0.246.0：返回写盘成败——原来返回 Unit、失败只记日志，
+    // removeNovel 无法知道索引写没写成，照样删章节文件，书还在、章节先没了。
+    private fun writeIndex(context: Context, list: List<Novel>): Boolean {
+        return runCatching {
             // v0.170.0：原子写盘
             AtomicFile.writeText(
                 indexFile(context),
                 json.encodeToString(ListSerializer(Novel.serializer()), list),
             )
-        }.onFailure { Log.w(TAG, "书架索引写入失败", it) }
+        }.onFailure { Log.w(TAG, "书架索引写入失败", it) }.getOrDefault(false)
     }
 
     /**
@@ -279,7 +281,9 @@ object NovelStore {
     suspend fun removeNovel(context: Context, id: String): Boolean = withContext(Dispatchers.IO) {
         indexMutex.withLock {
         runCatching {
-            writeIndex(context, readIndex(context).filterNot { it.id == id })
+            // v0.246.0：索引写盘失败直接返回 false，不删章节——
+            // 原来不管写没写成都删章节，索引失败时书还在、章节先没了。
+            if (!writeIndex(context, readIndex(context).filterNot { it.id == id })) return@runCatching false
             chaptersFile(context, id).delete()
             true
         }.onFailure { Log.w(TAG, "删除小说失败", it) }.getOrDefault(false)

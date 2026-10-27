@@ -66,6 +66,7 @@ import coil.compose.AsyncImage
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.CapsuleTabBar
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicSettings
 import com.movieshell.player.MusicPlayer
@@ -941,10 +942,20 @@ private fun LocalTab() {
     LaunchedEffect(Unit) { reload() }
 
     val pickAudio = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent(),
+        // v0.246.0：GetContent 改 OpenDocument——GetContent 只给临时授权，
+        // App 重启后存下的 content:// URI 读不了（全仓无 takePersistableUriPermission）。
+        // OpenDocument + takePersistableUriPermission 拿长期授权，重启后仍可播。
+        ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }.onFailure {
+                LogBus.w("Music", "本地音乐长期授权失败（重启后可能无法播放）：${it.message}")
+            }
             val name = withContext(Dispatchers.IO) {
                 runCatching {
                     context.contentResolver.query(uri, null, null, null, null)?.use { c ->
@@ -985,7 +996,7 @@ private fun LocalTab() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = { pickAudio.launch("audio/*") }) {
+            TextButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) {
                 Icon(Icons.Filled.Add, contentDescription = null)
                 Spacer(Modifier.width(4.dp))
                 Text("导入音乐")

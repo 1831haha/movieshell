@@ -185,6 +185,30 @@ private fun highlightCode(
 }
 
 /** v0.9.0：文件预览器。路由 preview/{kind}/{fileName}，kind∈js/py/php/web，只读。 */
+
+/**
+ * v0.246.0：UTF-8 安全截断——返回不超过 max 的最大完整字符边界。
+ * 从 max 往回走：后续字节（10xxxxxx）跳过，找到起始字节后看该字符完整长度
+ * 是否超出 max，超出则截到起始字节处。ASCII 直接返回 max。
+ * 注意：必须放在 @Composable 注解之前，不能插在注解与 FilePreviewScreen 声明之间
+ * （注解会错挂到本函数上，FilePreviewScreen 反而丢注解，编译失败）。
+ */
+private fun utf8SafeCut(bytes: ByteArray, max: Int): Int {
+    if (bytes.size <= max) return bytes.size
+    var cut = max
+    while (cut > 0 && (bytes[cut - 1].toInt() and 0xC0) == 0x80) cut--
+    if (cut == 0) return 0
+    val lead = bytes[cut - 1].toInt() and 0xFF
+    val len = when {
+        lead < 0x80 -> 1
+        lead < 0xE0 -> 2
+        lead < 0xF0 -> 3
+        else -> 4
+    }
+    // 起始字节位置是 cut-1，该字符占到 cut-1+len，超出 max 则截到起始处
+    return if (cut - 1 + len > max) cut - 1 else max
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilePreviewScreen(
@@ -197,12 +221,31 @@ fun FilePreviewScreen(
     val exists = file?.isFile == true
 
     // 大文件保护：超过 200KB 截断并提示
+    // v0.246.0：原来 readText() 全文件读进内存后才截断，大文件照样 OOM，
+    // 且 length 是字符数、maxBytes 是字节数，口径也不一致。
+    // 改流式读：只读前 maxBytes 字节，不足 maxBytes 才算没截断。
+    // v0.246.0 补（GPT 审）：截断边界退到完整 UTF-8 字符边界，不切出 �；
+    // 截断判定以实际读到的字节数为准，不用解码后重编码的大小；
+    // 复制提示按是否截断区分，不再截断了还说“已复制全文”。
     val maxBytes = 200 * 1024
-    val fullText = remember(file) {
-        if (exists) runCatching { file!!.readText() }.getOrDefault("") else ""
+    val previewData = remember(file) {
+        if (!exists) Pair("", false) else runCatching {
+            val bytes = ByteArray(maxBytes + 1)
+            var read = 0
+            file!!.inputStream().buffered().use { input ->
+                while (read <= maxBytes) {
+                    val n = input.read(bytes, read, maxBytes + 1 - read)
+                    if (n < 0) break
+                    read += n
+                }
+            }
+            val truncated = read > maxBytes
+            val cut = if (truncated) utf8SafeCut(bytes, maxBytes) else read
+            Pair(String(bytes, 0, cut, Charsets.UTF_8), truncated)
+        }.getOrDefault(Pair("", false))
     }
-    val truncated = fullText.length > maxBytes
-    val shownText = if (truncated) fullText.substring(0, maxBytes) else fullText
+    val shownText = previewData.first
+    val truncated = previewData.second
 
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
@@ -214,8 +257,8 @@ fun FilePreviewScreen(
                                     IconButton(
                                         onClick = {
                                             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                            cm.setPrimaryClip(ClipData.newPlainText("file", fullText))
-                                            AppToast.show(context, "已复制全文", long = false)
+                                            cm.setPrimaryClip(ClipData.newPlainText("file", shownText))
+                                            AppToast.show(context, if (truncated) "已复制预览内容（文件已截断）" else "已复制全文", long = false)
                                         },
                                         enabled = exists,
                                     ) {

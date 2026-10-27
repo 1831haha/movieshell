@@ -18,6 +18,9 @@ object SniffPatternStore {
 
     private var appContext: Context? = null
     private var cached: List<String>? = null
+    // v0.246.0：编译结果缓存——原来 compiled() 每次调用都把全部正则重编译一遍，
+    // 嗅探每个 URL 都调 sniffKind()，正则一多就是持续浪费。增删/保存时失效。
+    private var compiledCache: List<Regex>? = null
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -41,11 +44,16 @@ object SniffPatternStore {
         return list
     }
 
-    /** 编译好的正则（忽略大小写），编译失败的跳过。 */
-    fun compiled(): List<Regex> = list().mapNotNull { pattern ->
-        runCatching { pattern.toRegex(RegexOption.IGNORE_CASE) }
-            .onFailure { Log.w(TAG, "正则编译失败: $pattern") }
-            .getOrNull()
+    /** 编译好的正则（忽略大小写），编译失败的跳过。结果缓存，增删/保存时失效。 */
+    fun compiled(): List<Regex> {
+        compiledCache?.let { return it }
+        val compiled = list().mapNotNull { pattern ->
+            runCatching { pattern.toRegex(RegexOption.IGNORE_CASE) }
+                .onFailure { Log.w(TAG, "正则编译失败: $pattern") }
+                .getOrNull()
+        }
+        compiledCache = compiled
+        return compiled
     }
 
     /** 添加一条正则，返回是否成功（含格式校验）。 */
@@ -76,6 +84,7 @@ object SniffPatternStore {
             val ok = AtomicFile.writeText(java.io.File(ctx.filesDir, FILE), arr.toString())
             if (!ok) return false
             cached = list
+            compiledCache = null
             LogBus.i(TAG, "嗅探正则已保存 ${list.size} 条")
             true
         }.onFailure {

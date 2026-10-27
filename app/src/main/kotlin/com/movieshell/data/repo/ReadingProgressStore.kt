@@ -56,7 +56,9 @@ object ReadingProgressStore {
         }.getOrDefault(emptyList())
     }
 
-    suspend fun save(context: Context, progress: ReadingProgress) = withContext(Dispatchers.IO) {
+    // v0.246.0：返回写盘成败——原来返回 Result 但调用方都不查，
+    // 进度写失败下次打开回到较早位置、用户无感知。改显式 Boolean。
+    suspend fun save(context: Context, progress: ReadingProgress): Boolean = withContext(Dispatchers.IO) {
         saveMutex.withLock {
         runCatching {
             val fresh = progress.copy(updatedAt = System.currentTimeMillis())
@@ -67,7 +69,7 @@ object ReadingProgressStore {
                 fileOf(context),
                 json.encodeToString(ListSerializer(ReadingProgress.serializer()), listOf(fresh) + rest),
             )
-        }.onFailure { Log.w(TAG, "进度保存失败", it) }
+        }.onFailure { Log.w(TAG, "进度保存失败", it) }.getOrDefault(false)
         }
     }
 
@@ -85,7 +87,7 @@ object ReadingProgressStore {
             readAll(context).associateBy { it.novelId }
         }
 
-    suspend fun clear(context: Context, novelId: String) = withContext(Dispatchers.IO) {
+    suspend fun clear(context: Context, novelId: String): Boolean = withContext(Dispatchers.IO) {
         saveMutex.withLock {
         runCatching {
             // v0.216.0（C9）：clear 原来用 readAll（读坏直接给空表），文件损坏时
@@ -97,7 +99,7 @@ object ReadingProgressStore {
                 fileOf(context),
                 json.encodeToString(ListSerializer(ReadingProgress.serializer()), rest),
             )
-        }.onFailure { Log.w(TAG, "进度清除失败", it) }
+        }.onFailure { Log.w(TAG, "进度清除失败", it) }.getOrDefault(false)
         }
     }
 }

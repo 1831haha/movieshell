@@ -142,7 +142,14 @@ object HistoryStore {
      * 删光；按 tab 清空点播时，同地址的直播记录也会被顺带删掉。
      */
     fun deleteEntry(context: Context, url: String, timestamp: Long) {
-        val list = getHistory(context).filterNot { it.url == url && it.timestamp == timestamp }
+        deleteEntries(context, setOf(url to timestamp))
+    }
+
+    /** v0.246.0：批量删——原来按 tab 清空时逐条 deleteEntry，每条都全量读 + 全量写，
+     * N 条就是 N 次写盘。改一次读、一次滤、一次写。 */
+    fun deleteEntries(context: Context, keys: Set<Pair<String, Long>>) {
+        if (keys.isEmpty()) return
+        val list = getHistory(context).filterNot { (it.url to it.timestamp) in keys }
         if (corruptLoaded) {
             Log.w(TAG, "历史记录读坏未处理，拒绝写盘覆盖")
             return

@@ -4,6 +4,7 @@ import android.content.Context
 import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.source.CmsApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -96,6 +97,10 @@ object DanmakuSource {
             if (result.isNotEmpty()) saveCache(cacheKey, result)
             LogBus.i(TAG, "弹幕拉取：$title E$episode -> ${result.size} 条（去重限流后）")
             result
+        } catch (e: CancellationException) {
+            // v0.246.0：取消必须重抛——原来 catch Exception 把取消当普通失败吞掉，
+            // 取消后仍继续跑完并返回空列表，调用方以为只是没弹幕。
+            throw e
         } catch (e: Exception) {
             LogBus.w(TAG, "弹幕拉取失败：${e.message}")
             emptyList()

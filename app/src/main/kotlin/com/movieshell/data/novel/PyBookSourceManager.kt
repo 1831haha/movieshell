@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -27,6 +29,8 @@ object PyBookSourceManager {
     private const val TAG = "PyBookSourceManager"
     private const val PREFS = "pybook_prefs"
     private const val KEY_ENABLED = "enabled"
+    // v0.246.0：load 加互斥——原来非 suspend、无锁，多处并发调会交错写 _rules/_enabled
+    private val loadMutex = Mutex()
 
     /** Novel.sourceKey 前缀：PY 书源加进书架的书用它标记来源。 */
     const val SOURCE_KEY_PREFIX = "pybook:"
@@ -54,23 +58,28 @@ object PyBookSourceManager {
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** 扫描书源目录 + 载入启用集合（启动/页面进入时调）。 */
-    fun load(context: Context) {
-        // v0.186.0 第 9 组：只把含 bookSearch 的文件列为规则候选——
-        // 无 bookSearch 的半截文件、影视 spider、杂 .py 不再进候选，启用集合也随之清理。
-        val files = dir(context).listFiles { f -> f.isFile && f.name.endsWith(".py") }
-            .orEmpty().filter { hasBookSearch(it) }.sortedBy { it.name }
-        _rules.value = files.map {
-            // v0.195.0：卡片标题直接用文件名（第一版主），不再显示 BaseSpider 这类类名
-            PyBookRule(it.name, it.nameWithoutExtension, it.length() / 1024)
-        }
-        // 文件删了但启用集合里还有 → 清理掉
-        val names = files.map { it.name }.toSet()
-        val enabledSet = prefs(context).getStringSet(KEY_ENABLED, emptySet()).orEmpty()
-            .filter { it in names }.toSet()
-        _enabled.value = enabledSet
-        if (enabledSet.size != prefs(context).getStringSet(KEY_ENABLED, emptySet()).orEmpty().size) {
-            prefs(context).edit().putStringSet(KEY_ENABLED, enabledSet).apply()
+    /** 扫描书源目录 + 载入启用集合（启动/页面进入时调）。
+     * v0.246.0：改 suspend、IO 线程执行——原来非 suspend 且逐文件 readText 查
+     * bookSearch，换源弹窗（LaunchedEffect，主线程）与搜索 ViewModel
+     * （viewModelScope，主线程）直接在主线程读盘。StateFlow 跨线程赋值安全。 */
+    suspend fun load(context: Context) = loadMutex.withLock {
+        withContext(Dispatchers.IO) {
+            // v0.186.0 第 9 组：只把含 bookSearch 的文件列为规则候选——
+            // 无 bookSearch 的半截文件、影视 spider、杂 .py 不再进候选，启用集合也随之清理。
+            val files = dir(context).listFiles { f -> f.isFile && f.name.endsWith(".py") }
+                .orEmpty().filter { hasBookSearch(it) }.sortedBy { it.name }
+            _rules.value = files.map {
+                // v0.195.0：卡片标题直接用文件名（第一版主），不再显示 BaseSpider 这类类名
+                PyBookRule(it.name, it.nameWithoutExtension, it.length() / 1024)
+            }
+            // 文件删了但启用集合里还有 → 清理掉
+            val names = files.map { it.name }.toSet()
+            val enabledSet = prefs(context).getStringSet(KEY_ENABLED, emptySet()).orEmpty()
+                .filter { it in names }.toSet()
+            _enabled.value = enabledSet
+            if (enabledSet.size != prefs(context).getStringSet(KEY_ENABLED, emptySet()).orEmpty().size) {
+                prefs(context).edit().putStringSet(KEY_ENABLED, enabledSet).apply()
+            }
         }
     }
 

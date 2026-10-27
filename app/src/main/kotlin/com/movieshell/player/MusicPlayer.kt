@@ -577,6 +577,9 @@ object MusicPlayer {
                 }.getOrDefault(emptyList())
                 val hit = MusicApi.pickSameSong(cur, candidates)
                 if (hit == null) {
+                    // v0.246.0：失败分支也查代际——原来成功路径有 playGen 检查，
+                    // 失败分支先 toast 再 return，切歌后旧搜索失败会误弹旧歌提示。
+                    if (platformGen != playGen) return@launch
                     LogBus.w("MusicPlayer", "跨平台匹配未命中：${cur.name} → $target")
                     toast("该平台没有找到这首歌")
                     return@launch

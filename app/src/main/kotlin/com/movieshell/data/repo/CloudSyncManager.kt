@@ -100,14 +100,20 @@ object CloudSyncManager {
 
     private fun isLanHost(host: String): Boolean {
         if (host == "localhost" || host.endsWith(".local")) return true
-        if (host.startsWith("127.") || host.startsWith("10.") || host.startsWith("192.168.")) {
-            return true
+        // v0.246.0：严格 IPv4 解析——原来 startsWith("10.") 会把 10.evil.com、
+        // 192.168.evil.com 这类域名也当局域网放行，http 明文发到公网。
+        // 要求恰好 4 段、每段 0–255 的纯数字，再按段判私有段。
+        val parts = host.split('.')
+        if (parts.size != 4) return false
+        val nums = parts.map { it.toIntOrNull() ?: return false }
+        if (nums.any { it < 0 || it > 255 }) return false
+        return when (nums[0]) {
+            127 -> true
+            10 -> true
+            172 -> nums[1] in 16..31
+            192 -> nums[1] == 168
+            else -> false
         }
-        if (host.startsWith("172.")) {
-            val second = host.split('.').getOrNull(1)?.toIntOrNull() ?: return false
-            return second in 16..31
-        }
-        return false
     }
 
     fun isConfigured(context: Context): Boolean = getConfig(context).url.isNotBlank()

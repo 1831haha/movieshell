@@ -784,7 +784,9 @@ fun ReaderScreen(
     fun addBookmark() {
         val c = chapter ?: return
         scope.launch {
-            BookmarkStore.add(
+            // v0.246.0：写盘失败要反馈——原来不管成败都提示“已添加书签”并刷新列表，
+            // 失败时用户以为加上了，重启后书签没了。
+            val ok = BookmarkStore.add(
                 context,
                 novelId,
                 Bookmark(
@@ -794,8 +796,12 @@ fun ReaderScreen(
                     createdAt = System.currentTimeMillis(),
                 ),
             )
-            refreshBookmarks()
-            AppToast.show(context, "已添加书签", long = false)
+            if (ok) {
+                refreshBookmarks()
+                AppToast.show(context, "已添加书签", long = false)
+            } else {
+                AppToast.show(context, "书签保存失败，请重试", long = false)
+            }
         }
     }
 
@@ -1558,8 +1564,13 @@ fun ReaderScreen(
                             }
                             IconButton(onClick = {
                                 scope.launch {
-                                    BookmarkStore.remove(context, novelId, b.createdAt)
-                                    bookmarks = bookmarks.filterNot { it.createdAt == b.createdAt }
+                                    // v0.246.0：删失败不从列表里去掉——原来不管成败都先去掉，
+                                    // 失败时用户以为删了，刷新后书签又回来。
+                                    if (BookmarkStore.remove(context, novelId, b.createdAt)) {
+                                        bookmarks = bookmarks.filterNot { it.createdAt == b.createdAt }
+                                    } else {
+                                        AppToast.show(context, "删除书签失败，请重试", long = false)
+                                    }
                                 }
                             }) {
                                 Icon(

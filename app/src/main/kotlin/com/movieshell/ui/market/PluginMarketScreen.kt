@@ -102,7 +102,7 @@ import java.util.Locale
 @Composable
 fun PluginMarketScreen(
     onBack: () -> Unit = {},
-    onDetail: (String) -> Unit = {},
+    onDetail: (String, String) -> Unit = { _, _ -> },
     // v0.127.0：插件中心页签嵌入模式——不渲染自己的顶栏（中心页统一顶栏），
     // 标题/刷新降为内容区首行；独立路由进来时行为不变。
     embedded: Boolean = false,
@@ -446,7 +446,7 @@ fun PluginMarketScreen(
                                     plugin = p,
                                     installedVersion = installedMap[p.id]?.version,
                                     busy = busyId == p.id,
-                                    onDetail = { onDetail(p.id) },
+                                    onDetail = { onDetail(p.id, p.sourceMarket) },
                                     onInstall = {
                                         doInstall(p)
                                     },

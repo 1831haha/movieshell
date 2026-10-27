@@ -79,13 +79,16 @@ import com.movieshell.player.SniffPlayHeaders
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.theme.SoftType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
@@ -371,6 +374,9 @@ fun WebSniffScreen(
     // v0.93：候选列表——各链路命中后收集（按 url 去重），用户点选播放
     val candidates = remember { mutableStateListOf<SniffCandidate>() }
     val candidateUrls = remember { java.util.Collections.synchronizedSet(mutableSetOf<String>()) }
+    // v0.246.0：待合并请求头（只在主线程读写）——补头任务可能比入列任务先跑，
+    // 此时列表里还没有该候选，头不能丢，先存这里，入列时合并。
+    val pendingHeaders = remember { mutableMapOf<String, Map<String, String>>() }
     // v0.93：hitDone 语义改为"用户已选播"；picked 驱动候选面板显隐
     var picked by remember { mutableStateOf(false) }
     // v0.93：嗅探参数（顶栏溢出菜单可调，改完即时生效）
@@ -426,16 +432,43 @@ fun WebSniffScreen(
         if (!candidateUrls.add(url)) {
             // 已在列表：若本次拦截带了原始头而旧候选头为空，用原始头补齐
             // （先到 onLoadResource 的候选无请求头，后到的拦截不应被去重丢掉头）。
+            // v0.246.0：candidates 是 SnapshotStateList，只能主线程写；
+            // shouldInterceptRequest/probe 链路在后台线程，改列表必须切主线程。
+            // v0.246.0 补：补头任务可能比入列任务先跑（同一 URL 两路先后到），
+            // 此时列表里还没有候选，头不能丢——先存 pendingHeaders，入列时合并。
+            // v0.246.0 四轮（GPT 审）：补头任务保存 pending 前再确认预占仍有效——
+            // 入列任务可能已因 hitDone 拦截并清掉预占，之后才跑的补头任务若仍写
+            // pending，会残留无对应入列任务的过期头；预占已清或已选播就不存。
             if (headers.isNotEmpty()) {
-                val idx = candidates.indexOfFirst { it.url == url }
-                if (idx >= 0 && candidates[idx].headers.isEmpty()) {
-                    candidates[idx] = candidates[idx].copy(headers = headers)
+                probeScope.launch {
+                    val idx = candidates.indexOfFirst { it.url == url }
+                    if (idx >= 0 && candidates[idx].headers.isEmpty()) {
+                        candidates[idx] = candidates[idx].copy(headers = headers)
+                    } else if (idx < 0 && !hitDone.get() && candidateUrls.contains(url)) {
+                        pendingHeaders[url] = headers
+                    }
                 }
             }
             return
         }
-        candidates.add(SniffCandidate(url = url, kind = kind, source = source, headers = headers))
-        LogBus.i("WebSniff", "候选+1 [$source] ${url.take(120)}")
+        // v0.246.0：同上，新候选入列也切主线程（probeScope 默认 Main；
+        // 主线程调时立即执行，后台调时 post 到主线程，不改调用点）。
+        // v0.246.0 补：入列前 hitDone 已翻 true 时清理预占——
+        // 原来 URL 留在 candidateUrls 里成幽灵去重记录，之后 hitDone 恢复也加不进来；
+        // 入列时合并先到的 pendingHeaders，不丢头。
+        // v0.246.0 三轮（GPT 审）：pending 项必须始终消费——
+        // 入列被拦截时也要清 pending，否则过期头残留、后续重试误用；
+        // 本次 headers 非空时旧 pending 也要清，不能只在 headers 为空时 remove。
+        probeScope.launch {
+            val pending = pendingHeaders.remove(url)
+            if (hitDone.get()) {
+                candidateUrls.remove(url)
+                return@launch
+            }
+            val mergedHeaders = if (headers.isEmpty()) pending.orEmpty() else headers
+            candidates.add(SniffCandidate(url = url, kind = kind, source = source, headers = mergedHeaders))
+            LogBus.i("WebSniff", "候选+1 [$source] ${url.take(120)}")
+        }
     }
 
     /**
@@ -678,24 +711,41 @@ fun WebSniffScreen(
             val candidates = LinkedHashSet<String>()
             synchronized(seenUrls) { candidates += seenUrls }
             // 当前页 iframe 也加进来
+            // v0.246.0：原来 withContext(Main) 里 latch.await(5s) 等主线程回调，
+            // 主线程被自己堵住、回调跑不了，必卡满 5 秒。改挂起等回调，不阻塞主线程。
+            // v0.246.0 三轮（GPT 审）：外层 runCatching 会吞取消——取消时
+            // suspendCancellableCoroutine 抛 CancellationException，被 runCatching
+            // 当普通失败返回空列表，探测继续跑完；改 try/catch，取消重抛。
             val iframeSrcs = withContext(Dispatchers.Main) {
-                runCatching {
-                    var out: List<String> = emptyList()
-                    val latch = java.util.concurrent.CountDownLatch(1)
-                    view.evaluateJavascript(
-                        "(function(){var r=[];var f=document.getElementsByTagName('iframe');" +
-                            "for(var i=0;i<f.length;i++){var s=f[i].src;if(s)r.push(s);}" +
-                            "return JSON.stringify(r);})()",
-                    ) { raw ->
-                        out = runCatching {
-                            val decoded = JSONObject("{\"v\":$raw}").getString("v")
-                            SniffEngine.extractIframeSrcs(decoded, view.url.orEmpty())
-                        }.getOrDefault(emptyList())
-                        latch.countDown()
+                try {
+                    suspendCancellableCoroutine { cont ->
+                        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                        // v0.246.0 补：超时任务要能取消——原来正常回调后 5 秒任务仍留着，
+                        // 闭包继续持有 continuation。正常回调后移除，取消时也移除。
+                        val timeoutTask = Runnable {
+                            if (cont.isActive) cont.resume(emptyList())
+                        }
+                        cont.invokeOnCancellation { handler.removeCallbacks(timeoutTask) }
+                        view.evaluateJavascript(
+                            "(function(){var r=[];var f=document.getElementsByTagName('iframe');" +
+                                "for(var i=0;i<f.length;i++){var s=f[i].src;if(s)r.push(s);}" +
+                                "return JSON.stringify(r);})()",
+                        ) { raw ->
+                            val list = runCatching {
+                                val decoded = JSONObject("{\"v\":$raw}").getString("v")
+                                SniffEngine.extractIframeSrcs(decoded, view.url.orEmpty())
+                            }.getOrDefault(emptyList())
+                            handler.removeCallbacks(timeoutTask)
+                            if (cont.isActive) cont.resume(list)
+                        }
+                        // 超时兜底：5 秒没回就放空列表，不无限挂起
+                        handler.postDelayed(timeoutTask, 5000)
                     }
-                    latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
-                    out
-                }.getOrDefault(emptyList())
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    emptyList()
+                }
             }
             candidates += iframeSrcs
             val results = mutableListOf<Pair<String, SniffKind>>()

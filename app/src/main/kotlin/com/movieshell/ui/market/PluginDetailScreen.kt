@@ -58,9 +58,13 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PluginDetailScreen(pluginId: String, onBack: () -> Unit = {}) {
+fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit = {}) {
     val context = LocalContext.current
-    val plugin = remember(pluginId) { PluginMarket.cached(pluginId) }
+    // v0.246.0：带市场精确查——导航传了点击时插件的 sourceMarket，多市场同 id 不串；
+    // 市场为空时回落到旧的 cached(id)。
+    val plugin = remember(pluginId, market) {
+        if (market.isNotBlank()) PluginMarket.cached(pluginId, market) else PluginMarket.cached(pluginId)
+    }
     var installedTick by remember { mutableStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     // v0.27.2：一键安装进度弹窗态

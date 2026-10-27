@@ -388,6 +388,8 @@ fun SourcesScreen(
     onGoHome: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    // v0.246.0：refresh 内部协程用——读盘放 IO，列表更新回主线程
+    val refreshScope = rememberCoroutineScope()
 
     // v0.27.4：单页两 section（订阅源 / 本地源），不再分 tab
 
@@ -531,26 +533,40 @@ fun SourcesScreen(
     }
 
     // ---------- 各 tab 刷新 ----------
+    // v0.246.0：读盘放 IO 线程——原来点击回调里直接 listRules()/listSites() 扫目录读文件，
+    // 主线程卡顿。IO 读完回主线程原子更新列表（clear+addAll 间无挂起点，主线程协程不交错）。
     fun refreshDrpyRules() {
-        drpyRules.clear()
-        drpyRules.addAll(DrpySourceManager.listRules())
+        refreshScope.launch {
+            val rules = withContext(Dispatchers.IO) { DrpySourceManager.listRules() }
+            drpyRules.clear()
+            drpyRules.addAll(rules)
+        }
     }
 
     fun refreshPyRules() {
-        pyRules.clear()
-        pyRules.addAll(PySourceManager.listRules())
+        refreshScope.launch {
+            val rules = withContext(Dispatchers.IO) { PySourceManager.listRules() }
+            pyRules.clear()
+            pyRules.addAll(rules)
+        }
     }
 
     fun refreshPhpEntries() {
-        phpEntries.clear()
-        phpEntries.addAll(
-            listLocalFolderEntries(context, "php", "PHP 规则", PhpSourceManager.activeRuleName(), PhpSourceManager::isSourceFile),
-        )
+        refreshScope.launch {
+            val entries = withContext(Dispatchers.IO) {
+                listLocalFolderEntries(context, "php", "PHP 规则", PhpSourceManager.activeRuleName(), PhpSourceManager::isSourceFile)
+            }
+            phpEntries.clear()
+            phpEntries.addAll(entries)
+        }
     }
 
     fun refreshWebSites() {
-        webSites.clear()
-        webSites.addAll(WebSourceManager.listSites())
+        refreshScope.launch {
+            val sites = withContext(Dispatchers.IO) { WebSourceManager.listSites() }
+            webSites.clear()
+            webSites.addAll(sites)
+        }
     }
 
     fun refreshTab(tab: String) {
@@ -862,10 +878,15 @@ fun SourcesScreen(
         refreshWebSites()
         listOf(TAB_JS, TAB_PY, TAB_PHP, TAB_WEB).forEach { pins[it] = loadPins(context, it) }
         // v0.5.1：读订阅展开缓存 + 点播页当前源
-        apiGroup.entries.forEach { e ->
-            SubSiteStore.getCached(context, e.detail)?.let { subCaches[e.detail] = it }
+        // v0.246.0：缓存读盘放 IO——原来主线程逐条 getCached（loadAll 读 JSON 文件），
+        // currentSiteKey 也读缓存文件；IO 读完回主线程更新状态。
+        val caches = withContext(Dispatchers.IO) {
+            apiGroup.entries.mapNotNull { e ->
+                SubSiteStore.getCached(context, e.detail)?.let { e.detail to it }
+            }
         }
-        currentSubSiteKey = SubSiteStore.currentSiteKey(context)
+        caches.forEach { (k, v) -> subCaches[k] = v }
+        currentSubSiteKey = withContext(Dispatchers.IO) { SubSiteStore.currentSiteKey(context) }
     }
 
     var showAddDialog by remember { mutableStateOf(false) }

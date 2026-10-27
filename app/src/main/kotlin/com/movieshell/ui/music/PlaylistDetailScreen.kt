@@ -68,6 +68,8 @@ fun PlaylistDetailScreen(
     val badges by MusicPlayer.badges.collectAsState() // v0.122.0：来源/音质徽标（与在线页同口径）
     var playlist by remember { mutableStateOf<MusicPlaylist?>(null) }
     var loading by remember { mutableStateOf(true) }
+    // v0.246.0：reload 代际——切歌单快了旧 reload 晚回会把旧歌单写进新页面
+    var reloadGen by remember { mutableStateOf(0) }
     var deleteTarget by remember { mutableStateOf<MusicApi.Track?>(null) }
     // v0.89.0：手动排序 / 多选模式
     var sortingMode by remember { mutableStateOf(false) }
@@ -77,8 +79,11 @@ fun PlaylistDetailScreen(
     var showDeleteSelected by remember { mutableStateOf(false) }
 
     fun reload() {
+        val myGen = ++reloadGen
         scope.launch {
-            playlist = MusicStore.getPlaylist(context, playlistId)
+            val pl = MusicStore.getPlaylist(context, playlistId)
+            if (myGen != reloadGen) return@launch
+            playlist = pl
             loading = false
         }
     }

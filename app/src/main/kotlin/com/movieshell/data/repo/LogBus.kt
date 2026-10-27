@@ -59,14 +59,25 @@ object LogBus {
         }
         runCatching {
             val f = CrashHandler.latest(context) ?: return
-            val text = f.readText()
-            if (text.isBlank()) return
+            // v0.246.0：原来全文件 readText() 后才 take(200) 行，异常大日志白占内存。
+            // 改流式读前 200 行，读到就停。
+            // v0.246.0 补（GPT 审）：按原始行数限 200 行、再滤空行——
+            // 原来是“前 200 行里滤空行”，上一版改成“攒够 200 条非空行”语义变了，
+            // 前面空行多时会多读很长一段。
+            val lines = ArrayList<String>(200)
+            var rawCount = 0
+            f.bufferedReader().use { reader ->
+                while (rawCount < 200) {
+                    val line = reader.readLine() ?: break
+                    rawCount++
+                    if (line.isNotBlank()) lines.add(line.take(500))
+                }
+            }
+            if (lines.isEmpty()) return
             synchronized(lock) {
                 deque.addLast(Entry(System.currentTimeMillis(), 'E', "CrashLog", "=== 上次崩溃：${f.name} ==="))
-                text.lineSequence().take(200).forEach { line ->
-                    if (line.isNotBlank()) {
-                        deque.addLast(Entry(System.currentTimeMillis(), 'E', "CrashLog", line.take(500)))
-                    }
+                lines.forEach { line ->
+                    deque.addLast(Entry(System.currentTimeMillis(), 'E', "CrashLog", line))
                 }
                 while (deque.size > MAX) deque.removeFirst()
                 _entries.value = deque.toList()

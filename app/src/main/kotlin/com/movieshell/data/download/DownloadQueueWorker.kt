@@ -41,6 +41,10 @@ class DownloadQueueWorker(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    // v0.246.0：播单节流基准（Worker 每任务一实例，实例字段即任务内状态）
+    private var lastRenderDone = 0
+    private var lastRenderMs = 0L
+
     override suspend fun doWork(): Result {
         setForeground(fg("准备下载", 0))
         while (!isStopped) {
@@ -142,6 +146,9 @@ class DownloadQueueWorker(
         }
         renderLocalPlaylist(dir, pl, done)
         updateFg(task.title, 0)
+        // v0.246.0：播单节流基准——初始渲染后记一次，后续按节流写
+        lastRenderDone = done
+        lastRenderMs = System.currentTimeMillis()
         val meter = SpeedMeter()
         pl.segments.forEachIndexed { i, seg ->
             if (!alive(task.id)) return
@@ -159,7 +166,7 @@ class DownloadQueueWorker(
             DownloadStore.update(ctx, task.id) {
                 it.copy(doneSeg = done, progress = p, speedBps = meter.current())
             }
-            renderLocalPlaylist(dir, pl, done)
+            renderLocalPlaylistThrottled(dir, pl, done)
             if (done % 5 == 0 || done == pl.segments.size) {
                 updateFg(task.title, (p * 100).toInt())
             }
@@ -211,6 +218,17 @@ class DownloadQueueWorker(
             segIdx.add(idx)
         }
         return Playlist(lines, segments, assets, segIdx)
+    }
+
+    // v0.246.0：播单节流——原来每分片都全量渲染 + 原子写盘，几百个分片就是
+    // 几百次写盘。改每 10 片或 2 秒写一次；循环外收尾仍无条件全量写，不丢最终态。
+    private fun renderLocalPlaylistThrottled(dir: File, pl: Playlist, done: Int) {
+        val now = System.currentTimeMillis()
+        if (done - lastRenderDone >= 10 || now - lastRenderMs >= 2000) {
+            renderLocalPlaylist(dir, pl, done)
+            lastRenderDone = done
+            lastRenderMs = now
+        }
     }
 
     /** 只渲染已下载的分片（边下边播可直接播这个文件）。 */

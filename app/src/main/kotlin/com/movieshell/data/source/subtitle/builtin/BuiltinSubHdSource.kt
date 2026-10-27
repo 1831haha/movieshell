@@ -126,8 +126,24 @@ object BuiltinSubHdSource : SubtitleSource {
         val req = Request.Builder().url(url).header("User-Agent", DEFAULT_UA_ANDROID10).build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("下载失败：${resp.code}")
-            val bytes = resp.body?.bytes() ?: throw IllegalStateException("空文件")
-            if (bytes.size > MAX_BYTES) throw IllegalStateException("文件过大（>${MAX_BYTES / 1024 / 1024}MB）")
+            // v0.246.0：先看 Content-Length，超限直接拒，不下载；
+            // 再流式限量读，最多 MAX_BYTES 字节，超限即停——原来 bytes() 全读进内存后才验大小。
+            val contentLength = resp.header("Content-Length")?.toLongOrNull()
+            if (contentLength != null && contentLength > MAX_BYTES) throw IllegalStateException("文件过大（>${MAX_BYTES / 1024 / 1024}MB）")
+            val body = resp.body ?: throw IllegalStateException("空文件")
+            val bytes = body.byteStream().use { input ->
+                val buf = ByteArray(8192)
+                val out = java.io.ByteArrayOutputStream()
+                var total = 0L
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    total += n
+                    if (total > MAX_BYTES) throw IllegalStateException("文件过大（>${MAX_BYTES / 1024 / 1024}MB）")
+                    out.write(buf, 0, n)
+                }
+                out.toByteArray()
+            }
             val name = resp.request.url.pathSegments.lastOrNull().orEmpty()
             val ext = name.substringAfterLast('.', "").lowercase()
             // zip 包：解出第一个字幕文件
@@ -145,15 +161,47 @@ object BuiltinSubHdSource : SubtitleSource {
         size > 4 && this[0] == 0x50.toByte() && this[1] == 0x4B.toByte()
 
     private fun unzipFirst(bytes: ByteArray): Pair<String, String>? {
+        // v0.246.0：整包累计解压上限（防多条目叠加炸内存）+ 单条目上限；
+        // 目标条目超限直接终止整个 ZIP（原来 overflow 后仍 closeEntry，
+        // closeEntry 会排空解压剩余数据，白白解压超大条目）。
+        var totalDecompressed = 0L
+        val totalCap = MAX_BYTES * 4
         ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
             var e = zip.nextEntry
             while (e != null) {
                 val n = e.name.substringAfterLast('/').lowercase()
                 val ext = n.substringAfterLast('.', "")
                 if (!e.isDirectory && ext in setOf("srt", "ass", "ssa", "vtt")) {
-                    val out = zip.readBytes()
-                    if (out.size <= MAX_BYTES) return out.toString(Charsets.UTF_8) to ext
+                    // v0.246.0：解压内容流式限量读，防高压缩比 zip 炸内存——
+                    // 原来 readBytes() 全解压后才验大小。
+                    val out = java.io.ByteArrayOutputStream()
+                    val buf = ByteArray(8192)
+                    var entryTotal = 0L
+                    var overflow = false
+                    while (true) {
+                        val count = zip.read(buf)
+                        if (count < 0) break
+                        entryTotal += count
+                        totalDecompressed += count
+                        if (entryTotal > MAX_BYTES || totalDecompressed > totalCap) { overflow = true; break }
+                        out.write(buf, 0, count)
+                    }
+                    // 超限直接终止整包，不 closeEntry、不找下一个条目
+                    if (overflow) return null
+                    return out.toString(Charsets.UTF_8.name()) to ext
                 }
+                // 非目标条目：跳过时也要限量读，防 closeEntry/nextEntry 无界排空解压
+                val buf = ByteArray(8192)
+                var skipped = 0L
+                var skipOverflow = false
+                while (true) {
+                    val count = zip.read(buf)
+                    if (count < 0) break
+                    skipped += count
+                    totalDecompressed += count
+                    if (skipped > MAX_BYTES || totalDecompressed > totalCap) { skipOverflow = true; break }
+                }
+                if (skipOverflow) return null
                 zip.closeEntry()
                 e = zip.nextEntry
             }

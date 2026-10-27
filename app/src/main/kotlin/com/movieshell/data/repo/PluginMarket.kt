@@ -117,14 +117,19 @@ object PluginMarket {
         lastInfoMap[url] = info
     }
 
-    /** 详情页用：按 id 累积最近见过的插件（多市场归并后 lastList 只剩最后一家，详情靠这个查）。 */
+    /** 详情页用：按（市场，id）累积最近见过的插件。
+     * v0.246.0：原来按 id 单键，多市场同 id 会互相覆盖——
+     * 用户在 A 市场点某插件，详情可能显示后拉的 B 市场同 id 版本。
+     * 改复合键保留各市场记录；remember 时先删后放，保持插入序 = 最近序。 */
     private val lastById = mutableMapOf<String, MarketPlugin>()
 
     @Synchronized
     private fun rememberPlugins(list: List<MarketPlugin>) {
         list.forEach { p ->
-            val old = lastById[p.id]
-            lastById[p.id] = if (p.sourceMarket.isBlank() && !old?.sourceMarket.isNullOrBlank()) {
+            val key = "${p.sourceMarket}\u0000${p.id}"
+            val old = lastById[key]
+            lastById.remove(key)
+            lastById[key] = if (p.sourceMarket.isBlank() && !old?.sourceMarket.isNullOrBlank()) {
                 p.copy(sourceMarket = old!!.sourceMarket)
             } else {
                 p
@@ -136,8 +141,26 @@ object PluginMarket {
     private fun stamp(url: String, info: MarketInfo): MarketInfo =
         info.copy(plugins = info.plugins.map { it.copy(sourceMarket = PluginStore.nameOfSource(url) ?: info.name) })
 
-    /** 详情页用：先查按 id 累积的记录，再查最近一次拉取结果兜底。 */
-    fun cached(id: String): MarketPlugin? = lastById[id] ?: lastList.firstOrNull { it.id == id }
+    /** 详情页用：先查当前显示的市场列表（用户刚从这个列表点进来，最贴合），
+     * 再查按（市场，id）累积的记录（多市场同 id 时取最近见过的）。
+     * v0.246.0：原来只查单键 lastById，多市场同 id 互相覆盖。
+     * 加 @Synchronized：rememberPlugins 写 lastById 时持同一把锁，查时不加锁
+     * 遍历可能撞 ConcurrentModificationException。 */
+    @Synchronized
+    fun cached(id: String): MarketPlugin? =
+        lastList.firstOrNull { it.id == id }
+            ?: lastById.entries.lastOrNull { it.key.substringAfter('\u0000') == id }?.value
+
+    /** v0.246.0：详情页带市场时的精确查——只认该市场，查不到返回 null。
+     * v0.246.0 四轮（GPT 审）：原来查不到回落 cached(id)，而 cached(id) 优先查
+     * 全局 lastList，目标市场记录缺失时可能展示另一市场的同 id 插件；
+     * 改精确查不到就返回 null，详情页走已有空态，不展示可能错误的插件。
+     * 市场为空时（老入口）才走旧的 cached(id) 兜底。 */
+    @Synchronized
+    fun cached(id: String, market: String): MarketPlugin? {
+        if (market.isBlank()) return cached(id)
+        return lastById["$market\u0000$id"]
+    }
 
     /** 添加/编辑市场保存前试拉校验：内部即 fetch（拉取+解析+plugins 数组校验），成功才允许保存。 */
     suspend fun validateMarket(url: String): MarketInfo = fetch(url)

@@ -288,7 +288,8 @@ fun HistoryScreen(
                 if (tab == 0) {
                     HistoryStore.clear(context)
                 } else {
-                    kindFiltered.forEach { HistoryStore.deleteEntry(context, it.url, it.timestamp) }
+                    // v0.246.0：批量删一次写盘——原来逐条 deleteEntry，N 条 N 次写盘
+                    HistoryStore.deleteEntries(context, kindFiltered.map { it.url to it.timestamp }.toSet())
                 }
                 showClearAll = false
                 reload()

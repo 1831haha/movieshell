@@ -3,6 +3,7 @@ package com.movieshell.player.danmaku
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.ServicePluginManager
 import com.movieshell.data.source.CmsApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -64,6 +65,9 @@ object DanmakuLocalSource {
             }.sortedBy { it.timeMs }
             LogBus.i(TAG, "本地弹幕：$title E$episode -> ${result.size} 条")
             result
+        } catch (e: CancellationException) {
+            // v0.246.0：同 DanmakuSource，取消重抛，不当普通失败吞掉。
+            throw e
         } catch (e: Exception) {
             LogBus.w(TAG, "本地弹幕拉取失败：${e.message}")
             emptyList()

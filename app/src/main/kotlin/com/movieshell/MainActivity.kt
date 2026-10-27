@@ -261,7 +261,10 @@ class MainActivity : ComponentActivity() {
         SourceStateStore.restoreActiveRule(this)
         // v0.26.0：追剧 + 下载
         FollowStore.init(this)
-        DownloadStore.init(this)
+        // v0.246.0：下载 init 放后台——原来主线程读任务 JSON + 扫孤儿目录 + 清理旧任务；
+        // _tasks 是 StateFlow，下载页观察它自动刷新；Worker 的 claimNext 持同一把锁、
+        // 内存空时回退读盘，init 没跑完也不丢任务。
+        lifecycleScope.launch(Dispatchers.IO) { DownloadStore.init(this@MainActivity) }
         FollowCheckWorker.reschedule(this)
         // v0.46.0：订阅自动刷新（每天 1 次）
         SubRefreshWorker.reschedule(this)
@@ -784,12 +787,18 @@ class MainActivity : ComponentActivity() {
                             PluginCenterScreen(
                                 initialTab = entry.arguments?.getInt("tab") ?: 0,
                                 onBack = { navController.popBackStack() },
-                                onDetail = { id -> navController.navigate("market_detail/$id") },
+                                // v0.246.0：详情路由带市场——市场名可能含特殊字符，Uri 编码后放路径
+                                onDetail = { id, market ->
+                                    navController.navigate(
+                                        "market_detail/${android.net.Uri.encode(market)}/${android.net.Uri.encode(id)}",
+                                    )
+                                },
                             )
                         }
-                        composable("market_detail/{id}") { entry ->
+                        composable("market_detail/{market}/{id}") { entry ->
                             PluginDetailScreen(
                                 pluginId = entry.arguments?.getString("id").orEmpty(),
+                                market = entry.arguments?.getString("market").orEmpty(),
                                 onBack = { navController.popBackStack() },
                             )
                         }

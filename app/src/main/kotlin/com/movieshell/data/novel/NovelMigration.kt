@@ -24,7 +24,8 @@ object NovelMigration {
         "novel_bookmarks.json",
     )
 
-    /** 幂等：已迁移直接返回 true。 */
+    /** 幂等：已迁移直接返回 true；备份失败返回 false（标记不写，下次启动重试）。
+     * v0.246.0：原来备份失败只记日志、返回值恒 true，调用方以为迁移成功。 */
     suspend fun runOnce(context: Context): Boolean = withContext(Dispatchers.IO) {
         val marker = File(context.filesDir, MARKER)
         if (marker.isFile) return@withContext true
@@ -37,7 +38,7 @@ object NovelMigration {
                 }
             }
             marker.writeText(System.currentTimeMillis().toString())
-        }.onFailure { Log.w(TAG, "小说数据备份失败", it) }
-        true
+            true
+        }.onFailure { Log.w(TAG, "小说数据备份失败", it) }.getOrDefault(false)
     }
 }
