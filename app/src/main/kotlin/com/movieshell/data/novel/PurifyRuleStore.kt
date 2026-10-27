@@ -53,14 +53,22 @@ object PurifyRuleStore {
                 .getOrDefault(NovelPurifyEngine.defaultRules().toMutableList())
         }
         if (!marker.isFile) {
-            // seed 条件：storage 里没有任何 builtin 规则时才写入，不覆盖用户已有自定义规则
-            if (base.none { it.builtin }) {
+            // v0.247.0（F27）：补种写盘失败时不再建标记——原来不管写没写成
+            // 都建标记，下次启动见标记跳过补种，内置规则永久丢失；现在只有
+            // “无需补种（已有 builtin）或补种写盘成功”才建标记，失败下次重试。
+            // 补种本身按名+正则去重，失败重试幂等。
+            // 注意：AtomicFile.writeText 永不抛异常，失败只返回 false；
+            // writeAll 返回的是 Result<Boolean>，isSuccess 恒真、不能当成功用，
+            // 必须取 Boolean 值（第 1 轮误用 isSuccess，写盘返回 false 时
+            // 仍会建标记，F27 本来没修住）。getOrDefault(false) 同时覆盖
+            // “写盘返回 false”与“序列化抛异常”两路。
+            val seeded = if (base.none { it.builtin }) {
                 for (r in NovelPurifyEngine.builtinRules()) {
                     if (base.none { it.name == r.name && it.regex == r.regex }) base.add(r)
                 }
-                writeAll(f, base)
-            }
-            runCatching { marker.createNewFile() }
+                writeAll(f, base).getOrDefault(false)
+            } else true
+            if (seeded) runCatching { marker.createNewFile() }
         }
         base
     }

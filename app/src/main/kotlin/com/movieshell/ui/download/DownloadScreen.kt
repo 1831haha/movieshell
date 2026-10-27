@@ -30,6 +30,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -95,6 +99,21 @@ fun DownloadScreen(
         if (missing > 0) {
             AppToast.show(context, "$missing 个已完成任务的本地文件已丢失，已标为失败", long = true)
         }
+    }
+
+    // v0.247.0（F42）：同 F41，回到下载页时重读自动清理设置——
+    // 别的入口（如备份恢复）改写后不再显示旧值。
+    val dlLifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(dlLifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                autoDeleteWatched = DownloadSettings.autoDeleteWatched(context)
+                autoClearDays = DownloadSettings.autoClearDays(context)
+                lowSpaceWarn = DownloadSettings.lowSpaceWarn(context)
+            }
+        }
+        dlLifecycle.addObserver(observer)
+        onDispose { dlLifecycle.removeObserver(observer) }
     }
 
     if (confirmDelete != null) {

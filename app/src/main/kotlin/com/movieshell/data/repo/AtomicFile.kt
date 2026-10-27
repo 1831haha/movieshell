@@ -59,4 +59,53 @@ object AtomicFile {
             false
         }
     }
+
+    /**
+     * v0.247.0（DS12）：已写好的临时文件替换目标文件——旧目标先改名备份，
+     * 落位成功后清备份；落位失败把备份恢复回去。
+     * 返回是否成功；失败时 part 留着供调用方重试或续传。准确表述：目标路径
+     * 在“旧目标已移为备份、新文件尚未落位”之间会暂时缺失；落位失败时恢复
+     * 备份，恢复也失败则缺失持续到下次替换（下次替换先恢复备份），只在
+     * 两次文件系统操作连续失败时才出现，不存在静默丢数据的单点失败。
+     * 残留处理：目标缺失、备份还在（上次收尾中途失败）时先恢复备份；
+     * 恢复失败也继续落位新文件（旧目标本来就已不可见），只记日志；
+     * 成功落位后清备份失败只记日志，下次替换先清残留备份。
+     * 调用方约束：part、dst、备份必须在同一目录（同文件系统），否则改名无意义。
+     * 三处调用点对 false 的处理：分片/直链下载抛错（任务失败重试）、
+     * 订阅规则下载删 part 后抛错（旧目标已恢复或备份留待下次恢复）。
+     */
+    fun replaceFile(part: File, dst: File): Boolean {
+        return try {
+            val dir = dst.parentFile ?: return false
+            val bak = File(dir, dst.name + ".bak")
+            if (!dst.isFile && bak.isFile) {
+                if (!bak.renameTo(dst)) {
+                    Log.w(TAG, "旧目标备份恢复失败，继续落位新文件：${dst.name}")
+                }
+            }
+            if (dst.isFile) {
+                if (bak.isFile && !bak.delete()) {
+                    Log.w(TAG, "残留备份清理失败，放弃替换：${dst.name}")
+                    return false
+                }
+                if (!dst.renameTo(bak)) {
+                    Log.w(TAG, "旧目标备份失败，放弃替换：${dst.name}")
+                    return false
+                }
+            }
+            if (!part.renameTo(dst)) {
+                if (bak.isFile && !bak.renameTo(dst)) {
+                    Log.w(TAG, "落位失败且旧目标恢复失败，目标缺失、备份残留：${dst.name}")
+                }
+                return false
+            }
+            if (bak.isFile && !bak.delete()) {
+                Log.w(TAG, "旧目标备份清理失败，残留 .bak：${bak.absolutePath}")
+            }
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "替换失败：${dst.name}", e)
+            false
+        }
+    }
 }

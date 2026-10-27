@@ -26,6 +26,9 @@ data class Novel(
     // v0.214.0：单本追更开关（默认开；关掉的书手动/后台检查都跳过）。
     val updateEnabled: Boolean = true,
     val addedAt: Long = 0L,
+    // v0.247.0 复核：上次成功提交的章节事务 id（WAL 提交判定用，不展示）。
+    // 老数据无此字段时回落空串，永不与新事务 id 撞上。
+    val lastTxId: String = "",
 )
 
 /** 单章。正文 content 可能很长，单独存文件。 */

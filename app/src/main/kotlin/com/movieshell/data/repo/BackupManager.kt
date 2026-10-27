@@ -554,16 +554,22 @@ object BackupManager {
         if (extraFailed.isNotEmpty()) {
             Log.w(TAG, "新段恢复失败，已还原：$extraFailed")
             rollback()
+            // v0.247.0 第 2 轮：回滚各段失败不再静默吞掉——原来 runCatching
+            // 无 onFailure，哪段没滚回去查不到；现在记日志，调用方仍统一
+            // 返回 Failed（用户不会看到假成功），日志用于定位残留段。
             runCatching { if (wroteFollow && prevFollow != null) restoreFollow(context, prevFollow) }
+                .onFailure { Log.w(TAG, "回滚追剧段失败", it) }
             runCatching { if (wroteBookshelf && prevBookshelf != null) restoreBookshelf(context, prevBookshelf) }
+                .onFailure { Log.w(TAG, "回滚书架段失败", it) }
             runCatching { if (wroteMusic && prevMusic != null) restoreMusic(context, prevMusic) }
+                .onFailure { Log.w(TAG, "回滚音乐段失败", it) }
             runCatching {
                 if (wroteLive && prevLiveRaw != null) {
                     writeLivePrefsRaw(context, prevLiveRaw)
                     val snap = decodeLivePrefs(prevLiveRaw)
                     if (snap != null) syncLiveFlow(context, snap.first, snap.second)
                 }
-            }
+            }.onFailure { Log.w(TAG, "回滚直播段失败", it) }
             return RestoreResult.Failed("$extraFailed，已还原")
         }
         // php / web：当前版本无 active 概念，恢复时忽略
@@ -802,16 +808,25 @@ object BackupManager {
 
     private suspend fun restoreBookshelf(context: Context, parsed: BookshelfParsed): Boolean {
         return try {
+            // v0.247.0（DS29）：清旧书架的结果也要计入 ok——原来 removeNovel
+            // 等 Boolean 返回值被当语句丢掉，删旧失败照样走恢复、最终报成功；
+            // 现在任一清理失败都记失败，restore() 按“书架段写入失败”回滚。
+            // 清理失败不停恢复（与后段新增失败同款“继续并记失败”，由回滚兜底）。
+            // v0.247.0 第 2 轮修正：分组 delete 同样计入——第 1 轮注释误写它
+            // 是 Unit，实测它经 writeFile 透传 Boolean（无显式返回类型、推断
+            // 即 Boolean），调用方原先忽略，旧分组残留也会误报成功。
+            var ok = true
             NovelStore.list(context).forEach { old ->
-                NovelStore.removeNovel(context, old.id)
-                ReadingProgressStore.clear(context, old.id)
+                if (!NovelStore.removeNovel(context, old.id)) ok = false
+                if (!ReadingProgressStore.clear(context, old.id)) ok = false
                 BookmarkStore.list(context, old.id).forEach { mark ->
-                    BookmarkStore.remove(context, old.id, mark.createdAt)
+                    if (!BookmarkStore.remove(context, old.id, mark.createdAt)) ok = false
                 }
             }
-            BookshelfGroupStore.list(context).forEach { BookshelfGroupStore.delete(context, it.id) }
+            BookshelfGroupStore.list(context).forEach {
+                if (!BookshelfGroupStore.delete(context, it.id)) ok = false
+            }
             val restoredIds = parsed.novels.map { it.novel.id }.toSet()
-            var ok = true
             parsed.novels.asReversed().forEach { entry ->
                 if (!NovelStore.addNovel(context, entry.novel, entry.chapters)) ok = false
                 NovelStore.updateProgress(context, entry.novel.id, entry.novel.lastReadChapter)

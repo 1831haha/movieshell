@@ -1123,14 +1123,20 @@ fun BookshelfScreen(
                         .clickable {
                             groupMenuTarget = null
                             scope.launch {
-                                withContext(Dispatchers.IO) {
+                                // v0.247.0 第 2 轮：delete 返回 Boolean——原来忽略，
+                                // 写盘失败也弹“已删除”；现在按结果提示，失败不挪选中态。
+                                val deleted = withContext(Dispatchers.IO) {
                                     BookshelfGroupStore.delete(context, g.id)
                                 }
-                                if (selectedGroup == g.id) {
-                                    selectedGroup = BookshelfGroupStore.GROUP_ALL
-                                    BookshelfGroupStore.setSelectedGroup(context, selectedGroup)
+                                if (deleted) {
+                                    if (selectedGroup == g.id) {
+                                        selectedGroup = BookshelfGroupStore.GROUP_ALL
+                                        BookshelfGroupStore.setSelectedGroup(context, selectedGroup)
+                                    }
+                                    PluginUi.toast(context, "已删除分组（书籍保留）")
+                                } else {
+                                    PluginUi.toast(context, "删除分组失败，请重试")
                                 }
-                                PluginUi.toast(context, "已删除分组（书籍保留）")
                                 reload()
                             }
                         }

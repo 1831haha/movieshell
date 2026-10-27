@@ -118,7 +118,10 @@ fun LogBubbleOverlay() {
         // v0.205.0：静默虚化——5 秒无新日志就淡到 0.35，有新日志恢复
         val logEntries by LogBus.entries.collectAsState()
         var idleFaded by remember { mutableStateOf(false) }
-        LaunchedEffect(logEntries.size) {
+        // v0.247.0（F29）：原来以条数作 key，缓冲 2000 条封顶后新日志
+        // 只顶掉旧日志、条数不变，效果不重启、悬浮球一直虚着；现在
+        // 条数与最新一条双 key，封顶后新日志到了一样恢复明亮。
+        LaunchedEffect(logEntries.size, logEntries.lastOrNull()) {
             idleFaded = false
             delay(5000)
             idleFaded = true

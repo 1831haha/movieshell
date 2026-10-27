@@ -37,31 +37,53 @@ object BookSourceManager {
     private fun fileOf(context: Context): File =
         File(context.filesDir, FILE_NAME)
 
-    /** 启动时调一次，把磁盘书源载入内存。 */
-    suspend fun load(context: Context) = mutex.withLock {
+    /**
+     * 启动时调一次，把磁盘书源载入内存。
+     * v0.247.0：返回载入是否成功——文件存在但读坏时返回 false（原文件已保全），
+     * 调用方不能把这种空表误判成“没有书源”。条目级约定：单条解析失败只
+     * 跳过该条（v0.211.0 逐条隔离的原意），不算整体失败；整体失败仅指文件
+     * 不可读或顶层 JSON 非法，以及非空文件一条都解析不出来（等同于源全坏）。
+     */
+    suspend fun load(context: Context): Boolean = mutex.withLock {
         withContext(Dispatchers.IO) {
             val f = fileOf(context)
             if (!f.isFile) {
                 _sources.value = builtIn()
                 save(context)
-                return@withContext
-            }
-            val list = runCatching {
-                val arr = JSONArray(f.readText())
-                // v0.211.0 审计修复：原来任一元素非对象时 getJSONObject
-                // 抛错，整个 runCatching 兜底返回空表，之后一次写盘就
-                // 覆盖原文件。逐条隔离：坏条目跳过，好条目照常载入。
-                (0 until arr.length()).mapNotNull {
-                    runCatching { BookSource.fromJson(arr.getJSONObject(it).toString()) }.getOrNull()
+                true
+            } else {
+                var ok = true
+                var arrLen = 0
+                val list = runCatching {
+                    val arr = JSONArray(f.readText())
+                    arrLen = arr.length()
+                    // v0.211.0 审计修复：原来任一元素非对象时 getJSONObject
+                    // 抛错，整个 runCatching 兜底返回空表，之后一次写盘就
+                    // 覆盖原文件。逐条隔离：坏条目跳过，好条目照常载入。
+                    (0 until arr.length()).mapNotNull {
+                        runCatching { BookSource.fromJson(arr.getJSONObject(it).toString()) }.getOrNull()
+                    }
+                }.onFailure {
+                    Log.w(TAG, "书源文件读取失败", it)
+                    // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
+                    AtomicFile.preserveCorrupt(f)
+                    ok = false
+                }.getOrDefault(emptyList())
+                // v0.247.0：非空文件零条解析成功时视为整体失败，不让调用方
+                // 误判成“用户没有书源”；原文件同样保全一份。部分条目失败时
+                // 只记一条日志，好条目照常可用。
+                if (ok && arrLen > 0 && list.isEmpty()) {
+                    Log.w(TAG, "书源文件 $arrLen 条全部解析失败，视为载入失败")
+                    AtomicFile.preserveCorrupt(f)
+                    ok = false
+                } else if (ok && arrLen > list.size) {
+                    Log.w(TAG, "书源文件 ${arrLen - list.size} 条解析失败，已跳过")
                 }
-            }.onFailure {
-                Log.w(TAG, "书源文件读取失败", it)
-                // v0.170.0：读坏先保全原文件，下次写盘不再悄悄清空
-                AtomicFile.preserveCorrupt(f)
-            }.getOrDefault(emptyList())
-            // v0.107.0 P0-7：删光就是删光，不再自动复活内置源；
-            // 内置源走书源管理页"恢复默认"手动加回（restoreBuiltin）
-            _sources.value = list
+                // v0.107.0 P0-7：删光就是删光，不再自动复活内置源；
+                // 内置源走书源管理页"恢复默认"手动加回（restoreBuiltin）
+                _sources.value = list
+                ok
+            }
         }
     }
 
@@ -174,7 +196,16 @@ object BookSourceManager {
         }
         // v0.211.0 审计修复：地址变了 key 跟着变，书架上用旧 key 的书
         // 要跟着迁，否则静默断源（写盘成功后再迁，失败不迁）。
-        if (updated.key != oldKey) NovelStore.migrateSourceKey(context, oldKey, updated.key)
+        // v0.247.0（F09）：迁移写盘失败则回滚书源保存——源已改、书架还指旧 key
+        // 就是断源，宁可报保存失败让用户重试，也不要留半截状态。
+        if (updated.key != oldKey && NovelStore.migrateSourceKey(context, oldKey, updated.key) < 0) {
+            _sources.value = old
+            // v0.247.0（F09 复核）：回滚写盘本身也可能失败——不检查就记“已回滚”，
+            // 内存恢复而磁盘仍是新书源，书架索引还指旧 key，跨存储不一致。
+            if (save(context)) Log.w(TAG, "书源地址迁移失败，已回滚")
+            else Log.w(TAG, "书源地址迁移失败，且旧书源回滚写盘失败：内存与磁盘不一致")
+            return@withLock false
+        }
         true
     }
 
@@ -193,7 +224,14 @@ object BookSourceManager {
             return@withLock false
         }
         // v0.211.0 审计修复：同上，整条 JSON 替换导致 key 变时迁书架。
-        if (parsed.key != oldKey) NovelStore.migrateSourceKey(context, oldKey, parsed.key)
+        // v0.247.0（F09）：同上，迁移失败回滚，不留半截状态。
+        if (parsed.key != oldKey && NovelStore.migrateSourceKey(context, oldKey, parsed.key) < 0) {
+            _sources.value = old
+            // v0.247.0（F09 复核）：同上，回滚写盘失败要如实记，不谎报已回滚。
+            if (save(context)) Log.w(TAG, "书源地址迁移失败，已回滚")
+            else Log.w(TAG, "书源地址迁移失败，且旧书源回滚写盘失败：内存与磁盘不一致")
+            return@withLock false
+        }
         true
     }
 

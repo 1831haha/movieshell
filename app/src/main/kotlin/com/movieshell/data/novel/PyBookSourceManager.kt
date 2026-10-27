@@ -58,16 +58,22 @@ object PyBookSourceManager {
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** 扫描书源目录 + 载入启用集合（启动/页面进入时调）。
+    /**
+     * 扫描书源目录 + 载入启用集合（启动/页面进入时调）。
      * v0.246.0：改 suspend、IO 线程执行——原来非 suspend 且逐文件 readText 查
      * bookSearch，换源弹窗（LaunchedEffect，主线程）与搜索 ViewModel
-     * （viewModelScope，主线程）直接在主线程读盘。StateFlow 跨线程赋值安全。 */
-    suspend fun load(context: Context) = loadMutex.withLock {
+     * （viewModelScope，主线程）直接在主线程读盘。StateFlow 跨线程赋值安全。
+     * v0.247.0：返回载入是否成功——目录无法列出时返回 false，
+     * 调用方不能把这种空表误判成“没有书源”。
+     */
+    suspend fun load(context: Context): Boolean = loadMutex.withLock {
         withContext(Dispatchers.IO) {
             // v0.186.0 第 9 组：只把含 bookSearch 的文件列为规则候选——
             // 无 bookSearch 的半截文件、影视 spider、杂 .py 不再进候选，启用集合也随之清理。
+            // dir() 已 mkdirs，列不出就是 IO 故障，不是“没有规则”。
             val files = dir(context).listFiles { f -> f.isFile && f.name.endsWith(".py") }
-                .orEmpty().filter { hasBookSearch(it) }.sortedBy { it.name }
+                ?.filter { hasBookSearch(it) }?.sortedBy { it.name }
+                ?: return@withContext false
             _rules.value = files.map {
                 // v0.195.0：卡片标题直接用文件名（第一版主），不再显示 BaseSpider 这类类名
                 PyBookRule(it.name, it.nameWithoutExtension, it.length() / 1024)
@@ -80,6 +86,7 @@ object PyBookSourceManager {
             if (enabledSet.size != prefs(context).getStringSet(KEY_ENABLED, emptySet()).orEmpty().size) {
                 prefs(context).edit().putStringSet(KEY_ENABLED, enabledSet).apply()
             }
+            true
         }
     }
 
@@ -177,12 +184,19 @@ object PyBookSourceManager {
         if (!src.renameTo(dst)) return@withContext false
         // v0.211.0 审计修复：PY 重命名原来只改文件名，书架上
         // pybook:旧文件名的书静默断源；重命名成功后跟着迁 key。
-        runCatching {
+        // v0.247.0（F09）：迁移写盘失败则把文件名改回去、返回失败——
+        // 文件已改名、书架还指旧名，同样是半截状态。
+        val migrated = runCatching {
             com.movieshell.data.repo.NovelStore.migrateSourceKey(
                 context,
                 "$SOURCE_KEY_PREFIX$oldName",
                 "$SOURCE_KEY_PREFIX$newName",
             )
+        }.getOrDefault(-1)
+        if (migrated < 0) {
+            // v0.247.0（F09 复核）：回滚失败要记具体路径，否则事后查不到文件到底以哪个名字存在。
+            if (!dst.renameTo(src)) Log.w(TAG, "书源迁移失败，文件名回滚失败：${dst.absolutePath} 未能改回 ${src.absolutePath}")
+            return@withContext false
         }
         runCatching { ChaquopyEngine.resetRuleCache(src.absolutePath) }
         val wasEnabled = isEnabled(oldName)

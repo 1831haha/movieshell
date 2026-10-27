@@ -17,6 +17,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -65,12 +66,25 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
     /** v0.217.0（F39）：书源载入句柄（init 里启动，doSearch 等它）。 */
     private var loadJob: Job? = null
 
+    /**
+     * v0.247.0：书源载入是否失败——载入失败时内存表是空的，不能误判成
+     * “没有启用的书源”。doSearch 在无可用源时据此换提示；载入抛异常也算失败。
+     */
+    private var loadFailed = false
+
     init {
         // v0.217.0（F39）：载入句柄留下来给 doSearch 等——原来 fire-and-forget，
         // 用户一进页就搜时读到的是空表，误报“没有启用的书源”。
         loadJob = viewModelScope.launch {
-            BookSourceManager.load(getApplication())
-            PyBookSourceManager.load(getApplication())
+            // v0.247.0 第 2 轮：两类分开尝试——JSON 抛异常不再跳过 PY 载入；
+            // 取消仍原样抛出（两处 onFailure 的 throw），不被当成载入失败。
+            val okJson = runCatching { BookSourceManager.load(getApplication()) }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrDefault(false)
+            val okPy = runCatching { PyBookSourceManager.load(getApplication()) }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrDefault(false)
+            loadFailed = !(okJson && okPy)
         }
         refreshHistory()
     }
@@ -121,6 +135,7 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         if (pendingLoad != null) {
             viewModelScope.launch {
                 runCatching { pendingLoad.join() }
+                    .onFailure { if (it is CancellationException) throw it }
                 doSearch()
             }
             return
@@ -136,7 +151,13 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         }
         if (kw.isEmpty() || !canSearch) {
             if (!canSearch) {
-                AppToast.show(getApplication(), "没有启用的书源，先去书源管理添加", long = false)
+                // v0.247.0：载入失败的空表不再报“没有启用的书源”——
+                // 用户真有源，只是文件读坏了，提示要指向书源管理。
+                AppToast.show(
+                    getApplication(),
+                    if (loadFailed) "书源加载失败，文件可能已损坏，去书源管理查看" else "没有启用的书源，先去书源管理添加",
+                    long = false,
+                )
             }
             return
         }
@@ -268,6 +289,10 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
                 NovelStore.addNovel(getApplication(), novel, chapters)
+                }.onFailure {
+                    // v0.247.0（取消语义）：入架被取消时原样抛出，不当成
+                    // “加入失败”弹 Toast；finally 照常摘掉加入中标记。
+                    if (it is CancellationException) throw it
                 }.getOrDefault(false)
             } finally {
                 _joining.value = _joining.value - key

@@ -45,6 +45,10 @@ data class DownloadTask(
     val createdAt: Long = System.currentTimeMillis(),
     /** v0.171.0：实际完成时间（毫秒）。老记录为 0，自动清理时回退到 createdAt。 */
     val completedAt: Long = 0L,
+    // v0.247.0（DS11）：206 错位后删断点失败时置位——任务目录的文件操作已不可信，
+    // 标记存在任务记录（私有存储）里，不依赖目录操作成败；置位后跳过一切认领、
+    // 从头下载，直到某次完整下载成功才清除。老记录无此字段回落 false。
+    val resumeBlocked: Boolean = false,
 )
 
 /**
@@ -333,6 +337,26 @@ object DownloadStore {
             }
     }
 
+    // v0.247.0（DS11 复核）：同步确认式更新——与 update 相同，但写盘用
+    // commit()（同步落盘、返回是否成功），专供隔离标记这类“丢了会跨进程
+    // 失守”的小字段。返回 true 当且仅当记录已确认落盘；任务不存在
+    // 或写盘失败返回 false。调用方在 IO 线程用（commit 会阻塞），
+    // 内存态无论写盘成败都会更新（本进程内重试仍读到新值）。
+    // 保证范围：应用进程重启场景（进程退出/被杀后重进仍可读到），
+    // 不是断电或底层存储故障下的绝对保证。
+    fun updateSync(context: Context, id: String, fn: (DownloadTask) -> DownloadTask): Boolean {
+        synchronized(lock) {
+            val all = baseList(context)
+            val i = all.indexOfFirst { it.id == id }
+            if (i < 0) return false
+            val nt = fn(all[i])
+            all[i] = nt
+            _tasks.value = all.toList()
+            lastPersisted[id] = nt.status to nt.progress
+            return writeAllSync(context, all)
+        }
+    }
+
     private fun writeAll(context: Context, list: List<DownloadTask>) {
         // v0.187.0 H15：落盘前把绝对路径换算成逻辑根相对路径（如
         // Download/xxx/index.m3u8），内存态与调用方看到的仍是绝对路径
@@ -343,5 +367,16 @@ object DownloadStore {
         prefs(context).edit()
             .putString(KEY_LIST, json.encodeToString(ListSerializer(DownloadTask.serializer()), stored))
             .apply()
+    }
+
+    // 与 writeAll 同内容，改走 commit() 同步落盘并返回结果。
+    private fun writeAllSync(context: Context, list: List<DownloadTask>): Boolean {
+        val stored = list.map { t ->
+            if (t.localPath.isBlank()) t
+            else t.copy(localPath = StoragePaths.toRelativePath(context, t.localPath))
+        }
+        return prefs(context).edit()
+            .putString(KEY_LIST, json.encodeToString(ListSerializer(DownloadTask.serializer()), stored))
+            .commit()
     }
 }

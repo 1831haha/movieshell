@@ -13,6 +13,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
@@ -30,6 +32,18 @@ object DownloadManager {
 
     /** pump 内部 IO 域：查 worker 运行状态要走 binder，不能占调用方线程（设置页 onClick 也调 pump）。 */
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // v0.247.0（F35）：pump 的“查状态→入队”必须原子——原来两次并发 pump 都查到
+    // 未运行、都 REPLACE 入队，后一次会顶掉前一次刚入队的 worker；且查状态超时
+    // 时按未运行处理，REPLACE 可能取消一个其实正在跑的 worker。
+    // 现在同一把锁串行化全部 pump 调用，查不到状态时跳过本轮、不盲目 REPLACE。
+    // 锁能闭合竞态的前提（复核论证）：QUEUE_NAME-i 全仓只由 pump 入队——
+    // 查询时可见的 ENQUEUED/RUNNING/BLOCKED 都会跳过；查询后唯一能新出现
+    // 的是已完成（REPLACE 清理无害），因为新 worker 只能来自一次入队，而入队
+    // 全走这把锁；WorkManager 自身的重调度（重试、进程死后恢复）只会把已可见
+    // 的运行中 worker 变回 ENQUEUED，不会凭空造出查询时不可见的运行中 worker。
+    // 若将来新增入队点，必须同样持这把锁，否则上述论证失效。
+    private val pumpMutex = Mutex()
 
     /** 入队一批任务并启动消费。 */
     suspend fun enqueue(context: Context, tasks: List<DownloadTask>) {
@@ -49,23 +63,30 @@ object DownloadManager {
     fun pump(context: Context) {
         val app = context.applicationContext
         ioScope.launch {
-            val wm = WorkManager.getInstance(app)
-            val n = DownloadStore.maxParallel(app)
-            repeat(n) { i ->
-                val name = "$QUEUE_NAME-$i"
-                val running = runCatching {
-                    wm.getWorkInfosForUniqueWork(name).get(10, TimeUnit.SECONDS)
-                }.getOrNull()?.any {
-                    it.state == WorkInfo.State.ENQUEUED ||
-                        it.state == WorkInfo.State.RUNNING ||
-                        it.state == WorkInfo.State.BLOCKED
-                } == true
-                if (!running) {
-                    val req = OneTimeWorkRequestBuilder<DownloadQueueWorker>()
-                        .addTag(QUEUE_NAME)
-                        .build()
-                    // 前面已确认无运行中任务，REPLACE 只清理旧的已完成记录
-                    wm.enqueueUniqueWork(name, ExistingWorkPolicy.REPLACE, req)
+            pumpMutex.withLock {
+                val wm = WorkManager.getInstance(app)
+                val n = DownloadStore.maxParallel(app)
+                repeat(n) { i ->
+                    val name = "$QUEUE_NAME-$i"
+                    val infos = runCatching {
+                        wm.getWorkInfosForUniqueWork(name).get(10, TimeUnit.SECONDS)
+                    }.getOrNull()
+                    if (infos == null) {
+                        Log.w(TAG, "查 worker 状态失败，跳过 $name（下次 pump 再试）")
+                        return@repeat
+                    }
+                    val running = infos.any {
+                        it.state == WorkInfo.State.ENQUEUED ||
+                            it.state == WorkInfo.State.RUNNING ||
+                            it.state == WorkInfo.State.BLOCKED
+                    }
+                    if (!running) {
+                        val req = OneTimeWorkRequestBuilder<DownloadQueueWorker>()
+                            .addTag(QUEUE_NAME)
+                            .build()
+                        // 锁内已确认无运行中任务，REPLACE 只清理旧的已完成记录
+                        wm.enqueueUniqueWork(name, ExistingWorkPolicy.REPLACE, req)
+                    }
                 }
             }
         }

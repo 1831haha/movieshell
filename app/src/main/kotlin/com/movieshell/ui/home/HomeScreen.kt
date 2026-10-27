@@ -1675,6 +1675,43 @@ fun HomeScreen(
 }
 
 /** v0.78.3：紧凑列表行——小海报 + 标题 + 副标题 */
+/** v0.247.0（DS27）：两行共用的标题+副标题块——原来两处逐字重复；字号/颜色/跑马灯/省略全一致，只差副标题前有无 4dp 间隔。 */
+@Composable
+private fun HomeRowTexts(vod: ModelVod, subtitle: String?, subtitleGap: Boolean) {
+    Column(modifier = Modifier.weight(1f)) {
+        Text(
+            text = vod.vodName,
+            style = SoftType.Body,
+            // v0.82.0：显示不全跑马灯
+            modifier = Modifier.basicMarquee(),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
+        if (subtitle != null) {
+            if (subtitleGap) Spacer(Modifier.height(4.dp))
+            Text(
+                text = subtitle,
+                style = SoftType.Caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** v0.247.0（DS27）：两行共用的备注角标——文字行前面多一个 8dp 间隔。 */
+@Composable
+private fun HomeRowRemarks(remarks: String, leadingSpacer: Boolean) {
+    if (remarks.isBlank()) return
+    if (leadingSpacer) Spacer(Modifier.width(8.dp))
+    Text(
+        text = remarks,
+        style = SoftType.Body,
+        color = LocalSoftExtra.current.warning,
+    )
+}
+
 @Composable
 private fun HomeCompactRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit) {
     Row(
@@ -1711,33 +1748,8 @@ private fun HomeCompactRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit
             }
         }
         Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = vod.vodName,
-                style = SoftType.Body,
-                // v0.82.0：显示不全跑马灯
-                modifier = Modifier.basicMarquee(),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-            )
-            if (subtitle != null) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = subtitle,
-                    style = SoftType.Caption,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        if (vod.vodRemarks.isNotBlank()) {
-            Text(
-                text = vod.vodRemarks,
-                style = SoftType.Body,
-                color = LocalSoftExtra.current.warning,
-            )
-        }
+        HomeRowTexts(vod, subtitle, subtitleGap = true)
+        HomeRowRemarks(vod.vodRemarks, leadingSpacer = false)
     }
 }
 
@@ -1752,33 +1764,8 @@ private fun HomeTextRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit) {
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = vod.vodName,
-                style = SoftType.Body,
-                // v0.82.0：显示不全跑马灯
-                modifier = Modifier.basicMarquee(),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-            )
-            if (subtitle != null) {
-                Text(
-                    text = subtitle,
-                    style = SoftType.Caption,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        if (vod.vodRemarks.isNotBlank()) {
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = vod.vodRemarks,
-                style = SoftType.Body,
-                color = LocalSoftExtra.current.warning,
-            )
-        }
+        HomeRowTexts(vod, subtitle, subtitleGap = false)
+        HomeRowRemarks(vod.vodRemarks, leadingSpacer = true)
     }
 }
 

@@ -79,6 +79,10 @@ fun ChangeSourceDialog(
     var groups by remember { mutableStateOf<List<ChangeSourceGroup>>(emptyList()) }
     var switching by remember { mutableStateOf<String?>(null) }
 
+    // v0.247.0 第 2 轮：书源载入是否失败——载入失败时表是空的，搜空不能
+    // 说成“没搜到”（与找书页的误判同类）；有结果时照常显示结果。
+    var loadFailed by remember { mutableStateOf(false) }
+
     fun doSearch() {
         val kw = keyword.trim()
         if (kw.isBlank() || searching) return
@@ -158,8 +162,9 @@ fun ChangeSourceDialog(
     // v0.217.0（F38）：载入与首搜串成一个协程——原来两个 LaunchedEffect(Unit)
     // 并发跑，搜索读的是载入前的空快照，第一次必定搜空；现在先 load 再搜。
     LaunchedEffect(Unit) {
-        BookSourceManager.load(context)
-        PyBookSourceManager.load(context)
+        val okJson = BookSourceManager.load(context)
+        val okPy = PyBookSourceManager.load(context)
+        loadFailed = !(okJson && okPy)
         doSearch()
     }
 
@@ -197,7 +202,12 @@ fun ChangeSourceDialog(
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                if (searched) "没搜到，换个关键词" else "",
+                                // v0.247.0 第 2 轮：载入失败导致的空结果不说“没搜到”。
+                                if (searched) {
+                                    if (loadFailed) "书源加载失败，去书源管理查看" else "没搜到，换个关键词"
+                                } else {
+                                    ""
+                                },
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }

@@ -108,6 +108,13 @@ object LogBus {
     fun w(tag: String, msg: String) = add('W', tag, msg)
     fun e(tag: String, msg: String) = add('E', tag, msg)
 
+    /**
+     * v0.247.0（F31）：只记 e.message 的异常日志定位不了——堆栈附在同一条
+     * 日志里（LogBus 不截断单条消息，堆栈不会被 2000 条上限拆散）。
+     */
+    fun e(tag: String, msg: String, t: Throwable) =
+        add('E', tag, "$msg\n${t.stackTraceToString()}")
+
     fun snapshot(): List<Entry> = synchronized(lock) { deque.toList() }
 
     fun clear() = synchronized(lock) {

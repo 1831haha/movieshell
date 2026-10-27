@@ -17,6 +17,9 @@ import com.movieshell.data.repo.ProbeReport
 import com.movieshell.data.repo.SourceProbe
 import com.movieshell.data.repo.SourceProbeStore
 import com.movieshell.data.repo.toRecord
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.util.Collections
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -42,16 +45,34 @@ class SourceProbeWorker(
         val total = tasks.size
         val records = Collections.synchronizedList(mutableListOf<ProbeRecord>())
         val done = AtomicInteger(0)
-        SourceProbe.probeAll(tasks) { task, res ->
-            records += res.toRecord(task.kind, task.name, task.label)
-            val d = done.incrementAndGet()
-            setProgress(workDataOf("done" to d, "total" to total, "label" to task.label))
+        try {
+            SourceProbe.probeAll(tasks) { task, res ->
+                records += res.toRecord(task.kind, task.name, task.label)
+                val d = done.incrementAndGet()
+                setProgress(workDataOf("done" to d, "total" to total, "label" to task.label))
+            }
+        } catch (e: CancellationException) {
+            // v0.247.0（F36）：探测阶段被取消的收尾——部分报告不保存、完成通知不发，
+            // 原样抛出让 WorkManager 置任务为已取消；已收集的 records 随函数栈丢弃。
+            LogBus.i("Probe", "后台检测已取消，不保存报告")
+            throw e
         }
+        // v0.247.0（F36 保证收紧）：落盘与通知前各确认一次未取消。取消若恰好
+        // 落在探测结束与落盘之间，saveReport 的 withContext 入口本就会抛取消，
+        // 这里是显式化；取消若落在原子写盘进行中或写盘与通知之间，探测阶段的
+        // catch 拦不住——这两处检查把窗口收窄到一次原子写盘内部。保证表述：
+        // 取消发生在探测阶段或落盘前 → 不保存、不通知；取消发生在原子写盘
+        // 进行中 → 完整报告仍可能落盘，但通知一定不发。单个探测执行的硬超时
+        // 为 SourceProbe.TIMEOUT_MS（8000 毫秒，future.get 计时，含线程池排队；
+        // 信号量排队不在此限）；排队等信号量的探测取消后仍会启动（阻塞 API
+        // 拦不住），总耗时不是 8 秒。
+        currentCoroutineContext().ensureActive()
         SourceProbeStore.saveReport(context, ProbeReport(System.currentTimeMillis(), records))
         val ok = records.count { it.status == "OK" }
         val slow = records.count { it.status == "SLOW" }
         val fail = records.count { it.status == "FAIL" }
         LogBus.i("Probe", "后台检测完成：正常 $ok / 缓慢 $slow / 失败 $fail")
+        currentCoroutineContext().ensureActive()
         Notify.probeDone(context, total, ok, slow, fail)
         return Result.success()
     }

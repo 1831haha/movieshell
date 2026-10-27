@@ -203,6 +203,10 @@ object MusicPlayer {
 
     /** 进程启动后恢复一次队列快照（仅队列与下标，不恢复播放态）。 */
     fun restoreQueue(context: Context) {
+        // v0.247.0（DS10）：先认领 applicationContext——原来只在播放入口
+        // 认领，恢复后直接点迷你条关闭时 appCtx 仍为空，stop() 的 persistQueue
+        // 静默跳过、旧队列下次启动又复活；认领后停播/切歌/记时长也不再空转。
+        appCtx = context.applicationContext
         if (queueRestored) return
         queueRestored = true
         if (queue.isNotEmpty()) return

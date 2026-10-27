@@ -79,30 +79,36 @@ fun ExploreAggregateScreen(
         aggSources.associate { it.key to NovelSourceEngine.parseExploreCategories(it.exploreUrl) }
     }
     var selectedCat by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var resultsByKey by remember { mutableStateOf<Map<String, List<NovelSearchResult>>>(emptyMap()) }
-    var loadingKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var failedKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // v0.247.0（F14）：结果/加载/失败原来只按源分，换分类就整组“加载中…”、
+    // 上个分类的结果也没留住；现在按（源，分类地址）区分——地址即抓取
+    // 身份：同地址同内容可共态，同标题不同地址分态（标题在数组形源里
+    // 可能重复，地址不会）。切换分类各抓各的、抓过的分类切回去直接显示。
+    var resultsByCat by remember { mutableStateOf<Map<Pair<String, String>, List<NovelSearchResult>>>(emptyMap()) }
+    var loadingCats by remember { mutableStateOf<Set<Pair<String, String>>>(emptySet()) }
+    var failedCats by remember { mutableStateOf<Set<Pair<String, String>>>(emptySet()) }
 
     fun load(src: BookSource, cat: NovelSourceEngine.ExploreCategory) {
-        if (loadingKeys.contains(src.key)) return
-        loadingKeys = loadingKeys + src.key
-        failedKeys = failedKeys - src.key
+        val key = src.key to cat.url
+        if (loadingCats.contains(key)) return
+        loadingCats = loadingCats + key
+        failedCats = failedCats - key
         scope.launch {
             val list = runCatching {
                 NovelSourceEngine.explore(src, cat.url, 1, allowGate = true)
             }.getOrDefault(emptyList())
-            resultsByKey = resultsByKey + (src.key to list)
-            if (list.isEmpty()) failedKeys = failedKeys + src.key
-            loadingKeys = loadingKeys - src.key
+            resultsByCat = resultsByCat + (key to list)
+            if (list.isEmpty()) failedCats = failedCats + key
+            loadingCats = loadingCats - key
         }
     }
 
     // 首屏：每源默认抓第一个分类；源列表变化时只补抓新源，不重抓已抓过的。
     LaunchedEffect(aggSources) {
         aggSources.forEach { src ->
-            if (resultsByKey.containsKey(src.key) || loadingKeys.contains(src.key)) return@forEach
             val cats = categoriesByKey[src.key].orEmpty()
             val first = cats.firstOrNull() ?: return@forEach
+            val firstKey = src.key to first.url
+            if (resultsByCat.containsKey(firstKey) || loadingCats.contains(firstKey)) return@forEach
             selectedCat = selectedCat + (src.key to first.title)
             load(src, first)
         }
@@ -143,13 +149,15 @@ fun ExploreAggregateScreen(
                     val cats = categoriesByKey[src.key].orEmpty()
                     val selTitle = selectedCat[src.key] ?: cats.firstOrNull()?.title
                     val selCat = cats.firstOrNull { it.title == selTitle } ?: cats.firstOrNull()
-                    val raw = resultsByKey[src.key].orEmpty()
+                    val selKey = selCat?.let { src.key to it.url }
+                    val raw = selKey?.let { resultsByCat[it] }.orEmpty()
+                    val isLoadingCat = selKey != null && loadingCats.contains(selKey)
                     val shown = if (query.isBlank()) raw else raw.filter {
                         it.title.contains(query, ignoreCase = true) ||
                             (it.author?.contains(query, ignoreCase = true) == true)
                     }
                     // 有筛选词且该源筛空时，整组隐藏（不留空标题）。
-                    if (query.isBlank() || shown.isNotEmpty() || loadingKeys.contains(src.key)) {
+                    if (query.isBlank() || shown.isNotEmpty() || isLoadingCat) {
                         item(key = "head-${src.key}") {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -183,10 +191,10 @@ fun ExploreAggregateScreen(
                             }
                         }
                         when {
-                            loadingKeys.contains(src.key) -> item(key = "loading-${src.key}") {
+                            isLoadingCat -> item(key = "loading-${src.key}") {
                                 Text("加载中…", fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
                             }
-                            failedKeys.contains(src.key) && raw.isEmpty() -> item(key = "fail-${src.key}") {
+                            selKey != null && failedCats.contains(selKey) && raw.isEmpty() -> item(key = "fail-${src.key}") {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         "这一页没有结果（可能撞上验证，稍后重试）",

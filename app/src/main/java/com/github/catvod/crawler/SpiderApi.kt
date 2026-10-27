@@ -8,12 +8,15 @@ import android.webkit.WebViewClient
 import com.google.gson.JsonArray
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.source.CmsApi
+import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicIntegerArray
+import java.util.concurrent.atomic.AtomicReferenceArray
 
 /**
  * v0.8.0：jar 里 spider 调用的宿主静态工具。
@@ -53,7 +56,15 @@ object SpiderApi {
      */
     @JvmStatic
     fun multiReq(array: JsonArray): String {
-        val results = array.map { el ->
+        // v0.247.0（F21 复核）：超时取消必须覆盖“取消先发生、Call 后创建”的窗口——
+        // 只记 Call 不够：超时线程读到 null、随后工作线程才创建并启动 Call，请求
+        // 就在超时后仍跑起来。做法是取消标志 + 原子引用双保险：超时方先置标志
+        // 再取 Call 取消；工作方先登记 Call 再查标志取消。两边无论谁先谁后，
+        // Call 一定被取消（已完成的 cancel 是空操作）。原子数组保证跨线程可见性。
+        // 注意：标准 Java 原子包没有 AtomicBooleanArray，用 AtomicIntegerArray 以 0/1 当标志。
+        val calls = AtomicReferenceArray<Call>(array.size())
+        val cancelled = AtomicIntegerArray(array.size())
+        val results = array.mapIndexed { idx, el ->
             pool.submit<String> {
                 runCatching {
                     val o = el.asJsonObject
@@ -68,20 +79,44 @@ object SpiderApi {
                     if (o.get("method")?.asString.equals("POST", true)) {
                         builder.post(body.toRequestBody("application/json".toMediaType()))
                     }
-                    client.newCall(builder.build()).execute().use { resp ->
+                    val call = client.newCall(builder.build())
+                    calls.set(idx, call)
+                    if (cancelled.get(idx) == 1) call.cancel()
+                    call.execute().use { resp ->
                         resp.body?.string().orEmpty()
                     }
                 }.getOrDefault("")
             }
         }
         val out = JsonArray()
-        results.forEach { out.add(runCatching { it.get(20, TimeUnit.SECONDS) }.getOrDefault("")) }
+        // v0.247.0（F21）：原来逐个 get(20 秒)，N 个请求最长等 N×20 秒；
+        // 改按一份 20 秒总预算等全部，预算耗尽或超时的 future 直接取消、空串占位。
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+        results.forEachIndexed { idx, f ->
+            val remain = deadline - System.nanoTime()
+            val value = if (remain <= 0) {
+                cancelled.set(idx, 1)
+                calls.get(idx)?.cancel()
+                f.cancel(true)
+                ""
+            } else {
+                runCatching { f.get(remain, TimeUnit.NANOSECONDS) }.getOrElse {
+                    cancelled.set(idx, 1)
+                    calls.get(idx)?.cancel()
+                    f.cancel(true)
+                    ""
+                }
+            }
+            out.add(value)
+        }
         return out.toString()
     }
 
     /**
      * WebView 解析：在主线程建 WebView 加载 url，页面完成后执行 script 取结果，
      * 30 秒超时。禁止在主线程调用（会死锁），此时直接返回空。
+     * v0.247.0（F46）：调用方约定走后台线程——jar 内 spider 经 dex 直接调用，
+     * 应用内无其他调用点，主线程守卫是最后防线。
      */
     @JvmStatic
     fun webParse(url: String, script: String): String {
@@ -93,8 +128,22 @@ object SpiderApi {
         val ctx = appContext ?: return ""
         val latch = CountDownLatch(1)
         var result = ""
-        Handler(Looper.getMainLooper()).post {
+        val mainHandler = Handler(Looper.getMainLooper())
+        mainHandler.post {
             var wv: WebView? = null
+            var finished = false
+            var timeoutTask: Runnable? = null
+            // v0.247.0（F22）：成功/失败/超时任一先到即收尾——清掉 30 秒兜底任务
+            // （原来成功后延迟任务仍在主线程队列里捏 WebView 引用 30 秒）、
+            // 销毁 WebView、放行等待线程；重复收尾无害（latch 归零后 countDown 是空操作）。
+            // 收尾只在主线程回调与超时任务里执行，finished 无跨线程竞争。
+            fun finish() {
+                if (finished) return
+                finished = true
+                timeoutTask?.let { mainHandler.removeCallbacks(it) }
+                runCatching { wv?.destroy() }
+                latch.countDown()
+            }
             try {
                 wv = WebView(ctx)
                 wv.settings.javaScriptEnabled = true
@@ -108,10 +157,9 @@ object SpiderApi {
                                 // 含引号/换行的返回值失真。改按 JSON 字符串解码，
                                 // 非字符串（数字/布尔/null/对象）原样返回，解码失败回退旧逻辑。
                                 result = decodeJsValue(it.orEmpty())
-                                runCatching { view.destroy() }
-                                latch.countDown()
+                                finish()
                             }
-                        }.onFailure { latch.countDown() }
+                        }.onFailure { finish() }
                     }
 
                     override fun onReceivedError(
@@ -120,23 +168,21 @@ object SpiderApi {
                         description: String,
                         failingUrl: String,
                     ) {
-                        latch.countDown()
+                        finish()
                     }
                 }
+                timeoutTask = Runnable { finish() }
+                mainHandler.postDelayed(timeoutTask, 30_000)
                 wv.loadUrl(url)
             } catch (e: Exception) {
-                LogBus.e(TAG, "webParse 建 WebView 失败：${e.message}")
-                latch.countDown()
-            } finally {
-                // 超时兜底：30 秒后无论如何放行并销毁
-                Handler(Looper.getMainLooper()).postDelayed({
-                    if (latch.count > 0) {
-                        latch.countDown()
-                        runCatching { wv?.destroy() }
-                    }
-                }, 30_000)
+                // v0.247.0（F31）：原来只记 message，无堆栈定位不了。
+                LogBus.e(TAG, "webParse 建 WebView 失败：${e.message}", e)
+                finish()
             }
         }
+        // v0.247.0（F46）：调用方约定走后台线程——jar 内 spider 经 dex 直接调用，
+        // 应用内无其他调用点，主线程守卫是最后防线；等待 32 秒 = 30 秒超时兜底 +
+        // 2 秒主线程调度余量，不是 30 秒的笔误。
         latch.await(32, TimeUnit.SECONDS)
         return result
     }

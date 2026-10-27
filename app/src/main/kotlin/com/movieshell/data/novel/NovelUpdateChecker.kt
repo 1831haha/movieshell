@@ -6,6 +6,7 @@ import com.movieshell.data.model.Chapter
 import com.movieshell.data.model.Novel
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.ReadingProgressStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -72,8 +73,13 @@ object NovelUpdateChecker {
                 return@runCatching Result.Failed
             }
             Result.Updated(newCount)
-        }.onFailure { Log.w(TAG, "追更检查失败《${novel.title}》", it) }
-            .getOrDefault(Result.Failed)
+        }.onFailure {
+            // v0.247.0 第 2 轮（取消语义，外层透传）：追更检查被取消时原样抛出，
+            // 不当成检查失败计入失败数、触发 Worker 重试；checkPy/checkJson 里
+            // 的 searchPy/chaptersPy 已透传取消，这里不能再吞掉。
+            if (it is CancellationException) throw it
+            Log.w(TAG, "追更检查失败《${novel.title}》", it)
+        }.getOrDefault(Result.Failed)
     }
 
     /**
@@ -122,6 +128,11 @@ object NovelUpdateChecker {
                     }
                 }
                 true
+            }.onFailure {
+                // v0.247.0 第 2 轮（取消语义，外层透传）：换源被取消时原样抛出，
+                // 不当成换源失败计入批量失败数；批量循环的下一轮限流入口本就会
+                // 抛取消，循环照常中止，不会多算一本失败。
+                if (it is CancellationException) throw it
             }.getOrDefault(false)
         }
 

@@ -944,7 +944,7 @@ fun BookSourceScreen(
                 scope.launch {
                     val ok = BookSourceManager.updateSourceJson(context, s.key, draft.toJson().toString())
                     if (!ok) {
-                        AppToast.show(context, "保存失败：名称或地址为空、地址与已有书源重复", long = false)
+                        AppToast.show(context, "保存失败：名称或地址为空、地址与已有书源重复或写盘失败", long = false)
                     }
                 }
                 editTarget = null

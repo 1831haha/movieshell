@@ -31,10 +31,18 @@ object CacheAutoClean {
             val img = File(applicationContext.cacheDir, IMAGE_CACHE_DIR)
             val total = img.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
             if (total >= THRESHOLD_BYTES) {
+                // v0.247.0（F23）：diskCache 为空时原来 ?.clear() 不抛异常、
+                // runCatching 照样算成功，1GB 文件还在却记“已清理”；现在空对象
+                // 直接记失败走重试，不再谎报成功（沿用 F71 的失败重试口径）。
+                val diskCache = applicationContext.imageLoader.diskCache
+                if (diskCache == null) {
+                    LogBus.w("CacheAutoClean", "图片缓存超 1GB（${total / 1024 / 1024}MB），磁盘缓存对象为空、无法清理，下次调度重试")
+                    return Result.retry()
+                }
                 // v0.217.0（F71）：clear() 失败不再记“已清理”也不再返回
                 // 成功——原来失败只记一条警告，紧接着还是“已清理”加成功，
                 // 缓存一直超 1GB 不见少、系统还以为干成了，不会重试。
-                val cleared = runCatching { applicationContext.imageLoader.diskCache?.clear() }
+                val cleared = runCatching { diskCache.clear() }
                     .onFailure { LogBus.w("CacheAutoClean", "图片缓存清理失败：${it.message}") }
                     .isSuccess
                 if (!cleared) {

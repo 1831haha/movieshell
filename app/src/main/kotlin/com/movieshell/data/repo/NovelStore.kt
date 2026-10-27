@@ -9,9 +9,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.util.UUID
 
 /**
  * v0.35.0 小说书架：落在 filesDir/novels/ 下。
@@ -50,6 +52,153 @@ object NovelStore {
     private fun indexFile(context: Context): File = File(dirOf(context), INDEX_NAME)
     private fun chaptersFile(context: Context, novelId: String): File =
         File(dirOf(context), "$novelId.json")
+
+    // v0.247.0 复核：章节文件“备份→写新版→更新索引→清理/回滚”事务小助手。
+    // 调用方必须已持有 indexMutex——addNovel/updateSource/clearCachedContents 本就持锁，
+    // updateChapterContent 与章节读取 chapters() 本轮也纳入同一锁，所以同一本书的事务不可能交错，
+    // 固定 .bak 名不会出现两路互相删备份、恢复错乱。
+    private fun backupFile(cf: File): File = File(cf.absolutePath + ".bak")
+
+    // v0.247.0 复核：章节事务的预写日志（WAL）。崩溃一致性不能只凭“.bak 与正本共存”推断——
+    // 旧文件改名→写新正本→索引写盘前崩溃时，两者共存但索引仍是旧版，删备份就丢了恢复旧章的机会。
+    // 因此事务开始前先落一条日志；恢复时不只比对索引字段，更比对事务 id——
+    // 索引条目只有写上本次事务 id 才算本次提交，旧索引字段碰巧相等也绝不会误判。
+    // 例外：日志读坏按未提交处理（日志本身原子写盘，读坏概率极低）。
+    @Serializable
+    private data class ChapterTxJournal(
+        val novelId: String,
+        val txId: String,
+        val sourceKey: String,
+        val totalChapters: Int,
+        val latestChapterTitle: String?,
+    )
+
+    private fun journalFile(context: Context, novelId: String): File =
+        File(dirOf(context), "$novelId.journal")
+
+    private fun writeTxJournal(context: Context, expected: ChapterTxJournal): Boolean =
+        AtomicFile.writeText(
+            journalFile(context, expected.novelId),
+            json.encodeToString(ChapterTxJournal.serializer(), expected),
+        )
+
+    private fun readTxJournal(context: Context, novelId: String): ChapterTxJournal? =
+        runCatching {
+            json.decodeFromString(ChapterTxJournal.serializer(), journalFile(context, novelId).readText())
+        }.onFailure { Log.w(TAG, "章节事务日志读取失败", it) }.getOrNull()
+
+    // 事务开始时的崩溃恢复（调用方必须已持有 indexMutex）。返回 false = 状态异常，调用方应直接失败。
+    // 幂等保证：提交路径先删备份再删日志（日志删失败下次重算仍是提交路径）；
+    // 回滚路径先回滚、成功后才删日志（回滚失败保留日志与备份，下次重试；
+    // 崩溃在回滚与删日志之间时，下次仍走日志分支：备份已空，按留正本规则删日志，结果一致）。
+    private fun recoverTx(context: Context, novelId: String): Boolean {
+        val cf = chaptersFile(context, novelId)
+        val backup = backupFile(cf)
+        val journal = journalFile(context, novelId)
+        if (!journal.isFile) {
+            // 无日志：老版本残留或从未崩溃。新版事务一定先写日志再备份，
+            // 所以“无日志、有备份”只可能来自日志机制上线前的遗留崩溃，
+            // 备份是唯一旧数据的情形（正本缺失）必须恢复；
+            // 两者共存的歧义情形按“保旧数据”处理：恢复备份（新正本是未提交事务的产物）。
+            if (!backup.isFile) return true
+            if (!restoreChapters(cf, backup, hadOld = true)) return false
+            Log.w(TAG, "章节备份恢复（无日志遗留）：已恢复旧章节文件 ${cf.absolutePath}")
+            return true
+        }
+        val expected = readTxJournal(context, novelId)
+        val entry = readIndex(context).firstOrNull { it.id == novelId }
+        // 提交判定只认事务 id：索引条目写上了本次事务 id 才算本次提交；
+        // 旧索引三个字段碰巧与期望值全相等时，事务 id 一定对不上，不会误判。
+        // 日志读坏按未提交处理。
+        val committed = expected != null && entry != null &&
+            entry.id == expected.novelId && entry.lastTxId == expected.txId
+        if (committed) {
+            finishTx(context, novelId, backup)
+            return true
+        }
+        // 索引未提交：先回滚，成功后才删日志——回滚失败时保留日志与备份，下次恢复重试。
+        // 崩溃在回滚与删日志之间时，下次恢复仍走日志分支：备份已空，按留正本规则删日志，结果一致。
+        // 备份缺失时不回滚：正本可能是已回滚的旧内容（删掉会丢数据），
+        // 也可能是未提交的新内容（留着至少书还能读，下次成功事务会覆盖），两种情形都应留着正本——
+        // 这是有意接受的一致性降级，不是完全恢复（无备份时已无从证明正本新旧）。
+        if (backup.isFile && !restoreChapters(cf, backup, hadOld = true)) return false
+        if (!journal.delete()) {
+            Log.w(TAG, "章节事务日志删除失败（下次恢复会重算）：${journal.absolutePath}")
+        }
+        return true
+    }
+
+    // 写新版前把旧正本改名备份（零拷贝）。返回 false = 备份失败，调用方应直接失败不动旧数据。
+    private fun backupChapters(cf: File, backup: File): Boolean {
+        if (!cf.isFile) return true
+        if (!cf.renameTo(backup)) {
+            Log.w(TAG, "章节备份失败：${cf.absolutePath} 未能改名为 ${backup.absolutePath}")
+            return false
+        }
+        return true
+    }
+
+    // 失败回滚：删掉新正本、把备份改回来；返回是否完成（调用方已在失败路径上，结果只用于恢复流程）。
+    // hadOld=false（首次导入）时只需删新文件。
+    private fun restoreChapters(cf: File, backup: File, hadOld: Boolean): Boolean {
+        if (!hadOld) {
+            if (cf.isFile && !cf.delete()) {
+                // 删不掉就隔离改名，避免未提交文件继续冒充有效章节文件；
+                // 改名也失败才返回失败（日志保留，下次恢复重试）。
+                val quarantined = File(cf.absolutePath + ".uncommitted")
+                if (!cf.renameTo(quarantined)) {
+                    Log.w(TAG, "失败回滚：新章节文件既删不掉也隔离不了 ${cf.absolutePath}")
+                    return false
+                }
+                Log.w(TAG, "失败回滚：新章节文件无法删除，已隔离为 ${quarantined.absolutePath}")
+            }
+            return true
+        }
+        if (cf.isFile && !cf.delete()) {
+            Log.w(TAG, "失败回滚：新章节文件删除失败 ${cf.absolutePath}，旧备份无法恢复")
+            return false
+        }
+        if (!backup.renameTo(cf)) {
+            Log.w(TAG, "失败回滚：章节备份恢复失败 ${backup.absolutePath} -> ${cf.absolutePath}")
+            return false
+        }
+        return true
+    }
+
+    // 成功后清理备份。返回是否清掉——调用方必须先清备份、成功后再删日志，
+    // 顺序不能反：先删日志后清备份时，崩溃在两者之间会留下“无日志、有备份”，
+    // 下次恢复按遗留规则恢复旧版，就会覆盖已提交的新章节。
+    // 清理失败不算事务失败——数据已一致，日志保留供下次恢复重试清理。
+    private fun cleanupBackup(backup: File): Boolean {
+        if (!backup.isFile) return true
+        if (!backup.delete()) {
+            Log.w(TAG, "章节备份清理失败，保留事务日志供下次恢复重试：${backup.absolutePath}")
+            return false
+        }
+        return true
+    }
+
+    // 提交收尾：先清备份、成功后再删日志（顺序见 cleanupBackup 注释）。
+    // 语义界定：收尾失败 ≠ 事务失败——索引写盘成功即已提交，清理只是待重试；
+    // 调用方不得据此回滚（abortTx 只在 writeIndex 失败、索引未提交时调用）。
+    // 本函数无返回值，三处调用点均忽略收尾结果、直接返回成功。
+    private fun finishTx(context: Context, novelId: String, backup: File) {
+        if (!cleanupBackup(backup)) return
+        if (!journalFile(context, novelId).delete()) {
+            Log.w(TAG, "章节事务日志删除失败（下次恢复会重算）")
+        }
+    }
+
+    // 事务内失败收尾：回滚章节文件，成功后才删日志，返回 false 供调用方直接返回。
+    // 回滚失败时保留日志与备份，下次恢复重试；日志删失败也只记日志——
+    // 下次恢复时备份缺失则留着正本（recoverTx 规则），不会丢已恢复的数据。
+    private fun abortTx(context: Context, novelId: String, cf: File, backup: File, hadOld: Boolean): Boolean {
+        if (!restoreChapters(cf, backup, hadOld)) return false
+        if (!journalFile(context, novelId).delete()) {
+            Log.w(TAG, "章节事务日志删除失败（下次恢复会处理）")
+        }
+        return false
+    }
 
     private fun readIndex(context: Context): List<Novel> {
         val f = indexFile(context)
@@ -123,6 +272,11 @@ object NovelStore {
             if (chapters.isEmpty()) return@withContext false
             indexMutex.withLock {
             runCatching {
+                // v0.247.0 复核：事务开始先做崩溃恢复（日志比对或遗留备份处理），
+                // 再读旧缓存做 graft——否则 graft 读到的可能是残缺状态。
+                val chaptersCf = chaptersFile(context, novel.id)
+                val chaptersBackup = backupFile(chaptersCf)
+                if (!recoverTx(context, novel.id)) return@runCatching false
                 // v0.211.0 审计修复：重复入架原来用空目录全量覆盖旧章节
                 // 文件，已缓存的正文一次清光。先按标题读旧缓存，新章
                 // content 为空时沿用旧正文（与 updateSource 同款 graft）。
@@ -135,13 +289,10 @@ object NovelStore {
                     val keep = c.content.ifBlank { oldByTitle[c.title]?.content.orEmpty() }
                     c.copy(novelId = novel.id, index = i, content = keep)
                 }
-                // v0.170.0：原子写盘；写盘失败如实返回 false，不谎报导入成功
-                if (!AtomicFile.writeText(
-                        chaptersFile(context, novel.id),
-                        json.encodeToString(ListSerializer(Chapter.serializer()), fixed),
-                    )
-                ) return@runCatching false
                 val old = readIndex(context).firstOrNull { it.id == novel.id }
+                // v0.247.0 复核：本次事务唯一 id，写入索引条目与事务日志——
+                // 恢复时只认事务 id，不认字段相等，旧索引碰巧相等也不会误判为已提交。
+                val txId = UUID.randomUUID().toString()
                 val merged = novel.copy(
                     totalChapters = fixed.size,
                     lastReadChapter = old?.lastReadChapter ?: 0,
@@ -149,9 +300,42 @@ object NovelStore {
                     latestChapterTitle = fixed.lastOrNull()?.title?.takeIf { it.isNotBlank() }
                         ?: old?.latestChapterTitle,
                     addedAt = old?.addedAt ?: System.currentTimeMillis(),
+                    lastTxId = txId,
                 )
+                // v0.247.0 复核：动章节文件前先落事务日志（索引写盘后应有的字段）——
+                // 日志写失败直接 abort，旧数据一动不动。
+                if (!writeTxJournal(
+                        context,
+                        ChapterTxJournal(novel.id, txId, merged.sourceKey, merged.totalChapters, merged.latestChapterTitle),
+                    )
+                ) return@runCatching false
+                // v0.247.0（F08 复核）：写新版前备份旧正本；备份失败不动旧数据，顺手删日志。
+                val hadOld = chaptersCf.isFile
+                if (!backupChapters(chaptersCf, chaptersBackup)) {
+                    if (!journalFile(context, novel.id).delete()) {
+                        Log.w(TAG, "章节事务日志删除失败（下次恢复会处理）")
+                    }
+                    return@runCatching false
+                }
+                // v0.170.0：原子写盘；写盘失败如实返回 false，不谎报导入成功
+                if (!AtomicFile.writeText(
+                        chaptersCf,
+                        json.encodeToString(ListSerializer(Chapter.serializer()), fixed),
+                    )
+                ) {
+                    // 章节写失败：恢复旧文件，旧索引继续指向旧内容
+                    return@runCatching abortTx(context, novel.id, chaptersCf, chaptersBackup, hadOld)
+                }
                 val rest = readIndex(context).filterNot { it.id == novel.id }
-                writeIndex(context, listOf(merged) + rest)
+                // v0.247.0（F08）：索引写盘失败如实返回 false——原来忽略返回值直接报 true，
+                // 导入成功但书目不在索引里。
+                // v0.247.0（F08 复核）：失败时恢复旧章节文件（首次导入则删掉新文件），
+                // 旧索引继续指向旧内容；成功后删日志、清备份。
+                if (!writeIndex(context, listOf(merged) + rest)) {
+                    return@runCatching abortTx(context, novel.id, chaptersCf, chaptersBackup, hadOld)
+                }
+                // 索引已提交：先清备份、成功后再删日志（顺序见 cleanupBackup 注释）。
+                finishTx(context, novel.id, chaptersBackup)
                 true
             }.onFailure { Log.w(TAG, "小说导入失败", it) }.getOrDefault(false)
             }
@@ -172,6 +356,9 @@ object NovelStore {
             // v0.107.0 P0-6：追更/换源只带目录不带正文——content 为空的新章节不许覆盖
             // 已有缓存正文（按标题匹配，防源方目录乱序 graft 错章）
             val cf = chaptersFile(context, novelId)
+            // v0.247.0 复核：同 addNovel，事务开始先做崩溃恢复，再读旧缓存。
+            val backup = backupFile(cf)
+            if (!recoverTx(context, novelId)) return@runCatching false
             val oldByTitle = runCatching {
                 if (!cf.isFile) emptyList()
                 else json.decodeFromString(ListSerializer(Chapter.serializer()), cf.readText())
@@ -184,22 +371,56 @@ object NovelStore {
                 val keep = c.content.ifBlank { oldByTitle[c.title]?.content.orEmpty() }
                 c.copy(novelId = novelId, index = i, content = keep)
             }
-            // v0.170.0：原子写盘；写盘失败如实返回 false
-            if (!AtomicFile.writeText(
-                    chaptersFile(context, novelId),
-                    json.encodeToString(ListSerializer(Chapter.serializer()), fixed),
+            // v0.247.0（F08 复核）：同 addNovel，写新版前备份旧正本；索引失败时恢复，
+            // 避免旧索引元数据（旧源、旧章数）配新章节内容。
+            // v0.247.0 复核：动章节文件前先落事务日志（索引写盘后应有的字段 + 本次事务 id）。
+            val txId = UUID.randomUUID().toString()
+            if (!writeTxJournal(
+                    context,
+                    ChapterTxJournal(
+                        novelId,
+                        txId,
+                        sourceKey,
+                        fixed.size,
+                        fixed.lastOrNull()?.title?.takeIf { it.isNotBlank() },
+                    ),
                 )
             ) return@runCatching false
+            val hadOld = cf.isFile
+            if (!backupChapters(cf, backup)) {
+                if (!journalFile(context, novelId).delete()) {
+                    Log.w(TAG, "章节事务日志删除失败（下次恢复会处理）")
+                }
+                return@runCatching false
+            }
+            // v0.170.0：原子写盘；写盘失败如实返回 false
+            if (!AtomicFile.writeText(
+                    cf,
+                    json.encodeToString(ListSerializer(Chapter.serializer()), fixed),
+                )
+            ) {
+                return@runCatching abortTx(context, novelId, cf, backup, hadOld)
+            }
             val list = readIndex(context).toMutableList()
             val i = list.indexOfFirst { it.id == novelId }
-            if (i < 0) return@runCatching false
+            if (i < 0) {
+                // 索引条目没了：同样恢复旧章节文件，不留新内容配旧索引
+                return@runCatching abortTx(context, novelId, cf, backup, hadOld)
+            }
             list[i] = list[i].copy(
                 sourceKey = sourceKey,
                 totalChapters = fixed.size,
                 // v0.214.0：换源/追更写目录时同步最新章标题，书架行不用再翻目录。
                 latestChapterTitle = fixed.lastOrNull()?.title?.takeIf { it.isNotBlank() },
+                lastTxId = txId,
             )
-            writeIndex(context, list)
+            // v0.247.0（F08 同类）：索引写盘失败直接返回 false，不再往下算进度——
+            // 原来忽略返回值，章节已换、索引未换，调用方还以为换源成功。
+            // v0.247.0（F08 复核）：失败时恢复旧章节文件，成功后先清备份再删日志。
+            if (!writeIndex(context, list)) {
+                return@runCatching abortTx(context, novelId, cf, backup, hadOld)
+            }
+            finishTx(context, novelId, backup)
             // v0.211.0 审计修复：换源后进度不重映射、角标不清——
             // 新目录变短时旧下标越界，阅读器回第 0 章、书架还显示
             // 旧章数，旧源角标还挂在新源书上。下标越界钳制到末章，
@@ -258,16 +479,21 @@ object NovelStore {
 
 
     /** v0.211.0 审计修复：源 key 变了（改地址/重命名），书架上
-     *  用旧 key 的书要跟着迁，否则静默断源。返回迁移本数。 */
+     *  用旧 key 的书要跟着迁，否则静默断源。返回迁移本数；
+     *  v0.247.0（F09）：写盘失败返回 -1——原来忽略写盘结果，
+     *  调用方无从知道迁移没落盘，书架还指着旧 key。 */
     suspend fun migrateSourceKey(context: Context, oldKey: String, newKey: String): Int =
         withContext(Dispatchers.IO) {
             indexMutex.withLock {
                 val list = readIndex(context)
                 if (list.none { it.sourceKey == oldKey }) return@withContext 0
+                // v0.247.0 复核：copy 只改 sourceKey，原样保留 lastTxId——
+                // 迁移不碰章节文件与事务日志，不影响任何在途/崩溃事务的提交判定；
+                // 且与章节事务共用同一把锁，不会与事务中途交错。
                 val migrated = list.map {
                     if (it.sourceKey == oldKey) it.copy(sourceKey = newKey) else it
                 }
-                writeIndex(context, migrated)
+                if (!writeIndex(context, migrated)) return@withContext -1
                 list.count { it.sourceKey == oldKey }
             }
         }
@@ -284,7 +510,12 @@ object NovelStore {
             // v0.246.0：索引写盘失败直接返回 false，不删章节——
             // 原来不管写没写成都删章节，索引失败时书还在、章节先没了。
             if (!writeIndex(context, readIndex(context).filterNot { it.id == id })) return@runCatching false
-            chaptersFile(context, id).delete()
+            val cf = chaptersFile(context, id)
+            cf.delete()
+            // v0.247.0 复核：删书时顺手清 .bak 与事务日志——残留备份虽由下次事务的恢复逻辑处理，
+            // 但书已删就不该再留它的旧章节备份与未完成事务日志。
+            backupFile(cf).delete()
+            journalFile(context, id).delete()
             true
         }.onFailure { Log.w(TAG, "删除小说失败", it) }.getOrDefault(false)
         }
@@ -315,8 +546,11 @@ object NovelStore {
 
     suspend fun chapters(context: Context, novelId: String): List<Chapter> =
         withContext(Dispatchers.IO) {
+            // v0.247.0 复核：读章节也进 indexMutex——读坏时 preserveCorrupt 会移动文件，
+            // 原来不持锁，可能与备份事务交错。内部调用方 chapter() 不持锁，无重入死锁。
+            indexMutex.withLock {
             val f = chaptersFile(context, novelId)
-            if (!f.isFile) return@withContext emptyList()
+            if (!f.isFile) return@withLock emptyList()
             runCatching {
                 json.decodeFromString(ListSerializer(Chapter.serializer()), f.readText())
             }.onFailure {
@@ -328,6 +562,7 @@ object NovelStore {
                 // 并按过滤后的位置重排 index，与阅读器的位置口径一致。
                 .filterNot { isNavChapterTitle(it.title) }
                 .mapIndexed { i, c -> c.copy(index = i) }
+            }
         }
 
     suspend fun chapter(context: Context, novelId: String, index: Int): Chapter? =
@@ -343,9 +578,11 @@ object NovelStore {
             runCatching {
                 indexMutex.withLock {
                     val all = readIndex(context)
-                    writeIndex(context, all.map {
+                    // v0.247.0（F08 同类）：写盘失败记日志——原来返回值被忽略，
+                    // 进度丢了还没任何痕迹。best-effort 更新，不改返回类型。
+                    if (!writeIndex(context, all.map {
                         if (it.id == novelId) it.copy(lastReadChapter = chapterIndex) else it
-                    })
+                    })) Log.w(TAG, "阅读进度更新失败：索引写盘失败")
                 }
             }.onFailure { Log.w(TAG, "阅读进度更新失败", it) }
         }
@@ -357,9 +594,10 @@ object NovelStore {
             runCatching {
                 indexMutex.withLock {
                     val all = readIndex(context)
-                    writeIndex(context, all.map {
+                    // v0.247.0（F08 同类）：同上，开关丢了记日志，不改返回类型。
+                    if (!writeIndex(context, all.map {
                         if (it.id == novelId) it.copy(updateEnabled = enabled) else it
-                    })
+                    })) Log.w(TAG, "追更开关更新失败：索引写盘失败")
                 }
             }.onFailure { Log.w(TAG, "追更开关更新失败", it) }
         }
@@ -371,6 +609,10 @@ object NovelStore {
      *  磁盘里的原始 index 写回。 */
     suspend fun updateChapterContent(context: Context, novelId: String, index: Int, content: String) =
         withContext(Dispatchers.IO) {
+            // v0.247.0 复核：单章正文写盘也纳入 indexMutex——原来不持锁，
+            // 可能与 addNovel/updateSource 的备份事务交错（固定 .bak 名、章节文件共用）。
+            // 唯一调用方是阅读器（不持锁），函数内不调其他持锁入口，无死锁。
+            indexMutex.withLock {
             runCatching {
                 val f = chaptersFile(context, novelId)
                 if (!f.isFile) return@runCatching
@@ -384,6 +626,7 @@ object NovelStore {
                     json.encodeToString(ListSerializer(Chapter.serializer()), updated),
                 )
             }.onFailure { Log.w(TAG, "章节正文缓存失败", it) }
+            }
         }
 
 }

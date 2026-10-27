@@ -2009,6 +2009,45 @@ private fun RainbowRingCard(
 }
 
 /** v0.104.0：订阅 2 列卡片（收起态，对标 DsPlayer 资源页） */
+/** v0.247.0（DS28）：订阅收起卡与展开卡共用的操作行——开关+编辑+删除+展开/收起，顺序尺寸文案全一致，只差末尾按钮方向。 */
+@Composable
+private fun SubscriptionActionRow(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onEdit: () -> Unit,
+    onRemove: () -> Unit,
+    expandIcon: ImageVector,
+    expandDescription: String,
+    onExpandCollapse: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        AppSwitch(
+            checked = enabled,
+            onCheckedChange = onToggle,
+        )
+        Spacer(Modifier.weight(1f))
+        // v0.112.0：编辑订阅备注/分组
+        IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+            Icon(
+                imageVector = Icons.Filled.Edit,
+                contentDescription = "编辑备注分组",
+            )
+        }
+        IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = "删除",
+            )
+        }
+        IconButton(onClick = onExpandCollapse, modifier = Modifier.size(36.dp)) {
+            Icon(
+                imageVector = expandIcon,
+                contentDescription = expandDescription,
+            )
+        }
+    }
+}
+
 @Composable
 private fun SubscriptionGridCard(
     entry: SourceEntry,
@@ -2040,32 +2079,15 @@ private fun SubscriptionGridCard(
                 )
             }
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AppSwitch(
-                    checked = entry.enabled,
-                    onCheckedChange = onToggle,
-                )
-                Spacer(Modifier.weight(1f))
-                // v0.112.0：编辑订阅备注/分组
-                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Filled.Edit,
-                        contentDescription = "编辑备注分组",
-                    )
-                }
-                IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "删除",
-                    )
-                }
-                IconButton(onClick = onExpand, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Filled.ExpandMore,
-                        contentDescription = "展开站点",
-                    )
-                }
-            }
+            SubscriptionActionRow(
+                enabled = entry.enabled,
+                onToggle = onToggle,
+                onEdit = onEdit,
+                onRemove = onRemove,
+                expandIcon = Icons.Filled.ExpandMore,
+                expandDescription = "展开站点",
+                onExpandCollapse = onExpand,
+            )
         }
     }
 }
@@ -2103,32 +2125,15 @@ private fun SubscriptionExpandedCard(
                 refreshStatus = refreshStatus,
             )
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AppSwitch(
-                    checked = entry.enabled,
-                    onCheckedChange = onToggle,
-                )
-                Spacer(Modifier.weight(1f))
-                // v0.112.0：编辑订阅备注/分组
-                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Filled.Edit,
-                        contentDescription = "编辑备注分组",
-                    )
-                }
-                IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "删除",
-                    )
-                }
-                IconButton(onClick = onCollapse, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Filled.ExpandLess,
-                        contentDescription = "收起",
-                    )
-                }
-            }
+            SubscriptionActionRow(
+                enabled = entry.enabled,
+                onToggle = onToggle,
+                onEdit = onEdit,
+                onRemove = onRemove,
+                expandIcon = Icons.Filled.ExpandLess,
+                expandDescription = "收起",
+                onExpandCollapse = onCollapse,
+            )
             // v0.42.0：完整订阅链接展示 + 复制（原展开逻辑）
             Row(
                 verticalAlignment = Alignment.CenterVertically,

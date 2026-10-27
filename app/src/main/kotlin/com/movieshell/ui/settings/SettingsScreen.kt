@@ -116,7 +116,11 @@ import java.util.Locale
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -288,7 +292,15 @@ fun SettingsScreen(
             AppToast.show(context, if (ok) "背景底图已更换" else "设置失败，换张图片试试", long = false)
         }
     }
-    LaunchedEffect(Unit) {
+    // v0.247.0（F41）：派生值（开关/统计/当前源/缓存占用）原来只在首次
+    // 组合拉一次，别的入口改后回设置页仍显示旧值；抽成 refreshDerived，
+    // 首屏与每次 ON_RESUME 各跑一次（沿用 HomeScreen 的 resume 刷新口径）。
+    // 首屏那次与首次 ON_RESUME 会重复跑一轮，结果幂等、值相同，接受这点浪费。
+    suspend fun refreshDerived() {
+        // 开关重读：备份恢复等跨入口写盘后回页即刷新
+        followCheckEnabled = FollowStore.isCheckEnabled(context)
+        subRefreshEnabled = SubRefreshStore.isEnabled(context)
+        maxParallel = DownloadStore.maxParallel(context)
         runCatching { BackgroundStore.load(context) }
         // v0.101.0：缓存占用（视频 m3u8 分片 + Coil 图片磁盘缓存）
         cacheSize = runCatching { refreshCacheSize(context) }.getOrDefault(cacheSize)
@@ -314,9 +326,21 @@ fun SettingsScreen(
         // 另写一套（只看缓存记录名，禁用／不支持的源也照样显示，缺 PHP
         // 分支），与搜索页“未设置当前源”打架；现在复用搜索页的算法，
         // 只有搜索页认的当前源才显示，否则显示“未设置”。
-        currentSourceName = runCatching { searchCurrentSourceName(context) }.getOrNull() ?: "未设置"
+        // v0.247.0（F41）第 3 轮：刷新失败保留上一次有效值——首屏初值
+        // 就是“未设置”，首屏失败显示不变；回页刷新失败不再把已显示的
+        // 有效源名覆成“未设置”。
+        currentSourceName = runCatching { searchCurrentSourceName(context) }.getOrNull() ?: currentSourceName
         statsFailed = failed
         statsLoaded = true
+    }
+    LaunchedEffect(Unit) { refreshDerived() }
+    val settingsLifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(settingsLifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) scope.launch { refreshDerived() }
+        }
+        settingsLifecycle.addObserver(observer)
+        onDispose { settingsLifecycle.removeObserver(observer) }
     }
 
     // v0.80.0：设置页按 DsPlayer「我的」重设计——信息卡 + 快捷宫格 + 主题卡 + 功能分组

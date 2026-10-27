@@ -468,6 +468,35 @@ fun ReaderScreen(
             withFrameNanos { }
         }
     }
+    // v0.247.0（DS20）：翻页模式末页点下一页不再静默吞掉——排版未完
+    // 时记下待翻页，页数一长出来就自动翻过去；排版已完（真书末）或
+    // 用户已手动翻页时清除，不乱跳。
+    // 第 2 轮：currentPage 必须进 key——只在效果内读它不会订阅变化，
+    // 手动翻页后待翻页要立刻失效，不能等到别的 key 变化才清除；
+    // 自动翻页先把待翻页清零再翻，不会把自己的翻页误判成手动操作。
+    // 第 3 轮：isScrollInProgress 也进 key——滚动中效果只提前返回不清除，
+    // 滚动结束本身必须触发重跑，否则停在原页且无其他 key 变化时待翻页
+    // 永远等不到结算；滚动结束重跑后按页码比对决定清除还是翻页。
+    var pendingPageDownFrom by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(pageMode, pagination.displayPageCount, pagination.fullyDone, pendingPageDownFrom, pagerState.currentPage, pagerState.isScrollInProgress) {
+        if (pageMode == 0 || pendingPageDownFrom < 0) {
+            pendingPageDownFrom = -1
+            return@LaunchedEffect
+        }
+        if (pagerState.isScrollInProgress) return@LaunchedEffect
+        if (pagerState.currentPage != pendingPageDownFrom) {
+            pendingPageDownFrom = -1
+            return@LaunchedEffect
+        }
+        if (pagerState.currentPage < (pagerState.pageCount - 1).coerceAtLeast(0)) {
+            pendingPageDownFrom = -1
+            pagerState.animateScrollToPage(pagerState.currentPage + 1)
+        } else if (pagination.fullyDone) {
+            // 排完了仍停在待翻页：真书末，清除
+            pendingPageDownFrom = -1
+        }
+        // 否则仍在末页且排版未完：留着待翻页，等下一批页
+    }
     // v0.244.0：显示条件一变（字号/行距/字体/屏尺寸），布局版本 +1——分页
     // 整体重建，落点按视口重新定位（下面的 layoutVersion 效果接管）。
     LaunchedEffect(fontSize, lineHeightRatio, fontFamily, pageWidth, pageHeight) {
@@ -719,8 +748,12 @@ fun ReaderScreen(
         } else {
             if (pagerState.currentPage < (pagerState.pageCount - 1).coerceAtLeast(0)) {
                 scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+            } else if (!pagination.fullyDone) {
+                // 排版未完的末页：这次按压记下待翻页，页一排出来就自动翻，
+                // 不再让用户对着没反应的末页空按。
+                pendingPageDownFrom = pagerState.currentPage
             }
-            // 已到已确认末页：分页效果在向后排，排到了再按；全书排完就是书末，停住。
+            // 已到已确认末页且排版已完：全书排完就是书末，停住。
         }
     }
 

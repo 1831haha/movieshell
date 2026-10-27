@@ -179,10 +179,12 @@ object SubSiteStore {
                 }
                 cache.copy(sites = sites)
             }
-            if (changed) saveAll(context, repaired)
+            val saved = if (changed) saveAll(context, repaired) else true
             Log.i(TAG, "v0.8.0 spider 站修复完成，changed=$changed")
             // v0.186.0 M21：只在成功时置标记；异常时不清标记，下次启动可重试
-            prefs.edit().putBoolean(KEY_REPAIRED_080, true).apply()
+            // v0.247.0（F28）：saveAll 失败也不置标记——原来它内部吞异常，
+            // 标记照置、修复永久丢失；未改动时无需写盘，直接置标记。
+            if (saved) prefs.edit().putBoolean(KEY_REPAIRED_080, true).apply()
         } catch (e: Exception) {
             Log.w(TAG, "spider 站修复异常", e)
         }
@@ -339,8 +341,13 @@ object SubSiteStore {
         }
     }
 
-    private fun saveAll(context: Context, all: Map<String, SubCache>) {
-        try {
+    // v0.247.0（F28）：写盘结果改返回 Boolean——原来吞异常只记日志，
+    // 调用方以为写成了；刷新两路必须查它（失败变 Result.failure），
+    // 两处升级修复用它决定是否置“已修复”标记；其余语句位调用（蜘蛛
+    // jar 回填、删订阅、启停、备注）失败后果自显（下次重读即见旧值、
+    // jar 回填下次重取），不另改签名，见 GPT 复核说明。
+    private fun saveAll(context: Context, all: Map<String, SubCache>): Boolean {
+        return try {
             // v0.187.0 H15：落盘前只把 drpy/py 规则的本地 api 换算成逻辑根
             // 相对路径（如 js/subs/xxx.js），内存态仍是当前根绝对路径
             val stored = all.values.map { cache ->
@@ -354,10 +361,13 @@ object SubSiteStore {
                 SubCacheFile.serializer(),
                 SubCacheFile(stored),
             )
-            // v0.170.0：原子写盘
+            // v0.170.0：原子写盘。注意：writeText 永不抛异常，失败返回
+            // false，必须原样返回它的 Boolean——第 1 轮写成“调完写 true”，
+            // 写盘返回 false 时 saveAll 照样报 true，刷新失败抛不出来。
             AtomicFile.writeText(File(context.filesDir, FILE_NAME), text)
         } catch (e: Exception) {
             Log.w(TAG, "写入 $FILE_NAME 失败", e)
+            false
         }
     }
 
@@ -390,7 +400,7 @@ object SubSiteStore {
                     )
                     val all = loadAll(context).toMutableMap()
                     all[cache.subUrl] = cache
-                    saveAll(context, all)
+                    if (!saveAll(context, all)) throw IllegalStateException("订阅缓存写盘失败，刷新结果未落盘")
                     return@runCatching cache
                 }
                 val config = TvBoxConfigParser.parseConfig(raw)
@@ -425,8 +435,9 @@ object SubSiteStore {
                 )
                 val all = loadAll(context).toMutableMap()
                 all[cache.subUrl] = cache
-                saveAll(context, all)
+                if (!saveAll(context, all)) throw IllegalStateException("订阅缓存写盘失败，刷新结果未落盘")
                 // v0.8.0：订阅刷新后 spider jar 可能已更新，清掉旧缓存下次重下
+                // （写盘失败时抛在上面，不走到这里，旧 jar 仍对得上旧缓存）
                 SpiderEngine.evict(context, cache.subUrl)
                 cache
             }.onFailure { LogBus.e(TAG, "订阅刷新失败 $subUrl：${it.message}") }
@@ -562,10 +573,11 @@ object SubSiteStore {
                 }
                 cache.copy(sites = sites)
             }
-            if (changed) saveAll(context, repaired)
+            val saved = if (changed) saveAll(context, repaired) else true
             Log.i(TAG, "v0.5.1 升级修复完成，changed=$changed")
             // v0.186.0 M21：只在成功时置标记；异常时不清标记，下次启动可重试
-            prefs.edit().putBoolean(KEY_REPAIRED_051, true).apply()
+            // v0.247.0（F28）：saveAll 失败也不置标记（同上）；未改动时直接置标记。
+            if (saved) prefs.edit().putBoolean(KEY_REPAIRED_051, true).apply()
         } catch (e: Exception) {
             Log.w(TAG, "升级修复异常", e)
         }
@@ -687,6 +699,10 @@ object SubSiteStore {
             }
             val dir = File(base, dir2).apply { mkdirs() }
             val dst = File(dir, name)
+            // v0.247.0（DS12 同类）：原来直接往目标文件写，失败时删目标——
+            // 刷新失败会把旧版规则文件也丢掉。改经 .part 暂存，成功后改名；
+            // 失败只删 .part，旧版规则留着，下次刷新再试。
+            val part = File(dir, "$name.part")
             var lastErr: String? = null
             var tryUrl = url
             var lowered = false
@@ -696,18 +712,24 @@ object SubSiteStore {
                     client.newCall(req).execute().use { resp ->
                         if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
                         resp.body?.byteStream()?.use { input ->
-                            dst.outputStream().use { input.copyTo(it) }
+                            part.outputStream().use { input.copyTo(it) }
                         } ?: throw IllegalStateException("空响应体")
                     }
-                    if (dst.length() == 0L) {
-                        dst.delete()
+                    if (part.length() == 0L) {
+                        part.delete()
                         throw IllegalStateException("下载为空")
+                    }
+                    // v0.247.0（DS12 复核）：不用先删旧目标再改名（改名失败时
+                    // 旧规则已丢）；改走 AtomicFile 备份替换，落位失败恢复旧目标。
+                    if (!AtomicFile.replaceFile(part, dst)) {
+                        part.delete()
+                        throw IllegalStateException("规则落盘失败")
                     }
                     LogBus.i(TAG, "规则下载成功：${dst.absolutePath}")
                     return dst
                 } catch (e: Exception) {
                     lastErr = e.message
-                    dst.delete()
+                    part.delete()
                     val msg = (e as? IllegalStateException)?.message.orEmpty()
                     // 404 且没试过小写路径：把 host 后的路径全转小写再试一次（不占 3 次重试）
                     if (msg.contains("HTTP 404") && !lowered) {

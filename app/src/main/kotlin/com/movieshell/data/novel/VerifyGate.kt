@@ -4,6 +4,7 @@ import android.content.Context
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -121,6 +122,10 @@ object VerifyGate {
                     webView?.destroy()
                 }
             }
+        } catch (e: CancellationException) {
+            // v0.247.0（取消语义）：验证等待被取消时原样抛出，不当成验证失败
+            // 返回 null——否则调用方会继续弹可见验证页，白白多走一步。
+            throw e
         } catch (e: Exception) {
             null
         }

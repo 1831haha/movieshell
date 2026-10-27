@@ -27,6 +27,12 @@ class V8SmokeTest {
     fun drpyHomeSmoke() = runBlocking {
         JsRuntime.init(ctx)
         log("jsSourcesSupported = ${JsRuntime.jsSourcesSupported}")
+        // v0.247.0（F45）：门禁原来在 home() 跑完之后才查，能力不足的设备
+        // 上引擎调用先跑了才跳过；现挪到一切引擎调用之前，不足直接跳过。
+        if (!JsRuntime.jsSourcesSupported) {
+            log("设备不支持 V8 sandbox，跳过断言（不算失败）")
+            return@runBlocking
+        }
 
         val engine = V8DrpyEngine(ctx)
         try {
@@ -38,10 +44,6 @@ class V8SmokeTest {
             log("home() 返回 ${vods.size} 条，耗时 ${cost}ms")
             vods.take(3).forEach { log("sample: ${it.vodName} | ${it.vodRemarks}") }
 
-            if (!JsRuntime.jsSourcesSupported) {
-                log("设备不支持 V8 sandbox，跳过断言（不算失败）")
-                return@runBlocking
-            }
             assertTrue("home() 应返回非空列表，实际 ${vods.size} 条", vods.isNotEmpty())
 
             val cats = engine.categories()
@@ -55,17 +57,21 @@ class V8SmokeTest {
     @Test
     fun drpySearchSmoke() = runBlocking {
         JsRuntime.init(ctx)
+        // v0.247.0（F45）：原先无门禁，能力不足的设备上第一次 search()
+        // 直接跑、抛错算失败；现与 home 测试同款，引擎调用前先跳过。
+        if (!JsRuntime.jsSourcesSupported) {
+            log("设备不支持 V8 sandbox，跳过断言（不算失败）")
+            return@runBlocking
+        }
         val engine = V8DrpyEngine(ctx)
         try {
             val ruleJs = ctx.assets.open("drpy/sp002.js").bufferedReader().readText()
             engine.loadRule(ruleJs)
             val vods = engine.search("哪吒")
             log("search('哪吒') 返回 ${vods.size} 条")
-            if (JsRuntime.jsSourcesSupported) {
-                // 搜索依赖远端 MeiliSearch，网络波动允许空结果：只验证引擎不抛、可重入
-                val again = engine.search("哪吒")
-                log("search 可重入，第二次返回 ${again.size} 条")
-            }
+            // 搜索依赖远端 MeiliSearch，网络波动允许空结果：只验证引擎不抛、可重入
+            val again = engine.search("哪吒")
+            log("search 可重入，第二次返回 ${again.size} 条")
         } finally {
             engine.release()
         }

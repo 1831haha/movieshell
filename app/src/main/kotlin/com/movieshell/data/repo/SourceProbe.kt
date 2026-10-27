@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import java.io.File
@@ -276,6 +277,10 @@ object SourceProbe {
     ) = coroutineScope {
         tasks.map { task ->
             async(Dispatchers.IO) {
+                // v0.247.0（F36）：启动前先确认未取消——取消后才分到 IO 线程
+                // 的子任务直接死掉，不再新开探测；已在跑的探测，执行等待最多
+                // 8 秒（future.get，信号量排队不在此限）。
+                ensureActive()
                 val res = task.probe()
                 onResult(task, res)
             }

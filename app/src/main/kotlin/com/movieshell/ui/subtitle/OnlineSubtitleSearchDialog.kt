@@ -36,6 +36,7 @@ import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.player.PlayerDialogCard
 import com.movieshell.ui.theme.SoftType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -80,6 +81,9 @@ fun OnlineSubtitleSearchDialog(
         searched = false
         scope.launch {
             results = runCatching { source.search(k) }.onFailure {
+                // v0.247.0（F43）：搜索被取消（关对话框）时原样抛出，不当成
+                // 搜索失败弹 Toast、不翻成“没搜到”；取消后下面的两行不执行。
+                if (it is CancellationException) throw it
                 LogBus.w("Subtitle", "在线字幕搜索失败：${it.message}")
                 AppToast.show(context, "搜索失败：${it.message}", long = false)
             }.getOrDefault(emptyList())
@@ -158,6 +162,9 @@ fun OnlineSubtitleSearchDialog(
                                         }.onSuccess { url ->
                                             onPick(url)
                                         }.onFailure {
+                                            // v0.247.0（F43 同类）：下载被取消时原样抛出，
+                                            // 不当成下载失败弹 Toast。
+                                            if (it is CancellationException) throw it
                                             LogBus.w("Subtitle", "字幕下载失败：${it.message}")
                                             AppToast.show(context, "下载失败：${it.message}", long = false)
                                         }

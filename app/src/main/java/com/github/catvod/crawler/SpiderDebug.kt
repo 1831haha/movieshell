@@ -13,6 +13,8 @@ object SpiderDebug {
 
     @JvmStatic
     fun log(e: Throwable) {
-        LogBus.e("SpiderDebug", e.message ?: e.toString())
+        // v0.247.0（F31）：原来只记 message，无堆栈定位不了；签名不动
+        //（jar 侧 dex 直调），只在消息后附堆栈。
+        LogBus.e("SpiderDebug", e.message ?: e.toString(), e)
     }
 }

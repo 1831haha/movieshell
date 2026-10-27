@@ -83,9 +83,13 @@ object NovelSourceEngine {
         // v0.225.0：全链路诊断——首抓、后台验证、重抓三处结果全记进悬浮窗，
         // 只记状态码/长度/有无 cf_clearance，不记正文与 Cookie 值。
         LogBus.w(TAG, "搜书抓取 ${source.name} 首抓空 httpCode=${first.httpCode}，进验证")
-        val bg = runCatching { VerifyGate.awaitVerifyBackground(gateUrl, ua) }.getOrNull()
+        val bg = runCatching { VerifyGate.awaitVerifyBackground(gateUrl, ua) }
+            .onFailure { if (it is CancellationException) throw it }
+            .getOrNull()
         LogBus.d(TAG, "搜书验证 ${source.name} 后台=${if (bg == null) "失败" else "通过 cf=${bg.cookieHeader.contains("cf_clearance=")} htmlLen=${bg.html.length} cookieLen=${bg.cookieHeader.length}"}")
-        val result = bg ?: runCatching { VerifyGate.awaitVerify(gateUrl, source.name, ua) }.getOrNull()
+        val result = bg ?: runCatching { VerifyGate.awaitVerify(gateUrl, source.name, ua) }
+            .onFailure { if (it is CancellationException) throw it }
+            .getOrNull()
         if (result == null) {
             LogBus.w(TAG, "搜书验证 ${source.name} 可见验证未通过")
             return null
@@ -174,7 +178,13 @@ object NovelSourceEngine {
             async {
                 s to searchSemaphore.withPermit {
                     runCatching { search(s, keyword, allowGate) }
-                        .onFailure { LogBus.w(TAG, "搜索失败 ${s.name}: ${it.message}") }
+                        .onFailure {
+                            // v0.247.0（取消语义）：取消不算源失败——原样抛出，
+                            // 让协程正常取消（v0.230.0 bookDetail 同款）；否则旧搜索
+                            // 被取消后仍正常返回空结果，覆盖新搜索的结果。
+                            if (it is CancellationException) throw it
+                            LogBus.w(TAG, "搜索失败 ${s.name}: ${it.message}")
+                        }
                         .getOrDefault(emptyList())
                 }
             }
@@ -602,7 +612,11 @@ object NovelSourceEngine {
     ): List<NovelSearchResult> {
         val path = PyBookSourceManager.rulePath(context, rule.name) ?: return emptyList()
         return runCatching { pyBookApi.search(path, keyword) }
-            .onFailure { LogBus.w(TAG, "PY 书源搜索失败 ${rule.name}: ${it.message}") }
+            .onFailure {
+                // v0.247.0（取消语义）：同 searchAll，取消原样抛出。
+                if (it is CancellationException) throw it
+                LogBus.w(TAG, "PY 书源搜索失败 ${rule.name}: ${it.message}")
+            }
             .getOrDefault(emptyList())
             .map { it.copy(sourceKey = PyBookSourceManager.SOURCE_KEY_PREFIX + rule.name) }
     }
@@ -630,7 +644,11 @@ object NovelSourceEngine {
     suspend fun chaptersPy(context: Context, book: NovelSearchResult): List<ChapterMeta> {
         val path = pyRulePath(context, book) ?: return emptyList()
         return runCatching { pyBookApi.detail(path, book.remoteId)?.chapters.orEmpty() }
-            .onFailure { LogBus.w(TAG, "PY 书源目录失败 ${book.sourceKey}: ${it.message}") }
+            .onFailure {
+                // v0.247.0（取消语义）：同 searchAll，取消原样抛出。
+                if (it is CancellationException) throw it
+                LogBus.w(TAG, "PY 书源目录失败 ${book.sourceKey}: ${it.message}")
+            }
             .getOrDefault(emptyList())
             // v0.194.0：导航章兜底过滤（见 NovelStore.isNavChapterTitle）。
             .filterNot { NovelStore.isNavChapterTitle(it.title) }
@@ -643,7 +661,11 @@ object NovelSourceEngine {
         val path = PyBookSourceManager.rulePath(context, name) ?: return ""
         if (chapter.url.isBlank()) return ""
         return runCatching { pyBookApi.chapter(path, chapter.url) }
-            .onFailure { LogBus.w(TAG, "PY 书源正文失败 $sourceKey: ${it.message}") }
+            .onFailure {
+                // v0.247.0（取消语义）：同 searchAll，取消原样抛出。
+                if (it is CancellationException) throw it
+                LogBus.w(TAG, "PY 书源正文失败 $sourceKey: ${it.message}")
+            }
             .getOrDefault("")
     }
 }
