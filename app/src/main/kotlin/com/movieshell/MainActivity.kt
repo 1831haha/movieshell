@@ -642,6 +642,12 @@ class MainActivity : ComponentActivity() {
                                             "&cover=${Uri.encode(item.cover.orEmpty())}",
                                     )
                                 },
+                                // v0.248.0：发现页胶囊进单源发现页（分类预选）。
+                                onOpenExplore = { key, cat ->
+                                    navController.navigate(
+                                        "explore/${Uri.encode(key)}?cat=${Uri.encode(cat.orEmpty())}",
+                                    )
+                                },
                             )
                         }
                         composable(
@@ -728,11 +734,15 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(
-                            "explore/{sourceKey}",
-                            arguments = listOf(navArgument("sourceKey") { type = NavType.StringType }),
+                            "explore/{sourceKey}?cat={cat}",
+                            arguments = listOf(
+                                navArgument("sourceKey") { type = NavType.StringType },
+                                navArgument("cat") { type = NavType.StringType; defaultValue = "" },
+                            ),
                         ) { entry ->
                             ExploreScreen(
                                 sourceKey = entry.arguments?.getString("sourceKey").orEmpty(),
+                                initialCategory = entry.arguments?.getString("cat")?.takeIf { it.isNotBlank() },
                                 onBack = { navController.popBackStack() },
                             )
                         }

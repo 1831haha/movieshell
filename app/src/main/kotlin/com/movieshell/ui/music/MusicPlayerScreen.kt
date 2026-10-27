@@ -1,5 +1,6 @@
 package com.movieshell.ui.music
 
+import android.animation.ValueAnimator
 import androidx.compose.animation.core.Animatable
 import com.movieshell.ui.components.AppToast
 import androidx.compose.animation.core.LinearEasing
@@ -60,6 +61,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -77,12 +79,16 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -164,15 +170,38 @@ fun MusicPlayerScreen(
     var showQueueDialog by remember { mutableStateOf(false) }
     val sleepRemaining by MusicSleepTimer.remainingMs.collectAsState()
     val sleepArmed by MusicSleepTimer.afterEpisodeArmed.collectAsState()
+    // v0.248.0：减动效总开关——跟系统“移除动画”（动画时长缩放为 0）走，
+    // 进页时读一次；开启动画全部停在静态，状态本身仍正常显示。
+    val reducedMotion = rememberReducedMotion()
     // v0.89.0 的封面旋转，v0.130.0 恢复：只转大封面，参数沿用旧实现
     // （9 秒一圈匀速；暂停时 LaunchedEffect key 变化自动取消，停在当前
     // 角度；angle 不按曲目 key，切歌不重置）
     val angle = remember { Animatable(0f) }
-    LaunchedEffect(playState.playing) {
-        if (playState.playing) {
+    LaunchedEffect(playState.playing, reducedMotion) {
+        if (playState.playing && !reducedMotion) {
             while (true) {
                 angle.animateTo(angle.value + 360f, tween(9000, easing = LinearEasing))
             }
+        }
+    }
+    // v0.248.0：切歌封面淡入——只跟封面地址走，播停不触发；减动效时直接切。
+    val coverAlpha = remember { Animatable(1f) }
+    LaunchedEffect(shownArt, reducedMotion) {
+        if (reducedMotion) {
+            coverAlpha.snapTo(1f)
+        } else {
+            coverAlpha.snapTo(0f)
+            coverAlpha.animateTo(1f, tween(400))
+        }
+    }
+    // v0.248.0：播停按钮轻缩放反馈——只跟播停走，不动按钮容器尺寸；减动效时跳过。
+    val playIconScale = remember { Animatable(1f) }
+    LaunchedEffect(playState.playing, reducedMotion) {
+        if (reducedMotion) {
+            playIconScale.snapTo(1f)
+        } else {
+            playIconScale.snapTo(0.7f)
+            playIconScale.animateTo(1f, tween(200))
         }
     }
 
@@ -208,7 +237,7 @@ fun MusicPlayerScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PlayerAtmosphere(artUrl = shownArt)
+        PlayerAtmosphere(artUrl = shownArt, reducedMotion = reducedMotion)
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
@@ -301,7 +330,10 @@ fun MusicPlayerScreen(
                                     modifier = Modifier
                                         .size(side)
                                         .clip(CircleShape)
-                                        .graphicsLayer { rotationZ = angle.value },
+                                        .graphicsLayer {
+                                            rotationZ = angle.value
+                                            alpha = coverAlpha.value
+                                        },
                                     contentScale = ContentScale.Crop,
                                 )
                             } else {
@@ -309,7 +341,10 @@ fun MusicPlayerScreen(
                                     modifier = Modifier
                                         .size(side)
                                         .clip(CircleShape)
-                                        .graphicsLayer { rotationZ = angle.value }
+                                        .graphicsLayer {
+                                            rotationZ = angle.value
+                                            alpha = coverAlpha.value
+                                        }
                                         .background(Color.White.copy(alpha = 0.06f))
                                         .border(
                                             1.dp,
@@ -491,6 +526,12 @@ fun MusicPlayerScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    // v0.248.0：播放状态跳动条——播着跳、停了回落成平线，减动效时恒平线。
+                    // 固定 21dp 宽不伸展，歌手文本 weight 1f 承担剩余宽度，窄屏只省略歌名不挤压。
+                    PlayingBars(
+                        playing = playState.playing,
+                        reducedMotion = reducedMotion,
+                    )
                     if (!track.isLocal) {
                         MusicApi.platformLabel(
                             MusicApi.normalizeSource(track.source),
@@ -643,7 +684,12 @@ fun MusicPlayerScreen(
                                 if (playState.playing) Icons.Filled.Pause
                                 else Icons.Filled.PlayArrow,
                                 contentDescription = if (playState.playing) "暂停" else "播放",
-                                modifier = Modifier.size(44.dp),
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .graphicsLayer {
+                                        scaleX = playIconScale.value
+                                        scaleY = playIconScale.value
+                                    },
                                 tint = Color.White,
                             )
                         }
@@ -754,8 +800,67 @@ private val PlayerChipTint = Color(0xFFE9EBF5)
  * 无封面时用品牌炫彩渐变（低透明度）铺在深色基底上，再罩同一层蒙版，
  * 保证标题区文字对比度。模糊在低版本系统上自动退化为原图 + 蒙版。
  */
+/** v0.248.0：系统减动效——用平台标准接口（动画时长缩放为 0 或无障碍移除动画
+ * 时均返回 false），进页读一次、每次回到前台重读（照 HomeScreen 的 ON_RESUME
+ * 写法）；开启时动效全部静态，状态本身仍正常显示。 */
 @Composable
-private fun PlayerAtmosphere(artUrl: String) {
+private fun rememberReducedMotion(): Boolean {
+    var reducedMotion by remember { mutableStateOf(!ValueAnimator.areAnimatorsEnabled()) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                reducedMotion = !ValueAnimator.areAnimatorsEnabled()
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    return reducedMotion
+}
+
+/** v0.248.0：播放状态跳动条（4 条）——播着错峰起伏、停了回落成平线、
+ * 减动效时恒平线；只动绘制层缩放，不触发布局。 */
+@Composable
+private fun PlayingBars(playing: Boolean, reducedMotion: Boolean) {
+    val bars = remember { List(4) { Animatable(0.25f) } }
+    LaunchedEffect(playing, reducedMotion) {
+        if (!playing || reducedMotion) {
+            bars.forEach { it.animateTo(0.25f, tween(200)) }
+        } else {
+            bars.forEachIndexed { i, bar ->
+                launch {
+                    while (true) {
+                        bar.animateTo(1f, tween(420 + i * 140, easing = LinearEasing))
+                        bar.animateTo(0.25f, tween(420 + i * 140, easing = LinearEasing))
+                    }
+                }
+            }
+        }
+    }
+    Row(
+        modifier = Modifier.height(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        bars.forEach { bar ->
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(14.dp)
+                    .graphicsLayer {
+                        scaleY = bar.value
+                        transformOrigin = TransformOrigin(0.5f, 1f)
+                    }
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color(0xFF4DD0E1)),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayerAtmosphere(artUrl: String, reducedMotion: Boolean) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -782,6 +887,64 @@ private fun PlayerAtmosphere(artUrl: String) {
                         Brush.verticalGradient(
                             LocalBrandGradient.current.map { it.copy(alpha = 0.32f) },
                         ),
+                    ),
+            )
+        }
+        // v0.248.0：流动光斑（装饰层）——两团品牌色径向光低速漂移＋透明度呼吸，
+        // 只动绘制层位移，不做模糊、不改布局；减动效时整层不画。
+        if (!reducedMotion) {
+            val brand = LocalBrandGradient.current
+            val drift1 = remember { Animatable(0f) }
+            val drift2 = remember { Animatable(0f) }
+            LaunchedEffect(Unit) {
+                launch {
+                    while (true) {
+                        drift1.animateTo(1f, tween(14000, easing = LinearEasing))
+                        drift1.animateTo(0f, tween(14000, easing = LinearEasing))
+                    }
+                }
+                launch {
+                    while (true) {
+                        drift2.animateTo(1f, tween(19000, easing = LinearEasing))
+                        drift2.animateTo(0f, tween(19000, easing = LinearEasing))
+                    }
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .size(300.dp)
+                    .offset(30.dp, 90.dp)
+                    .graphicsLayer {
+                        translationX = drift1.value * 50f
+                        translationY = drift1.value * 34f
+                    }
+                    .background(
+                        Brush.radialGradient(
+                            listOf(
+                                (brand.firstOrNull() ?: Color.Cyan).copy(alpha = 0.22f),
+                                Color.Transparent,
+                            ),
+                        ),
+                        CircleShape,
+                    ),
+            )
+            Box(
+                modifier = Modifier
+                    .size(340.dp)
+                    .align(Alignment.BottomEnd)
+                    .offset((-20).dp, (-140).dp)
+                    .graphicsLayer {
+                        translationX = -drift2.value * 46f
+                        translationY = -drift2.value * 30f
+                    }
+                    .background(
+                        Brush.radialGradient(
+                            listOf(
+                                (brand.lastOrNull() ?: Color.Magenta).copy(alpha = 0.20f),
+                                Color.Transparent,
+                            ),
+                        ),
+                        CircleShape,
                     ),
             )
         }

@@ -64,6 +64,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun ExploreScreen(
     sourceKey: String,
+    // v0.248.0：发现页胶囊点进来时预选该分类；空则沿用原来默认首分类。
+    initialCategory: String? = null,
     onBack: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -110,10 +112,12 @@ fun ExploreScreen(
         }
     }
 
-    LaunchedEffect(categories.firstOrNull()) {
+    // v0.248.0：effect key 带上 initialCategory——同页内初始分类变化时也能重匹配；
+    // 已选过分类时守卫（selected != null）拦住，不会覆盖用户点的分类。
+    LaunchedEffect(categories.firstOrNull(), initialCategory) {
         val first = categories.firstOrNull() ?: return@LaunchedEffect
         if (selected == null) {
-            selected = first
+            selected = categories.firstOrNull { it.title == initialCategory } ?: first
             page = 1
         }
     }

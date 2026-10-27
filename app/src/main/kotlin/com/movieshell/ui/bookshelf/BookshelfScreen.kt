@@ -144,6 +144,8 @@ fun BookshelfScreen(
     onOpenPurifyRules: () -> Unit = {},
     // v0.229.0：内嵌找书点结果卡片进书籍信息整页（由宿主导航）。
     onOpenDetail: (SourceGroup, NovelSearchResult) -> Unit = { _, _ -> },
+    // v0.248.0：发现页胶囊点进单源发现页（源 key＋分类标题，由宿主导航）。
+    onOpenExplore: (String, String?) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -165,6 +167,8 @@ fun BookshelfScreen(
 
     // v0.197.0：阅读式页签（全部 / 更新失败）+ 上次检查失败的书 id（持久化在 prefs）
     var shelfTab by remember { mutableStateOf(0) }
+    // v0.248.0：书架内页签（书架 / 发现）；发现页是书架子结构，不占底部导航。
+    var mainTab by remember { mutableStateOf(0) }
     var failedIds by remember { mutableStateOf(BookshelfGroupStore.failedIds(context)) }
 
     // v0.98.0：多选模式
@@ -559,6 +563,38 @@ fun BookshelfScreen(
         ) {
             Spacer(Modifier.height(12.dp))
 
+            // v0.248.0：书架内页签（书架 / 发现，参考图顶行结构，与全部/失败同款下划线样式）。
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                listOf(0 to "书架", 1 to "发现").forEachIndexed { i, (tab, label) ->
+                    if (i > 0) Spacer(Modifier.width(18.dp))
+                    val tabSelected = mainTab == tab
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { mainTab = tab },
+                    ) {
+                        Text(
+                            label,
+                            fontSize = 15.sp,
+                            fontWeight = if (tabSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (tabSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Box(
+                            modifier = Modifier
+                                .width(20.dp)
+                                .height(2.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (tabSelected) MaterialTheme.colorScheme.primary
+                                    else Color.Transparent,
+                                ),
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            if (mainTab == 0) {
             // v0.197.0：顶行左侧改阅读式页签（全部 / 更新失败，选中带主题色下划线）；
             // 179 的“全部”分组胶囊并入页签，不再重复出现。
             Row(
@@ -945,6 +981,10 @@ fun BookshelfScreen(
                 }
             }
             } // v0.178.0：闭合 PullToRefreshBox
+            } else {
+                // v0.248.0：发现内页（书源列表＋分类胶囊，搜索/排序/分组只属于书架分支）。
+                DiscoverTab(onOpenExplore = onOpenExplore)
+            }
             }
         }
     }

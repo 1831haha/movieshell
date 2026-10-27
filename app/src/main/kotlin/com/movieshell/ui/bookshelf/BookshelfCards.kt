@@ -97,8 +97,11 @@ fun Novel.readFraction(): Float {
 }
 
 /** v0.197.0：阅读式列表行——不用玻璃卡片，plain 行 + 底部分隔线；四行信息
- * （书名+未读数角标 / 作者 / 已读章节 / 共 N 章·上次阅读），进度条去掉，
- * 与阅读书架行结构对齐。网格卡片不动（书架布局切换时仍用）。 */
+ * （书名+未读数角标 / 作者 / 已读章节 / 最新章节或上次阅读），进度条去掉，
+ * 与阅读书架行结构对齐。网格卡片不动（书架布局切换时仍用）。
+ * v0.248.0：按参考图改行式——封面放大到 68x92、书名放宽到两行、行尾加总章数
+ * 浅蓝胶囊，总章数只由胶囊承担、不再在正文重复；数据口径与回调一律不动，
+ * 网格卡片仍不动。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NovelListCard(
@@ -122,7 +125,7 @@ fun NovelListCard(
         Row(
             modifier = Modifier
                 .bookPressable(onClick = onClick, onLongClick = onLongClick)
-                .padding(vertical = 10.dp),
+                .padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (selectionMode) {
@@ -134,7 +137,7 @@ fun NovelListCard(
             }
             Box(
                 modifier = Modifier
-                    .size(width = 46.dp, height = 62.dp)
+                    .size(width = 68.dp, height = 92.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
@@ -155,7 +158,7 @@ fun NovelListCard(
                     )
                 }
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -164,7 +167,7 @@ fun NovelListCard(
                         fontWeight = FontWeight.SemiBold,
                         // v0.109.0 A9：书名在玻璃卡片上，亮色主题白底青字难读，用明度自适应青色
                         color = accentTitleColor(),
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
@@ -201,11 +204,27 @@ fun NovelListCard(
                 Spacer(Modifier.height(2.dp))
                 NovelMetaRow(
                     icon = Icons.Filled.LibraryBooks,
-                    // v0.214.0：书架行补最新章节标题；老数据无标题时回落原来的“共 N 章 · 上次阅读”。
-                    text = novel.latestChapterTitle?.takeIf { it.isNotBlank() }?.let { "共 $total 章 · 最新：$it" }
-                        ?: "共 $total 章 · ${formatLastReadTs(lastReadAt)}",
+                    // v0.248.0：总章数改由行尾胶囊承担，本行只留最新章节或上次阅读，
+                    // 不再重复写共 N 章（GPT 第 1 批复核：去重）。
+                    text = novel.latestChapterTitle?.takeIf { it.isNotBlank() }?.let { "最新：$it" }
+                        ?: formatLastReadTs(lastReadAt),
                 )
             }
+            // v0.248.0：行尾总章数胶囊（参考图右侧“80话”位）——浅蓝底自适应青字，
+            // 深色主题下用低透明度蓝底，不照搬亮底；只展示，不可点。
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "${total}章",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = accentTitleColor(),
+                modifier = Modifier
+                    .background(
+                        Color(0xFF4DD0E1).copy(alpha = 0.14f),
+                        RoundedCornerShape(10.dp),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
             // v0.211.0：行尾逐本状态——转圈 = 这本还在查，停了就是查完了；
             // 失败贴红色“失败”，有更新的数字角标本来就在书名旁。
             if (checking) {
