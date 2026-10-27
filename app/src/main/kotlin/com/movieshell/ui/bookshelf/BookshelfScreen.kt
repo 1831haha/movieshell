@@ -981,10 +981,11 @@ fun BookshelfScreen(
                 }
             }
             } // v0.178.0：闭合 PullToRefreshBox
-            } else {
+            } // 闭合 searching else 分支（v0.248.0 修复：原 } else 误配给 searching，属第二重 else）
+            } // 闭合 mainTab == 0 分支
+            if (mainTab != 0) {
                 // v0.248.0：发现内页（书源列表＋分类胶囊，搜索/排序/分组只属于书架分支）。
                 DiscoverTab(onOpenExplore = onOpenExplore)
-            }
             }
         }
     }

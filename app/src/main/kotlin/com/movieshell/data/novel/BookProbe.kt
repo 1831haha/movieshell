@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import okhttp3.Call
 import okhttp3.Callback
@@ -43,6 +45,7 @@ object BookProbeStore {
     private const val TAG = "BookProbeStore"
     private const val FILE_NAME = "book_probe.json"
     private val json = Json { ignoreUnknownKeys = true }
+    private val mapSer = MapSerializer(String.serializer(), BookProbeRecord.serializer())
 
     private val _map = MutableStateFlow<Map<String, BookProbeRecord>>(emptyMap())
     val map: StateFlow<Map<String, BookProbeRecord>> = _map
@@ -65,7 +68,7 @@ object BookProbeStore {
             _map.value = _map.value + (key to record)
             val ok = AtomicFile.writeText(
                 File(context.filesDir, FILE_NAME),
-                json.encodeToString(_map.value),
+                json.encodeToString(mapSer, _map.value),
             )
             if (!ok) Log.w(TAG, "写入小说源探测结果失败")
         }
