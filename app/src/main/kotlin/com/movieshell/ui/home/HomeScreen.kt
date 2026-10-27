@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -1676,8 +1677,9 @@ fun HomeScreen(
 
 /** v0.78.3：紧凑列表行——小海报 + 标题 + 副标题 */
 /** v0.247.0（DS27）：两行共用的标题+副标题块——原来两处逐字重复；字号/颜色/跑马灯/省略全一致，只差副标题前有无 4dp 间隔。 */
+/** v0.247.1 修复：抽成独立函数后 RowScope 丢失，weight(1f) 编译失败——改为 RowScope 扩展，两处调用点都在 Row 内。 */
 @Composable
-private fun HomeRowTexts(vod: ModelVod, subtitle: String?, subtitleGap: Boolean) {
+private fun RowScope.HomeRowTexts(vod: ModelVod, subtitle: String?, subtitleGap: Boolean) {
     Column(modifier = Modifier.weight(1f)) {
         Text(
             text = vod.vodName,
