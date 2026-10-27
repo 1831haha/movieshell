@@ -40,6 +40,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -357,7 +359,8 @@ fun SoftBottomDock(
     modifier: Modifier = Modifier,
 ) {
     // v0.238.0：底栏贴底拉平——去掉悬浮边距与圆角，通栏贴底；
-    // 高 60dp、直角、无阴影，只留顶部一道描边；选中色与图标字体不动。
+    // 高 60dp、直角、无阴影，只留顶部一道发丝线（v0.251.0：此前代码仍是四边描边，现改实）；
+    // 选中色与图标字体不动。
     val shape = RoundedCornerShape(0.dp)
     // v0.237.0：浅色下底栏按参考图——白底、浅灰描边、参考蓝选中、灰字未选中；
     // 深色保持夜航极简原样（颜色）。
@@ -368,7 +371,16 @@ fun SoftBottomDock(
         modifier = modifier
             .fillMaxWidth()
             .height(60.dp)
-            .border(1.dp, if (isLight) Color(0xFFE8EAED) else Color(0x1FFFFFFF), shape),
+            .drawBehind {
+                // v0.251.0：四边描边改顶部一道发丝线，与页面过渡自然。
+                val stroke = 1.dp.toPx()
+                drawLine(
+                    color = if (isLight) Color(0xFFE8EAED) else Color(0x1FFFFFFF),
+                    start = Offset(0f, stroke / 2),
+                    end = Offset(size.width, stroke / 2),
+                    strokeWidth = stroke,
+                )
+            },
         shape = shape,
         color = if (isLight) Color.White else Color(0xF2121720),
         tonalElevation = 0.dp,

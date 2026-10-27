@@ -46,7 +46,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -59,6 +58,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -100,6 +100,7 @@ import com.movieshell.data.novel.PurifyRuleStore
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.Bookmark
 import com.movieshell.data.repo.BookmarkStore
+import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.ReaderSettings
 import com.movieshell.data.repo.ReadingProgressStore
@@ -156,8 +157,6 @@ private sealed class LandingTarget {
 fun ReaderScreen(
     novelId: String,
     onBack: () -> Unit = {},
-    // v0.96.1：净化规则快捷入口（设置面板里进管理页）
-    onOpenPurifyRules: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -214,6 +213,11 @@ fun ReaderScreen(
     var contentLoadError by remember { mutableStateOf(false) }
     // v0.250.0：失败原因与错误态同进退，错误区标题与 Toast 用同一套短提示。
     var contentLoadReason by remember { mutableStateOf<NovelSourceEngine.ContentFail?>(null) }
+    // v0.251.0：会话内失败记忆——自动加载不再重拉失败章，手动重试才解除；离开阅读器即清零。
+    val failedChapters = remember { mutableStateMapOf<Int, NovelSourceEngine.ContentFail>() }
+    // v0.251.0：净化后空白时的原文暂存——仅本次会话临时查看用，绝不写盘。
+    var purifyFallbackText by remember { mutableStateOf<String?>(null) }
+    var purifyFallbackIndex by remember { mutableIntStateOf(-1) }
     // v0.72.0：音量键翻页
     var volumePageTurn by remember { mutableStateOf(savedSettings.volumePageTurn) }
     var pageHeight by remember { mutableIntStateOf(0) }
@@ -244,16 +248,6 @@ fun ReaderScreen(
     // v0.215.0：章内搜索（本章正文内找词、点结果跳转；滚动模式按恢复同款公式换算像素，翻页模式按页首偏移跳页）。
     var showChapterSearch by remember { mutableStateOf(false) }
     var chapterSearchQuery by remember { mutableStateOf("") }
-    // v0.96.1：净化规则生效数（设置面板入口展示；打开面板时刷新）
-    var purifyCount by remember { mutableIntStateOf(-1) }
-    LaunchedEffect(showSettings) {
-        if (showSettings) {
-            purifyCount = runCatching {
-                PurifyRuleStore.list(context).count { it.enable }
-            }.getOrDefault(-1)
-        }
-    }
-
     // v0.61.0：设置变化即存档（v0.89.0：加 bgTheme/pageMode；nightMode 按 bgTheme 回填做兼容）
     LaunchedEffect(fontSize, bgTheme, fontFamily, lineHeightRatio, brightness, volumePageTurn, pageMode) {
         ReaderSettings.save(
@@ -303,14 +297,16 @@ fun ReaderScreen(
         NovelSourceEngine.ContentFail.DNS -> "网络连接异常，请检查网络后重试"
         NovelSourceEngine.ContentFail.FORBIDDEN -> "章节暂时无法访问，请稍后重试"
         NovelSourceEngine.ContentFail.PARSE_EMPTY -> "正文解析失败，可重试或反馈问题"
+        NovelSourceEngine.ContentFail.PURIFY_EMPTY -> "正文净化后为空，可能是净化规则过宽"
         else -> "正文加载失败，请点击重试"
     }
 
     /** v0.72.0：拉取章节正文并写库（纯 IO，不碰 UI 状态），返回失败原因，null=成功。
-     * v0.250.0：allowGate 区分主动读与预加载——预加载绝不弹验证页。 */
-    suspend fun fetchChapter(index: Int, allowGate: Boolean): NovelSourceEngine.ContentFail? {
+     * v0.250.0：allowGate 区分主动读与预加载——预加载绝不弹验证页。
+     * v0.251.0：force 供刷新本章绕过“已有正文跳过”；净化后空白不写盘、不覆盖旧正文。 */
+    suspend fun fetchChapter(index: Int, allowGate: Boolean, force: Boolean = false): NovelSourceEngine.ContentFail? {
         val c = chapters.getOrNull(index) ?: return NovelSourceEngine.ContentFail.UNKNOWN
-        if (c.content.isNotBlank() || c.url.isBlank()) return null
+        if ((!force && c.content.isNotBlank()) || c.url.isBlank()) return null
         val n = novel ?: return NovelSourceEngine.ContentFail.UNKNOWN
         val result = runCatching {
             if (n.sourceKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
@@ -333,6 +329,14 @@ fun ReaderScreen(
             // v0.95.0：正文统一过净化引擎再入库（规则见净化规则管理页）
             val rules = PurifyRuleStore.list(context)
             val clean = NovelPurifyEngine.purify(text, rules, bookUrl = n.id, sourceKey = n.sourceKey)
+            // v0.251.0：净化后空白不写盘、不覆盖旧正文——空白写盘是重复拉取循环的根因；
+            // 原文只暂存本次会话，查看原文入口用，绝不写回缓存。
+            if (clean.isBlank()) {
+                LogBus.d("Reader", "净化后空白不写盘 chapter=$index rawLen=${text.length}")
+                purifyFallbackText = text
+                purifyFallbackIndex = index
+                return NovelSourceEngine.ContentFail.PURIFY_EMPTY
+            }
             NovelStore.updateChapterContent(context, n.id, index, clean)
             chapters = chapters.map { if (it.index == index) it.copy(content = clean) else it }
             return null
@@ -340,9 +344,11 @@ fun ReaderScreen(
         return NovelSourceEngine.ContentFail.UNKNOWN
     }
 
-    fun ensureContent(index: Int) {
+    // v0.251.0：force 供刷新本章；onSuccess 供窗口加载在当前章成功后触发邻章预载。
+    fun ensureContent(index: Int, force: Boolean = false, onSuccess: (() -> Unit)? = null) {
         val c = chapters.getOrNull(index) ?: return
-        if (c.content.isNotBlank() || c.url.isBlank()) return
+        if ((!force && c.content.isNotBlank()) || c.url.isBlank()) return
+        if (!force && failedChapters.containsKey(index)) return
         if (!loadingChapters.add(index)) return
         scope.launch {
             try {
@@ -350,10 +356,11 @@ fun ReaderScreen(
                 contentLoadError = false
                 contentLoadReason = null
                 // v0.109.0 A7：fetchChapter 返回值别再丢掉——失败时 Toast + 置错误态给重试入口
-                val fail = fetchChapter(index, allowGate = true)
+                val fail = fetchChapter(index, allowGate = true, force = force)
                 if (fail != null) {
                     // v0.250.0：任务已取消（用户已离开）时不置错误态、不弹 Toast。
                     if (!isActive) return@launch
+                    failedChapters[index] = fail
                     contentLoadError = true
                     contentLoadReason = fail
                     AppToast.show(context, failText(fail), long = false)
@@ -363,6 +370,8 @@ fun ReaderScreen(
                     }
                     return@launch
                 }
+                failedChapters.remove(index)
+                onSuccess?.invoke()
             } finally {
                 loadingChapters.remove(index)
                 contentLoading = false
@@ -370,41 +379,59 @@ fun ReaderScreen(
         }
     }
 
-    /** v0.244.0：静默拉一章（窗口预加载用）：不碰 contentLoading、不 Toast，失败就失败。 */
+    /** v0.244.0：静默拉一章（窗口预加载用）：不碰 contentLoading、不 Toast，失败就失败。
+     * v0.251.0：失败章记入会话失败记忆，本次会话不再自动重拉。 */
     fun loadChapterSilent(index: Int) {
         val c = chapters.getOrNull(index) ?: return
         if (c.content.isNotBlank() || c.url.isBlank()) return
+        if (failedChapters.containsKey(index)) return
         if (!loadingChapters.add(index)) return
         scope.launch {
             try {
-                fetchChapter(index, allowGate = false)
+                val fail = fetchChapter(index, allowGate = false)
+                if (fail != null) failedChapters[index] = fail else failedChapters.remove(index)
             } finally {
                 loadingChapters.remove(index)
             }
         }
     }
 
-    /** v0.244.0：窗口加载——当前章走 ensureContent（带失败反馈），前后各 2 章静默预载。 */
-    fun ensureContentWindow(center: Int, radius: Int = 2) {
-        ensureContent(center)
+    /** v0.251.0：邻章静默预载（失败章、已加载章、加载中章自动跳过）。 */
+    fun preloadWindow(center: Int, radius: Int = 2) {
         for (i in (center - radius)..(center + radius)) {
             if (i != center) loadChapterSilent(i)
         }
     }
 
-    // v0.242.0：重读本章（图2顶栏/悬浮刷新钮）——清掉本章正文缓存
-    // 再重拉；页码/滚动位置不动（恢复效果认领过本章会直接放行，
-    // 不重定位）。本地 TXT 书没有可拉的链接，直接返回。
+    /** v0.244.0：窗口加载——当前章走 ensureContent（带失败反馈），前后各 2 章静默预载。
+     * v0.251.0：当前章优先——当前章没好之前不启动新的预加载，当前章成功后再预载邻章；
+     * 当前章已加载则直接预载邻章；失败章本次会话不再自动重试。 */
+    fun ensureContentWindow(center: Int, radius: Int = 2) {
+        val c = chapters.getOrNull(center)
+        if (c != null && c.content.isNotBlank()) {
+            preloadWindow(center, radius)
+        } else {
+            ensureContent(center) {
+                preloadWindow(center, radius)
+                // v0.251.0：加载中窗口又变了时，成功后也按最新视口补预载，不依赖过期窗口。
+                if (chapterIndex != center) preloadWindow(chapterIndex, radius)
+            }
+        }
+    }
+
+    // v0.242.0：重读本章（图2顶栏/悬浮刷新钮）——强制重拉；页码/滚动位置不动
+    // （恢复效果认领过本章会直接放行，不重定位）。本地 TXT 书没有可拉的链接，直接返回。
+    // v0.251.0：不再先清正文——失败时保留旧正文＋Toast，不清空正文区。
     fun refreshChapter() {
         val idx = chapterIndex
         val c = chapters.getOrNull(idx) ?: return
         if (c.url.isBlank()) return
-        chapters = chapters.map { if (it.index == idx) it.copy(content = "") else it }
+        failedChapters.remove(idx)
         contentLoadError = false
         contentLoadReason = null
         // v0.244.0：正文换了，全局分页整体重建（布局版本 +1），落点按视口重定位。
         layoutVersion++
-        ensureContent(idx)
+        ensureContent(idx, force = true) { preloadWindow(chapterIndex) }
     }
 
     // 载入书 + 章节 + 进度（v0.84.0：换源后 sourceVersion 递增触发重载）
@@ -786,8 +813,11 @@ fun ReaderScreen(
 
     /** v0.194.0追加：开设置时先把顶底栏叫出来（设置面板本身就是菜单），关时恢复原样。 */
     /** v0.195.0：194 的点击分区已撤掉（点按恢复只出菜单），onContentTap 随之删除。 */
+    // v0.251.0：两面板互斥＋只在“都没开→开一个”时保存沉浸态——双面板叠开会覆盖
+    // wasImmersiveBeforeSettings，关完恢复不到原来的沉浸态（复核必改条件）。
     fun openSettings() {
-        wasImmersiveBeforeSettings = immersive
+        if (!showSettings && !showDisplaySettings) wasImmersiveBeforeSettings = immersive
+        showDisplaySettings = false
         immersive = false
         showSettings = true
     }
@@ -801,14 +831,25 @@ fun ReaderScreen(
     // 显示组（字号/字体/行距/背景），设置只放阅读组+管理组；两个面板
     // 各自不到半屏，互不重复入口。
     var showDisplaySettings by remember { mutableStateOf(false) }
+    // v0.251.0：同上，互斥＋只在都没开时保存沉浸态。
     fun openDisplaySettings() {
-        wasImmersiveBeforeSettings = immersive
+        if (!showSettings && !showDisplaySettings) wasImmersiveBeforeSettings = immersive
+        showSettings = false
         immersive = false
         showDisplaySettings = true
     }
     fun closeDisplaySettings() {
         showDisplaySettings = false
         immersive = wasImmersiveBeforeSettings
+    }
+
+    // v0.251.0：面板打开时点正文先收面板，不切换沉浸式栏；面板关了再点才切换。
+    fun onContentTap() {
+        when {
+            showDisplaySettings -> closeDisplaySettings()
+            showSettings -> closeSettings()
+            else -> immersive = !immersive
+        }
     }
 
     // v0.245.0：悬浮夜间钮已删——夜间只走背景档里的夜间黑/深灰/墨绿，
@@ -1130,7 +1171,8 @@ fun ReaderScreen(
                         .clickable {
                             contentLoadError = false
                             contentLoadReason = null
-                            ensureContent(chapterIndex)
+                            failedChapters.remove(chapterIndex)
+                            ensureContent(chapterIndex) { preloadWindow(chapterIndex) }
                         },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -1140,14 +1182,45 @@ fun ReaderScreen(
                             color = fg, fontSize = 15.sp, fontWeight = FontWeight.Bold,
                         )
                         Spacer(Modifier.height(8.dp))
-                        TextButton(
-                            onClick = {
-                                contentLoadError = false
-                                contentLoadReason = null
-                                ensureContent(chapterIndex)
-                            },
+                        if (contentLoadReason == NovelSourceEngine.ContentFail.PURIFY_EMPTY &&
+                            purifyFallbackIndex == chapterIndex && purifyFallbackText != null
                         ) {
-                            Text("点击重试", color = fg.copy(alpha = 0.8f), fontSize = 14.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(
+                                    onClick = {
+                                        contentLoadError = false
+                                        contentLoadReason = null
+                                        failedChapters.remove(chapterIndex)
+                                        ensureContent(chapterIndex) { preloadWindow(chapterIndex) }
+                                    },
+                                ) {
+                                    Text("点击重试", color = fg.copy(alpha = 0.8f), fontSize = 14.sp)
+                                }
+                                TextButton(
+                                    onClick = {
+                                        // v0.251.0：临时查看原文——只进内存显示，不写盘。
+                                        val raw = purifyFallbackText ?: return@TextButton
+                                        chapters = chapters.map {
+                                            if (it.index == chapterIndex) it.copy(content = raw) else it
+                                        }
+                                        contentLoadError = false
+                                        contentLoadReason = null
+                                    },
+                                ) {
+                                    Text("查看原文（临时）", color = fg.copy(alpha = 0.8f), fontSize = 14.sp)
+                                }
+                            }
+                        } else {
+                            TextButton(
+                                onClick = {
+                                    contentLoadError = false
+                                    contentLoadReason = null
+                                    failedChapters.remove(chapterIndex)
+                                    ensureContent(chapterIndex) { preloadWindow(chapterIndex) }
+                                },
+                            ) {
+                                Text("点击重试", color = fg.copy(alpha = 0.8f), fontSize = 14.sp)
+                            }
                         }
                     }
                 }
@@ -1160,7 +1233,7 @@ fun ReaderScreen(
                     readerFont = readerFont,
                     fg = fg,
                     background = bg,
-                    onToggleImmersive = { immersive = !immersive },
+                    onToggleImmersive = { onContentTap() },
                     getBodyLayout = { chapterLayouts[it] },
                     getTitleHeight = { titleHeights[it] ?: 0f },
                     onChapterLayout = { idx, layout, titleH ->
@@ -1179,7 +1252,7 @@ fun ReaderScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .pointerInput(Unit) {
-                            detectTapGestures(onTap = { immersive = !immersive })
+                            detectTapGestures(onTap = { onContentTap() })
                         },
                 ) { page ->
                     val pageOffset =
@@ -1398,19 +1471,9 @@ fun ReaderScreen(
                     // 背景：十一档，最后一档跟随系统（深浅渐变点）
                     ReaderBgRow(bgTheme) { bgTheme = it }
                 }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // v0.245.0：设置改动即保存，取消和完成做的事完全一样
-                    // （都是关面板），只留完成；返回键同样关闭。
-                    Button(onClick = { closeDisplaySettings() }) {
-                        Text("完成")
-                    }
-                }
+                // v0.251.0：完成按钮去掉（设置即改即保存，完成只有关闭作用）；
+                // 底部留 12dp 呼吸空间，点正文区收面板。
+                Spacer(Modifier.height(12.dp))
             }
         }
         }
@@ -1498,35 +1561,11 @@ fun ReaderScreen(
                             },
                         )
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                    ReaderSectionHeader("管理")
-                    // 净化规则快捷入口
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "净化规则" +
-                                if (purifyCount >= 0) "（$purifyCount 条生效）" else "",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
-                        )
-                        ReaderPill("管理", false, accent = true) {
-                            closeSettings()
-                            onOpenPurifyRules()
-                        }
-                    }
+                    // v0.251.0：净化规则入口移到书架更多菜单，管理组随之整组删除。
                 }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // v0.245.0：同界面面板，取消与完成做的事一样，只留完成。
-                    Button(onClick = { closeSettings() }) {
-                        Text("完成")
-                    }
-                }
+                // v0.251.0：完成按钮去掉（设置即改即保存，完成只有关闭作用）；
+                // 底部留 12dp 呼吸空间，点正文区收面板。
+                Spacer(Modifier.height(12.dp))
             }
         }
         }

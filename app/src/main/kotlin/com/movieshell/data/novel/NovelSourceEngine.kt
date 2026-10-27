@@ -55,6 +55,9 @@ object NovelSourceEngine {
         /** 200 且页面正常，但规则与兜底都提不出正文。 */
         PARSE_EMPTY,
 
+        /** 正文抓到了，但净化后成空串（规则过宽）：不写盘、不覆盖旧正文。 */
+        PURIFY_EMPTY,
+
         /** 无明确信号的失败。 */
         UNKNOWN,
     }
