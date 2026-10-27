@@ -9,7 +9,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.SliderState
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -1780,7 +1779,7 @@ private fun ReaderBgRow(selected: Int, onSelect: (Int) -> Unit) {
  * 单抽成独立 composable：视口状态只传给底栏这一小块，不触发整页重组。
  * v0.245.0：进度条改细轨道 + 轨道上小球——Material3 1.3.1 的默认 Slider
  * 是 16dp 粗轨道 + 4×44dp 竖线滑块（截图里那根竖线就是它），且带末尾
- * 圆点；现改走 SliderState 自定义 thumb/track：轨道 4dp、无刻度无末尾
+ * 圆点；现改走自定义 thumb/track：轨道 4dp、无刻度无末尾
  * 圆点、滑块 12dp 圆球居中在轨道上；拖动松手才定位的语义不变。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1798,13 +1797,11 @@ private fun ReaderBottomBar(
     onOpenDisplaySettings: () -> Unit,
 ) {
     // 拖动进度条只跟手，松手才定位，避免拖动中反复加载。
-    // SliderState 由 Slider 内部在拖动时更新；没拖动时跟外部视口进度同步，
-    // 拖动时不覆盖，避免手指还没松开就被滚动进度拽回去。
-    val sliderState = remember { SliderState(value = chapterFraction, steps = 0, valueRange = 0f..1f) }
-    sliderState.onValueChangeFinished = { onChapterFractionCommit(sliderState.value) }
-    if (!sliderState.isDragging) {
-        sliderState.value = chapterFraction
-    }
+    // v0.245.0 修复：SliderState.isDragging 是 Material3 内部属性，外部访问
+    // 编译失败；改用公开的 value 版 Slider，自己记拖动值：拖动时显示
+    // 拖动值、不被外部视口进度拽回去，松手才提交定位，语义与原版一致。
+    var dragValue by remember { mutableStateOf<Float?>(null) }
+    val sliderValue = dragValue ?: chapterFraction
     Column(modifier = Modifier.fillMaxWidth()) {
         // v0.240.0：底栏精细化——原来是两排裸文字按钮加一根深色粗滑杆，
         // 糊在正文底下没分隔，看着生硬；现加顶部细分隔线、滑杆改柔和
@@ -1831,7 +1828,12 @@ private fun ReaderBottomBar(
                 }
             }
             Slider(
-                state = sliderState,
+                value = sliderValue,
+                onValueChange = { dragValue = it },
+                onValueChangeFinished = {
+                    dragValue?.let { onChapterFractionCommit(it) }
+                    dragValue = null
+                },
                 modifier = Modifier
                     .weight(1f)
                     .height(36.dp),
