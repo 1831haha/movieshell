@@ -4,13 +4,12 @@ import android.app.Application
 import com.movieshell.ui.components.AppToast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.movieshell.data.model.Chapter
 import com.movieshell.data.model.Novel
 import com.movieshell.data.novel.BookSourceManager
-import com.movieshell.data.novel.ChapterMeta
 import com.movieshell.data.novel.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.PyBookSourceManager
+import com.movieshell.data.repo.NovelDirectoryFill
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.SearchHistoryStore
 import kotlinx.coroutines.async
@@ -19,7 +18,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -212,92 +210,57 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** v0.220.0：入架拉目录——走统一限流 + 空结果重试一次。
-     * 根因：原来 joinShelf 直调 chapters，不走搜书/追更共用的 Semaphore(4)，
-     * 快速连点等于对站方齐发请求（注释里自己写过齐发被反爬封 IP）；而
-     * chapters 单次失败即判空（非 2xx 直接 null，IO 异常拦截器重试 3 次后
-     * 仍挂也 null），一次抖动就丢一本，只能用户手动重进重点。
-     * 修：每次拉取都先拿限流许可；空结果 1 秒后重试一次，两次都空才判失败。
-     * 返回目录 + 可能补到的封面。 */
-    private suspend fun fetchJoinMetas(
-        group: SourceGroup,
-        item: NovelSearchResult,
-        cover: String?,
-    ): Pair<List<ChapterMeta>, String?> {
-        var lastMetas: List<ChapterMeta> = emptyList()
-        var lastCover = cover
-        repeat(2) { attempt ->
-            val (ms, cv) = NovelSourceEngine.withSearchThrottle {
-                if (group.key.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
-                    NovelSourceEngine.chaptersPy(getApplication(), item) to cover
-                } else {
-                    val source = BookSourceManager.sources.value.firstOrNull { it.key == group.key }
-                        ?: return@withSearchThrottle emptyList<ChapterMeta>() to cover
-                    val m = NovelSourceEngine.chapters(source, item)
-                    // v0.200.0：搜索没封面时，用详情封面 JS 补一张（只多一次详情页请求）
-                    var c = cover
-                    if (c.isNullOrBlank() && source.ruleBookCover.isNotBlank()) {
-                        c = NovelSourceEngine.detailCover(source, item) ?: c
-                    }
-                    m to c
-                }
-            }
-            lastMetas = ms
-            lastCover = cv
-            if (ms.isNotEmpty()) return ms to cv
-            if (attempt == 0) delay(1000)
-        }
-        return lastMetas to lastCover
-    }
-
+    /** v0.249.0：先入架后补目录——点加入先校验去重、立即本地入架（空目录壳），
+     * 按钮立刻变“已在书架”、书架马上可见；目录在应用级作用域后台补取，
+     * 离开找书页继续跑，失败书留架标 FAILED、可在书架重试。
+     * 加入中只覆盖本地写入的短暂过程；入架被取消时原样抛出，不当成加入失败。 */
     fun joinShelf(group: SourceGroup, item: NovelSearchResult) {
         val key = group.key + item.remoteId
         viewModelScope.launch {
-            // v0.220.0：忙状态改集合——原来单槽位，连点第二本时第一本的
-            // 按钮就从“加入中”弹回“加入书架”，看着像没在跑，还能重复点。
             _joining.value = _joining.value + key
-            // 修推：ok 须在 try 外声明——Toast 在 try-finally 之后引用它，
+            // 修推：结果须在 try 外声明——Toast 在 try-finally 之后引用它，
             // 放 try 里会报 Unresolved reference（run #423 失败根因）。
-            var ok = false
+            var result = ""
             try {
-                ok = runCatching {
-                    val (metas, cover) = fetchJoinMetas(group, item, item.cover)
-                    if (metas.isEmpty()) return@runCatching false
-                // v0.216.0（C10）：id 走新稳定拼法；书架里若已有同源同书
-                // （新 id 或老 hash id），复用旧 id 走 addNovel 合并，不产生第二本。
-                val newId = shelfNovelId(group, item)
-                val legacyId = "bs_${group.key.hashCode()}_${item.remoteId.hashCode()}"
-                val existingId = NovelStore.list(getApplication()).firstOrNull {
-                    it.sourceKey == group.key && (it.id == newId || it.id == legacyId)
-                }?.id
-                val novel = Novel(
-                    id = existingId ?: newId,
-                    sourceKey = group.key,
-                    title = item.title,
-                    author = item.author,
-                    cover = cover,
-                    addedAt = System.currentTimeMillis(),
-                )
-                // 只存目录（带章节 URL），正文阅读时按需拉取并缓存
-                val chapters = metas.map {
-                    Chapter(
-                        novelId = novel.id,
-                        index = it.index,
-                        title = it.title,
-                        content = "",
-                        url = it.url,
+                result = runCatching {
+                    // v0.216.0（C10）：id 走新稳定拼法；书架里若已有同源同书
+                    // （新 id 或老 hash id），复用旧 id，不产生第二本。
+                    val newId = shelfNovelId(group, item)
+                    val legacyId = "bs_${group.key.hashCode()}_${item.remoteId.hashCode()}"
+                    val existing = NovelStore.list(getApplication()).firstOrNull {
+                        it.sourceKey == group.key && (it.id == newId || it.id == legacyId)
+                    }
+                    if (existing != null) {
+                        // 已在架：不重复建壳；壳状态未完成时顺手触发一次精确补取。
+                        if (existing.dirState != NovelStore.DIR_READY) {
+                            NovelDirectoryFill.fillExact(getApplication(), group.key, item, existing.id)
+                        }
+                        return@runCatching "已在书架"
+                    }
+                    val novel = Novel(
+                        id = newId,
+                        sourceKey = group.key,
+                        title = item.title,
+                        author = item.author,
+                        cover = item.cover,
+                        addedAt = System.currentTimeMillis(),
+                        remoteId = item.remoteId,
                     )
-                }
-                NovelStore.addNovel(getApplication(), novel, chapters)
+                    if (!NovelStore.insertShell(getApplication(), novel)) {
+                        // 并发抢入：另一路已先建壳，按已在架处理。
+                        return@runCatching "已在书架"
+                    }
+                    NovelDirectoryFill.fillExact(getApplication(), group.key, item, newId)
+                    "已加入书架"
                 }.onFailure {
                     // v0.247.0（取消语义）：入架被取消时原样抛出，不当成
                     // “加入失败”弹 Toast；finally 照常摘掉加入中标记。
                     if (it is CancellationException) throw it
-                }.getOrDefault(false)
+                }.getOrDefault("加入失败")
             } finally {
                 _joining.value = _joining.value - key
             }
-            AppToast.show(getApplication(), if (ok) "已加入书架" else "加入失败（目录拉取失败）", long = false)
+            AppToast.show(getApplication(), result, long = false)
         }
     }
 }

@@ -184,7 +184,14 @@ fun BookDetailDialog(
             }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                InfoChip("共 $total 章")
+                // v0.249.0：目录未到时不显示假的章数。
+                InfoChip(
+                    when (novel.dirState) {
+                        NovelStore.DIR_LOADING -> "目录加载中"
+                        NovelStore.DIR_FAILED -> "目录获取失败"
+                        else -> "共 $total 章"
+                    },
+                )
                 InfoChip(if (!novel.hasStartedReading) "未读" else "已读 $percent%")
             }
             Spacer(Modifier.height(6.dp))
@@ -203,7 +210,16 @@ fun BookDetailDialog(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 InfoRow(icon = Icons.Filled.Person, label = "作者", value = novel.author?.takeIf { it.isNotBlank() } ?: "未知作者")
                 InfoRow(icon = Icons.Filled.Public, label = "来源", value = sourceName, actionText = "换源", onAction = { showChangeSource = true })
-                InfoRow(icon = Icons.Filled.Explore, label = "最新", value = chapters?.lastOrNull()?.title?.takeIf { it.isNotBlank() } ?: "共 $total 章")
+                // v0.249.0：目录未到时“最新”不回落假的章数，显示状态。
+                InfoRow(
+                    icon = Icons.Filled.Explore,
+                    label = "最新",
+                    value = when (novel.dirState) {
+                        NovelStore.DIR_LOADING -> "正在获取目录…"
+                        NovelStore.DIR_FAILED -> "目录获取失败"
+                        else -> chapters?.lastOrNull()?.title?.takeIf { it.isNotBlank() } ?: "共 $total 章"
+                    },
+                )
                 InfoRow(icon = Icons.Filled.Tune, label = "分组", value = groupName, actionText = "设置分组", onAction = onMoveGroup)
                 // v0.214.0：单本追更开关——关掉的书手动/后台检查都跳过（详情页拨动即写盘）。
                 Row(

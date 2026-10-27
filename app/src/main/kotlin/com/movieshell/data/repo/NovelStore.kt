@@ -28,6 +28,11 @@ object NovelStore {
     private const val DIR_NAME = "novels"
     private const val INDEX_NAME = "index.json"
 
+    // v0.249.0：目录状态常量（与 Novel.dirState 对应，见 NovelModels）。
+    const val DIR_READY = "READY"
+    const val DIR_LOADING = "LOADING"
+    const val DIR_FAILED = "FAILED"
+
     private val json = Json { ignoreUnknownKeys = true }
 
     // v0.194.0：索引写锁——index.json 是所有书共享的，快速连点多本书时
@@ -301,6 +306,8 @@ object NovelStore {
                         ?: old?.latestChapterTitle,
                     addedAt = old?.addedAt ?: System.currentTimeMillis(),
                     lastTxId = txId,
+                    // v0.249.0：写进真实目录的书一定是 READY（空目录壳只走 insertShell）。
+                    dirState = DIR_READY,
                 )
                 // v0.247.0 复核：动章节文件前先落事务日志（索引写盘后应有的字段）——
                 // 日志写失败直接 abort，旧数据一动不动。
@@ -341,12 +348,57 @@ object NovelStore {
             }
         }
 
+    /** v0.249.0：先入架的空目录壳——只写索引条目（dirState=LOADING），不写章节文件、
+     * 不碰旧数据；id 已存在直接返回 false（调用方按已在架处理）。
+     * 空目录壳绝不走 addNovel（v0.217.0 F48 的空目录拒写仍有效）。 */
+    suspend fun insertShell(context: Context, novel: Novel): Boolean =
+        withContext(Dispatchers.IO) {
+            indexMutex.withLock {
+                val current = readIndex(context)
+                if (current.any { it.id == novel.id }) return@withLock false
+                val shell = novel.copy(
+                    totalChapters = 0,
+                    latestChapterTitle = null,
+                    dirState = DIR_LOADING,
+                )
+                writeIndex(context, listOf(shell) + current)
+            }
+        }
+
+    /** v0.249.0：只改目录状态（FAILED 标记／成功后的封面补齐走这里，不动章节文件）。
+     * id 不在索引里返回 false，调用方忽略即可（书可能已被删）。 */
+    suspend fun markDirectoryState(
+        context: Context,
+        novelId: String,
+        state: String,
+        cover: String? = null,
+    ): Boolean = withContext(Dispatchers.IO) {
+        indexMutex.withLock {
+            val list = readIndex(context).toMutableList()
+            val i = list.indexOfFirst { it.id == novelId }
+            if (i < 0) return@withLock false
+            list[i] = list[i].copy(
+                dirState = state,
+                cover = cover?.takeIf { it.isNotBlank() } ?: list[i].cover,
+            )
+            writeIndex(context, list)
+        }
+    }
+
+    /** v0.249.0 收尾：章节文件是否真实存在且非空（“[]”不算有目录）。 */
+    fun hasChaptersFile(context: Context, novelId: String): Boolean {
+        val cf = chaptersFile(context, novelId)
+        return cf.isFile && cf.length() > 2
+    }
+
     /** v0.83.0：换源——替换某书的目录与源 key，保留加入时间与阅读进度。返回新目录。 */
     suspend fun updateSource(
         context: Context,
         novelId: String,
         sourceKey: String,
         chapters: List<Chapter>,
+        // v0.249.0：目录补写时顺带补封面（仅搜索无封面时传入，其余调用方不传即不动）。
+        cover: String? = null,
     ): Boolean = withContext(Dispatchers.IO) {
         indexMutex.withLock {
         runCatching {
@@ -413,6 +465,9 @@ object NovelStore {
                 // v0.214.0：换源/追更写目录时同步最新章标题，书架行不用再翻目录。
                 latestChapterTitle = fixed.lastOrNull()?.title?.takeIf { it.isNotBlank() },
                 lastTxId = txId,
+                // v0.249.0：写进真实目录即 READY（先入架的壳、更新目录的书都经此归位）。
+                dirState = DIR_READY,
+                cover = cover?.takeIf { it.isNotBlank() } ?: list[i].cover,
             )
             // v0.247.0（F08 同类）：索引写盘失败直接返回 false，不再往下算进度——
             // 原来忽略返回值，章节已换、索引未换，调用方还以为换源成功。

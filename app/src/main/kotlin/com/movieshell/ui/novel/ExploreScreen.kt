@@ -334,7 +334,7 @@ fun ExploreScreen(
                 Spacer(Modifier.height(10.dp))
             }
             Text(
-                "点“加入书架”后会拉取该书目录并加入书架；来源：${source?.name.orEmpty()}",
+                "加入书架后，书籍会立即保存到书架，目录将在后台获取。若获取失败，可在书架中重试；来源：${source?.name.orEmpty()}",
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

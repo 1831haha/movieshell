@@ -58,6 +58,7 @@ import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.PyBookSourceManager
+import com.movieshell.data.repo.NovelDirectoryFill
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.reader.ReaderJumpRequest
@@ -98,6 +99,8 @@ fun SearchBookDetailScreen(
     var shelfId by remember { mutableStateOf<String?>(null) }
     // 待阅读：-1 = 继续读，>=0 = 跳到该章；入架失败时由 joining 效应清掉。
     var pendingRead by remember { mutableStateOf<Int?>(null) }
+    // v0.249.0 收尾：等目录时的按钮反馈（“正在获取目录…”），返回即取消等待、后台补取继续。
+    var waitingDir by remember { mutableStateOf(false) }
 
     val title = detail?.name?.takeIf { it.isNotBlank() } ?: item.title
     // v0.230.0：搜书结果的 author 自带“作者：”前缀（999 搜索规则原样带出），详情页已有“作者”标签列，去掉前缀防“作者 作者：…”重复。
@@ -164,6 +167,18 @@ fun SearchBookDetailScreen(
     LaunchedEffect(pendingRead, shelfId) {
         val target = pendingRead ?: return@LaunchedEffect
         val sid = shelfId ?: return@LaunchedEffect
+        // v0.249.0：刚入架的壳目录还在后台取——等补取终态再进阅读器，不进空阅读页。
+        // 等待可感知（按钮变“正在获取目录…”）、可退出（返回即取消本效应，后台补取继续）。
+        waitingDir = true
+        try {
+            if (!NovelDirectoryFill.awaitReady(context, sid)) {
+                AppToast.show(context, "目录获取失败，请在书架中重试", long = false)
+                pendingRead = null
+                return@LaunchedEffect
+            }
+        } finally {
+            waitingDir = false
+        }
         if (target >= 0) ReaderJumpRequest.chapter = target
         pendingRead = null
         onOpenReader(sid)
@@ -350,10 +365,11 @@ fun SearchBookDetailScreen(
             Spacer(Modifier.width(8.dp))
             Button(
                 onClick = { requestRead(-1) },
+                enabled = !waitingDir,
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             ) {
-                Text("阅读", fontSize = 15.sp)
+                Text(if (waitingDir) "正在获取目录…" else "阅读", fontSize = 15.sp)
             }
         }
     }

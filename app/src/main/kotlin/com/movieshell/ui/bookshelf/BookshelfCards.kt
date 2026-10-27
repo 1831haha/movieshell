@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.movieshell.data.model.Novel
+import com.movieshell.data.repo.NovelStore
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.accentTitleColor
@@ -206,21 +207,33 @@ fun NovelListCard(
                     icon = Icons.Filled.LibraryBooks,
                     // v0.248.0：总章数改由行尾胶囊承担，本行只留最新章节或上次阅读，
                     // 不再重复写共 N 章（GPT 第 1 批复核：去重）。
-                    text = novel.latestChapterTitle?.takeIf { it.isNotBlank() }?.let { "最新：$it" }
-                        ?: formatLastReadTs(lastReadAt),
+                    // v0.249.0：目录未到时不显示假的最新章节——LOADING/FAILED 各有状态文案。
+                    text = when (novel.dirState) {
+                        NovelStore.DIR_LOADING -> "正在获取目录…"
+                        NovelStore.DIR_FAILED -> "目录获取失败，点击重试"
+                        else -> novel.latestChapterTitle?.takeIf { it.isNotBlank() }?.let { "最新：$it" }
+                            ?: formatLastReadTs(lastReadAt)
+                    },
                 )
             }
             // v0.248.0：行尾总章数胶囊（参考图右侧“80话”位）——浅蓝底自适应青字，
             // 深色主题下用低透明度蓝底，不照搬亮底；只展示，不可点。
+            // v0.249.0：目录未到时胶囊不显示假的章数——LOADING 显示状态，FAILED 红底。
             Spacer(Modifier.width(8.dp))
+            val isDirFailed = novel.dirState == NovelStore.DIR_FAILED
             Text(
-                text = "${total}章",
+                text = when (novel.dirState) {
+                    NovelStore.DIR_LOADING -> "目录加载中"
+                    NovelStore.DIR_FAILED -> "目录获取失败"
+                    else -> "${total}章"
+                },
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = accentTitleColor(),
+                color = if (isDirFailed) Color.White else accentTitleColor(),
                 modifier = Modifier
                     .background(
-                        Color(0xFF4DD0E1).copy(alpha = 0.14f),
+                        if (isDirFailed) Color(0xFFE53935)
+                        else Color(0xFF4DD0E1).copy(alpha = 0.14f),
                         RoundedCornerShape(10.dp),
                     )
                     .padding(horizontal = 8.dp, vertical = 3.dp),
@@ -406,9 +419,10 @@ fun NovelGridCard(
             modifier = Modifier.fillMaxWidth(),
         )
         // v0.214.0：网格卡片也补最新章节标题（无标题时不占行）。
-        novel.latestChapterTitle?.takeIf { it.isNotBlank() }?.let { latest ->
-            Text(
-                "最新：$latest",
+        // v0.249.0：目录未到时这行显示状态文案，不显示假数据。
+        when (novel.dirState) {
+            NovelStore.DIR_LOADING -> Text(
+                "正在获取目录…",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -416,6 +430,26 @@ fun NovelGridCard(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
             )
+            NovelStore.DIR_FAILED -> Text(
+                "目录获取失败，点击重试",
+                fontSize = 11.sp,
+                color = Color(0xFFE53935),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            else -> novel.latestChapterTitle?.takeIf { it.isNotBlank() }?.let { latest ->
+                Text(
+                    "最新：$latest",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }

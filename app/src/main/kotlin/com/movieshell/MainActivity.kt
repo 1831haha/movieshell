@@ -78,6 +78,8 @@ import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
+import com.movieshell.data.repo.NovelDirectoryFill
+import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SpiderEngine
@@ -91,6 +93,7 @@ import com.movieshell.data.repo.ThemeStore
 import com.movieshell.data.repo.WebSourceManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.player.EngineHost
 import com.movieshell.player.MpvPlayerManager
@@ -320,6 +323,32 @@ class MainActivity : ComponentActivity() {
                 }
                 Box(Modifier.fillMaxSize()) {
                 val navController = rememberNavController()
+                // v0.249.0 收尾：进阅读器的最终关卡——全 App 只有两处 navigate("reader/")，
+                // 各页自己的守卫（书架点书、详情页等目录）是第一层，这里是兜底：
+                // 未就绪的书不进空阅读页，FAILED 顺手重试；书不在架沿用老行为。
+                val openReaderChecked: (String) -> Unit = { id ->
+                    lifecycleScope.launch {
+                        val appCtx = applicationContext
+                        val novel = withContext(Dispatchers.IO) { NovelStore.get(appCtx, id) }
+                        if (novel == null) {
+                            navController.navigate("reader/$id")
+                            return@launch
+                        }
+                        val hasChapters = withContext(Dispatchers.IO) {
+                            NovelStore.hasChaptersFile(appCtx, id)
+                        }
+                        when {
+                            novel.dirState == NovelStore.DIR_READY && hasChapters ->
+                                navController.navigate("reader/$id")
+                            novel.dirState == NovelStore.DIR_FAILED ||
+                                (novel.dirState == NovelStore.DIR_READY && !hasChapters) -> {
+                                NovelDirectoryFill.refillFromShelf(appCtx, novel)
+                                AppToast.show(appCtx, "正在重新获取目录", long = false)
+                            }
+                            else -> AppToast.show(appCtx, "正在获取目录…", long = false)
+                        }
+                    }
+                }
                 val ctx = LocalContext.current
                 // v0.26.0：通知点进来的深度跳转（消费一次）
                 LaunchedEffect(pendingRoute.value) {
@@ -625,9 +654,7 @@ class MainActivity : ComponentActivity() {
                         // v0.35.0：小说书架（v0.82.0：顶部三 tab 移除，找书/书源改为独立路由）
                         composable("bookshelf") {
                             BookshelfScreen(
-                                onNovelClick = { id ->
-                                    navController.navigate("reader/$id")
-                                },
+                                onNovelClick = openReaderChecked,
                                 onManageSourcesClick = { navController.navigate("book_source") },
                                 // v0.98.0：书籍详情里的净化规则快捷入口
                                 onOpenPurifyRules = { navController.navigate("purify_rules") },
@@ -702,7 +729,7 @@ class MainActivity : ComponentActivity() {
                                     cover = entry.arguments?.getString("cover")?.takeIf { it.isNotBlank() },
                                 ),
                                 onBack = { navController.popBackStack() },
-                                onOpenReader = { id -> navController.navigate("reader/$id") },
+                                onOpenReader = openReaderChecked,
                             )
                         }
                         // v0.83.0：音乐全屏播放页

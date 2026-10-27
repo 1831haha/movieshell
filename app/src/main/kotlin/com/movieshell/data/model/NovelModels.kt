@@ -26,6 +26,12 @@ data class Novel(
     // v0.214.0：单本追更开关（默认开；关掉的书手动/后台检查都跳过）。
     val updateEnabled: Boolean = true,
     val addedAt: Long = 0L,
+    // v0.249.0：目录状态——READY=已有目录、LOADING=刚入架目录还在后台取、
+    // FAILED=目录取失败（书仍在架，可重试）。老数据缺字段回落 READY。
+    val dirState: String = "READY",
+    // v0.249.0 收尾：源内书籍标识（JSON 源即详情地址，PY 源即规则内 id）——
+    // 书架重试时凭它精确拉目录，不走标题重搜；老数据缺字段回落空串。
+    val remoteId: String = "",
     // v0.247.0 复核：上次成功提交的章节事务 id（WAL 提交判定用，不展示）。
     // 老数据无此字段时回落空串，永不与新事务 id 撞上。
     val lastTxId: String = "",
