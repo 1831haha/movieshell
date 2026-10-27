@@ -813,6 +813,12 @@ fun ReaderScreen(
 
     /** v0.194.0追加：开设置时先把顶底栏叫出来（设置面板本身就是菜单），关时恢复原样。 */
     /** v0.195.0：194 的点击分区已撤掉（点按恢复只出菜单），onContentTap 随之删除。 */
+    // v0.242.0：界面面板（图2底栏“界面”）与设置面板分开——界面只放
+    // 显示组（字号/字体/行距/背景），设置只放阅读组+管理组；两个面板
+    // 各自不到半屏，互不重复入口。
+    // 局部变量必须先声明后使用：openSettings 要读它，故声明放在 openSettings 之前，
+    // 不能放在 openDisplaySettings 之前（v0.145.0 同类教训，v0.251.0 构建 #466 即此挂掉）。
+    var showDisplaySettings by remember { mutableStateOf(false) }
     // v0.251.0：两面板互斥＋只在“都没开→开一个”时保存沉浸态——双面板叠开会覆盖
     // wasImmersiveBeforeSettings，关完恢复不到原来的沉浸态（复核必改条件）。
     fun openSettings() {
@@ -827,10 +833,6 @@ fun ReaderScreen(
         immersive = wasImmersiveBeforeSettings
     }
 
-    // v0.242.0：界面面板（图2底栏“界面”）与设置面板分开——界面只放
-    // 显示组（字号/字体/行距/背景），设置只放阅读组+管理组；两个面板
-    // 各自不到半屏，互不重复入口。
-    var showDisplaySettings by remember { mutableStateOf(false) }
     // v0.251.0：同上，互斥＋只在都没开时保存沉浸态。
     fun openDisplaySettings() {
         if (!showSettings && !showDisplaySettings) wasImmersiveBeforeSettings = immersive
