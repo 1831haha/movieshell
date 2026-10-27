@@ -70,7 +70,7 @@ object TrashStore {
         while (dst.exists()) {
             dst = File(dir, "${System.currentTimeMillis()}_${n++}_${file.name}")
         }
-        if (!runCatching { file.copyTo(dst, overwrite = false) }.getOrDefault(false)) return false
+        if (runCatching { file.copyTo(dst, overwrite = false) }.isFailure) return false
         val item = TrashItem(kind = kind, name = name, trashPath = dst.absolutePath)
         if (!addSync(context, item)) {
             // v0.246.0 四轮（GPT 审）：副本删除结果也要确认——删失败会留无记录孤儿，

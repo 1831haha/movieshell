@@ -718,7 +718,7 @@ fun WebSniffScreen(
             // 当普通失败返回空列表，探测继续跑完；改 try/catch，取消重抛。
             val iframeSrcs = withContext(Dispatchers.Main) {
                 try {
-                    suspendCancellableCoroutine { cont ->
+                    suspendCancellableCoroutine<List<String>> { cont ->
                         val handler = android.os.Handler(android.os.Looper.getMainLooper())
                         // v0.246.0 补：超时任务要能取消——原来正常回调后 5 秒任务仍留着，
                         // 闭包继续持有 continuation。正常回调后移除，取消时也移除。
