@@ -165,12 +165,745 @@ globalThis.$js = {
     }
 };
 
-/* v0.11.3：规则常用的 CryptoJS（目前只用到 MD5）。 */
-globalThis.CryptoJS = {
-    MD5: function (s) {
-        return { toString: function () { try { return md5(String(s)); } catch (e) { return ''; } } };
+// v0.252.0：CryptoJS 子集补全（纯同步 JS，见覆盖表，forge/GCM/RSA/口令密钥不在内）。
+(function () {
+    'use strict';
+
+    // movieshell CryptoJS subset, pure synchronous JS.
+    // Covered: enc Hex/Utf8/Base64/Latin1/Utf16/Utf16LE, lib.WordArray,
+    // AES CBC/ECB with Pkcs7/NoPadding, MD5, SHA256, HmacSHA256,
+    // format.OpenSSL (Salted__ parse only for WordArray keys).
+    // NOT covered: PBKDF2/EvpKDF passphrase keys, AES-GCM, DES/TripleDES,
+    // SHA1/SHA512, RSA, forge. A string AES key is rejected on purpose:
+    // real CryptoJS would derive a key from it with a salt, and silently
+    // treating the string as raw key bytes would produce wrong ciphertext.
+
+    function isWordArray(v) {
+        return !!v && Array.isArray(v.words) && typeof v.sigBytes === 'number';
     }
-};
+
+    function bytesFromWordArray(wa) {
+        var out = [];
+        var i;
+        for (i = 0; i < wa.sigBytes; i++) {
+            out.push((wa.words[i >>> 2] >>> (24 - (i % 4) * 8)) & 255);
+        }
+        return out;
+    }
+
+    function wordArrayFromBytes(bytes) {
+        var words = [];
+        var i;
+        for (i = 0; i < bytes.length; i++) {
+            words[i >>> 2] = (words[i >>> 2] || 0) | ((bytes[i] & 255) << (24 - (i % 4) * 8));
+        }
+        return new WordArray(words, bytes.length);
+    }
+
+    function bytesFromValue(v, what) {
+        if (typeof v === 'string') return utf8Encode(v);
+        if (isWordArray(v)) return bytesFromWordArray(v);
+        if (typeof Uint8Array !== 'undefined' && v instanceof Uint8Array) {
+            var out = [];
+            var i;
+            for (i = 0; i < v.length; i++) out.push(v[i]);
+            return out;
+        }
+        if (Array.isArray(v)) {
+            var j;
+            for (j = 0; j < v.length; j++) {
+                if (typeof v[j] !== 'number' || v[j] < 0 || v[j] > 255 || Math.floor(v[j]) !== v[j]) {
+                    throw new TypeError('Invalid byte array for ' + what);
+                }
+            }
+            return v.slice();
+        }
+        throw new TypeError('Unsupported input for ' + what);
+    }
+
+    function keyBytesFromValue(v) {
+        if (typeof v === 'string') {
+            throw new Error('CryptoJS AES string passphrase keys are not supported; pass a WordArray key (Hex.parse/Utf8.parse)');
+        }
+        return bytesFromValue(v, 'key');
+    }
+
+    // ---------- UTF-8 (manual, no TextEncoder/TextDecoder) ----------
+    function utf8Encode(s) {
+        s = String(s == null ? '' : s);
+        var out = [];
+        var i;
+        for (i = 0; i < s.length; i++) {
+            var c = s.charCodeAt(i);
+            if (c < 0x80) {
+                out.push(c);
+            } else if (c < 0x800) {
+                out.push(0xC0 | (c >> 6), 0x80 | (c & 0x3F));
+            } else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length) {
+                var c2 = s.charCodeAt(i + 1);
+                if (c2 >= 0xDC00 && c2 <= 0xDFFF) {
+                    var cp = 0x10000 + ((c - 0xD800) << 10) + (c2 - 0xDC00);
+                    out.push(0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3F), 0x80 | ((cp >> 6) & 0x3F), 0x80 | (cp & 0x3F));
+                    i += 1;
+                } else {
+                    out.push(0xEF, 0xBF, 0xBD);
+                }
+            } else if (c >= 0xDC00 && c <= 0xDFFF) {
+                out.push(0xEF, 0xBF, 0xBD);
+            } else {
+                out.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 0x3F), 0x80 | (c & 0x3F));
+            }
+        }
+        return out;
+    }
+
+    function utf8Decode(bytes) {
+        var out = '';
+        var invalid = false;
+        var i = 0;
+        while (i < bytes.length) {
+            var b = bytes[i];
+            i += 1;
+            var cp;
+            if (b < 0x80) {
+                cp = b;
+            } else if ((b & 0xE0) === 0xC0 && i < bytes.length && (bytes[i] & 0xC0) === 0x80) {
+                cp = ((b & 0x1F) << 6) | (bytes[i] & 0x3F);
+                i += 1;
+                if (cp < 0x80) { cp = 0xFFFD; invalid = true; }
+            } else if ((b & 0xF0) === 0xE0 && i + 1 < bytes.length && (bytes[i] & 0xC0) === 0x80 && (bytes[i + 1] & 0xC0) === 0x80) {
+                cp = ((b & 0x0F) << 12) | ((bytes[i] & 0x3F) << 6) | (bytes[i + 1] & 0x3F);
+                i += 2;
+                if (cp < 0x800) { cp = 0xFFFD; invalid = true; }
+            } else if ((b & 0xF8) === 0xF0 && i + 2 < bytes.length && (bytes[i] & 0xC0) === 0x80 && (bytes[i + 1] & 0xC0) === 0x80 && (bytes[i + 2] & 0xC0) === 0x80) {
+                cp = ((b & 0x07) << 18) | ((bytes[i] & 0x3F) << 12) | ((bytes[i + 1] & 0x3F) << 6) | (bytes[i + 2] & 0x3F);
+                i += 3;
+                if (cp < 0x10000 || cp > 0x10FFFF) { cp = 0xFFFD; invalid = true; }
+            } else {
+                cp = 0xFFFD;
+                invalid = true;
+            }
+            if (cp > 0xFFFF) {
+                cp -= 0x10000;
+                out += String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF));
+            } else {
+                out += String.fromCharCode(cp);
+            }
+        }
+        return { str: out, invalid: invalid };
+    }
+
+    // ---------- Base64 ----------
+    var B64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    function b64Encode(bytes) {
+        var out = '';
+        var i;
+        for (i = 0; i < bytes.length; i += 3) {
+            var b0 = bytes[i];
+            var b1 = i + 1 < bytes.length ? bytes[i + 1] : 0;
+            var b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
+            out += B64_ALPHABET.charAt(b0 >> 2);
+            out += B64_ALPHABET.charAt(((b0 & 3) << 4) | (b1 >> 4));
+            out += i + 1 < bytes.length ? B64_ALPHABET.charAt(((b1 & 15) << 2) | (b2 >> 6)) : '=';
+            out += i + 2 < bytes.length ? B64_ALPHABET.charAt(b2 & 63) : '=';
+        }
+        return out;
+    }
+    function b64Decode(s) {
+        var clean = String(s == null ? '' : s).replace(/\s/g, '').replace(/-/g, '+').replace(/_/g, '/');
+        if (clean.length % 4 === 1) throw new Error('Invalid Base64 length');
+        var rev = {};
+        var i;
+        for (i = 0; i < B64_ALPHABET.length; i++) rev[B64_ALPHABET.charAt(i)] = i;
+        var out = [];
+        for (i = 0; i < clean.length; i += 4) {
+            var c0 = clean.charAt(i);
+            var c1 = clean.charAt(i + 1);
+            var c2 = clean.charAt(i + 2);
+            var c3 = clean.charAt(i + 3);
+            if (!(c0 in rev) || !(c1 in rev)) throw new Error('Invalid Base64 character');
+            var n = (rev[c0] << 18) | (rev[c1] << 12) | (c2 === '=' ? 0 : (rev[c2] << 6)) | (c3 === '=' ? 0 : rev[c3]);
+            if (c2 !== '=' && !(c2 in rev)) throw new Error('Invalid Base64 character');
+            if (c3 !== '=' && !(c3 in rev)) throw new Error('Invalid Base64 character');
+            out.push((n >> 16) & 255);
+            if (c2 !== '=') out.push((n >> 8) & 255);
+            if (c3 !== '=') out.push(n & 255);
+        }
+        return out;
+    }
+
+    function hexEncode(bytes) {
+        var out = '';
+        var i;
+        for (i = 0; i < bytes.length; i++) {
+            var h = bytes[i].toString(16);
+            out += h.length === 1 ? '0' + h : h;
+        }
+        return out;
+    }
+    function hexDecode(s) {
+        s = String(s == null ? '' : s);
+        if (s.length % 2 !== 0) throw new Error('Hex parse: odd length');
+        if (/[^0-9a-fA-F]/.test(s)) throw new Error('Hex parse: invalid character');
+        var out = [];
+        var i;
+        for (i = 0; i < s.length; i += 2) out.push(parseInt(s.substr(i, 2), 16));
+        return out;
+    }
+
+    // ---------- WordArray ----------
+    function WordArray(words, sigBytes) {
+        this.words = words ? words.slice() : [];
+        this.sigBytes = sigBytes != null ? sigBytes : this.words.length * 4;
+        this.clamp();
+    }
+    WordArray.prototype.clamp = function () {
+        var words = this.words;
+        var sigBytes = this.sigBytes;
+        words.length = Math.ceil(sigBytes / 4);
+        if (sigBytes % 4 !== 0) {
+            words[words.length - 1] &= 0xFFFFFFFF << (32 - (sigBytes % 4) * 8);
+        }
+        return this;
+    };
+    WordArray.prototype.clone = function () {
+        return new WordArray(this.words.slice(), this.sigBytes);
+    };
+    WordArray.prototype.concat = function (other) {
+        var bytes = bytesFromWordArray(this).concat(bytesFromValue(other, 'concat'));
+        var wa = wordArrayFromBytes(bytes);
+        this.words = wa.words;
+        this.sigBytes = wa.sigBytes;
+        return this;
+    };
+    WordArray.prototype.toString = function (encoder) {
+        return (encoder || EncHex).stringify(this);
+    };
+    WordArray.create = function (value, sigBytes) {
+        if (value == null) return new WordArray([], 0);
+        if (isWordArray(value)) return value.clone();
+        if (typeof Uint8Array !== 'undefined' && value instanceof Uint8Array) {
+            return wordArrayFromBytes(bytesFromValue(value, 'WordArray.create'));
+        }
+        if (Array.isArray(value)) {
+            if (sigBytes != null) return new WordArray(value.slice(), sigBytes);
+            var allBytes = true;
+            var i;
+            for (i = 0; i < value.length; i++) {
+                if (typeof value[i] !== 'number' || value[i] < 0 || value[i] > 255 || Math.floor(value[i]) !== value[i]) { allBytes = false; break; }
+            }
+            if (allBytes) return wordArrayFromBytes(value.slice());
+            return new WordArray(value.slice(), value.length * 4);
+        }
+        if (typeof value === 'string') return EncUtf8.parse(value);
+        throw new TypeError('Unsupported WordArray.create input');
+    };
+
+    // ---------- Encoders ----------
+    var EncHex = {
+        parse: function (s) { return wordArrayFromBytes(hexDecode(s)); },
+        stringify: function (wa) { return hexEncode(bytesFromWordArray(wa)); }
+    };
+    var EncUtf8 = {
+        parse: function (s) { return wordArrayFromBytes(utf8Encode(s)); },
+        stringify: function (wa) { return utf8Decode(bytesFromWordArray(wa)).str; }
+    };
+    var EncBase64 = {
+        parse: function (s) { return wordArrayFromBytes(b64Decode(s)); },
+        stringify: function (wa) { return b64Encode(bytesFromWordArray(wa)); }
+    };
+    var EncLatin1 = {
+        parse: function (s) {
+            s = String(s == null ? '' : s);
+            var out = [];
+            var i;
+            for (i = 0; i < s.length; i++) out.push(s.charCodeAt(i) & 255);
+            return wordArrayFromBytes(out);
+        },
+        stringify: function (wa) {
+            var bytes = bytesFromWordArray(wa);
+            var out = '';
+            var i;
+            for (i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+            return out;
+        }
+    };
+    function makeUtf16Encoder(littleEndian) {
+        return {
+            parse: function (s) {
+                s = String(s == null ? '' : s);
+                var out = [];
+                var i;
+                for (i = 0; i < s.length; i++) {
+                    var c = s.charCodeAt(i);
+                    if (littleEndian) { out.push(c & 255, (c >> 8) & 255); } else { out.push((c >> 8) & 255, c & 255); }
+                }
+                return wordArrayFromBytes(out);
+            },
+            stringify: function (wa) {
+                var bytes = bytesFromWordArray(wa);
+                var out = '';
+                var i;
+                for (i = 0; i + 1 < bytes.length; i += 2) {
+                    out += String.fromCharCode(littleEndian ? (bytes[i] | (bytes[i + 1] << 8)) : ((bytes[i] << 8) | bytes[i + 1]));
+                }
+                return out;
+            }
+        };
+    }
+    var EncUtf16 = makeUtf16Encoder(false);
+    var EncUtf16LE = makeUtf16Encoder(true);
+
+    // ---------- MD5 ----------
+    var MD5_SHIFT = [7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21];
+    function md5Bytes(inputBytes) {
+        var bytes = inputBytes.slice();
+        var bitLen = bytes.length * 8;
+        bytes.push(0x80);
+        while ((bytes.length % 64) !== 56) bytes.push(0);
+        var lo = bitLen >>> 0;
+        var hi = Math.floor(bitLen / 4294967296) >>> 0;
+        for (var i = 0; i < 4; i++) bytes.push((lo >>> (i * 8)) & 255);
+        for (var j = 0; j < 4; j++) bytes.push((hi >>> (j * 8)) & 255);
+        function rotl(x, s) { return ((x << s) | (x >>> (32 - s))) | 0; }
+        function add() {
+            var s = 0;
+            for (var k = 0; k < arguments.length; k++) s = (s + (arguments[k] | 0)) | 0;
+            return s;
+        }
+        var a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+        for (var off = 0; off < bytes.length; off += 64) {
+            var m = [];
+            for (var t = 0; t < 16; t++) {
+                m[t] = (bytes[off + t * 4]) | (bytes[off + t * 4 + 1] << 8) | (bytes[off + t * 4 + 2] << 16) | (bytes[off + t * 4 + 3] << 24);
+            }
+            var a = a0, b = b0, c = c0, d = d0;
+            for (var round = 0; round < 64; round++) {
+                var f, g;
+                if (round < 16) { f = (b & c) | (~b & d); g = round; }
+                else if (round < 32) { f = (d & b) | (~d & c); g = (5 * round + 1) % 16; }
+                else if (round < 48) { f = b ^ c ^ d; g = (3 * round + 5) % 16; }
+                else { f = c ^ (b | ~d); g = (7 * round) % 16; }
+                var k = Math.floor(Math.abs(Math.sin(round + 1)) * 4294967296) | 0;
+                var tmp = d;
+                d = c;
+                c = b;
+                b = add(b, rotl(add(a, f, k, m[g]), MD5_SHIFT[round]));
+                a = tmp;
+            }
+            a0 = add(a0, a); b0 = add(b0, b); c0 = add(c0, c); d0 = add(d0, d);
+        }
+        var out = [];
+        [a0, b0, c0, d0].forEach(function (w) {
+            for (var s = 0; s < 4; s++) out.push((w >>> (s * 8)) & 255);
+        });
+        return out;
+    }
+
+    // ---------- SHA-256 ----------
+    var SHA256_K = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
+    function rotr(x, n) { return ((x >>> n) | (x << (32 - n))) >>> 0; }
+    function sha256Bytes(inputBytes) {
+        var bytes = inputBytes.slice();
+        var bitLen = bytes.length * 8;
+        bytes.push(0x80);
+        while ((bytes.length % 64) !== 56) bytes.push(0);
+        var hi = Math.floor(bitLen / 4294967296) >>> 0;
+        var lo = bitLen >>> 0;
+        for (var i = 7; i >= 0; i--) {
+            bytes.push(i >= 4 ? ((hi >>> ((i - 4) * 8)) & 255) : ((lo >>> (i * 8)) & 255));
+        }
+        var h = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+        function addN() {
+            var s = 0;
+            for (var k = 0; k < arguments.length; k++) s = (s + (arguments[k] >>> 0)) >>> 0;
+            return s;
+        }
+        for (var off = 0; off < bytes.length; off += 64) {
+            var w = [];
+            for (var t = 0; t < 16; t++) {
+                w[t] = ((bytes[off + t * 4] << 24) | (bytes[off + t * 4 + 1] << 16) | (bytes[off + t * 4 + 2] << 8) | bytes[off + t * 4 + 3]) >>> 0;
+            }
+            for (var u = 16; u < 64; u++) {
+                var s0 = (rotr(w[u - 15], 7) ^ rotr(w[u - 15], 18) ^ (w[u - 15] >>> 3)) >>> 0;
+                var s1 = (rotr(w[u - 2], 17) ^ rotr(w[u - 2], 19) ^ (w[u - 2] >>> 10)) >>> 0;
+                w[u] = addN(w[u - 16], s0, w[u - 7], s1);
+            }
+            var a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+            for (var r = 0; r < 64; r++) {
+                var S1 = (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) >>> 0;
+                var ch = ((e & f) ^ (~e & g)) >>> 0;
+                var temp1 = addN(hh, S1, ch, SHA256_K[r], w[r]);
+                var S0 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) >>> 0;
+                var maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0;
+                var temp2 = addN(S0, maj);
+                hh = g; g = f; f = e; e = addN(d, temp1); d = c; c = b; b = a; a = addN(temp1, temp2);
+            }
+            h[0] = addN(h[0], a); h[1] = addN(h[1], b); h[2] = addN(h[2], c); h[3] = addN(h[3], d);
+            h[4] = addN(h[4], e); h[5] = addN(h[5], f); h[6] = addN(h[6], g); h[7] = addN(h[7], hh);
+        }
+        var out = [];
+        h.forEach(function (word) {
+            for (var s = 3; s >= 0; s--) out.push((word >>> (s * 8)) & 255);
+        });
+        return out;
+    }
+
+    // ---------- AES ----------
+    var AES_SBOX = [];
+    var AES_INV_SBOX = [];
+    (function buildAesTables() {
+        function gfMul(a, b) {
+            var p = 0;
+            var aa = a, bb = b;
+            for (var i = 0; i < 8; i++) {
+                if (bb & 1) p ^= aa;
+                var hi = aa & 0x80;
+                aa = (aa << 1) & 255;
+                if (hi) aa ^= 0x1B;
+                bb >>= 1;
+            }
+            return p;
+        }
+        function gfPow(a, e) {
+            var r = 1;
+            while (e > 0) {
+                if (e & 1) r = gfMul(r, a);
+                a = gfMul(a, a);
+                e >>= 1;
+            }
+            return r;
+        }
+        function rotl8(x, n) { return ((x << n) | (x >>> (8 - n))) & 255; }
+        for (var i = 0; i < 256; i++) {
+            var inv = i === 0 ? 0 : gfPow(i, 254);
+            var s = inv ^ rotl8(inv, 1) ^ rotl8(inv, 2) ^ rotl8(inv, 3) ^ rotl8(inv, 4) ^ 0x63;
+            AES_SBOX[i] = s & 255;
+            AES_INV_SBOX[s & 255] = i;
+        }
+    })();
+    function aesGfMul(a, b) {
+        var p = 0;
+        var aa = a, bb = b;
+        for (var i = 0; i < 8; i++) {
+            if (bb & 1) p ^= aa;
+            var hi = aa & 0x80;
+            aa = (aa << 1) & 255;
+            if (hi) aa ^= 0x1B;
+            bb >>= 1;
+        }
+        return p;
+    }
+    function aesExpandKey(keyBytes) {
+        var nk = keyBytes.length / 4;
+        if (nk !== 4 && nk !== 6 && nk !== 8) throw new Error('AES key must be 16, 24 or 32 bytes');
+        var nr = nk + 6;
+        var rcon = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36];
+        var w = [];
+        var i;
+        for (i = 0; i < nk; i++) {
+            w[i] = ((keyBytes[i * 4] << 24) | (keyBytes[i * 4 + 1] << 16) | (keyBytes[i * 4 + 2] << 8) | keyBytes[i * 4 + 3]) >>> 0;
+        }
+        for (i = nk; i < 4 * (nr + 1); i++) {
+            var temp = w[i - 1];
+            if (i % nk === 0) {
+                temp = ((AES_SBOX[(temp >>> 16) & 255] << 24) | (AES_SBOX[(temp >>> 8) & 255] << 16) | (AES_SBOX[temp & 255] << 8) | AES_SBOX[(temp >>> 24) & 255]) >>> 0;
+                temp ^= (rcon[i / nk - 1] << 24) >>> 0;
+            } else if (nk > 6 && i % nk === 4) {
+                temp = ((AES_SBOX[(temp >>> 24) & 255] << 24) | (AES_SBOX[(temp >>> 16) & 255] << 16) | (AES_SBOX[(temp >>> 8) & 255] << 8) | AES_SBOX[temp & 255]) >>> 0;
+            }
+            w[i] = (w[i - nk] ^ temp) >>> 0;
+        }
+        return { w: w, nr: nr };
+    }
+    function aesAddRoundKey(state, w, round) {
+        for (var c = 0; c < 4; c++) {
+            var word = w[round * 4 + c];
+            for (var r = 0; r < 4; r++) {
+                state[r + 4 * c] ^= (word >>> (24 - r * 8)) & 255;
+            }
+        }
+    }
+    function aesSubBytes(state, inv) {
+        var box = inv ? AES_INV_SBOX : AES_SBOX;
+        for (var i = 0; i < 16; i++) state[i] = box[state[i]];
+    }
+    function aesShiftRows(state, inv) {
+        var old = state.slice();
+        for (var r = 0; r < 4; r++) {
+            for (var c = 0; c < 4; c++) {
+                var src = inv ? ((c - r + 4) % 4) : ((c + r) % 4);
+                state[r + 4 * c] = old[r + 4 * src];
+            }
+        }
+    }
+    function aesMixColumns(state, inv) {
+        for (var c = 0; c < 4; c++) {
+            var a0 = state[4 * c], a1 = state[4 * c + 1], a2 = state[4 * c + 2], a3 = state[4 * c + 3];
+            if (!inv) {
+                state[4 * c] = aesGfMul(a0, 2) ^ aesGfMul(a1, 3) ^ a2 ^ a3;
+                state[4 * c + 1] = a0 ^ aesGfMul(a1, 2) ^ aesGfMul(a2, 3) ^ a3;
+                state[4 * c + 2] = a0 ^ a1 ^ aesGfMul(a2, 2) ^ aesGfMul(a3, 3);
+                state[4 * c + 3] = aesGfMul(a0, 3) ^ a1 ^ a2 ^ aesGfMul(a3, 2);
+            } else {
+                state[4 * c] = aesGfMul(a0, 14) ^ aesGfMul(a1, 11) ^ aesGfMul(a2, 13) ^ aesGfMul(a3, 9);
+                state[4 * c + 1] = aesGfMul(a0, 9) ^ aesGfMul(a1, 14) ^ aesGfMul(a2, 11) ^ aesGfMul(a3, 13);
+                state[4 * c + 2] = aesGfMul(a0, 13) ^ aesGfMul(a1, 9) ^ aesGfMul(a2, 14) ^ aesGfMul(a3, 11);
+                state[4 * c + 3] = aesGfMul(a0, 11) ^ aesGfMul(a1, 13) ^ aesGfMul(a2, 9) ^ aesGfMul(a3, 14);
+            }
+        }
+    }
+    function aesEncryptBlock(block, expanded) {
+        var state = block.slice();
+        aesAddRoundKey(state, expanded.w, 0);
+        for (var round = 1; round < expanded.nr; round++) {
+            aesSubBytes(state, false);
+            aesShiftRows(state, false);
+            aesMixColumns(state, false);
+            aesAddRoundKey(state, expanded.w, round);
+        }
+        aesSubBytes(state, false);
+        aesShiftRows(state, false);
+        aesAddRoundKey(state, expanded.w, expanded.nr);
+        return state;
+    }
+    function aesDecryptBlock(block, expanded) {
+        var state = block.slice();
+        aesAddRoundKey(state, expanded.w, expanded.nr);
+        for (var round = expanded.nr - 1; round >= 1; round--) {
+            aesShiftRows(state, true);
+            aesSubBytes(state, true);
+            aesAddRoundKey(state, expanded.w, round);
+            aesMixColumns(state, true);
+        }
+        aesShiftRows(state, true);
+        aesSubBytes(state, true);
+        aesAddRoundKey(state, expanded.w, 0);
+        return state;
+    }
+    function aesPad(bytes) {
+        var padLen = 16 - (bytes.length % 16);
+        var out = bytes.slice();
+        for (var i = 0; i < padLen; i++) out.push(padLen);
+        return out;
+    }
+    function aesUnpad(bytes) {
+        if (bytes.length === 0 || bytes.length % 16 !== 0) throw new Error('AES padding validation failed');
+        var pad = bytes[bytes.length - 1];
+        if (pad < 1 || pad > 16) throw new Error('AES padding validation failed');
+        for (var i = 1; i <= pad; i++) {
+            if (bytes[bytes.length - i] !== pad) throw new Error('AES padding validation failed');
+        }
+        return bytes.slice(0, bytes.length - pad);
+    }
+    function aesCryptBytes(inputBytes, keyBytes, ivBytes, mode, padding, encrypt) {
+        var expanded = aesExpandKey(keyBytes);
+        var data = encrypt ? (padding === 'NoPadding' ? inputBytes.slice() : aesPad(inputBytes)) : inputBytes.slice();
+        if (data.length % 16 !== 0) throw new Error('AES input length must be a multiple of 16');
+        var out = [];
+        var prev = ivBytes ? ivBytes.slice() : null;
+        for (var off = 0; off < data.length; off += 16) {
+            var block = data.slice(off, off + 16);
+            if (mode === 'CBC') {
+                if (encrypt) {
+                    for (var i = 0; i < 16; i++) block[i] ^= prev[i];
+                    var enc = aesEncryptBlock(block, expanded);
+                    out = out.concat(enc);
+                    prev = enc;
+                } else {
+                    var dec = aesDecryptBlock(block, expanded);
+                    for (var j = 0; j < 16; j++) dec[j] ^= prev[j];
+                    out = out.concat(dec);
+                    prev = block;
+                }
+            } else {
+                out = out.concat(encrypt ? aesEncryptBlock(block, expanded) : aesDecryptBlock(block, expanded));
+            }
+        }
+        if (!encrypt && padding === 'Pkcs7') return aesUnpad(out);
+        return out;
+    }
+    function normalizeAesOptions(cfg) {
+        cfg = cfg || {};
+        var mode = 'CBC';
+        if (cfg.mode === ModeECB) mode = 'ECB';
+        else if (cfg.mode === ModeCBC || cfg.mode == null) mode = 'CBC';
+        else throw new Error('Unsupported AES mode');
+        var padding = 'Pkcs7';
+        if (cfg.padding === PadPkcs7 || cfg.padding == null) padding = 'Pkcs7';
+        else if (cfg.padding === PadNoPadding) padding = 'NoPadding';
+        else throw new Error('Unsupported AES padding');
+        var iv = null;
+        if (mode === 'CBC') {
+            if (cfg.iv == null) throw new Error('AES-CBC requires an IV');
+            iv = bytesFromValue(cfg.iv, 'iv');
+            if (iv.length !== 16) throw new Error('AES IV must be 16 bytes');
+        }
+        return { mode: mode, padding: padding, iv: iv };
+    }
+    function makeCipherParams(ciphertextWa, keyWa, ivWa) {
+        return {
+            ciphertext: ciphertextWa,
+            key: keyWa,
+            iv: ivWa,
+            salt: undefined,
+            toString: function (formatter) {
+                if (formatter && typeof formatter.stringify === 'function') return formatter.stringify(this.ciphertext);
+                return EncBase64.stringify(this.ciphertext);
+            }
+        };
+    }
+    function aesEncrypt(message, key, cfg) {
+        var msgBytes = bytesFromValue(message, 'AES message');
+        var keyB = keyBytesFromValue(key);
+        var opt = normalizeAesOptions(cfg);
+        var out = aesCryptBytes(msgBytes, keyB, opt.iv, opt.mode, opt.padding, true);
+        var keyWa = isWordArray(key) ? key.clone() : wordArrayFromBytes(keyB);
+        var ivWa = opt.iv ? wordArrayFromBytes(opt.iv) : undefined;
+        return makeCipherParams(wordArrayFromBytes(out), keyWa, ivWa);
+    }
+    function aesDecrypt(ciphertextInput, key, cfg) {
+        var cipherBytes;
+        if (typeof ciphertextInput === 'string') {
+            var raw = b64Decode(ciphertextInput);
+            if (raw.length >= 8 && raw[0] === 0x53 && raw[1] === 0x61 && raw[2] === 0x6C && raw[3] === 0x74 && raw[4] === 0x65 && raw[5] === 0x64 && raw[6] === 0x5F && raw[7] === 0x5F) {
+                if (raw.length < 16) throw new Error('AES ciphertext too short');
+                cipherBytes = raw.slice(16);
+            } else {
+                cipherBytes = raw;
+            }
+        } else if (ciphertextInput && ciphertextInput.ciphertext) {
+            cipherBytes = bytesFromValue(ciphertextInput.ciphertext, 'AES ciphertext');
+        } else {
+            cipherBytes = bytesFromValue(ciphertextInput, 'AES ciphertext');
+        }
+        var keyB = keyBytesFromValue(key);
+        var opt = normalizeAesOptions(cfg);
+        var out = aesCryptBytes(cipherBytes, keyB, opt.iv, opt.mode, opt.padding, false);
+        return wordArrayFromBytes(out);
+    }
+
+    var ModeCBC = { name: 'CBC' };
+    var ModeECB = { name: 'ECB' };
+    var PadPkcs7 = { name: 'Pkcs7' };
+    var PadNoPadding = { name: 'NoPadding' };
+
+    function sha256Public(message) {
+        return wordArrayFromBytes(sha256Bytes(bytesFromValue(message, 'SHA256 message')));
+    }
+    function md5Public(message) {
+        return wordArrayFromBytes(md5Bytes(bytesFromValue(message, 'MD5 message')));
+    }
+    function hmacSha256(message, key) {
+        var msgBytes = bytesFromValue(message, 'HMAC message');
+        var keyB = bytesFromValue(key, 'HMAC key');
+        if (keyB.length > 64) keyB = sha256Bytes(keyB);
+        while (keyB.length < 64) keyB.push(0);
+        var ipad = [], opad = [];
+        for (var i = 0; i < 64; i++) { ipad.push(keyB[i] ^ 0x36); opad.push(keyB[i] ^ 0x5C); }
+        var inner = sha256Bytes(ipad.concat(msgBytes));
+        return wordArrayFromBytes(sha256Bytes(opad.concat(inner)));
+    }
+
+    var CryptoJS = {
+        lib: {
+            WordArray: WordArray,
+            CipherParams: {
+                create: function (params) {
+                    params = params || {};
+                    return makeCipherParams(params.ciphertext || wordArrayFromBytes([]), params.key, params.iv);
+                }
+            }
+        },
+        enc: {
+            Hex: EncHex,
+            Utf8: EncUtf8,
+            Base64: EncBase64,
+            Latin1: EncLatin1,
+            Utf16: EncUtf16,
+            Utf16LE: EncUtf16LE
+        },
+        mode: { CBC: ModeCBC, ECB: ModeECB },
+        pad: { Pkcs7: PadPkcs7, NoPadding: PadNoPadding },
+        AES: { encrypt: aesEncrypt, decrypt: aesDecrypt },
+        MD5: md5Public,
+        SHA256: sha256Public,
+        HmacSHA256: hmacSha256,
+        format: {
+            OpenSSL: {
+                parse: function (s) {
+                    var raw = b64Decode(s);
+                    if (raw.length >= 16 && raw[0] === 0x53 && raw[1] === 0x61 && raw[2] === 0x6C && raw[3] === 0x74 && raw[4] === 0x65 && raw[5] === 0x64 && raw[6] === 0x5F && raw[7] === 0x5F) {
+                        return { ciphertext: wordArrayFromBytes(raw.slice(16)), salt: wordArrayFromBytes(raw.slice(8, 16)) };
+                    }
+                    return { ciphertext: wordArrayFromBytes(raw), salt: undefined };
+                },
+                stringify: function (cipherParams) {
+                    var ct = cipherParams.ciphertext || cipherParams;
+                    if (cipherParams.salt) {
+                        var salted = [0x53, 0x61, 0x6C, 0x74, 0x65, 0x64, 0x5F, 0x5F].concat(bytesFromValue(cipherParams.salt, 'salt'), bytesFromValue(ct, 'ciphertext'));
+                        return b64Encode(salted);
+                    }
+                    return EncBase64.stringify(isWordArray(ct) ? ct : wordArrayFromBytes(bytesFromValue(ct, 'ciphertext')));
+                }
+            }
+        }
+    };
+
+    globalThis.CryptoJS = CryptoJS;
+
+    // Only-if-missing polyfills for rules that use these in function bodies.
+    // They do not overwrite a native implementation when one exists.
+    if (typeof globalThis.atob === 'undefined') {
+        globalThis.atob = function (s) {
+            var bytes = b64Decode(String(s));
+            var out = '';
+            for (var i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+            return out;
+        };
+    }
+    if (typeof globalThis.btoa === 'undefined') {
+        globalThis.btoa = function (s) {
+            s = String(s);
+            var bytes = [];
+            for (var i = 0; i < s.length; i++) {
+                var c = s.charCodeAt(i);
+                if (c > 255) throw new Error('btoa: string contains non-Latin1 character');
+                bytes.push(c);
+            }
+            return b64Encode(bytes);
+        };
+    }
+    if (typeof globalThis.TextDecoder === 'undefined') {
+        globalThis.TextDecoder = function (encoding) {
+            var enc = encoding == null ? 'utf-8' : String(encoding).toLowerCase().replace('_', '-');
+            if (enc !== 'utf-8' && enc !== 'utf8') throw new RangeError('TextDecoder: only utf-8 is supported by this polyfill');
+            this.encoding = 'utf-8';
+            this.fatal = false;
+            this.ignoreBOM = false;
+        };
+        globalThis.TextDecoder.prototype.decode = function (input) {
+            var bytes;
+            if (input == null) bytes = [];
+            else if (typeof Uint8Array !== 'undefined' && input instanceof Uint8Array) bytes = bytesFromValue(input, 'TextDecoder input');
+            else if (input instanceof ArrayBuffer) bytes = bytesFromValue(new Uint8Array(input), 'TextDecoder input');
+            else if (Array.isArray(input)) bytes = input.slice();
+            else bytes = utf8Encode(String(input));
+            var r = utf8Decode(bytes);
+            if (this.fatal && r.invalid) throw new TypeError('TextDecoder: invalid UTF-8');
+            return r.str;
+        };
+    }
+    if (typeof globalThis.TextEncoder === 'undefined') {
+        globalThis.TextEncoder = function () { this.encoding = 'utf-8'; };
+        globalThis.TextEncoder.prototype.encode = function (s) {
+            var bytes = utf8Encode(s);
+            if (typeof Uint8Array !== 'undefined') return new Uint8Array(bytes);
+            return bytes;
+        };
+    }
+})();
+
 
 /* v0.11.6：最小 muban 模板（drpy 的 模板 机制）。规则用 模板:'mxpro' 时自动合并。 */
 globalThis.muban = {
@@ -402,7 +1135,7 @@ async function runJsonTemplate(tpl, ctx) {
     });
 }
 
-/* base64 解码（规则 lazy 常用）：host.js 纯 JS 实现（V8 无 atob/TextDecoder）。 */
+/* base64 解码（规则 lazy 常用）：host.js 纯 JS 实现；V8 原生缺 atob/TextDecoder 时由 CryptoJS 一节的 polyfill 补齐（仅缺失时定义）。 */
 globalThis.base64Decode = function (s) {
     return globalThis.__hB64Decode(String(s));
 };
