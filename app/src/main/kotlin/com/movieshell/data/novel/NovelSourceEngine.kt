@@ -6,6 +6,7 @@ import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -14,6 +15,10 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 /**
  * v0.61.0 书源执行引擎：把 BookSource 规则跑通
@@ -28,6 +33,58 @@ object NovelSourceEngine {
     /** v0.101.0：书源并发搜上限，书源齐发会被反爬封 IP（影视模块有自己的限流，互不干扰）。 */
     private const val SEARCH_MAX_CONCURRENCY = 4
     private val searchSemaphore = Semaphore(SEARCH_MAX_CONCURRENCY)
+
+    /** v0.250.0：正文失败分类——UI 按它给短提示，细节进日志，不再一个通用 toast。 */
+    enum class ContentFail {
+        /** 403 或疑似验证页，验证通道可解（预加载静默时也用它，只是不提示）。 */
+        VERIFY,
+
+        /** 连接/读取超时（底层拦截器已退避重试过，这里不再叠加）。 */
+        TIMEOUT,
+
+        /** 域名解析失败。 */
+        DNS,
+
+        /** 其他 IO 异常。 */
+        NETWORK,
+
+        /** 验证已过、重抓仍 403：站方拒绝，非验证可解。 */
+        FORBIDDEN,
+
+        /** 200 且页面正常，但规则与兜底都提不出正文。 */
+        PARSE_EMPTY,
+
+        /** 无明确信号的失败。 */
+        UNKNOWN,
+    }
+
+    /** v0.250.0：正文拉取结果——空串分不清 403/超时/解析失败，调用方必须拿到原因。 */
+    sealed interface ContentResult {
+        data class Ok(val text: String) : ContentResult
+        data class Failed(val reason: ContentFail) : ContentResult
+    }
+
+    /**
+     * v0.250.0：按最后一次抓取结果给正文失败定性。
+     * fetchCount 是实际发过的请求数：验证通过后又重抓一次才仍 403，说明验证解不了，
+     * 定 FORBIDDEN；只抓过一次就 403，验证通道还没跑过，定 VERIFY。
+     */
+    private fun classifyContentFailure(last: BookRuleEngine.FetchOutcome?, fetchCount: Int): ContentFail {
+        val err = last?.error
+        if (err is SocketTimeoutException || err is InterruptedIOException) return ContentFail.TIMEOUT
+        if (err is UnknownHostException) return ContentFail.DNS
+        if (last?.httpCode == 403) return if (fetchCount >= 2) ContentFail.FORBIDDEN else ContentFail.VERIFY
+        if (err is IOException) return ContentFail.NETWORK
+        return ContentFail.UNKNOWN
+    }
+
+    /** v0.250.0：正文 Referer 取章地址的父路径（多为详情页）；章地址本身无路径时不带。 */
+    private fun parentReferer(url: String): String? {
+        val trimmed = url.trimEnd('/')
+        val idx = trimmed.lastIndexOf('/')
+        if (idx <= 8) return null
+        return trimmed.substring(0, idx + 1)
+    }
 
     /** v0.199.0：该源是否用到 JS 能力（是则走 LegadoJsEngine，否则走老 CSS 路径，原样不动）。 */
     private fun isJsSource(source: BookSource): Boolean = LegadoJsEngine.isJsSource(source)
@@ -70,6 +127,7 @@ object NovelSourceEngine {
         ua: String?,
         gateUrl: String,
         allowGate: Boolean,
+        label: String = "搜书",
         fetch: suspend () -> BookRuleEngine.FetchOutcome,
     ): BookRuleEngine.PageResult? {
         val first = fetch()
@@ -79,24 +137,40 @@ object NovelSourceEngine {
         // 后台（allowGate=false）仍不弹。只重抓一次，不递归。
         // v0.210.0：先后台验证（不弹页面，挑战自己过了直接重抓）；后台过不了
         // （真人验证码、超时）再弹可见验证页兜底。
-        if (!allowGate) return null
         // v0.225.0：全链路诊断——首抓、后台验证、重抓三处结果全记进悬浮窗，
         // 只记状态码/长度/有无 cf_clearance，不记正文与 Cookie 值。
-        LogBus.w(TAG, "搜书抓取 ${source.name} 首抓空 httpCode=${first.httpCode}，进验证")
+        if (!allowGate) return null
+        LogBus.w(TAG, "$label抓取 ${source.name} 首抓空 httpCode=${first.httpCode}，进验证")
+        return verifyAndRefetch(source, ua, gateUrl, allowGate, label, fetch)
+    }
+
+    /**
+     * v0.250.0：gatedFetch 的验证尾巴抽出——正文首抓 200 但疑似验证页时也要复用它，
+     * 搜索/目录仍走 gatedFetch，触发语义不变。
+     */
+    private suspend fun verifyAndRefetch(
+        source: BookSource,
+        ua: String?,
+        gateUrl: String,
+        allowGate: Boolean,
+        label: String = "搜书",
+        fetch: suspend () -> BookRuleEngine.FetchOutcome,
+    ): BookRuleEngine.PageResult? {
+        if (!allowGate) return null
         val bg = runCatching { VerifyGate.awaitVerifyBackground(gateUrl, ua) }
             .onFailure { if (it is CancellationException) throw it }
             .getOrNull()
-        LogBus.d(TAG, "搜书验证 ${source.name} 后台=${if (bg == null) "失败" else "通过 cf=${bg.cookieHeader.contains("cf_clearance=")} htmlLen=${bg.html.length} cookieLen=${bg.cookieHeader.length}"}")
+        LogBus.d(TAG, "$label验证 ${source.name} 后台=${if (bg == null) "失败" else "通过 cf=${bg.cookieHeader.contains("cf_clearance=")} htmlLen=${bg.html.length} cookieLen=${bg.cookieHeader.length}"}")
         val result = bg ?: runCatching { VerifyGate.awaitVerify(gateUrl, source.name, ua) }
             .onFailure { if (it is CancellationException) throw it }
             .getOrNull()
         if (result == null) {
-            LogBus.w(TAG, "搜书验证 ${source.name} 可见验证未通过")
+            LogBus.w(TAG, "$label验证 ${source.name} 可见验证未通过")
             return null
         }
         if (result.cookieHeader.isNotBlank()) CmsApi.putCookies(result.url, result.cookieHeader)
         val again = fetch()
-        if (again.page == null) LogBus.w(TAG, "搜书抓取 ${source.name} 重抓空 httpCode=${again.httpCode}")
+        if (again.page == null) LogBus.w(TAG, "$label抓取 ${source.name} 重抓空 httpCode=${again.httpCode}")
         return again.page
     }
 
@@ -301,22 +375,63 @@ object NovelSourceEngine {
         }
     }
 
-    /** 拉单章正文。v0.198.0：JSON 源按 ruleContentReplace 做正文替换。v0.199.0：JS 源走 LegadoJsEngine（含正文分页）。 */
-    suspend fun content(source: BookSource, chapter: ChapterMeta): String {
-        if (chapter.url.isBlank()) return ""
+    /** v0.250.0：非 JS 正文提取（规则 + 替换 + 通用兜底），首抓与验证重抓共用。 */
+    private fun extractChapterText(source: BookSource, html: String, pageUrl: String): String {
+        val doc = BookRuleEngine.parseDoc(html, pageUrl)
+        val raw = if (source.ruleContent.isBlank()) "" else BookRuleEngine.extractContent(doc, source.ruleContent)
+        val out = if (source.ruleContentReplace.isBlank()) raw
+        else BookRuleEngine.applyReplaceRegex(raw, source.ruleContentReplace)
+        // v0.202.0：规则提空时用通用正文兜底（无 content 规则的源也由此可读）
+        return out.ifBlank { readabilityText(pageUrl, html) }
+    }
+
+    /**
+     * 拉单章正文。v0.198.0：JSON 源按 ruleContentReplace 做正文替换。v0.199.0：JS 源走 LegadoJsEngine（含正文分页）。
+     * v0.250.0：正文拉取补齐三项不对称——①走 gatedFetch（403/空页时用户主动读可验证，
+     * 预加载绝不弹验证页）；②走搜索同款 Semaphore(4)，验证等待本身不占名额；
+     * ③返回失败分类，不再以空串抹掉 403/超时/DNS 的区别。超时/DNS 仍只靠底层
+     * 拦截器退避重试，正文层不叠加。JS 链路只给首抓加限流与 Referer，登录校验语义不动。
+     */
+    suspend fun content(source: BookSource, chapter: ChapterMeta, allowGate: Boolean = false): ContentResult {
+        if (chapter.url.isBlank()) return ContentResult.Failed(ContentFail.UNKNOWN)
         if (!isJsSource(source)) {
             // v0.217.0（F43）：非 JS 链路也要传源自定义 UA——原来只 JS 链路传，
             // CSS 源正文永远走默认 UA，需要自定义 UA 的站直接 403。
-            val html = BookRuleEngine.getHtml(chapter.url, uaOf(source)) ?: return ""
-            val doc = BookRuleEngine.parseDoc(html, chapter.url)
-            val raw = if (source.ruleContent.isBlank()) "" else BookRuleEngine.extractContent(doc, source.ruleContent)
-            val out = if (source.ruleContentReplace.isBlank()) raw
-            else BookRuleEngine.applyReplaceRegex(raw, source.ruleContentReplace)
-            // v0.202.0：规则提空时用通用正文兜底（无 content 规则的源也由此可读）
-            return out.ifBlank { readabilityText(chapter.url, html) }
+            val ua = uaOf(source)
+            val referer = parentReferer(chapter.url)
+            var fetchCount = 0
+            var last: BookRuleEngine.FetchOutcome? = null
+            val fetch: suspend () -> BookRuleEngine.FetchOutcome = {
+                fetchCount++
+                withSearchThrottle { BookRuleEngine.fetchPageOutcome(chapter.url, ua, referer) }.also {
+                    last = it
+                    // v0.250.0：异常已包成数据返回，取消语义不能跟着丢——任务已取消时
+                    // 直接抛，不让取消的请求被分类成超时、也不让它继续走验证。
+                    coroutineContext.ensureActive()
+                }
+            }
+            val page = gatedFetch(source, ua, chapter.url, allowGate, "正文", fetch)
+                ?: return ContentResult.Failed(classifyContentFailure(last, fetchCount))
+            val text = extractChapterText(source, page.body, page.url)
+            if (text.isNotBlank()) return ContentResult.Ok(text)
+            // 200 但提空：只有疑似验证页才走验证，普通规则不匹配不反复开验证。
+            if (!VerifyGate.looksLikeChallenge(page.body)) return ContentResult.Failed(ContentFail.PARSE_EMPTY)
+            if (!allowGate) return ContentResult.Failed(ContentFail.VERIFY)
+            LogBus.w(TAG, "正文 ${source.name} 首抓 200 但疑似验证页，进验证")
+            var refetched = false
+            val page2 = verifyAndRefetch(source, ua, chapter.url, true, "正文") {
+                refetched = true
+                fetch()
+            } ?: return ContentResult.Failed(
+                if (refetched) classifyContentFailure(last, 2) else ContentFail.VERIFY,
+            )
+            val text2 = extractChapterText(source, page2.body, page2.url)
+            return if (text2.isNotBlank()) ContentResult.Ok(text2)
+            else ContentResult.Failed(ContentFail.PARSE_EMPTY)
         }
         return withContext(Dispatchers.IO) {
             val ua = uaOf(source)
+            val referer = parentReferer(chapter.url)
             val state = LegadoJsEngine.JsState(source.key)
             val ctx = LegadoJsEngine.JsCtx(
                 source = source,
@@ -324,9 +439,12 @@ object NovelSourceEngine {
                 chapterTitle = chapter.title,
                 chapterUrl = chapter.url,
             )
-            val first = BookRuleEngine.fetchPage(chapter.url, ua) ?: return@withContext ""
+            val firstOutcome = withSearchThrottle { BookRuleEngine.fetchPageOutcome(chapter.url, ua, referer) }
+            // v0.250.0：同非 JS 路径——取消的任务直接抛，不进失败分类。
+            coroutineContext.ensureActive()
+            val first = firstOutcome.page ?: return@withContext ContentResult.Failed(classifyContentFailure(firstOutcome, 1))
             val checked = LegadoJsEngine.runLoginCheck(source, first, ctx, state) {
-                BookRuleEngine.fetchPage(chapter.url, ua)
+                BookRuleEngine.fetchPage(chapter.url, ua, referer)
             }
             val sb = StringBuilder()
             var curBody = checked.body
@@ -376,7 +494,9 @@ object NovelSourceEngine {
                 }
             }
             // v0.202.0：JS 规则提空时同样用通用正文兜底（取首页面源码）
-            outText.ifBlank { readabilityText(chapter.url, checked.body) }
+            val finalText = outText.ifBlank { readabilityText(chapter.url, checked.body) }
+            if (finalText.isNotBlank()) ContentResult.Ok(finalText)
+            else ContentResult.Failed(ContentFail.PARSE_EMPTY)
         }
     }
 

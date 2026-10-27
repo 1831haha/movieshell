@@ -138,6 +138,9 @@ object VerifyGate {
         "Checking if the site connection is secure",
     )
 
+    /** v0.250.0：正文 200 提空时复用同一组挑战标记判验证页，不另起一套。 */
+    fun looksLikeChallenge(html: String): Boolean = challengeMarkers.any { html.contains(it) }
+
     private suspend fun evalHtml(view: WebView): String = suspendCancellableCoroutine { cont ->
         view.evaluateJavascript("(function(){return document.documentElement.outerHTML})()") { raw ->
             cont.resume(decodeHtml(raw))

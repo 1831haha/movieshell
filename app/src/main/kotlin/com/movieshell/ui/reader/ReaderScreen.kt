@@ -104,7 +104,9 @@ import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.ReaderSettings
 import com.movieshell.data.repo.ReadingProgressStore
 import com.movieshell.data.repo.ReadingStatsStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -210,6 +212,8 @@ fun ReaderScreen(
     var contentLoading by remember { mutableStateOf(false) }
     // v0.109.0 A7：正文拉取失败给可见反馈——Toast + 正文区重试入口，不许静默空白页
     var contentLoadError by remember { mutableStateOf(false) }
+    // v0.250.0：失败原因与错误态同进退，错误区标题与 Toast 用同一套短提示。
+    var contentLoadReason by remember { mutableStateOf<NovelSourceEngine.ContentFail?>(null) }
     // v0.72.0：音量键翻页
     var volumePageTurn by remember { mutableStateOf(savedSettings.volumePageTurn) }
     var pageHeight by remember { mutableIntStateOf(0) }
@@ -292,30 +296,48 @@ fun ReaderScreen(
     // v0.99.0 P1-8/P1-9：预加载任务与翻页自动存档任务，翻章时取消上一次
     var saveJob by remember { mutableStateOf<Job?>(null) }
     // 注意：局部 fun 必须先声明后调用，故放在 LaunchedEffect 之前
-    /** v0.72.0：拉取章节正文并写库（纯 IO，不碰 UI 状态），返回是否拿到正文。 */
-    suspend fun fetchChapter(index: Int): Boolean {
-        val c = chapters.getOrNull(index) ?: return false
-        if (c.content.isNotBlank() || c.url.isBlank()) return true
-        val n = novel ?: return false
-        val text = runCatching {
+    /** v0.250.0：正文失败原因→用户提示（短句，诊断细节进日志，不猜限流）。 */
+    fun failText(f: NovelSourceEngine.ContentFail): String = when (f) {
+        NovelSourceEngine.ContentFail.VERIFY -> "当前章节需要验证，请完成验证后重试"
+        NovelSourceEngine.ContentFail.TIMEOUT -> "正文加载超时，请稍后重试"
+        NovelSourceEngine.ContentFail.DNS -> "网络连接异常，请检查网络后重试"
+        NovelSourceEngine.ContentFail.FORBIDDEN -> "章节暂时无法访问，请稍后重试"
+        NovelSourceEngine.ContentFail.PARSE_EMPTY -> "正文解析失败，可重试或反馈问题"
+        else -> "正文加载失败，请点击重试"
+    }
+
+    /** v0.72.0：拉取章节正文并写库（纯 IO，不碰 UI 状态），返回失败原因，null=成功。
+     * v0.250.0：allowGate 区分主动读与预加载——预加载绝不弹验证页。 */
+    suspend fun fetchChapter(index: Int, allowGate: Boolean): NovelSourceEngine.ContentFail? {
+        val c = chapters.getOrNull(index) ?: return NovelSourceEngine.ContentFail.UNKNOWN
+        if (c.content.isNotBlank() || c.url.isBlank()) return null
+        val n = novel ?: return NovelSourceEngine.ContentFail.UNKNOWN
+        val result = runCatching {
             if (n.sourceKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
-                NovelSourceEngine.contentPy(context, ChapterMeta(index, c.title, c.url), n.sourceKey)
+                val t = NovelSourceEngine.contentPy(context, ChapterMeta(index, c.title, c.url), n.sourceKey)
+                if (t.isNotBlank()) NovelSourceEngine.ContentResult.Ok(t)
+                else NovelSourceEngine.ContentResult.Failed(NovelSourceEngine.ContentFail.UNKNOWN)
             } else {
                 val source = BookSourceManager.sources.value
                     .firstOrNull { it.key == n.sourceKey }
-                    ?: return@runCatching ""
-                NovelSourceEngine.content(source, ChapterMeta(index, c.title, c.url))
+                    ?: return@runCatching NovelSourceEngine.ContentResult.Failed(NovelSourceEngine.ContentFail.UNKNOWN)
+                NovelSourceEngine.content(source, ChapterMeta(index, c.title, c.url), allowGate)
             }
-        }.getOrDefault("")
+        }.onFailure { if (it is CancellationException) throw it }
+            .getOrElse { NovelSourceEngine.ContentResult.Failed(NovelSourceEngine.ContentFail.UNKNOWN) }
+        val text = when (result) {
+            is NovelSourceEngine.ContentResult.Ok -> result.text
+            is NovelSourceEngine.ContentResult.Failed -> return result.reason
+        }
         if (text.isNotBlank()) {
             // v0.95.0：正文统一过净化引擎再入库（规则见净化规则管理页）
             val rules = PurifyRuleStore.list(context)
             val clean = NovelPurifyEngine.purify(text, rules, bookUrl = n.id, sourceKey = n.sourceKey)
             NovelStore.updateChapterContent(context, n.id, index, clean)
             chapters = chapters.map { if (it.index == index) it.copy(content = clean) else it }
-            return true
+            return null
         }
-        return false
+        return NovelSourceEngine.ContentFail.UNKNOWN
     }
 
     fun ensureContent(index: Int) {
@@ -326,11 +348,15 @@ fun ReaderScreen(
             try {
                 contentLoading = true
                 contentLoadError = false
+                contentLoadReason = null
                 // v0.109.0 A7：fetchChapter 返回值别再丢掉——失败时 Toast + 置错误态给重试入口
-                val ok = fetchChapter(index)
-                if (!ok) {
+                val fail = fetchChapter(index, allowGate = true)
+                if (fail != null) {
+                    // v0.250.0：任务已取消（用户已离开）时不置错误态、不弹 Toast。
+                    if (!isActive) return@launch
                     contentLoadError = true
-                    AppToast.show(context, "正文拉取失败，点击正文区重试", long = false)
+                    contentLoadReason = fail
+                    AppToast.show(context, failText(fail), long = false)
                     // v0.244.0：正对着这章的定位请求别让用户空等——退回当前视口位置。
                     if (landing?.chapter == index) {
                         landing = LandingTarget.Offset(viewportChapter, viewportOffset)
@@ -351,7 +377,7 @@ fun ReaderScreen(
         if (!loadingChapters.add(index)) return
         scope.launch {
             try {
-                fetchChapter(index)
+                fetchChapter(index, allowGate = false)
             } finally {
                 loadingChapters.remove(index)
             }
@@ -375,6 +401,7 @@ fun ReaderScreen(
         if (c.url.isBlank()) return
         chapters = chapters.map { if (it.index == idx) it.copy(content = "") else it }
         contentLoadError = false
+        contentLoadReason = null
         // v0.244.0：正文换了，全局分页整体重建（布局版本 +1），落点按视口重定位。
         layoutVersion++
         ensureContent(idx)
@@ -1102,16 +1129,21 @@ fun ReaderScreen(
                         .fillMaxSize()
                         .clickable {
                             contentLoadError = false
+                            contentLoadReason = null
                             ensureContent(chapterIndex)
                         },
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("正文拉取失败", color = fg, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            contentLoadReason?.let { failText(it) } ?: "正文拉取失败",
+                            color = fg, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                        )
                         Spacer(Modifier.height(8.dp))
                         TextButton(
                             onClick = {
                                 contentLoadError = false
+                                contentLoadReason = null
                                 ensureContent(chapterIndex)
                             },
                         ) {

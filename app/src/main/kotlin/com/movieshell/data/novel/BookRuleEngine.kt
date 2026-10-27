@@ -42,31 +42,34 @@ object BookRuleEngine {
     /** v0.199.0：抓取结果（正文 + 落地 URL，供登录校验判断重定向）。 */
     data class PageResult(val body: String, val url: String)
 
-    /** v0.208.0：抓取结果 + HTTP 状态（null=网络异常等未拿到响应）。 */
-    data class FetchOutcome(val page: PageResult?, val httpCode: Int?)
+    /** v0.208.0：抓取结果 + HTTP 状态（null=网络异常等未拿到响应）。
+     * v0.250.0：补 error——正文失败分类要区分超时/DNS/其他 IO，不能只看空页。 */
+    data class FetchOutcome(val page: PageResult?, val httpCode: Int?, val error: Throwable? = null)
 
     /** v0.199.0：GET 抓取，返回正文与重定向后的落地 URL。 */
-    suspend fun fetchPage(url: String, ua: String? = null): PageResult? =
-        fetchPageOutcome(url, ua).page
+    suspend fun fetchPage(url: String, ua: String? = null, referer: String? = null): PageResult? =
+        fetchPageOutcome(url, ua, referer).page
 
     /**
      * v0.208.0：GET 抓取 + HTTP 状态。
      * 403 时调用方可用它触发 WebView 验证通道（见 NovelSourceEngine.gatedFetch），
      * 普通失败仍按原逻辑返回空页，不影响老调用方。
      */
-    suspend fun fetchPageOutcome(url: String, ua: String? = null): FetchOutcome = withContext(Dispatchers.IO) {
+    suspend fun fetchPageOutcome(url: String, ua: String? = null, referer: String? = null): FetchOutcome = withContext(Dispatchers.IO) {
         runCatching {
             val req = Request.Builder()
                 .url(url)
                 .header("User-Agent", ua ?: DEFAULT_UA_CHROME120)
                 .header("Accept-Language", "zh-CN,zh;q=0.9")
+                .apply { if (!referer.isNullOrBlank()) header("Referer", referer) }
                 .build()
             client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return@use FetchOutcome(null, resp.code)
                 val bytes = resp.body?.bytes() ?: return@use FetchOutcome(null, resp.code)
                 FetchOutcome(PageResult(decodeBytes(bytes), resp.request.url.toString()), resp.code)
             }
-        }.onFailure { LogBus.w(TAG, "抓取失败 $url ${it.javaClass.simpleName}: ${it.message}") }.getOrNull() ?: FetchOutcome(null, null)
+        }.onFailure { LogBus.w(TAG, "抓取失败 $url ${it.javaClass.simpleName}: ${it.message}") }
+            .getOrElse { FetchOutcome(null, null, it) }
     }
 
     /** v0.197.0：搜索请求（URL + 方法 + 表单体 + 编码 + 附加头）。 */
