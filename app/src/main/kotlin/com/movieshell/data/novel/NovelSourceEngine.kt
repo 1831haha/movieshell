@@ -7,6 +7,7 @@ import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -140,7 +141,7 @@ object NovelSourceEngine {
         // v0.225.0：全链路诊断——首抓、后台验证、重抓三处结果全记进悬浮窗，
         // 只记状态码/长度/有无 cf_clearance，不记正文与 Cookie 值。
         if (!allowGate) return null
-        LogBus.w(TAG, "$label抓取 ${source.name} 首抓空 httpCode=${first.httpCode}，进验证")
+        LogBus.w(TAG, "${label}抓取 ${source.name} 首抓空 httpCode=${first.httpCode}，进验证")
         return verifyAndRefetch(source, ua, gateUrl, allowGate, label, fetch)
     }
 
@@ -160,17 +161,17 @@ object NovelSourceEngine {
         val bg = runCatching { VerifyGate.awaitVerifyBackground(gateUrl, ua) }
             .onFailure { if (it is CancellationException) throw it }
             .getOrNull()
-        LogBus.d(TAG, "$label验证 ${source.name} 后台=${if (bg == null) "失败" else "通过 cf=${bg.cookieHeader.contains("cf_clearance=")} htmlLen=${bg.html.length} cookieLen=${bg.cookieHeader.length}"}")
+        LogBus.d(TAG, "${label}验证 ${source.name} 后台=${if (bg == null) "失败" else "通过 cf=${bg.cookieHeader.contains("cf_clearance=")} htmlLen=${bg.html.length} cookieLen=${bg.cookieHeader.length}"}")
         val result = bg ?: runCatching { VerifyGate.awaitVerify(gateUrl, source.name, ua) }
             .onFailure { if (it is CancellationException) throw it }
             .getOrNull()
         if (result == null) {
-            LogBus.w(TAG, "$label验证 ${source.name} 可见验证未通过")
+            LogBus.w(TAG, "${label}验证 ${source.name} 可见验证未通过")
             return null
         }
         if (result.cookieHeader.isNotBlank()) CmsApi.putCookies(result.url, result.cookieHeader)
         val again = fetch()
-        if (again.page == null) LogBus.w(TAG, "$label抓取 ${source.name} 重抓空 httpCode=${again.httpCode}")
+        if (again.page == null) LogBus.w(TAG, "${label}抓取 ${source.name} 重抓空 httpCode=${again.httpCode}")
         return again.page
     }
 
@@ -407,7 +408,7 @@ object NovelSourceEngine {
                     last = it
                     // v0.250.0：异常已包成数据返回，取消语义不能跟着丢——任务已取消时
                     // 直接抛，不让取消的请求被分类成超时、也不让它继续走验证。
-                    coroutineContext.ensureActive()
+                    currentCoroutineContext().ensureActive()
                 }
             }
             val page = gatedFetch(source, ua, chapter.url, allowGate, "正文", fetch)
