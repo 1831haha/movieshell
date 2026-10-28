@@ -1162,7 +1162,7 @@ globalThis.md5 = function (s) {
 /* drpy2 全局数组 d：规则往里 push，框架收集。 */
 globalThis.d = [];
 
-async function runSection(section, ctx) {
+async function runSection(section, ctx, args) {
     _sectionResult = undefined;
     globalThis.d = [];
     var r;
@@ -1178,7 +1178,13 @@ async function runSection(section, ctx) {
                 if (ctx[k] === undefined) ctx[k] = rule[k];
             });
         }
-        r = await section.call(ctx);
+        /* v0.254.0：函数规则按 DS 语义拿参数，不只拿 this。聚合短剧的 lazy
+         * 签名是 (flag, id, flags)，分支全靠参数 flag 做 indexOf；以前这里
+         * 只 call(ctx) 不传参，flag 是 undefined，第一行就抛 indexOf 错，
+         * 播放入口 catch 成 error、Kotlin 侧读不到 url 就报暂无播放地址。
+         * 字符串模板分支不走这条，args 对它无影响；其余入口仍不传参，
+         * 它们的规则函数本来就是只读 this 的写法。 */
+        r = await section.apply(ctx, args || []);
     } else if (typeof section === 'string') {
         if (section.indexOf('json:') === 0) {
             r = await runJsonTemplate(section, ctx);
@@ -1365,7 +1371,7 @@ globalThis.__drpyPlay = async function (flag, id) {
             // 不做 detailUrl 渲染——detailUrl 只在 detail 阶段拼 vod_id 用。
             // 渲染会破坏 m3u8/mp4 直链判断（规则 lazy: input.indexOf('.m3u8')）。
             var ctx = makeRuleCtx(rule, { input: str(id), flag: flag });
-            var r = await runSection(fn, ctx);
+            var r = await runSection(fn, ctx, [flag, id]);
             // v0.11.1：lazy 形态直接改写 input 为 {jx,url,parse,header} 对象交结果
             if (r == null && ctx.input && typeof ctx.input === 'object') r = ctx.input;
             if (typeof r === 'string') return JSON.stringify({ url: r, parse: 0 });
