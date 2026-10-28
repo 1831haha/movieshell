@@ -14,6 +14,8 @@ import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DownloadSettings
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.repo.FollowItem
+import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PlayerEngine
@@ -78,15 +80,18 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.PlaylistAddCheck
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -125,7 +130,9 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.unit.Dp
@@ -226,6 +233,11 @@ fun PlayerScreen(
     onFullscreen: () -> Unit = {},
     // v0.65：集数变化回调（嵌入时详情页高亮跟随）
     onEpisodeChange: (lineIndex: Int, episodeIndex: Int) -> Unit = { _, _ -> },
+    // v0.259.0：简介弹窗字段（详情页嵌入时传真实值；独立全屏页传空，
+    // 空行在弹窗里隐藏，只留片名与影片 ID，不编造备注/年份/简介）
+    infoRemarks: String = "",
+    infoYear: String = "",
+    infoDesc: String = "",
     // v0.158.0：直播最终失败回调（同内核重拉 2 次 + 换内核之后才到这里，
     // 直播页用它自动切同名源；null 时走原错误对话框，不改点播行为）
     onLiveError: (() -> Unit)? = null,
@@ -300,10 +312,16 @@ fun PlayerScreen(
     // v0.27.7：自绘控制层显隐（Media3 原生控制器已关闭，双引擎统一）；播放状态从引擎取
     var controlsVisible by remember { mutableStateOf(true) }
     var isPlaying by remember { mutableStateOf(true) }
-    // v0.40.0：锁屏模式（锁定后只留解锁按钮，防误触）+ 右上角更多菜单
+    // v0.40.0：锁屏模式（锁定后只留解锁按钮，防误触）+ 右上角齿轮
     var locked by remember { mutableStateOf(false) }
-    var showMoreMenu by remember { mutableStateOf(false) }
-    var showClarityMenu by remember { mutableStateOf(false) } // v0.256.0：播放器下方清晰度下拉
+    var showGearSheet by remember { mutableStateOf(false) } // v0.259.0：齿轮底部页，替代三个点菜单
+    var showInfoDialog by remember { mutableStateOf(false) } // v0.259.0：简介弹窗
+    // v0.259.0：追剧开关状态直接读 FollowStore 流，播放器与详情页天然同步；
+    // 源 key 为空时不建“|vodId”这种不可靠条目，开关直接隐藏。
+    val followList by FollowStore.list.collectAsState()
+    val followPlayerKey = playSourceKey?.takeIf { it.isNotBlank() }
+    val playerFollowing = followPlayerKey != null && vodId != null &&
+        followList.any { it.id == FollowStore.idOf(followPlayerKey, vodId) }
     var autoSwitching by remember { mutableStateOf(false) } // playUrl 变化来自自动重试
     // v0.21.0：同地址已试过的内核（防 Media3↔libmpv 乒乓）
     val triedEngines = remember { mutableSetOf<PlayerEngine>() }
@@ -1365,7 +1383,7 @@ fun PlayerScreen(
             }
         }
 
-        // v0.40.0：顶部栏按目标界面重做——返回 + 标题 + 画中画 + 投屏 + 更多菜单
+        // v0.40.0：顶部栏按目标界面重做——返回 + 标题 + 画中画 + 投屏 + 齿轮
         // 锁定时隐藏顶栏（只留解锁按钮防误触）
         // v0.65：加时钟 + 分辨率行（对标目标界面）
         var clockText by remember { mutableStateOf("") }
@@ -1422,6 +1440,17 @@ fun PlayerScreen(
                     // weight 在顶栏 Row 里有明确宽度，溢出判断才准）
                     modifier = Modifier.weight(1f).basicMarquee(),
                 )
+                // v0.259.0：清晰度只读标签“自动”放标题旁（目前只有自动档位，
+                // 不做可点开的假分辨率列表）
+                if (!isLive) {
+                    Text(
+                        text = "自动",
+                        color = Color.White.copy(alpha = 0.7f),
+                        style = SoftType.Caption,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
                 // v0.69.1：嵌入模式分辨率并入标题行（单独的分辨率行只在全屏保留）
                 if (embedded && streamInfo.isNotBlank()) {
                     Text(
@@ -1485,88 +1514,61 @@ fun PlayerScreen(
                         },
                     )
                 }
-                // 更多菜单：字幕/选集/定时/跳过设置/画面比例收敛到这里
-                Box {
+                // v0.259.0：三个点菜单整体删除，改成信息 + 追剧开关 + 齿轮；
+                // 追剧开关紧邻齿轮左侧，齿轮点开底部页（六组），信息点开简介弹窗。
+                // 音轨/视轨无现有选择能力，不做假按钮；片头/片尾在齿轮播放组里
+                // 用跳过设置管理，不在顶栏单独造开关。
+                RoundControlButton(
+                    icon = Icons.Filled.Info,
+                    desc = "简介",
+                    onClick = { showInfoDialog = true },
+                )
+                if (!isLive && followPlayerKey != null && vodId != null) {
                     RoundControlButton(
-                        icon = Icons.Filled.MoreVert,
-                        desc = "更多",
-                        onClick = { showMoreMenu = true },
+                        icon = if (playerFollowing) Icons.Filled.PlaylistAddCheck
+                        else Icons.Filled.PlaylistAdd,
+                        desc = if (playerFollowing) "已追剧" else "追剧",
+                        tint = if (playerFollowing) Color(0xFF4DD0E1) else Color.White,
+                        onClick = {
+                            val key = followPlayerKey
+                            val id = vodId
+                            scope.launch {
+                                if (playerFollowing) {
+                                    if (FollowStore.unfollow(context, FollowStore.idOf(key, id))) {
+                                        AppToast.show(context, "已取消追剧", long = false)
+                                    } else {
+                                        AppToast.show(context, "取消追剧失败，请重试", long = false)
+                                    }
+                                } else {
+                                    // 封面为空是允许的：FollowStore.follow 会保留库内已有封面，
+                                    // 全新记录无封面时下次进详情页由详情加载回填，不编造封面。
+                                    val ok = FollowStore.follow(
+                                        context,
+                                        FollowItem(
+                                            id = FollowStore.idOf(key, id),
+                                            vodId = id,
+                                            name = title,
+                                            pic = "",
+                                            sourceType = playSourceType,
+                                            sourceKey = key,
+                                            episodeCount = sessionLines.sumOf { it.episodes.size },
+                                        ),
+                                    )
+                                    AppToast.show(
+                                        context,
+                                        if (ok) "已追剧，有更新会提醒你" else "追剧失败，请重试",
+                                        long = false,
+                                    )
+                                }
+                            }
+                        },
                     )
-                    DropdownMenu(
-                        expanded = showMoreMenu,
-                        onDismissRequest = { showMoreMenu = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("字幕设置") },
-                            onClick = { showMoreMenu = false; showSubtitleDialog = true },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("在线字幕") },
-                            onClick = { showMoreMenu = false; showOnlineSubtitle = true },
-                        )
-                        // v0.54：弹幕开关（只看不发）
-                        DropdownMenuItem(
-                            text = { Text(if (danmakuEnabled) "关闭弹幕" else "打开弹幕") },
-                            onClick = {
-                                showMoreMenu = false
-                                com.movieshell.player.danmaku.DanmakuSettings.setEnabled(
-                                    context, !danmakuEnabled
-                                )
-                            },
-                        )
-                        // v0.56：弹幕设置
-                        if (danmakuEnabled) {
-                            DropdownMenuItem(
-                                text = { Text("弹幕设置") },
-                                onClick = { showMoreMenu = false; showDanmakuSettings = true },
-                            )
-                        }
-                        if (!isLive) {
-                            DropdownMenuItem(
-                                text = { Text("选集 / 线路") },
-                                onClick = { showMoreMenu = false; showLines = true },
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    if (sleepRemaining > 0 || sleepArmed) "定时关闭（进行中）"
-                                    else "定时关闭"
-                                )
-                            },
-                            onClick = { showMoreMenu = false; showSleepDialog = true },
-                        )
-                        if (!isLive && vodId != null) {
-                            DropdownMenuItem(
-                                text = { Text("本剧跳过设置") },
-                                onClick = { showMoreMenu = false; showSkipSettings = true },
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("画面比例：${RESIZE_MODES[resizeIndex].second}") },
-                            onClick = {
-                                showMoreMenu = false
-                                resizeIndex = (resizeIndex + 1) % RESIZE_MODES.size
-                                // v0.125.0：落盘持久化；实际应用由 resizeIndex 的
-                                // LaunchedEffect 统一处理（全屏用新档位，小窗恒 FIT）
-                                PlayerSettings.setResizeMode(context, resizeIndex)
-                            },
-                        )
-                        // v0.255.0：底部行瘦身后收进来的循环模式仍留这里；
-                        // v0.258.0：清晰度与引擎已并入底部控制条、放在选集
-                        // 按钮后面（只留值、不带前缀），这里不再重复放，
-                        // 避免两处打架。
-                        if (!isLive) {
-                            DropdownMenuItem(
-                                text = { Text("循环模式：${PLAY_MODES[playModeIndex]}") },
-                                onClick = {
-                                    showMoreMenu = false
-                                    playModeIndex = (playModeIndex + 1) % PLAY_MODES.size
-                                },
-                            )
-                        }
-                    }
                 }
+                RoundControlButton(
+                    icon = Icons.Filled.Settings,
+                    desc = "设置",
+                    onClick = { showGearSheet = true },
+                )
             }
             // v0.65：分辨率行（对标目标界面 3840x1920 · 码率）
             // v0.69.1：嵌入模式已并入标题行，这里只在全屏显示
@@ -1794,30 +1796,13 @@ fun PlayerScreen(
                             Text("选集", color = Color.White, style = SoftType.Body)
                         }
                     }
-                    if (!isLive) {
-                        // v0.258.0：用户要求——v0.256.0 的下方常驻行删掉，
-                        // 清晰度与引擎不再单独成行，也不带“清晰度：”
-                        // “播放引擎：”前缀，只留值，并入控制条、放在
-                        // 选集按钮后面；点自动仍只给自动一项，点引擎
-                        // 仍走现有 switchToEngine 在 Media3/libmpv 间切换。
-                        Box {
-                            TextButton(
-                                onClick = { showClarityMenu = true },
-                                modifier = Modifier.height(SoftDimens.TouchTarget),
-                                contentPadding = PaddingValues(horizontal = 6.dp),
-                            ) {
-                                Text("自动", color = Color.White, style = SoftType.Body)
-                            }
-                            DropdownMenu(
-                                expanded = showClarityMenu,
-                                onDismissRequest = { showClarityMenu = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("自动（当前）") },
-                                    onClick = { showClarityMenu = false },
-                                )
-                            }
-                        }
+                    // v0.259.0：横屏完整条、竖屏精简条。竖屏只留暂停/上一集/
+                    // 下一集/倍速/选集（上面已渲染），引擎/画面比例/刷新/
+                    // 循环/字幕/片头/片尾收进齿轮；横屏在选集后追加这些项。
+                    // “自动”已移到顶栏标题旁只读显示，底部不再重复放；
+                    // 底部“刷新”定义为重播当前集（retryCurrent，按当前进度
+                    // 重拉流），不重抓详情——详情刷新按钮已砍掉，不换名复活。
+                    if (!isLive && cfgOrientation == Configuration.ORIENTATION_LANDSCAPE) {
                         TextButton(
                             onClick = {
                                 switchToEngine(
@@ -1832,6 +1817,52 @@ fun PlayerScreen(
                                 if (engine == PlayerEngine.MEDIA3) "Media3" else "libmpv",
                                 color = Color.White, style = SoftType.Body,
                             )
+                        }
+                        TextButton(
+                            onClick = {
+                                resizeIndex = (resizeIndex + 1) % RESIZE_MODES.size
+                                PlayerSettings.setResizeMode(context, resizeIndex)
+                            },
+                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) {
+                            Text(RESIZE_MODES[resizeIndex].second, color = Color.White, style = SoftType.Body)
+                        }
+                        RoundControlButton(
+                            icon = Icons.Filled.Refresh,
+                            desc = "刷新",
+                            onClick = { retryCurrent() },
+                            size = 36.dp,
+                        )
+                        TextButton(
+                            onClick = { playModeIndex = (playModeIndex + 1) % PLAY_MODES.size },
+                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) {
+                            Text(PLAY_MODES[playModeIndex], color = Color.White, style = SoftType.Body)
+                        }
+                        TextButton(
+                            onClick = { showSubtitleDialog = true },
+                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) {
+                            Text("字幕", color = Color.White, style = SoftType.Body)
+                        }
+                        if (vodId != null) {
+                            TextButton(
+                                onClick = { showSkipSettings = true },
+                                modifier = Modifier.height(SoftDimens.TouchTarget),
+                                contentPadding = PaddingValues(horizontal = 6.dp),
+                            ) {
+                                Text("片头", color = Color.White, style = SoftType.Body)
+                            }
+                            TextButton(
+                                onClick = { showSkipSettings = true },
+                                modifier = Modifier.height(SoftDimens.TouchTarget),
+                                contentPadding = PaddingValues(horizontal = 6.dp),
+                            ) {
+                                Text("片尾", color = Color.White, style = SoftType.Body)
+                            }
                         }
                     }
                 }
@@ -1860,8 +1891,8 @@ fun PlayerScreen(
                         )
                     }
                 }
-                // v0.258.0：v0.256.0 的下方常驻行已删，清晰度与引擎
-                // 已并入上面控制条、放在选集按钮后面，不再单独占一行。
+                // v0.259.0：清晰度“自动”已移到顶栏标题旁只读显示；
+                // 引擎等横屏完整条项只在横屏追加，竖屏收进齿轮。
             }
         }
 
@@ -1876,6 +1907,202 @@ fun PlayerScreen(
                     showLines = false
                     switchEpisode(lineIdx, epIdx)
                 },
+            )
+        }
+
+        // v0.259.0：齿轮底部页（六组），替代三个点菜单，是播放器唯一设置入口；
+        // 音轨/视轨无现有选择能力，不做假按钮，只在轨道组里明示；
+        // 时间/标题/进度已在顶栏与进度条显示，屏显组只留真实画中画开关。
+        if (showGearSheet) {
+            Box(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .clickable(onClick = { showGearSheet = false })
+                )
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.75f)
+                        .border(
+                            SoftDimens.BorderWidth,
+                            LocalSoftExtra.current.border,
+                            RoundedCornerShape(
+                                topStart = SoftDimens.CardCorner,
+                                topEnd = SoftDimens.CardCorner,
+                            ),
+                        ),
+                    shape = RoundedCornerShape(
+                        topStart = SoftDimens.CardCorner,
+                        topEnd = SoftDimens.CardCorner,
+                    ),
+                    color = Color(0xF21E242F),
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(SoftDimens.PagePadding)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "设置",
+                                style = SoftType.CardTitle,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            IconButton(onClick = { showGearSheet = false }) {
+                                Icon(Icons.Filled.Close, contentDescription = "关闭")
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text("倍速", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            itemsIndexed(SPEEDS) { i, v ->
+                                AppChip(
+                                    text = "${v}X",
+                                    selected = i == speedIndex,
+                                    onClick = {
+                                        speedIndex = i
+                                        EngineHost.setPlaybackSpeed(v)
+                                        PlayerSettings.setSpeed(context, v)
+                                    },
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text("缩放", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            itemsIndexed(RESIZE_MODES) { i, mode ->
+                                AppChip(
+                                    text = mode.second,
+                                    selected = i == resizeIndex,
+                                    onClick = {
+                                        resizeIndex = i
+                                        PlayerSettings.setResizeMode(context, i)
+                                    },
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text("播放", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                AppChip(
+                                    text = "Media3",
+                                    selected = engine == PlayerEngine.MEDIA3,
+                                    onClick = { switchToEngine(PlayerEngine.MEDIA3) },
+                                )
+                            }
+                            item {
+                                AppChip(
+                                    text = "libmpv",
+                                    selected = engine == PlayerEngine.LIBMPV,
+                                    onClick = { switchToEngine(PlayerEngine.LIBMPV) },
+                                )
+                            }
+                        }
+                        if (!isLive && vodId != null) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "片头 ${PlayerSettings.getSkipIntroFor(context, playSourceKey, vodId, PlaySession.episodeIndex)} 秒 / " +
+                                        "片尾 ${PlayerSettings.getSkipOutroFor(context, playSourceKey, vodId, PlaySession.episodeIndex)} 秒",
+                                    style = SoftType.Caption,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                AppButton(
+                                    text = "跳过设置",
+                                    onClick = { showSkipSettings = true },
+                                    variant = AppButtonVariant.Ghost,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text("轨道", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AppButton(
+                                text = "字幕设置",
+                                onClick = { showSubtitleDialog = true },
+                                variant = AppButtonVariant.Ghost,
+                            )
+                            AppButton(
+                                text = "在线字幕",
+                                onClick = { showOnlineSubtitle = true },
+                                variant = AppButtonVariant.Ghost,
+                            )
+                        }
+                        Text(
+                            text = "音轨 / 视轨：当前播放无多轨道选择能力，不做假按钮",
+                            style = SoftType.Caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text("屏显", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        AppButton(
+                            text = "进入画中画",
+                            onClick = { enterPip(context) },
+                            variant = AppButtonVariant.Ghost,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text("其它", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            itemsIndexed(PLAY_MODES) { i, mode ->
+                                AppChip(
+                                    text = mode,
+                                    selected = i == playModeIndex,
+                                    onClick = { playModeIndex = i },
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AppButton(
+                                text = if (sleepRemaining > 0 || sleepArmed) "定时关闭（进行中）" else "定时关闭",
+                                onClick = { showSleepDialog = true },
+                                variant = AppButtonVariant.Ghost,
+                            )
+                            AppButton(
+                                text = if (danmakuEnabled) "关闭弹幕" else "打开弹幕",
+                                onClick = {
+                                    com.movieshell.player.danmaku.DanmakuSettings.setEnabled(
+                                        context, !danmakuEnabled
+                                    )
+                                },
+                                variant = AppButtonVariant.Ghost,
+                            )
+                            if (danmakuEnabled) {
+                                AppButton(
+                                    text = "弹幕设置",
+                                    onClick = { showDanmakuSettings = true },
+                                    variant = AppButtonVariant.Ghost,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
+                }
+            }
+        }
+
+        // v0.259.0：简介弹窗（五字段，详情页与播放器共用 InfoPopupDialog）
+        if (showInfoDialog) {
+            InfoPopupDialog(
+                name = infoName.ifBlank { title },
+                remarks = infoRemarks,
+                year = infoYear,
+                desc = infoDesc,
+                vodId = vodId,
+                onDismiss = { showInfoDialog = false },
             )
         }
 
@@ -2422,6 +2649,95 @@ internal fun PlayerDialogCard(
                     buttons()
                 }
             }
+        }
+    }
+}
+
+
+/**
+ * v0.259.0：简介弹窗（参考图三的五字段结构，详情页与播放器共用同一套）。
+ * 字段顺序：片名、备注、年份、简介、影片 ID；空行整行隐藏，片名与影片 ID
+ * 有值时恒显；每可见行右上角复制图标，复制的是该字段原始文本；
+ * 占位文本不进复制（空行不显示，也就不会被复制）。
+ */
+@Composable
+internal fun InfoPopupDialog(
+    name: String,
+    remarks: String,
+    year: String,
+    desc: String,
+    vodId: String?,
+    onDismiss: () -> Unit,
+) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    PlayerDialogCard(
+        title = name.ifBlank { "影片信息" },
+        onDismiss = onDismiss,
+        buttons = {
+            AppButton(
+                text = "关闭",
+                onClick = onDismiss,
+                variant = AppButtonVariant.Ghost,
+            )
+        },
+    ) {
+        InfoFieldRow("片名", name) {
+            clipboard.setText(AnnotatedString(name))
+            AppToast.show(context, "已复制", long = false)
+        }
+        if (remarks.isNotBlank()) {
+            InfoFieldRow("备注", remarks) {
+                clipboard.setText(AnnotatedString(remarks))
+                AppToast.show(context, "已复制", long = false)
+            }
+        }
+        if (year.isNotBlank()) {
+            InfoFieldRow("年份", year) {
+                clipboard.setText(AnnotatedString(year))
+                AppToast.show(context, "已复制", long = false)
+            }
+        }
+        if (desc.isNotBlank()) {
+            InfoFieldRow("简介", desc) {
+                clipboard.setText(AnnotatedString(desc))
+                AppToast.show(context, "已复制", long = false)
+            }
+        }
+        if (!vodId.isNullOrBlank()) {
+            InfoFieldRow("影片 ID", vodId) {
+                clipboard.setText(AnnotatedString(vodId))
+                AppToast.show(context, "已复制", long = false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoFieldRow(label: String, value: String, onCopy: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            text = label,
+            style = SoftType.Caption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(56.dp),
+        )
+        Text(
+            text = value,
+            style = SoftType.Body,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
+            Icon(
+                Icons.Filled.ContentCopy,
+                contentDescription = "复制$label",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }

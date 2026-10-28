@@ -436,13 +436,14 @@ fun SettingsScreen(
                             modifier = Modifier.weight(1f),
                             onClick = onHistoryClick,
                         )
-                        // v0.188.0：资料卡“源”只做统计展示，不设点击；
-                        // 站源管理唯一入口留给下方快捷宫格，不发明重复入口。
+                        // 2026-10-28 用户要求恢复：资料卡“源”恢复可点，进站源管理，
+                        // 与下方快捷宫格“站源管理”同入口（v0.188.0 的纯展示口径作废）。
                         ProfileStat(
                             label = "源",
                             value = if (!statsLoaded) "…" else if (statsFailed) "—" else "${subCount + localCount}",
                             sub = if (!statsLoaded) "统计中…" else if (statsFailed) "统计失败" else "订阅$subCount 本地$localCount",
                             modifier = Modifier.weight(1f),
+                            onClick = onSourcesClick,
                         )
                     }
                 }

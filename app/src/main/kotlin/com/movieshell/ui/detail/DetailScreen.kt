@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistAddCheck
@@ -61,6 +60,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -99,7 +99,6 @@ import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DownloadSettings
 import com.movieshell.data.repo.DownloadTask
 import com.movieshell.data.repo.DrpySourceManager
-import com.movieshell.data.repo.FollowItem
 import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PhpCliEngine
@@ -113,6 +112,7 @@ import com.movieshell.player.PlayResolveScope
 import com.movieshell.player.PlaySession
 import com.movieshell.player.EngineHost
 import com.movieshell.player.PicsViewerScreen
+import com.movieshell.player.InfoPopupDialog
 import com.movieshell.player.PlayerScreen
 import com.movieshell.player.resolvePlayUrl
 import com.movieshell.ui.components.AppButton
@@ -203,6 +203,11 @@ fun DetailScreen(
                 // 刷新失败保留旧内容、只提示，首次加载失败仍走失败态。
                 if (result != null) {
                     detail = result
+                    // v0.259.0：封面回填——全屏下首次追剧的记录没有封面，
+                    // 详情加载时若库内该条目封面为空则补写，不改其他字段。
+                    if (result.vodPic.isNotBlank()) {
+                        scope.launch { FollowStore.backfillPic(context, followId, result.vodPic) }
+                    }
                 } else if (detail != null) {
                     AppToast.show(context, "刷新失败，已保留旧内容", long = false)
                 }
@@ -237,7 +242,7 @@ fun DetailScreen(
     var showJumpDialog by remember { mutableStateOf(false) }
     var jumpText by remember { mutableStateOf("") }
     // v0.47.0：简介默认折叠
-    var descExpanded by remember { mutableStateOf(false) }
+    var showDetailInfo by remember { mutableStateOf(false) } // v0.259.0：详情简介入口，点开简介弹窗
     var showMagnetDialog by remember { mutableStateOf(false) }
     // v0.21.0：封面点开放大
     var showCoverDialog by remember { mutableStateOf(false) }
@@ -279,8 +284,10 @@ fun DetailScreen(
         }.ifBlank { sourceName }
     }
     val followId = remember(vodId, followSourceKey) { FollowStore.idOf(followSourceKey, vodId) }
-    var following by remember { mutableStateOf(false) }
-    LaunchedEffect(followId) { following = FollowStore.isFollowing(context, followId) }
+    // v0.259.0：追剧开关已移到播放器顶栏齿轮旁，详情页不再自己维护开关；
+    // 这里直接读 FollowStore 流，播放器里追/取消后已看角标与断点续播立即同步。
+    val followItems by FollowStore.list.collectAsState()
+    val following = followItems.any { it.id == followId }
     // v0.71.0：追剧已看标记——看到第几集（-1=没看过）
     var watchedEp by remember { mutableIntStateOf(-1) }
     // v0.73.0：断点续播——已读完"看到第几集"才能决定从哪集起播，自动播放等它
@@ -310,7 +317,6 @@ fun DetailScreen(
         }
     }
     var showDownloadDialog by remember { mutableStateOf(false) }
-    var showOnlineSubtitle by remember { mutableStateOf(false) } // v0.28.0：在线字幕搜索
     // v0.49.0：SubHD 内置，入口常显（v0.30.0 的插件门禁删除）
 
     /** 统一播放决策（v0.19.0）：解析走公共 resolvePlayUrl；磁力直接起播不进播放器 */
@@ -557,42 +563,6 @@ fun DetailScreen(
                             shape = RoundedCornerShape(20.dp),
                         ) {
                             Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
-                                // v0.165.0：ActionIcon 定义前置（右列内调用，局部函数须先声明后调用）
-                                val accentBrush = remember {
-                                    Brush.linearGradient(colors = BrandGradientColors)
-                                }
-
-                                @Composable
-                                fun ActionIcon(
-                                    label: String,
-                                    onClick: () -> Unit,
-                                    enabled: Boolean = true,
-                                    icon: @Composable () -> Unit,
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                    ) {
-                                        // v0.165.0：右列窄，改 36dp 轻触区（原 48dp IconButton 在右列会溢出）
-                                        Box(
-                                            modifier = Modifier
-                                                .size(36.dp)
-                                                .clip(CircleShape)
-                                                .clickable(enabled = enabled, onClick = onClick),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            icon()
-                                        }
-                                        Text(
-                                            text = label,
-                                            style = TextStyle(
-                                                brush = accentBrush,
-                                                fontSize = 10.sp,
-                                            ),
-                                            maxLines = 1,
-                                        )
-                                    }
-                                }
-
                                 // v0.156.0：卡片重排——海报单独放左列，下面一排小图标；
                                 // 剧名只放一行在图右，不再右上角挂收藏
                                 Row(verticalAlignment = Alignment.Top) {
@@ -716,7 +686,7 @@ fun DetailScreen(
                                         Spacer(Modifier.height(4.dp))
                                         Row(
                                             verticalAlignment = Alignment.Top,
-                                            modifier = Modifier.clickable { descExpanded = !descExpanded },
+                                            modifier = Modifier.clickable { showDetailInfo = true },
                                         ) {
                                             Text(
                                                 text = buildAnnotatedString {
@@ -728,81 +698,20 @@ fun DetailScreen(
                                                 style = SoftType.Body.copy(fontSize = 12.sp),
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 lineHeight = 16.sp,
-                                                maxLines = if (descExpanded) Int.MAX_VALUE else 2,
+                                                maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis,
                                                 modifier = Modifier.weight(1f),
                                             )
                                             Icon(
-                                                imageVector = if (descExpanded) Icons.Filled.ExpandLess
-                                                else Icons.Filled.ExpandMore,
-                                                contentDescription = if (descExpanded) "收起" else "展开",
+                                                imageVector = Icons.Filled.ExpandMore,
+                                                contentDescription = "查看简介弹窗",
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(16.dp),
                                             )
                                         }
-                                        // v0.165.0：操作行在简介正下方（v0.167.0 起全宽，不再挤右列）
-                                        Spacer(Modifier.height(6.dp))
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        ) {
-                                            // v0.168.0：追剧从海报下方移到这里，顶掉复制链接
-                                            ActionIcon(label = "追剧", onClick = {
-                                                scope.launch {
-                                                    if (following) {
-                                                        if (FollowStore.unfollow(context, followId)) {
-                                                            following = false
-                                                            AppToast.show(context, "已取消追剧", long = false)
-                                                        } else {
-                                                            // v0.171.0：失败也给提示，不再点了没反应
-                                                            AppToast.show(context, "取消追剧失败，请重试", long = false)
-                                                        }
-                                                    } else {
-                                                        val ok = FollowStore.follow(
-                                                            context,
-                                                            FollowItem(
-                                                                id = followId,
-                                                                vodId = vodId,
-                                                                name = detailTitle(detail, vodId),
-                                                                pic = detail?.vodPic.orEmpty(),
-                                                                sourceType = followSourceType,
-                                                                sourceKey = followSourceKey,
-                                                                episodeCount = episodes.size,
-                                                            ),
-                                                        )
-                                                        if (ok) {
-                                                            following = true
-                                                            AppToast.show(context, "已追剧，有更新会提醒你", long = false)
-                                                        } else {
-                                                            AppToast.show(context, "追剧失败，请重试", long = false)
-                                                        }
-                                                    }
-                                                }
-                                            }) {
-                                                Icon(
-                                                    imageVector = if (following) Icons.Filled.PlaylistAddCheck
-                                                    else Icons.Filled.PlaylistAdd,
-                                                    contentDescription = "追剧",
-                                                    tint = if (following) MaterialTheme.colorScheme.primary
-                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                )
-                                            }
-                                            ActionIcon(
-                                                label = "下载",
-                                                onClick = { showDownloadDialog = true },
-                                                enabled = lineEpisodes.isNotEmpty(),
-                                            ) {
-                                                Icon(Icons.Filled.Download, contentDescription = "下载")
-                                            }
-                                            ActionIcon(label = "刷新", onClick = { reloadDetail() }) {
-                                                Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                                            }
-                                            ActionIcon(label = "字幕", onClick = { showOnlineSubtitle = true }) {
-                                                Icon(Icons.Filled.Subtitles, contentDescription = "在线字幕")
-                                            }
-                                        }
                                     }
-                                    // v0.167.0：简介改回全宽纵排，右上角不再由演员+简介填；v0.168.0：海报下方小图标行已删（收藏/分享去掉，追剧移到操作行）
+                                    // v0.259.0：操作行整行删除（追剧移到播放器顶栏齿轮旁，
+                                    // 下载移到选集区标题旁，刷新与在线字幕入口取消）；简介点开弹窗。
                                 }
                                 // v0.157.0：主演+简介已移到海报右边那列，不再卡片下方全宽占一行
                             }
@@ -844,13 +753,27 @@ fun DetailScreen(
                                         vertical = 8.dp,
                                     ),
                                     // v0.77.0：集数多时给"跳集"入口，短剧 60-80 集不用手翻
-                                    action = if (lineEpisodes.size > 20) {
-                                        {
-                                            TextButton(onClick = { showJumpDialog = true }) {
-                                                Text("跳集", fontSize = 13.sp)
+                                    action = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (lineEpisodes.size > 20) {
+                                                TextButton(onClick = { showJumpDialog = true }) {
+                                                    Text("跳集", fontSize = 13.sp)
+                                                }
+                                            }
+                                            // v0.259.0：下载唯一入口移到选集区标题旁，
+                                            // 点开现有选多集入队弹窗，逻辑不动；播放器选集抽屉不放。
+                                            IconButton(
+                                                onClick = { showDownloadDialog = true },
+                                                enabled = lineEpisodes.isNotEmpty(),
+                                            ) {
+                                                Icon(
+                                                    Icons.Filled.Download,
+                                                    contentDescription = "下载",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
                                             }
                                         }
-                                    } else null,
+                                    },
                                 )
                             }
                             item {
@@ -996,6 +919,10 @@ fun DetailScreen(
                             url = embeddedUrl,
                             title = embeddedTitle,
                             vodId = vodId,
+                            infoName = detailTitle(detail, vodId),
+                            infoRemarks = detail?.vodRemarks.orEmpty(),
+                            infoYear = detail?.vodYear.orEmpty(),
+                            infoDesc = detail?.vodDesc.orEmpty(),
                             onBack = onBack,
                             embedded = true,
                             onFullscreen = {
@@ -1137,20 +1064,15 @@ fun DetailScreen(
             }
         }
     
-        // v0.28.0：在线字幕搜索（下载后按剧记忆，播放时自动挂载）
-        // v0.188.0：已穿透 followSourceKey 与当前所选集 highlightEp，不再只依赖
-        // PlaySession 现值。
-        if (showOnlineSubtitle) {
-            com.movieshell.ui.subtitle.OnlineSubtitleSearchDialog(
-                keyword = detailTitle(detail, vodId),
+        // v0.259.0：详情简介弹窗，与播放器信息图标共用同一套五字段规则
+        if (showDetailInfo) {
+            InfoPopupDialog(
+                name = detailTitle(detail, vodId),
+                remarks = detail?.vodRemarks.orEmpty(),
+                year = detail?.vodYear.orEmpty(),
+                desc = detail?.vodDesc.orEmpty(),
                 vodId = vodId,
-                onPick = {
-                    showOnlineSubtitle = false
-                    AppToast.show(context, "字幕已保存（按所选集记忆）", long = false)
-                },
-                onDismiss = { showOnlineSubtitle = false },
-                sourceKey = followSourceKey,
-                episodeIndex = highlightEp,
+                onDismiss = { showDetailInfo = false },
             )
         }
 

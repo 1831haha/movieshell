@@ -92,9 +92,14 @@ object FollowStore {
             withContext(Dispatchers.IO) {
                 runCatching {
                     // v0.87.0：新追时集数变化计时从当前起算
+                    // v0.259.0：空封面合并——播放器顶栏追剧时没有封面图，
+                    // 新条目封面为空时不得冲掉库内已有封面；已看集数同理不回退。
+                    val existing = readAll(context).find { it.id == item.id }
                     val fresh = item.copy(
                         updatedAt = System.currentTimeMillis(),
                         lastEpisodeChangeAt = System.currentTimeMillis(),
+                        pic = item.pic.ifBlank { existing?.pic.orEmpty() },
+                        watchedEpisode = maxOf(item.watchedEpisode, existing?.watchedEpisode ?: -1),
                     )
                     val rest = readAll(context).filterNot { it.id == fresh.id }
                     // v0.170.0：写盘失败如实返回 false，不谎报成功
@@ -105,6 +110,27 @@ object FollowStore {
                     refreshFlow(context)
                     true
                 }.onFailure { Log.w(TAG, "追剧写入失败", it) }.getOrDefault(false)
+            }
+        }
+
+    /** v0.259.0：详情加载回填封面——全屏下首次追剧生成的记录没有封面，
+     * 下次进详情页时详情持有封面，若库内该条目封面为空则补写；
+     * 已有封面或条目不存在时不写盘，返回 false。 */
+    suspend fun backfillPic(context: Context, id: String, pic: String): Boolean =
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    if (pic.isBlank()) return@runCatching false
+                    val all = readAll(context)
+                    val target = all.find { it.id == id } ?: return@runCatching false
+                    if (target.pic.isNotBlank()) return@runCatching false
+                    val ok = writeAll(
+                        context,
+                        all.map { if (it.id == id) it.copy(pic = pic) else it },
+                    )
+                    if (ok) refreshFlow(context)
+                    ok
+                }.onFailure { Log.w(TAG, "追剧封面回填失败", it) }.getOrDefault(false)
             }
         }
 
