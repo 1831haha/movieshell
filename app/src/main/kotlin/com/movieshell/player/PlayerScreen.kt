@@ -303,6 +303,7 @@ fun PlayerScreen(
     // v0.40.0：锁屏模式（锁定后只留解锁按钮，防误触）+ 右上角更多菜单
     var locked by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
+    var showClarityMenu by remember { mutableStateOf(false) } // v0.256.0：播放器下方清晰度下拉
     var autoSwitching by remember { mutableStateOf(false) } // playUrl 变化来自自动重试
     // v0.21.0：同地址已试过的内核（防 Media3↔libmpv 乒乓）
     val triedEngines = remember { mutableSetOf<PlayerEngine>() }
@@ -1239,6 +1240,18 @@ fun PlayerScreen(
                         var accX = 0f
                         var accY = 0f
                         val leftHalf = down.position.x < size.width / 2
+                        // v0.256.0：竖屏全屏底部上滑切下一集——只认独立播放页竖屏、
+                        // 非直播、有下一集、起点在底部 140dp 内；该区域手势不再
+                        // 走亮度/音量分支，起点区域本身就是区分依据，不再另设
+                        // 速度阈值（慢拖 100dp 松手也是明确意图，速度门槛只会
+                        // 让慢拖用户觉得“滑了没反应”）。
+                        val swipeNextCandidate = !embedded && !isLive && !locked &&
+                            cfgOrientation == Configuration.ORIENTATION_PORTRAIT &&
+                            PlaySession.currentLine()?.episodes
+                                ?.getOrNull(PlaySession.episodeIndex + 1) != null &&
+                            down.position.y > size.height - 140.dp.toPx()
+                        var swipeUpPx = 0f
+                        val swipeThresholdPx = 100.dp.toPx()
                         do {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id }
@@ -1263,22 +1276,44 @@ fun PlayerScreen(
                                     }
                                 }
                                 2 -> {
-                                    accY += dy
-                                    if (abs(accY) >= ADJUST_STEP_PX) {
-                                        val up = accY < 0
-                                        accY = 0f
-                                        gestureHint = if (leftHalf) {
-                                            val pct = adjustBrightness(context, up)
-                                            if (pct >= 0) "亮度 $pct%" else null
-                                        } else {
-                                            val pct = adjustVolume(context, up)
-                                            if (pct >= 0) "音量 $pct%" else null
+                                    if (swipeNextCandidate) {
+                                        // 净上滑距离（起点 y 减当前 y）；先上后下会
+                                        // 抵消，不到阈值松手回弹，提示只说意图，
+                                        // 不在拖动中切集。
+                                        swipeUpPx = down.position.y - last.y
+                                        gestureHint = if (swipeUpPx >= swipeThresholdPx)
+                                            "松手切下一集" else "继续上滑切下一集"
+                                    } else {
+                                        accY += dy
+                                        if (abs(accY) >= ADJUST_STEP_PX) {
+                                            val up = accY < 0
+                                            accY = 0f
+                                            gestureHint = if (leftHalf) {
+                                                val pct = adjustBrightness(context, up)
+                                                if (pct >= 0) "亮度 $pct%" else null
+                                            } else {
+                                                val pct = adjustVolume(context, up)
+                                                if (pct >= 0) "音量 $pct%" else null
+                                            }
                                         }
                                     }
                                 }
                             }
                             change.consume()
                         } while (change.pressed)
+                        // v0.256.0：上滑切集只在松手时判定一次——达到阈值走
+                        // 现有 switchEpisode（保存当前进度、不套用到下一集
+                        // 由 switchEpisode/起播链路处理），不到阈值只清提示
+                        // 回弹，不切集；同一次拖动绝不触发两次。
+                        if (mode == 2 && swipeNextCandidate) {
+                            gestureHint = null
+                            if (swipeUpPx >= swipeThresholdPx) {
+                                switchEpisode(
+                                    PlaySession.lineIndex,
+                                    PlaySession.episodeIndex + 1,
+                                )
+                            }
+                        }
                     }
                 },
         )
@@ -1517,9 +1552,9 @@ fun PlayerScreen(
                                 PlayerSettings.setResizeMode(context, resizeIndex)
                             },
                         )
-                        // v0.255.0：底部行瘦身后收进来的三项（原底部"顺序播放/自动/引擎"，
-                        // 窄屏上它们正是把全屏推出屏外的主因；直播不显示循环与清晰度，
-                        // 引擎切换点播直播都保留）
+                        // v0.255.0：底部行瘦身后收进来的循环模式仍留这里；
+                        // v0.256.0：清晰度与引擎移回播放器下方常驻行（用户要求
+                        // 不要只藏在更多菜单里），这里不再重复放，避免两处打架。
                         if (!isLive) {
                             DropdownMenuItem(
                                 text = { Text("循环模式：${PLAY_MODES[playModeIndex]}") },
@@ -1528,26 +1563,7 @@ fun PlayerScreen(
                                     playModeIndex = (playModeIndex + 1) % PLAY_MODES.size
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text("清晰度：自动（当前）") },
-                                onClick = { showMoreMenu = false },
-                            )
                         }
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    if (engine == PlayerEngine.MEDIA3) "切换引擎到 mpv"
-                                    else "切换引擎到 Exo"
-                                )
-                            },
-                            onClick = {
-                                showMoreMenu = false
-                                switchToEngine(
-                                    if (engine == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV
-                                    else PlayerEngine.MEDIA3
-                                )
-                            },
-                        )
                     }
                 }
             }
@@ -1801,6 +1817,51 @@ fun PlayerScreen(
                             },
                             size = 36.dp,
                         )
+                    }
+                }
+                // v0.256.0：播放器下方常驻行——清晰度与引擎各占一半，
+                // 不参与上面控制行的宽度竞争，全屏仍固定右端不动；
+                // 这行在 PlayerScreen 内部、跟控制层一起显隐，不另建
+                // 详情页外层容器，避免滚动 offset 与小窗状态打架。
+                // 清晰度目前只有自动，不编造 720P/1080P 等不可用选项。
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        TextButton(
+                            onClick = { showClarityMenu = true },
+                            modifier = Modifier.fillMaxWidth().height(SoftDimens.TouchTarget),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) {
+                            Text("清晰度：自动", color = Color.White, style = SoftType.Body)
+                        }
+                        DropdownMenu(
+                            expanded = showClarityMenu,
+                            onDismissRequest = { showClarityMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("自动（当前）") },
+                                onClick = { showClarityMenu = false },
+                            )
+                        }
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        TextButton(
+                            onClick = {
+                                switchToEngine(
+                                    if (engine == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV
+                                    else PlayerEngine.MEDIA3
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth().height(SoftDimens.TouchTarget),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) {
+                            Text(
+                                "播放引擎：${if (engine == PlayerEngine.MEDIA3) "Media3" else "libmpv"}",
+                                color = Color.White, style = SoftType.Body,
+                            )
+                        }
                     }
                 }
             }
