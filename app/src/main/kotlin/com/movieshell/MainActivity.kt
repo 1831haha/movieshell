@@ -6,9 +6,7 @@ import com.movieshell.ui.components.AppToastOverlay
 import android.os.Bundle
 import android.content.Intent
 import android.content.res.Configuration
-import android.util.Rational
 import android.view.KeyEvent
-import android.app.PictureInPictureParams
 import com.movieshell.ui.reader.VolumeKeyRouter
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -1028,17 +1026,18 @@ class MainActivity : ComponentActivity() {
      */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        // v0.264.0（GPT 对齐后，方案 A）：按 Home 不再自动进画中画——用户原话
+        // “我都退出 app。视频还在播放”，自动 PiP 正是投诉的根因。
+        // 改为只暂停，不进 PiP、不释放会话、不动 PlaySession.playerVisible
+        // （playerVisible 由 PlayerScreen 的组合生命周期维护，Home 时改它会
+        // 让回 App 后仍被误判为不可见；返回 App 后用户点播放可续播）。
+        // 手动画中画仍走 PlayerScreen.enterPip(context)，与自动路径无关，
+        // 程序主动进 PiP 不经过 onUserLeaveHint，不会被这段暂停误伤。
         val playing = PlayerManager.player?.isPlaying == true ||
             (EngineHost.engine() == PlayerEngine.LIBMPV && MpvPlayerManager.isPlaying)
         if (PlaySession.playerVisible && playing) {
-            runCatching {
-                enterPictureInPictureMode(
-                    PictureInPictureParams.Builder()
-                        .setAspectRatio(Rational(16, 9))
-                        .build()
-                )
-                LogBus.i("App", "自动进入画中画")
-            }.onFailure { LogBus.w("App", "进入画中画失败：${it.message}") }
+            runCatching { EngineHost.pause() }
+            LogBus.i("App", "Home 暂停，不自动进入画中画")
         }
     }
 }

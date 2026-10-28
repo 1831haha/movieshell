@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import android.content.res.Configuration
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -77,6 +78,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -907,6 +909,14 @@ fun DetailScreen(
                                         .align(Alignment.BottomEnd)
                                         .padding(16.dp)
                                         .width(200.dp)
+                                } else if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                                    // v0.264.0：嵌入点播原地切屏的容器——横屏时不再套 16:9 +
+                                    // 滚动偏移，否则 PlayerScreen 的 fillMaxSize 会被外层
+                                    // 16:9 盒子裁掉、顶栏也跟着偏移；横屏直接占满屏，
+                                    // 详情内容在屏下，竖屏切回来恢复 16:9。
+                                    Modifier
+                                        .align(Alignment.TopStart)
+                                        .fillMaxSize()
                                 } else {
                                     Modifier
                                         .align(Alignment.TopStart)
@@ -919,7 +929,13 @@ fun DetailScreen(
                                         }
                                 },
                             )
-                            .aspectRatio(16f / 9f)
+                            .then(
+                                if (!mini && LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                                    Modifier
+                                } else {
+                                    Modifier.aspectRatio(16f / 9f)
+                                }
+                            )
                             .clip(RoundedCornerShape(if (mini) 12.dp else 0.dp)),
                     ) {
                         PlayerScreen(

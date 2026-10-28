@@ -531,12 +531,16 @@ fun PlayerScreen(
      * 不改方向，手机竖着就还是竖屏，用户反馈“点击还是竖屏”。
      * 先强制锁横屏、设手动锁，再跳页，独立页进页就是横屏。
      */
-    fun forceLandscapeAndFullscreen() {
-        val activity = context as? Activity ?: return
+    /**
+     * v0.264.0（GPT 对齐后）：纯全屏——只跳独立页，不改方向、不锁方向。
+     * 竖屏点全屏进独立页仍是竖屏，横屏点全屏进独立页仍是横屏；快照只保不断流，
+     * 不设 manualLocked，退出独立页时 OrientationSensor.stop() 本就会清锁复位。
+     * 旧的 forceLandscapeAndFullscreen()（强制横屏+跳页）已删除：全网已无调用，
+     * 留着就是死代码，顶栏/底栏切屏与全屏从此分开。
+     */
+    fun goFullscreenOnly() {
         snapshotForRotation()
-        OrientationSensor.manualLocked = true
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        LogBus.i("Player", "手动：嵌入强制切横屏并跳全屏")
+        LogBus.i("Player", "手动：纯全屏跳页，不改方向")
         onFullscreen()
     }
 
@@ -1428,6 +1432,7 @@ fun PlayerScreen(
         if (controlsVisible && !locked) {
             Column(
                 modifier = Modifier
+                    .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     // v0.123.0：控制层显式置于手势层之上（zIndex 分层），防横屏时 tap 被
                     // 全屏手势层会话抢走、按钮点了没反应（用户反馈横屏返回/暂停失效）
@@ -1532,13 +1537,22 @@ fun PlayerScreen(
                 )
                 // v0.121.0：嵌入模式横屏入口——用户反馈详情页"没有切横屏的按钮"（底栏全屏键
                 // 在窄屏上会被挤出可视区）。点播跳独立播放页，直播原地旋转（与底栏逻辑一致）。
+                // v0.264.0：顶栏是切屏，不是全屏——嵌入点播与直播都只原地翻转，
+                // 不跳页；嵌入点播原地横屏的容器问题由 DetailScreen 横屏分支处理
+                // （横屏时嵌入容器改 fillMaxSize、不再套 16:9 + 滚动偏移）。
                 if (embedded) {
                     RoundControlButton(
                         icon = Icons.Filled.ScreenRotation,
-                        desc = "横屏",
-                        onClick = {
-                            if (isLive) toggleEmbeddedLandscape() else forceLandscapeAndFullscreen()
-                        },
+                        desc = "切屏",
+                        onClick = { toggleEmbeddedLandscape() },
+                    )
+                } else {
+                    // v0.264.0：独立页顶栏补切屏按钮——旋转图标、按方向给目标文案，
+                    // 只调 toggleOrientation()，不跳页、不退出全屏。
+                    RoundControlButton(
+                        icon = Icons.Filled.ScreenRotation,
+                        desc = if (cfgOrientation == Configuration.ORIENTATION_LANDSCAPE) "切换竖屏" else "切换横屏",
+                        onClick = { toggleOrientation() },
                     )
                 }
                 // v0.259.0：三个点菜单整体删除，改成信息 + 追剧开关 + 齿轮；
@@ -1903,32 +1917,25 @@ fun PlayerScreen(
                         }
                     }
                 }
-                // v0.255.0：右区固定全屏（不在滚动区里，窄屏/小窗也不会被推出屏外）
-                    // v0.96.2：嵌入直播手动横竖屏切换（详情页嵌入不显示，保持跳独立播放页逻辑）
-                    if (embedded && isLive) {
-                        val isLandscape = cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
-                        RoundControlButton(
-                            icon = if (isLandscape) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
-                            desc = if (isLandscape) "退出横屏" else "横屏",
-                            onClick = { toggleEmbeddedLandscape() },
-                            size = 36.dp,
-                        )
-                    }
-                    // v0.123.0：嵌入直播已有上面的横屏按钮，通用全屏按钮不再重复渲染
-                    // （之前两个 ⛶ 并排，用户反馈"有两个全屏按钮"就是这里）
-                    if (!(embedded && isLive)) {
-                        // v0.261.0：横竖屏切换按钮 = 强制切换——独立页点它直接
-                        // 在横/竖间翻转并锁方向；嵌入点播点它先强制横屏再跳页。
-                        val isLandscapeBtn = cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
-                        RoundControlButton(
-                            icon = if (!embedded && isLandscapeBtn) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
-                            desc = if (embedded) "横屏" else if (isLandscapeBtn) "退出横屏" else "横屏",
-                            onClick = {
-                                if (embedded) forceLandscapeAndFullscreen() else toggleOrientation()
-                            },
-                            size = 36.dp,
-                        )
-                    }
+                // v0.264.0：底栏是全屏，不是切屏——嵌入时恒为“全屏”（Fullscreen 图标，
+                // 只跳独立页、不改方向、不锁方向）；独立时恒为“退出全屏”
+                // （FullscreenExit 图标，只调 onBack 回详情页、不改方向）。
+                // 切屏只在顶栏（ScreenRotation 图标），两者图标、文案、onClick 全部分开。
+                if (embedded) {
+                    RoundControlButton(
+                        icon = Icons.Filled.Fullscreen,
+                        desc = "全屏",
+                        onClick = { goFullscreenOnly() },
+                        size = 36.dp,
+                    )
+                } else {
+                    RoundControlButton(
+                        icon = Icons.Filled.FullscreenExit,
+                        desc = "退出全屏",
+                        onClick = { onBack() },
+                        size = 36.dp,
+                    )
+                }
                 }
                 // v0.259.0：清晰度“自动”已移到顶栏标题旁只读显示；
                 // 引擎等横屏完整条项只在横屏追加，竖屏收进齿轮。
