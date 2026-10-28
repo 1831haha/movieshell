@@ -53,6 +53,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -222,7 +224,7 @@ private fun RoundControlButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class) // v0.84.0：Slider 自定义 track 用到实验性 SliderState API；v0.255.0：标题跑马灯 basicMarquee
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class) // v0.84.0：Slider 自定义 track 用到实验性 SliderState API；v0.255.0：标题跑马灯 basicMarquee
 @Composable
 fun PlayerScreen(
     url: String,
@@ -1955,6 +1957,11 @@ fun PlayerScreen(
         // 齿轮页就贴在播放盒子底部、压住控制条，根本不到屏幕下半部分。
         // 改成 Dialog（usePlatformDefaultWidth=false），Dialog 自带全屏窗口，
         // 不受父盒子尺寸限制，页体才能真正贴屏幕底部、占下半屏。
+        // v0.263.0：这页不能是半成品——①页体颜色原来写死深色，浅色主题下组标题
+        // 是深色字、贴深底根本看不见，改跟主题 surface 走；②倍速/缩放/循环原来是
+        // LazyRow 横向藏着，2.0X 等选项要横滑才看得到，改 FlowRow 一次全露；
+        // ③窄屏下轨道/其它行的 Row 会溢出，改 FlowRow 自动换行；④补顶部拖拽条
+        // 与关闭键的正常着色，页体不再是“只有一排芯片、标题看不见”的样子。
         if (showGearSheet) {
             Dialog(
                 onDismissRequest = { showGearSheet = false },
@@ -1984,7 +1991,7 @@ fun PlayerScreen(
                         topStart = SoftDimens.CardCorner,
                         topEnd = SoftDimens.CardCorner,
                     ),
-                    color = Color(0xF21E242F),
+                    color = MaterialTheme.colorScheme.surface,
                 ) {
                     Column(
                         Modifier
@@ -1992,6 +1999,18 @@ fun PlayerScreen(
                             .padding(SoftDimens.PagePadding)
                             .verticalScroll(rememberScrollState())
                     ) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(36.dp, 4.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "设置",
@@ -1999,15 +2018,27 @@ fun PlayerScreen(
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f),
                             )
-                            IconButton(onClick = { showGearSheet = false }) {
-                                Icon(Icons.Filled.Close, contentDescription = "关闭")
+                            IconButton(
+                                onClick = { showGearSheet = false },
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "关闭",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(12.dp))
                         Text("倍速", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            itemsIndexed(SPEEDS) { i, v ->
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            SPEEDS.forEachIndexed { i, v ->
                                 AppChip(
                                     text = "${v}X",
                                     selected = i == speedIndex,
@@ -2022,8 +2053,12 @@ fun PlayerScreen(
                         Spacer(Modifier.height(12.dp))
                         Text("缩放", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            itemsIndexed(RESIZE_MODES) { i, mode ->
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            RESIZE_MODES.forEachIndexed { i, mode ->
                                 AppChip(
                                     text = mode.second,
                                     selected = i == resizeIndex,
@@ -2037,21 +2072,21 @@ fun PlayerScreen(
                         Spacer(Modifier.height(12.dp))
                         Text("播放", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            item {
-                                AppChip(
-                                    text = "Media3",
-                                    selected = engine == PlayerEngine.MEDIA3,
-                                    onClick = { switchToEngine(PlayerEngine.MEDIA3) },
-                                )
-                            }
-                            item {
-                                AppChip(
-                                    text = "libmpv",
-                                    selected = engine == PlayerEngine.LIBMPV,
-                                    onClick = { switchToEngine(PlayerEngine.LIBMPV) },
-                                )
-                            }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            AppChip(
+                                text = "Media3",
+                                selected = engine == PlayerEngine.MEDIA3,
+                                onClick = { switchToEngine(PlayerEngine.MEDIA3) },
+                            )
+                            AppChip(
+                                text = "libmpv",
+                                selected = engine == PlayerEngine.LIBMPV,
+                                onClick = { switchToEngine(PlayerEngine.LIBMPV) },
+                            )
                         }
                         if (!isLive && vodId != null) {
                             Spacer(Modifier.height(8.dp))
@@ -2073,7 +2108,11 @@ fun PlayerScreen(
                         Spacer(Modifier.height(12.dp))
                         Text("轨道", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
                             AppButton(
                                 text = "字幕设置",
                                 onClick = { showSubtitleDialog = true },
@@ -2086,7 +2125,7 @@ fun PlayerScreen(
                             )
                         }
                         Text(
-                            text = "音轨 / 视轨：当前播放无多轨道选择能力，不做假按钮",
+                            text = "当前片源暂无可切换的音轨 / 视轨",
                             style = SoftType.Caption,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -2101,8 +2140,12 @@ fun PlayerScreen(
                         Spacer(Modifier.height(12.dp))
                         Text("其它", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            itemsIndexed(PLAY_MODES) { i, mode ->
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            PLAY_MODES.forEachIndexed { i, mode ->
                                 AppChip(
                                     text = mode,
                                     selected = i == playModeIndex,
@@ -2111,7 +2154,11 @@ fun PlayerScreen(
                             }
                         }
                         Spacer(Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
                             AppButton(
                                 text = if (sleepRemaining > 0 || sleepArmed) "定时关闭（进行中）" else "定时关闭",
                                 onClick = { showSleepDialog = true },
