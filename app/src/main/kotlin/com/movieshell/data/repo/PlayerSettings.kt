@@ -56,6 +56,8 @@ object PlayerSettings {
     private const val KEY_SPEED = "player_speed"
     /** v0.125.0：全屏画面比例档位（0=适应 1=裁剪 2=拉伸） */
     private const val KEY_RESIZE_MODE = "player_resize_mode"
+    /** v0.255.0：拉伸默认档位一次性迁移标记（见 getResizeMode） */
+    private const val KEY_RESIZE_MODE_MIGRATED = "player_resize_mode_migrated_v255"
     /** v0.125.0：歌词颜色 ARGB（0=跟随主题色） */
     /** v0.126.0：音乐在线搜索平台（LX code，默认 wy） */
 
@@ -281,12 +283,23 @@ object PlayerSettings {
 
     /**
      * v0.125.0：取记忆的全屏画面比例档位（0=适应 1=裁剪 2=拉伸）。
-     * 从没选过默认 2（拉伸铺满）——v0.123/124 的裁剪铺满会切掉画面上下约两成，
-     * 用户反馈"卡边"，默认改拉伸；选过的一直按存的档位走。
+     * v0.255.0：默认改回 0（适应，不拉伸不变形）——拉伸是 v0.125 起的默认，
+     * 从没进过"画面比例"菜单的用户手机里存的正是 2，光改默认值修不到他们；
+     * 所以第一次读到存档 2 时一次性迁成 0 并打标记，之后用户再手动选拉伸
+     * 不会被二次迁移盖掉。裁剪/拉伸仍在菜单里，想铺满可再选。
      */
-    fun getResizeMode(context: Context): Int =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt(KEY_RESIZE_MODE, 2).coerceIn(0, 2)
+    fun getResizeMode(context: Context): Int {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val stored = prefs.getInt(KEY_RESIZE_MODE, 0).coerceIn(0, 2)
+        if (!prefs.getBoolean(KEY_RESIZE_MODE_MIGRATED, false)) {
+            prefs.edit().putBoolean(KEY_RESIZE_MODE_MIGRATED, true).apply()
+            if (stored == 2) {
+                prefs.edit().putInt(KEY_RESIZE_MODE, 0).apply()
+                return 0
+            }
+        }
+        return stored
+    }
 
     /** v0.125.0：记忆全屏画面比例档位。 */
     fun setResizeMode(context: Context, mode: Int) {

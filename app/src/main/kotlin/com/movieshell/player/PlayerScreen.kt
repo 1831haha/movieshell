@@ -34,7 +34,9 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -69,7 +71,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Close
@@ -212,7 +213,7 @@ private fun RoundControlButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class) // v0.84.0：Slider 自定义 track 用到实验性 SliderState API
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class) // v0.84.0：Slider 自定义 track 用到实验性 SliderState API；v0.255.0：标题跑马灯 basicMarquee
 @Composable
 fun PlayerScreen(
     url: String,
@@ -266,7 +267,7 @@ fun PlayerScreen(
         mutableIntStateOf(SPEEDS.indexOf(saved).takeIf { it >= 0 } ?: 2) // 默认 1.0x
     }
     var playModeIndex by remember { mutableIntStateOf(0) } // v0.65：循环模式，默认顺序播放
-    // v0.125.0：全屏画面比例偏好（持久化恢复；首次无记录默认拉伸，见 PlayerSettings）
+    // v0.125.0：全屏画面比例偏好（持久化恢复；v0.255.0 起默认适应，见 PlayerSettings）
     var resizeIndex by remember { mutableIntStateOf(PlayerSettings.getResizeMode(context)) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var showServiceMissingDialog by remember { mutableStateOf(false) }
@@ -569,9 +570,10 @@ fun PlayerScreen(
     }
 
     // v0.125.0：全屏画面档位——应用值 = 全屏时用用户偏好 resizeIndex（持久化，
-    // 默认拉伸 FILL：不裁边铺满；v0.123/124 无条件 ZOOM 裁掉上下约两成被反馈
-    // "卡边"），非全屏（竖屏小窗）恒适应 FIT。resizeIndex 只由「画面比例」菜单
-    // 修改并落盘，本效应只负责应用，不再覆盖用户选择。
+    // v0.255.0 起默认适应 FIT：拉伸会把竖屏剧竖屏拉长、横屏拉宽，横屏更吓人；
+    // v0.123/124 无条件 ZOOM 裁掉上下约两成被反馈"卡边"，所以裁剪只留给用户
+    // 手动选，不做默认），非全屏（竖屏小窗）恒适应 FIT。resizeIndex 只由
+    // 「画面比例」菜单修改并落盘，本效应只负责应用，不再覆盖用户选择。
     val fullscreenNow = !embedded || cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
     // v0.124.0：全屏状态驱动窗口沉浸式（全出血），与上面的方向/恢复逻辑互不干涉
     LaunchedEffect(fullscreenNow) {
@@ -948,13 +950,9 @@ fun PlayerScreen(
 
     // v0.25.0：切换中防抖（快速连点不叠请求）
     var switchingEngine by remember { mutableStateOf(false) }
-    // v0.209.0：内核直选菜单显隐（点 Exo 切 Exo、点 mpv 切 mpv，不再是单个切换钮）
-    var showEngineMenu by remember { mutableStateOf(false) }
-    // v0.228.0：清晰度菜单显隐（见控制行清晰度钮）。
-    var showQualityMenu by remember { mutableStateOf(false) }
-
     /**
      * v0.209.0：播放器内点选切换内核（菜单直选 Exo/mpv，点谁切谁）。
+     * v0.255.0：底部引擎/清晰度菜单已收进顶部更多菜单，旧的两个显隐状态删掉。
      * 停掉旧引擎、持久化选择、按当前进度重播；AndroidView 用 key(engine) 重建对应画面。
      * v0.21.0：手动切换先清掉自动换内核覆盖；字幕走 SubtitleKit。
      * v0.25.0：try/catch 兜底 + 防抖，切换失败 Toast 不崩。
@@ -1384,7 +1382,10 @@ fun PlayerScreen(
                     color = Color.White,
                     style = SoftType.CardTitle,
                     maxLines = 1,
-                    modifier = Modifier.weight(1f),
+                    softWrap = false,
+                    // v0.255.0：标题超长跑马灯（basicMarquee 只在溢出时滚，短标题不动；
+                    // weight 在顶栏 Row 里有明确宽度，溢出判断才准）
+                    modifier = Modifier.weight(1f).basicMarquee(),
                 )
                 // v0.69.1：嵌入模式分辨率并入标题行（单独的分辨率行只在全屏保留）
                 if (embedded && streamInfo.isNotBlank()) {
@@ -1514,6 +1515,37 @@ fun PlayerScreen(
                                 // v0.125.0：落盘持久化；实际应用由 resizeIndex 的
                                 // LaunchedEffect 统一处理（全屏用新档位，小窗恒 FIT）
                                 PlayerSettings.setResizeMode(context, resizeIndex)
+                            },
+                        )
+                        // v0.255.0：底部行瘦身后收进来的三项（原底部"顺序播放/自动/引擎"，
+                        // 窄屏上它们正是把全屏推出屏外的主因；直播不显示循环与清晰度，
+                        // 引擎切换点播直播都保留）
+                        if (!isLive) {
+                            DropdownMenuItem(
+                                text = { Text("循环模式：${PLAY_MODES[playModeIndex]}") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    playModeIndex = (playModeIndex + 1) % PLAY_MODES.size
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("清晰度：自动（当前）") },
+                                onClick = { showMoreMenu = false },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (engine == PlayerEngine.MEDIA3) "切换引擎到 mpv"
+                                    else "切换引擎到 Exo"
+                                )
+                            },
+                            onClick = {
+                                showMoreMenu = false
+                                switchToEngine(
+                                    if (engine == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV
+                                    else PlayerEngine.MEDIA3
+                                )
                             },
                         )
                     }
@@ -1662,13 +1694,19 @@ fun PlayerScreen(
                     )
                 }
                 }
-                // 第二行：暂停 + 时间 + 上一集/下一集 + 倍速 + 选集 + 引擎 + 全屏
-                // v0.221.0：按钮一共 9 个，窄屏上普通 Row 会把尾巴（自动、引擎、
-                // 全屏）推出屏外、只剩“自动”半个边露在右边缘——改横向滚动，
-                // 宽屏能放下时 weight 占位仍把全屏顶到右边缘，窄屏则可滑动点全。
+                // 第二行：暂停 + 上一集/下一集 + 倍速 + 选集 + 全屏（固定右端）
+                // v0.255.0：外层不滚动、左区可滚动、右区只放全屏——v0.221 的整行
+                // 横向滚动 + Spacer(weight) 结构在窄屏上把全屏推出屏外（得横滑才
+                // 找得到），且 weight 在滚动容器里剩余空间分配不可靠，正是小窗
+                // 切全屏回来图标看着变形的嫌疑点；顺序播放/自动/引擎收进顶部
+                // 更多菜单，底部只留高频项，全屏 36dp 图标 20dp 全程固定尺寸。
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
                 ) {
                     RoundControlButton(
                         icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
@@ -1738,91 +1776,9 @@ fun PlayerScreen(
                             // “选集”两字自明，省 20dp 给尾巴的按钮。
                             Text("选集", color = Color.White, style = SoftType.Body)
                         }
-                        // v0.65：循环模式（对标目标界面"顺序播放"）
-                        TextButton(
-                            onClick = { playModeIndex = (playModeIndex + 1) % PLAY_MODES.size },
-                            modifier = Modifier.height(SoftDimens.TouchTarget),
-                            contentPadding = PaddingValues(horizontal = 6.dp),
-                        ) {
-                            Text(PLAY_MODES[playModeIndex], color = Color.White, style = SoftType.Body)
-                        }
-                        // v0.228.0：清晰度改菜单——原来点“自动”只弹一句
-                        // “当前为自动清晰度”，用户质疑这算哪门子选择；
-                        // 现在点开是标准清晰度菜单（直链暂无多清晰度，
-                        // 只有“自动（当前）”，以后有真选项直接往里加）。
-                        Box {
-                            TextButton(
-                                onClick = { showQualityMenu = true },
-                                modifier = Modifier.height(SoftDimens.TouchTarget),
-                                contentPadding = PaddingValues(horizontal = 6.dp),
-                            ) {
-                                Text("自动", color = Color.White, style = SoftType.Body)
-                            }
-                            DropdownMenu(
-                                expanded = showQualityMenu,
-                                onDismissRequest = { showQualityMenu = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("自动（当前）") },
-                                    onClick = { showQualityMenu = false },
-                                )
-                            }
-                        }
                     }
-                    // 引擎切换（目标界面显示 Exo，青色；v0.209.0：点开菜单直选，点谁切谁）
-                    Box {
-                        TextButton(
-                            onClick = { showEngineMenu = true },
-                            modifier = Modifier.height(SoftDimens.TouchTarget),
-                            contentPadding = PaddingValues(horizontal = 6.dp),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    if (engine == PlayerEngine.MEDIA3) "Exo" else "mpv",
-                                    color = MaterialTheme.colorScheme.primary,
-                                    style = SoftType.Body,
-                                )
-                                Icon(
-                                    Icons.Filled.ArrowDropDown,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                        DropdownMenu(
-                            expanded = showEngineMenu,
-                            onDismissRequest = { showEngineMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (engine == PlayerEngine.MEDIA3) "Exo（当前）" else "Exo"
-                                    )
-                                },
-                                onClick = {
-                                    showEngineMenu = false
-                                    if (engine != PlayerEngine.MEDIA3) {
-                                        switchToEngine(PlayerEngine.MEDIA3)
-                                    }
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (engine == PlayerEngine.LIBMPV) "mpv（当前）" else "mpv"
-                                    )
-                                },
-                                onClick = {
-                                    showEngineMenu = false
-                                    if (engine != PlayerEngine.LIBMPV) {
-                                        switchToEngine(PlayerEngine.LIBMPV)
-                                    }
-                                },
-                            )
-                        }
-                    }
-                    Spacer(Modifier.weight(1f))
+                }
+                // v0.255.0：右区固定全屏（不在滚动区里，窄屏/小窗也不会被推出屏外）
                     // v0.96.2：嵌入直播手动横竖屏切换（详情页嵌入不显示，保持跳独立播放页逻辑）
                     if (embedded && isLive) {
                         val isLandscape = cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
