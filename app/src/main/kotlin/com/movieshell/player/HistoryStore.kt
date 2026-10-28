@@ -146,7 +146,12 @@ object HistoryStore {
     }
 
     /** v0.246.0：批量删——原来按 tab 清空时逐条 deleteEntry，每条都全量读 + 全量写，
-     * N 条就是 N 次写盘。改一次读、一次滤、一次写。 */
+     * N 条就是 N 次写盘。改一次读、一次滤、一次写。
+     * v0.265.0：删必须用 commit() 同步落盘，不能用 apply()——apply() 只改内存、
+     * 写盘是异步排队，用户删完立刻按 Home / 划掉 App 把进程杀掉，写盘还没落
+     * 地就丢了，下次冷启动读到的还是旧盘，卡片“删了又回来”。列表最多 50 条、
+     * JSON 只有几 KB，commit 在主线程的代价可忽略，换删的持久性。
+     * 读坏守卫不变：读坏时仍拒绝写盘，防空列表把旧历史全顶掉。 */
     fun deleteEntries(context: Context, keys: Set<Pair<String, Long>>) {
         if (keys.isEmpty()) return
         val list = getHistory(context).filterNot { (it.url to it.timestamp) in keys }
@@ -156,7 +161,25 @@ object HistoryStore {
         }
         prefs(context).edit()
             .putString(KEY_LIST, json.encodeToString(list))
-            .apply()
+            .commit()
+    }
+
+    /**
+     * v0.265.0：继续观看卡片删除——卡片的身份是“剧 + 集”，不是播放地址。
+     * 短剧等源的播放地址会随每次拉取换签名 / 换线路，同一剧同一集可能在盘里
+     * 留下多条不同 url 的记录；只按 url + timestamp 删一条，另一条同剧同集
+     * 下次 reload 还会以同一张卡片出现，看起来就是“删了又回来”。
+     * 所以卡片删除按 (vodId + episodeIndex) 全删，vodId 为空的老记录才退回
+     * url + timestamp 精确删；其它集不受影响。写盘走 deleteEntries 的 commit()。
+     */
+    fun deleteContinueWatch(context: Context, entry: HistoryEntry) {
+        val list = getHistory(context)
+        val keys = list.filter { e ->
+            (entry.vodId.isNotBlank() && e.vodId == entry.vodId && e.episodeIndex == entry.episodeIndex) ||
+                (e.url == entry.url && e.timestamp == entry.timestamp)
+        }.map { it.url to it.timestamp }.toSet()
+        if (keys.isEmpty()) return
+        deleteEntries(context, keys)
     }
 
     /** 清空全部历史（显式清空即用户主动放弃，连损坏备份一起清，标记复位） */

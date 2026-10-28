@@ -1302,12 +1302,14 @@ fun HomeScreen(
                                                         // v0.261.0：逻辑反应慢才是主因，不是点/图标大小——
                                                         // 原来点叉后要等 delete + 全量 getHistory 解码 + 整页重组
                                                         // 才消失，用户以为没点中才连点 4-5 下。
-                                                        // 改成乐观删除：先把这条从列表里拿掉（立刻消失），
-                                                        // 再写盘，删完不再 reload 回填。
-                                                        watchHistory = watchHistory.filterNot {
-                                                            it.url == h.url && it.timestamp == h.timestamp
-                                                        }
-                                                        HistoryStore.deleteEntry(context, h.url, h.timestamp)
+                                                        // v0.265.0：乐观删除掩盖了写盘失败——原来先把卡片从
+                                                        // 列表拿掉、再 apply() 写盘，写盘丢了（立刻杀进程）
+                                                        // 或同剧同集还有另一条 url 记录时，下次 ON_RESUME
+                                                        // reload 又把卡片带回来，看起来就是“删了又回来”。
+                                                        // 改成：先按卡片身份（剧 + 集）commit() 同步删盘，
+                                                        // 再从盘里 reload 一遍，UI 以盘为准，不再只信乐观状态。
+                                                        HistoryStore.deleteContinueWatch(context, h)
+                                                        reloadWatchHistory()
                                                     },
                                                     modifier = Modifier.size(48.dp),
                                                 ) {
