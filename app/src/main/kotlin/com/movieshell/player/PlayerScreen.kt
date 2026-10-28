@@ -139,6 +139,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.util.Consumer
 import androidx.core.view.WindowCompat
@@ -1948,7 +1950,16 @@ fun PlayerScreen(
         // v0.259.0：齿轮底部页（六组），替代三个点菜单，是播放器唯一设置入口；
         // 音轨/视轨无现有选择能力，不做假按钮，只在轨道组里明示；
         // 时间/标题/进度已在顶栏与进度条显示，屏显组只留真实画中画开关。
+        // v0.262.0：齿轮页必须落在屏幕下半部分（参考图2）——原来是 PlayerScreen
+        // 内部的内联 Box，嵌入详情页时它的 fillMaxSize 只是顶部 16:9 播放盒子，
+        // 齿轮页就贴在播放盒子底部、压住控制条，根本不到屏幕下半部分。
+        // 改成 Dialog（usePlatformDefaultWidth=false），Dialog 自带全屏窗口，
+        // 不受父盒子尺寸限制，页体才能真正贴屏幕底部、占下半屏。
         if (showGearSheet) {
+            Dialog(
+                onDismissRequest = { showGearSheet = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false),
+            ) {
             Box(Modifier.fillMaxSize()) {
                 Box(
                     Modifier
@@ -2126,6 +2137,7 @@ fun PlayerScreen(
                         Spacer(Modifier.height(12.dp))
                     }
                 }
+            }
             }
         }
 
