@@ -52,6 +52,13 @@ class CmsApi(
          *（CMS/探活/解析/嗅探 HEAD/音乐解析），无 SSE/流式/大文件下载（那些走各自私有
          * client）；最坏单链路 3 次重试 × 15s + 退避 1.5s ≈ 46.5s < 60s，保守取值。 */
         private const val CALL_TIMEOUT_S = 60L
+        /** v0.257.0：drpy 规则请求专用超时（见 drpyClient，单位秒）。 */
+        private const val DRPY_CONNECT_TIMEOUT_S = 3L
+        private const val DRPY_READ_TIMEOUT_S = 4L
+        private const val DRPY_WRITE_TIMEOUT_S = 4L
+        private const val DRPY_CALL_TIMEOUT_S = 5L
+        /** v0.257.0：drpy 单请求整 call 上限（毫秒，供 V8DrpyEngine 算剩余预算时比较）。 */
+        internal const val DRPY_CALL_TIMEOUT_MS = DRPY_CALL_TIMEOUT_S * 1000L
         /** 重试退避基数：500ms → 1s 指数退避（阻塞拦截器里小睡可接受）。 */
         private const val RETRY_BACKOFF_BASE_MS = 500L
 
@@ -76,6 +83,31 @@ class CmsApi(
             .addInterceptor(retryInterceptor)
             .addInterceptor(simpleLogInterceptor)
             .build()
+
+        /**
+         * v0.257.0：drpy 规则请求专用 client（隔离于 defaultClient，只供 V8DrpyEngine 用）。
+         * 背景：规则 JS 单次执行上限 15 秒，而 defaultClient 单请求最坏约 46.5 秒
+         * （15 秒乘 3 次重试加退避），一个挂起的请求就能拖垮整个会话
+         * （13:12 首页全空实证）。本 client：连接 3 秒、读取 4 秒、写入 4 秒、
+         * 整 call 5 秒、零重试、retryOnConnectionFailure=false；保留 UA 拦截器、
+         * 内存 CookieJar 与简易日志（规则请求没 UA 会被部分站拒、会话 Cookie
+         * 不能丢），只去掉重试拦截器。累计预算（单次执行 12 秒）由
+         * V8DrpyEngine 侧控制，不在这里做。
+         */
+        fun drpyClient(): OkHttpClient = drpySharedClient
+
+        private val drpySharedClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+            OkHttpClient.Builder()
+                .connectTimeout(DRPY_CONNECT_TIMEOUT_S, TimeUnit.SECONDS)
+                .readTimeout(DRPY_READ_TIMEOUT_S, TimeUnit.SECONDS)
+                .writeTimeout(DRPY_WRITE_TIMEOUT_S, TimeUnit.SECONDS)
+                .callTimeout(DRPY_CALL_TIMEOUT_S, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(false)
+                .cookieJar(memoryCookieJar)
+                .addInterceptor(uaInterceptor)
+                .addInterceptor(simpleLogInterceptor)
+                .build()
+        }
 
         /**
          * 内存 CookieJar：host → cookies，需要登录态的源保持会话。

@@ -27,6 +27,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.io.ByteArrayInputStream
+import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 
 /**
@@ -48,7 +49,7 @@ class V8DrpyEngine(
 ) : DrpyEngine {
 
     private val appContext = context.applicationContext
-    private val http: OkHttpClient = CmsApi.defaultClient()
+    private val http: OkHttpClient = CmsApi.drpyClient()
 
     private var ruleJs: String? = null
 
@@ -64,6 +65,17 @@ class V8DrpyEngine(
     @Volatile
     override var lastError: String? = null
         private set
+
+    /**
+     * v0.257.0：当前 drpy 执行的请求预算截止（nanoTime）。evalForJson 入口处
+     * 设为 now 加 12 秒；doRequest 在发起前算剩余预算，耗尽直接回空串不再
+     * 发起，剩余不足单请求上限时派生整 call 上限等于剩余预算的 client。
+     * 每次 eval 都重设，旧值自然失效；规则请求只在 eval 内发生，不存在
+     * eval 外请求读到旧值的路径。多 eval 极少数重叠时共用该字段，最坏
+     * 只是预算略放宽，仍受 5 秒单请求上限与 15 秒会话上限双重兜底。
+     */
+    @Volatile
+    private var requestBudgetDeadlineNanos: Long = 0L
 
     /**
      * 建会话串行锁：两个并发 ensureSession 只能建出一个，另一个复用它。
@@ -92,6 +104,8 @@ class V8DrpyEngine(
     companion object {
         private const val TAG = "V8Drpy"
         private const val JS_TIMEOUT_MS = 15_000L
+        /** v0.257.0：单次 drpy 执行的累计 HTTP 请求预算（毫秒），给解析留约 3 秒。 */
+        private const val DRPY_REQUEST_BUDGET_MS = 12_000L
         /** v0.110.0：home 缓存窗口 60s（原 10s）。规则标识 = 引擎实例本身，切源建新实例。 */
         private const val HOME_CACHE_MS = 60_000L
         /** v0.135.0：home 首调为空时重试前的等待，给规则未完成的异步取数留落地时间。 */
@@ -403,6 +417,8 @@ class V8DrpyEngine(
      */
     private suspend fun evalForJson(expression: String): String? {
         val s = ensureSession() ?: return null
+        // v0.257.0：本次执行的请求预算截止（12 秒，见 requestBudgetDeadlineNanos）。
+        requestBudgetDeadlineNanos = System.nanoTime() + DRPY_REQUEST_BUDGET_MS * 1_000_000L
         return try {
             val result = s.eval(expression, JS_TIMEOUT_MS)
             if (result.isBlank() || result == "null" || result == "undefined") {
@@ -502,6 +518,26 @@ class V8DrpyEngine(
      * 不吞成空串，避免取消后还被当成普通失败重试。
      */
     private suspend fun doRequest(url: String, method: String, headers: JSONObject?, body: String): String {
+        // v0.257.0：预算内发起。剩余预算小于等于 0 直接回空串，不发起请求；
+        // 剩余不足单请求上限时派生一个整 call 上限等于剩余预算的 client
+        // （newBuilder 共享连接池），预算由 OkHttp 层硬性执行——阻塞式
+        // execute 不响应协程取消，单靠超时包装截不断它。预算字段由
+        // evalForJson 在每次执行入口重设。
+        val deadline = requestBudgetDeadlineNanos
+        val callClient = if (deadline != 0L) {
+            val remainingMs = (deadline - System.nanoTime()) / 1_000_000L
+            if (remainingMs <= 0L) {
+                LogBus.w(TAG, "request 预算耗尽，不再发起: $url")
+                return ""
+            }
+            if (remainingMs < CmsApi.DRPY_CALL_TIMEOUT_MS) {
+                http.newBuilder().callTimeout(remainingMs, TimeUnit.MILLISECONDS).build()
+            } else {
+                http
+            }
+        } else {
+            http
+        }
         val call = runCatching {
             val reqBuilder = Request.Builder().url(url)
             headers?.keys()?.forEach { k ->
@@ -517,7 +553,7 @@ class V8DrpyEngine(
                 "GET" -> reqBuilder.get()
                 else -> reqBuilder.method(m, null)
             }
-            http.newCall(reqBuilder.build())
+            callClient.newCall(reqBuilder.build())
         }.getOrNull() ?: return ""
         val job = currentCoroutineContext()[Job]
         job?.invokeOnCompletion { call.cancel() }
