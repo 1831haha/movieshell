@@ -1553,8 +1553,9 @@ fun PlayerScreen(
                             },
                         )
                         // v0.255.0：底部行瘦身后收进来的循环模式仍留这里；
-                        // v0.256.0：清晰度与引擎移回播放器下方常驻行（用户要求
-                        // 不要只藏在更多菜单里），这里不再重复放，避免两处打架。
+                        // v0.258.0：清晰度与引擎已并入底部控制条、放在选集
+                        // 按钮后面（只留值、不带前缀），这里不再重复放，
+                        // 避免两处打架。
                         if (!isLive) {
                             DropdownMenuItem(
                                 text = { Text("循环模式：${PLAY_MODES[playModeIndex]}") },
@@ -1710,7 +1711,7 @@ fun PlayerScreen(
                     )
                 }
                 }
-                // 第二行：暂停 + 上一集/下一集 + 倍速 + 选集 + 全屏（固定右端）
+                // 第二行：暂停 + 上一集/下一集 + 倍速 + 选集 + 自动 + 引擎 + 全屏（固定右端）
                 // v0.255.0：外层不滚动、左区可滚动、右区只放全屏——v0.221 的整行
                 // 横向滚动 + Spacer(weight) 结构在窄屏上把全屏推出屏外（得横滑才
                 // 找得到），且 weight 在滚动容器里剩余空间分配不可靠，正是小窗
@@ -1793,6 +1794,46 @@ fun PlayerScreen(
                             Text("选集", color = Color.White, style = SoftType.Body)
                         }
                     }
+                    if (!isLive) {
+                        // v0.258.0：用户要求——v0.256.0 的下方常驻行删掉，
+                        // 清晰度与引擎不再单独成行，也不带“清晰度：”
+                        // “播放引擎：”前缀，只留值，并入控制条、放在
+                        // 选集按钮后面；点自动仍只给自动一项，点引擎
+                        // 仍走现有 switchToEngine 在 Media3/libmpv 间切换。
+                        Box {
+                            TextButton(
+                                onClick = { showClarityMenu = true },
+                                modifier = Modifier.height(SoftDimens.TouchTarget),
+                                contentPadding = PaddingValues(horizontal = 6.dp),
+                            ) {
+                                Text("自动", color = Color.White, style = SoftType.Body)
+                            }
+                            DropdownMenu(
+                                expanded = showClarityMenu,
+                                onDismissRequest = { showClarityMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("自动（当前）") },
+                                    onClick = { showClarityMenu = false },
+                                )
+                            }
+                        }
+                        TextButton(
+                            onClick = {
+                                switchToEngine(
+                                    if (engine == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV
+                                    else PlayerEngine.MEDIA3
+                                )
+                            },
+                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) {
+                            Text(
+                                if (engine == PlayerEngine.MEDIA3) "Media3" else "libmpv",
+                                color = Color.White, style = SoftType.Body,
+                            )
+                        }
+                    }
                 }
                 // v0.255.0：右区固定全屏（不在滚动区里，窄屏/小窗也不会被推出屏外）
                     // v0.96.2：嵌入直播手动横竖屏切换（详情页嵌入不显示，保持跳独立播放页逻辑）
@@ -1819,51 +1860,8 @@ fun PlayerScreen(
                         )
                     }
                 }
-                // v0.256.0：播放器下方常驻行——清晰度与引擎各占一半，
-                // 不参与上面控制行的宽度竞争，全屏仍固定右端不动；
-                // 这行在 PlayerScreen 内部、跟控制层一起显隐，不另建
-                // 详情页外层容器，避免滚动 offset 与小窗状态打架。
-                // 清晰度目前只有自动，不编造 720P/1080P 等不可用选项。
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        TextButton(
-                            onClick = { showClarityMenu = true },
-                            modifier = Modifier.fillMaxWidth().height(SoftDimens.TouchTarget),
-                            contentPadding = PaddingValues(horizontal = 6.dp),
-                        ) {
-                            Text("清晰度：自动", color = Color.White, style = SoftType.Body)
-                        }
-                        DropdownMenu(
-                            expanded = showClarityMenu,
-                            onDismissRequest = { showClarityMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("自动（当前）") },
-                                onClick = { showClarityMenu = false },
-                            )
-                        }
-                    }
-                    Box(modifier = Modifier.weight(1f)) {
-                        TextButton(
-                            onClick = {
-                                switchToEngine(
-                                    if (engine == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV
-                                    else PlayerEngine.MEDIA3
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth().height(SoftDimens.TouchTarget),
-                            contentPadding = PaddingValues(horizontal = 6.dp),
-                        ) {
-                            Text(
-                                "播放引擎：${if (engine == PlayerEngine.MEDIA3) "Media3" else "libmpv"}",
-                                color = Color.White, style = SoftType.Body,
-                            )
-                        }
-                    }
-                }
+                // v0.258.0：v0.256.0 的下方常驻行已删，清晰度与引擎
+                // 已并入上面控制条、放在选集按钮后面，不再单独占一行。
             }
         }
 
