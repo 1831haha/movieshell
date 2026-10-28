@@ -176,6 +176,35 @@ fun DetailScreen(
     // 起多个 20 秒请求，旧请求迟到时不再覆盖新结果、也不再把 loading 提前置 false
     var detailGen by remember { mutableIntStateOf(0) }
     var detailJob by remember { mutableStateOf<Job?>(null) }
+    // v0.260.0：sourceName / followSourceKey / followId 必须在 reloadDetail()
+    // 之前声明——v0.259.0 把它们留在 reloadDetail() 之后，局部函数体内
+    // 用 followId 做封面回填时编译报 Unresolved reference（局部先声明后调用）。
+    // 三者只依赖 subSite / 各规则管理器 / vodId，均已在上方声明，提前无副作用。
+    /** v0.21.0：影片信息一键复制 */
+    // 当前来源名：追剧时记下来，追剧列表里展示；订阅站同时记 site key 以便回跳
+    val sourceName = remember(vodId) {
+        when {
+            subSite != null -> subSite.name
+            DrpySourceManager.hasActiveRule() ->
+                DrpySourceManager.activeRuleName()?.removeSuffix(".js")
+                    ?.ifBlank { "drpy规则" } ?: "drpy规则"
+            PySourceManager.hasActiveRule() ->
+                PySourceManager.activeRuleName()?.removeSuffix(".py")
+                    ?.ifBlank { "PY规则" } ?: "PY规则"
+            PhpSourceManager.activeRuleName() != null ->
+                PhpSourceManager.activeRuleName()?.removeSuffix(".php")
+                    ?.ifBlank { "PHP规则" } ?: "PHP规则"
+            else -> "站源"
+        }
+    }
+    val followSourceKey = remember(subSite, sourceName) {
+        subSite?.key.orEmpty().ifBlank {
+            DrpySourceManager.activeRuleName().orEmpty()
+                .ifBlank { PySourceManager.activeRuleName().orEmpty() }
+                .ifBlank { PhpSourceManager.activeRuleName().orEmpty() }
+        }.ifBlank { sourceName }
+    }
+    val followId = remember(vodId, followSourceKey) { FollowStore.idOf(followSourceKey, vodId) }
     fun reloadDetail() {
         detailJob?.cancel()
         detailGen++
@@ -248,23 +277,6 @@ fun DetailScreen(
     var showCoverDialog by remember { mutableStateOf(false) }
     val coverUrl = detail?.vodPic.orEmpty()
 
-    /** v0.21.0：影片信息一键复制 */
-    // 当前来源名：追剧时记下来，追剧列表里展示；订阅站同时记 site key 以便回跳
-    val sourceName = remember(vodId) {
-        when {
-            subSite != null -> subSite.name
-            DrpySourceManager.hasActiveRule() ->
-                DrpySourceManager.activeRuleName()?.removeSuffix(".js")
-                    ?.ifBlank { "drpy规则" } ?: "drpy规则"
-            PySourceManager.hasActiveRule() ->
-                PySourceManager.activeRuleName()?.removeSuffix(".py")
-                    ?.ifBlank { "PY规则" } ?: "PY规则"
-            PhpSourceManager.activeRuleName() != null ->
-                PhpSourceManager.activeRuleName()?.removeSuffix(".php")
-                    ?.ifBlank { "PHP规则" } ?: "PHP规则"
-            else -> "站源"
-        }
-    }
     // v0.168.0：收藏已去掉（与追剧重复），片单选择一并删除
     // v0.26.0：追剧
     val followSourceType = remember(subSite) {
@@ -276,14 +288,6 @@ fun DetailScreen(
             else -> "sub"
         }
     }
-    val followSourceKey = remember(subSite, sourceName) {
-        subSite?.key.orEmpty().ifBlank {
-            DrpySourceManager.activeRuleName().orEmpty()
-                .ifBlank { PySourceManager.activeRuleName().orEmpty() }
-                .ifBlank { PhpSourceManager.activeRuleName().orEmpty() }
-        }.ifBlank { sourceName }
-    }
-    val followId = remember(vodId, followSourceKey) { FollowStore.idOf(followSourceKey, vodId) }
     // v0.259.0：追剧开关已移到播放器顶栏齿轮旁，详情页不再自己维护开关；
     // 这里直接读 FollowStore 流，播放器里追/取消后已看角标与断点续播立即同步。
     val followItems by FollowStore.list.collectAsState()

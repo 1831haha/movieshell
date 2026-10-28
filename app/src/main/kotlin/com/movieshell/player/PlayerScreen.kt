@@ -235,6 +235,9 @@ fun PlayerScreen(
     onEpisodeChange: (lineIndex: Int, episodeIndex: Int) -> Unit = { _, _ -> },
     // v0.259.0：简介弹窗字段（详情页嵌入时传真实值；独立全屏页传空，
     // 空行在弹窗里隐藏，只留片名与影片 ID，不编造备注/年份/简介）
+    // v0.260.0：补 infoName 参数——v0.259.0 只加了其余三字段，漏了片名参数，
+    // 导致 PlayerScreen 内 infoName 与详情页调用处双双编译失败。
+    infoName: String = "",
     infoRemarks: String = "",
     infoYear: String = "",
     infoDesc: String = "",
