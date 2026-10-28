@@ -82,6 +82,20 @@ function makeCtx(rule, extra) {
     return ctx;
 }
 
+/* v0.253.0：DS 别名（只补键、不改旧键值）。TID/PG/ID 是 shim 旧键，
+ * MY_CATE/MY_PAGE/orId 是部分规则函数解构时要的键；目标键已在 extra 里
+ * 时以调用方为准，不覆盖。MY_FL 由分类入口用 buildFilterMap 拼好后显式
+ * 传入，这里不从原始 filter 猜——原始 filter 只是用户选中的几项，缺默认
+ * 值时直接当 MY_FL 会丢掉 filter_def 的平台默认值。 */
+function makeRuleCtx(rule, extra) {
+    var ctx = makeCtx(rule, extra);
+    var e = extra || {};
+    if (e.TID != null && ctx.MY_CATE == null) ctx.MY_CATE = e.TID;
+    if (e.PG != null && ctx.MY_PAGE == null) ctx.MY_PAGE = e.PG;
+    if (e.ID != null && ctx.orId == null) ctx.orId = e.ID;
+    return ctx;
+}
+
 /* ---------- drpy 筛选（filter_url / fyfilter / {{fl.键名}}） ---------- */
 
 /** base64(gzip JSON) → JSON 字符串；gzip 解压交宿主（V8 无 DecompressionStream）。 */
@@ -1153,6 +1167,17 @@ async function runSection(section, ctx) {
     globalThis.d = [];
     var r;
     if (typeof section === 'function') {
+        /* v0.253.0：函数规则的 this 必须能拿到规则自身字段和方法
+         *（一级/二级/预处理/filter_def），否则推荐里 this.一级.call 会死在
+         * reading 'call'。只补 ctx 里没有的键，入口参数优先于规则字段；
+         * 就地补进 ctx，不新建对象——播放的 lazy 会改写 this.input 成对象，
+         * 播放入口事后要读 ctx.input，新对象会丢掉这次改写。字符串模板分支
+         * 不走这条，with(ctx) 的裸变量查找范围保持原样，不被规则字段遮蔽。 */
+        if (typeof rule !== 'undefined' && rule && typeof rule === 'object') {
+            Object.keys(rule).forEach(function (k) {
+                if (ctx[k] === undefined) ctx[k] = rule[k];
+            });
+        }
         r = await section.call(ctx);
     } else if (typeof section === 'string') {
         if (section.indexOf('json:') === 0) {
@@ -1219,7 +1244,7 @@ globalThis.__drpyHome = async function () {
                 // v0.11.1：class_parse 字符串模板（'选择器;标题;链接;正则'），在 homeUrl 页面上解析
                 cls = (await parseClassTemplate(rule.class_parse, homeInput)).map(normClass);
             } else {
-                var cr = await runSection(rule.class_parse, makeCtx(rule));
+                var cr = await runSection(rule.class_parse, makeRuleCtx(rule));
                 var arr = (cr && cr['class']) ? cr['class'] : (Array.isArray(cr) ? cr : []);
                 cls = arr.map(normClass);
             }
@@ -1233,10 +1258,10 @@ globalThis.__drpyHome = async function () {
         var list = [];
         if (rule.推荐 && rule.推荐 !== '*') {
             var input = homeInput;
-            list = toList(await runSection(rule.推荐, makeCtx(rule, { input: input })));
+            list = toList(await runSection(rule.推荐, makeRuleCtx(rule, { input: input })));
         } else if (rule.推荐 === '*' && rule.一级) {
             // v0.11.3：推荐='*' 表示用默认逻辑（homeUrl 页面按一级模板解析）
-            list = toList(await runSection(rule.一级, makeCtx(rule, { input: homeInput })));
+            list = toList(await runSection(rule.一级, makeRuleCtx(rule, { input: homeInput })));
         }
         return JSON.stringify({ 'class': cls, list: list });
     } catch (e) { return errJson(e); }
@@ -1247,11 +1272,13 @@ globalThis.__drpyCategory = async function (tid, pg, filter) {
         needRule();
         pg = pg || 1;
         var urlTpl = rule.url || '';
-        var fl = {};
+        // v0.253.0：筛选值表先按 drpy2 语义拼好（filter_def 默认值打底＋
+        // 分组首选项补齐＋调用方选中值覆盖），既供 filter_url 渲染，也供
+        // 一级函数的 MY_FL 用；不拼时 MY_FL 会丢平台默认值。
+        var fl = await buildFilterMap(tid, filter);
         // drpy2 语义：有 filter_url 时先渲染它，再拼进 url 的 fyfilter 处；
         // url 里没有 fyfilter 标记时追加到末尾（用 & 连接）。
         if (rule.filter_url) {
-            fl = await buildFilterMap(tid, filter);
             var furl = renderTpl(rule.filter_url, { tid: tid, pg: pg, fl: fl });
             if (/fyfilter/.test(urlTpl)) {
                 urlTpl = urlTpl.replace('fyfilter', furl);
@@ -1261,7 +1288,7 @@ globalThis.__drpyCategory = async function (tid, pg, filter) {
             }
         }
         var input = absUrl(rule.host, urlTpl, { tid: tid, pg: pg, fl: fl });
-        var r = await runSection(rule.一级, makeCtx(rule, { input: input, TID: tid, PG: pg }));
+        var r = await runSection(rule.一级, makeRuleCtx(rule, { input: input, TID: tid, PG: pg, MY_FL: fl }));
         var page = pg;
         if (r && typeof r === 'object' && !Array.isArray(r) && r.page != null) {
             page = Number(r.page) || pg;
@@ -1303,7 +1330,7 @@ globalThis.__drpyDetail = async function (id) {
             });
         }
         var input = absUrl(rule.host, rule.detailUrl || '', { id: id });
-        var r = await runSection(rule.二级, makeCtx(rule, { input: input, ID: id })) || {};
+        var r = await runSection(rule.二级, makeRuleCtx(rule, { input: input, ID: id })) || {};
         return JSON.stringify({
             vod_id: str(id),
             vod_name: str(r.vod_name),
@@ -1324,7 +1351,7 @@ globalThis.__drpySearch = async function (wd, pg) {
         needRule();
         pg = pg || 1;
         var input = absUrl(rule.host, rule.searchUrl || '', { wd: wd, pg: pg });
-        var r = await runSection(rule.搜索, makeCtx(rule, { input: input, KEY: wd, MY_PAGE: pg }));
+        var r = await runSection(rule.搜索, makeRuleCtx(rule, { input: input, KEY: wd, MY_PAGE: pg }));
         return JSON.stringify({ list: toList(r) });
     } catch (e) { return errJson(e); }
 };
@@ -1337,7 +1364,7 @@ globalThis.__drpyPlay = async function (flag, id) {
             // drpy 语义：lazy 的 input 是播放条目 id/URL 原值（vod_play_url "$" 右侧原样），
             // 不做 detailUrl 渲染——detailUrl 只在 detail 阶段拼 vod_id 用。
             // 渲染会破坏 m3u8/mp4 直链判断（规则 lazy: input.indexOf('.m3u8')）。
-            var ctx = makeCtx(rule, { input: str(id), flag: flag });
+            var ctx = makeRuleCtx(rule, { input: str(id), flag: flag });
             var r = await runSection(fn, ctx);
             // v0.11.1：lazy 形态直接改写 input 为 {jx,url,parse,header} 对象交结果
             if (r == null && ctx.input && typeof ctx.input === 'object') r = ctx.input;
