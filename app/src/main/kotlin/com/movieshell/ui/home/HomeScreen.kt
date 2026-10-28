@@ -1295,17 +1295,26 @@ fun HomeScreen(
                                                     modifier = Modifier.weight(1f),
                                                 )
                                                 // v0.215.0：继续观看单条删除（原来只能去历史页清全部）。
+                                                // v0.261.0：叉的触摸区 22dp 太小，点 4-5 下才中（多半点到
+                                                // 卡片本身）——改成 48dp 标准触摸区，图标 20dp，一下关掉。
                                                 IconButton(
                                                     onClick = {
+                                                        // v0.261.0：逻辑反应慢才是主因，不是点/图标大小——
+                                                        // 原来点叉后要等 delete + 全量 getHistory 解码 + 整页重组
+                                                        // 才消失，用户以为没点中才连点 4-5 下。
+                                                        // 改成乐观删除：先把这条从列表里拿掉（立刻消失），
+                                                        // 再写盘，删完不再 reload 回填。
+                                                        watchHistory = watchHistory.filterNot {
+                                                            it.url == h.url && it.timestamp == h.timestamp
+                                                        }
                                                         HistoryStore.deleteEntry(context, h.url, h.timestamp)
-                                                        reloadWatchHistory()
                                                     },
-                                                    modifier = Modifier.size(22.dp),
+                                                    modifier = Modifier.size(48.dp),
                                                 ) {
                                                     Icon(
                                                         Icons.Filled.Close,
                                                         contentDescription = "删除这条记录",
-                                                        modifier = Modifier.size(14.dp),
+                                                        modifier = Modifier.size(20.dp),
                                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     )
                                                 }

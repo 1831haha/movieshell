@@ -395,8 +395,11 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     // v0.238.0 顶部贴顶：Scaffold 默认把状态栏高度算进内容内边距，
                     // 本 App 窗口本身已在状态栏下方排布（未开 edge-to-edge），再算一遍就是双倍顶距；
-                    // 只保留底部与水平方向，顶部内边距归零，各页顶栏贴到内容顶。
-                    contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+                    // 只保留底部，顶部内边距归零，各页顶栏贴到内容顶。
+                    // v0.261.0：水平方向不再保留——safeDrawing Horizontal 在横竖屏切换后
+                    // 会在左侧留下一条约 107/1000 宽的白边（详情页播放器左白边实测），
+                    // 各页本身已有 12/16dp 内边距，播放器更要贴边，水平 inset 不能再叠加。
+                    contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
                     bottomBar = {
                         Column {
                             if (showMiniPlayer) {

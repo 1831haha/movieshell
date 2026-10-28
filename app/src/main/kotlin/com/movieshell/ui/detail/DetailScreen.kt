@@ -511,9 +511,12 @@ fun DetailScreen(
                 }
                 val showMiniPlayer = playerOffScreen && embeddedUrl.isNotBlank()
                 Box(
+                    // v0.261.0：播放器贴边——只取上下内边距，左右内边距忽略，
+                    // 否则 Detail Scaffold 的左右 inset + MainActivity 的左右 inset
+                    // 叠加后播放器左侧留白（实测约 107/1000 宽），详情卡本身有 PagePadding，不受影响。
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(inner),
+                        .padding(top = inner.calculateTopPadding(), bottom = inner.calculateBottomPadding()),
                 ) {
                 LazyColumn(
                     state = listState,

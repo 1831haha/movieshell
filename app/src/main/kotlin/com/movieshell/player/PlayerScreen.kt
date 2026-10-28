@@ -466,6 +466,8 @@ fun PlayerScreen(
         // 之前进页 0.5 秒就"切横屏"锁方向是一次误触发
         val prev = lastSensorLandscape
         lastSensorLandscape = sensorLandscape
+        // v0.261.0：手动强制切换后，重力感应不再抢方向（手动锁优先于 sensor 翻转）。
+        if (OrientationSensor.manualLocked) return@LaunchedEffect
         if (prev == null || prev == sensorLandscape) return@LaunchedEffect
         // v0.96.1：真翻转才锁方向，锁之前快照播放状态
         snapshotForRotation()
@@ -483,6 +485,8 @@ fun PlayerScreen(
     fun toggleOrientation() {
         val activity = context as? Activity ?: return
         // v0.96.1：手动切换也先快照，保证不断流
+        // v0.261.0：手动 = 强制，设锁后 sensor 不再抢回去。
+        OrientationSensor.manualLocked = true
         snapshotForRotation()
         val landscape =
             context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -504,6 +508,8 @@ fun PlayerScreen(
     fun toggleEmbeddedLandscape() {
         val activity = context as? Activity ?: return
         // v0.96.1：手动切换先快照，保证不断流
+        // v0.261.0：手动 = 强制，设锁后 sensor 不再抢回去。
+        OrientationSensor.manualLocked = true
         snapshotForRotation()
         val landscape =
             context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -514,6 +520,20 @@ fun PlayerScreen(
             LogBus.i("Player", "手动：嵌入切横屏")
             ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
+    }
+
+    /**
+     * v0.261.0：嵌入点播的横竖屏切换——原来只调 onFullscreen() 跳独立页，
+     * 不改方向，手机竖着就还是竖屏，用户反馈“点击还是竖屏”。
+     * 先强制锁横屏、设手动锁，再跳页，独立页进页就是横屏。
+     */
+    fun forceLandscapeAndFullscreen() {
+        val activity = context as? Activity ?: return
+        snapshotForRotation()
+        OrientationSensor.manualLocked = true
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        LogBus.i("Player", "手动：嵌入强制切横屏并跳全屏")
+        onFullscreen()
     }
 
     /**
@@ -1513,7 +1533,7 @@ fun PlayerScreen(
                         icon = Icons.Filled.ScreenRotation,
                         desc = "横屏",
                         onClick = {
-                            if (isLive) toggleEmbeddedLandscape() else onFullscreen()
+                            if (isLive) toggleEmbeddedLandscape() else forceLandscapeAndFullscreen()
                         },
                     )
                 }
@@ -1567,11 +1587,15 @@ fun PlayerScreen(
                         },
                     )
                 }
-                RoundControlButton(
-                    icon = Icons.Filled.Settings,
-                    desc = "设置",
-                    onClick = { showGearSheet = true },
-                )
+                // v0.261.0：横屏不需要齿轮按钮——常用功能已在横屏底栏，
+                // 不常用的回竖屏点齿轮调；竖屏才显示齿轮。
+                if (cfgOrientation != Configuration.ORIENTATION_LANDSCAPE) {
+                    RoundControlButton(
+                        icon = Icons.Filled.Settings,
+                        desc = "设置",
+                        onClick = { showGearSheet = true },
+                    )
+                }
             }
             // v0.65：分辨率行（对标目标界面 3840x1920 · 码率）
             // v0.69.1：嵌入模式已并入标题行，这里只在全屏显示
@@ -1625,12 +1649,18 @@ fun PlayerScreen(
                     desc = "截图",
                     onClick = {
                         scope.launch {
-                            val file = withContext(Dispatchers.IO) {
-                                EngineHost.screenshot(
-                                    context, title, playUrl, lastHeaders,
-                                    EngineHost.currentPosition(),
-                                )
-                            }
+                            // v0.261.0：相机闪退根因——原来在 Dispatchers.IO 里调
+                            // EngineHost.currentPosition()，Media3 Player 要求主线程访问，
+                            // 抛 IllegalStateException: Player is accessed on the wrong thread
+                            //（DefaultDispatcher-worker-5）。先在主线程取进度，再切 IO 只做落盘。
+                            val pos = EngineHost.currentPosition()
+                            val file = runCatching {
+                                withContext(Dispatchers.IO) {
+                                    EngineHost.screenshot(
+                                        context, title, playUrl, lastHeaders, pos,
+                                    )
+                                }
+                            }.getOrNull()
                             AppToast.show(context, if (file != null) "截图已保存：${file.name}" else "截图失败", long = false)
                         }
                     },
@@ -1883,12 +1913,14 @@ fun PlayerScreen(
                     // v0.123.0：嵌入直播已有上面的横屏按钮，通用全屏按钮不再重复渲染
                     // （之前两个 ⛶ 并排，用户反馈"有两个全屏按钮"就是这里）
                     if (!(embedded && isLive)) {
+                        // v0.261.0：横竖屏切换按钮 = 强制切换——独立页点它直接
+                        // 在横/竖间翻转并锁方向；嵌入点播点它先强制横屏再跳页。
+                        val isLandscapeBtn = cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
                         RoundControlButton(
-                            icon = Icons.Filled.Fullscreen,
-                            desc = "全屏",
+                            icon = if (!embedded && isLandscapeBtn) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                            desc = if (embedded) "横屏" else if (isLandscapeBtn) "退出横屏" else "横屏",
                             onClick = {
-                                // v0.65：嵌入模式点全屏 → 跳独立播放页（详情页传入回调）
-                                if (embedded) onFullscreen() else toggleOrientation()
+                                if (embedded) forceLandscapeAndFullscreen() else toggleOrientation()
                             },
                             size = 36.dp,
                         )

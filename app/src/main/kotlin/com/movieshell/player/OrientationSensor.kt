@@ -25,6 +25,10 @@ object OrientationSensor {
     private val _isLandscape = MutableStateFlow(false)
     val isLandscape: StateFlow<Boolean> = _isLandscape
 
+    /** v0.261.0：手动强制切换锁——手动点横竖屏按钮后，重力感应不再把方向抢回去，退出播放页时清锁。 */
+    @Volatile
+    var manualLocked = false
+
     private var started = false
     private var sensorManager: SensorManager? = null
 
@@ -83,6 +87,7 @@ object OrientationSensor {
         sensorManager?.unregisterListener(listener)
         sensorManager = null
         candidate = null
+        manualLocked = false
         _isLandscape.value = false
     }
 }
