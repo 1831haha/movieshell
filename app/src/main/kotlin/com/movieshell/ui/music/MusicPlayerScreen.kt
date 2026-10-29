@@ -1,5 +1,6 @@
 package com.movieshell.ui.music
 
+import com.movieshell.ui.theme.V4
 import android.animation.ValueAnimator
 import androidx.compose.animation.core.Animatable
 import com.movieshell.ui.components.AppToast
@@ -881,7 +882,7 @@ private fun PlayingBars(playing: Boolean, reducedMotion: Boolean) {
                         transformOrigin = TransformOrigin(0.5f, 1f)
                     }
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Color(0xFF4DD0E1)),
+                    .background(V4.c.accent),
             )
         }
     }
@@ -1137,7 +1138,7 @@ private fun MusicQueueDialog(
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = { MusicPlayer.clearQueue() }) {
-                    Text("清空", color = Color(0xFFE53935))
+                    Text("清空", color = V4.c.live)
                 }
             }
         }

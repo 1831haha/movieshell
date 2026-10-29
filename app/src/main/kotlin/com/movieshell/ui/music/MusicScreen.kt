@@ -1,5 +1,14 @@
 package com.movieshell.ui.music
 
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
+import com.movieshell.ui.theme.artBrush
+import com.movieshell.ui.components.V4TopTabs
+import com.movieshell.ui.components.V4SectionHeader
+import com.movieshell.ui.components.dockClearance
+import com.movieshell.ui.components.v4BottomDivider
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.animation.core.animateFloatAsState
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -245,7 +254,7 @@ fun MusicScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = V4.Gutter, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (tab == 0) {
@@ -260,83 +269,58 @@ fun MusicScreen(
                             doSearch(query)
                         }),
                     )
-                    Spacer(Modifier.width(8.dp))
-                    IconButton(onClick = {
-                        keyboard?.hide()
-                        doSearch(query)
-                    }) {
-                        Icon(Icons.Filled.Search, contentDescription = "搜索")
+                    Spacer(Modifier.width(4.dp))
+                    IconButton(
+                        onClick = {
+                            keyboard?.hide()
+                            doSearch(query)
+                        },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(Icons.Filled.Search, contentDescription = "搜索", tint = V4.c.t2, modifier = Modifier.size(20.dp))
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(4.dp))
                     // v0.239.0：两个入口改胶囊钮——原来是裸蓝色文字链，
                     // 视觉上像没做完的半成品；现跟下方页签胶囊同款（浅灰底＋深字）。
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable { showPlaylistDialog = true }
-                            .padding(horizontal = 12.dp, vertical = 7.dp),
-                    ) {
-                        Text("歌单导入", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-                    }
+                    MusicPillButton("歌单导入", onClick = { showPlaylistDialog = true })
                 } else {
                     Spacer(Modifier.weight(1f))
                 }
                 Spacer(Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .clickable(onClick = onOpenMusicSource)
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                ) {
-                    Text("源管理", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-                }
+                MusicPillButton("源管理", onClick = onOpenMusicSource)
             }
             // v0.181.0：第二行：页签胶囊 + 当前音源小芯片（点开即切换音源，名字过长截断）；
             // 原 v0.180.0 的音源大卡整行删掉，功能不删，只收进芯片。
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+            // v0.279.0 V4：四页签改 V4 文字页签（强调色下划线 + 通栏分隔线），
+            // 当前音源芯片放在页签行右侧（点开切换音源，功能不变）。
+            V4TopTabs(
+                titles = listOf("在线", "本地", "收藏", "歌单"),
+                selected = tab,
+                onSelect = { tab = it },
             ) {
-                CapsuleTabBar(
-                    titles = listOf("在线", "本地", "收藏", "歌单"),
-                    selected = tab,
-                    onSelect = { tab = it },
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(4.dp))
-                Box(
+                Row(
                     modifier = Modifier
-                        .padding(end = 16.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                        )
-                        .border(
-                            1.dp,
-                            LocalSoftExtra.current.border,
-                            RoundedCornerShape(50),
-                        )
+                        .padding(end = V4.Gutter)
+                        .clip(RoundedCornerShape(V4.RPoster))
                         .clickable { showSourcePicker = true }
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Filled.SwapHoriz,
-                            contentDescription = "切换音源",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = currentSourceName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 84.dp),
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Filled.SwapHoriz,
+                        contentDescription = "切换音源",
+                        modifier = Modifier.size(14.dp),
+                        tint = V4.c.accent,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = currentSourceName,
+                        fontSize = 12.sp,
+                        color = V4.c.t2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 96.dp),
+                    )
                 }
             }
             if (tab == 0) {
@@ -449,18 +433,9 @@ fun MusicScreen(
 // v0.127.0：推荐榜单改由 MusicApi.charts(平台) 按所选平台下发（数据层收敛），
 // 原写死在本文件的网易四榜已移入 MusicApi.WY_CHARTS。
 
-// v0.95：榜单专属配色
-private val CHART_ACCENTS = mapOf(
-    "热歌榜" to Color(0xFFF87171),
-    "新歌榜" to Color(0xFF4ADE80),
-    "飙升榜" to Color(0xFFC084FC),
-    "原创榜" to Color(0xFF60A5FA),
-)
-
 /**
- * v0.95：榜单小卡片——横向长方形，榜单配色渐变底 + 图标 + 榜名；
- * 按下缩放到 0.95（animateFloatAsState），涟漪走 clickable 默认 indication，松手回弹。
- * 点击行为与原来一致（importPlaylist）。
+ * v0.95：榜单小卡片；v0.279.0 V4：去掉每榜一色的渐变底，统一 s1 平铺卡 +
+ * 强调色小图标井 + 榜名 + 右侧箭头；按下缩放 0.97，点击行为不变（导入整榜）。
  */
 @Composable
 private fun ChartCard(
@@ -469,62 +444,94 @@ private fun ChartCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(SoftDimens.CardCorner)
+    val v = V4.c
+    val shape = RoundedCornerShape(V4.RTile)
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.95f else 1f,
+        targetValue = if (pressed) 0.97f else 1f,
         label = "chartCardPress",
     )
-    val accent = CHART_ACCENTS[name] ?: MaterialTheme.colorScheme.primary
-    Surface(
+    Row(
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
+            .height(52.dp)
             .clip(shape)
+            .background(v.s1)
+            .border(1.dp, v.div, shape)
             .clickable(
                 interactionSource = interaction,
                 indication = LocalIndication.current,
                 onClick = onClick,
-            ),
-        shape = shape,
-        color = Color.Transparent,
-        tonalElevation = 0.dp,
+            )
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .background(
-                    Brush.linearGradient(
-                        listOf(accent.copy(alpha = 0.30f), LocalSoftExtra.current.glass),
-                    ),
-                )
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .size(32.dp)
+                .background(v.accent.copy(alpha = 0.12f), RoundedCornerShape(V4.RField)),
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
                 Icons.Filled.QueueMusic,
                 contentDescription = null,
-                tint = accent,
-                modifier = Modifier.size(30.dp),
+                tint = v.accent,
+                modifier = Modifier.size(18.dp),
             )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = name,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.weight(1f),
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = name,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = v.t1,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (importing) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = v.accent)
+        } else {
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = "导入",
+                tint = v.t3,
+                modifier = Modifier.size(18.dp),
             )
-            if (importing) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-            } else {
-                Icon(
-                    Icons.Filled.ChevronRight,
-                    contentDescription = "导入",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
     }
 }
+
+/** v0.279.0 V4：音乐页顶部小按钮（歌单导入 / 源管理）——34dp s1 底 + 1px 分隔线描边。 */
+@Composable
+private fun MusicPillButton(text: String, onClick: () -> Unit) {
+    val v = V4.c
+    val shape = RoundedCornerShape(V4.RField)
+    Box(
+        modifier = Modifier
+            .height(V4.Field)
+            .clip(shape)
+            .background(v.s1)
+            .border(1.dp, v.div2, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, fontSize = 12.5.sp, color = v.t1, maxLines = 1)
+    }
+}
+
+/** v0.279.0 V4：平台 / 分组筛选芯片配色（未选 s1+t2，选中 accentA+accent）。 */
+@Composable
+private fun v4FilterChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = V4.c.s1,
+    labelColor = V4.c.t2,
+    selectedContainerColor = V4.c.accentA,
+    selectedLabelColor = V4.c.accent,
+    disabledContainerColor = V4.c.s1.copy(alpha = 0.5f),
+    disabledLabelColor = V4.c.t3.copy(alpha = 0.6f),
+)
 
 // v0.89.0：本地音乐分组维度
 private val GROUP_LABELS = listOf("全部", "歌手", "专辑", "文件夹")
@@ -632,13 +639,17 @@ private fun OnlineTab(
         val searchError by vm.searchError.collectAsState()
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = V4.Gutter, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(availablePlatforms, key = { it }) { code ->
                 FilterChip(
                     selected = musicPlatform == code,
                     enabled = code in MusicApi.SEARCHABLE_PLATFORMS,
+                    shape = RoundedCornerShape(V4.RPoster),
+                    colors = v4FilterChipColors(),
+                    border = null,
+                    modifier = Modifier.height(28.dp),
                     onClick = {
                         MusicSettings.setMusicPlatform(context, code)
                         // v0.146.0：空关键词切平台也要有变化——之前只有关键词非空才重搜，
@@ -646,7 +657,7 @@ private fun OnlineTab(
                         // 空关键词时回榜单态（榜单跟随平台刷新），有关键词时重搜。
                         if (query.isNotBlank()) onSearch(query) else onResetToCharts()
                     },
-                    label = { Text(MusicApi.platformShortLabel(code), maxLines = 1) },
+                    label = { Text(MusicApi.platformShortLabel(code), maxLines = 1, fontSize = 12.sp) },
                 )
             }
         }
@@ -773,14 +784,16 @@ private fun OnlineTab(
                 // 说明一屏排下来，空白感没了，榜单本身还是点一下导入整榜。
                 !searched -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(
+                        start = V4.Gutter, end = V4.Gutter, top = 0.dp,
+                        bottom = dockClearance() + 8.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     item {
-                        Text(
-                            text = "推荐榜单",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
+                        V4SectionHeader(
+                            title = "推荐榜单",
+                            count = if (charts.isNotEmpty()) "${charts.size}" else null,
                         )
                     }
                     if (charts.isEmpty()) {
@@ -822,8 +835,9 @@ private fun OnlineTab(
                             Column(modifier = Modifier.padding(12.dp)) {
                                 Text(
                                     text = "榜单怎么用",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = V4.c.t1,
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Text(
@@ -862,17 +876,17 @@ private fun OnlineTab(
                 }
                 else -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = dockClearance() + 8.dp),
                 ) {
                     // v0.213.0：失败时列表是上次的好结果，顶行明说，避免
                     // 用户以为这就是本次搜索结果；另补总数（本地/歌单页有，
                     // 搜索结果原来没有）。
                     item {
-                        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        Column(modifier = Modifier.padding(horizontal = V4.Gutter, vertical = 6.dp)) {
                             Text(
                                 text = "共 ${tracks.size} 首",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = V4Type.MonoMeta,
+                                color = V4.c.t3,
                             )
                             if (searchError) {
                                 Text(
@@ -1006,13 +1020,13 @@ private fun LocalTab() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(start = V4.Gutter, end = 4.dp, top = 2.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = if (locals.isEmpty()) "导入手机里的音频文件" else "共 ${locals.size} 首",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                color = V4.c.t3,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) {
@@ -1053,7 +1067,11 @@ private fun LocalTab() {
                             FilterChip(
                                 selected = groupMode == i,
                                 onClick = { groupMode = i },
-                                label = { Text(GROUP_LABELS[i]) },
+                                shape = RoundedCornerShape(V4.RPoster),
+                                colors = v4FilterChipColors(),
+                                border = null,
+                                modifier = Modifier.height(28.dp),
+                                label = { Text(GROUP_LABELS[i], fontSize = 12.sp) },
                             )
                         }
                     }
@@ -1062,7 +1080,7 @@ private fun LocalTab() {
                         // 全部：现状平铺
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = dockClearance() + 8.dp),
                         ) {
                             itemsIndexed(locals, key = { _, t -> t.id }) { idx, track ->
                                 TrackRow(
@@ -1078,7 +1096,10 @@ private fun LocalTab() {
                         }
                     } else {
                         // v0.89.0：分组视图——sticky 分组头（点头展开/折叠）+ 组内连续播放
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = dockClearance() + 8.dp),
+                        ) {
                             groups.forEach { (gname, glist) ->
                                 val ckey = "${groupMode}_$gname"
                                 stickyHeader(key = "hdr_$ckey") {
@@ -1086,9 +1107,7 @@ private fun LocalTab() {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .background(
-                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-                                            )
+                                            .background(V4.c.bg.copy(alpha = 0.96f))
                                             .clickable {
                                                 collapsed = if (isCollapsed) {
                                                     collapsed - ckey
@@ -1096,13 +1115,13 @@ private fun LocalTab() {
                                                     collapsed + ckey
                                                 }
                                             }
-                                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                                            .padding(horizontal = V4.Gutter, vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text(
                                             text = "$gname · ${glist.size} 首",
-                                            style = MaterialTheme.typography.titleSmall,
-                                            color = MaterialTheme.colorScheme.primary,
+                                            style = V4Type.Section,
+                                            color = V4.c.t1,
                                             modifier = Modifier.weight(1f),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
@@ -1221,7 +1240,7 @@ private fun FavTab() {
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = dockClearance() + 8.dp),
             ) {
                 itemsIndexed(favs, key = { _, t -> t.id }) { idx, track ->
                     TrackRow(
@@ -1284,7 +1303,7 @@ private fun qualityChipColor(quality: String): Color {
                 quality.contains(it, ignoreCase = true)
             } -> accentTitleColor()
         quality.contains("高清") || quality.contains("320k") ->
-            if (lightBg) Color(0xFF1D4ED8) else Color(0xFF60A5FA)
+            V4.c.accent
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 }
@@ -1318,14 +1337,17 @@ internal fun TrackRow(
     // v0.215.0：播过才有时长（搜索结果本身不带时长），没播过的歌不编时长。
     val durations by MusicPlayer.durations.collectAsState()
     val trackDurationMs = durations[MusicPlayer.durationKey(track)]
-    AppCard(
+    // v0.279.0 V4：卡片列表改平铺曲目行（40dp 圆角封面 + 标题/歌手 + 徽标，底部 1px 分隔线），
+    // 右侧操作（收藏 / 删除 / 加歌单 / 下载 / 播放态）全部保留。
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .v4BottomDivider(V4.c.div)
+            .padding(start = V4.Gutter, end = 4.dp),
     ) {
         Row(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.padding(vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (artUrl.isNotBlank()) {
@@ -1333,37 +1355,41 @@ internal fun TrackRow(
                     model = artUrl,
                     contentDescription = null,
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(V4.RPoster)),
                     contentScale = ContentScale.Crop,
                 )
             } else {
                 Box(
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(V4.RPoster))
+                        .background(V4.c.artBrush(track.name)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.Filled.MusicNote,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = V4.c.t2,
+                        modifier = Modifier.size(18.dp),
                     )
                 }
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = track.name,
-                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 13.sp,
+                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = if (isCurrent) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface,
+                    color = if (isCurrent) V4.c.accent else V4.c.t1,
                 )
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(1.dp))
                 Text(
                     text = "${track.artist} · ${track.album}".trim(' ', '·'),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    color = V4.c.t3,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1380,13 +1406,13 @@ internal fun TrackRow(
                         if (sourceLabel != null) {
                             BadgeChip(
                                 text = sourceLabel,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = V4.c.t3,
                             )
                         }
                         if (badge != null) {
                             BadgeChip(
                                 text = badge.first,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = V4.c.t3,
                             )
                             if (badge.second.isNotBlank()) {
                                 BadgeChip(
@@ -1398,7 +1424,7 @@ internal fun TrackRow(
                         if (trackDurationMs != null) {
                             BadgeChip(
                                 text = formatDurationMs(trackDurationMs),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = V4.c.t3,
                             )
                         }
                     }
@@ -1409,7 +1435,7 @@ internal fun TrackRow(
                     Icon(
                         if (isFav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                         contentDescription = if (isFav) "取消收藏" else "收藏",
-                        tint = if (isFav) Color(0xFFFF6B81)
+                        tint = if (isFav) V4.c.live
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1419,7 +1445,7 @@ internal fun TrackRow(
                     Icon(
                         Icons.Filled.Delete,
                         contentDescription = "删除",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = V4.c.t3,
                     )
                 }
             }
@@ -1429,7 +1455,7 @@ internal fun TrackRow(
                     Icon(
                         Icons.Filled.PlaylistAdd,
                         contentDescription = "加到歌单",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = V4.c.t3,
                     )
                 }
             }
@@ -1450,7 +1476,7 @@ internal fun TrackRow(
                         Icon(
                             if (isDownloaded) Icons.Filled.DownloadDone else Icons.Filled.Download,
                             contentDescription = if (isDownloaded) "已下载" else "下载",
-                            tint = if (isDownloaded) MaterialTheme.colorScheme.primary
+                            tint = if (isDownloaded) V4.c.accent
                             else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -1461,13 +1487,13 @@ internal fun TrackRow(
                     Icon(
                         Icons.Filled.Pause,
                         contentDescription = "正在播放",
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = V4.c.accent,
                     )
                 } else {
                     Icon(
                         Icons.Filled.PlayArrow,
                         contentDescription = "当前",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = V4.c.t3,
                     )
                 }
             }
@@ -1501,13 +1527,13 @@ private fun PlaylistTab(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(start = V4.Gutter, end = 4.dp, top = 2.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = if (playlists.isEmpty()) "把喜欢的歌攒成自己的歌单" else "共 ${playlists.size} 个歌单",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                color = V4.c.t3,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = { showNew = true }) {
@@ -1539,14 +1565,15 @@ private fun PlaylistTab(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = dockClearance() + 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     // v0.133.0：歌单 id 为毫秒时间戳拼接，非强唯一，渲染前 distinctBy 兜底
                     items(playlists.distinctBy { it.id }, key = { it.id }) { pl ->
                         AppCard(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
+                                .padding(horizontal = V4.Gutter)
                                 .clickable { onOpenPlaylist(pl.id) },
                         ) {
                             Row(

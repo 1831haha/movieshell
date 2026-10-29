@@ -1,5 +1,6 @@
 package com.movieshell.ui.music
 
+import com.movieshell.ui.theme.V4
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -839,7 +840,7 @@ private fun cookieCardModifier(): Modifier = Modifier
 private fun CookieStatusCard(filled: Int, total: Int) {
     val done = total > 0 && filled == total
     // 未配完是提醒态，用琥珀色（不再用旧品牌金）。
-    val accent = if (done) Color(0xFF4ADE80) else Color(0xFFFCD34D)
+    val accent = if (done) V4.c.ok else V4.c.vip
     Row(
         modifier = cookieCardModifier(),
         verticalAlignment = Alignment.CenterVertically,
@@ -872,7 +873,7 @@ private fun CookieStatusCard(filled: Int, total: Int) {
 /** v0.119.0：已填写/未填写状态徽标 */
 @Composable
 private fun CookieStatusPill(filled: Boolean) {
-    val c = if (filled) Color(0xFF4ADE80) else MaterialTheme.colorScheme.onSurfaceVariant
+    val c = if (filled) V4.c.ok else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
