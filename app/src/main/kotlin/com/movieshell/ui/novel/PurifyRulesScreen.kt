@@ -67,12 +67,12 @@ fun PurifyRulesScreen(
     }
     LaunchedEffect(Unit) { reload() }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = accent)
             }
-            Text("净化规则", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = accent)
+            Text("净化规则", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = accent)
             Spacer(Modifier.weight(1f))
             IconButton(onClick = { showAdd = true }) {
                 Icon(Icons.Filled.Add, "新增规则", tint = accent)
@@ -88,7 +88,7 @@ fun PurifyRulesScreen(
         // （目录保留，下次打开重拉并走新规则），不清则旧章节一直是旧样子。
         var showClearCache by remember { mutableStateOf(false) }
         Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = { showClearCache = true }) {
+        OutlinedButton(shape = RoundedCornerShape(8.dp), onClick = { showClearCache = true }) {
             Text("清除已缓存正文（规则改动后点这里）", fontSize = 13.sp)
         }
         if (showClearCache) {

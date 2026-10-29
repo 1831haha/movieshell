@@ -1,5 +1,6 @@
 package com.movieshell.ui.novel
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -99,7 +100,7 @@ fun VerifyGateDialog() {
                         modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(8.dp))
-                    Button(
+                    Button(shape = RoundedCornerShape(8.dp),
                         enabled = loaded,
                         onClick = {
                             val view = webView ?: run {

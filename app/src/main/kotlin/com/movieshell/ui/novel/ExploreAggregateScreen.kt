@@ -121,8 +121,8 @@ fun ExploreAggregateScreen(
             }
             Text(
                 "发现聚合",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
@@ -163,8 +163,8 @@ fun ExploreAggregateScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         src.name,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
                                         maxLines = 1,
                                         modifier = Modifier.weight(1f),
                                     )

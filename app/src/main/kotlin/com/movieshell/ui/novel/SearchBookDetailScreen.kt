@@ -201,7 +201,7 @@ fun SearchBookDetailScreen(
             IconButton(onClick = onBack) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
             }
-            Text("书籍信息", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("书籍信息", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
         LazyColumn(modifier = Modifier.weight(1f)) {
             item {
@@ -225,7 +225,7 @@ fun SearchBookDetailScreen(
                     Box(
                         modifier = Modifier
                             .size(width = 110.dp, height = 148.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -249,17 +249,17 @@ fun SearchBookDetailScreen(
                 Spacer(Modifier.height(12.dp))
                 Text(
                     title,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                 )
                 if (kindTags.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     FlowRow(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
@@ -267,11 +267,12 @@ fun SearchBookDetailScreen(
                             Box(
                                 modifier = Modifier
                                     .padding(end = 6.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(MaterialTheme.colorScheme.primary)
-                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                    .clip(RoundedCornerShape(com.movieshell.ui.theme.V4.RSm))
+                                    .background(com.movieshell.ui.theme.V4.c.accentA)
+                                    .padding(horizontal = 8.dp, vertical = 3.dp),
                             ) {
-                                Text(tag, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimary)
+                                // v0.280.0 V4：分类标签改强调色淡底，不再实心主色块
+                                Text(tag, fontSize = 11.sp, color = com.movieshell.ui.theme.V4.c.accent)
                             }
                         }
                     }
@@ -281,7 +282,7 @@ fun SearchBookDetailScreen(
             item {
                 // 信息行：只列真实有数据的项（状态/人气源没给就不画，见 211 详情同款注释）。
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     DetailInfoRow(
@@ -316,7 +317,7 @@ fun SearchBookDetailScreen(
             }
             if (intro != null) {
                 item {
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         Text(
                             intro,
                             fontSize = 13.sp,
@@ -353,7 +354,7 @@ fun SearchBookDetailScreen(
             }
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(
@@ -363,7 +364,7 @@ fun SearchBookDetailScreen(
                 Text(if (shelfId == null) "放入书架" else "已在书架", fontSize = 15.sp)
             }
             Spacer(Modifier.width(8.dp))
-            Button(
+            Button(shape = RoundedCornerShape(8.dp),
                 onClick = { requestRead(-1) },
                 enabled = !waitingDir,
                 modifier = Modifier.weight(1f),

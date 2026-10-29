@@ -143,8 +143,8 @@ fun ExploreScreen(
             }
             Text(
                 "发现 · ${source?.name.orEmpty()}",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
@@ -197,7 +197,7 @@ fun ExploreScreen(
                         val canJoin = pageUrl.isNotBlank() &&
                             pageUrl.trimEnd('/') != categoryUrl.trimEnd('/')
                         val isJoining = group != null && (group.key + pageUrl) in joining
-                        Button(
+                        Button(shape = RoundedCornerShape(8.dp),
                             enabled = canJoin && !isJoining,
                             onClick = {
                                 val g = group ?: return@Button
@@ -252,7 +252,7 @@ fun ExploreScreen(
                                     }
                                     .padding(vertical = 10.dp),
                             ) {
-                                Text(item.title, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1)
+                                Text(item.title, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (!item.author.isNullOrBlank()) {
                                         Text(
@@ -278,7 +278,7 @@ fun ExploreScreen(
                                     if (loading) {
                                         Text("加载中…", fontSize = 13.sp)
                                     } else {
-                                        Button(onClick = {
+                                        Button(shape = RoundedCornerShape(8.dp), onClick = {
                                             val src = source ?: return@Button
                                             val cat = selected ?: return@Button
                                             val next = page + 1
@@ -328,7 +328,7 @@ fun ExploreScreen(
                     contentDescription = item.title,
                     modifier = Modifier
                         .size(width = 110.dp, height = 148.dp)
-                        .clip(RoundedCornerShape(10.dp)),
+                        .clip(RoundedCornerShape(8.dp)),
                     contentScale = ContentScale.Crop,
                 )
                 Spacer(Modifier.height(10.dp))

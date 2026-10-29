@@ -291,7 +291,7 @@ fun BookSourceScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         if (!embedded) {
         // v0.86.0：第一行只留返回+标题，清爽
         // v0.227.0：四个导入入口并成一个——标题行末尾一个“导入书源”
@@ -302,12 +302,12 @@ fun BookSourceScreen(
             }
             Text(
                 "书源管理",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = accent,
                 modifier = Modifier.weight(1f),
             )
-            FilledTonalButton(
+            FilledTonalButton(shape = RoundedCornerShape(8.dp),
                 onClick = { showImportMenu = true },
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
             ) {
@@ -331,7 +331,7 @@ fun BookSourceScreen(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             // v0.214.0：发现聚合入口（多源首屏横滑行，不用逐源钻进去）。
-            FilledTonalButton(
+            FilledTonalButton(shape = RoundedCornerShape(8.dp),
                 onClick = onOpenExploreAggregate,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
@@ -341,7 +341,7 @@ fun BookSourceScreen(
                 Text("发现聚合", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             // v0.95.0：净化规则入口（正文替换规则管理）；v0.96.1：按钮上显示生效数
-            FilledTonalButton(
+            FilledTonalButton(shape = RoundedCornerShape(8.dp),
                 onClick = onOpenPurifyRules,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
@@ -354,7 +354,7 @@ fun BookSourceScreen(
                 )
             }
             // v0.107.0 P0-7：删光书源后手动恢复内置源（已存在则提示，无需操作）
-            OutlinedButton(
+            OutlinedButton(shape = RoundedCornerShape(8.dp),
                 onClick = {
                     scope.launch {
                         // v0.186.0：restoreBuiltin 返回 false 有两种含义——已存在、写盘失败；
@@ -444,7 +444,7 @@ fun BookSourceScreen(
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                r.title, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                                r.title, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
                             Text(
@@ -543,7 +543,7 @@ fun BookSourceScreen(
                                 )
                             }
                             Text(
-                                s.name, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                                s.name, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
@@ -1199,7 +1199,7 @@ private fun SourceTextEditorDialog(
                 ) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.surfaceContainer,
                     ) {
                         BasicTextField(

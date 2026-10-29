@@ -188,7 +188,7 @@ fun NovelListCard(
                             modifier = Modifier
                                 .background(
                                     MaterialTheme.colorScheme.primary,
-                                    RoundedCornerShape(10.dp),
+                                    RoundedCornerShape(8.dp),
                                 )
                                 .padding(horizontal = 8.dp, vertical = 2.dp),
                         )
@@ -238,7 +238,7 @@ fun NovelListCard(
                     .background(
                         if (isDirFailed) V4.c.live
                         else V4.c.accent.copy(alpha = 0.14f),
-                        RoundedCornerShape(10.dp),
+                        RoundedCornerShape(8.dp),
                     )
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             )
@@ -259,7 +259,7 @@ fun NovelListCard(
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     modifier = Modifier
-                        .background(V4.c.live, RoundedCornerShape(10.dp))
+                        .background(V4.c.live, RoundedCornerShape(8.dp))
                         .padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
@@ -291,7 +291,7 @@ fun NovelGridCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
@@ -381,7 +381,7 @@ fun NovelGridCard(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(6.dp)
-                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
                         .padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }

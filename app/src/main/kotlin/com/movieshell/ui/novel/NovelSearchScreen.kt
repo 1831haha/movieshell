@@ -134,7 +134,7 @@ fun NovelSearchScreen(
     }
     LaunchedEffect(pySourceName) { vm.setLockPyName(pySourceName) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         if (!embedded) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
@@ -143,7 +143,7 @@ fun NovelSearchScreen(
             Text(
                 // v0.66.0：锁定单源时标题显示源名
                 if (lockedPyRule != null) lockedPyRule.title else "找书",
-                fontSize = 22.sp, fontWeight = FontWeight.Bold, color = accent,
+                fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = accent,
                 maxLines = 1,
             )
             Spacer(Modifier.weight(1f))
@@ -172,7 +172,7 @@ fun NovelSearchScreen(
             onValueChange = { vm.setKeyword(it) },
             placeholder = { Text("书名 / 作者") },
             singleLine = true,
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(8.dp),
             leadingIcon = {
                 Icon(
                     Icons.Filled.Search, contentDescription = null,
@@ -328,7 +328,7 @@ fun NovelSearchScreen(
                                 // 用书名首字占位，不留空白方块。
                                 // v0.227.0：卡片瘦身——封面 56×76→48×64、内边距
                                 // 14→10dp，单卡约 104→84dp，一屏多看两本左右。
-                                val coverShape = RoundedCornerShape(10.dp)
+                                val coverShape = RoundedCornerShape(8.dp)
                                 if (!item.cover.isNullOrBlank()) {
                                     AsyncImage(
                                         model = item.cover,
@@ -345,8 +345,8 @@ fun NovelSearchScreen(
                                     ) {
                                         Text(
                                             item.title.firstOrNull()?.toString() ?: "书",
-                                            fontSize = 20.sp,
-                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.SemiBold,
                                             color = accent,
                                         )
                                     }

@@ -117,7 +117,7 @@ fun DiscoverTab(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant)
                             .clickable { selectedKey = src.key }
                             .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -167,8 +167,8 @@ fun DiscoverTab(
                 }
                 Text(
                     text = selected.name,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
@@ -221,7 +221,7 @@ private fun DiscoverCapsules(
         titles.forEach { title ->
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .clickable { onClick(title) }
                     .padding(horizontal = 14.dp, vertical = 7.dp),
