@@ -201,8 +201,11 @@ fun ActorWorksScreen(
                             modifier = Modifier.aspectRatio(3f / 4.6f),
                             onClick = {
                                 // v0.217.0（F51）：源已删时不进详情，只提示。
-                                if (!goDetail(site, vod.vodId, onVodClick)) {
-                                    AppToast.show(context, "该结果的源已删除或不可用", long = false)
+                                // v0.271.0（T25）：goDetail 已是 suspend，等切完再进详情。
+                                scope.launch {
+                                    if (!goDetail(site, vod.vodId, onVodClick)) {
+                                        AppToast.show(context, "该结果的源已删除或不可用", long = false)
+                                    }
                                 }
                             },
                         )

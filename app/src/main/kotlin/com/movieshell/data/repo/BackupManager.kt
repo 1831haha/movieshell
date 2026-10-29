@@ -488,9 +488,10 @@ object BackupManager {
                 return RestoreResult.Failed("恢复前安全快照写入失败，当前数据未动，请检查存储空间后重试")
             }
         }
-        fun rollback(): Boolean {
+        // v0.271.0（T25）：回滚里的 Drpy 恢复走 suspend 版，rollback 本身改 suspend。
+        suspend fun rollback(): Boolean {
             var ok = ApiSourceStore.restoreRaw(context, prevBytes)
-            runCatching { DrpySourceManager.setActiveRule(prevDrpy) }.onFailure { ok = false }
+            runCatching { DrpySourceManager.setActiveRuleAsync(prevDrpy) }.onFailure { ok = false }
             runCatching { PySourceManager.setActiveRule(prevPy) }.onFailure { ok = false }
             return ok
         }
@@ -512,7 +513,7 @@ object BackupManager {
         try {
             drpyName?.let { name ->
                 if (File(StoragePaths.jsDir(context), name).isFile) {
-                    DrpySourceManager.setActiveRule(name)
+                    DrpySourceManager.setActiveRuleAsync(name)
                 }
             }
             pyName?.let { name ->

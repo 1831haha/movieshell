@@ -480,12 +480,15 @@ class MainActivity : ComponentActivity() {
                                 // 否则详情按换源后的当前源拉，旧源的 vodId 和集数对不上。
                                 // 旧历史无源、订阅站查不到时保持当前源，不弹错、不清现有源。
                                 onContinueWatch = { vodId, title, episode, sourceType, sourceKey ->
+                                    // v0.271.0（T25）：Drpy 切源走 suspend 版，放 lifecycleScope 里
+                                    // 等切完再进详情，否则详情按旧源拉；其余分支仍同步（只验文件/查缓存）。
+                                    lifecycleScope.launch {
                                     // v0.215.0：失效源不毁当前激活态——setActiveRule 先验文件，
                                     // 切源失败（源已删）时不进详情页、不动当前源，只提示。
                                     val sourceOk = when (sourceType) {
                                         "drpy" -> if (sourceKey.isNotBlank()) {
                                             DetailSiteHolder.site = null
-                                            DrpySourceManager.setActiveRule(sourceKey)
+                                            DrpySourceManager.setActiveRuleAsync(sourceKey)
                                         } else true
                                         "py" -> if (sourceKey.isNotBlank()) {
                                             DetailSiteHolder.site = null
@@ -516,6 +519,7 @@ class MainActivity : ComponentActivity() {
                                             "该记录的源已删除或不可用，当前源未变",
                                             android.widget.Toast.LENGTH_SHORT,
                                         ).show()
+                                    }
                                     }
                                 },
                             )
@@ -609,6 +613,8 @@ class MainActivity : ComponentActivity() {
                             FollowScreen(
                                 onBack = { navController.popBackStack() },
                                 onVodClick = { item ->
+                                    // v0.271.0（T25）：Drpy 切源走 suspend 版，放 lifecycleScope 里等切完。
+                                    lifecycleScope.launch {
                                     // 恢复站点上下文 / 激活对应规则，再进详情
                                     // v0.217.0（F51）：照抄继续观看分支——切源失败
                                     // （源已删）时不进详情、不动当前源，只提示；
@@ -616,7 +622,7 @@ class MainActivity : ComponentActivity() {
                                     val sourceOk = when (item.sourceType) {
                                         "drpy" -> {
                                             DetailSiteHolder.site = null
-                                            DrpySourceManager.setActiveRule(item.sourceKey)
+                                            DrpySourceManager.setActiveRuleAsync(item.sourceKey)
                                         }
                                         "py" -> {
                                             DetailSiteHolder.site = null
@@ -648,6 +654,7 @@ class MainActivity : ComponentActivity() {
                                             "该记录的源已删除或不可用，当前源未变",
                                             android.widget.Toast.LENGTH_SHORT,
                                         ).show()
+                                    }
                                     }
                                 },
                             )

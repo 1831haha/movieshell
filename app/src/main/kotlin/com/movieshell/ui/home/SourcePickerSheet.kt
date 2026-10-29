@@ -92,6 +92,7 @@ import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -137,6 +138,8 @@ fun SourcePickerSheet(
     var loading by remember { mutableStateOf(true) }
     var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // v0.271.0（T25）：切源单飞——快速连点两个源时，旧一单取消，不留假失败提示。
+    var switchJob by remember { mutableStateOf<Job?>(null) }
 
     /**
      * 只读重读全部状态（本地规则重扫目录 + 订阅只读缓存，不走网络），
@@ -207,6 +210,10 @@ fun SourcePickerSheet(
     }
 
     fun pickLocal(isDrpy: Boolean, name: String) {
+        // v0.271.0（T25）：Drpy 切源走 suspend 版，文件读与引擎建在 IO 线程；
+        // 整个切换序列放 scope.launch，失败回滚里的 Drpy 恢复同样走 suspend 版。
+        switchJob?.cancel()
+        switchJob = scope.launch {
         // v0.217.0（F51）：与站源页同款——消费 setActiveRule 的 Boolean，
         // 失败时不写激活态、不关弹窗，让用户换一个再点。
         val prevDrpy = DrpySourceManager.activeRuleName()
@@ -216,12 +223,12 @@ fun SourcePickerSheet(
         if (isDrpy) {
             PySourceManager.setActiveRule(null)
             PhpSourceManager.setActiveRule(null)
-            if (!DrpySourceManager.setActiveRule(name)) {
+            if (!DrpySourceManager.setActiveRuleAsync(name)) {
                 if (prevPy != null) PySourceManager.setActiveRule(prevPy)
                 else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
-                else if (prevDrpy != null && prevDrpy != name) DrpySourceManager.setActiveRule(prevDrpy)
+                else if (prevDrpy != null && prevDrpy != name) DrpySourceManager.setActiveRuleAsync(prevDrpy)
                 AppToast.show(context, "切换失败：规则文件不存在或加载失败", long = false)
-                return
+                return@launch
             }
             SourceStateStore.setRuleEnabled(context, "js", name, true)
             SourceStateStore.saveActiveRule(context, "js", name)
@@ -229,21 +236,25 @@ fun SourcePickerSheet(
             DrpySourceManager.setActiveRule(null)
             PhpSourceManager.setActiveRule(null)
             if (!PySourceManager.setActiveRule(name)) {
-                if (prevDrpy != null) DrpySourceManager.setActiveRule(prevDrpy)
+                if (prevDrpy != null) DrpySourceManager.setActiveRuleAsync(prevDrpy)
                 else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
                 else if (prevPy != null && prevPy != name) PySourceManager.setActiveRule(prevPy)
                 AppToast.show(context, "切换失败：规则文件不存在或加载失败", long = false)
-                return
+                return@launch
             }
             SourceStateStore.setRuleEnabled(context, "py", name, true)
             SourceStateStore.saveActiveRule(context, "py", name)
         }
         onChanged()
         onDismiss()
+        }
     }
 
     /** v0.147.0：本地 PHP 规则与 drpy/py 平齐进换源弹窗，点选即切换。 */
     fun pickPhp(name: String) {
+        // v0.271.0（T25）：回滚里的 Drpy 恢复走 suspend 版，PHP 本身只验文件存在，不读文件。
+        switchJob?.cancel()
+        switchJob = scope.launch {
         val prev = PhpSourceManager.activeRuleName()
         val prevDrpy = DrpySourceManager.activeRuleName()
         val prevPy = PySourceManager.activeRuleName()
@@ -252,16 +263,17 @@ fun SourcePickerSheet(
         PySourceManager.setActiveRule(null)
         if (!PhpSourceManager.setActiveRule(name)) {
             // 先恢复切换前正在用的引擎（drpy／py／php 同一时间只一个在用）。
-            if (prevDrpy != null) DrpySourceManager.setActiveRule(prevDrpy)
+            if (prevDrpy != null) DrpySourceManager.setActiveRuleAsync(prevDrpy)
             else if (prevPy != null) PySourceManager.setActiveRule(prevPy)
             else if (prev != null && prev != name) PhpSourceManager.setActiveRule(prev)
             AppToast.show(context, "选中失败：规则文件不存在或加载失败", long = false)
-            return
+            return@launch
         }
         SourceStateStore.setRuleEnabled(context, "php", name, true)
         SourceStateStore.saveActiveRule(context, "php", name)
         onChanged()
         onDismiss()
+        }
     }
 
     fun pickSub(sub: ApiSource, rec: SubSiteRecord) {

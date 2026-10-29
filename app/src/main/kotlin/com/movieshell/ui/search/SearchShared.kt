@@ -190,7 +190,9 @@ internal suspend fun buildSearchConfigJson(context: Context, onlyCurrent: Boolea
  * 错走到当前激活规则上出详情、播错片。
  * 只搜当前源的合成站（drpy:active / py:active）切到自身是 no-op，同样走这条路。
  */
-internal fun goDetail(site: Site, vodId: String, onVodClick: (vodId: String) -> Unit): Boolean {
+internal suspend fun goDetail(site: Site, vodId: String, onVodClick: (vodId: String) -> Unit): Boolean {
+    // v0.271.0（T25）：Drpy 切源走 suspend 版，调用方放协程里等切完再进详情，
+    // 否则详情会按旧源拉。PY/PHP 只验文件存在，不读文件，仍走同步版。
     // v0.217.0（F51）：切源失败不再进详情——原来三个 setActiveRule 的返回值
     // 全丢弃，规则文件删了还照常进详情，出的是另一个源的同名片或加载失败；
     // 失败时不改站点上下文、不回调，调用方按返回值提示。
@@ -198,7 +200,7 @@ internal fun goDetail(site: Site, vodId: String, onVodClick: (vodId: String) -> 
         site.isSubSite() -> true
         site.key.startsWith("cms:") -> true
         site.key.startsWith(LOCAL_DRPY_PREFIX) ->
-            DrpySourceManager.setActiveRule(site.key.removePrefix(LOCAL_DRPY_PREFIX))
+            DrpySourceManager.setActiveRuleAsync(site.key.removePrefix(LOCAL_DRPY_PREFIX))
         site.key.startsWith(LOCAL_PY_PREFIX) ->
             PySourceManager.setActiveRule(site.key.removePrefix(LOCAL_PY_PREFIX))
         site.isPhpSite() ->

@@ -41,6 +41,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -64,10 +65,13 @@ import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
+import kotlinx.coroutines.launch
 
 
 @Composable
 fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
+    // v0.271.0（T25）：进详情前的切源是 suspend，点卡片时放协程里等切完。
+    val scope = rememberCoroutineScope()
     // v0.103.0：activity 级 VM——切后台/切 tab 不销毁，viewModelScope 里的聚合搜索不中断、结果保留
     val activity = LocalContext.current as ComponentActivity
     val vm: SearchViewModel = viewModel(activity)
@@ -484,8 +488,10 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                             .height(208.dp),
                                         onClick = {
                                             // v0.217.0（F51）：源已删时不进详情，只提示。
-                                            if (!goDetail(group.site, vod.vodId, onVodClick)) {
-                                                AppToast.show(activity, "该结果的源已删除或不可用", long = false)
+                                            scope.launch {
+                                                if (!goDetail(group.site, vod.vodId, onVodClick)) {
+                                                    AppToast.show(activity, "该结果的源已删除或不可用", long = false)
+                                                }
                                             }
                                         },
                                     )

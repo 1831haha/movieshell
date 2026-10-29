@@ -137,6 +137,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import androidx.work.WorkInfo
@@ -391,6 +392,8 @@ fun SourcesScreen(
     val context = LocalContext.current
     // v0.246.0：refresh 内部协程用——读盘放 IO，列表更新回主线程
     val refreshScope = rememberCoroutineScope()
+    // v0.271.0（T25）：切源单飞——快速连点两个源时，旧一单取消，不留假失败提示。
+    var switchJob by remember { mutableStateOf<Job?>(null) }
 
     // v0.27.4：单页两 section（订阅源 / 本地源），不再分 tab
 
@@ -638,26 +641,33 @@ fun SourcesScreen(
     // 写激活态、弹“已切换”，下次进首页拿着个不存在的规则；失败时 toast、
     // 不保存激活态，并尽量恢复切换前的规则。
     fun activateDrpy(name: String) {
+        // v0.271.0（T25）：Drpy 切源走 suspend 版，整个切换序列放 refreshScope.launch。
+        switchJob?.cancel()
+        switchJob = refreshScope.launch {
         val prevDrpy = DrpySourceManager.activeRuleName()
         val prevPy = PySourceManager.activeRuleName()
         val prevPhp = PhpSourceManager.activeRuleName()
         SubSiteStore.clearCurrent(context)
         PySourceManager.setActiveRule(null)
         PhpSourceManager.setActiveRule(null)
-        if (!DrpySourceManager.setActiveRule(name)) {
+        if (!DrpySourceManager.setActiveRuleAsync(name)) {
             if (prevPy != null) PySourceManager.setActiveRule(prevPy)
             else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
-            else if (prevDrpy != null && prevDrpy != name) DrpySourceManager.setActiveRule(prevDrpy)
+            else if (prevDrpy != null && prevDrpy != name) DrpySourceManager.setActiveRuleAsync(prevDrpy)
             AppToast.show(context, "切换失败：规则文件不存在或加载失败", long = false)
-            return
+            return@launch
         }
         SourceStateStore.setRuleEnabled(context, TAB_JS, name, true)
         SourceStateStore.saveActiveRule(context, TAB_JS, name)
         refreshDrpyRules()
         AppToast.show(context, "已切换为 $name", long = false)
+        }
     }
 
     fun activatePy(name: String) {
+        // v0.271.0（T25）：回滚里的 Drpy 恢复走 suspend 版。
+        switchJob?.cancel()
+        switchJob = refreshScope.launch {
         val prevPy = PySourceManager.activeRuleName()
         val prevDrpy = DrpySourceManager.activeRuleName()
         val prevPhp = PhpSourceManager.activeRuleName()
@@ -665,16 +675,17 @@ fun SourcesScreen(
         DrpySourceManager.setActiveRule(null)
         PhpSourceManager.setActiveRule(null)
         if (!PySourceManager.setActiveRule(name)) {
-            if (prevDrpy != null) DrpySourceManager.setActiveRule(prevDrpy)
+            if (prevDrpy != null) DrpySourceManager.setActiveRuleAsync(prevDrpy)
             else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
             else if (prevPy != null && prevPy != name) PySourceManager.setActiveRule(prevPy)
             AppToast.show(context, "切换失败：规则文件不存在或加载失败", long = false)
-            return
+            return@launch
         }
         SourceStateStore.setRuleEnabled(context, TAB_PY, name, true)
         SourceStateStore.saveActiveRule(context, TAB_PY, name)
         refreshPyRules()
         AppToast.show(context, "已切换为 $name", long = false)
+        }
     }
 
     /** PHP 规则选中：v0.151.0 起走 CLI 引擎，选中后首页/详情/播放直接出内容。
@@ -682,6 +693,9 @@ fun SourcesScreen(
      * 内存里 drpy／PY／PHP 可以同时“激活”，首页按哪路出内容全看调用方
      * 优先级；现在先清订阅当前源与 drpy／PY，再设 PHP。 */
     fun selectPhpRule(name: String) {
+        // v0.271.0（T25）：回滚里的 Drpy 恢复走 suspend 版。
+        switchJob?.cancel()
+        switchJob = refreshScope.launch {
         val prev = PhpSourceManager.activeRuleName()
         val prevDrpy = DrpySourceManager.activeRuleName()
         val prevPy = PySourceManager.activeRuleName()
@@ -689,16 +703,17 @@ fun SourcesScreen(
         DrpySourceManager.setActiveRule(null)
         PySourceManager.setActiveRule(null)
         if (!PhpSourceManager.setActiveRule(name)) {
-            if (prevDrpy != null) DrpySourceManager.setActiveRule(prevDrpy)
+            if (prevDrpy != null) DrpySourceManager.setActiveRuleAsync(prevDrpy)
             else if (prevPy != null) PySourceManager.setActiveRule(prevPy)
             else if (prev != null && prev != name) PhpSourceManager.setActiveRule(prev)
             AppToast.show(context, "选中失败：规则文件不存在或加载失败", long = false)
-            return
+            return@launch
         }
         SourceStateStore.setRuleEnabled(context, TAB_PHP, name, true)
         SourceStateStore.saveActiveRule(context, TAB_PHP, name)
         refreshPhpEntries()
         AppToast.show(context, "已选中 $name", long = false)
+        }
     }
 
     fun activateWeb(site: WebSourceManager.WebSite) {

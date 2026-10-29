@@ -9,6 +9,8 @@ import com.movieshell.data.model.VodDetail
 import com.movieshell.data.source.DrpyEngine
 import com.movieshell.data.source.V8DrpyEngine
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * drpy 规则源管理器（单例，UI 组按此契约调用）。
@@ -137,6 +139,64 @@ object DrpySourceManager {
             Log.w(TAG, "载入规则失败: $name", e)
             false
         }
+    }
+
+    /**
+     * v0.271.0（T25）：UI 切源走这个 suspend 版——读规则文件、import 展开、
+     * 建引擎全在 IO 线程，主线程只做世代号与引擎指针切换。
+     * 同步版 setActiveRule 只留给启动恢复（onCreate 一次）、仅清激活态
+     * （null，不读文件）与后台调用方；UI 点击路径一律不许再调同步版。
+     * 语义比同步版多一层保护：文件读不到时旧引擎原样保留，不像同步版
+     * 第二次校验时旧引擎已毁；并发两次切换时，旧一单建好的引擎按世代号
+     * 丢弃并 release，不覆盖新一单。
+     */
+    suspend fun setActiveRuleAsync(name: String?): Boolean {
+        if (name == activeName) return true
+        if (name == null) {
+            generation++
+            try {
+                engine?.release()
+            } catch (e: Exception) {
+                Log.w(TAG, "旧引擎 release 异常", e)
+            }
+            engine = null
+            activeName = null
+            return true
+        }
+        // v0.271.0 补：世代号在读文件前就占位——两次快速切换时，后发起的一单
+        // 世代号更大，先发起的一单读完文件后见世代已变直接作废，不毁新单引擎；
+        // 若世代号在读完后才加，先发起的一单反而会覆盖后发起的一单。
+        val myGen = ++generation
+        val js = withContext(Dispatchers.IO) {
+            val file = File(rulesDirOrNull() ?: return@withContext null, name)
+            if (!file.isFile) null else runCatching { file.readText() }.getOrNull()
+        } ?: run {
+            Log.w(TAG, "规则文件不存在或读取失败: $name")
+            return false
+        }
+        if (myGen != generation) return false
+        try {
+            engine?.release()
+        } catch (e: Exception) {
+            Log.w(TAG, "旧引擎 release 异常", e)
+        }
+        engine = null
+        activeName = null
+        val ctx = appContext ?: return false
+        val eng = try {
+            withContext(Dispatchers.IO) { V8DrpyEngine(ctx).also { it.loadRule(js) } }
+        } catch (e: Exception) {
+            Log.w(TAG, "载入规则失败: $name", e)
+            return false
+        }
+        if (myGen != generation) {
+            runCatching { eng.release() }
+            return false
+        }
+        engine = eng
+        activeName = name
+        Log.i(TAG, "active 规则: $name")
+        return true
     }
 
     /**
