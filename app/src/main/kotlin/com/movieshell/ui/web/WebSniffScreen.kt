@@ -53,11 +53,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -371,12 +371,12 @@ fun WebSniffScreen(
     // v0.92：blob 深挖去重——同一主页面只深挖一次，主 frame 跳走后重置
     val blobDug = remember { AtomicBoolean(false) }
     var lastMainUrl by remember { mutableStateOf("") }
-    // v0.93：候选列表——各链路命中后收集（按 url 去重），用户点选播放
-    val candidates = remember { mutableStateListOf<SniffCandidate>() }
-    val candidateUrls = remember { java.util.Collections.synchronizedSet(mutableSetOf<String>()) }
-    // v0.246.0：待合并请求头（只在主线程读写）——补头任务可能比入列任务先跑，
-    // 此时列表里还没有该候选，头不能丢，先存这里，入列时合并。
-    val pendingHeaders = remember { mutableMapOf<String, Map<String, String>>() }
+    // v0.275.0（T40）：候选列表、去重集、待合并请求头收进 ViewModel，
+    // 转屏重建不丢候选；离开嗅探页入口销毁时自然清空。其余 remember 状态不动。
+    val sniffVm: WebSniffViewModel = viewModel()
+    val candidates = sniffVm.candidates
+    val candidateUrls = sniffVm.candidateUrls
+    val pendingHeaders = sniffVm.pendingHeaders
     // v0.93：hitDone 语义改为"用户已选播"；picked 驱动候选面板显隐
     var picked by remember { mutableStateOf(false) }
     // v0.93：嗅探参数（顶栏溢出菜单可调，改完即时生效）

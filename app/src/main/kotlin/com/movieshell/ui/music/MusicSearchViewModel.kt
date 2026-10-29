@@ -69,6 +69,11 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
 
     /** v0.109.0 A4：连续搜索时取消前一次的搜索协程 */
     private var searchJob: Job? = null
+    private var searchGen = 0
+
+    // v0.275.0（T16）：搜索代际号——旧 Job 被取消后 finally 与新 Job 置 true
+    // 无先后保证，旧 finally 可能在新搜索已开始后才跑，把 _searching 误清成
+    // false（转圈提前灭）；只有最新一代的 finally 才有权清 searching。
 
     init {
         reloadHistory()
@@ -124,6 +129,7 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
         // v0.109.0 A4：连续搜索取消前一次——之前的 `_searching` 守卫会让一次慢搜索
         // 锁死后续所有点击（30s 内点搜索无反应）；改为取消旧 Job 后重搜
         searchJob?.cancel()
+        val myGen = ++searchGen
         searchJob = viewModelScope.launch {
             _searching.value = true
             _searched.value = true
@@ -144,7 +150,7 @@ class MusicSearchViewModel(app: Application) : AndroidViewModel(app) {
                         _searchError.value = true
                     }
             } finally {
-                _searching.value = false
+                if (myGen == searchGen) _searching.value = false
             }
         }
     }

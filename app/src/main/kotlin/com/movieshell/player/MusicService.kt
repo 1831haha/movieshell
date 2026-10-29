@@ -63,6 +63,9 @@ class MusicService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
     override fun onDestroy() {
+        // v0.275.0（T17）：先通知 MusicPlayer 丢掉已失效的控制器引用，
+        // 再释放 session/player，否则播放器侧仍握着旧控制器、toggle 调它无反应。
+        MusicPlayer.onServiceDestroyed()
         session?.let {
             it.player.release()
             it.release()

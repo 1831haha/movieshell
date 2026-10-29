@@ -983,6 +983,21 @@ object MusicPlayer {
         persistQueue(null)
     }
 
+    /**
+     * v0.275.0（T17）：服务被杀/销毁时控制器已失效，但原来只有 release()
+     * 才把 controller 置 null，MusicService.onDestroy 并不通知这里——
+     * 之后 toggle() 仍调已释放的控制器。服务销毁时先丢掉控制器引用、
+     * 停掉进度轮询、落 playing/loading，下次 toggle 走重连分支恢复。
+     * 注意：不碰 track/队列，服务重建后 toggle 才能按原曲重连续播；
+     * 也不调 controller.release()，player 已由服务侧释放。
+     */
+    fun onServiceDestroyed() {
+        progressJob?.cancel()
+        runCatching { controller?.removeListener(listener) }
+        controller = null
+        _state.value = _state.value.copy(playing = false, loading = false)
+    }
+
     /** 切 tab/退后台不自动停；App 退出时 MainActivity.onDestroy 可调 release */
     fun release() {
         // v0.217.0（F25）：release 同理——在途解析不得在释放后复活起播。

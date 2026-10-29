@@ -58,9 +58,11 @@ object CacheAutoClean {
     fun schedule(ctx: Context) {
         val req = PeriodicWorkRequestBuilder<Worker>(1, TimeUnit.DAYS)
             .setConstraints(
+                // v0.275.0（T43）：原来同时要求电量不低＋设备空闲，
+                // 每天一次的清理常因“不够空闲”迟迟不跑；只留电量约束，
+                // 空闲约束去掉，清理本身只是超 1GB 时清一次图片缓存。
                 Constraints.Builder()
                     .setRequiresBatteryNotLow(true)
-                    .setRequiresDeviceIdle(true)
                     .build()
             )
             .build()
