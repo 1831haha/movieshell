@@ -1,5 +1,6 @@
 package com.movieshell.ui.market
 
+import com.movieshell.ui.theme.V4
 import android.content.ClipData
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
@@ -751,7 +752,7 @@ fun ServerPluginScreen(
                     Row(verticalAlignment = Alignment.Top) {
                         Text(
                             if (item.ok) "✓" else "✗",
-                            color = if (item.ok) Color(0xFF81C784) else Color(0xFFE57373),
+                            color = if (item.ok) V4.c.ok else V4.c.live,
                             style = SoftType.Body,
                         )
                         Spacer(Modifier.size(8.dp))
