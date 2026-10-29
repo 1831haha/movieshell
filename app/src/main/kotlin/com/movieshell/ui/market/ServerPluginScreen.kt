@@ -371,7 +371,7 @@ fun ServerPluginScreen(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // v0.132.0：列表头——运行统计一行；embedded 时同区补齐管理入口
@@ -434,7 +434,7 @@ fun ServerPluginScreen(
                     ServicePluginManager.Status.STARTING -> "启动中"
                 }
                 AppCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                         // v0.127.0：第一行——状态点 + 名 + 端口 chip + 版本（仿 DS 服务卡结构）
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             // v0.139.0：状态点升级为统一 StatusRing（跑马灯圆环 + 中央状态点）
@@ -917,7 +917,7 @@ private fun ServiceEditor(
         Column(
             modifier = Modifier.fillMaxSize().padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             EditorSection(title = "基本配置") {

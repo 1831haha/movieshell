@@ -1,5 +1,9 @@
 package com.movieshell.ui.music
 
+import com.movieshell.ui.theme.V4
+import androidx.compose.foundation.background
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -54,7 +58,7 @@ internal fun MiniPlayer(
     AppCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
             .clickable(onClick = onOpenPlayer),
     ) {
         Column {
@@ -67,30 +71,32 @@ internal fun MiniPlayer(
                     model = artUrl,
                     contentDescription = null,
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(V4.RPoster)),
                     contentScale = ContentScale.Crop,
                 )
             } else {
                 Icon(
                     Icons.Filled.MusicNote,
                     contentDescription = null,
-                    modifier = Modifier.size(44.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(40.dp),
+                    tint = V4.c.t3,
                 )
             }
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = current.name,
-                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = V4.c.t1,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = current.artist,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    color = V4.c.t3,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -99,32 +105,37 @@ internal fun MiniPlayer(
             // 解析卡住时迷你条什么都点不了；改成播放页同款——上一首/
             // 下一首始终在，转圈只嵌在主按钮里。
             IconButton(onClick = { MusicPlayer.prev(context) }) {
-                Icon(Icons.Filled.SkipPrevious, contentDescription = "上一首")
+                Icon(Icons.Filled.SkipPrevious, contentDescription = "上一首", tint = V4.c.t2)
             }
             IconButton(
                 onClick = { MusicPlayer.toggle() },
+                // v0.280.0 V4：主按钮 = 强调色实心圆
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape),
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(V4.c.accent),
             ) {
                 if (playState.loading) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(20.dp),
                         strokeWidth = 2.dp,
+                        color = V4.c.onAccent,
                     )
                 } else {
                     Icon(
                         if (playState.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (playState.playing) "暂停" else "播放",
+                        tint = V4.c.onAccent,
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
             IconButton(onClick = { MusicPlayer.next(context) }) {
-                Icon(Icons.Filled.SkipNext, contentDescription = "下一首")
+                Icon(Icons.Filled.SkipNext, contentDescription = "下一首", tint = V4.c.t2)
             }
             // v0.215.0：迷你条关闭入口（停播并清掉迷你条；原来只能进播放页停）。
             IconButton(onClick = { MusicPlayer.stop() }) {
-                Icon(Icons.Filled.Close, contentDescription = "关闭")
+                Icon(Icons.Filled.Close, contentDescription = "关闭", tint = V4.c.t3, modifier = Modifier.size(18.dp))
             }
         }
         // v0.215.0：迷你条进度（读播放器 state 的 position/duration；未解析出时长时不画）。
@@ -132,6 +143,8 @@ internal fun MiniPlayer(
             LinearProgressIndicator(
                 progress = { (playState.positionMs.toFloat() / playState.durationMs).coerceIn(0f, 1f) },
                 modifier = Modifier.fillMaxWidth().height(2.dp),
+                color = V4.c.accent,
+                trackColor = V4.c.s3,
             )
         }
         }

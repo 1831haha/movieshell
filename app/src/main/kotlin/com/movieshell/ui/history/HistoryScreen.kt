@@ -155,7 +155,8 @@ fun HistoryScreen(
                 .padding(inner),
         ) {
             // v0.86.0：子 tab——全部 / 点播 / 直播；v0.91.0：换胶囊 tab，风格统一
-            CapsuleTabBar(
+            // v0.280.0 V4：子页签改 V4 文字页签
+            com.movieshell.ui.components.V4TopTabs(
                 titles = listOf("全部", "点播", "直播"),
                 selected = tab,
                 onSelect = { tab = it },

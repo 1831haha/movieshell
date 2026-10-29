@@ -1,5 +1,6 @@
 package com.movieshell.ui.music
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -173,7 +174,7 @@ fun PlaylistDetailScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -298,7 +299,7 @@ fun PlaylistDetailScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             TextButton(
@@ -311,7 +312,7 @@ fun PlaylistDetailScreen(
                                 },
                             ) { Text(if (allSelected) "取消全选" else "全选") }
                             Spacer(Modifier.weight(1f))
-                            Button(
+                            Button(shape = RoundedCornerShape(8.dp),
                                 onClick = { showDeleteSelected = true },
                                 enabled = selectedIds.isNotEmpty(),
                             ) { Text("删除所选（${selectedIds.size}）") }

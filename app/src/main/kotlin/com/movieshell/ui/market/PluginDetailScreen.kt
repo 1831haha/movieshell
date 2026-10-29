@@ -1,5 +1,7 @@
 package com.movieshell.ui.market
 
+import com.movieshell.ui.components.V4Tag
+import com.movieshell.ui.components.V4TagKind
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.safeDrawing
@@ -143,22 +145,22 @@ fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(onClick = {}, label = { Text(plugin.type) })
+                V4Tag(plugin.type, V4TagKind.Neutral)
                 if (plugin.category.isNotBlank()) {
-                    AssistChip(onClick = {}, label = { Text(PluginUi.categoryLabel(plugin.category)) })
+                    V4Tag(PluginUi.categoryLabel(plugin.category), V4TagKind.Neutral)
                 }
                 PluginMarket.formatSize(plugin.size).takeIf { it.isNotBlank() }?.let {
-                    AssistChip(onClick = {}, label = { Text(it) })
+                    V4Tag(it, V4TagKind.Neutral)
                 }
                 if (plugin.platforms.isNotEmpty()) {
-                    AssistChip(onClick = {}, label = { Text(plugin.platforms.joinToString("/")) })
+                    V4Tag(plugin.platforms.joinToString("/"), V4TagKind.Neutral)
                 }
             }
             if (plugin.tags.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     plugin.tags.forEach { tag ->
-                        AssistChip(onClick = {}, label = { Text(tag) })
+                        V4Tag(tag, V4TagKind.Neutral)
                     }
                 }
             }

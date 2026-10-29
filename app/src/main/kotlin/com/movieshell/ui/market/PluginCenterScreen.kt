@@ -78,7 +78,8 @@ fun PluginCenterScreen(
         topBar = {
             Column {
                 TabTopBar(title = "插件中心", onBack = onBack)
-                CapsuleTabBar(
+                // v0.280.0 V4：子页签改 V4 文字页签
+                com.movieshell.ui.components.V4TopTabs(
                     titles = listOf("插件", "服务", "市场"),
                     selected = tab,
                     onSelect = { tab = it },
@@ -134,7 +135,7 @@ private fun InstalledPluginsBody(onDetail: (String, String) -> Unit) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (plugins.isEmpty()) {
@@ -152,7 +153,7 @@ private fun InstalledPluginsBody(onDetail: (String, String) -> Unit) {
             val desc = mp?.desc?.lineSequence()?.firstOrNull()?.trim()
                 ?.ifBlank { null } ?: installedFallbackDesc(p)
             AppCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (!mp?.iconUrl.isNullOrBlank()) {
                             AsyncImage(
@@ -161,7 +162,7 @@ private fun InstalledPluginsBody(onDetail: (String, String) -> Unit) {
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
                                     .size(48.dp)
-                                    .clip(RoundedCornerShape(12.dp)),
+                                    .clip(RoundedCornerShape(8.dp)),
                             )
                             Spacer(Modifier.size(12.dp))
                         }
@@ -265,16 +266,6 @@ private fun installedTypeLabel(p: PluginStore.InstalledPlugin): String = when {
 
 @Composable
 private fun TagChip(text: String) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-    ) {
-        Text(
-            text,
-            style = SoftType.Caption,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    // v0.280.0 V4：统一成 V4 等宽小标签
+    com.movieshell.ui.components.V4Tag(text, com.movieshell.ui.components.V4TagKind.Neutral)
 }

@@ -385,7 +385,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             // v0.121.0：Cookie 引导条——用户找不到 Cookie 入口，这里先讲清（每行右侧按钮）
@@ -393,7 +393,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -418,7 +418,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -476,7 +476,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -830,9 +830,9 @@ private fun qualityRank(id: String): Int = LxMusicSourceEngine.qualityRank(id)
 @Composable
 private fun cookieCardModifier(): Modifier = Modifier
     .fillMaxWidth()
-    .clip(RoundedCornerShape(14.dp))
+    .clip(RoundedCornerShape(8.dp))
     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
     .padding(12.dp)
 
 /** v0.119.0：Cookie 配置状态概览卡——已配 x / n + 作用说明 */
@@ -855,7 +855,7 @@ private fun CookieStatusCard(filled: Int, total: Int) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "已配置 $filled / $total",
-                fontSize = 15.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -877,7 +877,7 @@ private fun CookieStatusPill(filled: Boolean) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(V4.RSm))
             .background(c.copy(alpha = 0.14f))
             .padding(horizontal = 8.dp, vertical = 3.dp),
     ) {
@@ -912,7 +912,7 @@ private fun CookieSlotCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = slot.label,
-                fontSize = 15.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )

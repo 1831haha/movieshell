@@ -1,5 +1,7 @@
 package com.movieshell.ui.market
 
+import com.movieshell.ui.components.V4Tag
+import com.movieshell.ui.components.V4TagKind
 import android.os.SystemClock
 import com.movieshell.ui.components.AppDropdownMenu
 import com.movieshell.ui.components.AppSwitch
@@ -507,7 +509,7 @@ private fun PluginCard(
             .alpha(if (plugin.isSupported()) 1f else 0.55f),
         onClick = onDetail,
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (plugin.iconUrl.isNotBlank()) {
                     AsyncImage(
@@ -515,7 +517,7 @@ private fun PluginCard(
                         contentDescription = plugin.name,
                         modifier = Modifier
                             .size(44.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentScale = ContentScale.Crop,
                     )
@@ -534,20 +536,20 @@ private fun PluginCard(
                 if (busy) CircularProgressIndicator(modifier = Modifier.size(24.dp))
             }
             Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(onClick = {}, label = { Text(plugin.type) })
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                V4Tag(plugin.type, V4TagKind.Neutral)
                 if (plugin.category.isNotBlank()) {
-                    AssistChip(onClick = {}, label = { Text(PluginUi.categoryLabel(plugin.category)) })
+                    V4Tag(PluginUi.categoryLabel(plugin.category), V4TagKind.Neutral)
                 }
-                AssistChip(onClick = {}, label = { Text("v${plugin.version}") })
+                V4Tag("v${plugin.version}", V4TagKind.Neutral)
                 if (installedVersion != null) {
-                    AssistChip(
-                        onClick = {},
-                        label = { Text(if (hasUpdate) "有新版" else "已安装") },
+                    V4Tag(
+                        if (hasUpdate) "有新版" else "已安装",
+                        if (hasUpdate) V4TagKind.Vip else V4TagKind.Accent,
                     )
                 }
                 if (!plugin.isSupported()) {
-                    AssistChip(onClick = {}, label = { Text("不支持") })
+                    V4Tag("不支持", V4TagKind.Neutral)
                 }
             }
             if (plugin.desc.isNotBlank()) {
@@ -611,7 +613,7 @@ private fun ManageMarketsSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
