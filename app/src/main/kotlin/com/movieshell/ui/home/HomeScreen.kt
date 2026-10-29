@@ -1,5 +1,22 @@
 package com.movieshell.ui.home
 
+import com.movieshell.ui.theme.V4
+import androidx.compose.ui.text.font.FontWeight
+import com.movieshell.ui.components.V4SearchField
+import com.movieshell.ui.components.V4IconButton
+import com.movieshell.ui.components.V4Dot
+import com.movieshell.ui.components.V4Art
+import com.movieshell.ui.components.V4SectionHeader
+import com.movieshell.ui.components.V4TopTabs
+import com.movieshell.ui.components.v4Bleed
+import com.movieshell.ui.components.v4BottomDivider
+import com.movieshell.ui.components.dockClearance
+import com.movieshell.ui.components.AppDropdownMenu
+import com.movieshell.ui.components.LoadingSkeleton
+import com.movieshell.ui.components.AppButton
+import com.movieshell.ui.components.AppButtonVariant
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -1149,7 +1166,8 @@ fun HomeScreen(
         ThemeStore.MODE_DARK -> true
         else -> isSystemInDarkTheme()
     }
-    Box(modifier = Modifier.fillMaxSize()) {
+    // v0.279.0 V4：平底——不再画光斑；自定义背景底图（设置页更换）照旧在深色下生效。
+    Box(modifier = Modifier.fillMaxSize().background(V4.c.bg)) {
         if (darkTheme) {
             if (customBg != null) {
                 AsyncImage(
@@ -1172,8 +1190,8 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    if (darkTheme) MaterialTheme.colorScheme.background.copy(alpha = 0.55f)
-                    else MaterialTheme.colorScheme.background
+                    if (darkTheme && customBg != null) V4.c.bg.copy(alpha = 0.62f)
+                    else V4.c.bg
                 ),
         ) {
             // v0.45.0：官方 Material3 下拉刷新（替换手搓版）
@@ -1192,207 +1210,204 @@ fun HomeScreen(
                 state = gridState,
                 modifier = Modifier.fillMaxSize(),
                 // v0.238.0：顶部贴顶——网格顶边距归零，顶栏贴到内容顶
-                contentPadding = if (darkTheme) PaddingValues(start = SoftDimens.PagePadding, top = 0.dp, end = SoftDimens.PagePadding, bottom = SoftDimens.PagePadding)
-                else PaddingValues(start = 12.dp, top = 0.dp, end = 12.dp, bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(if (darkTheme) SoftDimens.CardSpacing else 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(if (darkTheme) SoftDimens.CardSpacing else 8.dp),
+                // v0.279.0 V4：12dp 页边距、列间 8 / 行间 12；底部让出浮动底栏（dockClearance）。
+                contentPadding = PaddingValues(start = V4.Gutter, top = 0.dp, end = V4.Gutter, bottom = dockClearance() + 8.dp),
+                verticalArrangement = Arrangement.spacedBy(if (homeLayout.columns > 1) 12.dp else 0.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 // v0.60：顶栏合一——搜索收成放大镜图标，历史/追剧/换源放一行（用户要求）
                 // v0.62：历史/追剧按内容自适应（不许被挤竖排），换源胶囊弹性收窄
                 item(span = { GridItemSpan(maxLineSpan) }) {
+                    // v0.279.0 V4 顶栏：搜索框（点进搜索页）+ 布局切换 + 站源胶囊（状态点 + 名称 + 下拉）。
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        // v0.82.0：历史/追剧胶囊已移除（设置页快捷入口已有）；
-                        // 搜索改胶囊，与换源胶囊统一样式
-                        HomeCapsule(
+                        V4SearchField(
+                            placeholder = "搜索",
                             icon = Icons.Filled.Search,
-                            text = "搜索",
                             onClick = onSearchClick,
+                            modifier = Modifier.weight(1f),
                         )
                         // v0.78.3：首页布局切换（对标 DsPlayer）
-                        IconButton(onClick = { showLayoutPicker = true }) {
-                            Icon(
-                                imageVector = homeLayout.icon,
-                                contentDescription = "切换布局",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        // 换源胶囊（v0.7.1 入口，v0.60 搬进顶栏一行；v0.62：弹性宽度，源名过长省略）
-                        // v0.170.0：环判定以 drpyReady（有数据）优先于 contentGen == 0——切 tab 重组后
-                        // contentGen 归零、纯推荐恢复又不 bump 世代时，有数据也不应判灰。
-                        // 外圈裹住整个换源胶囊（状态点本身不变），颜色语义不变：加载中黄 / 失败红 / 完成绿。
+                        V4IconButton(
+                            icon = homeLayout.icon,
+                            contentDescription = "切换布局",
+                            onClick = { showLayoutPicker = true },
+                        )
+                        // 换源胶囊（v0.7.1 入口）：点按打开换源表，长按刷新当前源（v0.174.0）；
+                        // 状态语义不变：加载中黄（转圈）/ 有数据绿 / 失败红 / 未选源灰。
                         val sourceRingState = when {
                             drpyLoading || loadingCat != null -> StatusRingState.Loading
                             drpyReady -> StatusRingState.Ready
                             sourceLabel == "选择站源" || contentGen == 0 -> StatusRingState.Idle
                             else -> StatusRingState.Failed
                         }
-                        // v0.174.0：换源胶囊长按刷新当前源。点按仍是打开换源表；
-                        // 长按走首页下拉刷新同一入口 doRefresh（force=true，绕过
-                        // 失败退避），不用再下拉整页。Surface 本身不带 onClick，
-                        // 点击/长按全由 combinedClickable 接管，避免双层点击。
-                        // v0.184.0：首页顶栏站源 pill 收窄——原来 weight(1f) 填满整行，
-                        // 名字短如“选择站源”时 pill 也撑得老宽；改成外面包一个
-                        // weight(1f) 的 Box 靠右放 pill，pill 只按内容宽，
-                        // 名字长时顶到 Box 宽再省略，内边距和状态环也同步收一点。
-                        Box(
-                            modifier = Modifier.weight(1f),
-                            contentAlignment = Alignment.CenterEnd,
+                        Row(
+                            modifier = Modifier
+                                .weight(1.25f)
+                                .height(V4.Field)
+                                .clip(RoundedCornerShape(V4.RField))
+                                .background(V4.c.s1)
+                                .combinedClickable(
+                                    onClick = { showSourceSheet = true },
+                                    onLongClick = {
+                                        if (drpyActive) doRefresh() else showSourceSheet = true
+                                    },
+                                )
+                                .padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            border = BorderStroke(1.5.dp, sourceRingState.color()),
-                            modifier = Modifier.combinedClickable(
-                                onClick = { showSourceSheet = true },
-                                onLongClick = {
-                                    if (drpyActive) doRefresh() else showSourceSheet = true
-                                },
-                            ),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center,
-                            ) {
-                                // v0.141.0：换源图标改状态环（跑马灯＋状态点），与首页加载态联动：
-                                // 加载中→黄灯旋转；已选源且有数据→绿；已选源但空→红；未选源/未加载过→灰
+                            if (sourceRingState == StatusRingState.Loading) {
                                 StatusRing(
                                     state = sourceRingState,
-                                    diameter = 18.dp,
+                                    diameter = 10.dp,
+                                    showDot = false,
+                                    strokeWidth = 1.5.dp,
                                 )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = sourceLabel,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    style = SoftType.CardTitle,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Icon(
-                                    imageVector = Icons.Filled.ExpandMore,
-                                    contentDescription = if (drpyActive) "切换站源，长按刷新当前源" else "切换站源",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(16.dp),
-                                )
+                            } else {
+                                V4Dot(sourceRingState.color())
                             }
-                        }
+                            Spacer(Modifier.width(7.dp))
+                            Text(
+                                text = sourceLabel.replace("本地·", "本地 · "),
+                                color = V4.c.t1,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Icon(
+                                imageVector = Icons.Filled.ExpandMore,
+                                contentDescription = if (drpyActive) "切换站源，长按刷新当前源" else "切换站源",
+                                tint = V4.c.t3,
+                                modifier = Modifier.size(16.dp),
+                            )
                         }
                     }
                 }
                 // v0.75.0：继续观看——有未看完的点播记录时，顶栏下方横滑一排
                 if (watchHistory.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
+                        val cwList = watchHistory.distinctBy { it.url.ifBlank { "vod:${it.vodId}" } }
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            SectionTitle(title = "继续观看")
-                            Spacer(Modifier.height(8.dp))
+                            // v0.279.0 V4：区块标题 + 计数 + “全部 ›”（进播放历史页）
+                            V4SectionHeader(
+                                title = "继续观看",
+                                count = "${cwList.size}",
+                                actionText = "全部",
+                                trailingChevron = true,
+                                onAction = onHistoryClick,
+                            )
                             LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 contentPadding = PaddingValues(end = 4.dp),
                             ) {
                                 // v0.212.0 审计修复：url 为空的多条老记录原来按空 url
                                 // 去重合并成一条；空 url 用 vodId 兜底去重。
-                                items(watchHistory.distinctBy { it.url.ifBlank { "vod:${it.vodId}" } }, key = { it.url.ifBlank { "vod:${it.vodId}" } }) { h ->
+                                items(cwList, key = { it.url.ifBlank { "vod:${it.vodId}" } }) { h ->
                                     val progress = if (h.durationMs > 0) {
                                         (h.positionMs.toFloat() / h.durationMs).coerceIn(0f, 1f)
                                     } else 0f
-                                    Surface(
-                                        shape = RoundedCornerShape(SoftDimens.CardCorner),
-                                        color = MaterialTheme.colorScheme.surfaceVariant,
-                                        onClick = {
-                                            onContinueWatch(
-                                                h.vodId, h.title,
-                                                h.episodeIndex.coerceAtLeast(0),
-                                                h.sourceType, h.sourceKey,
-                                            )
-                                        },
-                                        modifier = Modifier.width(180.dp),
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(12.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(
-                                                    text = h.title,
-                                                    style = SoftType.CardTitle,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.weight(1f),
+                                    Column(
+                                        modifier = Modifier
+                                            .width(182.dp)
+                                            .clip(RoundedCornerShape(V4.RPoster))
+                                            .clickable {
+                                                onContinueWatch(
+                                                    h.vodId, h.title,
+                                                    h.episodeIndex.coerceAtLeast(0),
+                                                    h.sourceType, h.sourceKey,
                                                 )
-                                                // v0.215.0：继续观看单条删除（原来只能去历史页清全部）。
-                                                // v0.261.0：叉的触摸区 22dp 太小，点 4-5 下才中（多半点到
-                                                // 卡片本身）——改成 48dp 标准触摸区，图标 20dp，一下关掉。
-                                                IconButton(
-                                                    onClick = {
-                                                        // v0.261.0：逻辑反应慢才是主因，不是点/图标大小——
-                                                        // 原来点叉后要等 delete + 全量 getHistory 解码 + 整页重组
-                                                        // 才消失，用户以为没点中才连点 4-5 下。
-                                                        // v0.265.0：乐观删除掩盖了写盘失败——原来先把卡片从
-                                                        // 列表拿掉、再 apply() 写盘，写盘丢了（立刻杀进程）
-                                                        // 或同剧同集还有另一条 url 记录时，下次 ON_RESUME
-                                                        // reload 又把卡片带回来，看起来就是“删了又回来”。
-                                                        // 改成：先按卡片身份（剧 + 集）commit() 同步删盘，
-                                                        // 再从盘里 reload 一遍，UI 以盘为准，不再只信乐观状态。
+                                            },
+                                    ) {
+                                        V4Art(
+                                            seed = h.title,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(100.dp),
+                                            ring = false,
+                                        ) {
+                                            // v0.215.0：继续观看单条删除；v0.261.0：48dp 触摸区；
+                                            // v0.265.0：先按卡片身份 commit() 同步删盘，再从盘里 reload。
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .size(36.dp)
+                                                    .clickable {
                                                         HistoryStore.deleteContinueWatch(context, h)
                                                         reloadWatchHistory()
                                                     },
-                                                    modifier = Modifier.size(48.dp),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(22.dp)
+                                                        .clip(RoundedCornerShape(V4.RSm))
+                                                        .background(Color.Black.copy(alpha = 0.45f)),
+                                                    contentAlignment = Alignment.Center,
                                                 ) {
                                                     Icon(
                                                         Icons.Filled.Close,
                                                         contentDescription = "删除这条记录",
-                                                        modifier = Modifier.size(20.dp),
-                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(14.dp),
+                                                        tint = Color(0xFFE6E8EE),
                                                     )
                                                 }
                                             }
-                                            // v0.212.0 审计修复：时长未知（durationMs==0）
-                                            // 原来恒算 0%，卡片写“看到 0%”其实是未知不是没看；
-                                            // 未知时长不显示百分比，只显示集数。
-                                            Text(
-                                                text = buildString {
-                                                    if (h.episodeIndex >= 0) append("第${h.episodeIndex + 1}集")
-                                                    if (h.durationMs > 0) {
-                                                        if (isNotEmpty()) append(" · ")
-                                                        append("看到${(progress * 100).toInt()}%")
-                                                    }
-                                                }.ifBlank { "继续观看" },
-                                                style = SoftType.Caption,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            // v0.215.0：继续观看来源名（源 key 去扩展名；无源信息不显示）。
-                                            val continueSource = h.sourceKey
-                                                .removeSuffix(".js").removeSuffix(".py")
-                                                .takeIf { it.isNotBlank() }
-                                            if (continueSource != null) {
-                                                Text(
-                                                    text = "来源：$continueSource",
-                                                    style = SoftType.Caption,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
+                                            // 底部进度（时长未知时不画进度，只显示集数）
+                                            if (h.durationMs > 0) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .align(Alignment.BottomStart)
+                                                        .fillMaxWidth()
+                                                        .height(3.dp)
+                                                        .background(Color.White.copy(alpha = 0.10f)),
+                                                ) {
+                                                    Box(
+                                                        Modifier
+                                                            .fillMaxWidth(progress)
+                                                            .height(3.dp)
+                                                            .background(V4.c.accent),
+                                                    )
+                                                }
                                             }
-                                            LinearProgressIndicator(
-                                                progress = { progress },
-                                                // v0.212.0 审计修复：进度条原来走主题 primary
-                                                // 系统紫，与青色/香槟金体系冲突；显式指定青色。
-                                                color = Color(0xFF4DD0E1),
-                                                trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(4.dp)
-                                                    .clip(RoundedCornerShape(2.dp)),
-                                            )
                                         }
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            text = h.title,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = V4.c.t1,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        // v0.212.0：时长未知不显示百分比；v0.215.0：来源名（源 key 去扩展名）。
+                                        val continueSource = h.sourceKey
+                                            .removeSuffix(".js").removeSuffix(".py")
+                                            .takeIf { it.isNotBlank() }
+                                        Text(
+                                            text = buildString {
+                                                if (h.episodeIndex >= 0) append("第${h.episodeIndex + 1}集")
+                                                if (h.durationMs > 0) {
+                                                    if (isNotEmpty()) append(" · ")
+                                                    append("${(progress * 100).toInt()}%")
+                                                }
+                                                if (continueSource != null) {
+                                                    if (isNotEmpty()) append(" · ")
+                                                    append(continueSource)
+                                                }
+                                            }.ifBlank { "继续观看" },
+                                            fontSize = 10.5.sp,
+                                            color = V4.c.t3,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
                                     }
                                 }
                             }
@@ -1405,7 +1420,9 @@ fun HomeScreen(
                         LinearProgressIndicator(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(3.dp),
+                                .height(2.dp),
+                            color = V4.c.accent,
+                            trackColor = V4.c.div,
                         )
                     }
                 }
@@ -1444,13 +1461,15 @@ fun HomeScreen(
                             // v0.144.0：首格"全部"已删，格下标与分类序号错一位：
                             // 第 index 格对应第 index+1 个分类（loadDrpyCategory 按 1 计）；
                             // 在“推荐”时 selectedPosition==0，selectedIndex==-1，都不选中。
-                            FilterBar(
-                                labels = chipLabels,
-                                selectedIndex = selectedPosition - 1,
+                            // v0.279.0 V4：分类改顶部文字 tab（选中 600 + 强调色下划线，通栏 1px 分隔线）。
+                            V4TopTabs(
+                                titles = chipLabels,
+                                selected = selectedPosition - 1,
                                 onSelect = { index ->
                                     // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
                                     loadDrpyCategory(index + 1)
                                 },
+                                modifier = Modifier.v4Bleed(V4.Gutter),
                             )
                         }
                         // v0.110.0：分类内容加载失败（超时/规则异常）给内联错误+重试，
@@ -1467,45 +1486,37 @@ fun HomeScreen(
                         val activeCat = drpyCats.firstOrNull { it.typeId == selectedCategory }
                         val filterGroups = activeCat?.filters.orEmpty()
                         if (selectedCategory != "" && filterGroups.isNotEmpty()) {
-                            filterGroups.forEach { filterGroup ->
-                                item(span = { GridItemSpan(maxLineSpan) }) {
-                                    // v0.212.0 审计修复：筛选行原来只画 chips，组名
-                                    // （年份/地区/类型）一行都没画，几组叠在一起分不清
-                                    // 哪行筛什么；组名固定在行首不随横滑走。
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        if (filterGroup.name.isNotBlank()) {
-                                            Text(
-                                                text = filterGroup.name,
-                                                style = SoftType.Caption,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                modifier = Modifier.padding(end = 6.dp),
-                                            )
-                                        }
-                                        Row(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .horizontalScroll(rememberScrollState()),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        ) {
-                                        filterGroup.options.forEach { fv ->
-                                            val isSel = filterMap[filterGroup.key] == fv.value
-                                            AppChip(
-                                                text = fv.name,
-                                                selected = isSel,
-                                                small = true,
-                                                onClick = {
-                                                    // 点已选中的则取消本组筛选，回到默认；多组之间互不干扰
-                                                    val next = if (isSel) filterMap - filterGroup.key
-                                                    else filterMap + (filterGroup.key to fv.value)
-                                                    loadDrpyCategory(selectedPosition, next)
-                                                },
-                                            )
-                                        }
-                                        }
+                            // v0.279.0 V4：全部筛选维度收进一条 34dp 横条——“组名 当前值”，
+                            // 点开下拉选；点已选中的取消本组筛选（与原 chip 行为一致），多组互不干扰。
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Row(
+                                    modifier = Modifier
+                                        .v4Bleed(V4.Gutter)
+                                        .height(V4.FilterStrip)
+                                        .v4BottomDivider(V4.c.div)
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(horizontal = V4.Gutter),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Tune,
+                                        contentDescription = "筛选",
+                                        tint = V4.c.t2,
+                                        modifier = Modifier.size(15.dp),
+                                    )
+                                    filterGroups.forEach { filterGroup ->
+                                        HomeFilterDim(
+                                            name = filterGroup.name,
+                                            options = filterGroup.options.map { it.name to it.value },
+                                            selectedValue = filterMap[filterGroup.key],
+                                            onPick = { value ->
+                                                val isSel = filterMap[filterGroup.key] == value
+                                                val next = if (isSel) filterMap - filterGroup.key
+                                                else filterMap + (filterGroup.key to value)
+                                                loadDrpyCategory(selectedPosition, next)
+                                            },
+                                        )
                                     }
                                 }
                             }
@@ -1526,37 +1537,37 @@ fun HomeScreen(
                     // v0.50.0：stale 时标题旁小字提示"旧内容·刷新中"
                     // v0.145.0：进分类后标题跟当前分类走（选中 0 的推荐流视图才叫今日推荐）。
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        SectionTitle(
-                            title = drpyCats.firstOrNull { it.typeId == selectedCategory }?.typeName ?: "今日推荐",
-                            action = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (recommendStale) {
-                                        Text(
-                                            text = "旧内容·刷新中",
-                                            style = SoftType.Caption,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        Spacer(Modifier.width(8.dp))
-                                    }
-                                    TextButton(onClick = {
-                                        shuffleSeed++
-                                        // v0.212.0 审计修复：换一换原来不回顶，滑到底部
-                                        // 点换一换还停在底部看同一批；换批即回顶。
-                                        scope.launch { gridState.scrollToItem(0) }
-                                    }) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Refresh,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("换一换")
-                                    }
-                                }
-                            },
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            V4SectionHeader(
+                                title = drpyCats.firstOrNull { it.typeId == selectedCategory }?.typeName ?: "今日推荐",
+                                count = if (filtered.isNotEmpty()) "${filtered.size}" else null,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (recommendStale) {
+                                Text(
+                                    text = "旧内容·刷新中",
+                                    fontSize = 10.5.sp,
+                                    color = V4.c.t3,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            // v0.212.0：换一换按种子真随机洗牌，换批即回顶。
+                            V4SectionHeader(
+                                title = "",
+                                actionText = "换一换",
+                                actionIcon = Icons.Filled.Refresh,
+                                onAction = {
+                                    shuffleSeed++
+                                    scope.launch { gridState.scrollToItem(0) }
+                                },
+                                modifier = Modifier.width(72.dp),
+                            )
+                        }
                     }
-    
+
                     // 网格海报墙 / 列表（v0.78.3：布局切换）
                     items(filtered, key = { it.vodId.ifBlank { "noid:${it.vodName}" } }) { vod ->
                         // v0.80.0：rating 已在海报底部跑马灯展示，副标题只留年份，不重复
@@ -1582,7 +1593,13 @@ fun HomeScreen(
                                 subtitle = subtitle,
                                 badge = vod.vodRemarks,
                                 posterUrl = vod.vodPic,
-                                modifier = Modifier.aspectRatio(3f / 4.6f),
+                                modifier = Modifier.aspectRatio(
+                                    when (homeLayout.columns) {
+                                        4 -> 0.535f
+                                        3 -> 0.6f
+                                        else -> 0.64f
+                                    },
+                                ),
                                 onClick = { goDetail(vod.vodId, vod.vodName) },
                             )
                         }
@@ -1608,9 +1625,11 @@ fun HomeScreen(
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    else -> Button(onClick = { loadMoreCategory() }) {
-                                        Text("加载更多")
-                                    }
+                                    else -> AppButton(
+                                        text = "加载更多",
+                                        onClick = { loadMoreCategory() },
+                                        variant = AppButtonVariant.Secondary,
+                                    )
                                 }
                             }
                         }
@@ -1635,14 +1654,10 @@ fun HomeScreen(
                         verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
                     ) {
                         repeat(6) {
-                            Box(
+                            LoadingSkeleton(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(120.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                        RoundedCornerShape(12.dp),
-                                    ),
+                                    .height(120.dp),
                             )
                         }
                     }
@@ -1671,6 +1686,7 @@ fun HomeScreen(
                                 icon = entry.icon,
                                 title = entry.label,
                                 subtitle = when (entry) {
+                                    HomeLayout.GRID_4 -> "V4 默认，信息密度最高的海报墙"
                                     HomeLayout.GRID_3 -> "一屏看更多"
                                     HomeLayout.GRID_2 -> "海报更大"
                                     HomeLayout.COMPACT_LIST -> "小图 + 文字"
@@ -1751,8 +1767,9 @@ private fun HomeRowRemarks(remarks: String, leadingSpacer: Boolean) {
     if (leadingSpacer) Spacer(Modifier.width(8.dp))
     Text(
         text = remarks,
-        style = SoftType.Body,
-        color = LocalSoftExtra.current.warning,
+        fontSize = 11.sp,
+        color = V4.c.vip,
+        maxLines = 1,
     )
 }
 
@@ -1761,10 +1778,9 @@ private fun HomeCompactRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(SoftDimens.CardCorner))
-            .background(LocalSoftExtra.current.glass)
+            .v4BottomDivider(V4.c.div)
             .clickable(onClick = onClick)
-            .padding(8.dp),
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (vod.vodPic.isNotBlank()) {
@@ -1803,9 +1819,9 @@ private fun HomeTextRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(SoftDimens.CardCorner))
+            .v4BottomDivider(V4.c.div)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 2.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         HomeRowTexts(vod, subtitle, subtitleGap = false)
@@ -1844,6 +1860,66 @@ private fun HomeCapsule(
                 maxLines = 1,
                 softWrap = false,
             )
+        }
+    }
+}
+
+/**
+ * v0.279.0 V4：筛选条里的一个维度——“组名 当前值”，点开下拉列出全部选项。
+ * 选中项强调色；再点已选中的取消本组筛选（与原来 chip 行为一致）。
+ */
+@Composable
+private fun HomeFilterDim(
+    name: String,
+    options: List<Pair<String, String>>,
+    selectedValue: String?,
+    onPick: (String) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    val v = V4.c
+    val selName = options.firstOrNull { it.second == selectedValue }?.first
+    Box {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(V4.RSm))
+                .clickable { open = true }
+                .padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (name.isNotBlank()) {
+                Text(name, fontSize = 12.sp, color = v.t3, maxLines = 1)
+                Spacer(Modifier.width(5.dp))
+            }
+            Text(
+                selName ?: "全部",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (selName != null) v.accent else v.t1,
+                maxLines = 1,
+            )
+        }
+        AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            options.forEach { (label, value) ->
+                val on = value == selectedValue
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            label,
+                            fontSize = 12.5.sp,
+                            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (on) v.accent else v.t1,
+                        )
+                    },
+                    trailingIcon = if (on) {
+                        { Icon(Icons.Filled.Check, null, tint = v.accent, modifier = Modifier.size(16.dp)) }
+                    } else null,
+                    onClick = {
+                        open = false
+                        onPick(value)
+                    },
+                    modifier = Modifier.height(38.dp),
+                )
+            }
         }
     }
 }

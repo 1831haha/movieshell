@@ -3,6 +3,7 @@ package com.movieshell.data.repo
 import android.content.Context
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Subject
@@ -25,6 +26,8 @@ enum class HomeLayout(
     /** 网格列数；列表模式按 1 列渲染行 */
     val columns: Int,
 ) {
+    // v0.279.0 V4：四列密排为默认（设计稿 4 列海报墙）；没选过布局的用户拿到它，选过的不变。
+    GRID_4("四列密排", Icons.Filled.Apps, 4),
     GRID_3("海报网格", Icons.Filled.GridView, 3),
     GRID_2("大海报", Icons.Filled.Image, 2),
     COMPACT_LIST("紧凑列表", Icons.Filled.List, 1),
@@ -36,7 +39,7 @@ object HomeSettings {
     private const val KEY_HOME_LAYOUT = "home_layout"
     private const val KEY_SOURCE_PICKER_LAYOUT = "source_picker_layout"
 
-    private val _layout = MutableStateFlow(HomeLayout.GRID_3)
+    private val _layout = MutableStateFlow(HomeLayout.GRID_4)
     val layout: StateFlow<HomeLayout> = _layout.asStateFlow()
 
     // v0.188.0：换源器 6 种布局（0 大卡 1 图标 2 列表 3 宽卡 4 中卡 5 紧凑），
@@ -52,7 +55,7 @@ object HomeSettings {
         val name = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_HOME_LAYOUT, null)
         _layout.value = runCatching { HomeLayout.valueOf(name!!) }
-            .getOrDefault(HomeLayout.GRID_3)
+            .getOrDefault(HomeLayout.GRID_4)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         _pickerLayout.value = prefs.getInt(KEY_SOURCE_PICKER_LAYOUT, 0).coerceIn(0, 5)
     }
