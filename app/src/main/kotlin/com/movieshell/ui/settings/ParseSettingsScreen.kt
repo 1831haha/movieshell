@@ -50,6 +50,7 @@ import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 /**
@@ -69,6 +70,9 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
     var probeResults by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     var testing by remember { mutableStateOf<Set<String>>(emptySet()) }
     var probingAll by remember { mutableStateOf(false) }
+    // v0.272.0（T38）：一键测活总进度——原来只有“测试中…”一行字，不知道跑到第几条。
+    var probeDone by remember { mutableStateOf(0) }
+    var probeTotal by remember { mutableStateOf(0) }
     var showAddDialog by remember { mutableStateOf(false) }
 
     fun probeOne(index: Int) {
@@ -90,18 +94,25 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
 
     fun probeAll() {
         if (probingAll || customParses.isEmpty()) return
+        // v0.272.0（T38）：一键测活改并发——原来 forEach 串行，一条 10 秒超时就拖全队；
+        // probe 本身是纯 HTTP（IO 线程），并发跑、每条完事即记进度、迟到结果仍按 url 校验。
+        val targets = customParses.toList()
         probingAll = true
-        testing = customParses.map { it.url }.toSet()
+        testing = targets.map { it.url }.toSet()
+        probeDone = 0
+        probeTotal = targets.size
         scope.launch {
             val api = ParseApi()
-            customParses.forEach { p ->
-                val url = p.url
-                val ok = runCatching { api.probe(p) }.getOrDefault(false)
-                if (customParses.any { it.url == url }) {
-                    probeResults = probeResults + (url to ok)
+            targets.map { p ->
+                async {
+                    val ok = runCatching { api.probe(p) }.getOrDefault(false)
+                    if (customParses.any { it.url == p.url }) {
+                        probeResults = probeResults + (p.url to ok)
+                    }
+                    testing = testing - p.url
+                    probeDone++
                 }
-                testing = testing - url
-            }
+            }.forEach { it.await() }
             probingAll = false
         }
     }
@@ -133,7 +144,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                         SettingsRow(
                             icon = Icons.Filled.NetworkCheck,
                             title = "一键测活",
-                            subtitle = if (probingAll) "测试中…" else "逐条检测线路是否可用",
+                            subtitle = if (probingAll) "测试中… 已完成 $probeDone / $probeTotal" else "逐条检测线路是否可用",
                             onClick = { probeAll() },
                         )
                     }
@@ -163,13 +174,17 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                     key = { _, p -> p.url },
                 ) { index, parse ->
                     val state = probeResults[parse.url]
+                    val isTesting = parse.url in testing
                     SettingsRow(
                         icon = Icons.Filled.Link,
                         title = parse.name.ifBlank { "未命名" },
                         subtitle = buildString {
                             append(when (parse.type) { 1 -> "JSON"; 99 -> "yt-dlp"; else -> "嗅探" })
                             append(" · ${parse.url}")
-                            when (state) {
+                            // v0.272.0（T38）：单条测活行上显示“测试中…”——原来 testing
+                            // 只用来防重，点完行上没有任何变化，用户不知道测没测。
+                            if (isTesting) append(" · 测试中…")
+                            else when (state) {
                                 true -> append(" · 正常")
                                 false -> append(" · 失效")
                                 null -> {}

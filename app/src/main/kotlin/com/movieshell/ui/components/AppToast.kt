@@ -59,6 +59,10 @@ object AppToast {
     private val seq = AtomicLong(0)
     private val _current = MutableStateFlow<AppToastMsg?>(null)
     val current: StateFlow<AppToastMsg?> = _current
+    // v0.272.0（T35）：提示队列——原来 show 直接覆盖 _current，旧提示无声丢掉；
+    // 现在当前在显示时新提示先进队，当前消失时按序弹出下一条。
+    private val queue = ArrayDeque<AppToastMsg>()
+    private val queueLock = Any()
 
     /** overlay 是否已挂载（MainActivity 挂载时置 true）。 */
     internal val mounted = AtomicBoolean(false)
@@ -67,7 +71,10 @@ object AppToast {
         val text = msg.trim()
         if (text.isEmpty()) return
         if (mounted.get()) {
-            _current.value = AppToastMsg(seq.incrementAndGet(), text, long)
+            val m = AppToastMsg(seq.incrementAndGet(), text, long)
+            synchronized(queueLock) {
+                if (_current.value == null) _current.value = m else queue.addLast(m)
+            }
         } else {
             // 后台/非主 Activity 调用：回退系统提示，不丢消息。
             Toast.makeText(context, text, if (long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
@@ -75,7 +82,10 @@ object AppToast {
     }
 
     fun dismiss(id: Long) {
-        if (_current.value?.id == id) _current.value = null
+        synchronized(queueLock) {
+            if (_current.value?.id != id) return
+            _current.value = queue.removeFirstOrNull()
+        }
     }
 }
 
@@ -132,7 +142,8 @@ fun AppToastOverlay() {
                     color = Color.White,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
-                    maxLines = 3,
+                    // v0.272.0（T34）：原来 maxLines=3，稍长一点的提示就被截掉后半句；
+                    // 提示本来就能点一下关闭，不再截断，全文显示。
                 )
             }
         }

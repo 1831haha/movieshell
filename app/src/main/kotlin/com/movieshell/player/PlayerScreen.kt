@@ -1230,10 +1230,12 @@ fun PlayerScreen(
                 }
             }
             // v0.54：弹幕覆盖层（视频画面之上，手势层之下）
+            // v0.272.0（T9）：暂停时帧时钟停转，传 isPlaying 进去。
             com.movieshell.player.danmaku.DanmakuOverlay(
                 danmakus = danmakuList,
                 positionMs = EngineHost.currentPosition(),
                 enabled = danmakuEnabled && !playUrl.isBlank(),
+                isPlaying = isPlaying,
                 modifier = Modifier.fillMaxSize(),
             )
         }

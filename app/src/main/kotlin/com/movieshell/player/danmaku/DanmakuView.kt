@@ -32,6 +32,7 @@ fun DanmakuOverlay(
     danmakus: List<Danmaku>,
     positionMs: Long,
     enabled: Boolean,
+    isPlaying: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     if (!enabled || danmakus.isEmpty()) return
@@ -43,17 +44,23 @@ fun DanmakuOverlay(
     val areaIdx by DanmakuSettings.area.collectAsState()
     val lineHeightIdx by DanmakuSettings.lineHeight.collectAsState()
 
-    // 帧时钟：约 30fps 重绘
+    // v0.272.0（T9）：帧时钟只在播放时跑——暂停时进度冻结，重绘无意义，
+    // 原来 LaunchedEffect(Unit) 无条件每 33ms 改一次 state，暂停也在空转重绘。
+    // 暂停时 effect 取消，frameMs 停在末值，Canvas 仍按冻结进度画一帧。
     var frameMs by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(isPlaying) {
+        if (!isPlaying) return@LaunchedEffect
         while (isActive) {
             frameMs = System.currentTimeMillis()
             delay(33)
         }
     }
 
-    // 按轨道分配（记住分配结果，position 跳变时重算）
-    val layout = remember(danmakus) { DanmakuLayout(danmakus) }
+    // v0.272.0（T12）：轨道数跟随区域/行高变——原来 layout 只按 danmakus 记住，
+    // trackOf 里旧轨道号可能超出新 trackCount（y 算到屏外）或一直用旧分配；
+    // 区域或行高一变就重建布局重算轨道。
+    val trackPx = when (lineHeightIdx) { 0 -> 70f; 2 -> 120f; else -> 90f }
+    val layout = remember(danmakus, areaIdx, trackPx) { DanmakuLayout(danmakus) }
     // v0.55：Paint 复用，不每帧 new（之前每帧 new 两个 Paint，GC 压力大）
     // v0.56：字号/透明度跟随设置
     val fontPx = when (textSizeIdx) { 0 -> 34f; 2 -> 52f; else -> 42f }
@@ -83,7 +90,7 @@ fun DanmakuOverlay(
     Canvas(modifier = modifier.fillMaxSize()) {
         if (!enabled) return@Canvas
         val now = positionMs
-        layout.draw(this, now, frameMs, paint, strokePaint, scrollMs, areaIdx, when (lineHeightIdx) { 0 -> 70f; 2 -> 120f; else -> 90f })
+        layout.draw(this, now, frameMs, paint, strokePaint, scrollMs, areaIdx, trackPx)
     }
 }
 
