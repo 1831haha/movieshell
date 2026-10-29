@@ -424,7 +424,7 @@ fun V4SearchField(
     val v = V4.c
     Row(
         modifier = modifier
-            .height(V4.Field)
+            .heightIn(min = V4.Field)
             .clip(RoundedCornerShape(V4.RField))
             .background(v.s1)
             .clickable(onClick = onClick)
@@ -533,7 +533,7 @@ fun V4SmallButton(
     val v = V4.c
     Row(
         modifier = modifier
-            .height(34.dp)
+            .heightIn(min = 34.dp)
             .clip(RoundedCornerShape(V4.RField))
             .background(if (primary) v.accent else v.s1)
             .clickable(onClick = onClick)

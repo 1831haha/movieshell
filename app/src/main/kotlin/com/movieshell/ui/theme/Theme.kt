@@ -1,6 +1,13 @@
 package com.movieshell.ui.theme
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -94,6 +101,42 @@ private fun schemeOf(v: V4Colors) = if (v.isDark) darkColorScheme(
     onError = Color.White,
 )
 
+/**
+ * v0.280.0 V4：Material 圆角档改 V4 口径（标签 4 / 小件 6 / 卡片 8 / 弹层 12），
+ * 二级页里直接用 Material 组件（芯片、输入框、底部弹层、菜单）也自动贴 V4。
+ */
+val V4Shapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(6.dp),
+    medium = RoundedCornerShape(8.dp),
+    large = RoundedCornerShape(12.dp),
+    extraLarge = RoundedCornerShape(12.dp),
+)
+
+private fun ts(size: Float, line: Float, weight: FontWeight = FontWeight.Normal) =
+    TextStyle(fontSize = size.sp, lineHeight = line.sp, fontWeight = weight)
+
+/**
+ * v0.280.0 V4：Material 字号档整体收紧到 V4 密度（正文 13、次要 11.5、标题 15/600）。
+ * 只改字号/字重/行高，全部用 sp——跟随系统字体缩放，不写死高度。
+ * 没写字号的 Text 默认取 bodyLarge（14sp）。
+ */
+val V4Typography = Typography(
+    displaySmall = ts(30f, 38f, FontWeight.SemiBold),
+    headlineLarge = ts(26f, 34f, FontWeight.SemiBold),
+    headlineMedium = ts(22f, 30f, FontWeight.SemiBold),
+    headlineSmall = ts(19f, 26f, FontWeight.SemiBold),
+    titleLarge = ts(17f, 24f, FontWeight.SemiBold),
+    titleMedium = ts(15f, 21f, FontWeight.SemiBold),
+    titleSmall = ts(13f, 19f, FontWeight.SemiBold),
+    bodyLarge = ts(14f, 20f),
+    bodyMedium = ts(13f, 19f),
+    bodySmall = ts(11.5f, 16f),
+    labelLarge = ts(13f, 18f, FontWeight.Medium),
+    labelMedium = ts(11.5f, 16f, FontWeight.Medium),
+    labelSmall = ts(10.5f, 14f, FontWeight.Medium),
+)
+
 @Composable
 fun MovieShellTheme(
     darkTheme: Boolean = true,
@@ -118,6 +161,8 @@ fun MovieShellTheme(
     ) {
         MaterialTheme(
             colorScheme = schemeOf(v4),
+            typography = V4Typography,
+            shapes = V4Shapes,
             content = content,
         )
     }

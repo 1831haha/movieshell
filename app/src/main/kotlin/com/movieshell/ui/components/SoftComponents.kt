@@ -167,7 +167,7 @@ fun AppButton(
     if (variant == AppButtonVariant.Ghost) {
         TextButton(
             onClick = onClick,
-            modifier = modifier.height(36.dp),
+            modifier = modifier.heightIn(min = 36.dp),
             enabled = enabled,
             shape = shape,
             colors = colors,
@@ -177,7 +177,7 @@ fun AppButton(
     } else {
         androidx.compose.material3.Button(
             onClick = onClick,
-            modifier = modifier.height(36.dp),
+            modifier = modifier.heightIn(min = 36.dp),
             enabled = enabled,
             shape = shape,
             colors = colors,
@@ -202,7 +202,7 @@ fun AppChip(
     val v = V4.c
     Box(
         modifier = modifier
-            .height(if (small) 26.dp else 28.dp)
+            .heightIn(min = if (small) 26.dp else 28.dp)
             .clip(RoundedCornerShape(V4.RPoster))
             .background(if (selected) v.accentA else v.s1)
             .clickable(onClick = onClick)
