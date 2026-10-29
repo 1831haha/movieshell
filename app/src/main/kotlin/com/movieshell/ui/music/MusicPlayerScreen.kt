@@ -34,6 +34,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Palette
@@ -105,6 +107,7 @@ import com.movieshell.data.repo.MusicSource
 import com.movieshell.data.repo.MusicSourceStore
 import com.movieshell.data.repo.MusicStore
 import com.movieshell.data.repo.MusicSettings
+import com.movieshell.player.MusicDownloader
 import com.movieshell.player.MusicPlayer
 import com.movieshell.player.MusicSleepTimer
 import com.movieshell.ui.components.StatusRing
@@ -171,6 +174,9 @@ fun MusicPlayerScreen(
     var showQueueDialog by remember { mutableStateOf(false) }
     val sleepRemaining by MusicSleepTimer.remainingMs.collectAsState()
     val sleepArmed by MusicSleepTimer.afterEpisodeArmed.collectAsState()
+    // v0.278.0：下载状态
+    val downloadingIds by MusicDownloader.downloading.collectAsState()
+    val downloadedIds by MusicDownloader.downloaded.collectAsState()
     // v0.248.0：减动效总开关——跟系统“移除动画”（动画时长缩放为 0）走，
     // 进页时读一次；开启动画全部停在静态，状态本身仍正常显示。
     val reducedMotion = rememberReducedMotion()
@@ -212,6 +218,7 @@ fun MusicPlayerScreen(
     LaunchedEffect(track?.id, track?.urlId, track?.source) {
         val t = track ?: return@LaunchedEffect
         isFav = MusicStore.isFav(context, t.id)
+        MusicDownloader.refreshDownloaded(context)
         lyricLoading = true
         lyrics = runCatching { MusicApi.lyric(t) }
             .onFailure { LogBus.w("MusicPlayer", "歌词拉取失败：${it.message}") }
@@ -570,6 +577,26 @@ fun MusicPlayerScreen(
                         tint = PlayerIconTint,
                         onClick = { showSourceDialog = true },
                     )
+                    // v0.278.0：下载——本地歌不显示；下载中/已下载只展示不点
+                    if (track != null && !track.isLocal) {
+                        val dlState = when {
+                            track.id in downloadingIds -> "下载中"
+                            track.id in downloadedIds -> "已下载"
+                            else -> "下载"
+                        }
+                        PlayerOpItem(
+                            icon = if (dlState == "已下载") Icons.Filled.DownloadDone
+                            else Icons.Filled.Download,
+                            label = dlState,
+                            tint = if (dlState == "已下载") MaterialTheme.colorScheme.primary
+                            else PlayerIconTint,
+                            onClick = if (dlState == "下载") {
+                                { MusicDownloader.download(context, track) }
+                            } else {
+                                null
+                            },
+                        )
+                    }
                     // 当前音质：App 无手动音质设置，只展示不点击
                     PlayerOpItem(
                         icon = Icons.Filled.Tune,

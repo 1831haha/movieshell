@@ -69,6 +69,7 @@ import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicSettings
+import com.movieshell.player.MusicDownloader
 import com.movieshell.player.MusicPlayer
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
@@ -88,6 +89,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -595,6 +598,9 @@ private fun OnlineTab(
     val playState by MusicPlayer.state.collectAsState()
     val badges by MusicPlayer.badges.collectAsState() // v0.117.0：来源/音质徽标
     var favIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // v0.278.0：下载状态（在线/收藏两页共用 MusicDownloader 的流）
+    val downloadingIds by MusicDownloader.downloading.collectAsState()
+    val downloadedIds by MusicDownloader.downloaded.collectAsState()
     // v0.128.0：榜单加载忙碌标记（原与歌单导入共用 importingPlaylist，导入上提后本页独立持有）
     var importingChart by remember { mutableStateOf(false) }
     // v0.84.0：加到歌单
@@ -604,6 +610,7 @@ private fun OnlineTab(
         favIds = withContext(Dispatchers.IO) {
             MusicStore.favList(context).map { it.id }.toSet()
         }
+        MusicDownloader.refreshDownloaded(context)
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -893,6 +900,9 @@ private fun OnlineTab(
                                 }
                             },
                             onPlaylistClick = { addToPlaylistTrack = track },
+                            onDownloadClick = { MusicDownloader.download(context, track) },
+                            isDownloaded = track.id in downloadedIds,
+                            isDownloading = track.id in downloadingIds,
                             onClick = { onPlayAt(idx) },
                         )
                     }
@@ -1149,6 +1159,8 @@ private fun LocalTab() {
                     deleteTrackTarget = null
                     // v0.213.0：删歌同步播放器，否则删掉的歌播完、上下首还能播到它。
                     if (ok) MusicPlayer.onTrackDeleted(context, t.id)
+                    // v0.278.0：下载歌顺带删文件（只删 music_downloads 里的，导入的歌不动）
+                    if (ok) MusicDownloader.deleteDownloadedFile(context, t)
                     reload()
                     if (!ok) {
                         AppToast.show(context, "删除失败：保存失败，请重试", long = false)
@@ -1172,6 +1184,9 @@ private fun FavTab() {
     var favsLoading by remember { mutableStateOf(true) }
     // v0.84.0：加到歌单
     var addToPlaylistTrack by remember { mutableStateOf<MusicApi.Track?>(null) }
+    // v0.278.0：下载状态
+    val downloadingIds by MusicDownloader.downloading.collectAsState()
+    val downloadedIds by MusicDownloader.downloaded.collectAsState()
 
     fun reload() {
         scope.launch {
@@ -1181,6 +1196,7 @@ private fun FavTab() {
         }
     }
     LaunchedEffect(Unit) { reload() }
+    LaunchedEffect(Unit) { MusicDownloader.refreshDownloaded(context) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (favsLoading) {
@@ -1221,6 +1237,9 @@ private fun FavTab() {
                             }
                         },
                         onPlaylistClick = { addToPlaylistTrack = track },
+                        onDownloadClick = { MusicDownloader.download(context, track) },
+                        isDownloaded = track.id in downloadedIds,
+                        isDownloading = track.id in downloadingIds,
                         onClick = { MusicPlayer.playList(context, favs, idx) },
                     )
                 }
@@ -1288,6 +1307,10 @@ internal fun TrackRow(
     onFavClick: (() -> Unit)? = null,
     onDeleteClick: (() -> Unit)? = null,
     onPlaylistClick: (() -> Unit)? = null, // v0.84.0：加到歌单
+    // v0.278.0：下载（在线歌才传，本地歌不传；已下载/下载中由调用方按状态传）
+    onDownloadClick: (() -> Unit)? = null,
+    isDownloaded: Boolean = false,
+    isDownloading: Boolean = false,
     onClick: () -> Unit,
 ) {
     // v0.89.0：封面走 picImageUrl 解析后的真实地址（接口包一层 {"url":...}）
@@ -1408,6 +1431,29 @@ internal fun TrackRow(
                         contentDescription = "加到歌单",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+            // v0.278.0：下载——在线歌才显示，本地歌不走这里
+            if (onDownloadClick != null && !track.isLocal) {
+                if (isDownloading) {
+                    IconButton(onClick = {}, enabled = false) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                } else {
+                    IconButton(
+                        onClick = onDownloadClick,
+                        enabled = !isDownloaded,
+                    ) {
+                        Icon(
+                            if (isDownloaded) Icons.Filled.DownloadDone else Icons.Filled.Download,
+                            contentDescription = if (isDownloaded) "已下载" else "下载",
+                            tint = if (isDownloaded) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             if (isCurrent) {

@@ -28,6 +28,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
@@ -635,23 +637,7 @@ object MusicPlayer {
             // v0.126.0：整条解析链按曲目自身平台走（LX 取档/解析/huibq/GD 兜底同口径）
             val platform = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
             val mediaDeferred = async {
-                if (track.isLocal) {
-                    Resolved(track.localUri, "本地文件", "")
-                } else {
-                    resolveLxUrl(context.applicationContext, track, forcedForThisPlay)
-                        ?: try {
-                            MusicApi.playUrl(track.urlId, platform).takeIf { it.isNotBlank() }
-                                ?.let { Resolved(it, "GD Studio", "") }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            LogBus.w("MusicPlayer", "取直链失败，重试一次：${track.name}（${e.message}）")
-                            delay(1500)
-                            runCatching { MusicApi.playUrl(track.urlId, platform) }.getOrNull()
-                                ?.takeIf { it.isNotBlank() }
-                                ?.let { Resolved(it, "GD Studio", "") }
-                        }
-                }
+                resolveOnlineUrl(context.applicationContext, track, forcedForThisPlay)
             }
             val artDeferred = async {
                 if (track.picId.isBlank()) "" else {
@@ -742,6 +728,42 @@ object MusicPlayer {
     private data class Resolved(val url: String, val source: String, val quality: String)
 
     /**
+     * v0.278.0：取播放地址单入口——本地歌直接给 localUri，在线歌走 LX 解析 +
+     * GD Studio 兜底（503 时 1.5 秒后重试一次），原来 playAt 内联的同一段逻辑，
+     * 下载复用它，不另写第二套解析链；silent 时不弹“LX 解析失败”那句，
+     * 调用方（下载）按最终成败自己提示，不让中间态的 toast 抢先。
+     */
+    private suspend fun resolveOnlineUrl(
+        appContext: Context,
+        track: MusicApi.Track,
+        forced: String?,
+        silent: Boolean = false,
+    ): Resolved? = resolveMutex.withLock {
+        if (track.isLocal) return@withLock Resolved(track.localUri, "本地文件", "")
+        val platform = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
+        resolveLxUrl(appContext, track, forced, silent)
+            ?: try {
+                MusicApi.playUrl(track.urlId, platform).takeIf { it.isNotBlank() }
+                    ?.let { Resolved(it, "GD Studio", "") }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                LogBus.w("MusicPlayer", "取直链失败，重试一次：${track.name}（${e.message}）")
+                delay(1500)
+                runCatching { MusicApi.playUrl(track.urlId, platform) }.getOrNull()
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { Resolved(it, "GD Studio", "") }
+            }
+    }
+
+    /** v0.278.0：播放与下载共用一条解析链，lastTrialOnly/lastLxFailures 是共享可变态，串行防串味。 */
+    private val resolveMutex = Mutex()
+
+    /** v0.278.0：下载用——只取直链，不碰播放态；Resolved 是私有类型，只对外给 url。 */
+    suspend fun resolvePlayUrl(context: Context, track: MusicApi.Track): String? =
+        resolveOnlineUrl(context.applicationContext, track, null, silent = true)?.url
+
+    /**
      * v0.100.0：按顺序尝试启用的 LX 音乐源。内置源走纯 HTTP（huibq 模板），用户添加的
      * 脚本 URL 走 LxMusicSourceEngine。
      * v0.106.0：按该源实际档次从高到低试——内置 huibq 用自报两档（192k→128k）；
@@ -766,6 +788,7 @@ object MusicPlayer {
         appContext: Context,
         track: MusicApi.Track,
         forced: String?,
+        silent: Boolean = false,
     ): Resolved? {
         val songId = track.urlId
         val platform = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
@@ -839,7 +862,7 @@ object MusicPlayer {
         // v0.215.0：本轮各源失败原因留给 playAt 最终提示用（Cookie 过期要指路到音源管理）。
         lastLxFailures = failures
         LogBus.w("MusicPlayer", "LX 源全部解析失败，回退 GD Studio：${failures.joinToString("；")}")
-        toast("LX 解析失败，已回退备用线路")
+        if (!silent) toast("LX 解析失败，已回退备用线路")
         return null
     }
 
