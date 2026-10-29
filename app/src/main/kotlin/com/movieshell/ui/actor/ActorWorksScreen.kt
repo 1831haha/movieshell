@@ -44,7 +44,9 @@ import com.movieshell.ui.search.buildSearchConfigJson
 import com.movieshell.ui.search.goDetail
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * v0.88.0：演员作品页。详情页点演员名进入，聚合搜索该演员的作品海报墙。
@@ -86,7 +88,8 @@ fun ActorWorksScreen(
             // 全失败判定会对不上 searchAll 实际跑的那批源。
             var targets: List<Site> = emptyList()
             val groups = runCatching {
-                repo.loadFromConfig(buildSearchConfigJson(context))
+                // v0.270.0（T27）：同搜索页，拼配置走 IO。
+                repo.loadFromConfig(withContext(Dispatchers.IO) { buildSearchConfigJson(context) })
                 targets = repo.searchTargetSites()
                 repo.searchAll(actorName)
             }.getOrNull()

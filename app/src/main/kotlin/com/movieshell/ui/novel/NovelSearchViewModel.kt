@@ -18,7 +18,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * v0.103.0：找书页状态容器（搜索页切后台中断修复）。
@@ -109,7 +111,10 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refreshHistory() {
-        _history.value = SearchHistoryStore.list(getApplication(), "novel")
+        // v0.270.0（T27）：同影视搜索，历史读盘走 IO。
+        viewModelScope.launch {
+            _history.value = withContext(Dispatchers.IO) { SearchHistoryStore.list(getApplication(), "novel") }
+        }
     }
 
     fun clearHistory() {

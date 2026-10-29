@@ -209,6 +209,10 @@ fun ReaderScreen(
     // v0.61.0：沉浸模式（点按正文切换顶底栏；195 恢复，194 的点击分区已撤掉）
     var immersive by remember { mutableStateOf(false) }
     var contentLoading by remember { mutableStateOf(false) }
+    // v0.270.0（T20）：正文拉取的 job 与世代号——原来每次 scope.launch 各管各，
+    // 旧章的 finally 会把新章的 contentLoading 提前灭掉；现在只认最新一单。
+    var contentJob by remember { mutableStateOf<Job?>(null) }
+    var contentLoadGen by remember { mutableIntStateOf(0) }
     // v0.109.0 A7：正文拉取失败给可见反馈——Toast + 正文区重试入口，不许静默空白页
     var contentLoadError by remember { mutableStateOf(false) }
     // v0.250.0：失败原因与错误态同进退，错误区标题与 Toast 用同一套短提示。
@@ -350,7 +354,12 @@ fun ReaderScreen(
         if ((!force && c.content.isNotBlank()) || c.url.isBlank()) return
         if (!force && failedChapters.containsKey(index)) return
         if (!loadingChapters.add(index)) return
-        scope.launch {
+        // v0.270.0（T20）：新一单先取消旧一单，世代号只认最新——旧单的
+        // finally / 错误态 / onSuccess 不再碰新单的状态。
+        contentJob?.cancel()
+        contentLoadGen += 1
+        val myGen = contentLoadGen
+        contentJob = scope.launch {
             try {
                 contentLoading = true
                 contentLoadError = false
@@ -360,6 +369,7 @@ fun ReaderScreen(
                 if (fail != null) {
                     // v0.250.0：任务已取消（用户已离开）时不置错误态、不弹 Toast。
                     if (!isActive) return@launch
+                    if (myGen != contentLoadGen) return@launch
                     failedChapters[index] = fail
                     contentLoadError = true
                     contentLoadReason = fail
@@ -371,10 +381,10 @@ fun ReaderScreen(
                     return@launch
                 }
                 failedChapters.remove(index)
-                onSuccess?.invoke()
+                if (myGen == contentLoadGen) onSuccess?.invoke()
             } finally {
                 loadingChapters.remove(index)
-                contentLoading = false
+                if (myGen == contentLoadGen) contentLoading = false
             }
         }
     }

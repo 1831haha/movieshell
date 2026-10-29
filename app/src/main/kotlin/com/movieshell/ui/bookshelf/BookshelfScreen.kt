@@ -202,11 +202,12 @@ fun BookshelfScreen(
     fun reload() {
         scope.launch {
             val all = withContext(Dispatchers.IO) { NovelStore.list(context) }
-            val pm = withContext(Dispatchers.IO) {
-                all.associate { novel ->
-                    novel.id to (ReadingProgressStore.load(context, novel.id)
-                        ?: ReadingProgress(novelId = novel.id))
-                }
+            // v0.270.0（T19）：进度一次读全表，不再逐本各读一遍文件——
+            // ReadingProgressStore.load() 内部本就是全表读，逐本调是 N 次全表解析；
+            // loadAll 的语义与逐本 load + 缺省值完全一致（缺进度给空进度）。
+            val allProgress = withContext(Dispatchers.IO) { ReadingProgressStore.loadAll(context) }
+            val pm = all.associate { novel ->
+                novel.id to (allProgress[novel.id] ?: ReadingProgress(novelId = novel.id))
             }
             val ups = withContext(Dispatchers.IO) { NovelUpdateStore.getAll(context) }
             val gs = withContext(Dispatchers.IO) { BookshelfGroupStore.list(context) }

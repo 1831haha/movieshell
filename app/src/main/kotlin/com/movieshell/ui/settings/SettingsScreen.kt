@@ -201,16 +201,24 @@ fun SettingsScreen(
             try {
                 val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
                 val file = File(StoragePaths.backupDir(context), "movieshell_backup_$ts.json")
-                val json = when (val r = BackupManager.exportJson(context)) {
-                    is BackupManager.ExportResult.Ok -> r.json
-                    is BackupManager.ExportResult.Failed -> {
-                        LogBus.e("Backup", "备份导出失败：${r.reason}")
-                        AppToast.show(context, "导出失败：${r.reason}", long = true)
-                        return@launch
+                // v0.270.0（T26）：导出拼 JSON 与原子写盘都在 IO 线程——原来
+                // scope.launch 是主线程，备份大时写盘（含 fsync）会卡界面。
+                var json = ""
+                var exportError: String? = null
+                withContext(Dispatchers.IO) {
+                    when (val r = BackupManager.exportJson(context)) {
+                        is BackupManager.ExportResult.Ok -> json = r.json
+                        is BackupManager.ExportResult.Failed -> exportError = r.reason
                     }
                 }
+                if (exportError != null) {
+                    LogBus.e("Backup", "备份导出失败：$exportError")
+                    AppToast.show(context, "导出失败：$exportError", long = true)
+                    return@launch
+                }
                 // v0.170.0：原子写盘，写盘失败如实报错，不谎报已导出
-                if (!AtomicFile.writeText(file, json)) {
+                val written = withContext(Dispatchers.IO) { AtomicFile.writeText(file, json) }
+                if (!written) {
                     LogBus.e("Backup", "备份导出失败：写盘失败")
                     AppToast.show(context, "导出失败：写盘失败", long = true)
                     return@launch
@@ -256,10 +264,13 @@ fun SettingsScreen(
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             try {
-                val text = context.contentResolver.openInputStream(uri)?.use { input ->
-                    input.readBytes().toString(Charsets.UTF_8)
+                // v0.270.0（T26）：读备份文件与恢复写盘都在 IO 线程，原来在主线程读字节。
+                val text = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        input.readBytes().toString(Charsets.UTF_8)
+                    }
                 } ?: return@launch
-                when (val r = BackupManager.importJson(context, text)) {
+                when (val r = withContext(Dispatchers.IO) { BackupManager.importJson(context, text) }) {
                     is BackupManager.RestoreResult.Ok ->
                         AppToast.show(context, "恢复成功", long = false)
                     is BackupManager.RestoreResult.Failed ->

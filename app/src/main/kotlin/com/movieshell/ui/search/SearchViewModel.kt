@@ -13,7 +13,9 @@ import com.movieshell.data.repo.SiteSearchResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * v0.103.0：影视聚合搜索状态容器（搜索页切后台中断修复）。
@@ -125,9 +127,12 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
         _query.value = ""
     }
 
-    /** 搜索历史：进入页面读一次，切回页面时刷新 */
+    /** 搜索历史：进入页面读一次，切回页面时刷新
+     * v0.270.0（T27）：历史文件读盘走 IO 线程，原来在主线程同步读。 */
     fun refreshHistory() {
-        _history.value = SearchHistoryStore.list(getApplication())
+        viewModelScope.launch {
+            _history.value = withContext(Dispatchers.IO) { SearchHistoryStore.list(getApplication()) }
+        }
     }
 
     fun clearHistory() {
@@ -178,8 +183,12 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
         }
         searchJob = viewModelScope.launch {
             try {
+                // v0.270.0（T27）：拼搜索配置（含订阅文件读、规则目录扫描）走 IO，
+                // 原来在主线程协程里同步拼，源多时卡搜索页。
                 repo.loadFromConfig(
-                    buildSearchConfigJson(getApplication(), _onlyCurrentSource.value),
+                    withContext(Dispatchers.IO) {
+                        buildSearchConfigJson(getApplication(), _onlyCurrentSource.value)
+                    },
                 )
                 // v0.192.0：左栏先列出本次目标站（配置原顺序），再开始流式跑。
                 _searchSites.value = repo.searchTargetSites()
