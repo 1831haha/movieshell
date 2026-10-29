@@ -519,7 +519,7 @@ fun DetailScreen(
                 title = if (noSource) "未启用任何源" else "详情加载失败",
                 hint = if (noSource) "请先回首页启用一个站源，再进详情" else "规则返回异常或网络超时",
                 actionText = if (noSource) "返回" else "重试",
-                onAction = if (noSource) onBack else { reloadDetail() },
+                onAction = { if (noSource) onBack() else reloadDetail() },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(inner),
