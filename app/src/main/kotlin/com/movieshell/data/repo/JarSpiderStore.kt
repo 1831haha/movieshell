@@ -113,10 +113,22 @@ object JarSpiderStore {
         val downloadUrl = urlPart(jarUrl)
         val expectMd5 = extractMd5(jarUrl)
         if (downloadUrl.isBlank()) return null
+        // S3：jar 是要进 DexClassLoader 的可执行代码，md5 也来自同一份订阅，
+        // 中间人能同时换 jar 和 md5，所以明文 http 下载一律拒绝，不靠 md5 兜底。
+        // 已缓存的旧 jar 不受影响（走 S2 的私有可信副本与摘要复验）。
+        if (downloadUrl.startsWith("http://", ignoreCase = true)) {
+            LogBus.e(TAG, "jar 明文下载已拒绝（请改用 https 订阅地址）：$downloadUrl")
+            return null
+        }
         return runCatching {
             val req = Request.Builder().url(downloadUrl)
                 .header("User-Agent", DEFAULT_UA_BARE).build()
             client.newCall(req).execute().use { resp ->
+                // S3：https 被重定向降级到 http 同样拒绝，防中间人借重定向换包。
+                if (resp.request.url.scheme.equals("http", ignoreCase = true)) {
+                    LogBus.e(TAG, "jar 下载被重定向到明文，已拒绝：$downloadUrl")
+                    return null
+                }
                 if (!resp.isSuccessful) {
                     LogBus.e(TAG, "jar 下载 HTTP ${resp.code}：$downloadUrl")
                     return null

@@ -385,7 +385,8 @@ object PluginMarket {
         var warn: String? = null
         try {
             progress?.onStage(InstallStage.Downloading, 0, plugin.size)
-            download(PluginStore.applyGithubProxy(plugin.url), tmp, progress, plugin.size)
+            val effectiveUrl = PluginStore.applyGithubProxy(plugin.url)
+            download(effectiveUrl, tmp, progress, plugin.size)
             progress?.onStage(InstallStage.Verifying, 0, 0)
             // S1 过渡态：md5 只作辅助校验，信任锚是包签名；签名无效
             // 拒绝安装，未签名或公钥未配置只警告（warn 返回给调用方弹提示）。
@@ -404,6 +405,17 @@ object PluginMarket {
                     "插件市场签名公钥未配置，插件 ${plugin.id} 未经签名校验"
                 PluginSignature.SignatureCheck.INVALID ->
                     throw IllegalStateException("插件 ${plugin.id} 签名校验失败，文件可能被篡改，已拒绝安装")
+            }
+            // S3：插件包是 native/DEX/可执行代码，明文下载时过渡态的警告不够——
+            // 中间人能同时换包和 md5，只有验过签名（签名防篡改，与传输无关）才放行；
+            // 未签名或公钥未配置的明文包一律拒绝，https 包才走上面的警告口径。
+            if (effectiveUrl.startsWith("http://", ignoreCase = true) &&
+                PluginSignature.checkPackageSignature(tmp, plugin.signature) !=
+                PluginSignature.SignatureCheck.VERIFIED
+            ) {
+                throw IllegalStateException(
+                    "插件 ${plugin.id} 明文下载且未验过签名，已拒绝安装：请改用 https 市场地址或等市场签名发布",
+                )
             }
             if (signatureWarn != null) {
                 LogBus.w(TAG, signatureWarn)
@@ -950,6 +962,13 @@ object PluginMarket {
         val req = Request.Builder().url(url).header("User-Agent", UA).build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("下载失败：HTTP ${resp.code}")
+            // S3：https 被重定向降级到 http 时中止，防中间人借重定向换包；
+            // 临时文件由调用方 install 的 finally 删掉，不会进入校验与安装。
+            if (url.startsWith("https://", ignoreCase = true) &&
+                resp.request.url.scheme.equals("http", ignoreCase = true)
+            ) {
+                throw IllegalStateException("插件下载被重定向到明文，已中止下载")
+            }
             val body = resp.body ?: throw IllegalStateException("下载内容为空")
             val total = totalHint.takeIf { it > 0 } ?: body.contentLength()
             // v0.186.0：下载截断（H14）。totalHint 即市场条目 plugin.size，本函数
