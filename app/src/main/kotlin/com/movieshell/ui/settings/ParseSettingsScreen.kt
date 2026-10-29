@@ -1,5 +1,6 @@
 package com.movieshell.ui.settings
 
+import com.movieshell.ui.theme.V4
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.safeDrawing
@@ -197,7 +198,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                                     true -> Icon(
                                         Icons.Filled.CheckCircle,
                                         contentDescription = "正常",
-                                        tint = Color(0xFF4CAF50),
+                                        tint = V4.c.ok,
                                         modifier = Modifier.size(20.dp),
                                     )
                                     false -> Icon(
