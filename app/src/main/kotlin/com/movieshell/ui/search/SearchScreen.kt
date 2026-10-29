@@ -1,5 +1,9 @@
 package com.movieshell.ui.search
 
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
+import com.movieshell.ui.components.v4BottomDivider
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -115,14 +119,15 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = SoftDimens.PagePadding, vertical = 12.dp),
+                .padding(horizontal = SoftDimens.PagePadding, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = { doSearch(query) }) {
                 Icon(
                     Icons.Filled.Search,
                     contentDescription = "搜索",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = V4.c.t2,
+                    modifier = Modifier.size(20.dp),
                 )
             }
             AppTextField(
@@ -135,7 +140,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
             )
             if (query.isNotEmpty()) {
                 IconButton(onClick = { vm.setQuery("") }) {
-                    Icon(Icons.Filled.Clear, contentDescription = "清空")
+                    Icon(Icons.Filled.Clear, contentDescription = "清空", tint = V4.c.t3, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -256,21 +261,22 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { vm.setQuery(h); doSearch(h) },
+                                .clickable { vm.setQuery(h); doSearch(h) }
+                                .v4BottomDivider(V4.c.div),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.History,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
+                                tint = V4.c.t3,
+                                modifier = Modifier.size(16.dp),
                             )
                             Spacer(Modifier.width(12.dp))
                             Text(
                                 text = h,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .padding(vertical = 10.dp),
+                                    .padding(vertical = 8.dp),
                                 style = SoftType.Body,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
@@ -281,7 +287,8 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                                 Icon(
                                     imageVector = Icons.Filled.Close,
                                     contentDescription = "删除",
-                                    modifier = Modifier.size(18.dp),
+                                    tint = V4.c.t3,
+                                    modifier = Modifier.size(16.dp),
                                 )
                             }
                         }
@@ -405,8 +412,8 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                             (if (searching) " · 还在搜…" else "") +
                             (skippedLabel?.let { " · $it" } ?: "") +
                             (failedLabel?.let { " · $it" } ?: ""),
-                        style = SoftType.Caption,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = V4Type.MonoMeta,
+                        color = V4.c.t3,
                         modifier = Modifier.weight(1f),
                     )
                     // v0.163.0：黑名单粘性问题的出口——点一下清掉黑名单、用当前词重搜
@@ -422,7 +429,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                         modifier = Modifier
                             .width(120.dp)
                             .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                            .background(V4.c.s1),
                     ) {
                         item(key = "left:all") {
                             LeftSourceItem(
@@ -448,7 +455,7 @@ fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
                         modifier = Modifier
                             .width(1.dp)
                             .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.outlineVariant),
+                            .background(V4.c.div),
                     )
                     // 右栏：双列视频网格；点中某个源时只放该源的片。
                     if (visibleGroups.isEmpty()) {
@@ -523,33 +530,40 @@ private fun LeftSourceItem(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    // v0.192.0：左栏单行——源名最多 2 行，状态一行；选中行用主色底区分，
-    // 不加粗、不放大，窄栏里不抢右栏海报的视觉。
-    Column(
+    // v0.192.0：左栏单行——源名最多 2 行，状态一行。
+    // v0.280.0 V4：选中行 s3 底 + 左侧 2dp 强调色竖条、源名强调色；状态用等宽 t3。
+    val v = V4.c
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                if (selected) MaterialTheme.colorScheme.primaryContainer
-                else androidx.compose.ui.graphics.Color.Transparent,
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .height(IntrinsicSize.Min)
+            .background(if (selected) v.s3 else androidx.compose.ui.graphics.Color.Transparent)
+            .clickable(onClick = onClick),
     ) {
-        Text(
-            text = name,
-            style = SoftType.Body,
-            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-            else MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .fillMaxHeight()
+                .background(if (selected) v.accent else androidx.compose.ui.graphics.Color.Transparent),
         )
-        Text(
-            text = status,
-            style = SoftType.Caption,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp)) {
+            Text(
+                text = name,
+                fontSize = 12.5.sp,
+                fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.SemiBold
+                else androidx.compose.ui.text.font.FontWeight.Normal,
+                color = if (selected) v.accent else v.t1,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = status,
+                style = V4Type.MonoSmall,
+                color = v.t3,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -562,16 +576,16 @@ private fun SectionHeader(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(18.dp),
+            tint = V4.c.t2,
+            modifier = Modifier.size(15.dp),
         )
         Spacer(Modifier.width(6.dp))
         Text(
             text = title,
-            style = SoftType.CardTitle,
-            color = MaterialTheme.colorScheme.onSurface,
+            style = V4Type.Section,
+            color = V4.c.t1,
         )
     }
-    Spacer(Modifier.height(10.dp))
+    Spacer(Modifier.height(4.dp))
 }
 

@@ -1,5 +1,9 @@
 package com.movieshell.ui.download
 
+import com.movieshell.ui.theme.V4
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
@@ -377,10 +381,11 @@ private fun TaskCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    Spacer(Modifier.height(2.dp))
                     Text(
                         text = statusText(task),
-                        style = SoftType.Caption,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        color = if (task.status == DlStatus.FAILED) V4.c.live else V4.c.t3,
                     )
                 }
                 if (onPlay != null) {
@@ -388,7 +393,7 @@ private fun TaskCard(
                         onClick = onPlay,
                         modifier = Modifier.size(SoftDimens.TouchTarget),
                     ) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = "播放")
+                        Icon(Icons.Filled.PlayArrow, contentDescription = "播放", tint = V4.c.t2)
                     }
                 }
                 if (onPreview != null && task.status != DlStatus.DONE && task.progress >= 0.3f) {
@@ -407,6 +412,7 @@ private fun TaskCard(
                             if (task.status == DlStatus.DOWNLOADING || task.status == DlStatus.QUEUED)
                                 Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = "暂停/继续",
+                            tint = V4.c.t2,
                         )
                     }
                 }
@@ -417,7 +423,7 @@ private fun TaskCard(
                     Icon(
                         Icons.Filled.Delete,
                         contentDescription = "删除",
-                        tint = MaterialTheme.colorScheme.error,
+                        tint = V4.c.t3,
                     )
                 }
             }
@@ -427,9 +433,10 @@ private fun TaskCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
-                        .height(6.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = V4.c.accent,
+                    trackColor = V4.c.s3,
                 )
             }
         }

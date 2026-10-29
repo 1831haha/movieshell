@@ -110,8 +110,9 @@ fun FollowScreen(
                 columns = GridCells.Fixed(3),
                 modifier = Modifier.fillMaxSize().padding(inner),
                 contentPadding = PaddingValues(SoftDimens.PagePadding),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                // v0.280.0 V4：海报墙 8/12 间距，与首页一致
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(items, key = { it.id }) { item ->
                     FollowCard(

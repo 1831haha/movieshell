@@ -1,5 +1,11 @@
 package com.movieshell.ui.sources
 
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
+import com.movieshell.ui.components.V4TopTabs
+import com.movieshell.ui.components.V4Tag
+import com.movieshell.ui.components.V4TagKind
+import androidx.compose.foundation.border
 import android.content.Context
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.AppSwitch
@@ -1019,7 +1025,7 @@ fun SourcesScreen(
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -1211,7 +1217,7 @@ fun SourcesScreen(
         }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             // v0.141.0：卡片缩成单行后行距同步收紧
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -1311,7 +1317,7 @@ fun SourcesScreen(
         val unsupported = records.count { it.status == "UNSUPPORTED" }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item {
@@ -1395,7 +1401,7 @@ fun SourcesScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedTextField(
@@ -1421,7 +1427,7 @@ fun SourcesScreen(
                         }
                     },
                     singleLine = true,
-                    shape = RoundedCornerShape(50),
+                    shape = RoundedCornerShape(8.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color.Transparent,
                         unfocusedBorderColor = Color.Transparent,
@@ -1430,16 +1436,19 @@ fun SourcesScreen(
                     ),
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(V4.c.s1),
+                    textStyle = MaterialTheme.typography.bodyMedium,
                 )
             }
         }
-        CapsuleTabBar(
+        // v0.280.0 V4：四个子页签改 V4 文字页签（强调色下划线 + 通栏分隔线）
+        V4TopTabs(
             titles = listOf("订阅源", "本地源", "批量检测", "回收站"),
             selected = subTab,
             onSelect = { subTab = it },
         )
+        Spacer(Modifier.height(6.dp))
         when (subTab) {
             0 -> SubscriptionTab()
             1 -> LocalTab()
@@ -1464,7 +1473,7 @@ fun SourcesScreen(
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 )
                 val file = previewKindDir(context, item.kind)?.let { File(it, item.fileName) }
                 MenuRow(Icons.Filled.Visibility, "文件预览") {
@@ -1784,23 +1793,13 @@ private fun FileCard(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-            ) {
-                Text(
-                    text = badgeLabel,
-                    color = MaterialTheme.colorScheme.primary,
-                    style = SoftType.Caption,
-                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                )
-            }
+            V4Tag(badgeLabel, V4TagKind.Accent)
             if (item.isPinned) {
                 Spacer(Modifier.width(4.dp))
                 Icon(
                     imageVector = Icons.Filled.PushPin,
                     contentDescription = "已置顶",
-                    tint = MaterialTheme.colorScheme.tertiary,
+                    tint = V4.c.vip,
                     modifier = Modifier.size(14.dp),
                 )
             }
@@ -1847,16 +1846,16 @@ private fun MenuRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = tint,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(18.dp),
         )
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(12.dp))
         Text(
             text = label,
             style = SoftType.Body,
@@ -1879,23 +1878,21 @@ private fun timeAgo(ts: Long): String {
 
 @Composable
 private fun KindBadge(kind: String) {    val (label, color) = when (kind) {
-        SubSiteStore.KIND_CMS -> "CMS" to MaterialTheme.colorScheme.primary
-        SubSiteStore.KIND_DRPY -> "drpy" to MaterialTheme.colorScheme.tertiary
-        SubSiteStore.KIND_PY -> "PY" to MaterialTheme.colorScheme.secondary
-        SubSiteStore.KIND_TYPE4 -> "PHP" to MaterialTheme.colorScheme.tertiary
-        SubSiteStore.KIND_SPIDER -> "spider" to MaterialTheme.colorScheme.secondary
-        else -> "不支持" to MaterialTheme.colorScheme.error
+        SubSiteStore.KIND_CMS -> "CMS" to V4.c.accent
+        SubSiteStore.KIND_DRPY -> "drpy" to V4.c.ok
+        SubSiteStore.KIND_PY -> "PY" to V4.c.vip
+        SubSiteStore.KIND_TYPE4 -> "PHP" to V4.c.ok
+        SubSiteStore.KIND_SPIDER -> "spider" to V4.c.vip
+        else -> "不支持" to V4.c.live
     }
-    Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = color.copy(alpha = 0.14f),
+    // v0.280.0 V4：等宽小标签（3dp 圆角、着色底）
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(V4.RTag))
+            .background(color.copy(alpha = 0.14f))
+            .padding(horizontal = 4.dp, vertical = 1.dp),
     ) {
-        Text(
-            text = label,
-            color = color,
-            style = SoftType.Caption,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-        )
+        Text(text = label, color = color, style = V4Type.Tag, maxLines = 1)
     }
 }
 
@@ -2009,14 +2006,12 @@ private fun RainbowRingCard(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
+    // v0.280.0 V4：渐变描边改 1px 强调色细描边（V4 不用渐变），仍标示“当前订阅”
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Brush.linearGradient(LocalBrandGradient.current),
-                RoundedCornerShape(SoftDimens.CardCorner),
-            )
-            .padding(1.5.dp)
+            .border(1.dp, V4.c.accent.copy(alpha = 0.7f), RoundedCornerShape(SoftDimens.CardCorner))
+            .padding(1.dp)
             .clip(RoundedCornerShape(SoftDimens.CardCorner)),
     ) {
         AppCard(modifier = Modifier.fillMaxWidth(), onClick = onClick, content = content)

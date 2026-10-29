@@ -1,5 +1,8 @@
 package com.movieshell.ui.trash
 
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
+import com.movieshell.ui.components.v4BottomDivider
 import androidx.compose.foundation.layout.Arrangement
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.layout.Box
@@ -185,13 +188,14 @@ private fun TrashContent(
             )
         }
         items(items, key = { it.id }) { item ->
-            AppCard(
+            // v0.280.0 V4：平铺行 + 底部 1px 分隔线
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .v4BottomDivider(V4.c.div),
             ) {
                 Row(
-                    modifier = Modifier.padding(SoftDimens.CardSpacing),
+                    modifier = Modifier.padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -205,8 +209,8 @@ private fun TrashContent(
                         Spacer(Modifier.height(2.dp))
                         Text(
                             text = "${kindLabel(item.kind)} · 删除于 ${timeFmt.format(Date(item.deletedAt))}",
-                            style = SoftType.Caption,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = V4Type.MonoMeta,
+                            color = V4.c.t3,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -226,7 +230,7 @@ private fun TrashContent(
                     IconButton(onClick = { onDelete(item) }) {
                         Icon(
                             Icons.Filled.DeleteForever, contentDescription = "彻底删除",
-                            tint = MaterialTheme.colorScheme.error,
+                            tint = V4.c.live,
                         )
                     }
                 }

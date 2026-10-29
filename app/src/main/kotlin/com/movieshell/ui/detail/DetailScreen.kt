@@ -1,5 +1,10 @@
 package com.movieshell.ui.detail
 
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
+import com.movieshell.ui.components.V4Divider
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -590,7 +595,7 @@ fun DetailScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 12.dp),
-                            shape = RoundedCornerShape(20.dp),
+                            shape = RoundedCornerShape(12.dp),
                         ) {
                             Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
                                 // v0.156.0：卡片重排——海报单独放左列，下面一排小图标；
@@ -629,14 +634,14 @@ fun DetailScreen(
                                                 Icon(
                                                     imageVector = Icons.Filled.Star,
                                                     contentDescription = null,
-                                                    tint = LocalSoftExtra.current.warning,
+                                                    tint = V4.c.vip,
                                                     modifier = Modifier.size(13.dp),
                                                 )
                                                 Spacer(Modifier.width(3.dp))
                                                 Text(
                                                     text = detail?.vodRemarks.orEmpty(),
                                                     style = SoftType.Caption,
-                                                    color = LocalSoftExtra.current.warning,
+                                                    color = V4.c.vip,
                                                     maxLines = 1,
                                                 )
                                             }
@@ -656,8 +661,8 @@ fun DetailScreen(
                                             if (playLines.isNotEmpty()) {
                                                 Spacer(Modifier.width(8.dp))
                                                 Surface(
-                                                    shape = RoundedCornerShape(12.dp),
-                                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = V4.c.accentA,
                                                 ) {
                                                     Row(
                                                         verticalAlignment = Alignment.CenterVertically,
@@ -669,14 +674,14 @@ fun DetailScreen(
                                                         Text(
                                                             text = playLines[safeLine].name,
                                                             style = SoftType.Caption,
-                                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                            color = V4.c.accent,
                                                             maxLines = 1,
                                                         )
                                                         Spacer(Modifier.width(3.dp))
                                                         Icon(
                                                             Icons.Filled.SwapHoriz,
                                                             contentDescription = "切换源",
-                                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                            tint = V4.c.accent,
                                                             modifier = Modifier.size(13.dp),
                                                         )
                                                     }
@@ -757,10 +762,23 @@ fun DetailScreen(
                             if (playLines.size > 1) {
                                 item {
                                     // v0.86.0："1/8"集数徽标去掉（多余且用户嫌丑；集数信息由"选集（共N集）"+高亮集承担）
+                                    // v0.280.0 V4：线路页签平底 + 强调色 2dp 下划线 + 1px 分隔线
                                     ScrollableTabRow(
                                         selectedTabIndex = safeLine,
                                         edgePadding = SoftDimens.PagePadding,
                                         modifier = Modifier.fillMaxWidth(),
+                                        containerColor = V4.c.bg,
+                                        contentColor = V4.c.t1,
+                                        indicator = { positions ->
+                                            if (safeLine < positions.size) {
+                                                TabRowDefaults.SecondaryIndicator(
+                                                    modifier = Modifier.tabIndicatorOffset(positions[safeLine]),
+                                                    height = 2.dp,
+                                                    color = V4.c.accent,
+                                                )
+                                            }
+                                        },
+                                        divider = { V4Divider() },
                                     ) {
                                         playLines.forEachIndexed { i, line ->
                                             Tab(
@@ -769,7 +787,15 @@ fun DetailScreen(
                                                     selectedLine = i
                                                     selectedEpisode = 0
                                                 },
-                                                text = { Text(line.name) },
+                                                selectedContentColor = V4.c.t1,
+                                                unselectedContentColor = V4.c.t2,
+                                                text = {
+                                                    Text(
+                                                        line.name,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (safeLine == i) FontWeight.SemiBold else FontWeight.Normal,
+                                                    )
+                                                },
                                             )
                                         }
                                     }
@@ -928,7 +954,7 @@ fun DetailScreen(
                                 if (mini) {
                                     Modifier
                                         .align(Alignment.BottomEnd)
-                                        .padding(16.dp)
+                                        .padding(12.dp)
                                         .width(200.dp)
                                 } else if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
                                     // v0.264.0：嵌入点播原地切屏的容器——横屏时不再套 16:9 +
@@ -1304,11 +1330,11 @@ private fun MetaChip(text: String) {
         text = text,
         modifier = Modifier
             .padding(end = 8.dp)
-            .clip(RoundedCornerShape(SoftDimens.ChipCorner))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        style = SoftType.Caption,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            .clip(RoundedCornerShape(V4.RSm))
+            .background(V4.c.s2)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        style = V4Type.MonoMeta,
+        color = V4.c.t2,
     )
 }
 

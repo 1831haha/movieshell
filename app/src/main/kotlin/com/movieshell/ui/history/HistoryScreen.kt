@@ -1,5 +1,10 @@
 package com.movieshell.ui.history
 
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
+import com.movieshell.ui.components.V4Tag
+import com.movieshell.ui.components.V4TagKind
+import com.movieshell.ui.components.v4BottomDivider
 import androidx.compose.foundation.ExperimentalFoundationApi
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.background
@@ -209,7 +214,7 @@ fun HistoryScreen(
                                     horizontal = SoftDimens.PagePadding,
                                     vertical = 4.dp,
                                 )
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -233,11 +238,13 @@ fun HistoryScreen(
                     item(key = "d:$day") {
                         Text(
                             text = dayLabel(list.first().timestamp),
-                            style = SoftType.CardTitle,
-                            color = MaterialTheme.colorScheme.primary,
+                            style = V4Type.Section,
+                            color = V4.c.t2,
                             modifier = Modifier.padding(
-                                horizontal = SoftDimens.PagePadding,
-                                vertical = 8.dp,
+                                start = SoftDimens.PagePadding,
+                                end = SoftDimens.PagePadding,
+                                top = 12.dp,
+                                bottom = 4.dp,
                             ),
                         )
                     }
@@ -308,55 +315,45 @@ private fun HistoryRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
-    AppCard(
+    // v0.280.0 V4：卡片改平铺行（底部 1px 分隔线），直播用 V4 直播标签，时间等宽。
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = SoftDimens.PagePadding, vertical = 4.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .v4BottomDivider(V4.c.div)
+            .padding(start = SoftDimens.PagePadding, end = 4.dp, top = 8.dp, bottom = 8.dp),
     ) {
         Row(
-            modifier = Modifier.padding(SoftDimens.CardSpacing),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (entry.kind == "live") {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(MaterialTheme.colorScheme.errorContainer)
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                        ) {
-                            Text(
-                                "直播",
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                style = SoftType.Caption,
-                            )
-                        }
+                        V4Tag("直播", V4TagKind.Live)
                         Spacer(Modifier.width(6.dp))
                     }
                     Text(
                         text = entry.title.ifBlank { "未知标题" },
-                        style = SoftType.CardTitle,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 13.sp,
+                        color = V4.c.t1,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
                 }
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = timeFmt.format(Date(entry.timestamp)),
-                        style = SoftType.Caption,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = V4Type.MonoMeta,
+                        color = V4.c.t3,
                     )
                     progressText(entry)?.let { pt ->
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = pt,
-                            style = SoftType.Caption,
-                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 11.sp,
+                            color = V4.c.accent,
                         )
                     }
                 }
@@ -364,8 +361,8 @@ private fun HistoryRow(
             IconButton(onClick = onLongClick) {
                 Icon(
                     Icons.Filled.Delete, contentDescription = "删除",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
+                    tint = V4.c.t3,
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
