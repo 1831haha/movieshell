@@ -314,7 +314,6 @@ fun HomeScreen(
     // ---- drpy / PY 规则接入（drpy 优先，PY 兜底） ----
     // v0.53.0：drpyActive/drpyLoading/drpyCats/drpyList 已搬进 HomeViewModel（见上）。
     var drpyActive by rememberSaveable { mutableStateOf(false) }
-    var homeError by remember { mutableStateOf<String?>(null) } // v0.25.0：加载失败文案
     var phpHomeError by remember { mutableStateOf<String?>(null) } // v0.152.0：PHP 首页失败原因，透出到推荐空态
     var catsFailed by remember { mutableStateOf(false) } // v0.29.0：分类失败且为空，给重试入口
     var recommendStale by remember { mutableStateOf(false) } // v0.50.0：展示的是过期缓存/3s降级，顶部小字提示
@@ -768,9 +767,8 @@ fun HomeScreen(
         if (payload != null) phpHomeError = payload.phpError
         if (payload == null) {
             // v0.53.0：prevVods 非空（currentVideos 恒不为 null），空列表=无数据
-            // v0.106.0：homeError 从未被 UI 渲染，改走 recommendEmpty 的重试空态
+            // v0.106.0：失败改走 recommendEmpty 的重试空态
             if (prevVods.isEmpty()) {
-                homeError = "加载失败，点击重试"
                 recommendEmpty = true
             }
             return
@@ -807,9 +805,8 @@ fun HomeScreen(
         // v0.58 补：c9d2ad8 删掉了 val cats = payload.cats.ifEmpty { prevCats } 却漏改了这一行，
         // 导致 CI 编译失败 Unresolved reference 'cats'。语义=分类失败且当前无任何分类可展示。
         catsFailed = payload.catsFailed && vm.categories.value.isEmpty()
-        homeError = if (vm.currentVideos.value.isEmpty()) "加载失败，点击重试" else null
         // v0.106.0：25s 熔断/网络失败且无数据可展示时，给可见的"加载超时，点重试"入口
-        //（之前只设 homeError，但它从未被渲染，用户看到的是白屏）
+        // v0.274.0（T6）：删掉从未被 UI 渲染的 homeError，失败态只走 recommendEmpty/分类内联重试。
         // v0.145.0：只在推荐流视图（选中 0）才给推荐空态；在分类视图失败走分类内联重试。
         if (payload.vods == null && vm.currentVideos.value.isEmpty() && vm.selectedCategoryId.value == "") recommendEmpty = true
     }
@@ -821,7 +818,7 @@ fun HomeScreen(
      * - 推荐/分类各走独立 slot（PySourceManager.homeSlot/categoriesSlot），互不取消；
      * - 单路 12 秒熔断（withTimeoutOrNull），超时/异常记 LogBus；
      * - 网络与引擎调用全在 IO 线程，不阻塞主线程；
-     * - 全失败且无缓存 → 错误态（homeError），UI 给重试按钮。
+     * - 全失败且无缓存 → 推荐空态，UI 给重试按钮。
      *
      * v0.31.0：单飞锁系统性修复失败风暴——
      * - 同一数据源 key 同时只允许一次在途请求（HomeLoadGate），后到的 await 同一个
@@ -849,11 +846,10 @@ fun HomeScreen(
         // 一定读 VM 的真值，不要读 drpyList——drpyList 是上次组合的快照：换源时
         // refreshDrpyState 已同步清掉 VM（clearDisplay），但组合还没重组，快照里还是旧源内容；
         // 新源一旦返回空/失败，最终 apply 就会把旧源内容"复活"回首页，造成"换了源内容没换"
-        // 且无任何失败提示（旧内容非空，homeError/recommendEmpty 全不触发、状态环还是绿灯）。
+        // 且无任何失败提示（旧内容非空，recommendEmpty 全不触发、状态环还是绿灯）。
         // 同源下拉刷新时 VM 真值就是本源内容，失败保留展示的语义不变。
         val prevVods = vm.currentVideos.value
         vm.setLoading(true)
-        homeError = null
         phpHomeError = null
         recommendStale = false
         recommendEmpty = false
@@ -993,7 +989,6 @@ fun HomeScreen(
             // v0.218.0（S1）：换源清空走 VM 单一入口，不再由调用方调齐 5 个方法。
             vm.clearForSourceSwitch()
             setFilters(emptyMap())
-            homeError = null
             // v0.31.0：失败计数按数据源 key 记在 HomeLoadGate 单例里，切源自然用新 key 的计数，无需手动清零
             catsFailed = false
             // v0.217.0（F5）：同一源禁用再启用时，key 没变故 switched 为假，

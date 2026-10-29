@@ -30,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
@@ -301,8 +302,11 @@ class MainActivity : ComponentActivity() {
                 themeColor = Color(themeColorInt),
             ) {
                 // v0.7.2：存储权限引导（无权限时文件走私有回退目录，App 照常用）
-                var showPermDialog by remember { mutableStateOf(!StoragePaths.hasAccess(this@MainActivity)) }
-                if (showPermDialog) {
+                // v0.274.0（T42）：弹窗状态改 rememberSaveable——原来转屏后
+                // remember 重置，跳过一次的弹窗又弹出来；已授权时也不弹，
+                // 防“授权后回 App、恢复的旧状态又把弹窗顶出来”。
+                var showPermDialog by rememberSaveable { mutableStateOf(!StoragePaths.hasAccess(this@MainActivity)) }
+                if (showPermDialog && !StoragePaths.hasAccess(this@MainActivity)) {
                     TechDialog(
                         onDismissRequest = {
                             showPermDialog = false

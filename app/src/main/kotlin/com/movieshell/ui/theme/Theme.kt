@@ -37,6 +37,10 @@ val LocalBrandGradient = compositionLocalOf { BrandGradientColors }
 private fun darkScheme(primary: Color) = darkColorScheme(
     primary = primary,
     onPrimary = if (primary.luminance() > 0.5f) Color(0xFF1A1408) else Color.White,
+    // v0.274.0（T41）：primaryContainer 按 primary 派生——原来没定义，
+    // 走 Material 默认紫，搜索左栏选中、日志球、书详情弹窗都跟着发紫。
+    primaryContainer = lerp(primary, Color(0xFF050508), 0.75f),
+    onPrimaryContainer = primary,
     secondary = lerp(primary, Color.White, 0.3f),
     background = Color(0xFF050508),
     surface = Color(0xFF14141B),
@@ -58,6 +62,10 @@ private fun darkScheme(primary: Color) = darkColorScheme(
 private fun lightScheme() = lightColorScheme(
     primary = Color(0xFF1E88E5),
     onPrimary = Color.White,
+    // v0.274.0（T41）：同深色——浅色下 primaryContainer 按参考蓝派生浅色底，
+    // 不再走 Material 默认紫。
+    primaryContainer = lerp(Color(0xFF1E88E5), Color.White, 0.85f),
+    onPrimaryContainer = Color(0xFF0D47A1),
     secondary = Color(0xFF42A5F5),
     background = Color(0xFFFFFFFF),
     surface = Color(0xFFFFFFFF),

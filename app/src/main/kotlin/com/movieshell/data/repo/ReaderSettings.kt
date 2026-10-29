@@ -59,7 +59,10 @@ object ReaderSettings {
                 p.getInt(KEY_FONT_FAMILY, 1).coerceIn(0, 7)
             } else if (p.getBoolean(KEY_SERIF, false)) 2 else 1,
             lineHeightRatio = p.getFloat(KEY_LINE_RATIO, 1.8f).coerceIn(1.2f, 2.4f),
-            brightness = p.getFloat(KEY_BRIGHTNESS, -1f),
+            // v0.274.0（T21）：亮度读档也钳制到 [-1f, 1f]——-1=跟随系统，
+            // 0~1=手动亮度；旧档脏数据（如 >1）原来原样写进 Window，
+            // 同文件其他项早就有 coerceIn，唯独亮度漏了。
+            brightness = p.getFloat(KEY_BRIGHTNESS, -1f).coerceIn(-1f, 1f),
             volumePageTurn = p.getBoolean(KEY_VOLUME_PAGE, true),
             bgTheme = bgTheme,
             pageMode = p.getInt(KEY_PAGE_MODE, 1).coerceIn(0, 2),
