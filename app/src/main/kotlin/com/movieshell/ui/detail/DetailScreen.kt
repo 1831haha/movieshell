@@ -183,7 +183,11 @@ fun DetailScreen(
         DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule() ||
             PhpSourceManager.activeRuleName() != null
     }
-    var detailLoading by remember { mutableStateOf(false) }
+    // v0.267.0（T7）：原来 detailLoading 初始 false，首帧
+    // detail==null 先落入失败分支，LaunchedEffect 调 reloadDetail
+    // 置 true 后才变骨架，首帧先闪一下失败；进页即加载，初始
+    // 直接置 true，失败只在请求回来后才出现。
+    var detailLoading by remember { mutableStateOf(true) }
     var detail by remember { mutableStateOf<VodDetail?>(null) }
     // v0.27.6：抽成函数，失败态的"重试"按钮可复用
     // v0.47.0：20 秒超时——规则 hang 住时不再无限骨架屏，转失败态可重试
@@ -504,14 +508,18 @@ fun DetailScreen(
                 )
             }
         } else if (detail == null) {
+            // v0.267.0（T8）：无源时 reloadDetail 返回 null，原来
+            // 落入同一通用失败态；无源单独给文案，按钮回首页选源，
+            // 不再让用户对着“重试”空点——重试也还是无源。
             // v0.27.6：详情加载失败。不再回退 DemoData 假数据（曾冒出"星海追光者"），给真失败态 + 重试
+            val noSource = subSite == null && !drpyActive
             EmptyState(
                 kind = EmptyKind.Error,
                 icon = Icons.Filled.ErrorOutline,
-                title = "详情加载失败",
-                hint = "规则返回异常或网络超时",
-                actionText = "重试",
-                onAction = { reloadDetail() },
+                title = if (noSource) "未启用任何源" else "详情加载失败",
+                hint = if (noSource) "请先回首页启用一个站源，再进详情" else "规则返回异常或网络超时",
+                actionText = if (noSource) "返回" else "重试",
+                onAction = if (noSource) onBack else { reloadDetail() },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(inner),

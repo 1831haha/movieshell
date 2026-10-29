@@ -832,7 +832,13 @@ fun HomeScreen(
      * 实例维度的，多个实例各自计数、各自触发，退避形同虚设，已删除。）
      */
     fun loadHome(force: Boolean = false, onDone: () -> Unit = {}, keepSelection: Boolean = false) {
-        val key = homeCacheKey() ?: return
+        // v0.267.0（T4）：无源 key 为空时原来直接 return 不调 onDone，
+        // 下拉刷新的指示条没人收；所有提前返回路都必须调 onDone。
+        val key = homeCacheKey()
+        if (key == null) {
+            onDone()
+            return
+        }
         // v0.50.0：新触发取消旧的退避重调度
         HomeLoadGate.clearBackoff(key)
         // v0.31.2：世代+1——首页加载和分类加载互斥，后发起的赢；同时取消分类在途请求
@@ -1019,6 +1025,10 @@ fun HomeScreen(
         scope.launch {
             val cached = withContext(Dispatchers.IO) { HomeCache.load(context, key) }
             if (!vm.needRefreshOnReturn()) return@launch // 恢复期间用户已操作，不覆盖
+            // v0.267.0（T1）：恢复路径原来只取 cached?.data，不置
+            // recommendStale，过期缓存恢复后也不显示“旧内容”提示；
+            // 正常加载路径会按新鲜度置，这里同样按 vodsFresh 置。
+            val vodsFresh = cached?.vodsFresh ?: true
             val data = cached?.data
             if (data != null && (data.vods.isNotEmpty() || data.cats.isNotEmpty())) {
                 if (data.cats.isNotEmpty()) vm.setCategories(data.cats)
@@ -1034,12 +1044,18 @@ fun HomeScreen(
                     LogBus.i("Home", "返回首页：恢复分类 ${vm.categories.value[curPos - 1].typeName}")
                     loadDrpyCategory(curPos, filterMap)
                 } else if (curSel == "") {
-                    if (data.vods.isNotEmpty()) vm.setRecommend(data.vods)
+                    if (data.vods.isNotEmpty()) {
+                        vm.setRecommend(data.vods)
+                        recommendStale = !vodsFresh
+                    }
                 } else if (data.cats.isNotEmpty()) {
                     // 原选分类已不在列表里，退回第一个分类
                     loadDrpyCategory(1)
                 } else {
-                    if (data.vods.isNotEmpty()) vm.setRecommend(data.vods)
+                    if (data.vods.isNotEmpty()) {
+                        vm.setRecommend(data.vods)
+                        recommendStale = !vodsFresh
+                    }
                 }
                 LogBus.i("Home", "返回首页：缓存恢复 ${data.vods.size} 条/${data.cats.size} 个分类")
             }

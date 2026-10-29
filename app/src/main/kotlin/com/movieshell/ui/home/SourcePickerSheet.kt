@@ -415,7 +415,10 @@ fun SourcePickerSheet(
             )
             Spacer(Modifier.padding(4.dp))
             Text(
-                text = if (loading) "加载中…" else "共 ${visible.size} 个源",
+                // v0.267.0（T5）：原来标题用过滤后的 visible.size，搜
+                // 索/筛选后总数就变了；标题一律显示总数 items.size，
+                // 筛选后另注已筛选数，不再拿筛选数冒充总数。
+                text = if (loading) "加载中…" else if (visible.size == items.size) "共 ${items.size} 个源" else "共 ${items.size} 个源，已筛选 ${visible.size} 个",
                 style = SoftType.Caption,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
