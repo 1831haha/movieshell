@@ -1397,6 +1397,16 @@ private fun MusicSleepTimerDialog(
         title = "定时关闭",
     ) {
             Column(modifier = Modifier.fillMaxWidth()) {
+                // v0.268.0（T14）：startMinutes 与 armAfterEpisode 首行
+                // 都是 cancel()，两者互斥、选新的会取消旧的；原来菜单
+                // 没有任何说明，用户以为能叠加。只改文案说明互斥，
+                // 不改互斥语义（同 lane 的视频定时也一样，见下）。
+                Text(
+                    text = "定时和播完本首只能二选一，选新的会取消旧的",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 listOf(15, 30, 60, 90).forEach { m ->
                     TextButton(
                         onClick = { onPickMinutes(m) },

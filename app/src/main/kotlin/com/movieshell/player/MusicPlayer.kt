@@ -856,7 +856,14 @@ object MusicPlayer {
         val ctx = appCtx ?: return
         if (_state.value.track == null) return
         toast("正在重连…")
-        withController(ctx) { if (it.isPlaying) it.pause() else it.play() }
+        // v0.268.0（T13）：重连分支原来只播/停，不重启轮询；
+        // 轮询在 controller 为空时已 break 退出，重连后控制器回来了、
+        // 轮询已断，进度就冻住。重连成功后（block 内，控制器已确立）
+        // 同样启动轮询，startProgressPoll 本身会先取消旧轮询。
+        withController(ctx) {
+            if (it.isPlaying) it.pause() else it.play()
+            startProgressPoll()
+        }
     }
 
     // v0.213.0 播错修复：渐弱原来是裸 launch 无句柄，视频联动暂停

@@ -3093,6 +3093,14 @@ private fun SleepTimerDialog(
             AppButton(text = "取消", onClick = onDismiss, variant = AppButtonVariant.Ghost)
         },
     ) {
+        // v0.268.0（T14 同 lane）：视频定时与音乐定时共用同一
+        // SleepTimerLane 互斥语义，选新的会取消旧的，这里同样
+        // 明说，不改语义。
+        Text(
+            "定时和播完本集只能二选一，选新的会取消旧的",
+            style = SoftType.Body,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         listOf(15, 30, 60, 90).forEach { m ->
             TextButton(
                 onClick = { onPickMinutes(m) },

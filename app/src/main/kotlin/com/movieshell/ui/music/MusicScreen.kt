@@ -179,7 +179,11 @@ fun MusicScreen(
         ?: "自动"
 
     // v0.82.0：歌单导入共用逻辑
-    fun importPlaylist(input: String) {
+    // v0.268.0（T15）：原来弹窗点导入就立即清输入、关弹窗，
+    // 失败也清，用户想改了重贴还得重新粘贴；现在只在成功时
+    // 回调 true、失败回调 false，调用方成功再清输入关弹窗，
+    // 失败留输入和弹窗、只给失败原因（toast 已给）。
+    fun importPlaylist(input: String, onDone: (Boolean) -> Unit = {}) {
         val inp = input.trim()
         if (inp.isBlank() || importingPlaylist) return
         importingPlaylist = true
@@ -189,9 +193,11 @@ fun MusicScreen(
                     playlistName = name
                     vm.setTracks(list)
                     AppToast.show(context, "已导入歌单「$name」（${list.size} 首）", long = false)
+                    onDone(true)
                 }
                 .onFailure {
                     AppToast.show(context, "导入失败：${it.message}", long = false)
+                    onDone(false)
                 }
             importingPlaylist = false
         }
@@ -417,9 +423,12 @@ fun MusicScreen(
             subtitle = "粘贴网易云歌单链接或 ID，一键导入整单歌曲",
             confirmText = if (importingPlaylist) "导入中…" else "导入",
             onConfirm = {
-                importPlaylist(playlistInput)
-                playlistInput = ""
-                showPlaylistDialog = false
+                importPlaylist(playlistInput) { ok ->
+                    if (ok) {
+                        playlistInput = ""
+                        showPlaylistDialog = false
+                    }
+                }
             },
             confirmEnabled = !importingPlaylist,
         ) {
