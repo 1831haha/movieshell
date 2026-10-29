@@ -1203,8 +1203,9 @@ fun SettingsScreen(
                 onClick = {
                     showBgMenu = false
                     scope.launch {
-                        BackgroundStore.clearCustomBg(context)
-                        AppToast.show(context, "已恢复默认背景", long = false)
+                        // v0.273.0（T33）：清空按删除结果给提示——原来删没删掉都说已恢复。
+                        val ok = BackgroundStore.clearCustomBg(context)
+                        AppToast.show(context, if (ok) "已恢复默认背景" else "恢复失败，请重试", long = false)
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),

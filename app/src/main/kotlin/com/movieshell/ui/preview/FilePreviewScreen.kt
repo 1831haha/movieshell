@@ -325,13 +325,16 @@ fun FilePreviewScreen(
                     .fillMaxWidth()
                     .padding(horizontal = SoftDimens.PagePadding),
             ) {
+                // v0.273.0（T30 余项）：高亮结果 remember 缓存——原来每次重组都
+                // 对整段文本跑一遍正则高亮；文本已在 v0.246.0 限流到 200KB，
+                // 这里只补缓存，文本/配色不变不重算（配色进 key，换主题重算）。
+                val keywordColor = MaterialTheme.colorScheme.primary
+                val commentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                val highlighted = remember(shownText, kind, keywordColor, commentColor) {
+                    highlightCode(shownText, kind, keywordColor, commentColor)
+                }
                 Text(
-                    text = highlightCode(
-                        shownText,
-                        kind,
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    ),
+                    text = highlighted,
                     fontFamily = FontFamily.Default,
                     fontSize = 13.sp,
                     lineHeight = 19.sp,

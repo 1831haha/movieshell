@@ -87,6 +87,18 @@ private fun saveBubbleOffset(context: Context, offset: Offset) {
 }
 
 /**
+ * v0.273.0（T31）：悬浮球位置钳制——原来拖动无边界，拖出屏就再也点不到；
+ * 读回的旧位置也不校验，换屏/转屏后可能落在屏外。至少留一半（24dp）在屏内。
+ */
+private fun coerceBubbleOffset(offset: Offset, maxWidthPx: Float, maxHeightPx: Float, bubblePx: Float): Offset {
+    val half = bubblePx / 2f
+    return Offset(
+        x = offset.x.coerceIn(-half, maxWidthPx - half),
+        y = offset.y.coerceIn(-half, maxHeightPx - half),
+    )
+}
+
+/**
  * v0.7.2：运行日志悬浮窗（应用内悬浮，不申请 SYSTEM_ALERT_WINDOW）。
  *
  * - 开关由设置页"运行日志悬浮窗"控制（LogStore，默认关）；
@@ -112,7 +124,20 @@ fun LogBubbleOverlay() {
                 )
             }
         }
-        var offset by remember { mutableStateOf(loadBubbleOffset(context) ?: defaultOffset) }
+        // v0.273.0（T31）：读回旧位置先按当前屏钳制，再当初始位置。
+        val initialOffset = remember(maxWidth, maxHeight) {
+            val saved = loadBubbleOffset(context)
+            if (saved == null) defaultOffset else with(density) {
+                coerceBubbleOffset(saved, maxWidth.toPx(), maxHeight.toPx(), 48.dp.toPx())
+            }
+        }
+        var offset by remember { mutableStateOf(initialOffset) }
+        // v0.273.0（T31）：转屏/分屏后屏尺寸变了，已存位置可能越界，尺寸一变就重钳制。
+        LaunchedEffect(maxWidth, maxHeight) {
+            offset = with(density) {
+                coerceBubbleOffset(offset, maxWidth.toPx(), maxHeight.toPx(), 48.dp.toPx())
+            }
+        }
         var showSheet by remember { mutableStateOf(false) }
 
         // v0.205.0：静默虚化——5 秒无新日志就淡到 0.35，有新日志恢复
@@ -133,12 +158,18 @@ fun LogBubbleOverlay() {
                 .offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
                 .size(48.dp)
                 .alpha(bubbleAlpha)
-                .pointerInput(Unit) {
+                .pointerInput(maxWidth, maxHeight) {
                     detectDragGestures(
                         onDragEnd = { saveBubbleOffset(context, offset) },
                     ) { change, dragAmount ->
                         change.consume()
-                        offset += dragAmount
+                        // v0.273.0（T31）：拖动中即钳制，松手存的也是屏内位置。
+                        offset = with(density) {
+                            coerceBubbleOffset(
+                                offset + dragAmount,
+                                maxWidth.toPx(), maxHeight.toPx(), 48.dp.toPx(),
+                            )
+                        }
                     }
                 }
                 .clip(CircleShape)
