@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.OndemandVideo
+import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.Scaffold
@@ -120,6 +122,13 @@ import com.movieshell.ui.history.HistoryScreen
 import com.movieshell.ui.reader.ReaderScreen
 import com.movieshell.ui.components.SoftBottomDock
 import com.movieshell.ui.components.SoftDockItem
+import com.movieshell.ui.components.LocalDockClearance
+import com.movieshell.ui.components.V4DockFade
+import com.movieshell.ui.theme.V4
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.onSizeChanged
 import com.movieshell.ui.home.HomeScreen
 import com.movieshell.ui.home.HomeViewModel
 import com.movieshell.ui.music.MiniPlayer
@@ -158,13 +167,15 @@ private data class Tab(
 // 全量重做：底栏 6 TAB——首页/直播/书架/音乐/AI/设置；框架先起来，
 // AI 具体内容后面再完善（AiScreen 目前只有新风格外壳，不做假功能）。
 // 未选中用 Outlined，选中用 Filled＋青色（SoftBottomDock 里处理）。
+// v0.279.0 V4 NAV B：线性图标（Lucide 风格），选中/未选中同一套描边图标，
+// 选中靠强调色药丸 + 白色图标文字区分。
 private val tabs = listOf(
-    Tab("home", "首页", Icons.Outlined.Home, Icons.Filled.Home),
-    Tab("live", "直播", Icons.Outlined.OndemandVideo, Icons.Filled.OndemandVideo),
-    Tab("bookshelf", "书架", Icons.Outlined.Book, Icons.Filled.Book),
-    Tab("music", "音乐", Icons.Outlined.MusicNote, Icons.Filled.MusicNote),
-    Tab("ai", "AI", Icons.Outlined.SmartToy, Icons.Filled.SmartToy),
-    Tab("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings),
+    Tab("home", "首页", Icons.Outlined.Home, Icons.Outlined.Home),
+    Tab("live", "直播", Icons.Outlined.LiveTv, Icons.Outlined.LiveTv),
+    Tab("bookshelf", "书架", Icons.Outlined.Book, Icons.Outlined.Book),
+    Tab("music", "音乐", Icons.Outlined.MusicNote, Icons.Outlined.MusicNote),
+    Tab("ai", "AI", Icons.Outlined.SmartToy, Icons.Outlined.SmartToy),
+    Tab("settings", "设置", Icons.Outlined.Settings, Icons.Outlined.Settings),
 )
 
 // v0.222.0：tab 级目的地（含经 navigateTab 到达的 search）——tab 切换的
@@ -232,14 +243,8 @@ class MainActivity : ComponentActivity() {
             AppToast.show(this, "当前为${guard.warnings.joinToString("、")}，继续使用风险自担", long = true)
         }
         ThemeStore.init(this)
-        // v0.237.0：浅色高密度改版——没显式选过主题模式的老用户（跟随系统）
-        // 一次性切到浅色，保证装上就是参考图的浅色样子；显式选过深色的不动；
-        // 设置→外观里仍可切回跟随系统/深色。
-        val migPrefs = getSharedPreferences("movieshell_migrations", android.content.Context.MODE_PRIVATE)
-        if (!migPrefs.getBoolean("theme_light_default_v237", false)) {
-            if (ThemeStore.mode.value == ThemeStore.MODE_SYSTEM) ThemeStore.setMode(this, ThemeStore.MODE_LIGHT)
-            migPrefs.edit().putBoolean("theme_light_default_v237", true).apply()
-        }
+        // v0.237.0 的“跟随系统一次性切浅色”迁移已撤掉（v0.279.0 V4）：默认改 V4 暗色，
+        // 没存过模式的用户直接走默认暗色；显式存过亮色/跟随系统的不动（见 ThemeStore.init）。
         LogStore.init(this)
         PlayerSettings.init(this)
         com.movieshell.data.repo.MusicSettings.init(this)
@@ -394,6 +399,12 @@ class MainActivity : ComponentActivity() {
                     curRoute?.startsWith("playlist_detail/") == true
                 val showMiniPlayer = musicState.track != null && onMusicTab
 
+                // v0.279.0 V4 NAV B：底栏改居中浮动胶囊，浮在内容上方（不再占 Scaffold
+                // bottomBar 的高度）；内容从底栏下面滚过，底部 100dp 淡出。tab 页的滚动
+                // 内容底部留白由 LocalDockClearance 提供（78dp + 迷你播放条实测高度）。
+                // 非 tab 页（音乐子页等）没有底栏，迷你播放条照旧放 bottomBar 占位。
+                var miniPlayerHeightPx by remember { mutableStateOf(0) }
+                val miniPlayerHeight = with(density) { miniPlayerHeightPx.toDp() }
                 Scaffold(
                     // v0.238.0 顶部贴顶：Scaffold 默认把状态栏高度算进内容内边距，
                     // 本 App 窗口本身已在状态栏下方排布（未开 edge-to-edge），再算一遍就是双倍顶距；
@@ -402,32 +413,25 @@ class MainActivity : ComponentActivity() {
                     // 会在左侧留下一条约 107/1000 宽的白边（详情页播放器左白边实测），
                     // 各页本身已有 12/16dp 内边距，播放器更要贴边，水平 inset 不能再叠加。
                     contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
+                    containerColor = MaterialTheme.colorScheme.background,
                     bottomBar = {
-                        Column {
-                            if (showMiniPlayer) {
-                                MiniPlayer(
-                                    playState = musicState,
-                                    onOpenPlayer = { navController.navigate("music_player") },
-                                )
-                            }
-                            if (showBottomBar) {
-                            // v0.27.1：悬浮 dock 式导航（替代 NavigationBar 脏灰药丸选中态）
-                            val selectedIdx = tabs.indexOfFirst { t ->
-                                current?.hierarchy?.any { it.route == t.route } == true
-                            }.takeIf { it >= 0 } ?: 0
-                            SoftBottomDock(
-                                items = tabs.map { SoftDockItem(it.label, it.icon, it.selectedIcon) },
-                                selectedIndex = selectedIdx,
-                                onSelect = { i -> navController.navigateTab(tabs[i].route) },
+                        if (showMiniPlayer && !showBottomBar) {
+                            MiniPlayer(
+                                playState = musicState,
+                                onOpenPlayer = { navController.navigate("music_player") },
                             )
-                        }
                         }
                     }
                 ) { inner ->
+                    val dockClearance = if (showBottomBar) {
+                        V4.DockClearance + (if (showMiniPlayer) miniPlayerHeight else 0.dp)
+                    } else 0.dp
+                    CompositionLocalProvider(LocalDockClearance provides dockClearance) {
+                    Box(Modifier.padding(inner).fillMaxSize()) {
                     NavHost(
                         navController = navController,
                         startDestination = "home",
-                        modifier = Modifier.padding(inner),
+                        modifier = Modifier.fillMaxSize(),
                         // v0.27.0 Soft Tech：页面切换统一淡入 + 8dp 位移，300ms ease-out
                         // v0.222.0：tab 切 tab 时退出混合改为 0ms 淡出（exit lambda 不接受 null，须返回非空 ExitTransition）——旧页瞬间撤掉、新页
                         // 仍淡入，不再有双页叠在一起的重影帧；exit/popExit 的 lambda
@@ -993,6 +997,35 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                    // v0.279.0 V4 NAV B：底栏后面的内容淡出 + 浮动胶囊（+ 音乐 tab 的迷你播放条）
+                    if (showBottomBar) {
+                        V4DockFade(Modifier.align(Alignment.BottomCenter))
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            if (showMiniPlayer) {
+                                Box(Modifier.onSizeChanged { miniPlayerHeightPx = it.height }) {
+                                    MiniPlayer(
+                                        playState = musicState,
+                                        onOpenPlayer = { navController.navigate("music_player") },
+                                    )
+                                }
+                            }
+                            val selectedIdx = tabs.indexOfFirst { t ->
+                                current?.hierarchy?.any { it.route == t.route } == true
+                            }.takeIf { it >= 0 } ?: 0
+                            SoftBottomDock(
+                                items = tabs.map { SoftDockItem(it.label, it.icon, it.selectedIcon) },
+                                selectedIndex = selectedIdx,
+                                onSelect = { i -> navController.navigateTab(tabs[i].route) },
+                            )
+                        }
+                    }
+                    } // 闭合 V4 内容 Box
+                    } // 闭合 LocalDockClearance
                 }
                 // v0.211.0：全仓统一精致提示悬浮层（替代系统 Toast，挂根 Box 最上层）
                 AppToastOverlay()
