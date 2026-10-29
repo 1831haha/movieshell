@@ -13,6 +13,7 @@ import com.movieshell.player.SniffPlayHeaders
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -236,6 +237,10 @@ class ParseApi(
         // 命中/超时/异常/取消时整体取消，不再用 GlobalScope 裸奔耗资源。
         val probeJob = SupervisorJob()
         val probeScope = CoroutineScope(probeJob + Dispatchers.IO)
+        // v0.276.0（T22）：成功返回时 WebView 的持有引用——原来成功三路
+        // tryResume 后直接返回，销毁只在取消与异常分支，成功一次就漏一个
+        // WebView；这里统一收尾销毁（取消/异常分支已销毁的会先置空，不重复）。
+        var sniffWv: WebView? = null
         try {
             withContext(Dispatchers.Main) {
                 suspendCancellableCoroutine { cont ->
@@ -247,6 +252,7 @@ class ParseApi(
                     try {
                         val wv = WebView(context.applicationContext)
                         webView = wv
+                        sniffWv = wv
                         wv.settings.javaScriptEnabled = true
                         wv.settings.domStorageEnabled = true
                         wv.settings.mediaPlaybackRequiresUserGesture = false
@@ -302,6 +308,7 @@ class ParseApi(
                             // 取消（超时）时：停掉 HEAD 探测 + 在主线程销毁 WebView（要求同线程操作）
                             probeJob.cancel()
                             runCatching { wv.stopLoading(); wv.destroy() }
+                            sniffWv = null
                         }
                         val target = parse.url.trim() +
                             URLEncoder.encode(videoUrl, Charsets.UTF_8.name())
@@ -310,12 +317,23 @@ class ParseApi(
                     } catch (e: Exception) {
                         Log.w(TAG, "type0 嗅探异常", e)
                         runCatching { webView?.destroy() }
+                        sniffWv = null
                         tryResume("")
                     }
                 }
             }
         } finally {
             probeJob.cancel()
+            // 成功返回走到这里时 sniffWv 还活着（取消/异常已置空），
+            // 统一在主线程销毁；取消态下 withContext 须用 NonCancellable
+            // 兜底，否则切主线程会直接抛取消异常、销毁跑不到。
+            val wv = sniffWv
+            sniffWv = null
+            if (wv != null) {
+                withContext(NonCancellable + Dispatchers.Main) {
+                    runCatching { wv.stopLoading(); wv.destroy() }
+                }
+            }
         }
     }.orEmpty()
 }

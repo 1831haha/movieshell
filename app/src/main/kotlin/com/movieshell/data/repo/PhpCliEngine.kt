@@ -60,6 +60,15 @@ object PhpCliEngine {
      */
     private val lastErrorByScript = ConcurrentHashMap<String, String>()
 
+    // v0.276.0（T24）：首页 JSON 短缓存——home() 与 categories() 原来
+    // 各跑一次 php（同一空查询、同一份 JSON），首页加载时连跑两遍。
+    // 只缓存空查询结果，且同时满足：脚本文件指纹（路径+修改时间+大小）
+    // 未变、且距上次跑出不超过 30 秒（覆盖一次加载里 home→cats 的
+    // 先后调用，不把动态首页长期冻住；规则改了指纹变、缓存即失效）。
+    private const val HOME_CACHE_TTL_MS = 30_000L
+    private data class HomeCacheEntry(val json: String, val stamp: Long, val at: Long)
+    private val homeCache = ConcurrentHashMap<String, HomeCacheEntry>()
+
     /** 取某脚本最近一次 runQuery 的失败原因；脚本名空时取当前激活规则。 */
     fun lastErrorFor(scriptName: String?): String? =
         (scriptName ?: activeScriptName())?.let { lastErrorByScript[it] }
@@ -88,10 +97,34 @@ object PhpCliEngine {
     }
 
     suspend fun home(context: Context? = null, scriptName: String? = null): List<Vod> =
-        runQuery(context, scriptName, "")?.let { Type4Api().parseHome(it).second }.orEmpty()
+        homeJson(context, scriptName)?.let { Type4Api().parseHome(it).second }.orEmpty()
 
     suspend fun categories(context: Context? = null, scriptName: String? = null): List<CategoryType> =
-        runQuery(context, scriptName, "")?.let { Type4Api().parseHome(it).first }.orEmpty()
+        homeJson(context, scriptName)?.let { Type4Api().parseHome(it).first }.orEmpty()
+
+    /** 首页空查询 JSON：命中短缓存直接复用，未命中跑一次并记缓存；失败不缓存。 */
+    private suspend fun homeJson(context: Context? = null, scriptName: String? = null): String? {
+        val ctx = context ?: PhpSourceManager.appContext()
+        val script = ctx?.let { scriptFile(it, scriptName ?: activeScriptName()) }
+        if (ctx == null || script == null) {
+            return runQuery(context, scriptName, "")
+        }
+        val key = script.absolutePath
+        val stamp = script.lastModified() * 31L + script.length()
+        val cached = homeCache[key]
+        if (cached != null && cached.stamp == stamp &&
+            System.currentTimeMillis() - cached.at < HOME_CACHE_TTL_MS
+        ) {
+            return cached.json
+        }
+        val json = runQuery(ctx, scriptName, "")
+        if (json != null) {
+            homeCache[key] = HomeCacheEntry(json, stamp, System.currentTimeMillis())
+        } else {
+            homeCache.remove(key)
+        }
+        return json
+    }
 
     suspend fun category(
         context: Context? = null,
@@ -201,10 +234,24 @@ object PhpCliEngine {
         return (hit ?: "无输出").take(140)
     }
 
+    // v0.276.0（T24）：引导文件写锁——原来无锁读文比文后直接写，
+    // 并发跑查询时可能读到写一半的引导文件；锁内比文、临时文件
+    // 写完再改名落位，php 进程永远只读到完整版。
+    private val bootstrapLock = Any()
+
     private fun ensureBootstrap(context: Context): File {
         val dir = File(context.filesDir, "php-cli").also { it.mkdirs() }
         val f = File(dir, "bootstrap.php")
-        if (!f.isFile || f.readText() != BOOTSTRAP) f.writeText(BOOTSTRAP)
+        synchronized(bootstrapLock) {
+            if (!f.isFile || runCatching { f.readText() }.getOrNull() != BOOTSTRAP) {
+                val tmp = File(dir, "bootstrap.php.tmp")
+                tmp.writeText(BOOTSTRAP)
+                runCatching { f.delete() }
+                if (!tmp.renameTo(f)) {
+                    f.writeText(BOOTSTRAP)
+                }
+            }
+        }
         return f
     }
 

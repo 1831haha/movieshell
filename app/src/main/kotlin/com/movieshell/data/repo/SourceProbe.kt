@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import java.io.File
 import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
@@ -55,6 +56,24 @@ object SourceProbe {
     }
     private val semaphore = Semaphore(MAX_CONCURRENCY)
 
+    // v0.276.0（T23）：PY 探活隔离池——Chaquopy 桥是同步 JNI 调用，
+    // 超时 cancel(true) 也停不掉它，卡住的线程会一直占着池子；原来
+    // 所有探活共用一个 8 线程池，PY 卡多了会把 JS/HTTP/PHP 的探活
+    // 也堵在队列里。现在 PY 单独走 pyPool + pySemaphore，卡住的
+    // JNI 线程最多占满 PY 池，不影响其他种类探活。
+    private val pyPool = Executors.newFixedThreadPool(3) { r ->
+        Thread(r, "source-probe-py").apply { isDaemon = true }
+    }
+    private val pySemaphore = Semaphore(3)
+
+    // v0.276.0（T23）：PY 连续超时跳过——同一源 10 分钟内连续超时
+    // 2 次后跳过本次探活，不再往 PY 池里堆新的停不掉的调用；
+    // 冷却过后自动恢复探活（不永久拉黑），非超时结果清零计数。
+    private const val PY_SKIP_AFTER_STREAK = 2
+    private const val PY_SKIP_COOLDOWN_MS = 10L * 60L * 1000L
+    private val pyTimeoutStreak = mutableMapOf<String, Int>()
+    private val pyLastTimeoutAt = mutableMapOf<String, Long>()
+
     /** 注意：阻塞式调用方须包在 withContext(Dispatchers.IO) 里 */
     fun probeJs(context: Context, file: File): Result {
         val engine = V8DrpyEngine(context.applicationContext)
@@ -70,8 +89,39 @@ object SourceProbe {
         }
     }
 
-    fun probePy(context: Context, file: File): Result = guarded(label = file.name) {
-        runBlocking { PyApi().home(file.absolutePath) }
+    fun probePy(context: Context, file: File): Result {
+        if (isPyProbeSkipped(file.name)) {
+            return Result.Fail("该源连续超时，已跳过本次探活")
+        }
+        val res = guarded(label = file.name, pool = pyPool, semaphore = pySemaphore) {
+            runBlocking { PyApi().home(file.absolutePath) }
+        }
+        recordPyProbeResult(file.name, res)
+        return res
+    }
+
+    private fun isPyProbeSkipped(name: String): Boolean {
+        synchronized(pyTimeoutStreak) {
+            val streak = pyTimeoutStreak[name] ?: 0
+            if (streak < PY_SKIP_AFTER_STREAK) return false
+            val last = pyLastTimeoutAt[name] ?: 0L
+            if (System.currentTimeMillis() - last >= PY_SKIP_COOLDOWN_MS) {
+                pyTimeoutStreak.remove(name)
+                return false
+            }
+            return true
+        }
+    }
+
+    private fun recordPyProbeResult(name: String, res: Result) {
+        synchronized(pyTimeoutStreak) {
+            if (res is Result.Fail && res.reason == "8秒超时无响应") {
+                pyTimeoutStreak[name] = (pyTimeoutStreak[name] ?: 0) + 1
+                pyLastTimeoutAt[name] = System.currentTimeMillis()
+            } else {
+                pyTimeoutStreak.remove(name)
+            }
+        }
     }
 
     /** v0.152.0：PHP 探活——CLI 跑一次首页：出数据记成功，否则记失败原因
@@ -124,16 +174,27 @@ object SourceProbe {
      */
     // v0.142.0：label 透传到超时日志——此前 130 个源批量检测时满屏只有
     // "探活超时"四个字、连哪个源超时都看不出，没法定位（2026-10-21 日志实测）。
-    private fun guarded(label: String = "", onTimeout: () -> Unit = {}, block: () -> Any?): Result {
+    private fun guarded(
+        label: String = "",
+        onTimeout: () -> Unit = {},
+        pool: ExecutorService = this.pool,
+        semaphore: Semaphore = this.semaphore,
+        block: () -> Any?,
+    ): Result {
         semaphore.acquire()
         try {
-            return hardTimeout(label, onTimeout, block)
+            return hardTimeout(label, onTimeout, pool, block)
         } finally {
             semaphore.release()
         }
     }
 
-    private fun hardTimeout(label: String = "", onTimeout: () -> Unit = {}, block: () -> Any?): Result {
+    private fun hardTimeout(
+        label: String = "",
+        onTimeout: () -> Unit = {},
+        pool: ExecutorService,
+        block: () -> Any?,
+    ): Result {
         val start = System.currentTimeMillis()
         val future = pool.submit(Callable<Any?> { block() })
         return try {
