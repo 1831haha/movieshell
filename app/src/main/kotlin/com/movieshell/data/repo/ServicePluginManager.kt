@@ -764,7 +764,7 @@ object ServicePluginManager {
                     if (entries.isEmpty()) throw IllegalStateException("插件包为空")
                     // v0.186.0：解压上限（H14），超限即抛，catch 清暂存、旧版不动。
                     if (entries.size > ZipInstall.MAX_ZIP_ENTRIES) {
-                        throw IllegalStateException("插件包条目数超限（上限 $ZipInstall.MAX_ZIP_ENTRIES）")
+                        throw IllegalStateException("插件包条目数超限（上限 ${ZipInstall.MAX_ZIP_ENTRIES}）")
                     }
                     val budget = ZipInstall.UnpackBudget()
                     entries.forEach { e ->
@@ -853,7 +853,7 @@ object ServicePluginManager {
         budget: ZipInstall.UnpackBudget,
     ) {
         if (++budget.entries > ZipInstall.MAX_ZIP_ENTRIES) {
-            throw IllegalStateException("插件包解压条目数超限（上限 $ZipInstall.MAX_ZIP_ENTRIES）")
+            throw IllegalStateException("插件包解压条目数超限（上限 ${ZipInstall.MAX_ZIP_ENTRIES}）")
         }
         dst.parentFile?.mkdirs()
         zf.getInputStream(e).use { input ->
@@ -898,7 +898,7 @@ object ServicePluginManager {
             val fileEntries = zf.entries().asSequence()
                 .filter { !it.isDirectory && it.name != "server.json" }.toList()
             if (fileEntries.size > ZipInstall.MAX_ZIP_ENTRIES) {
-                throw IllegalStateException("插件包条目数超限（上限 $ZipInstall.MAX_ZIP_ENTRIES）")
+                throw IllegalStateException("插件包条目数超限（上限 ${ZipInstall.MAX_ZIP_ENTRIES}）")
             }
             val fileKeys = files.keys().asSequence().toList()
             val actual = fileEntries

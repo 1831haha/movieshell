@@ -2,6 +2,7 @@ package com.movieshell.data.source.subtitle
 
 import android.content.Context
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.source.subtitle.SubtitleSource
 import dalvik.system.DexClassLoader
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
@@ -68,6 +69,8 @@ object SubtitlePluginLoader {
 
     /** 卸载插件：删 DEX 目录（下次启动生效）。 */
     fun uninstall(context: Context) {
+        // B2：dex 落盘后是只读的，删之前先可写，避免个别设备删只读文件失败。
+        File(pluginDir(context), "subtitle-plugin.dex").takeIf { it.isFile }?.setWritable(true)
         pluginDir(context).deleteRecursively()
         cached.set(null)
         triedLoad = false

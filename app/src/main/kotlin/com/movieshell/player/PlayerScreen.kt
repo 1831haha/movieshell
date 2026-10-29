@@ -393,6 +393,13 @@ fun PlayerScreen(
 
     /** v0.124.0：恢复窗口默认状态；没进过沉浸式（immersiveApplied=false）时是 no-op。 */
     fun restorePlayerWindow() {
+        // B4：手势调过的亮度不跟沉浸式守卫走——只要调过窗口，退出/切出全屏
+        // 就先复位到系统亮度（-1f），否则整个 App 一直停在调过的亮度。
+        (context as? Activity)?.window?.let {
+            it.attributes = it.attributes.apply {
+                screenBrightness = -1f
+            }
+        }
         if (!immersiveApplied) return
         immersiveApplied = false
         val window = (context as? Activity)?.window ?: return

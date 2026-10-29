@@ -15,6 +15,9 @@ import java.io.File
  * - 调试器已连上 → 硬拦截：同上。
  * - root / 模拟器 → 只警告、不拦截：root 机、模拟器上也有正常用户，
  *   拦了就是误伤；只记日志 + MainActivity 弹一次提示，继续用。
+ * - B7：上面两条硬拦截只在 release 包生效；debug 包（BuildConfig.DEBUG）
+ *   本来就是用来调试的，硬拦截会让真机调试和 Compose UI 测试没法跑，
+ *   所以 debug 下硬拦截全关，只留 root/模拟器警告。
  *
  * 做不到（说清，不装）：
  * - 签名验签：云构建每轮现场生成新 keystore、签名每版都变，
@@ -36,11 +39,16 @@ object AppGuard {
     fun check(context: Context): Result {
         val hard = mutableListOf<String>()
         val warnings = mutableListOf<String>()
-        if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-            hard.add("可调试包")
-        }
-        if (Debug.isDebuggerConnected() || Debug.waitingForDebugger()) {
-            hard.add("调试器已连接")
+        // B7：debug 包不硬拦截——可调试包和调试器已连都是调试本身，拦了就没法调试。
+        if (!com.movieshell.BuildConfig.DEBUG) {
+            if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                hard.add("可调试包")
+            }
+            if (Debug.isDebuggerConnected() || Debug.waitingForDebugger()) {
+                hard.add("调试器已连接")
+            }
+        } else {
+            LogBus.i("AppGuard", "debug 包，硬拦截已关闭")
         }
         if (isRooted()) warnings.add("root 环境")
         if (isEmulator()) warnings.add("模拟器环境")

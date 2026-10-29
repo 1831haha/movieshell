@@ -487,7 +487,7 @@ object PluginMarket {
             val entries = zf.entries().asSequence().filter { !it.isDirectory }.toList()
             if (entries.isEmpty()) throw IllegalStateException("插件包为空：${plugin.id}")
             if (entries.size > ZipInstall.MAX_ZIP_ENTRIES) {
-                throw IllegalStateException("插件包条目数超限（上限 $ZipInstall.MAX_ZIP_ENTRIES）：${plugin.id}")
+                throw IllegalStateException("插件包条目数超限（上限 ${ZipInstall.MAX_ZIP_ENTRIES}）：${plugin.id}")
             }
             checkManifest(zf, plugin)
             when (plugin.type) {
@@ -642,6 +642,9 @@ object PluginMarket {
                     val staging = ZipInstall.stagingDir(dir)
                     staging.deleteRecursively()
                     staging.mkdirs()
+                    // B2：旧 dex 下次换入前先可写，否则只读文件在覆盖路径上可能失败；
+                    // 换入后立即设只读，照 SpiderEngine 的做法，Android 14+ 才肯加载。
+                    File(dir, "subtitle-plugin.dex").takeIf { it.isFile }?.setWritable(true)
                     try {
                         dexEntries.forEach { e ->
                             val name = "subtitle-plugin.dex"
@@ -651,6 +654,10 @@ object PluginMarket {
                         val oldFiles = PluginStore.installedOf(plugin.id)
                             ?.takeIf { it.type == "subtitle" }?.files.orEmpty()
                         swapFileSet(dir, staging, oldFiles, installed.toList())
+                        val dexFile = File(dir, "subtitle-plugin.dex")
+                        if (dexFile.isFile && !dexFile.setReadOnly()) {
+                            LogBus.w(TAG, "字幕 dex 设只读失败 ${dexFile.name}")
+                        }
                     } catch (e: Exception) {
                         runCatching { staging.deleteRecursively() }
                         throw e
