@@ -87,10 +87,9 @@ import com.movieshell.ui.components.hdIconCandidatesForHost
 import com.movieshell.ui.components.hostFromUrl
 import com.movieshell.ui.components.siteLogoUrl
 import java.io.File
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 import com.movieshell.ui.theme.LocalBrandGradient
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -416,13 +415,13 @@ fun SourcePickerSheet(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = SoftDimens.PagePadding)
+                .padding(horizontal = V4.Gutter)
                 .padding(top = 4.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = "切换站源",
-                style = SoftType.Title,
+                style = V4Type.ScreenTitle,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.padding(4.dp))
@@ -431,7 +430,7 @@ fun SourcePickerSheet(
                 // 索/筛选后总数就变了；标题一律显示总数 items.size，
                 // 筛选后另注已筛选数，不再拿筛选数冒充总数。
                 text = if (loading) "加载中…" else if (visible.size == items.size) "共 ${items.size} 个源" else "共 ${items.size} 个源，已筛选 ${visible.size} 个",
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.weight(1f))
@@ -464,7 +463,7 @@ fun SourcePickerSheet(
             ) {
                 Text(
                     text = "关闭",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
@@ -473,7 +472,7 @@ fun SourcePickerSheet(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = SoftDimens.PagePadding),
+                .padding(horizontal = V4.Gutter),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // v0.184.0：搜索框收窄——提示改短成单行“搜索站源”，
@@ -538,7 +537,7 @@ fun SourcePickerSheet(
                         Spacer(Modifier.padding(2.dp))
                         Text(
                             text = "宫格·${layoutNames[layoutMode]}",
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                         )
@@ -569,7 +568,7 @@ fun SourcePickerSheet(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = SoftDimens.PagePadding),
+                    .padding(horizontal = V4.Gutter),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -596,7 +595,7 @@ fun SourcePickerSheet(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = if (items.isEmpty()) "暂无可用站源" else "没有匹配的源，换个关键词试试",
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -605,8 +604,8 @@ fun SourcePickerSheet(
                 state = gridState,
                 columns = GridCells.Fixed(2),
                 contentPadding = PaddingValues(
-                    start = SoftDimens.PagePadding,
-                    end = SoftDimens.PagePadding,
+                    start = V4.Gutter,
+                    end = V4.Gutter,
                     bottom = 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -623,8 +622,8 @@ fun SourcePickerSheet(
                 // v0.167.0：4 列改 5 列（6 列会把 44dp 图标挤到边，名字也没处放）
                 columns = GridCells.Fixed(5),
                 contentPadding = PaddingValues(
-                    start = SoftDimens.PagePadding,
-                    end = SoftDimens.PagePadding,
+                    start = V4.Gutter,
+                    end = V4.Gutter,
                     bottom = 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -638,8 +637,8 @@ fun SourcePickerSheet(
         } else if (layoutMode == 2) {
             LazyColumn(
                 contentPadding = PaddingValues(
-                    start = SoftDimens.PagePadding,
-                    end = SoftDimens.PagePadding,
+                    start = V4.Gutter,
+                    end = V4.Gutter,
                     bottom = 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -652,8 +651,8 @@ fun SourcePickerSheet(
         } else if (layoutMode == 3) {
             LazyColumn(
                 contentPadding = PaddingValues(
-                    start = SoftDimens.PagePadding,
-                    end = SoftDimens.PagePadding,
+                    start = V4.Gutter,
+                    end = V4.Gutter,
                     bottom = 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -668,8 +667,8 @@ fun SourcePickerSheet(
                 state = gridState,
                 columns = GridCells.Fixed(3),
                 contentPadding = PaddingValues(
-                    start = SoftDimens.PagePadding,
-                    end = SoftDimens.PagePadding,
+                    start = V4.Gutter,
+                    end = V4.Gutter,
                     bottom = 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -683,8 +682,8 @@ fun SourcePickerSheet(
         } else {
             LazyColumn(
                 contentPadding = PaddingValues(
-                    start = SoftDimens.PagePadding,
-                    end = SoftDimens.PagePadding,
+                    start = V4.Gutter,
+                    end = V4.Gutter,
                     bottom = 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -752,7 +751,7 @@ private fun SourceCardFrame(
             )
             .then(
                 if (gradientRing && item.isCurrent) Modifier
-                else Modifier.border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(corner)),
+                else Modifier.border(1.dp, V4.c.div, RoundedCornerShape(corner)),
             )
             .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
             .clickable(onClick = item.onPick)
@@ -788,7 +787,7 @@ private fun SourceCard2Col(item: PickerItem) {
                 ) {
                     Text(
                         text = kindLabel(item.kind),
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
@@ -796,7 +795,7 @@ private fun SourceCard2Col(item: PickerItem) {
             }
             Text(
                 text = item.name,
-                style = SoftType.Body,
+                style = V4Type.Body,
                 fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
                 color = if (item.isCurrent) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurface,
@@ -809,7 +808,7 @@ private fun SourceCard2Col(item: PickerItem) {
                     item.isCurrent -> "当前源 · ${originLabel(item.id)}"
                     else -> originLabel(item.id)
                 },
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = if (item.isCurrent) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -834,7 +833,7 @@ private fun SourceListRow(item: PickerItem) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.name,
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
                     color = if (item.isCurrent) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface,
@@ -844,7 +843,7 @@ private fun SourceListRow(item: PickerItem) {
                 Text(
                     text = "${kindLabel(item.kind)} · ${originLabel(item.id)}" +
                         if (item.isCurrent) " · 当前源" else "",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -853,7 +852,7 @@ private fun SourceListRow(item: PickerItem) {
             if (item.isCurrent) {
                 Text(
                     text = "当前",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
@@ -876,7 +875,7 @@ private fun SourceWideCard(item: PickerItem) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.name,
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
                     color = if (item.isCurrent) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface,
@@ -886,7 +885,7 @@ private fun SourceWideCard(item: PickerItem) {
                 Text(
                     text = "${kindLabel(item.kind)} · ${originLabel(item.id)}" +
                         if (item.isCurrent) " · 当前源" else "",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -895,7 +894,7 @@ private fun SourceWideCard(item: PickerItem) {
             if (item.isCurrent) {
                 Text(
                     text = "当前",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
@@ -917,7 +916,7 @@ private fun SourceCompactRow(item: PickerItem) {
             Spacer(Modifier.padding(4.dp))
             Text(
                 text = item.name,
-                style = SoftType.Body,
+                style = V4Type.Body,
                 fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
                 color = if (item.isCurrent) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurface,
@@ -927,7 +926,7 @@ private fun SourceCompactRow(item: PickerItem) {
             )
             Text(
                 text = kindLabel(item.kind),
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
@@ -963,7 +962,7 @@ private fun SourceGridCard(item: PickerItem) {
             SourceLogo(logoUrl = item.logoUrl, name = item.name, size = 44.dp)
             Text(
                 text = item.name,
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = if (item.isCurrent) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -973,7 +972,7 @@ private fun SourceGridCard(item: PickerItem) {
             )
             Text(
                 text = kindLabel(item.kind),
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1013,12 +1012,12 @@ private fun SourceLogo(logoUrl: String?, name: String, size: Dp) {
             .size(size)
             .clip(RoundedCornerShape(12.dp))
             .background(Brush.linearGradient(brandColors))
-            .border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(12.dp)),
+            .border(1.dp, V4.c.div, RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = name.firstOrNull()?.toString() ?: "源",
-            style = SoftType.Title,
+            style = V4Type.ScreenTitle,
             fontWeight = FontWeight.Bold,
             color = onGradientColor,
         )

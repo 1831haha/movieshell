@@ -63,8 +63,8 @@ import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.PosterCard
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 import kotlinx.coroutines.launch
 
 
@@ -115,7 +115,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = SoftDimens.PagePadding, vertical = 12.dp),
+                .padding(horizontal = V4.Gutter, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = { doSearch(query) }) {
@@ -145,7 +145,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = SoftDimens.PagePadding),
+                .padding(horizontal = V4.Gutter),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -164,7 +164,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
             if (onlyCurrentSource) {
                 Text(
                     text = currentSourceName?.let { "当前源：$it" } ?: "未设置当前源",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -185,7 +185,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
             AppCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = SoftDimens.PagePadding),
+                    .padding(horizontal = V4.Gutter),
             ) {
                 Column(modifier = Modifier.padding(vertical = 4.dp)) {
                     suggestions.forEach { s ->
@@ -205,7 +205,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                             Spacer(Modifier.width(12.dp))
                             Text(
                                 text = s,
-                                style = SoftType.Body,
+                                style = V4Type.Body,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -225,7 +225,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
         if (submitted.isBlank()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = SoftDimens.PagePadding),
+                contentPadding = PaddingValues(horizontal = V4.Gutter),
             ) {
                 // 搜索历史
                 item {
@@ -246,7 +246,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                     item {
                         Text(
                             text = "暂无搜索历史",
-                            style = SoftType.Body,
+                            style = V4Type.Body,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 8.dp),
                         )
@@ -271,7 +271,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                                 modifier = Modifier
                                     .weight(1f)
                                     .padding(vertical = 10.dp),
-                                style = SoftType.Body,
+                                style = V4Type.Body,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             IconButton(onClick = {
@@ -299,17 +299,17 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(SoftDimens.PagePadding),
-                    verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                        .padding(V4.Gutter),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         text = "聚合搜索中…",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         text = "先到的源会先显示，不用等全部搜完",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     repeat(4) {
@@ -332,7 +332,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                         skippedLabel?.let {
                             Text(
                                 text = it,
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             // v0.163.0：全被跳过时空页也给重试入口，别只剩“返回”
@@ -343,7 +343,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                         failedLabel?.let {
                             Text(
                                 text = it,
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -352,7 +352,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                         if (onlyCurrentSource && currentSourceName == null) {
                             Text(
                                 text = "当前没有设置首页源，先去站源管理设一个当前源，或切回所有源再搜",
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             TextButton(onClick = { vm.setOnlyCurrentSource(false) }) {
@@ -364,7 +364,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                         if (onlyCurrentSource && currentSourceName != null) {
                             Text(
                                 text = "只搜当前源 $currentSourceName，已搜完，确实没有结果",
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -391,7 +391,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(
-                            horizontal = SoftDimens.PagePadding,
+                            horizontal = V4.Gutter,
                             vertical = 4.dp,
                         ),
                     verticalAlignment = Alignment.CenterVertically,
@@ -405,7 +405,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                             (if (searching) " · 还在搜…" else "") +
                             (skippedLabel?.let { " · $it" } ?: "") +
                             (failedLabel?.let { " · $it" } ?: ""),
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
@@ -462,9 +462,9 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                                 } else {
                                     "该源没有结果"
                                 },
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(SoftDimens.PagePadding),
+                                modifier = Modifier.padding(V4.Gutter),
                             )
                         }
                     } else {
@@ -502,7 +502,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                                 item(span = { GridItemSpan(2) }) {
                                     Text(
                                         text = "还在搜其他源，有结果会陆续出现…",
-                                        style = SoftType.Caption,
+                                        style = V4Type.Meta,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(vertical = 4.dp),
                                     )
@@ -537,7 +537,7 @@ private fun LeftSourceItem(
     ) {
         Text(
             text = name,
-            style = SoftType.Body,
+            style = V4Type.Body,
             color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
             else MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
@@ -545,7 +545,7 @@ private fun LeftSourceItem(
         )
         Text(
             text = status,
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -568,7 +568,7 @@ private fun SectionHeader(
         Spacer(Modifier.width(6.dp))
         Text(
             text = title,
-            style = SoftType.CardTitle,
+            style = V4Type.RowTitle,
             color = MaterialTheme.colorScheme.onSurface,
         )
     }

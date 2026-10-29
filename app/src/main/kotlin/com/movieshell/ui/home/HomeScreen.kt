@@ -1,6 +1,7 @@
 package com.movieshell.ui.home
 
 import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 import androidx.compose.ui.text.font.FontWeight
 import com.movieshell.ui.components.V4SearchField
 import com.movieshell.ui.components.V4IconButton
@@ -134,9 +135,6 @@ import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.color
 import com.movieshell.ui.settings.SettingsRow
 import com.movieshell.ui.theme.FlowingGlowBackground
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -1663,8 +1661,8 @@ fun HomeScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(SoftDimens.PagePadding),
-                        verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                            .padding(V4.Gutter),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         repeat(6) {
                             LoadingSkeleton(
@@ -1687,10 +1685,10 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .heightIn(max = 420.dp),
                 ) {
-                    Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
+                    Column(modifier = Modifier.padding(V4.Gutter)) {
                         Text(
                             text = "首页布局",
-                            style = SoftType.CardTitle,
+                            style = V4Type.RowTitle,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(bottom = 8.dp),
                         )
@@ -1732,8 +1730,8 @@ fun HomeScreen(
             ModalBottomSheet(
                 onDismissRequest = { showSourceSheet = false },
                 shape = RoundedCornerShape(
-                    topStart = SoftDimens.CardCorner,
-                    topEnd = SoftDimens.CardCorner,
+                    topStart = V4.RField,
+                    topEnd = V4.RField,
                 ),
                 containerColor = MaterialTheme.colorScheme.surface,
             ) {
@@ -1754,7 +1752,7 @@ private fun RowScope.HomeRowTexts(vod: ModelVod, subtitle: String?, subtitleGap:
     Column(modifier = Modifier.weight(1f)) {
         Text(
             text = vod.vodName,
-            style = SoftType.Body,
+            style = V4Type.Body,
             // v0.82.0：显示不全跑马灯
             modifier = Modifier.basicMarquee(),
             color = MaterialTheme.colorScheme.onSurface,
@@ -1764,7 +1762,7 @@ private fun RowScope.HomeRowTexts(vod: ModelVod, subtitle: String?, subtitleGap:
             if (subtitleGap) Spacer(Modifier.height(4.dp))
             Text(
                 text = subtitle,
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1815,7 +1813,7 @@ private fun HomeCompactRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit
             ) {
                 Text(
                     text = vod.vodName.take(1),
-                    style = SoftType.CardTitle,
+                    style = V4Type.RowTitle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -1868,7 +1866,7 @@ private fun HomeCapsule(
             Spacer(Modifier.width(6.dp))
             Text(
                 text = text,
-                style = SoftType.CardTitle,
+                style = V4Type.RowTitle,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 softWrap = false,

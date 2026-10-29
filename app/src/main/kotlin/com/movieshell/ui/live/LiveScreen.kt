@@ -112,9 +112,6 @@ import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.TabTopBar
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -667,8 +664,8 @@ private fun LiveSettingsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(
-            topStart = SoftDimens.CardCorner,
-            topEnd = SoftDimens.CardCorner,
+            topStart = V4.RField,
+            topEnd = V4.RField,
         ),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
@@ -681,7 +678,7 @@ private fun LiveSettingsSheet(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "直播设置",
-                    style = SoftType.CardTitle,
+                    style = V4Type.RowTitle,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.weight(1f))
@@ -691,7 +688,7 @@ private fun LiveSettingsSheet(
             }
             Text(
                 text = "切换生效直播源 / 配置 EPG 节目单兜底源",
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
@@ -718,7 +715,7 @@ private fun LiveSettingsSheet(
                 ) {
                     Text(
                         text = "切回接口默认直播源",
-                        style = SoftType.Body,
+                        style = V4Type.Body,
                         fontWeight = if (selectedLiveSource == null) FontWeight.Bold else FontWeight.Normal,
                         color = if (selectedLiveSource == null) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurface,
@@ -727,7 +724,7 @@ private fun LiveSettingsSheet(
                 if (sourceKeys.isEmpty()) {
                     Text(
                         text = "暂无直播源",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -746,7 +743,7 @@ private fun LiveSettingsSheet(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = liveSourceLabel(key),
-                                style = SoftType.Body,
+                                style = V4Type.Body,
                                 fontWeight = if (selectedLiveSource == key) FontWeight.Bold else FontWeight.Normal,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -754,7 +751,7 @@ private fun LiveSettingsSheet(
                         }
                         Text(
                             text = if (key == "manual") "手动" else "接口",
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -762,11 +759,11 @@ private fun LiveSettingsSheet(
             } else {
                 Text(
                     text = "全局节目单（兜底）",
-                    style = SoftType.CardTitle,
+                    style = V4Type.RowTitle,
                 )
                 Text(
                     text = "本源无节目单时用它查正在播 / 下一档；不填则不兜底，不内置任何源",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -804,7 +801,7 @@ private fun LiveSettingsSheet(
             )
             Text(
                 text = "添加/删除订阅、导入本地、手动加频道走整页",
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(24.dp))
@@ -1104,8 +1101,8 @@ private fun ChannelDetailSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(
-            topStart = SoftDimens.CardCorner,
-            topEnd = SoftDimens.CardCorner,
+            topStart = V4.RField,
+            topEnd = V4.RField,
         ),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
@@ -1133,7 +1130,7 @@ private fun ChannelDetailSheet(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         channel.name,
-                        style = SoftType.CardTitle,
+                        style = V4Type.RowTitle,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
@@ -1143,7 +1140,7 @@ private fun ChannelDetailSheet(
                                 channel.sourceKey.startsWith("m3u:") -> "订阅：" + channel.sourceKey.removePrefix("m3u:")
                                 else -> "本地源"
                             },
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1151,7 +1148,7 @@ private fun ChannelDetailSheet(
                     Icon(
                         if (channel.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
                         contentDescription = "收藏",
-                        tint = if (channel.favorite) LocalSoftExtra.current.warning
+                        tint = if (channel.favorite) V4.c.vip
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1161,25 +1158,25 @@ private fun ChannelDetailSheet(
             if (channel.epgUrl.isNotBlank() || globalEpgDetail.isNotBlank()) {
                 Text(
                     "节目单",
-                    style = SoftType.CardTitle,
+                    style = V4Type.RowTitle,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.height(4.dp))
                 when {
-                    epgLoading -> Text("加载中…", style = SoftType.Caption)
+                    epgLoading -> Text("加载中…", style = V4Type.Meta)
                     epg == null || (epg?.first == null && epg?.second == null) ->
-                        Text("暂无节目数据", style = SoftType.Caption)
+                        Text("暂无节目数据", style = V4Type.Meta)
                     else -> {
                         epg?.first?.let { p ->
                             Text(
                                 "正在播：${p.title}（${timeFmt.format(Date(p.startMs))}–${timeFmt.format(Date(p.stopMs))}）",
-                                style = SoftType.Body,
+                                style = V4Type.Body,
                             )
                         }
                         epg?.second?.let { p ->
                             Text(
                                 "接下来：${p.title}（${timeFmt.format(Date(p.startMs))}）",
-                                style = SoftType.Body,
+                                style = V4Type.Body,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -1327,11 +1324,11 @@ fun LiveManageScreen(onBack: () -> Unit) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
                             "全局节目单（兜底）",
-                            style = SoftType.CardTitle,
+                            style = V4Type.RowTitle,
                         )
                         Text(
                             "本源无节目单时用它查正在播 / 下一档；不填则不兜底，不内置任何源",
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(8.dp))
@@ -1387,11 +1384,11 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 s.name,
-                                style = SoftType.CardTitle,
+                                style = V4Type.RowTitle,
                             )
                             Text(
                                 if (s.type == LiveSource.LOCAL_FILE) "本地文件" else s.url,
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -1435,7 +1432,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                 Column {
                     Text(
                         text = "名称",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1446,7 +1443,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = "订阅地址",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1460,8 +1457,8 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = "请输入 http(s) 开头的地址",
-                            style = SoftType.Caption,
-                            color = LocalSoftExtra.current.errorSoft,
+                            style = V4Type.Meta,
+                            color = V4.c.live,
                         )
                     }
                 }
@@ -1494,7 +1491,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                 Column {
                     Text(
                         text = "频道名",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1505,7 +1502,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = "播放地址",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1519,14 +1516,14 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = "请输入 http(s) 开头的地址",
-                            style = SoftType.Caption,
-                            color = LocalSoftExtra.current.errorSoft,
+                            style = V4Type.Meta,
+                            color = V4.c.live,
                         )
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = "台标地址（可选）",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))

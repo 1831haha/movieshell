@@ -130,10 +130,9 @@ import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.PlainBlock
 import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 import com.movieshell.ui.theme.BrandGradientColors
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -501,8 +500,8 @@ fun DetailScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(inner)
-                    .padding(SoftDimens.PagePadding),
-                verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                    .padding(V4.Gutter),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 LoadingSkeleton(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f))
                 LoadingSkeleton(
@@ -607,7 +606,7 @@ fun DetailScreen(
                                 .padding(horizontal = 12.dp),
                             shape = RoundedCornerShape(20.dp),
                         ) {
-                            Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
+                            Column(modifier = Modifier.padding(V4.Gutter)) {
                                 // v0.156.0：卡片重排——海报单独放左列，下面一排小图标；
                                 // 剧名只放一行在图右，不再右上角挂收藏
                                 Row(verticalAlignment = Alignment.Top) {
@@ -633,7 +632,7 @@ fun DetailScreen(
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text(
                                                 text = detailTitle(detail, vodId),
-                                                style = SoftType.CardTitle,
+                                                style = V4Type.RowTitle,
                                                 color = MaterialTheme.colorScheme.onSurface,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
@@ -644,14 +643,14 @@ fun DetailScreen(
                                                 Icon(
                                                     imageVector = Icons.Filled.Star,
                                                     contentDescription = null,
-                                                    tint = LocalSoftExtra.current.warning,
+                                                    tint = V4.c.vip,
                                                     modifier = Modifier.size(13.dp),
                                                 )
                                                 Spacer(Modifier.width(3.dp))
                                                 Text(
                                                     text = detail?.vodRemarks.orEmpty(),
-                                                    style = SoftType.Caption,
-                                                    color = LocalSoftExtra.current.warning,
+                                                    style = V4Type.Meta,
+                                                    color = V4.c.vip,
                                                     maxLines = 1,
                                                 )
                                             }
@@ -683,7 +682,7 @@ fun DetailScreen(
                                                     ) {
                                                         Text(
                                                             text = playLines[safeLine].name,
-                                                            style = SoftType.Caption,
+                                                            style = V4Type.Meta,
                                                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                                                             maxLines = 1,
                                                         )
@@ -717,7 +716,7 @@ fun DetailScreen(
                                             }
                                             ClickableText(
                                                 text = actorText,
-                                                style = SoftType.Body.copy(
+                                                style = V4Type.Body.copy(
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 ),
                                                 maxLines = 1,
@@ -740,7 +739,7 @@ fun DetailScreen(
                                                     ) { append("简介：") }
                                                     append(detail?.vodDesc?.ifBlank { "暂无简介" }.orEmpty())
                                                 },
-                                                style = SoftType.Body.copy(fontSize = 12.sp),
+                                                style = V4Type.Body.copy(fontSize = 12.sp),
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 lineHeight = 16.sp,
                                                 maxLines = 2,
@@ -774,7 +773,7 @@ fun DetailScreen(
                                     // v0.86.0："1/8"集数徽标去掉（多余且用户嫌丑；集数信息由"选集（共N集）"+高亮集承担）
                                     ScrollableTabRow(
                                         selectedTabIndex = safeLine,
-                                        edgePadding = SoftDimens.PagePadding,
+                                        edgePadding = V4.Gutter,
                                         modifier = Modifier.fillMaxWidth(),
                                     ) {
                                         playLines.forEachIndexed { i, line ->
@@ -794,7 +793,7 @@ fun DetailScreen(
                                 SectionTitle(
                                     title = "选集（共 ${lineEpisodes.size} 集）",
                                     modifier = Modifier.padding(
-                                        horizontal = SoftDimens.PagePadding,
+                                        horizontal = V4.Gutter,
                                         vertical = 8.dp,
                                     ),
                                     // v0.77.0：集数多时给"跳集"入口，短剧 60-80 集不用手翻
@@ -836,7 +835,7 @@ fun DetailScreen(
                                     state = epGridState,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = SoftDimens.PagePadding)
+                                        .padding(horizontal = V4.Gutter)
                                         .heightIn(max = 320.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -867,7 +866,7 @@ fun DetailScreen(
                                 SectionTitle(
                                     title = "选集（共 ${episodes.size} 集）",
                                     modifier = Modifier.padding(
-                                        horizontal = SoftDimens.PagePadding,
+                                        horizontal = V4.Gutter,
                                         vertical = 8.dp,
                                     ),
                                 )
@@ -876,7 +875,7 @@ fun DetailScreen(
                                 FlowRow(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = SoftDimens.PagePadding),
+                                        .padding(horizontal = V4.Gutter),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
@@ -911,10 +910,10 @@ fun DetailScreen(
                             item {
                                 Text(
                                     text = "暂无可播放剧集",
-                                    style = SoftType.Caption,
+                                    style = V4Type.Meta,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(
-                                        horizontal = SoftDimens.PagePadding,
+                                        horizontal = V4.Gutter,
                                         vertical = 8.dp,
                                     ),
                                 )
@@ -1144,10 +1143,10 @@ fun DetailScreen(
             var resolving by remember { mutableStateOf(false) }
             Dialog(onDismissRequest = { if (!resolving) showDownloadDialog = false }) {
                 AppCard {
-                    Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
+                    Column(modifier = Modifier.padding(V4.Gutter)) {
                         Text(
                             text = "选择要下载的剧集",
-                            style = SoftType.CardTitle,
+                            style = V4Type.RowTitle,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Spacer(Modifier.height(8.dp))
@@ -1319,10 +1318,10 @@ private fun MetaChip(text: String) {
         text = text,
         modifier = Modifier
             .padding(end = 8.dp)
-            .clip(RoundedCornerShape(SoftDimens.ChipCorner))
+            .clip(RoundedCornerShape(V4.RPoster))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(horizontal = 8.dp, vertical = 4.dp),
-        style = SoftType.Caption,
+        style = V4Type.Meta,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
