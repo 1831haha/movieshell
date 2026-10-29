@@ -5,7 +5,7 @@ import com.movieshell.data.model.Site
 import com.movieshell.data.model.isPhpSite
 import com.movieshell.data.model.isSubSite
 import com.movieshell.data.repo.ApiSourceStore
-import com.movieshell.data.repo.DetailSiteHolder
+import com.movieshell.data.repo.DetailSiteRoute
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PhpCliEngine
 import com.movieshell.data.repo.PhpSourceManager
@@ -190,7 +190,7 @@ internal suspend fun buildSearchConfigJson(context: Context, onlyCurrent: Boolea
  * 错走到当前激活规则上出详情、播错片。
  * 只搜当前源的合成站（drpy:active / py:active）切到自身是 no-op，同样走这条路。
  */
-internal suspend fun goDetail(site: Site, vodId: String, onVodClick: (vodId: String) -> Unit): Boolean {
+internal suspend fun goDetail(site: Site, vodId: String, onVodClick: (vodId: String, siteKey: String) -> Unit): Boolean {
     // v0.271.0（T25）：Drpy 切源走 suspend 版，调用方放协程里等切完再进详情，
     // 否则详情会按旧源拉。PY/PHP 只验文件存在，不读文件，仍走同步版。
     // v0.217.0（F51）：切源失败不再进详情——原来三个 setActiveRule 的返回值
@@ -210,11 +210,14 @@ internal suspend fun goDetail(site: Site, vodId: String, onVodClick: (vodId: Str
         else -> true
     }
     if (!ok) return false
-    DetailSiteHolder.site = when {
-        site.isSubSite() -> site
-        site.key.startsWith("cms:") -> site
-        else -> null
+    // B1：订阅子站点与 CMS 站把 key 带给详情页路由，本地规则站
+    // 已在上面切成当前激活规则，带空串，详情走激活规则链路，
+    // 不再写全局 holder。
+    val siteKey = when {
+        site.isSubSite() -> site.key
+        site.key.startsWith("cms:") -> site.key
+        else -> ""
     }
-    onVodClick(vodId)
+    onVodClick(vodId, siteKey)
     return true
 }

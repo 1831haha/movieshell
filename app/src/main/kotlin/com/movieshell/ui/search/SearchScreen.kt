@@ -69,7 +69,7 @@ import kotlinx.coroutines.launch
 
 
 @Composable
-fun SearchScreen(onVodClick: (vodId: String) -> Unit) {
+fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
     // v0.271.0（T25）：进详情前的切源是 suspend，点卡片时放协程里等切完。
     val scope = rememberCoroutineScope()
     // v0.103.0：activity 级 VM——切后台/切 tab 不销毁，viewModelScope 里的聚合搜索不中断、结果保留

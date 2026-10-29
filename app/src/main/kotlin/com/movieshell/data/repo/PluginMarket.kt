@@ -23,7 +23,8 @@ import java.util.zip.ZipFile
  * 插件市场客户端 + 安装器（v0.23.0，单入口；市场协议兼容 DsPlayer 官方市场）。
  *
  * - fetch(url)：拉 market.json → MarketInfo（含市场名/logo/插件列表）。
- * - install(context, plugin)：下载 → MD5 强制校验 → 包内 plugin.json（如有）与条目做
+ * - install(context, plugin)：下载 → MD5/SHA-256 辅助校验 → 包签名校验
+ *   （信任锚，未签名或验签失败拒绝安装）→ 包内 plugin.json（如有）与条目做
  *   id/version 一致性校验 → 按 type 分流：
  *   source → py/js/php 规则目录（engine 缺省时按包内目录嗅探，兼容 DsPlayer 源包）；
  *   server → pluginsDir/<id>/ 整包解压；
@@ -57,6 +58,8 @@ object PluginMarket {
         val desc: String,
         val updatedAt: String,
         val plugins: List<MarketPlugin>,
+        /** 市场索引签名（Base64，签法见 PluginSignature），空白表示旧市场未签名。 */
+        val signature: String = "",
     )
 
     data class MarketPlugin(
@@ -66,6 +69,10 @@ object PluginMarket {
         val type: String,
         val engine: String,
         val md5: String,
+        /** 辅助校验用 SHA-256，不是信任锚；信任锚是下面的 signature。 */
+        val sha256: String = "",
+        /** 插件包签名（Base64，对包文件原始字节签名，签法见 PluginSignature）。 */
+        val signature: String = "",
         val url: String,
         val desc: String,
         val author: String,
@@ -175,10 +182,14 @@ object PluginMarket {
         return if (f.exists()) f.lastModified() else null
     }
 
-    /** 拉取市场（v0.123.0：多镜像串行首成即停；无磁盘缓存，引导页等轻量调用方用）。 */
+    /** 拉取市场（v0.123.0：多镜像串行首成即停；无磁盘缓存，引导页等轻量调用方用）。
+     * S1 过渡态：镜像只作传输，拉到索引后验索引签名；签名无效直接抛错，
+     * 不展示可能被镜像篡改过的插件列表；未签名或公钥未配置只警告不拦截。 */
     suspend fun fetch(url: String): MarketInfo = withContext(Dispatchers.IO) {
         val (body, effectiveUrl) = fetchBodySequential(url)
-        stamp(url, parseMarket(effectiveUrl, body)).also {
+        val info = stamp(url, parseMarket(effectiveUrl, body))
+        marketSignatureWarning(info)?.let { LogBus.w(TAG, it) }
+        info.also {
             lastList = it.plugins
             rememberPlugins(it.plugins)
         }
@@ -194,7 +205,15 @@ object PluginMarket {
         val text = f.readText()
         val nl = text.indexOf('\n')
         if (nl < 0) return null
-        stamp(url, parseMarket(text.substring(0, nl), text.substring(nl + 1)))
+        val info = stamp(url, parseMarket(text.substring(0, nl), text.substring(nl + 1)))
+        // 缓存里的旧索引：签名无效按无缓存处理，未签名或公钥未配置只警告不拦截。
+        if (PluginSignature.checkMarketSignature(info.plugins, info.signature) ==
+            PluginSignature.SignatureCheck.INVALID
+        ) {
+            return null
+        }
+        marketSignatureWarning(info)?.let { LogBus.w(TAG, it) }
+        info
             .also { lastList = it.plugins }
             .also { rememberPlugins(it.plugins) }
             .also { rememberInfo(url, it) }
@@ -208,10 +227,26 @@ object PluginMarket {
             f.parentFile?.mkdirs()
             f.writeText("$effectiveUrl\n$body")
         }.onFailure { LogBus.w(TAG, "市场缓存写入失败：${it.message}") }
-        stamp(url, parseMarket(effectiveUrl, body))
+        val info = stamp(url, parseMarket(effectiveUrl, body))
+        marketSignatureWarning(info)?.let { LogBus.w(TAG, it) }
+        info
             .also { lastList = it.plugins }
             .also { rememberPlugins(it.plugins) }
             .also { rememberInfo(url, it) }
+    }
+
+    /** S1 过渡态：索引签名检查的唯一入口。签名无效抛错拦截；
+     * 未签名或公钥未配置返回警告文案，调用方记日志后继续展示。 */
+    private fun marketSignatureWarning(info: MarketInfo): String? {
+        return when (PluginSignature.checkMarketSignature(info.plugins, info.signature)) {
+            PluginSignature.SignatureCheck.VERIFIED -> null
+            PluginSignature.SignatureCheck.UNSIGNED ->
+                "该市场索引未签名，展示内容未经签名校验"
+            PluginSignature.SignatureCheck.UNCONFIGURED ->
+                "插件市场签名公钥未配置，展示内容未经签名校验"
+            PluginSignature.SignatureCheck.INVALID ->
+                throw IllegalStateException("市场索引签名校验失败，索引可能被篡改，已拒绝展示")
+        }
     }
 
     /** market.json 的 JSON 解析（纯函数，缓存/远端共用）。 */
@@ -231,6 +266,8 @@ object PluginMarket {
                 type = o.optString("type", ""),
                 engine = o.optString("engine", ""),
                 md5 = o.optString("md5"),
+                sha256 = o.optString("sha256"),
+                signature = o.optString("signature"),
                 url = o.optString("url").also {
                     if (it.isBlank()) throw IllegalStateException("插件 ${o.optString("id")} 缺 url")
                 },
@@ -253,6 +290,7 @@ object PluginMarket {
             desc = root.optString("desc", ""),
             updatedAt = root.optString("updatedAt", ""),
             plugins = plugins,
+            signature = root.optString("signature"),
         )
     }
 
@@ -300,6 +338,8 @@ object PluginMarket {
      * v0.45.0：镜像展开。官方 raw 地址展开 4 镜像
      * （raw / jsdelivr / ghfast / gh-proxy，国内镜像在后两位）；
      * 用户自填的第三方市场地址只用它自己，不乱拼镜像。
+     * S1：镜像只作传输，不作信任——索引与包都以签名为准，
+     * 镜像改了内容会在验签那一步被拦下。
      */
     private fun mirrorUrls(url: String): List<String> {
         val m = Regex("https://raw\\.githubusercontent\\.com/([^/]+)/([^/]+)/([^/]+)/(.+)")
@@ -347,14 +387,41 @@ object PluginMarket {
             progress?.onStage(InstallStage.Downloading, 0, plugin.size)
             download(PluginStore.applyGithubProxy(plugin.url), tmp, progress, plugin.size)
             progress?.onStage(InstallStage.Verifying, 0, 0)
+            // S1 过渡态：md5 只作辅助校验，信任锚是包签名；签名无效
+            // 拒绝安装，未签名或公钥未配置只警告（warn 返回给调用方弹提示）。
             verifyMd5(tmp, plugin.md5, plugin.id)
+            if (plugin.sha256.isNotBlank()) {
+                val actualSha = ExecutableTrust.sha256(tmp)
+                if (actualSha == null || !actualSha.equals(plugin.sha256, ignoreCase = true)) {
+                    throw IllegalStateException("SHA-256 校验失败（插件 ${plugin.id}），文件可能被篡改，已拒绝安装")
+                }
+            }
+            val signatureWarn = when (PluginSignature.checkPackageSignature(tmp, plugin.signature)) {
+                PluginSignature.SignatureCheck.VERIFIED -> null
+                PluginSignature.SignatureCheck.UNSIGNED ->
+                    "插件 ${plugin.id} 未提供签名，安装内容未经签名校验"
+                PluginSignature.SignatureCheck.UNCONFIGURED ->
+                    "插件市场签名公钥未配置，插件 ${plugin.id} 未经签名校验"
+                PluginSignature.SignatureCheck.INVALID ->
+                    throw IllegalStateException("插件 ${plugin.id} 签名校验失败，文件可能被篡改，已拒绝安装")
+            }
+            if (signatureWarn != null) {
+                LogBus.w(TAG, signatureWarn)
+                warn = signatureWarn
+            }
             progress?.onStage(InstallStage.Installing, 0, 0)
-            if (plugin.type == "live") {
-                warn = installLive(context, plugin, tmp, oldVersion)
-                // v0.96.1：live 插件装完自动刷新聚合，不然还播内存里的旧频道
-                runCatching { LiveStore.refresh(context) }
-                    .onFailure { LogBus.w(TAG, "安装后刷新直播聚合失败：${it.message}") }
-            } else warn = installZip(context, plugin, tmp)
+            val installWarn = if (plugin.type == "live") {
+                installLive(context, plugin, tmp, oldVersion).also {
+                    // v0.96.1：live 插件装完自动刷新聚合，不然还播内存里的旧频道
+                    runCatching { LiveStore.refresh(context) }
+                        .onFailure { LogBus.w(TAG, "安装后刷新直播聚合失败：${it.message}") }
+                }
+            } else {
+                installZip(context, plugin, tmp)
+            }
+            // 签名警告与安装告警都返回，调用方一起弹，不互相覆盖。
+            warn = listOfNotNull(signatureWarn, installWarn)
+                .joinToString("；").takeIf { it.isNotBlank() }
             LogBus.i(TAG, "安装成功：${plugin.id} v${plugin.version}")
         } finally {
             tmp.delete()

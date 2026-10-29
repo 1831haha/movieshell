@@ -101,7 +101,7 @@ import com.movieshell.data.model.isDrpySite
 import com.movieshell.data.model.isJavaSpider
 import com.movieshell.data.model.isPySite
 import com.movieshell.data.repo.ApiSourceStore
-import com.movieshell.data.repo.DetailSiteHolder
+import com.movieshell.data.repo.DetailSiteRoute
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.HomeCache
@@ -161,7 +161,7 @@ private var homeEnteredOnce = false
 fun HomeScreen(
     vm: HomeViewModel,
     onSearchClick: () -> Unit,
-    onVodClick: (vodId: String, title: String) -> Unit,
+    onVodClick: (vodId: String, title: String, siteKey: String) -> Unit,
     // v0.24.0：播放历史入口
     onHistoryClick: () -> Unit = {},
     // v0.26.0：我的追剧入口
@@ -173,7 +173,7 @@ fun HomeScreen(
     // v0.75.0：继续观看——带集数进详情页（默认走 onVodClick）
     // v0.189.0：带源类型和源 key，进详情前先恢复到原来那个源
     onContinueWatch: (vodId: String, title: String, episodeIndex: Int, sourceType: String, sourceKey: String) -> Unit =
-        { v, t, _, _, _ -> onVodClick(v, t) },
+        { v, t, _, _, _ -> onVodClick(v, t, "") },
 ) {
     // v0.212.0 审计修复：原来普通 remember，详情返回/切 tab 后
     // 海报滚动位置每次回顶。改用官方 LazyGridState.Saver 存进
@@ -278,13 +278,13 @@ fun HomeScreen(
     }
 
     /**
-     * 进详情：订阅当前源时把站点上下文带给详情页（详情/播放按站走引擎），
-     * 否则传 null，详情页走本地规则旧逻辑。
+     * 进详情：订阅当前源时把站点 key 带给详情页（详情/播放按站走引擎），
+     * 否则传空串，详情页走本地规则旧逻辑。B1：不再写全局 holder，
+     * 站点跟路由参数走，返回栈与进程恢复都不再取错站。
      */
     fun goDetail(vodId: String, title: String = "") {
         LogBus.i("UI", "点击影片卡片 id=$vodId")
-        DetailSiteHolder.site = subSite
-        onVodClick(vodId, title)
+        onVodClick(vodId, title, DetailSiteRoute.encode(subSite))
     }
 
     var refreshing by remember { mutableStateOf(false) }

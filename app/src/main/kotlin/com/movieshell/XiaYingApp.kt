@@ -7,8 +7,11 @@ import com.movieshell.data.novel.NovelMigration
 import com.movieshell.data.novel.NovelUpdateWorker
 import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.ServicePluginManager
+import com.movieshell.data.repo.SpiderEngine
 import com.movieshell.data.repo.StoragePaths
+import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.source.JsRuntime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +29,15 @@ class XiaYingApp : Application() {
         LogBus.readLastCrash(this)
         // v0.113.0：V8 sandbox 上下文注入（进程级单例，首次用 JS 源时才真正连接）
         JsRuntime.init(this)
+        // B3：引擎与相关 Store 的初始化挪到 Application——原来只在
+        // MainActivity.onCreate 里调，WorkManager 单独拉起进程时
+        // Activity 根本没跑，追剧检测调 SiteRepository.detail 会因
+        // 引擎未 init 抛错，又被 logged() 吞成空详情当“没更新”。
+        // 三个 init 都是幂等的（appContext 为空时才赋值），主进程
+        // 里 MainActivity 再调一次无害。
+        SubSiteEngines.init(this)
+        SpiderEngine.init(this)
+        PhpSourceManager.init(this)
         // v0.200.0：小说 JS 源变量落盘读回（重定向域名记忆跨重启生效）
         LegadoJsEngine.SourceVariableStore.init(filesDir)
         // v0.85.0：小说自动追更（每天一次，KEEP 防重复入队）

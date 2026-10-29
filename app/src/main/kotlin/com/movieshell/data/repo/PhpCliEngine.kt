@@ -184,6 +184,17 @@ object PhpCliEngine {
                     LogBus.w(TAG, "PHP 脚本不存在：$scriptName")
                     return@runCatching null
                 }
+                // S2：执行前验摘要，公开脚本被改写后拒绝执行（只验不拷，
+                // 脚本带相对 lib 引用，单文件拷私有会断引用；重新信任
+                // 只在用户显式切源时做，见 PhpSourceManager.setActiveRule）。
+                val scriptKey = "php:${scriptName ?: activeScriptName()}"
+                if (!ExecutableTrust.verifyPublic(ctx.filesDir, script, scriptKey, allowRetrust = false)) {
+                    if (errKey != null) {
+                        lastErrorByScript[errKey] = "PHP 脚本在公开目录被改动，未自动执行，请重新切源确认"
+                    }
+                    LogBus.e(TAG, "PHP 脚本信任校验失败，拒绝执行：$scriptKey")
+                    return@runCatching null
+                }
                 val phpExe = ServicePluginManager.expandPlaceholders(ctx, "__plugin:php__/bin/php")
                 // v0.188.0 M14：lib 目录缺失时记日志。phpLibDirFor 在
                 // ServicePluginManager 侧是私有的、这里调不到，按同一结构

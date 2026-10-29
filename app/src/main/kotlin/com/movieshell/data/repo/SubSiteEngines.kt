@@ -13,6 +13,7 @@ import com.movieshell.data.model.isSubSite
 import com.movieshell.data.source.ChaquopyEngine
 import com.movieshell.data.source.DrpyEngine
 import com.movieshell.data.source.PyApi
+import com.movieshell.data.source.RuleImportExpander
 import com.movieshell.data.source.V8DrpyEngine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -67,7 +68,18 @@ object SubSiteEngines {
             Log.w(TAG, "drpy 站规则文件丢失: ${site.key}")
             return EmptyDrpyEngine
         }
-        return PooledDrpyEngine(site.key, f)
+        // S2：后台执行不读公开文件，读私有可信副本；公开文件被改写
+        // 后返回旧副本（见 ExecutableTrust），可信副本也不可信时拒绝。
+        val trusted = ExecutableTrust.trustedFile(
+            requireContext().filesDir,
+            f,
+            "site:${site.key}",
+            allowRetrust = false,
+        ) ?: run {
+            Log.w(TAG, "drpy 站规则信任校验失败，拒绝执行: ${site.key}")
+            return EmptyDrpyEngine
+        }
+        return PooledDrpyEngine(site.key, trusted)
     }
 
     /**
@@ -84,7 +96,17 @@ object SubSiteEngines {
             Log.w(TAG, "PY 站规则文件丢失: ${site.key}")
             return EmptyDrpyEngine
         }
-        return SubPyEngine(f.absolutePath)
+        // S2：与 drpy 同款，后台执行读私有可信副本，不读公开文件。
+        val trusted = ExecutableTrust.trustedFile(
+            requireContext().filesDir,
+            f,
+            "site:${site.key}",
+            allowRetrust = false,
+        ) ?: run {
+            Log.w(TAG, "PY 站规则信任校验失败，拒绝执行: ${site.key}")
+            return EmptyDrpyEngine
+        }
+        return SubPyEngine(trusted.absolutePath)
     }
 
     /** v0.27.1：订阅 PY 站播放原始结果（url, parse, header），供 PlayResolver 做收尾。 */
@@ -92,7 +114,16 @@ object SubSiteEngines {
         if (!site.isSubSite() || !site.isPySite()) return Triple("", 0, emptyMap())
         val f = File(site.api)
         if (!f.isFile) return Triple("", 0, emptyMap())
-        return runCatching { PyApi(ChaquopyEngine).play(f.absolutePath, flag, id) }
+        // S2：播放同样走可信副本，不读公开文件。
+        val trusted = runCatching {
+            ExecutableTrust.trustedFile(
+                requireContext().filesDir,
+                f,
+                "site:${site.key}",
+                allowRetrust = false,
+            )
+        }.getOrNull() ?: return Triple("", 0, emptyMap())
+        return runCatching { PyApi(ChaquopyEngine).play(trusted.absolutePath, flag, id) }
             .getOrDefault(Triple("", 0, emptyMap()))
     }
 }
@@ -218,8 +249,30 @@ private object SubDrpyPool {
                         }
                     }
                     PooledEntry(
-                        V8DrpyEngine(SubSiteEngines.requireContext()).also {
-                            it.loadRule(ruleFile.readText())
+                        V8DrpyEngine(SubSiteEngines.requireContext()).also { eng ->
+                            // S2：规则正文已是可信副本，import 也从可信副本展开，
+                            // 不再让引擎回公开 js 目录读 import 文件。展开后已无
+                            // import 语句，引擎自己的公开目录展开是空操作。
+                            val ctx = SubSiteEngines.requireContext()
+                            val raw = ruleFile.readText()
+                            val expanded = RuleImportExpander.expand(raw) { spec ->
+                                runCatching {
+                                    val dir = StoragePaths.jsDir(ctx)
+                                    val lib = File(dir, spec)
+                                    if (!lib.canonicalPath.startsWith(dir.canonicalPath)) null
+                                    else {
+                                        val rel = lib.relativeTo(dir).path.removePrefix("./")
+                                        val trustedLib = ExecutableTrust.trustedFile(
+                                            ctx.filesDir,
+                                            lib,
+                                            "js:$rel",
+                                            allowRetrust = false,
+                                        ) ?: return@runCatching null
+                                        trustedLib.readText()
+                                    }
+                                }.getOrNull()
+                            }
+                            eng.loadRule(expanded.js)
                         },
                     )
                 }

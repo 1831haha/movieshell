@@ -7,6 +7,7 @@ import com.movieshell.data.model.FilterGroup
 import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.source.DrpyEngine
+import com.movieshell.data.source.RuleImportExpander
 import com.movieshell.data.source.V8DrpyEngine
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -127,11 +128,19 @@ object DrpySourceManager {
             return false
         }
         return try {
-            val js = file.readText()
             val ctx = appContext ?: return false
+            // S2：显式切源是用户主动操作，重新信任当前公开文件并拷入
+            // 私有副本，之后执行读可信副本，不再直接读公开文件。
+            val trusted = ExecutableTrust.trustedFile(
+                ctx.filesDir,
+                file,
+                "js:$name",
+                allowRetrust = true,
+            ) ?: return false
+            val js = trusted.readText()
             // v0.112.0 D2：删重复 release——旧引擎已在函数开头 try/catch 里释放并置空，
             // 此处的 engine?.release() 恒为 no-op。保留开头那一次。
-            engine = V8DrpyEngine(ctx).also { it.loadRule(js) }
+            engine = V8DrpyEngine(ctx).also { it.loadRule(trustedExpand(ctx, js)) }
             activeName = name
             Log.i(TAG, "active 规则: $name")
             true
@@ -169,7 +178,18 @@ object DrpySourceManager {
         val myGen = ++generation
         val js = withContext(Dispatchers.IO) {
             val file = File(rulesDirOrNull() ?: return@withContext null, name)
-            if (!file.isFile) null else runCatching { file.readText() }.getOrNull()
+            if (!file.isFile) null
+            else {
+                // S2：显式切源重新信任，读可信副本；后台执行不再读公开文件。
+                val ctx = appContext ?: return@withContext null
+                val trusted = ExecutableTrust.trustedFile(
+                    ctx.filesDir,
+                    file,
+                    "js:$name",
+                    allowRetrust = true,
+                ) ?: return@withContext null
+                runCatching { trusted.readText() }.getOrNull()
+            }
         } ?: run {
             Log.w(TAG, "规则文件不存在或读取失败: $name")
             return false
@@ -184,7 +204,9 @@ object DrpySourceManager {
         activeName = null
         val ctx = appContext ?: return false
         val eng = try {
-            withContext(Dispatchers.IO) { V8DrpyEngine(ctx).also { it.loadRule(js) } }
+            withContext(Dispatchers.IO) {
+                V8DrpyEngine(ctx).also { it.loadRule(trustedExpand(ctx, js)) }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "载入规则失败: $name", e)
             return false
@@ -237,6 +259,28 @@ object DrpySourceManager {
             .onFailure { recordFailure("category", it) }
             .onSuccess { managerLastError = null }
             .getOrNull().orEmpty()
+    }
+
+    /** S2：drpy import 从可信副本展开，展开后已无 import 语句，
+     * 引擎自己的公开目录展开是空操作，不会回公开文件读 import。 */
+    private fun trustedExpand(ctx: android.content.Context, js: String): String {
+        return RuleImportExpander.expand(js) { spec ->
+            runCatching {
+                val dir = StoragePaths.jsDir(ctx)
+                val lib = File(dir, spec)
+                if (!lib.canonicalPath.startsWith(dir.canonicalPath)) null
+                else {
+                    val rel = lib.relativeTo(dir).path.removePrefix("./")
+                    val trustedLib = ExecutableTrust.trustedFile(
+                        ctx.filesDir,
+                        lib,
+                        "js:$rel",
+                        allowRetrust = false,
+                    ) ?: return@runCatching null
+                    trustedLib.readText()
+                }
+            }.getOrNull()
+        }.js
     }
 
     /** 当前规则某分类的筛选定义（无筛选时空列表）。 */

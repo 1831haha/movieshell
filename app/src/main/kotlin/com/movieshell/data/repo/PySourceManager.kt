@@ -137,6 +137,11 @@ object PySourceManager {
             Log.w(TAG, "规则文件不存在: $name")
             return false
         }
+        // S2：显式切源重新信任，之后 activeRulePath 一律读可信副本。
+        val ctx = appContext
+        if (ctx != null) {
+            ExecutableTrust.trustedFile(ctx.filesDir, file, "py:$name", allowRetrust = true)
+        }
         activeName = name
         Log.i(TAG, "active PY 规则: $name")
         return true
@@ -145,7 +150,16 @@ object PySourceManager {
     private fun activeRulePath(): String? {
         val dir = rulesDirOrNull() ?: return null
         val name = activeName ?: return null
-        return File(dir, name).absolutePath
+        val ctx = appContext ?: return null
+        // S2：后台执行读私有可信副本；公开文件被改写后返回旧副本，
+        // 可信副本也不可信时返回 null，调用方按无规则处理，不读公开文件。
+        val trusted = ExecutableTrust.trustedFile(
+            ctx.filesDir,
+            File(dir, name),
+            "py:$name",
+            allowRetrust = false,
+        ) ?: return null
+        return trusted.absolutePath
     }
 
     suspend fun home(): List<Vod> {

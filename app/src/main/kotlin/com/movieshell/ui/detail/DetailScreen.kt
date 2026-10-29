@@ -98,6 +98,7 @@ import com.movieshell.data.model.Episode
 import com.movieshell.data.model.PlayLine
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.DetailSiteHolder
+import com.movieshell.data.repo.DetailSiteRoute
 import com.movieshell.data.repo.DownloadSettings
 import com.movieshell.data.repo.DownloadTask
 import com.movieshell.data.repo.DrpySourceManager
@@ -141,6 +142,8 @@ import kotlinx.coroutines.withTimeout
 @Composable
 fun DetailScreen(
     vodId: String,
+    // B1：详情站点跟路由参数走；null 或哨兵值表示老路由，才回退 holder。
+    siteKey: String? = null,
     // v0.75.0：继续观看带过来的起播集（-1=不指定，走断点续播/默认逻辑）
     initialEpisode: Int = -1,
     onBack: () -> Unit,
@@ -176,9 +179,21 @@ fun DetailScreen(
     }
 
     // ---- drpy / PY / PHP 规则接入（drpy 优先，其次 PY，再次 PHP CLI） ----
-    // v0.5.1：从订阅站源点进来时带站点上下文（DetailSiteHolder），详情/播放按站走引擎；
-    // 否则走本地规则旧逻辑。
-    val subSite = remember(vodId) { DetailSiteHolder.site }
+    // B1：站点按路由 siteKey 解析，不再以 holder 旧值为准；只有老路由
+    // （siteKey 为 null 或哨兵）才回退 holder。解析结果同步回 holder，
+    // 供播放页与字幕模块读当前详情站——holder 从输入降级为派生缓存。
+    val subSite = remember(vodId, siteKey) {
+        if (siteKey == null || siteKey == DetailSiteRoute.UNSET) {
+            DetailSiteHolder.site
+        } else {
+            DetailSiteRoute.resolve(context, siteKey)
+        }
+    }
+    LaunchedEffect(vodId, siteKey, subSite) {
+        if (siteKey != null && siteKey != DetailSiteRoute.UNSET) {
+            DetailSiteHolder.site = subSite
+        }
+    }
     val drpyActive = remember(vodId) {
         DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule() ||
             PhpSourceManager.activeRuleName() != null

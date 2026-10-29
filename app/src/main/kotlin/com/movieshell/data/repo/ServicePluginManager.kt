@@ -576,6 +576,75 @@ object ServicePluginManager {
     private fun parseHealthMode(raw: String): HealthMode =
         runCatching { HealthMode.valueOf(raw) }.getOrDefault(HealthMode.HTTP)
 
+    /**
+     * S2：启动前复验。锚定键在私有信任注册表里：
+     * service:<id>:exe 与 service:<id>:manifest。
+     * - 已有锚定：exe 与 server.json 都必须与锚定一致，不一致即拒绝拉起；
+     * - 无锚定（本次升级前的旧服务）：先按公开 server.json 的摘要验 exe
+     *   一次，通过后锚定 exe 与 server.json，之后改写即拒绝；
+     *   自定义服务无 server.json 时只锚定 exe。
+     * - 自定义服务在 saveService 时已锚定 exe，启动时直接按锚定验。
+     */
+    private fun verifyServiceAtStart(
+        context: Context,
+        id: String,
+        launch: EffectiveLaunch,
+    ) {
+        val filesDir = context.filesDir
+        val exeKey = "service:$id:exe"
+        val manifestKey = "service:$id:manifest"
+        val manifest = File(File(installRoot(context), id), "server.json")
+        val anchoredExe = ExecutableTrust.registeredSha(filesDir, exeKey)
+        val anchoredManifest = ExecutableTrust.registeredSha(filesDir, manifestKey)
+        if (anchoredExe != null) {
+            val actualExe = ExecutableTrust.sha256(launch.exe)
+            if (actualExe == null || actualExe != anchoredExe) {
+                throw IllegalStateException(
+                    "服务 $id 的可执行文件与安装时摘要不符，可能被改写，已拒绝启动",
+                )
+            }
+            if (anchoredManifest != null && manifest.isFile) {
+                val actualManifest = ExecutableTrust.sha256(manifest)
+                if (actualManifest == null || actualManifest != anchoredManifest) {
+                    throw IllegalStateException(
+                        "服务 $id 的 server.json 与安装时摘要不符，可能被改写，已拒绝启动",
+                    )
+                }
+            }
+            return
+        }
+        // 无锚定的旧服务：按公开 server.json 的摘要验一次，验过再锚定。
+        if (!launch.workDir.isDirectory) return
+        if (manifest.isFile) {
+            val spec = runCatching { parseSpec(manifest.readText()) }.getOrNull()
+            if (spec != null) {
+                val (algo, expect) = when {
+                    spec.sha256.isNotBlank() -> "SHA-256" to spec.sha256
+                    spec.md5.isNotBlank() -> "MD5" to spec.md5
+                    else -> null to ""
+                }
+                if (algo != null) {
+                    val actual = runCatching {
+                        val md = MessageDigest.getInstance(algo)
+                        launch.exe.inputStream().use { input ->
+                            val buf = ByteArray(8192)
+                            var n: Int
+                            while (input.read(buf).also { n = it } > 0) md.update(buf, 0, n)
+                        }
+                        md.digest().joinToString("") { "%02x".format(it) }
+                    }.getOrNull()
+                    if (actual == null || !actual.equals(expect, ignoreCase = true)) {
+                        throw IllegalStateException(
+                            "服务 $id 的可执行文件与 server.json 摘要不符，已拒绝启动",
+                        )
+                    }
+                }
+                ExecutableTrust.record(filesDir, manifestKey, manifest)
+            }
+        }
+        ExecutableTrust.record(filesDir, exeKey, launch.exe)
+    }
+
     private fun parseRuntime(raw: String): RuntimeKind =
         runCatching { RuntimeKind.valueOf(raw) }.getOrDefault(RuntimeKind.CUSTOM)
 
@@ -710,6 +779,16 @@ object ServicePluginManager {
                 // StoragePaths.ensureNomedia）：服务脚本目录也在公开存储，
                 // 包里带 .ts 之类媒体味后缀的文件不再被相册收成假视频。
                 StoragePaths.ensureNomedia(root)
+                // S2：安装成功即在私有注册表锚定可执行文件与 server.json，
+                // 启动时按此复验，不信公开目录里的自带摘要。
+                runCatching {
+                    val exe = File(ZipInstall.safeDst(root, spec.workDir), spec.command)
+                    if (exe.isFile) ExecutableTrust.record(context.filesDir, "service:${spec.id}:exe", exe)
+                    val manifest = File(root, "server.json")
+                    if (manifest.isFile) {
+                        ExecutableTrust.record(context.filesDir, "service:${spec.id}:manifest", manifest)
+                    }
+                }
             } catch (e: Exception) {
                 runCatching { staging.deleteRecursively() }
                 // 旧进程是用户期望运行的，安装失败后尽力拉回旧版
@@ -756,6 +835,8 @@ object ServicePluginManager {
             }
             stopLocked(context, id)
             File(installRoot(context), id).deleteRecursively()
+            ExecutableTrust.clear(context.filesDir, "service:$id:exe")
+            ExecutableTrust.clear(context.filesDir, "service:$id:manifest")
             reg.remove(id)
             if (!saveRegistry(context, reg)) {
                 LogBus.w(TAG, "卸载 $id：注册表未写回（见上一条日志），服务目录已删除")
@@ -941,6 +1022,11 @@ object ServicePluginManager {
         if (!exe.isFile) {
             throw IllegalStateException("command 可执行文件不存在：${exe.absolutePath}")
         }
+        // S2：启动前复验可执行文件与 server.json（只验安装时私有注册表
+        // 里锚定的摘要，不信公开目录里的 server.json 自带摘要）。
+        // 首次启动无锚定时：先按公开 server.json 的摘要验一次，通过后
+        // 锚定，之后改写即拒绝；安装/保存后已有锚定的直接按锚定验。
+        verifyServiceAtStart(context, id, launch)
         runCatching { exe.setExecutable(true) }
 
         val port = entry.port
@@ -1349,6 +1435,14 @@ object ServicePluginManager {
             resident = def.resident,
         )
         saveRegistry(context, reg)
+        // S2：自定义服务保存即锚定当前可执行文件，启动时按此复验。
+        runCatching {
+            val entry = reg[id]
+            if (entry != null) {
+                val exe = effectiveLaunch(context, entry).exe
+                if (exe.isFile) ExecutableTrust.record(context.filesDir, "service:$id:exe", exe)
+            }
+        }
         // 自定义服务：工作目录先建好（展开失败只记日志，启动时还会再报）
         if (existing?.custom != false) {
             runCatching {

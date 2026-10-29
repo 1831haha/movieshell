@@ -70,7 +70,7 @@ import androidx.navigation.navArgument
 import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.download.SubRefreshWorker
 import com.movieshell.data.download.Notify
-import com.movieshell.data.repo.DetailSiteHolder
+import com.movieshell.data.repo.DetailSiteRoute
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.FollowStore
@@ -183,7 +183,7 @@ private val tabs = listOf(
 // 300ms 重影帧；tab 与子页之间仍走原转场。
 private val TAB_ROUTES = setOf("home", "live", "bookshelf", "music", "ai", "settings", "search")
 
-private const val DETAIL_ROUTE = "detail/{vodId}?title={title}&episode={episode}"
+private const val DETAIL_ROUTE = "detail/{vodId}?title={title}&episode={episode}&siteKey={siteKey}"
 
 /** 通知已消费路由在 savedInstanceState 里的 key（F69 去重用）。 */
 private const val KEY_CONSUMED_ROUTE = "consumed_notify_route"
@@ -356,16 +356,20 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                val ctx = LocalContext.current
                 // v0.26.0：通知点进来的深度跳转（消费一次）
                 LaunchedEffect(pendingRoute.value) {
                     val (route, subKey) = pendingRoute.value ?: return@LaunchedEffect
                     pendingRoute.value = null
-                    if (subKey.isNotBlank()) {
-                        DetailSiteHolder.site = SubSiteStore.findSite(ctx, subKey)
-                            ?.let { (u, r) -> SubSiteStore.toSite(u, r) }
+                    // B1：通知进详情不再写全局 holder，subKey 转成路由的
+                    // siteKey 参数，详情页按参数解析；已发出的旧通知也走
+                    // 同一条转换，不依赖 holder 残留值。
+                    val finalRoute = if (subKey.isNotBlank() && route.startsWith("detail/")) {
+                        val sep = if (route.contains("?")) "&" else "?"
+                        "$route${sep}siteKey=${Uri.encode(subKey)}"
+                    } else {
+                        route
                     }
-                    runCatching { navController.navigate(route) }
+                    runCatching { navController.navigate(finalRoute) }
                 }
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val current = backStackEntry?.destination
@@ -472,8 +476,15 @@ class MainActivity : ComponentActivity() {
                                 vm = homeVm,
                                 onSearchClick = { navController.navigateTab("search") },
                                 // v0.47.0：标题透传，详情页加载中不再显示裸 vodId
-                                onVodClick = { vodId, title ->
-                                    navController.navigate("detail/${Uri.encode(vodId)}?title=${Uri.encode(title)}")
+                                onVodClick = { vodId, title, siteKey ->
+                                    val siteParam = if (siteKey.isNotBlank()) {
+                                        "&siteKey=${Uri.encode(siteKey)}"
+                                    } else {
+                                        "&siteKey="
+                                    }
+                                    navController.navigate(
+                                        "detail/${Uri.encode(vodId)}?title=${Uri.encode(title)}$siteParam",
+                                    )
                                 },
                                 // v0.24.0：播放历史
                                 onHistoryClick = { navController.navigate("history") },
@@ -495,31 +506,32 @@ class MainActivity : ComponentActivity() {
                                     // 切源失败（源已删）时不进详情页、不动当前源，只提示。
                                     val sourceOk = when (sourceType) {
                                         "drpy" -> if (sourceKey.isNotBlank()) {
-                                            DetailSiteHolder.site = null
                                             DrpySourceManager.setActiveRuleAsync(sourceKey)
                                         } else true
                                         "py" -> if (sourceKey.isNotBlank()) {
-                                            DetailSiteHolder.site = null
                                             PySourceManager.setActiveRule(sourceKey)
                                         } else true
                                         "php" -> if (sourceKey.isNotBlank()) {
-                                            DetailSiteHolder.site = null
                                             PhpSourceManager.setActiveRule(sourceKey)
                                         } else true
                                         "sub" -> if (sourceKey.isNotBlank()) {
                                             SubSiteStore.findSite(
                                                 this@MainActivity,
                                                 sourceKey,
-                                            )?.let { (u, r) ->
-                                                DetailSiteHolder.site = SubSiteStore.toSite(u, r)
-                                                true
-                                            } ?: false
+                                            ) != null
                                         } else true
                                         else -> true
                                     }
                                     if (sourceOk) {
+                                        // B1：订阅站带 sourceKey 作 siteKey，本地规则站带空串，
+                                        // 详情页按参数解析，不再读 holder。
+                                        val siteParam = if (sourceType == "sub" && sourceKey.isNotBlank()) {
+                                            "&siteKey=${Uri.encode(sourceKey)}"
+                                        } else {
+                                            "&siteKey="
+                                        }
                                         navController.navigate(
-                                            "detail/${Uri.encode(vodId)}?title=${Uri.encode(title)}&episode=$episode",
+                                            "detail/${Uri.encode(vodId)}?title=${Uri.encode(title)}&episode=$episode$siteParam",
                                         )
                                     } else {
                                         android.widget.Toast.makeText(
@@ -534,7 +546,14 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("search") {
                             SearchScreen(
-                                onVodClick = { vodId -> navController.navigate("detail/${Uri.encode(vodId)}") },
+                                onVodClick = { vodId, siteKey ->
+                                    val siteParam = if (siteKey.isNotBlank()) {
+                                        "?siteKey=${Uri.encode(siteKey)}"
+                                    } else {
+                                        "?siteKey="
+                                    }
+                                    navController.navigate("detail/${Uri.encode(vodId)}$siteParam")
+                                },
                             )
                         }
                         // v0.88.0：演员作品页（点详情页演员名进入）
@@ -548,8 +567,13 @@ class MainActivity : ComponentActivity() {
                             ActorWorksScreen(
                                 actorName = actorName,
                                 onBack = { navController.popBackStack() },
-                                onVodClick = { vodId ->
-                                    navController.navigate("detail/${Uri.encode(vodId)}")
+                                onVodClick = { vodId, siteKey ->
+                                    val siteParam = if (siteKey.isNotBlank()) {
+                                        "?siteKey=${Uri.encode(siteKey)}"
+                                    } else {
+                                        "?siteKey="
+                                    }
+                                    navController.navigate("detail/${Uri.encode(vodId)}$siteParam")
                                 },
                             )
                         }
@@ -629,25 +653,19 @@ class MainActivity : ComponentActivity() {
                                     // 原来返回值被丢弃，失败也照常进详情。
                                     val sourceOk = when (item.sourceType) {
                                         "drpy" -> {
-                                            DetailSiteHolder.site = null
                                             DrpySourceManager.setActiveRuleAsync(item.sourceKey)
                                         }
                                         "py" -> {
-                                            DetailSiteHolder.site = null
                                             PySourceManager.setActiveRule(item.sourceKey)
                                         }
                                         else -> {
                                             if (item.sourceKey.isBlank()) {
-                                                DetailSiteHolder.site = null
                                                 true
                                             } else {
                                                 SubSiteStore.findSite(
                                                     this@MainActivity,
                                                     item.sourceKey,
-                                                )?.let { (u, r) ->
-                                                    DetailSiteHolder.site = SubSiteStore.toSite(u, r)
-                                                    true
-                                                } ?: false
+                                                ) != null
                                             }
                                         }
                                     }
@@ -655,7 +673,13 @@ class MainActivity : ComponentActivity() {
                                         lifecycleScope.launch(Dispatchers.IO) {
                                             FollowStore.clearNew(this@MainActivity, item.id)
                                         }
-                                        navController.navigate("detail/${Uri.encode(item.vodId)}")
+                                        // B1：订阅追剧带 sourceKey 作 siteKey，本地规则带空串。
+                                        val siteParam = if (item.sourceType == "sub" && item.sourceKey.isNotBlank()) {
+                                            "?siteKey=${Uri.encode(item.sourceKey)}"
+                                        } else {
+                                            "?siteKey="
+                                        }
+                                        navController.navigate("detail/${Uri.encode(item.vodId)}$siteParam")
                                     } else {
                                         android.widget.Toast.makeText(
                                             this@MainActivity,
@@ -950,12 +974,21 @@ class MainActivity : ComponentActivity() {
                                     type = NavType.IntType
                                     defaultValue = -1
                                 },
+                                // B1：详情站点跟路由走，不再只靠全局 holder。
+                                // 哨兵值表示老路由（没有 siteKey 参数），详情页才回退 holder；
+                                // 新路由一律带 siteKey，空串即本地规则站。
+                                navArgument("siteKey") {
+                                    type = NavType.StringType
+                                    defaultValue = DetailSiteRoute.UNSET
+                                },
                             ),
                         ) { entry ->
                             val detailVodId = entry.arguments?.getString("vodId").orEmpty()
                             val detailEpisode = entry.arguments?.getInt("episode", -1) ?: -1
+                            val detailSiteKey = entry.arguments?.getString("siteKey")
                             DetailScreen(
                                 vodId = detailVodId,
+                                siteKey = detailSiteKey,
                                 initialEpisode = detailEpisode,
                                 onBack = { navController.popBackStack() },
                                 // v0.88.0：点演员名→演员作品页（专属海报墙，不再走搜索 tab）

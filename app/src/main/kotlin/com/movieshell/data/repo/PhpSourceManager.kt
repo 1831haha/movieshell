@@ -84,6 +84,13 @@ object PhpSourceManager {
             Log.w(TAG, "规则文件不存在: $name")
             return false
         }
+        // S2：显式切源重新信任该脚本；之后每次执行前验摘要，公开文件
+        // 被改写后拒绝执行，直到用户再次显式切源。脚本带相对 lib
+        // 引用，不能单文件拷私有，故用只验不拷的口径。
+        val ctx = appContext
+        if (ctx != null) {
+            ExecutableTrust.verifyPublic(ctx.filesDir, file, "php:$name", allowRetrust = true)
+        }
         activeName = name
         Log.i(TAG, "选中 PHP 规则: $name")
         return true

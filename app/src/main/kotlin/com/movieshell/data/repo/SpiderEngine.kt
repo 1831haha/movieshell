@@ -79,40 +79,50 @@ object SpiderEngine {
      * 幂等：目标存在且大小一致则跳过（并补 setReadOnly）；失败记日志返回 null。
      * v0.246.0：只比大小不够——同长度不同内容的 JAR 会被跳过、继续用旧版。
      * 改大小 + SHA-256 双重判断，任一不同都重拷。
+     * S2 修正 v0.246.0 的自动重拷：公开 jar 一变就重拷等于把公开目录
+     * 当执行基准，第三方改写公开 jar 后新内容会直接执行。本版改走
+     * ExecutableTrust 注册表：首次拷入时锚定摘要，公开 jar 变了且
+     * 不是显式刷新时，仍用旧私有副本并记警告，不执行新内容；
+     * 私有副本本身与注册表不符时返回 null 拒绝加载。
+     * 显式刷新走 evict()（清私有副本与注册表），下次加载重新锚定。
      */
     fun privateJarFile(filesDir: File, src: File): File? {
         return runCatching {
             val dst = privateJarTarget(filesDir, src.name)
-            val len = src.length()
-            // v0.246.0：摘要任一算不出时不跳过（重拷最安全），防 null == null 误判为相同
-            val srcHash = sha256(src)
-            val dstHash = if (dst.isFile) sha256(dst) else null
-            if (len > 0 && dst.isFile && dst.length() == len &&
-                srcHash != null && srcHash == dstHash
-            ) {
+            val key = "jar:${src.name}"
+            val registered = ExecutableTrust.registeredSha(filesDir, key)
+            if (registered == null) {
+                dst.setWritable(true)
+                src.inputStream().use { input -> dst.outputStream().use { input.copyTo(it) } }
+                if (!dst.setReadOnly()) LogBus.w(TAG, "jar 设只读失败 ${dst.name}")
+                ExecutableTrust.record(filesDir, key, dst)
+                return dst
+            }
+            val dstSha = if (dst.isFile) ExecutableTrust.sha256(dst) else null
+            if (dstSha == registered) {
+                val srcSha = ExecutableTrust.sha256(src)
+                if (srcSha != null && srcSha != registered) {
+                    LogBus.w(
+                        TAG,
+                        "公开 jar 已变动，未自动更新，仍用旧可信版本 ${src.name}",
+                    )
+                }
                 if (!dst.setReadOnly()) LogBus.w(TAG, "jar 设只读失败 ${dst.name}")
                 return dst
             }
-            dst.setWritable(true)
-            src.inputStream().use { input -> dst.outputStream().use { input.copyTo(it) } }
-            if (!dst.setReadOnly()) LogBus.w(TAG, "jar 设只读失败 ${dst.name}")
-            dst
+            if (!dst.isFile) {
+                // 私有副本已被显式清掉（evict），公开文件即新的导入源，重新锚定。
+                dst.setWritable(true)
+                src.inputStream().use { input -> dst.outputStream().use { input.copyTo(it) } }
+                if (!dst.setReadOnly()) LogBus.w(TAG, "jar 设只读失败 ${dst.name}")
+                ExecutableTrust.record(filesDir, key, dst)
+                return dst
+            }
+            LogBus.e(TAG, "jar 私有副本与信任注册表不一致，拒绝加载 ${src.name}")
+            null
         }.onFailure { LogBus.e(TAG, "jar 拷入私有目录失败 ${src.name}：${it.message}") }
             .getOrNull()
     }
-
-    private fun sha256(file: File): String? = runCatching {
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-        file.inputStream().buffered().use { input ->
-            val buf = ByteArray(8192)
-            while (true) {
-                val n = input.read(buf)
-                if (n < 0) break
-                digest.update(buf, 0, n)
-            }
-        }
-        digest.digest().joinToString("") { "%02x".format(it) }
-    }.getOrNull()
 
     /**
      * v0.13.0：解析 spider ext 中的相对路径。
@@ -250,6 +260,7 @@ object SpiderEngine {
             File(context.filesDir, "spider").listFiles { f -> f.name.startsWith(prefix) }
                 ?.forEach { f ->
                     loaders.remove(f.absolutePath)
+                    ExecutableTrust.clear(context.filesDir, "jar:${f.name}")
                     f.delete()
                 }
         }

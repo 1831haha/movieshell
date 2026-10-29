@@ -57,7 +57,7 @@ import kotlinx.coroutines.withContext
 fun ActorWorksScreen(
     actorName: String,
     onBack: () -> Unit,
-    onVodClick: (vodId: String) -> Unit,
+    onVodClick: (vodId: String, siteKey: String) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
