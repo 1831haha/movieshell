@@ -1,5 +1,22 @@
 package com.movieshell.ui.live
 
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
+import com.movieshell.ui.components.V4Divider
+import com.movieshell.ui.components.V4IconButton
+import com.movieshell.ui.components.V4Tag
+import com.movieshell.ui.components.V4TagKind
+import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.dockClearance
+import com.movieshell.ui.components.v4BottomDivider
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.StarBorder
 import android.content.ContentResolver
 import android.os.SystemClock
 import com.movieshell.ui.components.AppToast
@@ -426,26 +443,36 @@ fun LiveScreen(
             )
             // v0.160.0：同名源行移到播放器下方（原右列删掉）——源1/源2是当前台的全局切换，
             // 不该在每个频道卡片里重复出现；卡片右上角只留星标
+            // v0.279.0 V4：线路改分段控件（s1 轨道 + s3 选中块），源多时横滑。
             if (sources.size > 1) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         text = "线路",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        color = V4.c.t3,
                     )
-                    sources.forEachIndexed { idx, ch ->
-                        SourceButton(
-                            label = "源${idx + 1}",
-                            selected = selected?.id == ch.id,
-                            onClick = { playChannel(ch) },
-                        )
+                    Spacer(Modifier.width(10.dp))
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(V4.RField))
+                            .background(V4.c.s1)
+                            .horizontalScroll(rememberScrollState())
+                            .padding(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        sources.forEachIndexed { idx, ch ->
+                            SourceButton(
+                                label = "源${idx + 1}",
+                                selected = selected?.id == ch.id,
+                                onClick = { playChannel(ch) },
+                            )
+                        }
                     }
                 }
             }
@@ -458,17 +485,19 @@ fun LiveScreen(
                         .padding(horizontal = 12.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    SourceButton(
-                        label = "全部",
+                    AppChip(
+                        text = "全部",
                         selected = selectedLiveSource == null,
+                        small = true,
                         onClick = {
                             selectedLiveSource = null
                             LiveSelection.selectedLiveSource = null
                         },
                     )
                     sourceKeys.forEach { key ->
-                        SourceButton(
-                            label = liveSourceLabel(key),
+                        AppChip(
+                            small = true,
+                            text = liveSourceLabel(key),
                             selected = selectedLiveSource == key,
                             onClick = {
                                 selectedLiveSource = key
@@ -518,6 +547,10 @@ fun LiveScreen(
                 return@Column
             }
             // v0.160.0：两列：分组 | 频道（右列源已移到播放器下方）
+            // v0.279.0 V4：分组栏 + 频道列表直接贴平底，顶部 1px 分隔线；
+            // 列表底部留出浮动底栏高度（dockClearance）。
+            V4Divider()
+            val dividerColor = V4.c.div
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -526,10 +559,13 @@ fun LiveScreen(
                 // 左列：分组
                 LazyColumn(
                     modifier = Modifier
-                        .width(96.dp)
-                        .fillMaxHeight(),
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                        .width(90.dp)
+                        .fillMaxHeight()
+                        .drawBehind {
+                            val w = 1.dp.toPx()
+                            drawLine(dividerColor, Offset(size.width - w / 2, 0f), Offset(size.width - w / 2, size.height), w)
+                        },
+                    contentPadding = PaddingValues(top = 4.dp, bottom = dockClearance()),
                 ) {
                     items(groupNames, key = { it }) { g ->
                         GroupButton(
@@ -548,8 +584,7 @@ fun LiveScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
-                    contentPadding = PaddingValues(vertical = 8.dp, horizontal = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = PaddingValues(bottom = dockClearance()),
                 ) {
                     // v0.133.0：频道 id 由 sourceKey 与 url 拼接，同源重复条目或同名订阅可撞，加下标复合
                     items(
@@ -793,105 +828,104 @@ private fun ProgramInfoCard(
     onSettingsClick: () -> Unit = {},
 ) {
     val (now, next) = epg ?: (null to null)
-    AppCard(
+    // v0.279.0 V4：节目信息不再是卡片——平底一行：台名 15/600 + 分组 t3，
+    // 下面一行节目单（t2/t3），右侧三个线性图标（搜索/收藏/直播设置）。
+    val v = V4.c
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // 台标
+        if (!channel?.logo.isNullOrBlank()) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(V4.RPoster))
+                    .background(v.s1),
                 contentAlignment = Alignment.Center,
             ) {
-                if (!channel?.logo.isNullOrBlank()) {
-                    AsyncImage(
-                        model = channel?.logo,
-                        contentDescription = channel?.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit,
-                    )
-                } else {
-                    Icon(
-                        Icons.Filled.Tv, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                AsyncImage(
+                    model = channel?.logo,
+                    contentDescription = channel?.name,
+                    modifier = Modifier.fillMaxSize().padding(3.dp),
+                    contentScale = ContentScale.Fit,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = channel?.name ?: "暂无频道",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = v.t1,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (!channel?.group.isNullOrBlank()) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = channel?.group.orEmpty(),
+                        fontSize = 11.sp,
+                        color = v.t3,
+                        maxLines = 1,
                     )
                 }
             }
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                if (now != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "正在播",
-                            style = SoftType.Caption,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = now.title,
-                            style = SoftType.CardTitle,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = "${timeFmt.format(Date(now.startMs))}-${timeFmt.format(Date(now.stopMs))}",
-                            style = SoftType.Caption,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (next != null) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "下一档 ${timeFmt.format(Date(next.startMs))} ${next.title}",
-                            style = SoftType.Caption,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                } else {
+            Spacer(Modifier.height(2.dp))
+            if (now != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("正在播", fontSize = 11.sp, color = v.t3)
+                    Spacer(Modifier.width(6.dp))
                     Text(
-                        text = channel?.name ?: "暂无频道",
-                        style = SoftType.CardTitle,
-                        fontWeight = FontWeight.Bold,
+                        text = now.title,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = v.t2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "${timeFmt.format(Date(now.startMs))}-${timeFmt.format(Date(now.stopMs))}",
+                        style = V4Type.MonoSmall,
+                        color = v.t3,
+                    )
+                }
+                if (next != null) {
+                    Text(
+                        text = "下一档 ${timeFmt.format(Date(next.startMs))} ${next.title}",
+                        fontSize = 11.sp,
+                        color = v.t3,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        text = if (!hasEpgSource) "暂无节目单，可在直播设置 EPG 里填全局节目单地址" else "节目单加载中…",
-                        style = SoftType.Caption,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
-            }
-            // v0.176.0：顶栏移过来的三个入口，无频道时只留搜索和设置，收藏无台可收
-            IconButton(onClick = onSearchClick, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.Search, contentDescription = "搜索频道", modifier = Modifier.size(20.dp))
-            }
-            if (channel != null) {
-                IconButton(onClick = onFavoriteClick, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
-                        contentDescription = if (isFavorite) "取消收藏" else "收藏",
-                        tint = if (isFavorite) LocalSoftExtra.current.warning
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-            IconButton(onClick = onSettingsClick, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.Settings, contentDescription = "直播设置", modifier = Modifier.size(20.dp))
+            } else {
+                Text(
+                    text = if (!hasEpgSource) "暂无节目单，可在直播设置 EPG 里填全局节目单地址" else "节目单加载中…",
+                    fontSize = 11.sp,
+                    color = v.t2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
+        // v0.176.0：顶栏移过来的三个入口，无频道时只留搜索和设置，收藏无台可收
+        V4IconButton(Icons.Outlined.Search, "搜索频道", onSearchClick)
+        if (channel != null) {
+            V4IconButton(
+                if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                if (isFavorite) "取消收藏" else "收藏",
+                onFavoriteClick,
+                tint = if (isFavorite) v.vip else v.t2,
+            )
+        }
+        V4IconButton(Icons.Outlined.Settings, "直播设置", onSettingsClick)
     }
 }
 
@@ -903,7 +937,7 @@ private fun liveSourceLabel(key: String): String = when {
     else -> key
 }
 
-/** v0.80.0：左列分组按钮（选中=主题色药丸）。 */
+/** v0.80.0：左列分组按钮（v0.279.0 V4：选中 = s1 底 + 左侧 2dp 强调色竖条 + t1 600）。 */
 @Composable
 private fun GroupButton(
     name: String,
@@ -911,26 +945,24 @@ private fun GroupButton(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val v = V4.c
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 6.dp)
-            .clip(shape)
-            .background(
-                if (selected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.surfaceVariant,
-            )
+            .height(48.dp)
+            .background(if (selected) v.s1 else Color.Transparent)
+            .drawBehind {
+                if (selected) drawRect(v.accent, size = androidx.compose.ui.geometry.Size(2.dp.toPx(), size.height))
+            }
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center,
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.CenterStart,
     ) {
         Text(
-            text = if (count > 0) "$name" else name,
-            style = SoftType.Body,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) MaterialTheme.colorScheme.onPrimary
-            else MaterialTheme.colorScheme.onSurfaceVariant,
+            text = name,
+            fontSize = 12.5.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) v.t1 else v.t2,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -948,127 +980,98 @@ private fun ChannelCell(
     onLongClick: () -> Unit,
     onFavorite: () -> Unit,
 ) {
-    val soft = LocalSoftExtra.current
-    val shape = RoundedCornerShape(14.dp)
-    // v0.160.0：卡片压紧——上下内边距 8→4dp，台标 36→30dp，卡片右上角只留星标
+    // v0.279.0 V4：40dp 频道行——等宽序号、台名、分组 t3、直播标签、收藏星；
+    // 在播行强调色 12% 底 + 强调色字，行间 1px 分隔线。
+    val v = V4.c
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(
-                if (isPlaying) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                else LocalSoftExtra.current.glass,
-            )
-            .border(
-                SoftDimens.BorderWidth,
-                if (isPlaying) MaterialTheme.colorScheme.primary else soft.border,
-                shape,
-            )
+            .heightIn(min = V4.RowChannel + 8.dp)
+            .background(if (isPlaying) v.accentA else Color.Transparent)
+            .v4BottomDivider(v.div)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(start = 12.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "$index",
-            style = SoftType.Caption,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(20.dp),
+            text = "%02d".format(index),
+            style = V4Type.MonoMeta,
+            color = if (isPlaying) v.accent else v.t3,
+            modifier = Modifier.width(26.dp),
         )
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (channel.logo.isNotBlank()) {
-                AsyncImage(
-                    model = channel.logo,
-                    contentDescription = channel.name,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit,
-                )
-            } else {
-                Icon(
-                    Icons.Filled.Tv, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+        if (channel.logo.isNotBlank()) {
+            AsyncImage(
+                model = channel.logo,
+                contentDescription = channel.name,
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(RoundedCornerShape(V4.RSm)),
+                contentScale = ContentScale.Fit,
+            )
+            Spacer(Modifier.width(8.dp))
         }
-        Spacer(Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = channel.name,
-                style = SoftType.CardTitle,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                color = if (isPlaying) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurface,
+                color = if (isPlaying) v.accent else v.t1,
+                modifier = Modifier.weight(1f, fill = false),
             )
             if (channel.group.isNotBlank()) {
+                Spacer(Modifier.width(10.dp))
                 Text(
                     text = channel.group,
-                    style = SoftType.Caption,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    color = v.t3,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
             }
             if (channel.stale) {
-                Text(
-                    text = "过期",
-                    style = SoftType.Caption,
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 1,
-                )
+                Spacer(Modifier.width(6.dp))
+                Text(text = "过期", fontSize = 10.sp, color = v.live, maxLines = 1)
             }
         }
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .background(soft.errorSoft.copy(alpha = 0.18f))
-                .padding(horizontal = 4.dp, vertical = 1.dp),
-        ) {
-            Text("直播", color = soft.errorSoft, style = SoftType.Caption)
-        }
-        IconButton(onClick = onFavorite, modifier = Modifier.size(28.dp)) {
+        Spacer(Modifier.width(6.dp))
+        V4Tag("直播", V4TagKind.Live)
+        IconButton(onClick = onFavorite, modifier = Modifier.size(36.dp)) {
             Icon(
-                if (channel.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                if (channel.favorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
                 contentDescription = if (channel.favorite) "取消收藏" else "收藏",
-                tint = if (channel.favorite) soft.warning
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
+                tint = if (channel.favorite) v.vip else if (isPlaying) v.accent else v.t3,
+                modifier = Modifier.size(17.dp),
             )
         }
     }
 }
 
-/** v0.80.0：右列源按钮（源1/源2…，选中=主题色）。 */
+/** v0.80.0：线路按钮（v0.279.0 V4：分段控件里的一格，选中 s3 + t1 600）。 */
 @Composable
 private fun SourceButton(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val v = V4.c
     Box(
         modifier = Modifier
-            .clip(shape)
-            .background(
-                if (selected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.surfaceVariant,
-            )
+            .widthIn(min = 50.dp)
+            .height(28.dp)
+            .clip(RoundedCornerShape(V4.RPoster))
+            .background(if (selected) v.s3 else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 10.dp),
+            .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
-            style = SoftType.Body,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) MaterialTheme.colorScheme.onPrimary
-            else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) v.t1 else v.t2,
             maxLines = 1,
         )
     }
