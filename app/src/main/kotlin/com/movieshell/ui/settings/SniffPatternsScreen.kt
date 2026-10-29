@@ -1,5 +1,9 @@
 package com.movieshell.ui.settings
 
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.only
@@ -73,7 +77,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner)
-                .padding(16.dp)
+                .padding(12.dp)
         ) {
             item {
                 SectionTitle(
@@ -115,10 +119,11 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                             ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            // v0.280.0 V4：正则用等宽字体，便于看清转义
                             Text(
                                 text = pattern,
-                                style = SoftType.Body,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                style = V4Type.MonoMeta.copy(fontSize = 12.sp),
+                                color = V4.c.t1,
                                 modifier = Modifier.weight(1f),
                             )
                             IconButton(
@@ -127,7 +132,8 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                                 Icon(
                                     Icons.Filled.Delete,
                                     contentDescription = "删除",
-                                    tint = MaterialTheme.colorScheme.error,
+                                    tint = V4.c.t3,
+                                    modifier = Modifier.size(18.dp),
                                 )
                             }
                         }

@@ -1,5 +1,9 @@
 package com.movieshell.ui.manual
 
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.only
@@ -328,16 +332,18 @@ private fun ManualSectionCard(index: Int, section: ManualSection) {
     AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // v0.280.0 V4：序号等宽两位 + 13/600 标题
                 Text(
-                    text = "$index",
-                    style = SoftType.Title,
-                    color = MaterialTheme.colorScheme.primary,
+                    text = "%02d".format(index),
+                    style = V4Type.Stat,
+                    color = V4.c.accent,
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = section.title,
-                    style = SoftType.Title,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = V4.c.t1,
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -349,7 +355,7 @@ private fun ManualSectionCard(index: Int, section: ManualSection) {
                     Text(
                         text = "•",
                         style = SoftType.Body,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = V4.c.t3,
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(

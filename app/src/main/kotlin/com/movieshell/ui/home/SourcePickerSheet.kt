@@ -1,5 +1,6 @@
 package com.movieshell.ui.home
 
+import com.movieshell.ui.theme.V4
 import com.movieshell.ui.components.AppDropdownMenu
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -456,7 +457,7 @@ fun SourcePickerSheet(
             // 背景跟随主题主色浅 tint，换主题色时它也跟着变。
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(50))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
                     .clickable(onClick = onDismiss)
                     .padding(horizontal = 14.dp, vertical = 6.dp),
@@ -503,7 +504,7 @@ fun SourcePickerSheet(
                     }
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(50),
+                shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color.Transparent,
                     unfocusedBorderColor = Color.Transparent,
@@ -512,14 +513,14 @@ fun SourcePickerSheet(
                 ),
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(50))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
             )
             Spacer(Modifier.padding(8.dp))
             Box {
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(50))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
                         .combinedClickable(
                             onClick = { HomeSettings.setPickerLayout(context, (layoutMode + 1) % 6) },
@@ -732,27 +733,16 @@ private fun SourceCardFrame(
     contentAlignment: Alignment = Alignment.TopStart,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val brandColors = LocalBrandGradient.current
+    // v0.280.0 V4：当前源 = 强调色淡底 + 1px 强调色描边（不再用渐变描边）；其余 s1 + 1px 分隔线描边
+    val v = V4.c
     Box(
         modifier = Modifier
-            .then(
-                if (gradientRing && item.isCurrent) {
-                    Modifier
-                        .background(
-                            Brush.linearGradient(brandColors),
-                            RoundedCornerShape(corner),
-                        )
-                        .padding(1.5.dp)
-                } else Modifier,
-            )
             .clip(RoundedCornerShape(corner))
-            .background(
-                if (item.isCurrent) brandColors.first().copy(alpha = 0.16f)
-                else MaterialTheme.colorScheme.surface,
-            )
-            .then(
-                if (gradientRing && item.isCurrent) Modifier
-                else Modifier.border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(corner)),
+            .background(if (item.isCurrent) v.accentA else v.s1)
+            .border(
+                1.dp,
+                if (item.isCurrent) v.accent.copy(alpha = if (gradientRing) 0.75f else 0.45f) else v.div,
+                RoundedCornerShape(corner),
             )
             .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
             .clickable(onClick = item.onPick)
@@ -797,7 +787,7 @@ private fun SourceCard2Col(item: PickerItem) {
             Text(
                 text = item.name,
                 style = SoftType.Body,
-                fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
+                fontWeight = if (item.isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (item.isCurrent) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
@@ -835,7 +825,7 @@ private fun SourceListRow(item: PickerItem) {
                 Text(
                     text = item.name,
                     style = SoftType.Body,
-                    fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
+                    fontWeight = if (item.isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                     color = if (item.isCurrent) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -877,7 +867,7 @@ private fun SourceWideCard(item: PickerItem) {
                 Text(
                     text = item.name,
                     style = SoftType.Body,
-                    fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
+                    fontWeight = if (item.isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                     color = if (item.isCurrent) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
@@ -918,7 +908,7 @@ private fun SourceCompactRow(item: PickerItem) {
             Text(
                 text = item.name,
                 style = SoftType.Body,
-                fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
+                fontWeight = if (item.isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (item.isCurrent) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -990,10 +980,8 @@ private fun SourceGridCard(item: PickerItem) {
  */
 @Composable
 private fun SourceLogo(logoUrl: String?, name: String, size: Dp) {
-    val brandColors = LocalBrandGradient.current
-    // v0.105.0 口径：明度自适应，luminance>0.5 取深色 0xFF1A1408
-    val onGradientColor =
-        if (brandColors.map { it.luminance() }.average() > 0.5f) Color(0xFF1A1408) else Color.White
+    // v0.280.0 V4：首字色块改 V4 占位（s3 底 + t2 字），不再铺品牌渐变
+    val onGradientColor = V4.c.t2
     // v0.183.0：高清候选链。logoUrl 若是 favicon.ico（16/32px，放大必糊），
     // 不直接拿它当图，先试本站的 apple-touch-icon / 192，失败逐级降，
     // 最后一张才是 favicon.ico；ext/内置图本身就是图 URL 的，走单张。
@@ -1011,9 +999,9 @@ private fun SourceLogo(logoUrl: String?, name: String, size: Dp) {
     Box(
         modifier = Modifier
             .size(size)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Brush.linearGradient(brandColors))
-            .border(1.dp, LocalSoftExtra.current.border, RoundedCornerShape(12.dp)),
+            .clip(RoundedCornerShape(8.dp))
+            .background(V4.c.s3)
+            .border(1.dp, V4.c.div, RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -1036,7 +1024,7 @@ private fun SourceLogo(logoUrl: String?, name: String, size: Dp) {
                 },
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(12.dp)),
+                    .clip(RoundedCornerShape(8.dp)),
             )
         }
     }

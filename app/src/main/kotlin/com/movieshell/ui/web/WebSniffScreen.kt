@@ -1,5 +1,9 @@
 package com.movieshell.ui.web
 
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
+import com.movieshell.ui.components.V4Tag
+import com.movieshell.ui.components.V4TagKind
 import android.annotation.SuppressLint
 import com.movieshell.ui.components.AppDropdownMenu
 import com.movieshell.ui.components.AppToast
@@ -1307,7 +1311,7 @@ private fun SniffCandidatePanel(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "嗅探候选",
-                    style = SoftType.Title,
+                    style = V4Type.Section,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.width(8.dp))
@@ -1332,8 +1336,8 @@ private fun SniffCandidatePanel(
             }
             Text(
                 text = "已拦截 $seenCount 个请求 · iframe $iframeCount 个",
-                style = SoftType.Caption,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = V4Type.MonoSmall,
+                color = V4.c.t3,
             )
             if (ordered.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
@@ -1347,25 +1351,13 @@ private fun SniffCandidatePanel(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // 格式徽标
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                    )
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                            ) {
-                                Text(
-                                    text = formatLabelOf(c.url),
-                                    style = SoftType.Caption,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
+                            // v0.280.0 V4：格式徽标改等宽小标签
+                            V4Tag(formatLabelOf(c.url), V4TagKind.Accent)
                             Spacer(Modifier.width(8.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = c.url,
-                                    style = SoftType.Body,
+                                    style = V4Type.MonoMeta,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurface,

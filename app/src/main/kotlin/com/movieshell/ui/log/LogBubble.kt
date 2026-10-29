@@ -221,7 +221,7 @@ private fun LogSheetContent(onCloseSheet: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = 12.dp)
             .padding(bottom = 28.dp),
     ) {
         Text(

@@ -1,5 +1,6 @@
 package com.movieshell.ui.settings
 
+import com.movieshell.ui.components.V4Segmented
 import com.movieshell.ui.theme.V4
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -158,7 +159,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                         text = "暂无自定义解析，播放时只用订阅自带的解析线路",
                         style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     )
                 }
             } else {
@@ -167,7 +168,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                         text = "共 ${customParses.size} 条（点单条测活）",
                         style = SoftType.Caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                     )
                 }
                 itemsIndexed(
@@ -199,13 +200,13 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                                         Icons.Filled.CheckCircle,
                                         contentDescription = "正常",
                                         tint = V4.c.ok,
-                                        modifier = Modifier.size(20.dp),
+                                        modifier = Modifier.size(18.dp),
                                     )
                                     false -> Icon(
                                         Icons.Filled.Cancel,
                                         contentDescription = "失效",
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(20.dp),
+                                        tint = V4.c.live,
+                                        modifier = Modifier.size(18.dp),
                                     )
                                     null -> {}
                                 }
@@ -218,7 +219,8 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                                     Icon(
                                         Icons.Filled.Delete,
                                         contentDescription = "删除",
-                                        tint = MaterialTheme.colorScheme.error,
+                                        tint = V4.c.t3,
+                                        modifier = Modifier.size(18.dp),
                                     )
                                 }
                             }
@@ -263,28 +265,15 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = parseType == 1, onClick = { parseType = 1 })
-                        Text(
-                            "JSON 接口",
-                            style = SoftType.Body,
-                            modifier = Modifier.clickable { parseType = 1 },
-                        )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        RadioButton(selected = parseType == 0, onClick = { parseType = 0 })
-                        Text(
-                            "网页嗅探",
-                            style = SoftType.Body,
-                            modifier = Modifier.clickable { parseType = 0 },
-                        )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        RadioButton(selected = parseType == 99, onClick = { parseType = 99 })
-                        Text(
-                            "yt-dlp 通用",
-                            style = SoftType.Body,
-                            modifier = Modifier.clickable { parseType = 99 },
-                        )
-                    }
+                    // v0.280.0 V4：三选一单选改 V4 分段控件（大字号下不再挤出屏幕）
+                    val typeValues = listOf(1, 0, 99)
+                    V4Segmented(
+                        options = listOf("JSON 接口", "网页嗅探", "yt-dlp 通用"),
+                        modifier = Modifier.fillMaxWidth(),
+                        selected = typeValues.indexOf(parseType).coerceAtLeast(0),
+                        onSelect = { parseType = typeValues[it] },
+                    )
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         text = "JSON：GET 地址+视频地址，取返回 JSON 的 url 字段；嗅探：用 WebView 打开抓直链；yt-dlp 通用：无规则视频页的通用解析，需先在插件市场安装 yt-dlp 通用解析包，地址栏留空即可（自动填 ytdlp://generic，仅作线路标识）",
                         style = SoftType.Caption,

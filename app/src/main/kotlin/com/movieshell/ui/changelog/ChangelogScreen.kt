@@ -1,5 +1,7 @@
 package com.movieshell.ui.changelog
 
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -52,7 +54,7 @@ fun ChangelogScreen(onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 12.dp),
         ) {
             items(CHANGELOG, key = { it.version }) { entry ->
                 ChangelogItem(entry)
@@ -71,13 +73,13 @@ private fun ChangelogItem(entry: ChangelogEntry) {
             .fillMaxWidth()
             .clickable { expanded = !expanded },
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = entry.version,
-                        style = SoftType.Title,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        style = V4Type.Stat, // v0.280.0 V4：版本号等宽
+                        color = V4.c.t1,
                     )
                     Text(
                         text = entry.title,
@@ -87,8 +89,8 @@ private fun ChangelogItem(entry: ChangelogEntry) {
                     if (entry.date.isNotBlank()) {
                         Text(
                             text = entry.date,
-                            style = SoftType.Caption,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            style = V4Type.MonoSmall,
+                            color = V4.c.t3,
                         )
                     }
                 }
@@ -99,7 +101,7 @@ private fun ChangelogItem(entry: ChangelogEntry) {
                 )
             }
             AnimatedVisibility(visible = expanded) {
-                Column(modifier = Modifier.padding(top = 12.dp)) {
+                Column(modifier = Modifier.padding(top = 8.dp)) {
                     entry.details.forEach { line ->
                         Row(modifier = Modifier.padding(vertical = 3.dp)) {
                             Text(
