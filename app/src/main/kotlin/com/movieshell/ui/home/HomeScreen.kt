@@ -4,10 +4,8 @@ import com.movieshell.ui.theme.V4
 import androidx.compose.ui.text.font.FontWeight
 import com.movieshell.ui.components.V4SearchField
 import com.movieshell.ui.components.V4IconButton
-import com.movieshell.ui.components.V4Dot
 import com.movieshell.ui.components.V4Art
 import com.movieshell.ui.components.V4SectionHeader
-import com.movieshell.ui.components.V4TopTabs
 import com.movieshell.ui.components.v4Bleed
 import com.movieshell.ui.components.v4BottomDivider
 import com.movieshell.ui.components.dockClearance
@@ -61,7 +59,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -424,7 +421,9 @@ fun HomeScreen(
             }
         }
         // v0.50.0 E：缓存立刻上屏，不等网络
-        if ((cacheShown || cacheCats.isNotEmpty()) && myGen == contentGen && isHomeForeground()) {
+        // 换源后分类残留修复：缓存是按发起时源 key 读的，写回前再核一次当前源 key，
+        // 换源了就不写——否则旧源缓存会在新源加载完成前把旧分类顶回分类行。
+        if ((cacheShown || cacheCats.isNotEmpty()) && myGen == contentGen && isHomeForeground() && key == homeCacheKey()) {
             // v0.109.0：drpyList 恒不为 null（currentVideos 派生），之前写 == null
             // 导致缓存先行即时上屏恒被跳过——冷启动无数据时白等网络。改判 isEmpty()
             if (cacheShown && drpyList.isEmpty()) {
@@ -526,14 +525,15 @@ fun HomeScreen(
                     else LogBus.i("Home", "规则返回分类为空（非失败）")
                     // 超时且有缓存：立刻顶上，不等推荐
                     val cached = cacheCats.takeIf { it.isNotEmpty() }
-                    if (cached != null && myGen == contentGen && isHomeForeground() && drpyCats.isEmpty()) {
+                    if (cached != null && myGen == contentGen && isHomeForeground() && key == homeCacheKey() && drpyCats.isEmpty()) {
                         vm.setCategories(cached)
                         LogBus.i("Home", "分类用缓存先行：${cached.size} 个")
                     }
                 } else {
                     withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) }
                     // v0.50.0 A：分类先行渲染，不等推荐回来
-                    if (myGen == contentGen && isHomeForeground()) {
+                    // 换源后分类残留修复：同上，写回前核当前源 key，换源了不写。
+                    if (myGen == contentGen && isHomeForeground() && key == homeCacheKey()) {
                         vm.setCategories(cats)
                         catsFailed = false
                         LogBus.i("Home", "分类先行渲染：${cats.size} 个（推荐未回）")
@@ -775,10 +775,15 @@ fun HomeScreen(
         // v0.212.0 审计修复：下拉刷新原来和首次加载共用 resetSelection，
         // 成功就被拽回分类 1；下拉时传 keepSelection=true，位置不动。
         keepSelection: Boolean = false,
+        loadKey: String? = null,
     ) {
         // v0.31.2：迟到结果丢弃——用户已经点了别的（分类/首页/筛选），旧 payload 不再应用，
         // 否则会出现"选中红果、内容却是首页"的错位。
         if (gen != -1 && gen != contentGen) return
+        // 换源后分类残留修复：payload 是按发起时源 key 算的，应用时源已换就整单丢弃，
+        // 不能只靠世代号——换源有不走 loadHome 的路径（见 refreshDrpyState），那时世代没变，
+        // 旧源的分类/推荐会把新源的分类行“复活”回来。同源下拉刷新时 key 不变，失败保留展示的语义不受影响。
+        if (loadKey != null && loadKey != homeCacheKey()) return
         vm.setLoading(false)
         // v0.152.0：payload 自带 PHP 失败原因时透出；成功 payload（phpError=null）则清掉旧原因。
         if (payload != null) phpHomeError = payload.phpError
@@ -876,7 +881,7 @@ fun HomeScreen(
             LogBus.i("Home", "首页加载进行中，复用在途请求")
             scope.launch {
                 // 复用方只应用结果，不写缓存、不计数
-                applyHomePayload(awaitFlight(inFlight), prevVods, myGen, keepSelection)
+                applyHomePayload(awaitFlight(inFlight), prevVods, myGen, keepSelection, loadKey = key)
                 onDone()
             }
             return
@@ -916,7 +921,7 @@ fun HomeScreen(
             // 极小竞态：start 前一刻刚有人登记，转复用
             deferred.cancel()
             scope.launch {
-                applyHomePayload(HomeLoadGate.flight(key)?.let { f: Deferred<HomeLoadGate.HomePayload?> -> awaitFlight(f) }, prevVods, myGen, keepSelection)
+                applyHomePayload(HomeLoadGate.flight(key)?.let { f: Deferred<HomeLoadGate.HomePayload?> -> awaitFlight(f) }, prevVods, myGen, keepSelection, loadKey = key)
                 onDone()
             }
             return
@@ -937,7 +942,7 @@ fun HomeScreen(
             val ok = payload?.vods != null || prevVods.isNotEmpty()
             HomeLoadGate.finish(key, deferred, ok)
             if (!ok) LogBus.w("Home", "首页数据全失败且无缓存（连续 ${HomeLoadGate.streak(key)} 次）")
-            applyHomePayload(payload, prevVods, myGen, keepSelection)
+            applyHomePayload(payload, prevVods, myGen, keepSelection, loadKey = key)
             onDone()
         }
     }
@@ -954,6 +959,11 @@ fun HomeScreen(
                     withContext(Dispatchers.IO) { engineCats() }
                 }
             }.getOrNull()
+            // 换源后分类残留修复：重试期间换了源就丢弃，不把旧源分类写回。
+            if (key != homeCacheKey()) {
+                vm.setLoading(false)
+                return@launch
+            }
             if (!cats.isNullOrEmpty()) {
                 vm.setCategories(cats)
                 runCatching { withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) } }
@@ -1005,6 +1015,11 @@ fun HomeScreen(
         if (changed || siteChanged || switched) {
             // v0.218.0（S1）：换源清空走 VM 单一入口，不再由调用方调齐 5 个方法。
             vm.clearForSourceSwitch()
+            // 换源后分类残留修复：清完立刻作废在途加载——取消分类请求、世代 +1，
+            // 哪怕后面不走 loadHome（无源/冷启动），旧源迟到的分类/推荐也写不回来。
+            // loadHome 自己还会再 +1，不冲突。
+            categoryJob?.cancel()
+            contentGen += 1
             setFilters(emptyMap())
             // v0.31.0：失败计数按数据源 key 记在 HomeLoadGate 单例里，切源自然用新 key 的计数，无需手动清零
             catsFailed = false
@@ -1239,7 +1254,8 @@ fun HomeScreen(
                             onClick = { showLayoutPicker = true },
                         )
                         // 换源胶囊（v0.7.1 入口）：点按打开换源表，长按刷新当前源（v0.174.0）；
-                        // 状态语义不变：加载中黄（转圈）/ 有数据绿 / 失败红 / 未选源灰。
+                        // 恢复之前口径：胶囊外圈 + 里面点加外圈的状态环，颜色按状态走——
+                        // 加载中黄（转圈）/ 有数据绿 / 失败红 / 未选源灰。
                         val sourceRingState = when {
                             drpyLoading || loadingCat != null -> StatusRingState.Loading
                             drpyReady -> StatusRingState.Ready
@@ -1252,6 +1268,10 @@ fun HomeScreen(
                                 .height(V4.Field)
                                 .clip(RoundedCornerShape(V4.RField))
                                 .background(V4.c.s1)
+                                .border(
+                                    BorderStroke(1.5.dp, sourceRingState.color()),
+                                    RoundedCornerShape(V4.RField),
+                                )
                                 .combinedClickable(
                                     onClick = { showSourceSheet = true },
                                     onLongClick = {
@@ -1261,16 +1281,10 @@ fun HomeScreen(
                                 .padding(horizontal = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (sourceRingState == StatusRingState.Loading) {
-                                StatusRing(
-                                    state = sourceRingState,
-                                    diameter = 10.dp,
-                                    showDot = false,
-                                    strokeWidth = 1.5.dp,
-                                )
-                            } else {
-                                V4Dot(sourceRingState.color())
-                            }
+                            StatusRing(
+                                state = sourceRingState,
+                                diameter = 18.dp,
+                            )
                             Spacer(Modifier.width(7.dp))
                             Text(
                                 text = sourceLabel.replace("本地·", "本地 · "),
@@ -1414,18 +1428,8 @@ fun HomeScreen(
                         }
                     }
                 }
-                // v0.59：流动状态条——顶部和正片之间，加载时流动动画表示状态
-                if (drpyLoading || loadingCat != null) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        LinearProgressIndicator(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(2.dp),
-                            color = V4.c.accent,
-                            trackColor = V4.c.div,
-                        )
-                    }
-                }
+                // 加载时上面的流动条已去掉：加载状态只看换源胶囊的状态环（黄圈转），
+                // 不再在顶部和正片之间画一条跑马灯式的流动条。
     
                 // v0.27.4：首页不再自动加载推荐流；无数据时干净空态（不再转圈/报错/演示数据）
                 // v0.50.0：3s 首屏无数据时给空态+重试（推荐区局部，不整页报错）
@@ -1461,15 +1465,15 @@ fun HomeScreen(
                             // v0.144.0：首格"全部"已删，格下标与分类序号错一位：
                             // 第 index 格对应第 index+1 个分类（loadDrpyCategory 按 1 计）；
                             // 在“推荐”时 selectedPosition==0，selectedIndex==-1，都不选中。
-                            // v0.279.0 V4：分类改顶部文字 tab（选中 600 + 强调色下划线，通栏 1px 分隔线）。
-                            V4TopTabs(
-                                titles = chipLabels,
-                                selected = selectedPosition - 1,
+                            // 恢复之前分类：V4 的顶部文字 tab 不好看，改回 v0.278.0 的 FilterBar 胶囊 chip 行。
+                            // 在“推荐”时 selectedPosition==0，selectedIndex==-1，都不选中。
+                            FilterBar(
+                                labels = chipLabels,
+                                selectedIndex = selectedPosition - 1,
                                 onSelect = { index ->
                                     // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
                                     loadDrpyCategory(index + 1)
                                 },
-                                modifier = Modifier.v4Bleed(V4.Gutter),
                             )
                         }
                         // v0.110.0：分类内容加载失败（超时/规则异常）给内联错误+重试，
@@ -1637,15 +1641,10 @@ fun HomeScreen(
                 }
             }
             } // v0.45.0：闭合 PullToRefreshBox
-            // v0.58：切分类时——有旧数据：顶部细条 loading；无旧数据：骨架屏（不闪"暂无内容"空态）
+            // 切分类时——有旧数据：不再在屏幕顶部画流动条（加载看换源胶囊黄圈），
+            // 旧列表原样留着；无旧数据：骨架屏（不闪"暂无内容"空态）
             if (loadingCat != null) {
-                if (drpyList.isNotEmpty()) {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .fillMaxWidth(),
-                    )
-                } else {
+                if (drpyList.isEmpty()) {
                     // 骨架屏：简单灰色占位块
                     Column(
                         modifier = Modifier
