@@ -81,7 +81,7 @@ object Notify {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val pi = routeIntent(context, "detail/${Uri.encode(vodId)}", subKey, vodId.hashCode())
         val n = NotificationCompat.Builder(context, CH_FOLLOW)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle(title)
             .setContentText(text)
             .setContentIntent(pi)
@@ -94,7 +94,7 @@ object Notify {
     fun downloadProgress(context: Context, title: String, progress: Int): android.app.Notification {
         ensureChannels(context)
         return NotificationCompat.Builder(context, CH_DOWNLOAD)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle(title)
             .setProgress(100, progress, false)
             .setOngoing(true)
@@ -107,7 +107,7 @@ object Notify {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val pi = routeIntent(context, "downloads", id = title.hashCode())
         val n = NotificationCompat.Builder(context, CH_DOWNLOAD)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle("下载完成")
             .setContentText(title)
             .setContentIntent(pi)
@@ -122,7 +122,7 @@ object Notify {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val pi = routeIntent(context, "bookshelf", id = 9002)
         val n = NotificationCompat.Builder(context, CH_NOVEL)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle("小说追更")
             .setContentText("$bookCount 本书共新增 $chapterCount 章")
             .setContentIntent(pi)
@@ -137,7 +137,7 @@ object Notify {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val pi = routeIntent(context, "sources?tab=2", id = 9003)
         val n = NotificationCompat.Builder(context, CH_PROBE)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle("源检测完成")
             .setContentText("共 $total 个源：正常 $ok，缓慢 $slow，失败 $fail")
             .setContentIntent(pi)

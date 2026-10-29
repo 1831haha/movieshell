@@ -2,6 +2,7 @@ package com.movieshell.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -51,7 +52,7 @@ fun TabTopBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(V4.TopBar)
+                .heightIn(min = V4.TopBar)
                 .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

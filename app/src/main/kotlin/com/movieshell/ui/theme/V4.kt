@@ -189,13 +189,13 @@ object V4Type {
     val Body = TextStyle(fontSize = 12.5.sp, fontWeight = FontWeight.Normal)
     val Section = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.3.sp)
     val PosterTitle = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
-    val Meta = TextStyle(fontSize = 10.5.sp, fontWeight = FontWeight.Normal)
-    val Caption = TextStyle(fontSize = 10.5.sp, fontWeight = FontWeight.Medium)
+    val Meta = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Normal)
+    val Caption = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium)
     val NavLabel = TextStyle(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
     val Stat = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum")
-    val MonoMeta = TextStyle(fontSize = 10.5.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum")
-    val MonoSmall = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Normal, fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum")
-    val Tag = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace, letterSpacing = 0.3.sp)
+    val MonoMeta = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum")
+    val MonoSmall = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Normal, fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum")
+    val Tag = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace, letterSpacing = 0.3.sp)
 }
 
 /** 占位图：按种子取一组柔和斜向渐变（不用真实海报冒充）。 */

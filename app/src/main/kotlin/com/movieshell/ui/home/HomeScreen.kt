@@ -83,6 +83,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
@@ -1222,7 +1223,19 @@ fun HomeScreen(
             LazyVerticalGrid(
                 // v0.78.3：列数跟布局走（海报网格 3 列/大海报 2 列/列表模式 1 列）
                 // v0.237.0：浅色下边距与间距收紧（12/8dp），一屏多放内容
-                columns = GridCells.Fixed(homeLayout.columns),
+                // F5：固定列数在窄屏每张海报只剩 70 多 dp、横屏又过大，改按屏宽自适应：
+                // 窄屏（<360dp）网格模式降一列，宽屏（>=600dp，平板/横屏）加列，
+                // 常规宽度与用户选的布局一致，列表模式仍 1 列。
+                columns = GridCells.Fixed(
+                    when {
+                        homeLayout.columns <= 1 -> 1
+                        LocalConfiguration.current.screenWidthDp < 360 ->
+                            (homeLayout.columns - 1).coerceAtLeast(2)
+                        LocalConfiguration.current.screenWidthDp >= 600 ->
+                            homeLayout.columns + 2
+                        else -> homeLayout.columns
+                    },
+                ),
                 state = gridState,
                 modifier = Modifier.fillMaxSize(),
                 // v0.238.0：顶部贴顶——网格顶边距归零，顶栏贴到内容顶
@@ -1266,7 +1279,7 @@ fun HomeScreen(
                         Row(
                             modifier = Modifier
                                 .weight(1.25f)
-                                .height(V4.Field)
+                                .heightIn(min = V4.Field)
                                 .clip(RoundedCornerShape(V4.RField))
                                 .background(V4.c.s1)
                                 .border(
@@ -1497,7 +1510,7 @@ fun HomeScreen(
                                 Row(
                                     modifier = Modifier
                                         .v4Bleed(V4.Gutter)
-                                        .height(V4.FilterStrip)
+                                        .heightIn(min = V4.FilterStrip)
                                         .v4BottomDivider(V4.c.div)
                                         .horizontalScroll(rememberScrollState())
                                         .padding(horizontal = V4.Gutter),

@@ -44,14 +44,12 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.OndemandVideo
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
@@ -103,7 +101,6 @@ import com.movieshell.player.PlayerManager
 import com.movieshell.player.PlaySession
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
-import com.movieshell.ui.ai.AiScreen
 import com.movieshell.ui.bookshelf.BookshelfScreen
 import com.movieshell.ui.novel.BookSourceScreen
 import com.movieshell.ui.novel.ExploreAggregateScreen
@@ -166,6 +163,7 @@ private data class Tab(
 // v0.79.0：实验室 tab 改为音乐；实验室功能（插件市场/嗅探正则）搬进设置页。
 // 全量重做：底栏 6 TAB——首页/直播/书架/音乐/AI/设置；框架先起来，
 // AI 具体内容后面再完善（AiScreen 目前只有新风格外壳，不做假功能）。
+// F2：AI 空壳先从底栏移除，底栏回到 5 TAB，功能做好再加回。
 // 未选中用 Outlined，选中用 Filled＋青色（SoftBottomDock 里处理）。
 // v0.279.0 V4 NAV B：线性图标（Lucide 风格），选中/未选中同一套描边图标，
 // 选中靠强调色药丸 + 白色图标文字区分。
@@ -174,14 +172,13 @@ private val tabs = listOf(
     Tab("live", "直播", Icons.Outlined.LiveTv, Icons.Outlined.LiveTv),
     Tab("bookshelf", "书架", Icons.Outlined.Book, Icons.Outlined.Book),
     Tab("music", "音乐", Icons.Outlined.MusicNote, Icons.Outlined.MusicNote),
-    Tab("ai", "AI", Icons.Outlined.SmartToy, Icons.Outlined.SmartToy),
     Tab("settings", "设置", Icons.Outlined.Settings, Icons.Outlined.Settings),
 )
 
 // v0.222.0：tab 级目的地（含经 navigateTab 到达的 search）——tab 切换的
 // 退出混合判定用：两边都是 tab 时旧页瞬间撤掉，不再有双页叠在一起的
 // 300ms 重影帧；tab 与子页之间仍走原转场。
-private val TAB_ROUTES = setOf("home", "live", "bookshelf", "music", "ai", "settings", "search")
+private val TAB_ROUTES = setOf("home", "live", "bookshelf", "music", "settings", "search")
 
 private const val DETAIL_ROUTE = "detail/{vodId}?title={title}&episode={episode}&siteKey={siteKey}"
 
@@ -391,9 +388,13 @@ class MainActivity : ComponentActivity() {
                 }
                 val liveLandscape = curRoute == "live" &&
                     LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+                // F8：键盘弹起时底栏会被顶到键盘上方，改成键盘可见时隐藏底栏，
+                // 键盘收起自动恢复；横屏部分不改侧边导航（改动大、且底栏本身是浮动胶囊，
+                // 横屏留白主要来自 dockClearance，F5 已按屏宽加列，横屏不再单靠底栏占位）。
+                val imeVisible = WindowInsets.ime.getBottom(density) > 0
                 val showBottomBar = (current?.hierarchy?.any { dest ->
                     tabs.any { it.route == dest.route }
-                } == true) && !liveLandscape
+                } == true) && !liveLandscape && !imeVisible
                 // v0.91.0：全局迷你播放条——有在播曲目且不在播放页/视频页时，悬在底部导航上方
                 // v0.108.0 B3：只在音乐 tab（含其子页）显示，小说/看剧 tab 不再出现；
                 // 锁屏通知走 MediaSession 不动
@@ -877,10 +878,8 @@ class MainActivity : ComponentActivity() {
                                 onBack = { navController.popBackStack() },
                             )
                         }
-                        // 全量重做：AI TAB——框架先起来，内容后面再完善。
-                        composable("ai") {
-                            AiScreen()
-                        }
+                        // F2：AI 页只有 COMING SOON 空壳，底栏与路由先移除，
+                        // AiScreen 文件保留不删，功能做好再加回。
                         composable("settings") {
                             SettingsScreen(
                                 onManualClick = { navController.navigate("manual") },
@@ -1061,7 +1060,15 @@ class MainActivity : ComponentActivity() {
                     } // 闭合 LocalDockClearance
                 }
                 // v0.211.0：全仓统一精致提示悬浮层（替代系统 Toast，挂根 Box 最上层）
-                AppToastOverlay()
+                // F6：离底高度跟底栏/迷你播放条走——有底栏用 dockClearance+16dp，
+                // 没底栏但有迷你播放条用迷你条高度+16dp，否则离底 16dp。
+                AppToastOverlay(
+                    bottomPadding = when {
+                        showBottomBar -> dockClearance + 16.dp
+                        showMiniPlayer -> miniPlayerHeight + 16.dp
+                        else -> 16.dp
+                    },
+                )
                 // v0.7.2：运行日志悬浮窗（应用内悬浮）
                 LogBubbleOverlay()
                 // v0.27.2：PY 缺库一键安装引导

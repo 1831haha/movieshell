@@ -76,7 +76,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -1535,15 +1534,8 @@ fun PlayerScreen(
                     desc = "画中画",
                     onClick = { enterPip(context) },
                 )
-                // 投屏（v0.40.0：占位，功能开发中）
-                RoundControlButton(
-                    icon = Icons.Filled.Cast,
-                    desc = "投屏",
-                    onClick = {
-                        AppToast.show(context, "投屏功能开发中，敬请期待", long = false)
-                        LogBus.i("Player", "投屏按钮：功能开发中")
-                    },
-                )
+                // F1：投屏是占位按钮（v0.40.0 起只弹“开发中”），未实现前隐藏，
+                // 不占顶栏位置；真要做时接 DLNA 或 Cast 再加回。
                 // v0.121.0：嵌入模式横屏入口——用户反馈详情页"没有切横屏的按钮"（底栏全屏键
                 // 在窄屏上会被挤出可视区）。点播跳独立播放页，直播原地旋转（与底栏逻辑一致）。
                 // v0.264.0：顶栏是切屏，不是全屏——嵌入点播与直播都只原地翻转，

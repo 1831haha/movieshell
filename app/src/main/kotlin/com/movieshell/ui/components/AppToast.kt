@@ -95,7 +95,7 @@ object AppToast {
  * 新消息到 → 显示；2.2 秒（长提示 3.6 秒）后自动消失；点一下提前消失。
  */
 @Composable
-fun AppToastOverlay() {
+fun AppToastOverlay(bottomPadding: androidx.compose.ui.unit.Dp = 16.dp) {
     val msg by AppToast.current.collectAsState()
     // 挂载标记：组合进树即 true，离树即 false（AppToast.show 靠它决定是否回退）。
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -121,8 +121,9 @@ fun AppToastOverlay() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
-                    // 110dp：悬在底部 dock（约 84dp 高）上方，不盖列表最后一行。
-                    .padding(bottom = 110.dp)
+                    // F6：不再固定离底 110dp——调用方按底栏/迷你播放条高度传 bottomPadding，
+                    // 有底栏时悬在底栏上方 16dp，没底栏时离底 16dp，不压迷你播放条也不悬空。
+                    .padding(bottom = bottomPadding)
                     // v0.279.0 V4：平面提示条——底栏同款 #161921 实底 + 1px 分隔线描边 + 8dp 圆角。
                     .shadow(12.dp, RoundedCornerShape(8.dp))
                     .clip(RoundedCornerShape(8.dp))

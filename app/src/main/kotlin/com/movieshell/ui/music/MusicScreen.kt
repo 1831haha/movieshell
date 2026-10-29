@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -510,7 +511,7 @@ private fun MusicPillButton(text: String, onClick: () -> Unit) {
     val shape = RoundedCornerShape(V4.RField)
     Box(
         modifier = Modifier
-            .height(V4.Field)
+            .heightIn(min = V4.Field)
             .clip(shape)
             .background(v.s1)
             .border(1.dp, v.div2, shape)

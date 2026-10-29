@@ -114,7 +114,7 @@ fun V4TopTabs(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(V4.TabRow)
+            .heightIn(min = V4.TabRow)
             .v4BottomDivider(v.div),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -424,7 +424,7 @@ fun V4SearchField(
     val v = V4.c
     Row(
         modifier = modifier
-            .height(V4.Field)
+            .heightIn(min = V4.Field)
             .clip(RoundedCornerShape(V4.RField))
             .background(v.s1)
             .clickable(onClick = onClick)

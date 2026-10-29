@@ -407,7 +407,7 @@ fun SoftBottomDock(
         Box(
             modifier = Modifier
                 .width(barWidth)
-                .height(V4.NavHeight)
+                .heightIn(min = V4.NavHeight)
                 .shadow(
                     elevation = 14.dp,
                     shape = shape,
