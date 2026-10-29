@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.ime
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -410,6 +411,11 @@ class MainActivity : ComponentActivity() {
                 // 非 tab 页（音乐子页等）没有底栏，迷你播放条照旧放 bottomBar 占位。
                 var miniPlayerHeightPx by remember { mutableStateOf(0) }
                 val miniPlayerHeight = with(density) { miniPlayerHeightPx.toDp() }
+                // F6：dockClearance 须在 Scaffold 外算——Scaffold 内容 lambda 内
+                // 定义的值，Scaffold 外的 AppToastOverlay 引用不到（v0.283.0 构建挂点）。
+                val dockClearance = if (showBottomBar) {
+                    V4.DockClearance + (if (showMiniPlayer) miniPlayerHeight else 0.dp)
+                } else 0.dp
                 Scaffold(
                     // v0.238.0 顶部贴顶：Scaffold 默认把状态栏高度算进内容内边距，
                     // 本 App 窗口本身已在状态栏下方排布（未开 edge-to-edge），再算一遍就是双倍顶距；
@@ -428,9 +434,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 ) { inner ->
-                    val dockClearance = if (showBottomBar) {
-                        V4.DockClearance + (if (showMiniPlayer) miniPlayerHeight else 0.dp)
-                    } else 0.dp
                     CompositionLocalProvider(LocalDockClearance provides dockClearance) {
                     Box(Modifier.padding(inner).fillMaxSize()) {
                     NavHost(
