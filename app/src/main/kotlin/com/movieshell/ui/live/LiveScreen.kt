@@ -1,6 +1,7 @@
 package com.movieshell.ui.live
 
 import android.content.ContentResolver
+import android.os.SystemClock
 import com.movieshell.ui.components.AppToast
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
@@ -58,6 +59,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -133,6 +136,13 @@ fun LiveScreen(
     // v0.79.0：顶部播放器当前频道；进场自动选中第一个
     // v0.160.0：初值从单例恢复，离页回来也不回首台
     var selected by remember { mutableStateOf<LiveChannel?>(null) }
+    // v0.277.0（T10）：同台再点重拉计数——PlayerScreen 的起播只跟
+    // url 变化，selected 不变时重组不会重拉；同台卡住/失败后再点，
+    // 靠这个计数 key 重建播放器、重新走一遍起播链路。
+    var livePlayNonce by remember { mutableStateOf(0) }
+    // v0.277.0（T10）：最近一次切台时间——同台 3 秒内连点仍按
+    // v0.160.0 不重建（防起播瞬间连点把刚起的流又掐掉）。
+    var lastPlayStartMs by remember { mutableLongStateOf(0L) }
     // v0.80.0：左侧分组选中态
     // v0.171.0：初值从单例恢复，切 tab 回来不回首组
     var selectedGroup by remember { mutableStateOf(LiveSelection.selectedGroup) }
@@ -215,13 +225,31 @@ fun LiveScreen(
     }
 
     fun playChannel(ch: LiveChannel) {
-        // v0.160.0：同台重复点不重建播放器（2 秒连点 5 台是不同台，不拦；同台才拦）
-        if (selected?.id == ch.id) return
+        // v0.277.0（T10）：同台再点不再一律 return——原来 selected
+        // 不变、PlayerScreen 的 url 也不变，卡住/最终失败后用户再点
+        // 同台完全没反应，只能切别的台再切回来。改：正在播就照旧
+        // 不动（保 v0.160.0 的连点不重建）；不在播且离上次切台已
+        // 超过 3 秒，就清已试源、递增重拉计数重建播放器再拉一次。
+        if (selected?.id == ch.id) {
+            if (EngineHost.isPlayingNow()) return
+            if (SystemClock.elapsedRealtime() - lastPlayStartMs < 3000L) return
+            liveTriedIds = emptySet()
+            LogBus.i("Live", "同台再点重拉：${ch.name}")
+            AppToast.show(context, "正在重新拉流", long = false)
+            livePlayNonce++
+            return
+        }
         liveTriedIds = emptySet()
         liveSourceByName = liveSourceByName + (ch.name to ch.id)
         LiveSelection.sourceByName[ch.name] = ch.id
         LiveSelection.channelId = ch.id
         selected = ch
+    }
+
+    // v0.277.0（T10）：切台时间跟 selected 走——正常切台、自动切
+    // 同名源、初始选中都经过这里，同台再点的 3 秒连点守卫才准。
+    LaunchedEffect(selected) {
+        if (selected != null) lastPlayStartMs = SystemClock.elapsedRealtime()
     }
 
     val filtered = remember(channels, query, selectedLiveSource) {
@@ -324,6 +352,10 @@ fun LiveScreen(
                     .background(Color.Black),
             ) {
                 if (playing != null) {
+                    // v0.277.0（T10）：重拉计数作 key——同台再点递增时
+                    // 播放器整棵重建，起播链路重新跑一遍；正常切台时
+                    // 计数不变，走原来的 url 变化起播，不多重建。
+                    key(livePlayNonce) {
                     PlayerScreen(
                         url = playing.url,
                         title = playing.name,
@@ -360,6 +392,7 @@ fun LiveScreen(
                         liveHeaders = playing.ua.takeIf { it.isNotBlank() }
                             ?.let { mapOf("User-Agent" to it) } ?: emptyMap(),
                     )
+                    }
                 } else {
                     Box(
                         modifier = Modifier.fillMaxSize(),
