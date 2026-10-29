@@ -52,6 +52,8 @@ import com.movieshell.ui.theme.SoftType
 @Composable
 fun SniffPatternsScreen(onBack: () -> Unit = {}) {
     var showAddPattern by remember { mutableStateOf(false) }
+    // v0.269.0（T37）：删除先弹确认，不再一点就删。
+    var confirmDeletePattern by remember { mutableStateOf<String?>(null) }
     var patterns by remember { mutableStateOf(SniffPatternStore.list()) }
 
     fun refreshPatterns() {
@@ -120,11 +122,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                                 modifier = Modifier.weight(1f),
                             )
                             IconButton(
-                                onClick = {
-                                    LogBus.i("UI", "删除嗅探正则: $pattern")
-                                    SniffPatternStore.remove(pattern)
-                                    refreshPatterns()
-                                }
+                                onClick = { confirmDeletePattern = pattern }
                             ) {
                                 Icon(
                                     Icons.Filled.Delete,
@@ -136,6 +134,24 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                     }
                 }
             }
+        }
+    }
+
+    if (confirmDeletePattern != null) {
+        TechDialog(
+            onDismissRequest = { confirmDeletePattern = null },
+            title = "删除嗅探正则",
+            confirmText = "删除",
+            onConfirm = {
+                val pattern = confirmDeletePattern!!
+                confirmDeletePattern = null
+                LogBus.i("UI", "删除嗅探正则: $pattern")
+                SniffPatternStore.remove(pattern)
+                refreshPatterns()
+            },
+            dismissText = "取消",
+        ) {
+            Text("删除「${confirmDeletePattern!!}」吗？", style = SoftType.Body)
         }
     }
 

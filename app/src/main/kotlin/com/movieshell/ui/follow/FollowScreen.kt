@@ -73,6 +73,9 @@ fun FollowScreen(
                 scope.launch {
                     if (FollowStore.unfollow(context, item.id)) {
                         AppToast.show(context, "已取消追剧", long = false)
+                    } else {
+                        // v0.269.0（T36）：取消失败原来无反馈，用户以为已取消。
+                        AppToast.show(context, "取消失败，请重试", long = false)
                     }
                 }
             },

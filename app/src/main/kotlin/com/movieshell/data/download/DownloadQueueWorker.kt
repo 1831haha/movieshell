@@ -438,7 +438,12 @@ class DownloadQueueWorker(
                     done = part.length()
                 }
                 if (!resp.isSuccessful && resp.code != 206) throw IllegalStateException("HTTP ${resp.code}")
-                val total = resp.header("Content-Length")?.toLongOrNull()?.let { it + done } ?: -1L
+                // v0.269.0（T11）：总量先判 206——206 的 Content-Length 是剩余
+                // 字节，才加已下 done；200 的 Content-Length 就是全长，忽略
+                // Range 时若仍加 done，总量虚高、进度与长度核对全错。
+                val total = resp.header("Content-Length")?.toLongOrNull()?.let {
+                    if (resp.code == 206) it + done else it
+                } ?: -1L
                 val body = resp.body ?: throw IllegalStateException("空响应")
                 // 断点续传：服务器忽略 Range 时从头写。注意这里删 part 只是清理，
                 // 真正保证从头写的是下面 append=false 的截断打开——删失败也不影响：

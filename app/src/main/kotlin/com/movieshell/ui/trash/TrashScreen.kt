@@ -119,10 +119,15 @@ fun TrashScreen(
             title = "清空回收站",
             confirmText = "清空",
             onConfirm = {
-                TrashStore.clearAll(context)
+                val cleared = TrashStore.clearAll(context)
                 showClearAll = false
                 reload()
-                AppToast.show(context, "回收站已清空", long = false)
+                // v0.269.0（T39）：按底层成败给提示，不再无条件报“已清空”。
+                if (cleared) {
+                    AppToast.show(context, "回收站已清空", long = false)
+                } else {
+                    AppToast.show(context, "清空失败，请重试", long = false)
+                }
             },
         ) {
             Text("彻底删除回收站里的 ${items.size} 项吗？无法恢复。")

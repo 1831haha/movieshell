@@ -134,8 +134,9 @@ class HomeViewModel(
                 } else if (catMap.containsKey(catId)) {
                     _displayVideos.value = catMap[catId].orEmpty()
                     if (_loadingCategoryId.value == catId) _loadingCategoryId.value = null
-                    // v0.110.0：有缓存结果了，失败标记同步清除
-                    if (_failedCategoryId.value == catId) _failedCategoryId.value = null
+                    // v0.269.0（T2）：仅展示旧缓存不算成功，不清失败标记；
+                    // 失败标记只在新一轮加载开始（clearCategoryFailed）或
+                    // 成功写缓存（setCategoryVideos）时清。
                 } else if (_failedCategoryId.value != catId) {
                     // 无缓存：保留旧列表，标记正在加载（UI 显示顶部细条/骨架屏）；
                     // v0.110.0：已标记失败的不再转圈，失败态走 failedCategoryId（UI 给内联重试）
@@ -173,9 +174,12 @@ class HomeViewModel(
         _recommendCache.value = videos
     }
 
-    /** 写某分类缓存（key 为 typeId，与磁盘缓存同口径） */
+    /** 写某分类缓存（key 为 typeId，与磁盘缓存同口径）
+     * v0.269.0（T2）：成功写缓存才清失败标记——原来收集器在“仅展示旧缓存”
+     * 时也清，失败后切走再切回、失败态就被旧缓存洗掉了。 */
     fun setCategoryVideos(typeId: String, videos: List<ModelVod>) {
         _categoryCache.value = _categoryCache.value + (typeId to videos)
+        if (_failedCategoryId.value == typeId) _failedCategoryId.value = null
     }
 
     /**

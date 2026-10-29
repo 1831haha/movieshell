@@ -185,8 +185,18 @@ object TrashStore {
         remove(context, item.id)
     }
 
-    fun clearAll(context: Context) {
-        list(context).forEach { deleteForever(context, it) }
+    fun clearAll(context: Context): Boolean {
+        // v0.269.0（T39）：返回成败——文件删不掉的条目留记录、不报“已清空”。
+        var ok = true
+        list(context).forEach { item ->
+            val file = if (item.trashPath.isBlank()) null else File(item.trashPath)
+            if (file != null && file.exists() && !runCatching { file.delete() }.getOrDefault(false)) {
+                ok = false
+            } else {
+                remove(context, item.id)
+            }
+        }
+        return ok
     }
 
     // ---------------- 内部 ----------------
