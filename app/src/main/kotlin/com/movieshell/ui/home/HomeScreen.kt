@@ -106,8 +106,12 @@ import com.movieshell.ui.components.EmptyState
 import com.movieshell.data.repo.ThemeStore
 import com.movieshell.ui.components.FilterBar
 import com.movieshell.ui.components.PosterCard
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
+import com.movieshell.player.OrientationSensor
+import com.movieshell.player.PlaySession
 import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
@@ -322,6 +326,8 @@ fun HomeScreen(
         homeLifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
 
     // v0.75.0：继续观看——每次回到首页刷新（只留有点播 vodId、没看完的）
+    // v0.266.0：首页继续观看只留最新 5 张（原来 10 张）；历史页与
+    // HistoryStore（最多 50 条）按以前模式不变，只改首页展示条数。
     var watchHistory by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
     fun reloadWatchHistory() {
         watchHistory = HistoryStore.getHistory(context)
@@ -329,11 +335,25 @@ fun HomeScreen(
                 e.kind == "vod" && e.vodId.isNotBlank() &&
                     !(e.durationMs > 0 && e.positionMs >= e.durationMs * 0.95)
             }
-            .take(10)
+            .take(5)
     }
     DisposableEffect(homeLifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) reloadWatchHistory()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                // v0.266.0：回到首页且没有播放器在前台时，复位方向锁——
+                // 嵌入播放退出（DetailScreen dispose）不碰方向、看图页不处理
+                // 方向时，手动锁/重力感应锁会一路带到首页，导致“横屏回不到
+                // 竖屏”；首页本就该跟手机转，这里兜底复位到系统默认。
+                if (!PlaySession.playerVisible) {
+                    OrientationSensor.stop()
+                    (context as? Activity)?.let {
+                        if (it.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                            it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                        }
+                    }
+                }
+                reloadWatchHistory()
+            }
         }
         homeLifecycle.addObserver(observer)
         onDispose { homeLifecycle.removeObserver(observer) }

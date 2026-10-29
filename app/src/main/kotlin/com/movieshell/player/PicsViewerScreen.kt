@@ -5,16 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.NavigateBefore
-import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -24,7 +21,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.movieshell.data.source.stripHtml
-import kotlinx.coroutines.launch
 
 /**
  * v0.164.0：pics:// 看图。
@@ -68,7 +63,6 @@ fun PicsViewerScreen(
     // 看图时原样带给每张图，防盗链站点不带 Referer 会 403。peek 不消费，翻页重组还能用。
     val headers = remember(url) { SniffPlayHeaders.peek(url) }
     var uiVisible by remember { mutableStateOf(true) }
-    val scope = rememberCoroutineScope()
 
     if (images.isEmpty()) {
         Box(
@@ -85,37 +79,41 @@ fun PicsViewerScreen(
         return
     }
 
-    val pagerState = rememberPagerState(pageCount = { images.size })
-    val current = pagerState.currentPage
+    // v0.266.0：长流模式——原来是左右翻页的 HorizontalPager + 上一张/
+    // 下一张按钮，现在所有图连成一条竖向长流一直往下刷，不再分页、
+    // 不再有翻页按钮；每张图按屏宽等比缩放（FillWidth），点图仍可
+    // 显隐顶栏；顶栏只显示总张数，不再显示“第几张 / 共几张”。
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        HorizontalPager(
-            state = pagerState,
+        LazyColumn(
             modifier = Modifier.fillMaxSize(),
-        ) { page ->
-            val request = remember(images[page], headers) {
-                ImageRequest.Builder(context)
-                    .data(images[page])
-                    .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
-                    .build()
+        ) {
+            itemsIndexed(images) { index, imageUrl ->
+                val request = remember(imageUrl, headers) {
+                    ImageRequest.Builder(context)
+                        .data(imageUrl)
+                        .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
+                        .build()
+                }
+                AsyncImage(
+                    model = request,
+                    contentDescription = "第 ${index + 1} 张",
+                    contentScale = ContentScale.FillWidth,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { uiVisible = !uiVisible },
+                )
             }
-            AsyncImage(
-                model = request,
-                contentDescription = "第 ${page + 1} 张",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable { uiVisible = !uiVisible },
-            )
         }
         if (uiVisible) {
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.45f))
                     .padding(horizontal = 4.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -129,30 +127,7 @@ fun PicsViewerScreen(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
-                Text("${current + 1} / ${images.size}", color = Color.White)
-            }
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
-                    enabled = current > 0,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(current - 1) } },
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.NavigateBefore, null, tint = Color.White)
-                    Text("上一张", color = Color.White)
-                }
-                Spacer(Modifier.weight(1f))
-                TextButton(
-                    enabled = current < images.size - 1,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(current + 1) } },
-                ) {
-                    Text("下一张", color = Color.White)
-                    Icon(Icons.AutoMirrored.Filled.NavigateNext, null, tint = Color.White)
-                }
+                Text("共 ${images.size} 张", color = Color.White)
             }
         }
     }

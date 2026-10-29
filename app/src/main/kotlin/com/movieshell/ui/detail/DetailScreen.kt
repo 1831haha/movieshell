@@ -109,7 +109,10 @@ import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.StoragePaths
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import com.movieshell.player.MagnetPlayer
+import com.movieshell.player.OrientationSensor
 import com.movieshell.player.PlayResolveScope
 import com.movieshell.player.PlaySession
 import com.movieshell.player.EngineHost
@@ -158,6 +161,16 @@ fun DetailScreen(
                 EngineHost.stop()
                 PlaySession.clear()
                 PlaySession.playerVisible = false
+                // v0.266.0：真离开详情页时复位方向——嵌入播放退出原来
+                // 不碰方向（见 PlayerScreen 注释），手动切屏锁/重力锁会
+                // 残留到首页，导致“横屏回不到竖屏”；跳全屏时不复位，
+                // 独立页接管同一会话、由它自己退出时复位。
+                OrientationSensor.stop()
+                (context as? Activity)?.let {
+                    if (it.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                        it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    }
+                }
             }
         }
     }
