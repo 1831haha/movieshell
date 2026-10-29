@@ -566,7 +566,10 @@ fun HomeScreen(
         // 3. 算最终 UI 状态（语义与之前一致；early-apply 已做，这里幂等收尾）
         val netOk = netVods != null && (netVods!!.isNotEmpty() || !cacheShown)
         val finalVods: List<ModelVod>? = when {
-            netOk -> netVods!!.ifEmpty { null }
+            // B6：规则真回空列表是“空”，不是“失败”——之前 ifEmpty 转 null，
+            // 真空被当成失败走 recommendEmpty 报错；现在空列表原样保留，
+            // 失败（netVods==null）才走 null 分支，UI 才能分开显示。
+            netOk -> netVods
             cacheVods.isNotEmpty() -> cacheVods
             else -> null
         }
@@ -968,9 +971,15 @@ fun HomeScreen(
                 vm.setCategories(cats)
                 runCatching { withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) } }
                 LogBus.i("Home", "分类重试成功：${cats.size} 个")
-            } else {
+            } else if (cats == null) {
+                // B6：超时/异常（null）才是失败；规则真没分类（空列表）
+                // 不是失败，不弹“分类加载失败”，分类行直接清掉旧分类。
                 catsFailed = true
                 LogBus.w("Home", "分类重试仍失败")
+            } else {
+                vm.setCategories(emptyList())
+                catsFailed = false
+                LogBus.i("Home", "分类重试回空：规则真没分类，不是失败")
             }
             vm.setLoading(false)
         }
@@ -1459,14 +1468,20 @@ fun HomeScreen(
                     }
                 } else if (!drpyReady && drpyCats.isEmpty() && !drpyLoading && loadingCat == null) {
                     // v0.59：分类和视频都没有才显示空态；有分类无视频时走 else 显示分类行
+                    // B6：没选源的空和选了源但真没内容的空要分开——之前都说
+                    // “先添加并启用站源”，已选源的用户被误导去重复加源。
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         EmptyState(
                             kind = EmptyKind.Empty,
                             icon = Icons.Filled.Movie,
                             title = "暂无首页内容",
-                            hint = "先添加并启用站源，首页就有推荐了",
-                            actionText = "去添加站源",
-                            onAction = onManageSources,
+                            hint = if (drpyActive) "该源暂无推荐内容，可换个源或下拉刷新" else "先添加并启用站源，首页就有推荐了",
+                            actionText = if (drpyActive) "换源" else "去添加站源",
+                            onAction = if (drpyActive) {
+                                { showSourceSheet = true }
+                            } else {
+                                onManageSources
+                            },
                         )
                     }
                 } else {

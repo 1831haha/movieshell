@@ -361,7 +361,10 @@ class MainActivity : ComponentActivity() {
                     // B1：通知进详情不再写全局 holder，subKey 转成路由的
                     // siteKey 参数，详情页按参数解析；已发出的旧通知也走
                     // 同一条转换，不依赖 holder 残留值。
-                    val finalRoute = if (subKey.isNotBlank() && route.startsWith("detail/")) {
+                    // B5：空 subKey 也必须显式带 siteKey=（本地规则站），不能
+                    // 省略参数——省略会落到哨兵 UNSET，详情页回退 holder 旧值，
+                    // 点本地规则追剧通知可能播成上一个订阅站的片。
+                    val finalRoute = if (route.startsWith("detail/")) {
                         val sep = if (route.contains("?")) "&" else "?"
                         "$route${sep}siteKey=${Uri.encode(subKey)}"
                     } else {
