@@ -34,13 +34,16 @@ import coil.compose.AsyncImage
 import com.movieshell.ui.theme.LocalSoftExtra
 import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftType
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 /**
- * 海报卡片（v0.32.0 影院黑：毛玻璃质感——半透明底 + 低透明白描边；
- * 无海报时用中性占位 + 标题首字，不再用高饱和渐变）。
+ * 海报卡片（v0.32.0 影院黑毛玻璃 → v0.279.0 V4：无卡片底无描边，
+ * 只有 6dp 圆角海报 + 1px 12% 圆环占位；左上角等宽小标签（含 VIP 用琥珀色，
+ * 其余备注用暗底标签）；下面 11.5/500 片名一行 + t3 10.5 副标题）。
+ * 无海报/图挂时用 V4 柔和渐变占位 + 片名首字，不用假海报。
  */
 @Composable
-@OptIn(ExperimentalFoundationApi::class)
 fun PosterCard(
     title: String,
     subtitle: String? = null,
@@ -49,28 +52,20 @@ fun PosterCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
-    // v0.237.0 浅色高密度：浅色下按参考图——卡片本身无底无边，
-    // 只有海报图带小圆角；角标放右上角黑底白字胶囊；标题 plain 黑字
-    // 一行省略（不跑马灯）；深色保持原来的毛玻璃卡片。
-    val isLight = MaterialTheme.colorScheme.background.luminance() > 0.5f
-    val shape = RoundedCornerShape(if (isLight) 8.dp else SoftDimens.PosterCorner)
+    val v = V4.c
+    val shape = RoundedCornerShape(V4.RPoster)
     Column(
         modifier = modifier
-            .then(
-                if (isLight) Modifier
-                else Modifier
-                    .clip(shape)
-                    .background(LocalSoftExtra.current.glass)
-                    .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
-            )
+            .clip(RoundedCornerShape(V4.RPoster))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
-        Box(
+        V4Art(
+            seed = title,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .clip(shape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .weight(1f),
+            shape = shape,
+            ring = posterUrl.isNullOrBlank(),
         ) {
             // v0.212.0 审计修复：海报加载失败原来是空白块，地址有效但图
             // 挂了时不回落占位；失败后改显示标题首字占位，与无图同款。
@@ -83,113 +78,56 @@ fun PosterCard(
                     contentScale = ContentScale.Crop,
                     onError = { imageFailed = true },
                 )
-                // 底部压暗衬标题（浅色下角标已挪到右上角，不用压暗）
-                if (!isLight) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    0.6f to Color.Transparent,
-                                    1f to Color(0x88000000),
-                                )
-                            )
-                    )
-                }
             } else {
                 Text(
                     text = title.firstOrNull()?.toString() ?: "",
                     modifier = Modifier.align(Alignment.Center),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                    fontSize = 56.sp,
+                    color = v.t1.copy(alpha = 0.22f),
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            // v0.80.0：备注改海报底部一行（不再大色块遮海报）
-            // v0.212.0 审计修复：备注原来是四色渐变字 + 跑马灯，与香槟金/
-            // 青色体系冲突、一屏十几条同时跑很闹；改单色青色 + 省略号。
-            // v0.237.0：浅色下角标按参考图放右上角黑底白字胶囊。
-            if (badge != null) {
-                if (isLight) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(Color.Black.copy(alpha = 0.55f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                    ) {
-                        Text(
-                            text = badge,
-                            style = TextStyle(
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                            ),
-                            maxLines = 1,
-                        )
-                    }
-                } else {
+            // 1px 内描边，海报与平底分开
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .border(1.dp, v.div, shape),
+            )
+            if (!badge.isNullOrBlank()) {
+                val isVip = badge.contains("vip", ignoreCase = true)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(5.dp)
+                        .clip(RoundedCornerShape(V4.RTag))
+                        .background(if (isVip) Color(0xE6151208) else Color(0xB3000000))
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                ) {
                     Text(
                         text = badge,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .fillMaxWidth()
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
-                        style = TextStyle(
-                            color = Color(0xFF4DD0E1),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                        ),
+                        style = V4Type.Tag,
+                        color = if (isVip) v.vip else Color(0xFFE6E8EE),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
         }
-        Column(
-            modifier = if (isLight) Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp)
-            else Modifier.padding(8.dp)
-        ) {
-            if (isLight) {
-                Text(
-                    text = title,
-                    style = SoftType.CardTitle.copy(fontSize = 14.sp),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            } else {
-                // v0.90.0：片名底色改护眼绿胶囊 + 深色字保证对比度
-                // v0.212.0 审计修复：那块写死的浅绿底 + 深绿字与整页深底 +
-                // 毛玻璃 + 微光描边断裂，深色主题下最扎眼；改跟卡片同款
-                // 毛玻璃底 + 微光描边，字色跟主题 onSurface 走。
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(LocalSoftExtra.current.glass)
-                        .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = title,
-                        // v0.82.0：片名字体调小 + 显示不全跑马灯
-                        style = SoftType.CardTitle.copy(fontSize = 13.sp),
-                        modifier = Modifier.basicMarquee(),
-                        maxLines = 1,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
+        Column(modifier = Modifier.padding(top = 6.dp, start = 1.dp, end = 1.dp, bottom = 2.dp)) {
+            Text(
+                text = title,
+                style = V4Type.PosterTitle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = v.t1,
+            )
             if (subtitle != null) {
                 Text(
                     text = subtitle,
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = v.t3,
                 )
             }
         }

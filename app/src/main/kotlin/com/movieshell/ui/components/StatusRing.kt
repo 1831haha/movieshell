@@ -38,10 +38,11 @@ enum class StatusRingState {
 }
 
 fun StatusRingState.color(): Color = when (this) {
-    StatusRingState.Ready -> Color(0xFF4CAF50)
-    StatusRingState.Loading -> Color(0xFFFFC107)
-    StatusRingState.Failed -> Color(0xFFE53935)
-    StatusRingState.Idle -> Color(0xFF9E9E9E)
+    // v0.279.0 V4：状态色对齐 V4 token（ok / vip 琥珀 / live 红 / t3 灰），语义不变。
+    StatusRingState.Ready -> Color(0xFF3DD68C)
+    StatusRingState.Loading -> Color(0xFFE8B45A)
+    StatusRingState.Failed -> Color(0xFFFF5A5F)
+    StatusRingState.Idle -> Color(0xFF6B7385)
 }
 
 @Composable

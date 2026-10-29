@@ -51,15 +51,15 @@ fun ListRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp)
+            .padding(vertical = 6.dp)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
-                .size(56.dp)
+                .size(48.dp)
                 .clip(thumbShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .background(com.movieshell.ui.theme.V4.c.s2)
                 .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, thumbShape),
             contentAlignment = Alignment.Center,
         ) {
@@ -76,7 +76,7 @@ fun ListRow(
                 Text(
                     text = title.firstOrNull()?.toString() ?: "",
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                    fontSize = 28.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
@@ -84,7 +84,7 @@ fun ListRow(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 12.dp),
+                .padding(start = 10.dp),
         ) {
             Text(
                 text = title,

@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.V4
 
 /**
  * v0.211.0：全仓统一精致控件（替代系统原生默认样式）。
@@ -24,7 +25,10 @@ import com.movieshell.ui.theme.SoftDimens
  * 颜色、圆角、描边一次定死，后面换主题色只改这一处。
  */
 
-/** 开关：开 = 青色 #4DD0E1（与底部 dock 选中色同源），关 = 灰蓝，拇指恒白。 */
+/**
+ * 开关（v0.279.0 V4：32×18 小开关——开 = 强调色底 + 白拇指，关 = s3 底 + 灰拇指）。
+ * 自绘而不用 Material Switch（52×32 太大，和 44dp 设置行比例不对）；触摸区仍 ≥ 40dp。
+ */
 @Composable
 fun AppSwitch(
     checked: Boolean,
@@ -32,24 +36,10 @@ fun AppSwitch(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    val accent = Color(0xFF4DD0E1)
-    Switch(
-        checked = checked,
-        onCheckedChange = onCheckedChange,
-        modifier = modifier,
-        enabled = enabled,
-        colors = SwitchDefaults.colors(
-            checkedThumbColor = Color.White,
-            checkedTrackColor = accent,
-            checkedBorderColor = accent,
-            uncheckedThumbColor = Color.White,
-            uncheckedTrackColor = Color(0xFF3A4356),
-            uncheckedBorderColor = Color(0xFF3A4356),
-        ),
-    )
+    V4Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = modifier, enabled = enabled)
 }
 
-/** 滑杆：青色轨道 + 白色大拇指（阅读器进度、音量类场景）。 */
+/** 滑杆：强调色轨道 + 白色拇指（阅读器进度、音量类场景）。 */
 @Composable
 fun AppSlider(
     value: Float,
@@ -58,7 +48,7 @@ fun AppSlider(
     onValueChangeFinished: (() -> Unit)? = null,
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
 ) {
-    val accent = Color(0xFF4DD0E1)
+    val v = V4.c
     Slider(
         value = value,
         onValueChange = onValueChange,
@@ -67,13 +57,13 @@ fun AppSlider(
         valueRange = valueRange,
         colors = SliderDefaults.colors(
             thumbColor = Color.White,
-            activeTrackColor = accent,
-            inactiveTrackColor = Color(0xFF3A4356),
+            activeTrackColor = v.accent,
+            inactiveTrackColor = v.s3,
         ),
     )
 }
 
-/** 下拉菜单：毛玻璃底 + 20dp 圆角 + 微光描边，跟 TechDialog 同源。 */
+/** 下拉菜单（V4：s1 底 + 8dp 圆角 + 1px 分隔线描边）。 */
 @Composable
 fun AppDropdownMenu(
     expanded: Boolean,
@@ -85,8 +75,11 @@ fun AppDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
         modifier = modifier,
-        shape = RoundedCornerShape(SoftDimens.CardCorner),
-        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(V4.RField),
+        containerColor = V4.c.s2,
+        border = androidx.compose.foundation.BorderStroke(1.dp, V4.c.div2),
+        shadowElevation = 8.dp,
+        tonalElevation = 0.dp,
         content = content,
     )
 }

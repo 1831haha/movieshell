@@ -41,45 +41,15 @@ fun CapsuleTabBar(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val brandColors = LocalBrandGradient.current
-    val gradient = Brush.horizontalGradient(brandColors)
-    // v0.105.0：选中底是品牌渐变（用户可换浅色预设），按渐变平均明度取深/白字保证对比度（与 Theme.kt onPrimary 同口径）
-    val selTextColor = if (brandColors.map { it.luminance() }.average() > 0.5f) Color(0xFF1A1408) else Color.White
-    val soft = LocalSoftExtra.current
-    Row(
+    // v0.279.0 V4：胶囊渐变 tab 改 V4 分段控件（s1 轨道 + s3 选中块，无渐变），
+    // 页边距 12dp；参数与行为不变。
+    V4Segmented(
+        options = titles,
+        selected = selected,
+        onSelect = onSelect,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-            .border(1.dp, soft.border, RoundedCornerShape(50))
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        titles.forEachIndexed { i, title ->
-            val isSel = i == selected
-            val bgAlpha by animateFloatAsState(if (isSel) 1f else 0f, label = "capsuleBg")
-            val textColor by animateColorAsState(
-                if (isSel) selTextColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                label = "capsuleText",
-            )
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(50))
-                    .background(gradient, alpha = bgAlpha)
-                    .clickable { onSelect(i) }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = title,
-                    style = SoftType.Body,
-                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                    color = textColor,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        height = 32.dp,
+    )
 }

@@ -28,7 +28,7 @@ fun FilterBar(
         modifier = modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         labels.forEachIndexed { index, label ->
             AppChip(

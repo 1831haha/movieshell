@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.movieshell.ui.theme.V4
 import androidx.compose.ui.unit.sp
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -122,10 +123,11 @@ fun AppToastOverlay() {
                     .padding(horizontal = 24.dp)
                     // 110dp：悬在底部 dock（约 84dp 高）上方，不盖列表最后一行。
                     .padding(bottom = 110.dp)
-                    .shadow(16.dp, RoundedCornerShape(24.dp))
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF171B28))
-                    .border(1.dp, Color(0xFF4DD0E1).copy(alpha = 0.35f), RoundedCornerShape(24.dp))
+                    // v0.279.0 V4：平面提示条——底栏同款 #161921 实底 + 1px 分隔线描边 + 8dp 圆角。
+                    .shadow(12.dp, RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(V4.c.navSolid)
+                    .border(1.dp, V4.c.div2, RoundedCornerShape(8.dp))
                     .clickable { AppToast.dismiss(m.id) }
                     .padding(horizontal = 18.dp, vertical = 13.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -134,12 +136,12 @@ fun AppToastOverlay() {
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF4DD0E1)),
+                        .background(V4.c.accent),
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
                     text = m.text,
-                    color = Color.White,
+                    color = V4.c.t1,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
                     // v0.272.0（T34）：原来 maxLines=3，稍长一点的提示就被截掉后半句；

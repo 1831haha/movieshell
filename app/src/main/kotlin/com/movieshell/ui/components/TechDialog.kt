@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.movieshell.ui.theme.v4Dark
+import com.movieshell.ui.theme.v4Light
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.movieshell.ui.theme.LocalBrandGradient
@@ -77,27 +79,31 @@ fun TechDialog(
     val effectiveScheme = if (forceDark == null || forceDark == systemDark) {
         baseScheme
     } else if (isDark) {
+        // v0.279.0 V4：强制深浅的副本取 V4 深/浅 token，不再另写一套色值。
+        val d = v4Dark(baseScheme.primary)
         baseScheme.copy(
-            background = Color(0xFF171B28),
-            surface = Color(0xFF171B28),
-            surfaceVariant = Color(0xFF232839),
-            onSurface = Color(0xFFE8EAF0),
-            onSurfaceVariant = Color(0xFFB0B7C3),
-            outline = Color(0xFF454B56),
-            primary = Color(0xFF7AA7F7),
-            onPrimary = Color(0xFF18243A),
+            background = d.bg,
+            surface = d.s1,
+            surfaceVariant = d.s2,
+            onSurface = d.t1,
+            onSurfaceVariant = d.t2,
+            outline = d.div2,
+            primary = d.accent,
+            onPrimary = d.onAccent,
         )
     } else {
+        val l = v4Light()
         baseScheme.copy(
-            background = Color.White,
-            surface = Color.White,
-            surfaceVariant = Color(0xFFF0F0F0),
-            onSurface = Color(0xFF242424),
-            onSurfaceVariant = Color(0xFF666666),
-            outline = Color(0xFFE0E0E0),
+            background = l.bg,
+            surface = l.s1,
+            surfaceVariant = l.s2,
+            onSurface = l.t1,
+            onSurfaceVariant = l.t2,
+            outline = l.div2,
         )
     }
-    val dialogBg = if (isDark) Color(0xFF171B28) else effectiveScheme.surface
+    val panel = if (isDark) v4Dark(baseScheme.primary) else v4Light()
+    val dialogBg = if (isDark) panel.s1 else effectiveScheme.surface
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = if (widthFraction != null) DialogProperties(usePlatformDefaultWidth = false) else DialogProperties(),
@@ -110,29 +116,19 @@ fun TechDialog(
         Box(
             modifier = Modifier
                 .fillMaxWidth(widthFraction ?: 1f)
-                .clip(RoundedCornerShape(22.dp))
-                .background(Brush.linearGradient(LocalBrandGradient.current))
-                .padding(1.5.dp)
-                .clip(RoundedCornerShape(21.dp))
+                // v0.279.0 V4：平面弹窗——s1 底 + 1px 分隔线描边 + 12dp 圆角，去掉渐变描边。
+                .clip(RoundedCornerShape(12.dp))
                 .background(dialogBg)
-                .padding(horizontal = 20.dp, vertical = 18.dp),
+                .border(1.dp, panel.div2, RoundedCornerShape(12.dp))
+                .padding(horizontal = 16.dp, vertical = 16.dp),
         ) {
             Column {
                 Text(
                     text = title,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Bold,
-                    // v0.194.0：深底青字、浅底深青（风格统一后取代金字）。
-                    color = accentTitleColor(),
-                )
-                Spacer(Modifier.height(6.dp))
-                // 标题下渐变细线（呼应顶栏品牌线）
-                Box(
-                    modifier = Modifier
-                        .width(46.dp)
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Brush.horizontalGradient(LocalBrandGradient.current)),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    // v0.279.0 V4：标题用主文字色，不再青字 + 渐变短线。
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 if (subtitle != null) {
                     Spacer(Modifier.height(8.dp))
@@ -167,7 +163,8 @@ fun TechDialog(
                         Button(
                             onClick = onConfirm,
                             enabled = confirmEnabled,
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(36.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -200,7 +197,7 @@ fun TechTextField(
     // v0.213.0：Cookie 输入框遮掩用（默认不遮掩，其他调用方不受影响）
     visualTransformation: VisualTransformation = VisualTransformation.None,
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(8.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
     BasicTextField(
@@ -223,7 +220,7 @@ fun TechTextField(
                 else MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
                 shape = shape,
             )
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         decorationBox = { inner ->
             if (value.isEmpty() && placeholder.isNotBlank()) {
                 Text(
