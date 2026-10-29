@@ -101,7 +101,7 @@ fun DiscoverTab(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            contentPadding = PaddingValues(bottom = com.movieshell.ui.components.dockClearance() + 8.dp),
         ) {
             if (aggSources.isEmpty()) {
                 item {
@@ -183,7 +183,7 @@ fun DiscoverTab(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 24.dp),
+                    contentPadding = PaddingValues(bottom = com.movieshell.ui.components.dockClearance() + 8.dp),
                 ) {
                     groups.forEach { (groupTitle, titles) ->
                         item(key = "g-$groupTitle") {
@@ -234,10 +234,10 @@ private fun DiscoverCapsules(
 
 /** 探测状态点颜色：通绿、慢黄、不通红、未测灰。 */
 private fun probeDotColor(status: String?): Color = when (status) {
-    "OK" -> Color(0xFF43A047)
-    "SLOW" -> Color(0xFFF9A825)
-    "FAIL" -> Color(0xFFE53935)
-    else -> Color(0xFF9E9E9E)
+    "OK" -> Color(0xFF3DD68C)
+    "SLOW" -> Color(0xFFE8B45A)
+    "FAIL" -> Color(0xFFFF5A5F)
+    else -> Color(0xFF6B7385)
 }
 
 /** 探测状态文案：只陈述连通结果，不含任何评分含义。 */

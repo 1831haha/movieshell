@@ -1,5 +1,9 @@
 package com.movieshell.ui.bookshelf
 
+import androidx.compose.material.icons.outlined.Book
+import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material.icons.filled.Search
+import com.movieshell.ui.theme.V4
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -232,8 +236,8 @@ fun NovelListCard(
                 color = if (isDirFailed) Color.White else accentTitleColor(),
                 modifier = Modifier
                     .background(
-                        if (isDirFailed) Color(0xFFE53935)
-                        else Color(0xFF4DD0E1).copy(alpha = 0.14f),
+                        if (isDirFailed) V4.c.live
+                        else V4.c.accent.copy(alpha = 0.14f),
                         RoundedCornerShape(10.dp),
                     )
                     .padding(horizontal = 8.dp, vertical = 3.dp),
@@ -255,7 +259,7 @@ fun NovelListCard(
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     modifier = Modifier
-                        .background(Color(0xFFE53935), RoundedCornerShape(10.dp))
+                        .background(V4.c.live, RoundedCornerShape(10.dp))
                         .padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
@@ -279,7 +283,7 @@ fun NovelGridCard(
     modifier: Modifier = Modifier,
 ) {
     val progress = novel.readFraction()
-    val cyan = Color(0xFF4DD0E1)
+    val cyan = V4.c.accent
     Column(
         modifier = modifier.bookPressable(onClick = onClick, onLongClick = onLongClick),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -348,7 +352,7 @@ fun NovelGridCard(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(6.dp)
-                        .background(Color(0xFFE53935), RoundedCornerShape(8.dp))
+                        .background(V4.c.live, RoundedCornerShape(8.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
@@ -433,7 +437,7 @@ fun NovelGridCard(
             NovelStore.DIR_FAILED -> Text(
                 "目录获取失败，点击重试",
                 fontSize = 11.sp,
-                color = Color(0xFFE53935),
+                color = V4.c.live,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
@@ -463,53 +467,50 @@ fun BookshelfEmptyState(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 48.dp),
+            .padding(top = 120.dp, bottom = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // v0.279.0 V4：68dp s1 圆角图标井 + 15/600 标题 + t3 提示 + 主/次两个按钮
         Box(
             modifier = Modifier
-                .size(88.dp)
-                .background(
-                    Brush.linearGradient(LocalBrandGradient.current),
-                    CircleShape,
-                )
-                .padding(1.5.dp),
+                .size(68.dp)
+                .background(V4.c.s1, RoundedCornerShape(V4.RWell)),
             contentAlignment = Alignment.Center,
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF171B28), CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.LibraryBooks,
-                    contentDescription = null,
-                    tint = accentTitleColor(),
-                    modifier = Modifier.size(40.dp),
-                )
-            }
+            Icon(
+                imageVector = Icons.Outlined.Book,
+                contentDescription = null,
+                tint = V4.c.t2,
+                modifier = Modifier.size(28.dp),
+            )
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(18.dp))
         Text(
             "书架还在等它的第一本书",
-            fontSize = 16.sp,
+            fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = V4.c.t1,
         )
         Spacer(Modifier.height(6.dp))
         Text(
             "找本小说开始读，打卡天数从今天算起",
-            fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            color = V4.c.t3,
         )
         Spacer(Modifier.height(20.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            AppButton(text = "去找书", onClick = onFindBook)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            AppButton(
+                text = "去找书",
+                onClick = onFindBook,
+                icon = Icons.Filled.Search,
+                modifier = Modifier.width(146.dp),
+            )
             AppButton(
                 text = "导入 TXT",
                 onClick = onImportTxt,
                 variant = AppButtonVariant.Secondary,
+                icon = Icons.Outlined.UploadFile,
+                modifier = Modifier.width(146.dp),
             )
         }
     }

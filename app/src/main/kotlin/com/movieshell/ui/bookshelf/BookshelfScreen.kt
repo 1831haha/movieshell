@@ -1,5 +1,11 @@
 package com.movieshell.ui.bookshelf
 
+import com.movieshell.ui.theme.V4Type
+import com.movieshell.ui.components.v4Bleed
+import com.movieshell.ui.components.v4BottomDivider
+import com.movieshell.ui.components.dockClearance
+import androidx.compose.foundation.layout.fillMaxHeight
+import com.movieshell.ui.theme.V4
 import android.provider.OpenableColumns
 import com.movieshell.ui.components.AppDropdownMenu
 import com.movieshell.ui.components.EmptyKind
@@ -573,7 +579,7 @@ fun BookshelfScreen(
                         onClick = { if (selectedIds.isNotEmpty()) batchDelete = true },
                         enabled = selectedIds.isNotEmpty(),
                     ) {
-                        Text("删除", color = Color(0xFFE53935))
+                        Text("删除", color = V4.c.live)
                     }
                     TextButton(
                         onClick = {
@@ -602,46 +608,54 @@ fun BookshelfScreen(
         // 检查更新改下拉刷新、批量管理改长按进多选；
         // 多选模式仍用上面那个“已选 N 本”操作栏。
 
+        // v0.279.0 V4：12dp 页边距；一级页签（书架 / 发现）改 V4 文字 tab（15/600 + 强调色下划线），
+        // 右侧本数（等宽 t3）+ 线性图标，整行底部通栏 1px 分隔线。
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = V4.Gutter),
         ) {
-            Spacer(Modifier.height(12.dp))
 
             // v0.249.0：头区方案 A——第 1 行只留一级内页签（书架／发现，字号稍大），
             // 找书与更多菜单移到本行右侧（只在书架分支显示，发现分支只留页签）。
             // v0.251.0：顶栏合并——第 2 行工具栏拿掉，本数＋新建分组＋视图切换收进本行右侧；
             // 排序与更新失败筛选收进更多菜单，功能不丢；窄屏（<360dp）仍藏本数。
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .v4Bleed(V4.Gutter)
+                    .height(46.dp)
+                    .v4BottomDivider(V4.c.div)
+                    .padding(start = V4.Gutter, end = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxHeight(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     listOf(0 to "书架", 1 to "发现").forEachIndexed { i, (tab, label) ->
-                        if (i > 0) Spacer(Modifier.width(18.dp))
+                        if (i > 0) Spacer(Modifier.width(22.dp))
                         val tabSelected = mainTab == tab
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.clickable { mainTab = tab },
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .clickable { mainTab = tab },
                         ) {
                             Text(
                                 label,
-                                fontSize = 16.sp,
-                                fontWeight = if (tabSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (tabSelected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 15.sp,
+                                fontWeight = if (tabSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (tabSelected) V4.c.t1 else V4.c.t2,
                             )
-                            Spacer(Modifier.height(3.dp))
                             Box(
                                 modifier = Modifier
-                                    .width(20.dp)
+                                    .align(Alignment.BottomCenter)
+                                    .width(if (label.length > 1) 30.dp else 16.dp)
                                     .height(2.dp)
-                                    .clip(RoundedCornerShape(50))
+                                    .clip(RoundedCornerShape(1.dp))
                                     .background(
-                                        if (tabSelected) MaterialTheme.colorScheme.primary
-                                        else Color.Transparent,
+                                        if (tabSelected) V4.c.accent else Color.Transparent,
                                     ),
                             )
                         }
@@ -653,8 +667,8 @@ fun BookshelfScreen(
                         if (!narrowHeader) {
                             Text(
                                 "${visibleBooks.size} 本",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = V4Type.MonoMeta,
+                                color = V4.c.t3,
                             )
                             Spacer(Modifier.width(8.dp))
                         }
@@ -686,12 +700,12 @@ fun BookshelfScreen(
                                 modifier = Modifier.size(20.dp),
                             )
                         }
-                        IconButton(onClick = { searching = true }) {
-                            Icon(Icons.Filled.Search, "找书")
+                        IconButton(onClick = { searching = true }, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Filled.Search, "找书", tint = V4.c.t2, modifier = Modifier.size(20.dp))
                         }
                         Box {
-                            IconButton(onClick = { showTopMenu = true }) {
-                                Icon(Icons.Filled.MoreVert, "更多")
+                            IconButton(onClick = { showTopMenu = true }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Filled.MoreVert, "更多", tint = V4.c.t2, modifier = Modifier.size(20.dp))
                             }
                             AppDropdownMenu(
                                 expanded = showTopMenu,
@@ -799,7 +813,7 @@ fun BookshelfScreen(
                     }
                 }
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             if (mainTab == 0) {
             // v0.249.0：全部／更新失败不再占一整行页签，收进第 2 行工具栏的筛选菜单。
             // v0.196.0：搜索框上移到与“找书”同一行——框直接绑活动级搜索 VM
@@ -829,7 +843,7 @@ fun BookshelfScreen(
                             onValueChange = { searchVm.setKeyword(it) },
                             placeholder = { Text("书名 / 作者") },
                             singleLine = true,
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(V4.RField),
                             leadingIcon = {
                                 Icon(
                                     Icons.Filled.Search, contentDescription = null,
@@ -849,17 +863,18 @@ fun BookshelfScreen(
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = { searchVm.doSearch() }),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color(0xFF4DD0E1),
+                                focusedBorderColor = V4.c.accent,
                                 unfocusedBorderColor = Color.Transparent,
                                 focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                cursorColor = Color(0xFF4DD0E1),
+                                cursorColor = V4.c.accent,
                             ),
                             modifier = Modifier.weight(1f).focusRequester(searchFocus),
                         )
                         TextButton(onClick = { searching = false }) { Text("取消") }
                     }
-                    Box(modifier = Modifier.weight(1f)) {
+                    // v0.279.0：内嵌找书结果不跟浮动底栏抢位置——底部让出底栏高度
+                    Box(modifier = Modifier.weight(1f).padding(bottom = dockClearance())) {
                         NovelSearchScreen(
                             embedded = true,
                             autoFocus = false,
@@ -913,7 +928,10 @@ fun BookshelfScreen(
             ) {
                 if (books.isEmpty()) {
                     // 趣味空状态
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = dockClearance()),
+                    ) {
                         item {
                             BookshelfEmptyState(
                                 onFindBook = { searching = true },
@@ -938,9 +956,9 @@ fun BookshelfScreen(
                 } else if (viewMode == BookshelfGroupStore.VIEW_GRID) {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(bottom = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(top = 4.dp, bottom = dockClearance() + 8.dp),
                     ) {
                         if (checking) {
                             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -972,7 +990,7 @@ fun BookshelfScreen(
                     // v0.197.0：阅读式 plain 行自带底部分隔线，列表不再额外留 10dp 间距
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(0.dp),
-                        contentPadding = PaddingValues(bottom = 24.dp),
+                        contentPadding = PaddingValues(top = 4.dp, bottom = dockClearance() + 8.dp),
                     ) {
                         if (checking) {
                             item(key = "checking") { CheckingRow() }
@@ -1205,7 +1223,7 @@ fun BookshelfScreen(
                         .padding(horizontal = 12.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("删除分组", fontSize = 15.sp, color = Color(0xFFE53935))
+                    Text("删除分组", fontSize = 15.sp, color = V4.c.live)
                 }
                 Text(
                     "删除分组不会删除书籍",

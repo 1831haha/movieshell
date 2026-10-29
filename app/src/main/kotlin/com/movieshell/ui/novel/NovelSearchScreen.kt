@@ -1,5 +1,6 @@
 package com.movieshell.ui.novel
 
+import com.movieshell.ui.theme.V4
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardActions
@@ -199,11 +200,11 @@ fun NovelSearchScreen(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { vm.doSearch() }),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color(0xFF4DD0E1),
+                focusedBorderColor = V4.c.accent,
                 unfocusedBorderColor = Color.Transparent,
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                cursorColor = Color(0xFF4DD0E1),
+                cursorColor = V4.c.accent,
             ),
             modifier = Modifier.fillMaxWidth().focusRequester(searchFocus),
         )

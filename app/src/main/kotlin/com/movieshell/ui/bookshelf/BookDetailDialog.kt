@@ -1,5 +1,6 @@
 package com.movieshell.ui.bookshelf
 
+import com.movieshell.ui.theme.V4
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -314,7 +315,7 @@ fun BookDetailDialog(
                                 Text(
                                     text = ch.title.ifBlank { "第 ${ch.index + 1} 章" },
                                     fontSize = 13.sp,
-                                    color = if (ch.index <= read) Color(0xFF4DD0E1)
+                                    color = if (ch.index <= read) V4.c.accent
                                     // v0.193.0：未读章同详情行，不用主题 onSurface。
                                     else MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1,
@@ -508,11 +509,11 @@ fun GroupPickerDialog(
                 Icon(
                     Icons.Filled.Add,
                     contentDescription = null,
-                    tint = Color(0xFF4DD0E1),
+                    tint = V4.c.accent,
                     modifier = Modifier.size(20.dp),
                 )
                 Spacer(Modifier.width(12.dp))
-                Text("新建分组", fontSize = 15.sp, color = Color(0xFF4DD0E1))
+                Text("新建分组", fontSize = 15.sp, color = V4.c.accent)
             }
         }
     }
