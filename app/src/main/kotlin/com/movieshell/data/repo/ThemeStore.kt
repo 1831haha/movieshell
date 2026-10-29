@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * 主题模式持久化：system（跟随系统）/ dark（深色）/ light（浅色），默认 system。
+ * 主题模式持久化：system（跟随系统）/ dark（深色）/ light（浅色），默认 dark（v0.279.0 V4）。
  *
  * - mode：UI 层 collectAsState() 订阅，切换后全 App 即时生效；
  * - setMode()：写 SharedPreferences 并推送 flow。
@@ -23,13 +23,14 @@ object ThemeStore {
     /** v0.87.1：炫彩渐变主题 id；有值=渐变模式，无值=单色模式 */
     private const val KEY_GRADIENT = "theme_gradient"
 
-    /** 默认主题色：青（风格统一：与底栏选中色同款青色） */
-    const val DEFAULT_COLOR = 0xFF4DD0E1.toInt()
+    /** 默认主题色：v0.279.0 V4 改为 V4 蓝 #3D9BFF（原为青 #4DD0E1）；显式选过颜色的用户不受影响。 */
+    const val DEFAULT_COLOR = 0xFF3D9BFF.toInt()
 
     /** DsPlayer 式候选色 */
     // v0.80.0：12 种主题色（对标 DsPlayer 我的页主题卡）
     val COLOR_OPTIONS = listOf(
-        0xFF2B7DE9.toInt(), // 蓝（默认）
+        DEFAULT_COLOR, // v0.279.0：V4 蓝（默认）
+        0xFF2B7DE9.toInt(), // 蓝
         0xFF3D5AFE.toInt(), // 靛蓝
         0xFF03A9F4.toInt(), // 天蓝
         0xFF00BFA5.toInt(), // 青
@@ -50,7 +51,7 @@ object ThemeStore {
         0xFFFF6E40.toInt(), // 珊瑚橙红
     )
 
-    private val _mode = MutableStateFlow(MODE_SYSTEM)
+    private val _mode = MutableStateFlow(MODE_DARK)
     val mode: StateFlow<String> = _mode
 
     private val _color = MutableStateFlow(DEFAULT_COLOR)
@@ -108,10 +109,12 @@ object ThemeStore {
     /** 启动时读回上次保存的模式和主题；未知值回退默认。 */
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        // v0.237.0：默认主题改浅色（跟参考图走）；老用户迁移见 MainActivity。
-        val saved = prefs.getString(KEY_MODE, MODE_LIGHT)
+        // v0.237.0：默认主题改浅色（跟参考图走）。
+        // v0.279.0 V4：默认改回 V4 暗色——没显式存过模式的（新装、一直用默认的）
+        // 拿到 V4 暗色；显式选过亮色/跟随系统的（存了值）原样保留，不强制迁移。
+        val saved = prefs.getString(KEY_MODE, MODE_DARK)
             .takeIf { it == MODE_DARK || it == MODE_LIGHT || it == MODE_SYSTEM }
-            ?: MODE_LIGHT
+            ?: MODE_DARK
         _mode.value = saved
         val preset = presetOf(prefs.getString(KEY_GRADIENT, null))
         if (preset != null) {

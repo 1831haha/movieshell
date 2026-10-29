@@ -10,7 +10,6 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
 import com.movieshell.data.repo.ThemeStore
 
 /**
@@ -31,73 +30,94 @@ val BrandGradientColors = listOf(
 val LocalBrandGradient = compositionLocalOf { BrandGradientColors }
 
 /**
- * v0.33.0 影院黑配色：底 #050508 + 青主色（风格统一后取代紫主色）。
- * 主题换色器只替换 primary，其余 token 固定；onPrimary 按主色明度自动取深/白保证对比度。
+ * v0.279.0 V4：Material 色板由 V4 token 派生——各屏用 MaterialTheme.colorScheme 的地方
+ * 自动跟着换成 V4 平底/三级面/三级字；主题色只替换强调色（primary）。
+ * background=bg、surface=s1、surfaceVariant=s2、surfaceContainer*=s1~s3、
+ * outline=div2、outlineVariant=div、onSurfaceVariant=t2。
  */
-private fun darkScheme(primary: Color) = darkColorScheme(
-    primary = primary,
-    onPrimary = if (primary.luminance() > 0.5f) Color(0xFF1A1408) else Color.White,
-    // v0.274.0（T41）：primaryContainer 按 primary 派生——原来没定义，
-    // 走 Material 默认紫，搜索左栏选中、日志球、书详情弹窗都跟着发紫。
-    primaryContainer = lerp(primary, Color(0xFF050508), 0.75f),
-    onPrimaryContainer = primary,
-    secondary = lerp(primary, Color.White, 0.3f),
-    background = Color(0xFF050508),
-    surface = Color(0xFF14141B),
-    surfaceVariant = Color(0xFF1E1E28),
-    onBackground = Color(0xFFF2F4F8),
-    onSurface = Color(0xFFF2F4F8),
-    onSurfaceVariant = Color(0xFF9AA4B2),
-    outline = Color(0xFF26262F),
-    outlineVariant = Color(0xFF26262F),
-    error = Color(0xFFFCA5A5),
-    onError = Color(0xFF2B0A0A),
-)
-
-/**
- * v0.237.0 浅色高密度改版：浅色主题按参考图固定——纯白底、近黑字、
- * 参考蓝主色，不跟主题色选择走（主题色与炫彩预设只作用于深色主题）；
- * 这样不管之前选过什么主题色，装上就是参考图的浅色样子。
- */
-private fun lightScheme() = lightColorScheme(
-    primary = Color(0xFF1E88E5),
-    onPrimary = Color.White,
-    // v0.274.0（T41）：同深色——浅色下 primaryContainer 按参考蓝派生浅色底，
-    // 不再走 Material 默认紫。
-    primaryContainer = lerp(Color(0xFF1E88E5), Color.White, 0.85f),
-    onPrimaryContainer = Color(0xFF0D47A1),
-    secondary = Color(0xFF42A5F5),
-    background = Color(0xFFFFFFFF),
-    surface = Color(0xFFFFFFFF),
-    surfaceVariant = Color(0xFFF1F3F4),
-    onBackground = Color(0xFF202124),
-    onSurface = Color(0xFF202124),
-    onSurfaceVariant = Color(0xFF5F6364),
-    outline = Color(0xFFE8EAED),
-    outlineVariant = Color(0xFFE8EAED),
-    error = Color(0xFFD32F2F),
+private fun schemeOf(v: V4Colors) = if (v.isDark) darkColorScheme(
+    primary = v.accent,
+    onPrimary = v.onAccent,
+    primaryContainer = lerp(v.accent, v.bg, 0.78f),
+    onPrimaryContainer = v.accent,
+    secondary = lerp(v.accent, Color.White, 0.3f),
+    onSecondary = v.onAccent,
+    secondaryContainer = v.s3,
+    onSecondaryContainer = v.t1,
+    tertiary = v.ok,
+    background = v.bg,
+    onBackground = v.t1,
+    surface = v.s1,
+    onSurface = v.t1,
+    surfaceVariant = v.s2,
+    onSurfaceVariant = v.t2,
+    surfaceTint = Color.Transparent,
+    surfaceContainerLowest = v.bg,
+    surfaceContainerLow = v.s1,
+    surfaceContainer = v.s1,
+    surfaceContainerHigh = v.s2,
+    surfaceContainerHighest = v.s3,
+    inverseSurface = v.t1,
+    inverseOnSurface = v.bg,
+    outline = v.div2,
+    outlineVariant = v.div,
+    error = v.live,
+    onError = Color.White,
+    scrim = Color.Black,
+) else lightColorScheme(
+    primary = v.accent,
+    onPrimary = v.onAccent,
+    primaryContainer = lerp(v.accent, Color.White, 0.86f),
+    onPrimaryContainer = lerp(v.accent, Color.Black, 0.35f),
+    secondary = lerp(v.accent, Color.White, 0.2f),
+    onSecondary = Color.White,
+    secondaryContainer = v.s3,
+    onSecondaryContainer = v.t1,
+    tertiary = v.ok,
+    background = v.bg,
+    onBackground = v.t1,
+    surface = v.s1,
+    onSurface = v.t1,
+    surfaceVariant = v.s2,
+    onSurfaceVariant = v.t2,
+    surfaceTint = Color.Transparent,
+    surfaceContainerLowest = v.s1,
+    surfaceContainerLow = v.s1,
+    surfaceContainer = v.s1,
+    surfaceContainerHigh = v.s2,
+    surfaceContainerHighest = v.s3,
+    inverseSurface = v.t1,
+    inverseOnSurface = v.bg,
+    outline = v.div2,
+    outlineVariant = v.div,
+    error = v.live,
+    onError = Color.White,
 )
 
 @Composable
 fun MovieShellTheme(
     darkTheme: Boolean = true,
-    themeColor: Color = Color(0xFF4DD0E1),
+    themeColor: Color = V4Accent,
     content: @Composable () -> Unit,
 ) {
     // v0.87.1：炫彩渐变主题时，品牌渐变面跟随预设色带
-    // v0.237.0：浅色下品牌渐变固定参考蓝单色系，不跟预设走
+    // v0.279.0 V4：单一强调色——没选炫彩预设时“品牌渐变”退化成强调色单色，
+    // 顶栏/弹窗不再出现青蓝渐变；选了预设的用户仍按预设色带走（功能保留）。
+    // 浅色沿用 v0.237.0 口径：强调色固定，不跟主题色走。
     val brandArgb by ThemeStore.brandGradient.collectAsState()
+    val v4 = if (darkTheme) v4Dark(themeColor) else v4Light()
     val brandColors = if (darkTheme) {
-        brandArgb?.map { Color(it) } ?: BrandGradientColors
+        brandArgb?.map { Color(it) } ?: listOf(v4.accent, v4.accent)
     } else {
-        listOf(Color(0xFF1E88E5), Color(0xFF42A5F5))
+        listOf(v4.accent, v4.accent)
     }
     CompositionLocalProvider(
+        LocalV4 provides v4,
         LocalSoftExtra provides if (darkTheme) SoftExtraDark else SoftExtraLight,
         LocalBrandGradient provides brandColors,
     ) {
         MaterialTheme(
-            colorScheme = if (darkTheme) darkScheme(themeColor) else lightScheme(),
+            colorScheme = schemeOf(v4),
             content = content,
         )
     }
