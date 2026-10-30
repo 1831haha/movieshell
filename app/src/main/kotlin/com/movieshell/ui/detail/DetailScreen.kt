@@ -131,7 +131,6 @@ import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.model.Episode
 import com.movieshell.data.model.PlayLine
 import com.movieshell.data.model.VodDetail
-import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DetailSiteRoute
 import com.movieshell.data.repo.DownloadSettings
 import com.movieshell.data.repo.DownloadTask
@@ -173,7 +172,7 @@ import kotlinx.coroutines.withTimeout
 @Composable
 fun DetailScreen(
     vodId: String,
-    // B1：详情站点跟路由参数走；null 或哨兵值表示老路由，才回退 holder。
+    // B1/Q3：详情站点只跟路由参数走；null 或空串 = 本地规则站（走当前激活规则）。
     siteKey: String? = null,
     // v0.75.0：继续观看带过来的起播集（-1=不指定，走断点续播/默认逻辑）
     initialEpisode: Int = -1,
@@ -210,20 +209,10 @@ fun DetailScreen(
     }
 
     // ---- drpy / PY / PHP 规则接入（drpy 优先，其次 PY，再次 PHP CLI） ----
-    // B1：站点按路由 siteKey 解析，不再以 holder 旧值为准；只有老路由
-    // （siteKey 为 null 或哨兵）才回退 holder。解析结果同步回 holder，
-    // 供播放页与字幕模块读当前详情站——holder 从输入降级为派生缓存。
+    // B1/Q3：站点只按路由 siteKey 解析（全局 holder 已删除）；嵌入播放器
+    // 由下方 PlayerScreen(siteKey = subSite?.key) 显式传入，不再经全局中转。
     val subSite = remember(vodId, siteKey) {
-        if (siteKey == null || siteKey == DetailSiteRoute.UNSET) {
-            DetailSiteHolder.site
-        } else {
-            DetailSiteRoute.resolve(context, siteKey)
-        }
-    }
-    LaunchedEffect(vodId, siteKey, subSite) {
-        if (siteKey != null && siteKey != DetailSiteRoute.UNSET) {
-            DetailSiteHolder.site = subSite
-        }
+        DetailSiteRoute.resolve(context, siteKey)
     }
     val drpyActive = remember(vodId) {
         DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule() ||
@@ -1153,6 +1142,7 @@ fun DetailScreen(
                             url = embeddedUrl,
                             title = embeddedTitle,
                             vodId = vodId,
+                            siteKey = subSite?.key,
                             infoName = detailTitle(detail, vodId),
                             infoRemarks = detail?.vodRemarks.orEmpty(),
                             infoYear = detail?.vodYear.orEmpty(),

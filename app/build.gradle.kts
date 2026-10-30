@@ -6,6 +6,20 @@ plugins {
     id("com.chaquo.python")
 }
 
+// Q4：固定 release 签名——四项均从 Gradle 属性（-P）或同名环境变量读取，
+// CI 由仓库 Secrets 解码出 keystore 文件后注入；仓库里不存任何密钥。
+// 四项不全时不配签名：assembleRelease 产出未签名包（app-release-unsigned.apk），
+// 是否允许由 CI 工作流把关（push 到 main 缺 Secrets 直接失败，不再回退随机 key）。
+fun releaseSigningValue(name: String): String? =
+    (providers.gradleProperty(name).orNull ?: providers.environmentVariable(name).orNull)
+        ?.takeIf { it.isNotBlank() }
+val releaseStoreFile = releaseSigningValue("SIGNING_STORE_FILE")
+val releaseStorePassword = releaseSigningValue("SIGNING_STORE_PASSWORD")
+val releaseKeyAlias = releaseSigningValue("SIGNING_KEY_ALIAS")
+val releaseKeyPassword = releaseSigningValue("SIGNING_KEY_PASSWORD")
+val hasReleaseSigning = releaseStoreFile != null && releaseStorePassword != null &&
+    releaseKeyAlias != null && releaseKeyPassword != null
+
 android {
     namespace = "com.movieshell"
     compileSdk = 34
@@ -14,8 +28,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 360
-        versionName = "0.292.0-ui-v5"
+        versionCode = 361
+        versionName = "0.293.0-ui-v5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {
@@ -28,8 +42,22 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             // v0.27.3：release 瘦身——R8 混淆 + 资源压缩，dex 65MB 压到 20MB 内
             isMinifyEnabled = true
             isShrinkResources = true
@@ -52,6 +80,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+    // Q4：CI 门槛——lint 报错即失败；存量问题记在 lint-baseline.xml 里，只拦新增问题。
+    // 更新基线：gradle :app:updateLintBaseline（只在确认存量问题可接受时做）。
+    lint {
+        baseline = file("lint-baseline.xml")
+        abortOnError = true
+        checkReleaseBuilds = true
     }
     packaging {
         resources {
@@ -84,20 +119,26 @@ chaquopy {
             // v0.14.6：PY 规则全量常用依赖（一次配全，避免 ModuleNotFoundError）
             // 注意：PyExecJS 无 Android arm64 版本，已剔除
             // 290（Q7 第一批）：只锁体检报告里已证实的 APK 实际版本——
-            // 同一提交再构建也不会漂到别的版本；其余 6 个（beautifulsoup4、
-            // pyquery、pycryptodome、urllib3、chardet、idna）报告里没给
-            // APK 实际版本，不凭空猜版本，先不动，下一轮从构建 pip 日志
-            // 读到实际版本后再锁，锁错版本比不锁更危险。
+            // 同一提交再构建也不会漂到别的版本。
+            // 290.1（Q7 第二批）：其余 6 个直接依赖 + 4 个传递依赖也锁死，版本全部
+            // 从 v0.290.0 APK 的 requirements-common.imy 里各包 dist-info/METADATA
+            // 读出（不凭报告、不凭猜），锁后 APK 内 Python 包集合与版本与 v0.290.0 完全一致。
             install("requests==2.34.2")
-            install("beautifulsoup4")
-            install("pyquery")
-            install("pycryptodome")
+            install("beautifulsoup4==4.15.0")
+            install("pyquery==2.1.0")
+            install("pycryptodome==3.21.0")
             install("lxml==5.3.0")
             install("Pillow==11.0.0")
-            install("urllib3")
-            install("chardet")
-            install("idna")
+            install("urllib3==2.8.0")
+            install("chardet==7.7.0")
+            install("idna==3.20")
             install("certifi==2026.10.23")
+            // 传递依赖（bs4→soupsieve/typing_extensions，pyquery→cssselect，
+            // requests→charset_normalizer）：同样按 v0.290.0 APK 实际版本锁
+            install("soupsieve==2.10")
+            install("cssselect==1.5.0")
+            install("charset_normalizer==3.5.2")
+            install("typing_extensions==4.16.0")
         }
     }
 }

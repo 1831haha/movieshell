@@ -78,7 +78,6 @@ import androidx.navigation.navArgument
 import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.download.SubRefreshWorker
 import com.movieshell.data.download.Notify
-import com.movieshell.data.repo.DetailSiteRoute
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.FollowStore
@@ -370,9 +369,8 @@ class MainActivity : ComponentActivity() {
                     // B1：通知进详情不再写全局 holder，subKey 转成路由的
                     // siteKey 参数，详情页按参数解析；已发出的旧通知也走
                     // 同一条转换，不依赖 holder 残留值。
-                    // B5：空 subKey 也必须显式带 siteKey=（本地规则站），不能
-                    // 省略参数——省略会落到哨兵 UNSET，详情页回退 holder 旧值，
-                    // 点本地规则追剧通知可能播成上一个订阅站的片。
+                    // B5：空 subKey 也显式带 siteKey=（本地规则站）。Q3 起全局 holder
+                    // 已删除、缺省值也是空串，显式带上只为路由自描述，不再有回退旧站的风险。
                     val finalRoute = if (route.startsWith("detail/")) {
                         val sep = if (route.contains("?")) "&" else "?"
                         "$route${sep}siteKey=${Uri.encode(subKey)}"
@@ -1006,12 +1004,12 @@ class MainActivity : ComponentActivity() {
                                     type = NavType.IntType
                                     defaultValue = -1
                                 },
-                                // B1：详情站点跟路由走，不再只靠全局 holder。
-                                // 哨兵值表示老路由（没有 siteKey 参数），详情页才回退 holder；
-                                // 新路由一律带 siteKey，空串即本地规则站。
+                                // B1/Q3：详情站点只跟路由走（全局 holder 已删除）。
+                                // 各入口一律带 siteKey，空串即本地规则站；缺省也按空串处理。
+                                // 参数存在返回栈条目里，返回与进程被杀恢复都原样带回。
                                 navArgument("siteKey") {
                                     type = NavType.StringType
-                                    defaultValue = DetailSiteRoute.UNSET
+                                    defaultValue = ""
                                 },
                             ),
                         ) { entry ->
@@ -1031,10 +1029,12 @@ class MainActivity : ComponentActivity() {
                                     // DetailScreen 已做完播放决策（磁力/直链解析）：
                                     // playUrl 为空 -> 播放页显示"暂无可播放地址"
                                     // v0.16.2：带 vodId，按剧取片头片尾
+                                    // Q3：带详情站 key，独立播放页按它记字幕/片头片尾/进度的源
                                     navController.navigateToPlayer(
                                         url = playUrl,
                                         title = title,
                                         vodId = detailVodId,
+                                        siteKey = detailSiteKey,
                                     )
                                 },
                             )

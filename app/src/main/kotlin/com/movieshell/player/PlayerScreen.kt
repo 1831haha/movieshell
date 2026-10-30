@@ -16,7 +16,6 @@ import android.media.AudioManager
 import android.os.Build
 import android.util.Rational
 import com.movieshell.data.model.PlayLine
-import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.repo.DownloadSettings
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.DrpySourceManager
@@ -231,6 +230,9 @@ fun PlayerScreen(
     url: String,
     title: String,
     vodId: String? = null,
+    // Q3：本播放会话所属详情站的 key（订阅/CMS 站，已按 DetailSiteRoute 解析过）；
+    // 本地规则站或非点播入口为 null/空。替代原全局 DetailSiteHolder。
+    siteKey: String? = null,
     isLive: Boolean = false,
     onBack: () -> Unit,
     // v0.65：嵌入模式——详情页顶部 16:9 直接播；onFullscreen 供嵌入时点全屏跳独立播放页
@@ -260,7 +262,7 @@ fun PlayerScreen(
     // 读与写永远走同一个 key；集数不快照，每次调用点现取 PlaySession.episodeIndex，
     // 切集后读写的就是新集的 key。
     val playSourceKey = remember {
-        DetailSiteHolder.site?.key?.takeIf { it.isNotBlank() }
+        siteKey?.takeIf { it.isNotBlank() }
             ?: DrpySourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
             ?: PySourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
             ?: PhpSourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
@@ -270,7 +272,7 @@ fun PlayerScreen(
     // 只在进入播放页时快照一次，退出保存进度时传快照，不现取已换过的激活规则。
     val playSourceType = remember {
         when {
-            DetailSiteHolder.site != null -> "sub"
+            !siteKey.isNullOrBlank() -> "sub"
             DrpySourceManager.hasActiveRule() -> "drpy"
             PySourceManager.hasActiveRule() -> "py"
             PhpSourceManager.activeRuleName() != null -> "php"
@@ -2319,6 +2321,10 @@ fun PlayerScreen(
             com.movieshell.ui.subtitle.OnlineSubtitleSearchDialog(
                 keyword = title,
                 vodId = vodId,
+                // 修复（Q3 回归）：显式传本会话快照的 playSourceKey，与上面读字幕
+                // （getSubtitleFor(context, playSourceKey, …)）同一个 key；Q3 删了
+                // DetailSiteHolder 后不传会回退到激活规则名，订阅站下载的字幕就读不回来。
+                sourceKey = playSourceKey,
                 onPick = { url ->
                     sessionSubtitle = url
                     showOnlineSubtitle = false

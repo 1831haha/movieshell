@@ -37,24 +37,52 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      # v0.27.3：release 包每轮构建现场生成 keystore（有效期 25 年）；
-      # 密码取自 run_id，不提交到仓库；用户每版卸载重装，签名每轮不同无影响。
-      - name: Generate release keystore
+      # Q4：CI 门槛——Kotlin 编译 + Android lint（abortOnError，对照 app/lint-baseline.xml，
+      # 只有新增问题才报错）。任一不过整个 job 变红，后面不再打包上传。
+      - name: Gate - compile + lint
+        run: gradle :app:compileReleaseKotlin :app:lintRelease --no-daemon
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-release.*
+          if-no-files-found: ignore
+
+      # Q4：固定 release 签名——keystore 从仓库 Secrets 解码（不再每轮现场生成随机 key）。
+      # Secrets：SIGNING_KEYSTORE_BASE64 / SIGNING_STORE_PASSWORD / SIGNING_KEY_ALIAS / SIGNING_KEY_PASSWORD。
+      # 缺 Secrets 时：pull_request（含 fork PR，拿不到 Secrets）照常过门槛并出未签名包；
+      # push / 手动触发直接失败并说明原因，绝不回退随机 key。
+      - name: Decode release keystore
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
-          keytool -genkeypair -v \
-            -keystore "$RUNNER_TEMP/release.keystore" \
-            -alias movieshell -keyalg RSA -keysize 2048 -validity 9125 \
-            -storepass "release-${{ github.run_id }}-ms" \
-            -keypass "release-${{ github.run_id }}-ms" \
-            -dname "CN=MovieShell, OU=Dev, O=MovieShell, C=CN"
+          missing=""
+          [ -n "$SIGNING_KEYSTORE_BASE64" ] || missing="$missing SIGNING_KEYSTORE_BASE64"
+          [ -n "$SIGNING_STORE_PASSWORD" ] || missing="$missing SIGNING_STORE_PASSWORD"
+          [ -n "$SIGNING_KEY_ALIAS" ] || missing="$missing SIGNING_KEY_ALIAS"
+          [ -n "$SIGNING_KEY_PASSWORD" ] || missing="$missing SIGNING_KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "::warning::签名 Secrets 缺失（$missing），PR 构建只出未签名包。"
+              exit 0
+            fi
+            echo "::error::签名 Secrets 缺失（$missing）。请在 Settings > Secrets and variables > Actions 添加后重跑；不会回退随机 key。"
+            exit 1
+          fi
+          echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "SIGNING_STORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
 
       - name: Build release APK
-        run: |
-          gradle assembleRelease --no-daemon \
-            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/release.keystore" \
-            -Pandroid.injected.signing.store.password="release-${{ github.run_id }}-ms" \
-            -Pandroid.injected.signing.key.alias=movieshell \
-            -Pandroid.injected.signing.key.password="release-${{ github.run_id }}-ms"
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: gradle assembleRelease --no-daemon
 
       # v0.156.0：测试步骤失败不阻塞上传——Run unit tests 前置装 pycryptodome 时
       # Chaquopy 索引 chaquo.com 多次超时（run #337 两次同一失败），打包本身已通过；

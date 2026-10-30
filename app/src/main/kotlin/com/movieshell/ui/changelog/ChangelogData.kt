@@ -19,6 +19,18 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.293.0-ui-v5",
+        date = "2026-10-30",
+        title = "V5 界面合入工程化改动（Q1/Q3/Q4）+ 在线字幕修复 + Python 依赖锁定。",
+        details = listOf(
+            "Q1：首页数据源分发与加载收尾逻辑拆成独立函数（界面保持 V5 不变）。",
+            "Q3：删除全局单例 DetailSiteHolder，详情/播放的站源改为按页面路由参数传递。",
+            "Q4：CI 改用仓库 Secrets 固定 release 签名，新增编译 + lint 门槛（app/lint-baseline.xml），说明见 docs/ci-signing.md。",
+            "修复：在线字幕下载按 playSourceKey 记忆，与播放页读取 key 一致，订阅站下载的字幕能读回来。",
+            "锁定其余 Python 依赖版本（beautifulsoup4、pyquery、pycryptodome、urllib3、chardet、idna 等）。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.292.0-ui-v5",
         date = "2026-10-30",
         title = "界面换成 V5 Material You（M3）：全新配色、字阶与组件，功能不变。",

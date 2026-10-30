@@ -137,6 +137,7 @@ import com.movieshell.data.repo.ThemeStore
 import com.movieshell.ui.components.FilterBar
 import com.movieshell.ui.components.PosterCard
 import android.app.Activity
+import android.content.Context
 import android.content.pm.ActivityInfo
 import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
@@ -214,95 +215,27 @@ fun HomeScreen(
     var subSite by remember { mutableStateOf<Site?>(null) }
     var lastSubKey by rememberSaveable { mutableStateOf<String?>(null) }
 
-    /** 读持久化的订阅当前源；记录被删/被标不支持/订阅被关时返回 null */
-    fun currentSubSite(): Site? {
-        val cur = SubSiteStore.getCurrent(context) ?: return null
-        val subEnabled =
-            ApiSourceStore.load(context).find { it.url == cur.subUrl }?.enabled ?: false
-        if (!subEnabled) return null
-        val cache = SubSiteStore.getCached(context, cur.subUrl) ?: return null
-        val rec = cache.sites.firstOrNull { it.key == cur.siteKey } ?: return null
-        if (!rec.enabled || rec.kind == SubSiteStore.KIND_UNSUPPORTED) return null
-        return SubSiteStore.toSite(cur.subUrl, rec)
-    }
-
+    // Q1：数据源分发的实现搬到文件底部的 homeEngine*/homeIsDrpySource/homeFetchDrpyFilters，
+    // 这里只留同名局部函数，调用时现读 subSite（与原来读取时机一致）。
     /** 当前数据源的首页：订阅当前源 > 本地 drpy > 本地 PY > 本地 PHP（CLI） */
-    suspend fun engineHome(): List<ModelVod> {
-        val s = subSite
-        if (s != null) return runCatching { subRepo.home(s) }.getOrDefault(emptyList())
-        return runCatching {
-            if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.home()
-            else if (SourceStateStore.activePyRule() != null) PySourceManager.home()
-            else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.home(context)
-            else emptyList()
-        }.getOrDefault(emptyList())
-    }
+    suspend fun engineHome(): List<ModelVod> = homeEngineHome(subSite, subRepo, context)
 
-    /**
-     * 当前数据源的分类：订阅 CMS 站走 CMS 分类接口，drpy/PY 站走引擎 categories()。
-     * v0.217.0（F2）：照抄 engineCategory 的可空口径——异常返回 null（调用方判失败，
-     * 给可见反馈+重试），不再吞成 emptyList；空列表只表示规则真没分类。
-     */
-    suspend fun engineCats(): List<CategoryType>? {
-        val s = subSite
-        if (s != null) {
-            if (s.isCmsSite()) return runCatching { subRepo.category(s, "", 1).first }
-                .getOrNull()
-            if (s.isJavaSpider()) return runCatching { subRepo.category(s, "", 1).first }
-                .getOrNull()
-            if (s.isPySite()) return runCatching { SubSiteEngines.pyEngineFor(s)?.categories() }
-                .getOrNull()
-            return runCatching { SubSiteEngines.drpyEngineFor(s)?.categories() }
-                .getOrNull()
-        }
-        return runCatching {
-            if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.categories()
-            else if (SourceStateStore.activePyRule() != null) PySourceManager.categories()
-            else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.categories(context)
-            else emptyList()
-        }.getOrNull()
-    }
+    /** 当前数据源的分类；异常返回 null，空列表只表示规则真没分类（见 homeEngineCats）。 */
+    suspend fun engineCats(): List<CategoryType>? = homeEngineCats(subSite, subRepo, context)
 
-    /**
-     * 当前数据源的分类内容。
-     * v0.110.0：异常返回 null（调用方判失败，给可见反馈+重试），不再吞成 emptyList；
-     * 空列表=规则真没内容（非失败）。唯一调用方 loadDrpyCategory。
-     */
+    /** 当前数据源的分类内容；异常返回 null，空列表=规则真没内容（见 homeEngineCategory）。 */
     suspend fun engineCategory(
         tid: String,
         pg: Int,
         filter: Map<String, String> = emptyMap()
-    ): List<ModelVod>? {
-        val s = subSite
-        // v0.44.0：订阅路径也要透传筛选（之前丢了，drpy 筛选点了没效果）
-        if (s != null) return runCatching { subRepo.category(s, tid, pg, filter).second }
-            .getOrNull()
-        return runCatching {
-            // v0.44.0：订阅路径也要透传筛选（之前丢了，drpy 筛选点了没效果）
-            // v0.48.0：本地 drpy 同样漏传 filter（v0.44.0 宣称生效实际没传），补上
-            if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.category(tid, pg, filter)
-            else if (SourceStateStore.activePyRule() != null) PySourceManager.category(tid, pg, filter)
-            else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.category(context, tid, pg)
-            else emptyList()
-        }.getOrNull()
-    }
+    ): List<ModelVod>? = homeEngineCategory(subSite, subRepo, context, tid, pg, filter)
 
     /** v0.44.0：当前源是否为 drpy（订阅站或本地规则）。 */
-    fun isDrpySource(): Boolean {
-        val s = subSite
-        if (s != null) return s.isDrpySite()
-        return SourceStateStore.activeDrpyRule() != null
-    }
+    fun isDrpySource(): Boolean = homeIsDrpySource(subSite)
 
     /** v0.44.0：拉取某 drpy 分类的筛选组（订阅走 SiteRepository，本地走 DrpySourceManager）。 */
-    suspend fun fetchDrpyFilters(tid: String): List<FilterGroup> {
-        val s = subSite
-        return if (s != null) {
-            runCatching { subRepo.filters(s, tid) }.getOrNull().orEmpty()
-        } else {
-            runCatching { DrpySourceManager.filters(tid) }.getOrNull().orEmpty()
-        }
-    }
+    suspend fun fetchDrpyFilters(tid: String): List<FilterGroup> =
+        homeFetchDrpyFilters(subSite, subRepo, tid)
 
     /**
      * 进详情：订阅当前源时把站点 key 带给详情页（详情/播放按站走引擎），
@@ -371,12 +304,7 @@ fun HomeScreen(
     // HistoryStore（最多 50 条）按以前模式不变，只改首页展示条数。
     var watchHistory by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
     fun reloadWatchHistory() {
-        watchHistory = HistoryStore.getHistory(context)
-            .filter { e ->
-                e.kind == "vod" && e.vodId.isNotBlank() &&
-                    !(e.durationMs > 0 && e.positionMs >= e.durationMs * 0.95)
-            }
-            .take(5)
+        watchHistory = loadContinueWatchEntries(context)
     }
     DisposableEffect(homeLifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -401,13 +329,7 @@ fun HomeScreen(
     }
 
     /** v0.25.0：当前数据源的缓存 key（订阅站 key / 本地规则名） */
-    fun homeCacheKey(): String? = when {
-        subSite != null -> "sub_${subSite?.key}"
-        SourceStateStore.activeDrpyRule() != null -> "drpy_${DrpySourceManager.activeRuleName()}"
-        SourceStateStore.activePyRule() != null -> "py_${PySourceManager.activeRuleName()}"
-        SourceStateStore.activePhpRule() != null -> "php_${SourceStateStore.activePhpRule()}"
-        else -> null
-    }
+    fun homeCacheKey(): String? = homeCacheKeyFor(subSite)
 
     /**
      * 等待单飞结果。异常（含取消）一律按 null 处理、调用方按失败态展示：
@@ -592,49 +514,7 @@ fun HomeScreen(
             catJob.join()
         }
         // 3. 算最终 UI 状态（语义与之前一致；early-apply 已做，这里幂等收尾）
-        val netOk = netVods != null && (netVods!!.isNotEmpty() || !cacheShown)
-        val finalVods: List<ModelVod>? = when {
-            // B6：规则真回空列表是“空”，不是“失败”——之前 ifEmpty 转 null，
-            // 真空被当成失败走 recommendEmpty 报错；现在空列表原样保留，
-            // 失败（netVods==null）才走 null 分支，UI 才能分开显示。
-            netOk -> netVods
-            cacheVods.isNotEmpty() -> cacheVods
-            else -> null
-        }
-        val finalCats: List<CategoryType>
-        val finalCatsFailed: Boolean
-        when {
-            !netCats.isNullOrEmpty() -> {
-                finalCats = netCats!!
-                finalCatsFailed = false
-            }
-            cacheCats.isNotEmpty() -> {
-                finalCats = cacheCats
-                finalCatsFailed = false
-            }
-            netCats == null -> {
-                // 分类超时且无缓存：UI 给重试入口
-                finalCats = emptyList()
-                finalCatsFailed = true
-            }
-            else -> {
-                // 规则本来就没分类，不是失败
-                finalCats = emptyList()
-                finalCatsFailed = false
-            }
-        }
-        // v0.152.0：PHP 失败原因只在"真没数据可展示"时透出；有缓存顶上时不拿失败去盖缓存。
-        val phpErrorVal = if (SourceStateStore.activePhpRule() != null &&
-            netVods.isNullOrEmpty() && netCats.isNullOrEmpty() &&
-            cacheVods.isEmpty() && cacheCats.isEmpty()
-        ) PhpCliEngine.lastErrorFor(null)?.take(140) else null
-        return HomeLoadGate.HomePayload(
-            vods = finalVods,
-            cats = finalCats,
-            catsFailed = finalCatsFailed,
-            resetSelection = netOk,
-            phpError = phpErrorVal,
-        )
+        return settleHomePayload(netVods, netCats, cacheVods, cacheCats, cacheShown)
     }
 
     // v0.145.0 修：从下方挪到 applyHomePayload 之前——Kotlin 局部函数必须先声明后调用（首轮构建即挂于此）。
@@ -1025,7 +905,7 @@ fun HomeScreen(
      * 首次记账（lastLoaded==null，新装/升级）只记不加载，冷启动保持 v0.27.4 干净空态。
      */
     fun refreshDrpyState(fromUserSwitch: Boolean = false) {
-        val cur = currentSubSite()
+        val cur = readCurrentSubSite(context)
         val curKey = cur?.key
         // v0.33.1：lastSubKey 为 null（记不住上次）时不算换源，避免切 tab 回来误重置。
         // 只有明确记得上次的 key 且变了，才是用户真的换了源。
@@ -1204,13 +1084,7 @@ fun HomeScreen(
     }
 
     // 站源入口行文案：订阅当前源 > 本地 drpy > 本地 PY > 本地 PHP；都没有 -> 演示数据
-    val sourceLabel: String = when {
-        subSite != null -> subSite?.name?.ifBlank { "订阅源" } ?: "订阅源"
-        SourceStateStore.activeDrpyRule() != null -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
-        SourceStateStore.activePyRule() != null -> "本地·${PySourceManager.activeRuleName().orEmpty()}"
-        SourceStateStore.activePhpRule() != null -> "本地·${SourceStateStore.activePhpRule().orEmpty()}"
-        else -> "选择站源"
-    }
+    val sourceLabel: String = homeSourceLabel(subSite)
 
     // v0.32.0 影院黑：流动渐变光斑垫底，内容浮上
     // v0.82.0：用户自定义背景底图（设置页更换）优先
@@ -2211,3 +2085,185 @@ private fun HomeHeroCarousel(
         }
     }
 }
+
+
+// ---- Q1：数据源分发（原 HomeScreen 内的局部函数实现；site 由调用方现读传入） ----
+
+/** 当前数据源的首页：订阅当前源 > 本地 drpy > 本地 PY > 本地 PHP（CLI） */
+private suspend fun homeEngineHome(site: Site?, subRepo: SiteRepository, context: Context): List<ModelVod> {
+    val s = site
+    if (s != null) return runCatching { subRepo.home(s) }.getOrDefault(emptyList())
+    return runCatching {
+        if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.home()
+        else if (SourceStateStore.activePyRule() != null) PySourceManager.home()
+        else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.home(context)
+        else emptyList()
+    }.getOrDefault(emptyList())
+}
+
+/**
+ * 当前数据源的分类：订阅 CMS 站走 CMS 分类接口，drpy/PY 站走引擎 categories()。
+ * v0.217.0（F2）：照抄 engineCategory 的可空口径——异常返回 null（调用方判失败，
+ * 给可见反馈+重试），不再吞成 emptyList；空列表只表示规则真没分类。
+ */
+private suspend fun homeEngineCats(site: Site?, subRepo: SiteRepository, context: Context): List<CategoryType>? {
+    val s = site
+    if (s != null) {
+        if (s.isCmsSite()) return runCatching { subRepo.category(s, "", 1).first }
+            .getOrNull()
+        if (s.isJavaSpider()) return runCatching { subRepo.category(s, "", 1).first }
+            .getOrNull()
+        if (s.isPySite()) return runCatching { SubSiteEngines.pyEngineFor(s)?.categories() }
+            .getOrNull()
+        return runCatching { SubSiteEngines.drpyEngineFor(s)?.categories() }
+            .getOrNull()
+    }
+    return runCatching {
+        if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.categories()
+        else if (SourceStateStore.activePyRule() != null) PySourceManager.categories()
+        else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.categories(context)
+        else emptyList()
+    }.getOrNull()
+}
+
+/**
+ * 当前数据源的分类内容。
+ * v0.110.0：异常返回 null（调用方判失败，给可见反馈+重试），不再吞成 emptyList；
+ * 空列表=规则真没内容（非失败）。唯一调用方 loadDrpyCategory。
+ */
+private suspend fun homeEngineCategory(
+    site: Site?,
+    subRepo: SiteRepository,
+    context: Context,
+    tid: String,
+    pg: Int,
+    filter: Map<String, String>,
+): List<ModelVod>? {
+    val s = site
+    // v0.44.0：订阅路径也要透传筛选（之前丢了，drpy 筛选点了没效果）
+    if (s != null) return runCatching { subRepo.category(s, tid, pg, filter).second }
+        .getOrNull()
+    return runCatching {
+        // v0.44.0：订阅路径也要透传筛选（之前丢了，drpy 筛选点了没效果）
+        // v0.48.0：本地 drpy 同样漏传 filter（v0.44.0 宣称生效实际没传），补上
+        if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.category(tid, pg, filter)
+        else if (SourceStateStore.activePyRule() != null) PySourceManager.category(tid, pg, filter)
+        else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.category(context, tid, pg)
+        else emptyList()
+    }.getOrNull()
+}
+
+/** v0.44.0：当前源是否为 drpy（订阅站或本地规则）。 */
+private fun homeIsDrpySource(site: Site?): Boolean {
+    val s = site
+    if (s != null) return s.isDrpySite()
+    return SourceStateStore.activeDrpyRule() != null
+}
+
+/** v0.44.0：拉取某 drpy 分类的筛选组（订阅走 SiteRepository，本地走 DrpySourceManager）。 */
+private suspend fun homeFetchDrpyFilters(site: Site?, subRepo: SiteRepository, tid: String): List<FilterGroup> {
+    val s = site
+    return if (s != null) {
+        runCatching { subRepo.filters(s, tid) }.getOrNull().orEmpty()
+    } else {
+        runCatching { DrpySourceManager.filters(tid) }.getOrNull().orEmpty()
+    }
+}
+
+/** v0.25.0：当前数据源的缓存 key（订阅站 key / 本地规则名） */
+private fun homeCacheKeyFor(site: Site?): String? = when {
+    site != null -> "sub_${site.key}"
+    SourceStateStore.activeDrpyRule() != null -> "drpy_${DrpySourceManager.activeRuleName()}"
+    SourceStateStore.activePyRule() != null -> "py_${PySourceManager.activeRuleName()}"
+    SourceStateStore.activePhpRule() != null -> "php_${SourceStateStore.activePhpRule()}"
+    else -> null
+}
+
+// ---- Q1：HomeScreen 拆分出的纯函数（无状态，只做读取与计算，行为与原内联代码一致） ----
+
+/** 读持久化的订阅当前源；记录被删/被标不支持/订阅被关时返回 null */
+private fun readCurrentSubSite(context: Context): Site? {
+    val cur = SubSiteStore.getCurrent(context) ?: return null
+    val subEnabled =
+        ApiSourceStore.load(context).find { it.url == cur.subUrl }?.enabled ?: false
+    if (!subEnabled) return null
+    val cache = SubSiteStore.getCached(context, cur.subUrl) ?: return null
+    val rec = cache.sites.firstOrNull { it.key == cur.siteKey } ?: return null
+    if (!rec.enabled || rec.kind == SubSiteStore.KIND_UNSUPPORTED) return null
+    return SubSiteStore.toSite(cur.subUrl, rec)
+}
+
+/** v0.75.0/v0.266.0：首页继续观看条目——只留有点播 vodId、没看完的，最新 5 张。 */
+private fun loadContinueWatchEntries(context: Context): List<HistoryEntry> =
+    HistoryStore.getHistory(context)
+        .filter { e ->
+            e.kind == "vod" && e.vodId.isNotBlank() &&
+                !(e.durationMs > 0 && e.positionMs >= e.durationMs * 0.95)
+        }
+        .take(5)
+
+/** 站源入口行文案：订阅当前源 > 本地 drpy > 本地 PY > 本地 PHP；都没有 -> 选择站源 */
+private fun homeSourceLabel(subSite: Site?): String = when {
+    subSite != null -> subSite.name.ifBlank { "订阅源" }
+    SourceStateStore.activeDrpyRule() != null -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
+    SourceStateStore.activePyRule() != null -> "本地·${PySourceManager.activeRuleName().orEmpty()}"
+    SourceStateStore.activePhpRule() != null -> "本地·${SourceStateStore.activePhpRule().orEmpty()}"
+    else -> "选择站源"
+}
+
+/**
+ * fetchHomePayload 第 3 步：按网络结果与缓存快照算最终 UI 状态，打包成 HomePayload。
+ * 纯计算（只额外读 PHP 激活规则与其失败原因），语义与原内联代码一致。
+ */
+private fun settleHomePayload(
+    netVods: List<ModelVod>?,
+    netCats: List<CategoryType>?,
+    cacheVods: List<ModelVod>,
+    cacheCats: List<CategoryType>,
+    cacheShown: Boolean,
+): HomeLoadGate.HomePayload {
+    val netOk = netVods != null && (netVods.isNotEmpty() || !cacheShown)
+    val finalVods: List<ModelVod>? = when {
+        // B6：规则真回空列表是“空”，不是“失败”——之前 ifEmpty 转 null，
+        // 真空被当成失败走 recommendEmpty 报错；现在空列表原样保留，
+        // 失败（netVods==null）才走 null 分支，UI 才能分开显示。
+        netOk -> netVods
+        cacheVods.isNotEmpty() -> cacheVods
+        else -> null
+    }
+    val finalCats: List<CategoryType>
+    val finalCatsFailed: Boolean
+    when {
+        !netCats.isNullOrEmpty() -> {
+            finalCats = netCats
+            finalCatsFailed = false
+        }
+        cacheCats.isNotEmpty() -> {
+            finalCats = cacheCats
+            finalCatsFailed = false
+        }
+        netCats == null -> {
+            // 分类超时且无缓存：UI 给重试入口
+            finalCats = emptyList()
+            finalCatsFailed = true
+        }
+        else -> {
+            // 规则本来就没分类，不是失败
+            finalCats = emptyList()
+            finalCatsFailed = false
+        }
+    }
+    // v0.152.0：PHP 失败原因只在"真没数据可展示"时透出；有缓存顶上时不拿失败去盖缓存。
+    val phpErrorVal = if (SourceStateStore.activePhpRule() != null &&
+        netVods.isNullOrEmpty() && netCats.isNullOrEmpty() &&
+        cacheVods.isEmpty() && cacheCats.isEmpty()
+    ) PhpCliEngine.lastErrorFor(null)?.take(140) else null
+    return HomeLoadGate.HomePayload(
+        vods = finalVods,
+        cats = finalCats,
+        catsFailed = finalCatsFailed,
+        resetSelection = netOk,
+        phpError = phpErrorVal,
+    )
+}
+
