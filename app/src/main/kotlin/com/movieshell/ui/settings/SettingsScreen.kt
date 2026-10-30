@@ -16,7 +16,6 @@ import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Inventory2
-import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.Restore
@@ -413,9 +412,11 @@ fun SettingsScreen(
                 Text("v${com.movieshell.BuildConfig.VERSION_NAME}", style = V4Type.MonoSmall, color = v.t3)
             }
         }
-        // 1. 资料磁贴：侠 头像 + 侠影 + 版本 + 当前源（绿点）；点进站源管理
+        // 1. 资料磁贴：只展示侠头像 + 侠影 + 版本 + 当前源（绿点），不再是入口
+        // （289 去重：站源管理原来一页三处——资料磁贴、仪表“源”、工具磁贴，
+        // 只留仪表“源”这一个入口，它是你 10-28 明确要求恢复可点的那个）。
         item {
-            V4Tile(modifier = Modifier.fillMaxWidth(), onClick = onSourcesClick) {
+            V4Tile(modifier = Modifier.fillMaxWidth(), onClick = null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
@@ -450,7 +451,6 @@ fun SettingsScreen(
                             )
                         }
                     }
-                    Icon(Icons.Filled.ChevronRight, null, tint = v.t3, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -499,7 +499,8 @@ fun SettingsScreen(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     QuickEntry("插件中心", Icons.Outlined.Inventory2, onPluginCenterClick, Modifier.weight(1f))
-                    QuickEntry("站源管理", Icons.Outlined.Dns, onSourcesClick, Modifier.weight(1f))
+                    // 289 去重：工具磁贴“站源管理”删掉，站源管理只留仪表“源”；
+                    // 第二行剩插件中心、使用手册两个，照样铺满一行。
                     QuickEntry("使用手册", Icons.Outlined.MenuBook, onManualClick, Modifier.weight(1f))
                 }
             }
@@ -798,8 +799,11 @@ fun SettingsScreen(
                 KvTile(
                     caption = "插件市场源",
                     value = "${marketSources.size} 个市场",
-                    sub = "插件中心 → 市场 → 管理",
-                    onClick = onPluginCenterClick,
+                    // 289 去重：这格只展示市场数，不再是入口（原来点它和工具磁贴
+                    // “插件中心”去同一个地方）；管理市场只走工具磁贴“插件中心”。
+                    // onClick 为 null 时 KvTile 自动不画箭头。
+                    sub = "在插件中心管理",
+                    onClick = null,
                     modifier = Modifier.weight(1f),
                 )
                 KvTile(
