@@ -1,15 +1,26 @@
 package com.movieshell.ui.theme
 
+import android.os.Build
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.movieshell.data.repo.ThemeStore
 
 /**
@@ -30,94 +41,114 @@ val BrandGradientColors = listOf(
 val LocalBrandGradient = compositionLocalOf { BrandGradientColors }
 
 /**
- * v0.279.0 V4：Material 色板由 V4 token 派生——各屏用 MaterialTheme.colorScheme 的地方
- * 自动跟着换成 V4 平底/三级面/三级字；主题色只替换强调色（primary）。
- * background=bg、surface=s1、surfaceVariant=s2、surfaceContainer*=s1~s3、
- * outline=div2、outlineVariant=div、onSurfaceVariant=t2。
+ * v0.292.0 V5：M3 字阶（design-tokens.md 第 2 节）。
+ * 页面顶栏统一 titleLarge 22/28、500、−0.2 字距；内容标题（详情片名）headlineMedium 28/34 粗体。
  */
-private fun schemeOf(v: V4Colors) = if (v.isDark) darkColorScheme(
-    primary = v.accent,
-    onPrimary = v.onAccent,
-    primaryContainer = lerp(v.accent, v.bg, 0.78f),
-    onPrimaryContainer = v.accent,
-    secondary = lerp(v.accent, Color.White, 0.3f),
-    onSecondary = v.onAccent,
-    secondaryContainer = v.s3,
-    onSecondaryContainer = v.t1,
-    tertiary = v.ok,
-    background = v.bg,
-    onBackground = v.t1,
-    surface = v.s1,
-    onSurface = v.t1,
-    surfaceVariant = v.s2,
-    onSurfaceVariant = v.t2,
-    surfaceTint = Color.Transparent,
-    surfaceContainerLowest = v.bg,
-    surfaceContainerLow = v.s1,
-    surfaceContainer = v.s1,
-    surfaceContainerHigh = v.s2,
-    surfaceContainerHighest = v.s3,
-    inverseSurface = v.t1,
-    inverseOnSurface = v.bg,
-    outline = v.div2,
-    outlineVariant = v.div,
-    error = v.live,
-    onError = Color.White,
-    scrim = Color.Black,
-) else lightColorScheme(
-    primary = v.accent,
-    onPrimary = v.onAccent,
-    primaryContainer = lerp(v.accent, Color.White, 0.86f),
-    onPrimaryContainer = lerp(v.accent, Color.Black, 0.35f),
-    secondary = lerp(v.accent, Color.White, 0.2f),
-    onSecondary = Color.White,
-    secondaryContainer = v.s3,
-    onSecondaryContainer = v.t1,
-    tertiary = v.ok,
-    background = v.bg,
-    onBackground = v.t1,
-    surface = v.s1,
-    onSurface = v.t1,
-    surfaceVariant = v.s2,
-    onSurfaceVariant = v.t2,
-    surfaceTint = Color.Transparent,
-    surfaceContainerLowest = v.s1,
-    surfaceContainerLow = v.s1,
-    surfaceContainer = v.s1,
-    surfaceContainerHigh = v.s2,
-    surfaceContainerHighest = v.s3,
-    inverseSurface = v.t1,
-    inverseOnSurface = v.bg,
-    outline = v.div2,
-    outlineVariant = v.div,
-    error = v.live,
-    onError = Color.White,
+val XiaYingType: Typography = Typography().run {
+    copy(
+        displaySmall = displaySmall.copy(fontSize = 36.sp, lineHeight = 44.sp, fontWeight = FontWeight.Medium),
+        headlineLarge = headlineLarge.copy(fontWeight = FontWeight.SemiBold),
+        headlineMedium = headlineMedium.copy(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold),
+        headlineSmall = headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+        titleLarge = titleLarge.copy(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.2).sp),
+        titleMedium = titleMedium.copy(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium),
+        titleSmall = titleSmall.copy(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium),
+        labelLarge = labelLarge.copy(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium),
+        labelMedium = labelMedium.copy(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
+        labelSmall = labelSmall.copy(fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
+    )
+}
+
+/** v0.292.0 V5：M3 形状阶（design-tokens.md 第 3 节）。 */
+val XiaYingShapes = Shapes(
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
+/**
+ * v0.292.0 V5 Material You 主题入口。
+ *
+ * 色板来源（[ThemeStore.source]）：
+ * - seed（默认）：[themeColor] 作种子按 TonalSpot 生成；默认种子 #D9822B 直接用设计稿 token；
+ *   炫彩渐变预设用其锚点色作种子，品牌渐变色带（[LocalBrandGradient]）照旧跟预设走；
+ * - poster：首页 Hero 当前海报取色（[ThemeStore.posterSeed]），没取到前按 [themeColor] 兜底；
+ * - dynamic：Android 12+ 系统壁纸取色（dynamicLight/DarkColorScheme），只有用户在设置里选了才用。
+ * 色板变化（海报切换）400ms 渐变过渡。
+ */
 @Composable
 fun MovieShellTheme(
     darkTheme: Boolean = true,
-    themeColor: Color = V4Accent,
+    themeColor: Color = SeedAmber,
     content: @Composable () -> Unit,
 ) {
-    // v0.87.1：炫彩渐变主题时，品牌渐变面跟随预设色带
-    // v0.279.0 V4：单一强调色——没选炫彩预设时“品牌渐变”退化成强调色单色，
-    // 顶栏/弹窗不再出现青蓝渐变；选了预设的用户仍按预设色带走（功能保留）。
-    // 浅色沿用 v0.237.0 口径：强调色固定，不跟主题色走。
     val brandArgb by ThemeStore.brandGradient.collectAsState()
-    val v4 = if (darkTheme) v4Dark(themeColor) else v4Light()
-    val brandColors = if (darkTheme) {
-        brandArgb?.map { Color(it) } ?: listOf(v4.accent, v4.accent)
-    } else {
-        listOf(v4.accent, v4.accent)
+    val source by ThemeStore.source.collectAsState()
+    val posterSeed by ThemeStore.posterSeed.collectAsState()
+    val ctx = LocalContext.current
+    val seedArgb = themeColor.toArgbInt()
+    val target: ColorScheme = remember(darkTheme, seedArgb, source, posterSeed) {
+        when {
+            source == ThemeStore.SOURCE_DYNAMIC && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+                if (darkTheme) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
+            source == ThemeStore.SOURCE_POSTER && posterSeed != null ->
+                seedColorScheme(posterSeed!!, darkTheme)
+            else -> seedColorScheme(seedArgb, darkTheme)
+        }
     }
+    val scheme = animateScheme(target)
+    val brandColors = brandArgb?.map { Color(it) } ?: listOf(scheme.primary, scheme.primary)
     CompositionLocalProvider(
-        LocalV4 provides v4,
         LocalBrandGradient provides brandColors,
     ) {
         MaterialTheme(
-            colorScheme = schemeOf(v4),
+            colorScheme = scheme,
+            typography = XiaYingType,
+            shapes = XiaYingShapes,
             content = content,
         )
     }
+}
+
+/** 色板逐角色 400ms 渐变（海报取色换片时不闪）。 */
+@Composable
+private fun animateScheme(t: ColorScheme): ColorScheme {
+    @Composable
+    fun a(c: Color, label: String): Color =
+        animateColorAsState(c, tween(400), label = label).value
+    return t.copy(
+        primary = a(t.primary, "primary"),
+        onPrimary = a(t.onPrimary, "onPrimary"),
+        primaryContainer = a(t.primaryContainer, "primaryContainer"),
+        onPrimaryContainer = a(t.onPrimaryContainer, "onPrimaryContainer"),
+        inversePrimary = a(t.inversePrimary, "inversePrimary"),
+        secondary = a(t.secondary, "secondary"),
+        onSecondary = a(t.onSecondary, "onSecondary"),
+        secondaryContainer = a(t.secondaryContainer, "secondaryContainer"),
+        onSecondaryContainer = a(t.onSecondaryContainer, "onSecondaryContainer"),
+        tertiary = a(t.tertiary, "tertiary"),
+        onTertiary = a(t.onTertiary, "onTertiary"),
+        tertiaryContainer = a(t.tertiaryContainer, "tertiaryContainer"),
+        onTertiaryContainer = a(t.onTertiaryContainer, "onTertiaryContainer"),
+        background = a(t.background, "background"),
+        onBackground = a(t.onBackground, "onBackground"),
+        surface = a(t.surface, "surface"),
+        onSurface = a(t.onSurface, "onSurface"),
+        surfaceVariant = a(t.surfaceVariant, "surfaceVariant"),
+        onSurfaceVariant = a(t.onSurfaceVariant, "onSurfaceVariant"),
+        surfaceTint = a(t.surfaceTint, "surfaceTint"),
+        inverseSurface = a(t.inverseSurface, "inverseSurface"),
+        inverseOnSurface = a(t.inverseOnSurface, "inverseOnSurface"),
+        outline = a(t.outline, "outline"),
+        outlineVariant = a(t.outlineVariant, "outlineVariant"),
+        surfaceBright = a(t.surfaceBright, "surfaceBright"),
+        surfaceDim = a(t.surfaceDim, "surfaceDim"),
+        surfaceContainer = a(t.surfaceContainer, "surfaceContainer"),
+        surfaceContainerHigh = a(t.surfaceContainerHigh, "surfaceContainerHigh"),
+        surfaceContainerHighest = a(t.surfaceContainerHighest, "surfaceContainerHighest"),
+        surfaceContainerLow = a(t.surfaceContainerLow, "surfaceContainerLow"),
+        surfaceContainerLowest = a(t.surfaceContainerLowest, "surfaceContainerLowest"),
+    )
 }

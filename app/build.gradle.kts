@@ -123,6 +123,10 @@ dependencies {
     // v0.45.0：pin 1.3.1（PullToRefreshBox 下拉组件从 1.3.0 才有，不赌 BOM 带的版本）
     implementation("androidx.compose.material3:material3:1.3.1")
     implementation("androidx.compose.material:material-icons-extended")
+    // v0.292.0 V5 Material You：种子色 → M3 TonalSpot 色板 + 海报取色（QuantizerCelebi/Score）。
+    // materialkolor 的 material-color-utilities 纯 Kotlin 移植（2.0.0 用 Kotlin 2.0.20 编译，与本项目 2.0.21 兼容），
+    // 不带 Compose 依赖，不与 BOM 冲突。
+    implementation("com.materialkolor:material-color-utilities-android:2.0.0")
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
     // 网络 / JSON

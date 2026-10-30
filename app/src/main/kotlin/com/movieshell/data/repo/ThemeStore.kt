@@ -23,13 +23,27 @@ object ThemeStore {
     /** v0.87.1：炫彩渐变主题 id；有值=渐变模式，无值=单色模式 */
     private const val KEY_GRADIENT = "theme_gradient"
 
-    /** 默认主题色：v0.279.0 V4 改为 V4 蓝 #3D9BFF（原为青 #4DD0E1）；显式选过颜色的用户不受影响。 */
-    const val DEFAULT_COLOR = 0xFF3D9BFF.toInt()
+    /**
+     * 默认主题色：v0.279.0 V4 改为 V4 蓝 #3D9BFF（原为青 #4DD0E1）；
+     * v0.292.0 V5 Material You：改为设计稿种子色 #D9822B（暖琥珀），整套 M3 色板由它按 TonalSpot 生成。
+     * 显式选过颜色的用户不受影响（存的是具体色值，按该色作种子生成色板）。
+     */
+    const val DEFAULT_COLOR = 0xFFD9822B.toInt()
+
+    /** v0.279.0 的 V4 蓝，V5 起作为普通预设保留。 */
+    const val V4_BLUE = 0xFF3D9BFF.toInt()
+
+    /** v0.292.0：色板来源——seed（默认，预设色/炫彩锚点作种子）/ poster（海报取色）/ dynamic（Android 12+ 系统壁纸取色）。 */
+    const val SOURCE_SEED = "seed"
+    const val SOURCE_POSTER = "poster"
+    const val SOURCE_DYNAMIC = "dynamic"
+    private const val KEY_SOURCE = "theme_color_source"
 
     /** DsPlayer 式候选色 */
     // v0.80.0：12 种主题色（对标 DsPlayer 我的页主题卡）
     val COLOR_OPTIONS = listOf(
-        DEFAULT_COLOR, // v0.279.0：V4 蓝（默认）
+        DEFAULT_COLOR, // v0.292.0：V5 琥珀种子（默认）
+        V4_BLUE, // v0.279.0：V4 蓝
         0xFF2B7DE9.toInt(), // 蓝
         0xFF3D5AFE.toInt(), // 靛蓝
         0xFF03A9F4.toInt(), // 天蓝
@@ -92,6 +106,21 @@ object ThemeStore {
         ),
     )
 
+    private val _source = MutableStateFlow(SOURCE_SEED)
+    /** v0.292.0：色板来源（见 SOURCE_*）。 */
+    val source: StateFlow<String> = _source
+
+    /**
+     * v0.292.0：海报取色的种子（首页 Hero 当前海报算出来的主色，进程内有效，不落盘）；
+     * null = 还没取到，主题按 [color] 兜底。
+     */
+    private val _posterSeed = MutableStateFlow<Int?>(null)
+    val posterSeed: StateFlow<Int?> = _posterSeed
+
+    fun setPosterSeed(argb: Int?) {
+        _posterSeed.value = argb
+    }
+
     private val _gradientId = MutableStateFlow<String?>(null)
     val gradientId: StateFlow<String?> = _gradientId
 
@@ -122,6 +151,46 @@ object ThemeStore {
         } else {
             applyColor(prefs.getInt(KEY_COLOR, DEFAULT_COLOR))
         }
+        // v0.292.0：海报取色 / 系统取色是叠在种子色上的来源开关（种子色仍保留作兜底）
+        when (prefs.getString(KEY_SOURCE, SOURCE_SEED)) {
+            SOURCE_POSTER -> applySource(SOURCE_POSTER)
+            SOURCE_DYNAMIC -> if (android.os.Build.VERSION.SDK_INT >= 31) applySource(SOURCE_DYNAMIC)
+        }
+    }
+
+    /** v0.292.0：选「海报取色」或「系统取色」（Android 12+）。选回任一预设色即回到种子模式。 */
+    fun setSource(context: Context, source: String) {
+        val s = when (source) {
+            SOURCE_POSTER -> SOURCE_POSTER
+            SOURCE_DYNAMIC -> if (android.os.Build.VERSION.SDK_INT >= 31) SOURCE_DYNAMIC else SOURCE_SEED
+            else -> SOURCE_SEED
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_SOURCE, s)
+            .apply()
+        if (s == SOURCE_SEED) {
+            _source.value = SOURCE_SEED
+            val g = _gradientId.value
+            _themeKey.value = if (g != null) "g:$g" else "c:${_color.value}"
+        } else {
+            applySource(s)
+        }
+    }
+
+    private fun applySource(s: String) {
+        _source.value = s
+        _themeKey.value = if (s == SOURCE_POSTER) "p:poster" else "d:dynamic"
+    }
+
+    private fun clearSource(context: Context) {
+        if (_source.value != SOURCE_SEED) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .remove(KEY_SOURCE)
+                .apply()
+            _source.value = SOURCE_SEED
+        }
     }
 
     fun setMode(context: Context, mode: String) {
@@ -142,6 +211,7 @@ object ThemeStore {
             .putInt(KEY_COLOR, argb)
             .remove(KEY_GRADIENT)
             .apply()
+        clearSource(context)
         applyColor(argb)
     }
 
@@ -151,6 +221,7 @@ object ThemeStore {
             .edit()
             .putString(KEY_GRADIENT, id)
             .apply()
+        clearSource(context)
         applyGradient(preset)
     }
 
