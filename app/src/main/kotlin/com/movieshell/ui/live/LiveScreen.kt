@@ -1,5 +1,13 @@
 package com.movieshell.ui.live
 
+import com.movieshell.ui.components.V5Segmented
+
+import androidx.compose.material.icons.filled.GraphicEq
+
+import androidx.compose.foundation.lazy.rememberLazyListState
+
+import androidx.compose.foundation.lazy.LazyRow
+
 import com.movieshell.ui.theme.V5
 
 import com.movieshell.ui.components.V5Divider
@@ -360,9 +368,15 @@ fun LiveScreen(
         ) {
             // 顶部 16:9 播放器；v0.96.2：横屏全屏时占满（PlayerScreen 调用点唯一，不重建播放器）
             val playing = selected
+            // v0.292.0 V5（design-tokens 5.3）：直播页没有顶栏也没有接口 chip 行——
+            // 播放器预览卡就是第一个元素，状态栏下 8dp、左右 16dp、24dp 圆角；横屏全屏仍占满不裁角。
             Box(
                 modifier = (if (fullscreenPlayer) Modifier.fillMaxSize()
-                            else Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                            else Modifier
+                                .padding(start = 16.dp, end = 16.dp, top = V5.StatusGap)
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(V5.CornerCard)))
                     .background(Color.Black),
             ) {
                 if (playing != null) {
@@ -423,10 +437,33 @@ fun LiveScreen(
                         }
                     }
                 }
+                // 直播角标（errorContainer；不接收点击，不挡播放器手势）
+                if (!fullscreenPlayer && playing != null) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(12.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.errorContainer)
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.onErrorContainer),
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        Text("直播", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                }
             }
             // v0.96.2：横屏全屏只留播放器，其他 UI 隐藏
             if (!fullscreenPlayer) {
-            // 节目信息卡：台标 + 正在播/下一档（对标 DsPlayer）
+            // v0.292.0 V5（design-tokens 5.3）：「正在播」卡——surfaceContainer 24dp 圆角；
+            // 头部右侧 搜索频道 / 收藏（tonal 星）/ 直播设置 三个图标按钮（v0.176.0 从顶栏移来，位置不变）；
+            // 节目进度条、下一档、同名多源 源1/源2/源3 分段按钮（原播放器下方“线路”行并进卡里）。
             ProgramInfoCard(
                 channel = playing,
                 epg = epg,
@@ -437,81 +474,20 @@ fun LiveScreen(
                     playing?.let { LiveStore.toggleFavorite(context, it.id) }
                 },
                 onSettingsClick = { showLiveSettings = true },
+                sourceCount = if (sources.size > 1) sources.size else 0,
+                selectedSourceIndex = sources.indexOfFirst { it.id == selected?.id },
+                onSelectSource = { idx -> sources.getOrNull(idx)?.let { playChannel(it) } },
             )
-            // v0.160.0：同名源行移到播放器下方（原右列删掉）——源1/源2是当前台的全局切换，
-            // 不该在每个频道卡片里重复出现；卡片右上角只留星标
-            // v0.279.0 V4：线路改分段控件（s1 轨道 + s3 选中块），源多时横滑。
-            if (sources.size > 1) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "线路",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.outline,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(V5.CornerMd))
-                            .background(MaterialTheme.colorScheme.surfaceContainer)
-                            .horizontalScroll(rememberScrollState())
-                            .padding(2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        sources.forEachIndexed { idx, ch ->
-                            SourceButton(
-                                label = "源${idx + 1}",
-                                selected = selected?.id == ch.id,
-                                onClick = { playChannel(ch) },
-                            )
-                        }
-                    }
-                }
-            }
-            // v0.158.0：直播页内换源条（DsPlayer 切换直播源对标）——全部 + 各源一键切
-            if (sourceKeys.size > 1) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    V5Chip(
-                        text = "全部",
-                        selected = selectedLiveSource == null,
-                        small = true,
-                        onClick = {
-                            selectedLiveSource = null
-                            LiveSelection.selectedLiveSource = null
-                        },
-                    )
-                    sourceKeys.forEach { key ->
-                        V5Chip(
-                            small = true,
-                            text = liveSourceLabel(key),
-                            selected = selectedLiveSource == key,
-                            onClick = {
-                                selectedLiveSource = key
-                                LiveSelection.selectedLiveSource = key
-                            },
-                        )
-                    }
-                }
-            }
-            // 搜索行（默认收起，点顶栏放大镜展开）
+            // 原“直播页内换源条（全部 + 各源）”按设计稿从主屏移走：同一功能在 直播设置 弹层
+            // 第一个页签「切换直播源」（“切回接口默认直播源”=全部 + 各源单选），状态共用 selectedLiveSource。
+            // 搜索行（默认收起，点卡片放大镜展开）
             if (showSearch) {
                 AppTextField(
                     value = query,
                     onValueChange = { query = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
                     placeholder = "搜索频道",
                 )
             }
@@ -543,60 +519,51 @@ fun LiveScreen(
                 }
                 return@Column
             }
-            // v0.160.0：两列：分组 | 频道（右列源已移到播放器下方）
-            // v0.279.0 V4：分组栏 + 频道列表直接贴平底，顶部 1px 分隔线；
-            // 列表底部留出浮动底栏高度（dockClearance）。
-            V5Divider()
-            val dividerColor = MaterialTheme.colorScheme.outlineVariant
-            Row(
+            // v0.292.0 V5：分组改横排 FilterChip（全部分组照旧，“我的收藏”带星），下面单列频道列表
+            // （原左列分组 + 中列频道两栏）；选中/记忆逻辑不变（LiveSelection.selectedGroup）。
+            val groupListState = rememberLazyListState()
+            LaunchedEffect(Unit) {
+                val i = groupNames.indexOf(selectedGroup)
+                if (i > 0) groupListState.scrollToItem(i)
+            }
+            LazyRow(
+                state = groupListState,
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(groupNames, key = { it }) { g ->
+                    V5Chip(
+                        text = g,
+                        selected = g == selectedGroup,
+                        leadingIcon = if (g == "我的收藏") Icons.Outlined.StarBorder else null,
+                        onClick = {
+                            selectedGroup = g
+                            LiveSelection.selectedGroup = g
+                        },
+                    )
+                }
+            }
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
+                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = dockClearance() + 8.dp),
             ) {
-                // 左列：分组
-                LazyColumn(
-                    modifier = Modifier
-                        .width(90.dp)
-                        .fillMaxHeight()
-                        .drawBehind {
-                            val w = 1.dp.toPx()
-                            drawLine(dividerColor, Offset(size.width - w / 2, 0f), Offset(size.width - w / 2, size.height), w)
-                        },
-                    contentPadding = PaddingValues(top = 4.dp, bottom = dockClearance()),
-                ) {
-                    items(groupNames, key = { it }) { g ->
-                        GroupButton(
-                            name = g,
-                            count = groups[g]?.size ?: 0,
-                            selected = g == selectedGroup,
-                            onClick = {
-                                selectedGroup = g
-                                LiveSelection.selectedGroup = g
-                            },
-                        )
-                    }
-                }
-                // 中列：频道（序号 + 台标 + 名称）
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    contentPadding = PaddingValues(bottom = dockClearance()),
-                ) {
-                    // v0.133.0：频道 id 由 sourceKey 与 url 拼接，同源重复条目或同名订阅可撞，加下标复合
-                    items(
-                        items = groupChannelsDistinct.withIndex().toList(),
-                        key = { "${it.index}_${it.value.id}" },
-                    ) { (idx, ch) ->
-                        ChannelCell(
-                            index = idx + 1,
-                            channel = ch,
-                            isPlaying = selected?.name == ch.name,
-                            onClick = { playChannel(ch) },
-                            onLongClick = { detailChannel = ch },
-                            onFavorite = { LiveStore.toggleFavorite(context, ch.id) },
-                        )
-                    }
+                // v0.133.0：频道 id 由 sourceKey 与 url 拼接，同源重复条目或同名订阅可撞，加下标复合
+                items(
+                    items = groupChannelsDistinct.withIndex().toList(),
+                    key = { "${it.index}_${it.value.id}" },
+                ) { (idx, ch) ->
+                    ChannelCell(
+                        index = idx + 1,
+                        channel = ch,
+                        isPlaying = selected?.name == ch.name,
+                        nowTitle = if (selected?.name == ch.name) epg?.first?.title else null,
+                        onClick = { playChannel(ch) },
+                        onLongClick = { detailChannel = ch },
+                        onFavorite = { LiveStore.toggleFavorite(context, ch.id) },
+                    )
                 }
             }
             } // v0.96.2 if (!fullscreenPlayer)
@@ -664,22 +631,21 @@ private fun LiveSettingsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(
-            topStart = V5.CornerMd,
-            topEnd = V5.CornerMd,
+            topStart = V5.CornerXl,
+            topEnd = V5.CornerXl,
         ),
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 8.dp),
+                .padding(horizontal = 24.dp, vertical = 8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "直播设置",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleLarge,
                 )
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onRefresh) {
@@ -692,18 +658,13 @@ private fun LiveSettingsSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SourceButton(
-                    label = "切换直播源",
-                    selected = tab == 0,
-                    onClick = { tab = 0 },
-                )
-                SourceButton(
-                    label = "EPG 设置",
-                    selected = tab == 1,
-                    onClick = { tab = 1 },
-                )
-            }
+            // v0.292.0 V5：两页签改 M3 分段按钮——第一个「切换直播源」（接口/源切换，原主屏 chip 行的同一功能），第二个「EPG 设置」
+            V5Segmented(
+                options = listOf("切换直播源", "EPG 设置"),
+                selected = tab,
+                onSelect = { tab = it },
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(12.dp))
             if (tab == 0) {
                 Row(
@@ -811,7 +772,9 @@ private fun LiveSettingsSheet(
 
 /**
  * v0.80.0：节目信息卡（对标 DsPlayer 播放器下方那张卡）。
- * 台标 + 正在播 {节目} {开始-结束} / 下一档 {时间} {节目}；无 EPG 时显示频道名。
+ * v0.292.0 V5：「正在播」卡——surfaceContainer 24dp 圆角，16dp 内边距：
+ * 头部「正在播 · 开始–结束」（labelLarge primary）+ 节目名（titleMedium），右侧 搜索频道 / 收藏（tonal）/ 直播设置；
+ * 节目进度（4dp）；底部 下一档 + 同名多源 源1/源2/… 分段按钮。无 EPG 时显示台名 + 提示。
  */
 @Composable
 private fun ProgramInfoCard(
@@ -823,106 +786,118 @@ private fun ProgramInfoCard(
     onSearchClick: () -> Unit = {},
     onFavoriteClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
+    // v0.160.0：同名源（源1/源2…）全局切换，>1 个才显示
+    sourceCount: Int = 0,
+    selectedSourceIndex: Int = -1,
+    onSelectSource: (Int) -> Unit = {},
 ) {
     val (now, next) = epg ?: (null to null)
-    // v0.279.0 V4：节目信息不再是卡片——平底一行：台名 15/600 + 分组 t3，
-    // 下面一行节目单（t2/t3），右侧三个线性图标（搜索/收藏/直播设置）。
     val v = MaterialTheme.colorScheme
-    Row(
+    Column(
         modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 12.dp)
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .clip(RoundedCornerShape(V5.CornerCard))
+            .background(v.surfaceContainer)
+            .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 14.dp),
     ) {
-        if (!channel?.logo.isNullOrBlank()) {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(V5.CornerMd))
-                    .background(v.surfaceContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                AsyncImage(
-                    model = channel?.logo,
-                    contentDescription = channel?.name,
-                    modifier = Modifier.fillMaxSize().padding(3.dp),
-                    contentScale = ContentScale.Fit,
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = channel?.name ?: "暂无频道",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = v.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (!channel?.group.isNullOrBlank()) {
-                    Spacer(Modifier.width(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                if (now != null) {
                     Text(
-                        text = channel?.group.orEmpty(),
-                        fontSize = 11.sp,
-                        color = v.outline,
+                        text = "正在播 · ${timeFmt.format(Date(now.startMs))}–${timeFmt.format(Date(now.stopMs))}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = v.primary,
                         maxLines = 1,
                     )
-                }
-            }
-            Spacer(Modifier.height(2.dp))
-            if (now != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("正在播", fontSize = 11.sp, color = v.outline)
-                    Spacer(Modifier.width(6.dp))
                     Text(
                         text = now.title,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = v.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else {
+                    Text(
+                        text = listOfNotNull(
+                            channel?.name ?: "暂无频道",
+                            channel?.group?.takeIf { it.isNotBlank() },
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = v.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = if (!hasEpgSource) "暂无节目单，可在直播设置 EPG 里填全局节目单地址" else "节目单加载中…",
+                        style = MaterialTheme.typography.bodySmall,
                         color = v.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "${timeFmt.format(Date(now.startMs))}-${timeFmt.format(Date(now.stopMs))}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = v.outline,
                     )
                 }
-                if (next != null) {
-                    Text(
-                        text = "下一档 ${timeFmt.format(Date(next.startMs))} ${next.title}",
-                        fontSize = 11.sp,
-                        color = v.outline,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            } else {
-                Text(
-                    text = if (!hasEpgSource) "暂无节目单，可在直播设置 EPG 里填全局节目单地址" else "节目单加载中…",
-                    fontSize = 11.sp,
-                    color = v.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            }
+            // v0.176.0：顶栏移过来的三个入口，无频道时只留搜索和设置，收藏无台可收
+            V5IconButton(Icons.Outlined.Search, "搜索频道", onSearchClick)
+            if (channel != null) {
+                Spacer(Modifier.width(4.dp))
+                V5IconButton(
+                    if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                    if (isFavorite) "取消收藏" else "收藏",
+                    onFavoriteClick,
+                    tonal = true,
+                    size = 44.dp,
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+            V5IconButton(Icons.Outlined.Settings, "直播设置", onSettingsClick)
+        }
+        if (now != null && now.stopMs > now.startMs) {
+            val p = ((System.currentTimeMillis() - now.startMs).toFloat() / (now.stopMs - now.startMs)).coerceIn(0f, 1f)
+            Spacer(Modifier.height(10.dp))
+            Box(
+                Modifier
+                    .padding(end = 8.dp)
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(v.surfaceContainerHighest),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(p)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(v.primary),
                 )
             }
         }
-        // v0.176.0：顶栏移过来的三个入口，无频道时只留搜索和设置，收藏无台可收
-        V5IconButton(Icons.Outlined.Search, "搜索频道", onSearchClick)
-        if (channel != null) {
-            V5IconButton(
-                if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
-                if (isFavorite) "取消收藏" else "收藏",
-                onFavoriteClick,
-                tint = if (isFavorite) v.tertiary else v.onSurfaceVariant,
-            )
+        if (next != null || sourceCount > 1) {
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 8.dp)) {
+                Text(
+                    text = if (next != null) "下一档 ${timeFmt.format(Date(next.startMs))} ${next.title}" else (channel?.name ?: ""),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = v.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (sourceCount > 1) {
+                    Spacer(Modifier.width(8.dp))
+                    // 源多时横滑；每格最少 52dp
+                    Box(Modifier.widthIn(max = 220.dp).horizontalScroll(rememberScrollState())) {
+                        V5Segmented(
+                            options = List(sourceCount) { "源${it + 1}" },
+                            selected = selectedSourceIndex,
+                            onSelect = onSelectSource,
+                            height = 32.dp,
+                            modifier = Modifier.width((sourceCount * 62).dp),
+                        )
+                    }
+                }
+            }
         }
-        V5IconButton(Icons.Outlined.Settings, "直播设置", onSettingsClick)
     }
 }
 
@@ -934,7 +909,7 @@ private fun liveSourceLabel(key: String): String = when {
     else -> key
 }
 
-/** v0.80.0：左列分组按钮（v0.279.0 V4：选中 = s1 底 + 左侧 2dp 强调色竖条 + t1 600）。 */
+/** v0.80.0：分组按钮（v0.292.0 V5 起主屏改用 FilterChip 横排，本组件保留未用）。 */
 @Composable
 private fun GroupButton(
     name: String,
@@ -966,81 +941,96 @@ private fun GroupButton(
     }
 }
 
-/** v0.80.0：中列频道格（序号 + 台标 + 名称 + 直播角标 + 收藏星）。 */
+/**
+ * v0.80.0：频道格。v0.292.0 V5：72dp M3 列表项——48dp 台标块（14dp 圆角，无台标时台名缩写）、
+ * 台名 bodyLarge + 第二行（在播节目 / 分组 / 过期）、尾部在播均衡器图标或收藏星；在播行 secondaryContainer 20dp 圆角。
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChannelCell(
     index: Int,
     channel: LiveChannel,
     isPlaying: Boolean,
+    nowTitle: String? = null,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onFavorite: () -> Unit,
 ) {
-    // v0.279.0 V4：40dp 频道行——等宽序号、台名、分组 t3、直播标签、收藏星；
-    // 在播行强调色 12% 底 + 强调色字，行间 1px 分隔线。
     val v = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = V5.RowChannel + 8.dp)
+            .heightIn(min = V5.RowChannel)
+            .clip(RoundedCornerShape(V5.CornerLgI))
             .background(if (isPlaying) v.secondaryContainer else Color.Transparent)
-            .v5BottomDivider(v.outlineVariant)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(start = 12.dp, end = 2.dp),
+            .padding(start = 8.dp, end = 0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "%02d".format(index),
-            style = MaterialTheme.typography.labelMedium,
-            color = if (isPlaying) v.primary else v.outline,
-            modifier = Modifier.width(26.dp),
-        )
-        if (channel.logo.isNotBlank()) {
-            AsyncImage(
-                model = channel.logo,
-                contentDescription = channel.name,
-                modifier = Modifier
-                    .size(22.dp)
-                    .clip(RoundedCornerShape(V5.CornerSm)),
-                contentScale = ContentScale.Fit,
-            )
-            Spacer(Modifier.width(8.dp))
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (isPlaying) v.primaryContainer else v.surfaceContainerHighest),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (channel.logo.isNotBlank()) {
+                AsyncImage(
+                    model = channel.logo,
+                    contentDescription = channel.name,
+                    modifier = Modifier.fillMaxSize().padding(6.dp),
+                    contentScale = ContentScale.Fit,
+                )
+            } else {
+                Text(
+                    text = channel.name.replace(Regex("[\\s\\-]"), "").take(3).ifBlank { "%02d".format(index) },
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isPlaying) v.onPrimaryContainer else v.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
         }
-        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = channel.name,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (isPlaying) FontWeight.Medium else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                color = if (isPlaying) v.primary else v.onSurface,
-                modifier = Modifier.weight(1f, fill = false),
+                color = if (isPlaying) v.onSecondaryContainer else v.onSurface,
             )
-            if (channel.group.isNotBlank()) {
-                Spacer(Modifier.width(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val second = nowTitle ?: channel.group.ifBlank { "第 $index 台" }
                 Text(
-                    text = channel.group,
-                    fontSize = 11.sp,
-                    color = v.outline,
+                    text = second,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = v.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-            }
-            if (channel.stale) {
-                Spacer(Modifier.width(6.dp))
-                Text(text = "过期", fontSize = 10.sp, color = v.error, maxLines = 1)
+                if (channel.stale) {
+                    Spacer(Modifier.width(6.dp))
+                    V5Tag("过期", V5TagKind.Live)
+                }
             }
         }
-        Spacer(Modifier.width(6.dp))
-        V5Tag("直播", V5TagKind.Live)
-        IconButton(onClick = onFavorite, modifier = Modifier.size(36.dp)) {
+        if (isPlaying) {
+            Icon(
+                Icons.Filled.GraphicEq,
+                contentDescription = "正在播放",
+                tint = v.primary,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        IconButton(onClick = onFavorite, modifier = Modifier.size(48.dp)) {
             Icon(
                 if (channel.favorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
                 contentDescription = if (channel.favorite) "取消收藏" else "收藏",
-                tint = if (channel.favorite) v.tertiary else if (isPlaying) v.primary else v.outline,
-                modifier = Modifier.size(17.dp),
+                tint = if (channel.favorite) v.primary else v.onSurfaceVariant,
+                modifier = Modifier.size(22.dp),
             )
         }
     }
