@@ -683,11 +683,16 @@ data class V4DockItem(
  * 调用方负责把它摆在内容之上（MainActivity 里浮在 NavHost 上方，不占内容高度）。
  */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 fun V4BottomDock(
     items: List<V4DockItem>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    // 288：长按首页 tab 刷新当前源（用户定案）——只传首页下标时才触发，
+    // 调用方按下标过滤；不传时保持原单击行为。
+    onLongClick: ((Int) -> Unit)? = null,
 ) {
     val v = V4.c
     val haptic = LocalHapticFeedback.current
@@ -783,15 +788,27 @@ fun V4BottomDock(
                             .height(40.dp)
                             .scale(scale)
                             .clip(RoundedCornerShape(20.dp))
-                            .clickable(
-                                interactionSource = interaction,
-                                indication = null,
-                            ) {
-                                if (!selected) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                }
-                                onSelect(i)
-                            }
+                            .then(
+                                if (onLongClick != null) Modifier.combinedClickable(
+                                    interactionSource = interaction,
+                                    indication = null,
+                                    onClick = {
+                                        if (!selected) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                        onSelect(i)
+                                    },
+                                    onLongClick = { onLongClick(i) },
+                                ) else Modifier.clickable(
+                                    interactionSource = interaction,
+                                    indication = null,
+                                ) {
+                                    if (!selected) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    }
+                                    onSelect(i)
+                                },
+                            )
                             .semantics {
                                 role = Role.Tab
                                 this.selected = selected

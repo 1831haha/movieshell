@@ -128,6 +128,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.onSizeChanged
 import com.movieshell.ui.home.HomeScreen
+import com.movieshell.ui.home.HomeRefreshRequest
 import com.movieshell.ui.home.HomeViewModel
 import com.movieshell.ui.music.MiniPlayer
 import com.movieshell.ui.music.MusicScreen
@@ -1059,6 +1060,15 @@ class MainActivity : ComponentActivity() {
                                 items = tabs.map { V4DockItem(it.label, it.icon, it.selectedIcon) },
                                 selectedIndex = selectedIdx,
                                 onSelect = { i -> navController.navigateTab(tabs[i].route) },
+                                // 288（用户定案）：长按底部首页 tab 刷新当前源。
+                                // 只认首页下标：先切回首页，再发一次刷新信号；
+                                // 已在首页时就是直接刷新。其他 tab 长按不变（无回调）。
+                                onLongClick = { i ->
+                                    if (tabs[i].route == "home") {
+                                        navController.navigateTab("home")
+                                        HomeRefreshRequest.request()
+                                    }
+                                },
                             )
                         }
                     }

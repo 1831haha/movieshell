@@ -132,6 +132,41 @@ object BookRuleEngine {
     suspend fun fetchSearchPage(request: SearchRequest, ua: String? = null): PageResult? =
         fetchSearchPageOutcome(request, ua).page
 
+    /**
+     * 288：目录 POST 支持——解析 `URL,{"method":"POST","body":"...","charset":"GBK","headers":{...}}`
+     * 这种阅读式选项后缀（与 197 的 searchUrl 同一套语法），不带后缀的老目录 URL
+     * 原样走 GET，不受影响。body 不做 {{key}} 这类占位替换，目录 POST 的表单
+     * 体本来就是规则里写死的（如 id=123）；后缀 JSON 非法时回落干净 URL 的 GET。
+     */
+    fun parseUrlOptions(template: String): SearchRequest {
+        val optStart = template.indexOf(",{")
+        if (optStart < 0) return SearchRequest(url = template)
+        val opts = runCatching { JSONObject(template.substring(optStart + 1)) }.getOrNull()
+            ?: return SearchRequest(url = template.substring(0, optStart))
+        val charsetName = opts.optString("charset", "UTF-8").ifBlank { "UTF-8" }
+        val headers = mutableMapOf<String, String>()
+        opts.optJSONObject("headers")?.let { h ->
+            h.keys().forEach { k -> headers[k] = h.optString(k) }
+        }
+        return SearchRequest(
+            url = template.substring(0, optStart),
+            method = opts.optString("method", "GET").ifBlank { "GET" }.uppercase(),
+            body = opts.optString("body", "").ifBlank { null },
+            charsetName = charsetName,
+            headers = headers,
+        )
+    }
+
+    /** 288：带选项后缀的通用抓取——POST 走表单体，GET/无后缀走原 fetchPageOutcome。 */
+    suspend fun fetchPageWithOptions(urlWithOptions: String, ua: String? = null, referer: String? = null): PageResult? =
+        fetchPageWithOptionsOutcome(urlWithOptions, ua, referer).page
+
+    suspend fun fetchPageWithOptionsOutcome(urlWithOptions: String, ua: String? = null, referer: String? = null): FetchOutcome {
+        val req = parseUrlOptions(urlWithOptions)
+        if (req.method == "POST" && req.body != null) return fetchSearchPageOutcome(req, ua)
+        return fetchPageOutcome(req.url, ua, referer)
+    }
+
     /** v0.208.0：按 SearchRequest 抓搜索页 + HTTP 状态（见 fetchPageOutcome）。 */
     suspend fun fetchSearchPageOutcome(request: SearchRequest, ua: String? = null): FetchOutcome = withContext(Dispatchers.IO) {
         runCatching {

@@ -155,6 +155,21 @@ private var homeEnteredOnce = false
 // v0.32.1：分类列表的 rememberSaveable 存取器已移除——restoreHomeIfEmpty 会从缓存重载，
 // 不需要自定义 Saver（之前 Saver 的 MutableState 包裹类型导致编译失败，教训）。
 
+/**
+ * 288：底部首页 tab 长按刷新当前源的跨层信号。
+ * MainActivity 的底栏在 NavHost 外面，够不着 HomeScreen 里局部的 doRefresh，
+ * 所以用单例 SharedFlow 传一次：replay=0 + 1 格缓冲——首页已在屏时立即刷，
+ * 在别的 tab 时先切回首页、组合后把缓冲的那一次消费掉，只刷一次，
+ * 之后再切回首页不会重复刷（不破坏“首页不自动加载”）。
+ */
+object HomeRefreshRequest {
+    private val flowImpl = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val flow: kotlinx.coroutines.flow.SharedFlow<Unit> = flowImpl
+    fun request() {
+        flowImpl.tryEmit(Unit)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
@@ -1144,6 +1159,12 @@ fun HomeScreen(
             refreshing = false
             showSourceSheet = true
         }
+    }
+
+    // 288：底部首页 tab 长按 → doRefresh（有源强制重载当前分类，无源开选源，
+    // 与换源胶囊长按、手动下拉同一口径）。放 doRefresh 声明之后，局部函数先声明后调用。
+    LaunchedEffect(Unit) {
+        HomeRefreshRequest.flow.collect { doRefresh() }
     }
 
     // v0.27.4：首页不再自动加载，不再用演示数据冒充；无数据时显示干净空态

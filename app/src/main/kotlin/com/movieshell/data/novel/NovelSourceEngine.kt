@@ -280,22 +280,25 @@ object NovelSourceEngine {
         if (!isJsSource(source)) {
             var tocUrl = detailUrl
             if (source.ruleBookTocUrl.isNotBlank()) {
-                val detailHtml = BookRuleEngine.getHtml(detailUrl) ?: return emptyList()
+                // 288：详情页与目录页都走 fetchPageWithOptions——解析出的 tocUrl
+                // 本身可能就是 POST 式 URL，旧 getHtml 只发 GET 会直接失败。
+                // 落地 URL 用返回的 page.url（已剥掉选项后缀），相对链接才补得对。
+                val detailPage = BookRuleEngine.fetchPageWithOptions(detailUrl) ?: return emptyList()
                 val resolved = BookRuleEngine.extract(
-                    BookRuleEngine.parseDoc(detailHtml, detailUrl),
-                    detailUrl,
+                    BookRuleEngine.parseDoc(detailPage.body, detailPage.url),
+                    detailPage.url,
                     source.ruleBookTocUrl,
                 )
                 if (resolved.isNotBlank()) tocUrl = resolved
             }
-            val html = BookRuleEngine.getHtml(tocUrl) ?: return emptyList()
+            val tocPage = BookRuleEngine.fetchPageWithOptions(tocUrl) ?: return emptyList()
             // 目录页可能是详情页（规则里 toc 列表直接在详情页上）
-            val doc = BookRuleEngine.parseDoc(html, tocUrl)
+            val doc = BookRuleEngine.parseDoc(tocPage.body, tocPage.url)
             val listRule = source.ruleTocList.ifBlank { return emptyList() }
             val items = runCatching { doc.select(listRule).toList() }.getOrDefault(emptyList())
             return items.mapIndexedNotNull { i, el ->
-                val title = BookRuleEngine.extract(el, tocUrl, source.ruleTocTitle.ifBlank { "@text" })
-                val url = BookRuleEngine.extract(el, tocUrl, source.ruleTocUrl.ifBlank { "@href" })
+                val title = BookRuleEngine.extract(el, tocPage.url, source.ruleTocTitle.ifBlank { "@text" })
+                val url = BookRuleEngine.extract(el, tocPage.url, source.ruleTocUrl.ifBlank { "@href" })
                 if (title.isBlank() || url.isBlank()) return@mapIndexedNotNull null
                 ChapterMeta(index = i, title = title, url = url)
             }
@@ -317,24 +320,26 @@ object NovelSourceEngine {
             )
             var tocUrl = detailUrl
             if (source.ruleBookTocUrl.isNotBlank()) {
-                val detailPage = BookRuleEngine.fetchPage(detailUrl, ua) ?: return@withContext emptyList()
+                val detailPage = BookRuleEngine.fetchPageWithOptions(detailUrl, ua) ?: return@withContext emptyList()
                 val checked = LegadoJsEngine.runLoginCheck(source, detailPage, ctx, state) {
                     // v0.227.0：握手后必须重抓——999 的 1234 握手把页换成
                     // “success”短串，refetch 为 null 时这页被当成详情页解析，
                     // 目录永远为空（搜书 136 行有 refetch 才正常，目录四处漏了）。
-                    BookRuleEngine.fetchPage(detailUrl, ua)
+                    BookRuleEngine.fetchPageWithOptions(detailUrl, ua)
                 }
                 val doc = BookRuleEngine.parseDoc(checked.body, checked.url)
                 val resolved = LegadoJsEngine.evalTextRule(doc, checked.url, source.ruleBookTocUrl, ctx, state)
                 if (resolved.isNotBlank()) tocUrl = resolved
             }
+            // 288：首抓、握手重抓、分页抓一律走 fetchPageWithOptions，
+            // tocUrl / nextTocUrl 带 POST 后缀时才发得出表单；无后缀时与原 GET 等价。
             // v0.230.0：首抓失败不直接判空——站慢/抖动时给一次重试机会，仍失败记一行诊断（上次日志缺这行，分不清是没抓到还是规则没命中）。
-            val firstPage = BookRuleEngine.fetchPage(tocUrl, ua)
-                ?: BookRuleEngine.fetchPage(tocUrl, ua)
+            val firstPage = BookRuleEngine.fetchPageWithOptions(tocUrl, ua)
+                ?: BookRuleEngine.fetchPageWithOptions(tocUrl, ua)
                 ?: run { LogBus.d(TAG, "目录首抓失败 ${source.name} $tocUrl"); return@withContext emptyList() }
             val firstLen = firstPage.body.length
             var curPage = LegadoJsEngine.runLoginCheck(source, firstPage, ctx, state) {
-                BookRuleEngine.fetchPage(tocUrl, ua)
+                BookRuleEngine.fetchPageWithOptions(tocUrl, ua)
             }
             val checkedLen = curPage.body.length
             val all = mutableListOf<ChapterMeta>()
@@ -356,16 +361,16 @@ object NovelSourceEngine {
                 val nexts = LegadoJsEngine.evalNextUrls(curPage.body, curPage.url, source.ruleTocNext, pageCtx, state)
                 if (nexts.isEmpty()) break
                 if (nexts.size == 1) {
-                    val next = BookRuleEngine.fetchPage(nexts[0], ua) ?: break
+                    val next = BookRuleEngine.fetchPageWithOptions(nexts[0], ua) ?: break
                     curPage = LegadoJsEngine.runLoginCheck(source, next, ctx, state) {
-                        BookRuleEngine.fetchPage(nexts[0], ua)
+                        BookRuleEngine.fetchPageWithOptions(nexts[0], ua)
                     }
                     continue
                 }
                 for (u in nexts) {
-                    val p = BookRuleEngine.fetchPage(u, ua) ?: continue
+                    val p = BookRuleEngine.fetchPageWithOptions(u, ua) ?: continue
                     val checked = LegadoJsEngine.runLoginCheck(source, p, ctx, state) {
-                        BookRuleEngine.fetchPage(u, ua)
+                        BookRuleEngine.fetchPageWithOptions(u, ua)
                     }
                     collect(checked.body, checked.url)
                 }
