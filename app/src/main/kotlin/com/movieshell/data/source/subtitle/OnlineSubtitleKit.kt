@@ -1,7 +1,6 @@
 package com.movieshell.data.source.subtitle
 
 import android.content.Context
-import com.movieshell.data.repo.DetailSiteHolder
 import com.movieshell.data.source.subtitle.OnlineSubtitle
 import com.movieshell.data.source.subtitle.SubtitleSource
 import com.movieshell.data.repo.DrpySourceManager
@@ -28,8 +27,9 @@ object OnlineSubtitleKit {
      *
      * v0.188.0：显式 sourceKey 与 episodeIndex 优先于旧推导——调用方能确定
      * “这部剧的这一集”时直接传进来，不再只依赖 PlaySession.episodeIndex 现值。
-     * 两参数为 null 时沿用旧推导（订阅站取站点 key，否则取当前激活规则名；
-     * 集数取 PlaySession 现值），已有调用方不改签名也能编译。
+     * 两参数为 null 时沿用旧推导（取当前激活规则名；订阅站 key 由调用方经 sourceKey
+     * 传入，Q3 起不再读全局 DetailSiteHolder；集数取 PlaySession 现值），
+     * 已有调用方不改签名也能编译。
      */
     suspend fun downloadAndSave(
         context: Context,
@@ -51,7 +51,6 @@ object OnlineSubtitleKit {
         if (!vodId.isNullOrBlank()) {
             // v0.186.0：在线字幕也写新 key，与播放页读的 key 一致才不会新旧混写。
             val resolvedSourceKey = sourceKey?.takeIf { it.isNotBlank() }
-                ?: DetailSiteHolder.site?.key?.takeIf { it.isNotBlank() }
                 ?: DrpySourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
                 ?: PySourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
                 ?: PhpSourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
