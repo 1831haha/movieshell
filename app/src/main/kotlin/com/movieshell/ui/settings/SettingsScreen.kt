@@ -312,7 +312,7 @@ fun SettingsScreen(
 
     // v0.80.0：信息卡统计（追剧/历史/源），进设置页时拉一次
     var followCount by remember { mutableIntStateOf(0) }
-    // v0.279.0 V4：追剧环形仪表 = 有更新的追剧占比（真实数据，来自 FollowStore.hasNew）
+    // v0.279.0 旧版：追剧环形仪表 = 有更新的追剧占比（真实数据，来自 FollowStore.hasNew）
     var followNewCount by remember { mutableIntStateOf(0) }
     var histCount by remember { mutableIntStateOf(0) }
     var subCount by remember { mutableIntStateOf(0) }
@@ -1166,7 +1166,7 @@ internal fun SettingsGroup(
     title: String,
     content: @Composable () -> Unit,
 ) {
-    // v0.279.0 V4：分组 = 10.5sp t3 小标题 + s1 圆角 10 的卡片（行间 1px 分隔线）。
+    // v0.279.0 旧版：分组 = 10.5sp t3 小标题 + s1 圆角 10 的卡片（行间 1px 分隔线）。
     Column {
         SettingsCaption(title)
         Spacer(Modifier.height(6.dp))
@@ -1187,7 +1187,7 @@ internal fun SettingsRow(
     clickable: Boolean = true,
     divider: Boolean = true,
 ) {
-    // v0.279.0 V4：44dp 行，图标 17 t2，标题 13/500，副标题 11 t3，右侧箭头 t3 或开关。
+    // v0.279.0 旧版：44dp 行，图标 17 t2，标题 13/500，副标题 11 t3，右侧箭头 t3 或开关。
     V5Row(
         title = title,
         subtitle = subtitle,

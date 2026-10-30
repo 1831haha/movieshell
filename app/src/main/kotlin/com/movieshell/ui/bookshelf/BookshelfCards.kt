@@ -470,7 +470,7 @@ fun BookshelfEmptyState(
             .padding(top = 120.dp, bottom = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // v0.279.0 V4：68dp s1 圆角图标井 + 15/600 标题 + t3 提示 + 主/次两个按钮
+        // v0.279.0 旧版：68dp s1 圆角图标井 + 15/600 标题 + t3 提示 + 主/次两个按钮
         Box(
             modifier = Modifier
                 .size(68.dp)

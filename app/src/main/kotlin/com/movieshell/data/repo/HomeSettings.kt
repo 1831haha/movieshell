@@ -26,7 +26,7 @@ enum class HomeLayout(
     /** 网格列数；列表模式按 1 列渲染行 */
     val columns: Int,
 ) {
-    // v0.279.0 V4：四列密排为默认（设计稿 4 列海报墙）；没选过布局的用户拿到它，选过的不变。
+    // v0.279.0 旧版：四列密排为默认（设计稿 4 列海报墙）；没选过布局的用户拿到它，选过的不变。
     GRID_4("四列密排", Icons.Filled.Apps, 4),
     GRID_3("海报网格", Icons.Filled.GridView, 3),
     GRID_2("大海报", Icons.Filled.Image, 2),

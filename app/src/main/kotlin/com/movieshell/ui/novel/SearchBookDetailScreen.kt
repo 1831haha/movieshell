@@ -201,7 +201,7 @@ fun SearchBookDetailScreen(
             IconButton(onClick = onBack) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
             }
-            Text("书籍信息", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("书籍信息", style = MaterialTheme.typography.titleLarge)
         }
         LazyColumn(modifier = Modifier.weight(1f)) {
             item {

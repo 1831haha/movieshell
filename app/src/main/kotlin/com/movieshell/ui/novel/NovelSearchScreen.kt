@@ -141,7 +141,7 @@ fun NovelSearchScreen(
             Text(
                 // v0.66.0：锁定单源时标题显示源名
                 if (lockedPyRule != null) lockedPyRule.title else "找书",
-                fontSize = 22.sp, fontWeight = FontWeight.Bold, color = accent,
+                style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
             )
             Spacer(Modifier.weight(1f))

@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * 主题模式持久化：system（跟随系统）/ dark（深色）/ light（浅色），默认 dark（v0.279.0 V4）。
+ * 主题模式持久化：system（跟随系统）/ dark（深色）/ light（浅色），默认 dark（v0.279.0 旧版）。
  *
  * - mode：UI 层 collectAsState() 订阅，切换后全 App 即时生效；
  * - setMode()：写 SharedPreferences 并推送 flow。
@@ -24,14 +24,14 @@ object ThemeStore {
     private const val KEY_GRADIENT = "theme_gradient"
 
     /**
-     * 默认主题色：v0.279.0 V4 改为 V4 蓝 #3D9BFF（原为青 #4DD0E1）；
+     * 默认主题色：v0.279.0 旧版 改为 经典蓝 #3D9BFF（原为青 #4DD0E1）；
      * v0.292.0 V5 Material You：改为设计稿种子色 #D9822B（暖琥珀），整套 M3 色板由它按 TonalSpot 生成。
      * 显式选过颜色的用户不受影响（存的是具体色值，按该色作种子生成色板）。
      */
     const val DEFAULT_COLOR = 0xFFD9822B.toInt()
 
-    /** v0.279.0 的 V4 蓝，V5 起作为普通预设保留。 */
-    const val V4_BLUE = 0xFF3D9BFF.toInt()
+    /** v0.279.0 的 经典蓝，V5 起作为普通预设保留。 */
+    const val CLASSIC_BLUE = 0xFF3D9BFF.toInt()
 
     /** v0.292.0：色板来源——seed（默认，预设色/炫彩锚点作种子）/ poster（海报取色）/ dynamic（Android 12+ 系统壁纸取色）。 */
     const val SOURCE_SEED = "seed"
@@ -43,7 +43,7 @@ object ThemeStore {
     // v0.80.0：12 种主题色（对标 DsPlayer 我的页主题卡）
     val COLOR_OPTIONS = listOf(
         DEFAULT_COLOR, // v0.292.0：V5 琥珀种子（默认）
-        V4_BLUE, // v0.279.0：V4 蓝
+        CLASSIC_BLUE, // v0.279.0：经典蓝
         0xFF2B7DE9.toInt(), // 蓝
         0xFF3D5AFE.toInt(), // 靛蓝
         0xFF03A9F4.toInt(), // 天蓝
@@ -139,8 +139,8 @@ object ThemeStore {
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         // v0.237.0：默认主题改浅色（跟参考图走）。
-        // v0.279.0 V4：默认改回 V4 暗色——没显式存过模式的（新装、一直用默认的）
-        // 拿到 V4 暗色；显式选过亮色/跟随系统的（存了值）原样保留，不强制迁移。
+        // v0.279.0 旧版：默认改回 经典暗色——没显式存过模式的（新装、一直用默认的）
+        // 拿到 经典暗色；显式选过亮色/跟随系统的（存了值）原样保留，不强制迁移。
         val saved = prefs.getString(KEY_MODE, MODE_DARK)
             .takeIf { it == MODE_DARK || it == MODE_LIGHT || it == MODE_SYSTEM }
             ?: MODE_DARK

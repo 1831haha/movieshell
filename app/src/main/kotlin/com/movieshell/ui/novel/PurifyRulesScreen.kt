@@ -71,7 +71,7 @@ fun PurifyRulesScreen(
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = accent)
             }
-            Text("净化规则", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = accent)
+            Text("净化规则", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.weight(1f))
             IconButton(onClick = { showAdd = true }) {
                 Icon(Icons.Filled.Add, "新增规则", tint = accent)

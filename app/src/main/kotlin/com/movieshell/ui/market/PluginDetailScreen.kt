@@ -54,7 +54,7 @@ import kotlinx.coroutines.launch
 
 /**
  * 插件详情页（v0.23.0）：图标/作者/版本/大小/标签/平台/完整描述/更新说明/安装按钮。
- * v0.27.0 V4 换皮：字阶统一 V4Type，空态走 EmptyState。逻辑与文案零变更。
+ * v0.27.0 换皮：字阶统一，空态走 EmptyState。逻辑与文案零变更。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

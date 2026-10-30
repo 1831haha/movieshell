@@ -289,7 +289,7 @@ fun MusicScreen(
             }
             // v0.181.0：第二行：页签胶囊 + 当前音源小芯片（点开即切换音源，名字过长截断）；
             // 原 v0.180.0 的音源大卡整行删掉，功能不删，只收进芯片。
-            // v0.279.0 V4：四页签改 V4 文字页签（强调色下划线 + 通栏分隔线），
+            // v0.279.0 旧版：四页签改 扁平文字页签（强调色下划线 + 通栏分隔线），
             // 当前音源芯片放在页签行右侧（点开切换音源，功能不变）。
             V5TopTabs(
                 titles = listOf("在线", "本地", "收藏", "歌单"),
@@ -432,7 +432,7 @@ fun MusicScreen(
 // 原写死在本文件的网易四榜已移入 MusicApi.WY_CHARTS。
 
 /**
- * v0.95：榜单小卡片；v0.279.0 V4：去掉每榜一色的渐变底，统一 s1 平铺卡 +
+ * v0.95：榜单小卡片；v0.279.0 旧版：去掉每榜一色的渐变底，统一 s1 平铺卡 +
  * 强调色小图标井 + 榜名 + 右侧箭头；按下缩放 0.97，点击行为不变（导入整榜）。
  */
 @Composable
@@ -501,7 +501,7 @@ private fun ChartCard(
     }
 }
 
-/** v0.279.0 V4：音乐页顶部小按钮（歌单导入 / 源管理）——34dp s1 底 + 1px 分隔线描边。 */
+/** v0.279.0 旧版：音乐页顶部小按钮（歌单导入 / 源管理）——34dp s1 底 + 1px 分隔线描边。 */
 @Composable
 private fun MusicPillButton(text: String, onClick: () -> Unit) {
     val v = MaterialTheme.colorScheme
@@ -520,7 +520,7 @@ private fun MusicPillButton(text: String, onClick: () -> Unit) {
     }
 }
 
-/** v0.279.0 V4：平台 / 分组筛选芯片配色（未选 s1+t2，选中 accentA+accent）。 */
+/** v0.279.0 旧版：平台 / 分组筛选芯片配色（未选 s1+t2，选中 accentA+accent）。 */
 @Composable
 private fun v5FilterChipColors() = FilterChipDefaults.filterChipColors(
     containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -1335,7 +1335,7 @@ internal fun TrackRow(
     // v0.215.0：播过才有时长（搜索结果本身不带时长），没播过的歌不编时长。
     val durations by MusicPlayer.durations.collectAsState()
     val trackDurationMs = durations[MusicPlayer.durationKey(track)]
-    // v0.279.0 V4：卡片列表改平铺曲目行（40dp 圆角封面 + 标题/歌手 + 徽标，底部 1px 分隔线），
+    // v0.279.0 旧版：卡片列表改平铺曲目行（40dp 圆角封面 + 标题/歌手 + 徽标，底部 1px 分隔线），
     // 右侧操作（收藏 / 删除 / 加歌单 / 下载 / 播放态）全部保留。
     Box(
         modifier = Modifier

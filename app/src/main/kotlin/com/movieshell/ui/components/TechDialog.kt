@@ -98,7 +98,7 @@ fun TechDialog(
         Box(
             modifier = Modifier
                 .fillMaxWidth(widthFraction ?: 1f)
-                // v0.279.0 V4：平面弹窗——s1 底 + 1px 分隔线描边 + 12dp 圆角，去掉渐变描边。
+                // v0.279.0 旧版：平面弹窗——s1 底 + 1px 分隔线描边 + 12dp 圆角，去掉渐变描边。
                 .clip(RoundedCornerShape(28.dp))
                 .background(dialogBg)
                 .padding(horizontal = 24.dp, vertical = 24.dp),
@@ -107,7 +107,7 @@ fun TechDialog(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleLarge,
-                    // v0.279.0 V4：标题用主文字色，不再青字 + 渐变短线。
+                    // v0.279.0 旧版：标题用主文字色，不再青字 + 渐变短线。
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 if (subtitle != null) {

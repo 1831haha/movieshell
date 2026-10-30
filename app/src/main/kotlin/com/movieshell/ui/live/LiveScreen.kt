@@ -1015,7 +1015,7 @@ private fun ChannelCell(
     }
 }
 
-/** v0.80.0：线路按钮（v0.279.0 V4：分段控件里的一格，选中 s3 + t1 600）。 */
+/** v0.80.0：线路按钮（v0.279.0 旧版：分段控件里的一格，选中 s3 + t1 600）。 */
 @Composable
 private fun SourceButton(
     label: String,

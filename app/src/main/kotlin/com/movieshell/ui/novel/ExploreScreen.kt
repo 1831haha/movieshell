@@ -143,8 +143,7 @@ fun ExploreScreen(
             }
             Text(
                 "发现 · ${source?.name.orEmpty()}",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleLarge,
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )

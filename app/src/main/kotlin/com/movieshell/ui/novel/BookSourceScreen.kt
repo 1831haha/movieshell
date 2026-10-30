@@ -300,9 +300,8 @@ fun BookSourceScreen(
             }
             Text(
                 "书源管理",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                color = accent,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
             FilledTonalButton(

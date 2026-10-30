@@ -125,7 +125,7 @@ fun AppToastOverlay(bottomPadding: androidx.compose.ui.unit.Dp = 16.dp) {
                     // F6：不再固定离底 110dp——调用方按底栏/迷你播放条高度传 bottomPadding，
                     // 有底栏时悬在底栏上方 16dp，没底栏时离底 16dp，不压迷你播放条也不悬空。
                     .padding(bottom = bottomPadding)
-                    // v0.279.0 V4：平面提示条——底栏同款 #161921 实底 + 1px 分隔线描边 + 8dp 圆角。
+                    // v0.279.0 旧版：平面提示条——底栏同款 #161921 实底 + 1px 分隔线描边 + 8dp 圆角。
                     .shadow(12.dp, RoundedCornerShape(8.dp))
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceContainer)

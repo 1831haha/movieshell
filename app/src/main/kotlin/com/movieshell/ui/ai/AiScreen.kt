@@ -34,7 +34,7 @@ import com.movieshell.ui.components.dockClearance
  * 全量重做框架：AI TAB 先空着（用户 2026-10-26 定：空着吧，先做别的）。
  *
  * 只有新风格外壳（空态），内容后面再定；Muse 直达入口版已撤回。
- * v0.279.0 V4：顶栏“AI + COMING SOON”，中间强调色图标井 + 即将上线 + 开发中标签；
+ * v0.279.0 旧版：顶栏“AI + COMING SOON”，中间强调色图标井 + 即将上线 + 开发中标签；
  * 仍不做假功能。
  */
 @Composable

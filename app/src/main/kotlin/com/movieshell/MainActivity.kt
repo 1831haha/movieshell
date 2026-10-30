@@ -174,7 +174,7 @@ private data class Tab(
 // AI 具体内容后面再完善（AiScreen 目前只有新风格外壳，不做假功能）。
 // F2：AI 空壳先从底栏移除，底栏回到 5 TAB，功能做好再加回。
 // 未选中用 Outlined，选中用 Filled＋青色（V5NavigationBar 里处理）。
-// v0.279.0 V4 NAV B：线性图标（Lucide 风格），选中/未选中同一套描边图标，
+// v0.279.0 底栏 B：线性图标（Lucide 风格），选中/未选中同一套描边图标，
 // 选中靠强调色药丸 + 白色图标文字区分。
 private val tabs = listOf(
     // v0.292.0 V5：M3 NavigationBar——未选中描边图标、选中实心图标（Material Symbols 口径）。
@@ -250,7 +250,7 @@ class MainActivity : ComponentActivity() {
             AppToast.show(this, "当前为${guard.warnings.joinToString("、")}，继续使用风险自担", long = true)
         }
         ThemeStore.init(this)
-        // v0.237.0 的“跟随系统一次性切浅色”迁移已撤掉（v0.279.0 V4）：默认改 V4 暗色，
+        // v0.237.0 的“跟随系统一次性切浅色”迁移已撤掉（v0.279.0 旧版）：默认改 经典暗色，
         // 没存过模式的用户直接走默认暗色；显式存过亮色/跟随系统的不动（见 ThemeStore.init）。
         LogStore.init(this)
         PlayerSettings.init(this)
@@ -435,7 +435,7 @@ class MainActivity : ComponentActivity() {
                     curRoute?.startsWith("playlist_detail/") == true
                 val showMiniPlayer = musicState.track != null && onMusicTab
 
-                // v0.279.0 V4 NAV B：底栏改居中浮动胶囊，浮在内容上方（不再占 Scaffold
+                // v0.279.0 底栏 B：底栏改居中浮动胶囊，浮在内容上方（不再占 Scaffold
                 // bottomBar 的高度）；内容从底栏下面滚过，底部 100dp 淡出。tab 页的滚动
                 // 内容底部留白由 LocalDockClearance 提供（78dp + 迷你播放条实测高度）。
                 // 非 tab 页（音乐子页等）没有底栏，迷你播放条照旧放 bottomBar 占位。
