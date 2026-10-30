@@ -1,5 +1,15 @@
 package com.movieshell.ui.settings
 
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.Icon
+import com.movieshell.ui.components.V5Segmented
+import com.movieshell.ui.components.V5RingGauge
+import com.movieshell.ui.components.V5Dot
+import com.movieshell.ui.components.V5Tile
+import com.movieshell.ui.theme.seedColorScheme
+import com.movieshell.ui.theme.isDark
+import com.movieshell.ui.theme.ok
+
 import com.movieshell.ui.theme.V5
 import androidx.compose.ui.text.font.FontFamily
 import com.movieshell.ui.theme.ok
@@ -373,11 +383,12 @@ fun SettingsScreen(
         onDispose { settingsLifecycle.removeObserver(observer) }
     }
 
-    // v0.80.0：设置页按 DsPlayer「我的」重设计——信息卡 + 快捷宫格 + 主题卡 + 功能分组
-    // v0.279.0 V4 · SETTINGS B：bento 仪表盘——资料磁贴 + 三个环形仪表（追剧/历史/源，真实统计）
-    // + 3×2 工具磁贴 + 分组 key–value 小卡（开关/当前值）。原有每一项设置、入口、动作都保留，
-    // 位置对照见提交说明里的清单；弹窗与逻辑一行未动。
-    val v = MaterialTheme.colorScheme
+    // v0.80.0 起：资料统计 + 快捷入口 + 外观 + 功能分组；v0.279.0 bento 仪表盘。
+    // v0.292.0 V5（design-tokens 5.2，用户定案「指标界面直接触顶」）：设置页没有顶栏——
+    // 不再显示「设置」标题/版本号/当前源一行（版本号在「关于侠影」，当前源在首页换源胶囊）；
+    // 内容从状态栏下 8dp 开始：追剧/历史/源 三个统计环 → 5 个工具磁贴 → Android 16 式分段列表分组。
+    // 原有每一项设置、入口、动作都保留，弹窗与逻辑一行未动。
+    val cs = MaterialTheme.colorScheme
     val customBg by BackgroundStore.customBg.collectAsState()
     val gravityRotate by PlayerSettings.gravityRotate.collectAsState()
     val logEnabled by LogStore.enabled.collectAsState()
@@ -386,52 +397,30 @@ fun SettingsScreen(
     val crashCount = remember { CrashHandler.list(context).size }
     val statText: (Int) -> String = { n -> if (!statsLoaded) "…" else if (statsFailed) "—" else "$n" }
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(cs.surfaceContainer),
         contentPadding = PaddingValues(
             start = V5.Gutter,
             end = V5.Gutter,
-            bottom = dockClearance() + 8.dp,
+            top = V5.StatusGap,
+            bottom = dockClearance() + 16.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        // 页头：设置 + 版本号（等宽 t3）；下面一行纯文字显示当前源名——
-        // 不是格子、不可点、不带箭头，所以不算入口，也不复活已删的资料磁贴；
-        // 资料卡的“源”入口（仪表“源”，点进站源管理）原样保留，仍是唯一入口。
-        item {
-            Column {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("设置", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = v.onSurface)
-                    Spacer(Modifier.weight(1f))
-                    Text("v${com.movieshell.BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = v.outline)
-                }
-                Text(
-                    text = "当前源：$currentSourceName",
-                    fontSize = 11.sp,
-                    color = v.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        // 289 去重后用户纠偏：不要占位格——资料磁贴点不了就整块删掉，
-        // 不留一个看着像入口、点着没反应的大格子；站源管理只剩仪表“源”一个入口，
-        // 源名改在页头用一行纯文字显示（见页头那块）。
-        // 2. 三个环形仪表：追剧（有更新占比）/ 历史（占 50 条上限）/ 源（本地占比）
+        // 1. 三个统计环：追剧（有更新占比）/ 历史（占 50 条上限）/ 源（本地占比）；
+        // 三格都可点：追剧页 / 历史页 / 站源管理（2026-10-28 用户要求恢复“源”入口）。
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 StatGaugeTile(
                     label = "追剧",
                     value = statText(followCount),
-                    sub = if (statsLoaded && !statsFailed && followCount > 0) "$followNewCount 部更新" else null,
+                    sub = if (statsLoaded && !statsFailed && followCount > 0) "$followNewCount 部更新" else if (!statsLoaded) "统计中…" else "暂无更新",
                     progress = if (followCount > 0) followNewCount.toFloat() / followCount else 0f,
+                    ringColor = cs.primary,
                     onClick = onFollowClick,
                     modifier = Modifier.weight(1f),
                 )
@@ -440,257 +429,304 @@ fun SettingsScreen(
                     value = statText(histCount),
                     sub = if (statsLoaded && !statsFailed) "上限 50" else null,
                     progress = histCount / 50f,
+                    ringColor = cs.secondary,
                     onClick = onHistoryClick,
                     modifier = Modifier.weight(1f),
                 )
-                // 2026-10-28 用户要求恢复：资料卡“源”可点，进站源管理
                 StatGaugeTile(
                     label = "源",
                     value = statText(subCount + localCount),
-                    sub = if (!statsLoaded) "统计中…" else if (statsFailed) "统计失败" else "订阅$subCount",
-                    sub2 = if (statsLoaded && !statsFailed) "本地$localCount" else null,
+                    sub = if (!statsLoaded) "统计中…" else if (statsFailed) "统计失败" else "订阅 $subCount · 本地 $localCount",
                     progress = if (subCount + localCount > 0) localCount.toFloat() / (subCount + localCount) else 0f,
+                    ringColor = cs.tertiary,
                     onClick = onSourcesClick,
                     modifier = Modifier.weight(1f),
                 )
             }
         }
-        // 3. 工具磁贴 3×2（原快捷宫格 6 个入口）
+        item { Spacer(Modifier.height(6.dp)) }
+        // 2. 工具磁贴（原快捷宫格 5 个入口，一行排开）
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // v0.168.0：我的追剧与资料卡追剧统计重复，去掉；补嗅探正则入口
-                    QuickEntry("嗅探正则", Icons.Outlined.Tune, onSniffPatternsClick, Modifier.weight(1f))
-                    QuickEntry("解析接口", Icons.Outlined.Link, onParseSettingsClick, Modifier.weight(1f))
-                    QuickEntry("离线下载", Icons.Outlined.Download, onDownloadsClick, Modifier.weight(1f))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    QuickEntry("插件中心", Icons.Outlined.Inventory2, onPluginCenterClick, Modifier.weight(1f))
-                    // 289 去重：工具磁贴“站源管理”删掉，站源管理只留仪表“源”；
-                    // 第二行剩插件中心、使用手册两个，照样铺满一行。
-                    QuickEntry("使用手册", Icons.Outlined.MenuBook, onManualClick, Modifier.weight(1f))
-                }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(V5.CornerCard))
+                    .background(cs.surfaceContainerLowest)
+                    .padding(horizontal = 8.dp, vertical = 16.dp),
+            ) {
+                // v0.168.0：我的追剧与统计重复已去掉；289 去重：站源管理只留统计环“源”。
+                QuickEntry("嗅探正则", Icons.Outlined.ManageSearch, onSniffPatternsClick, Modifier.weight(1f))
+                QuickEntry("解析接口", Icons.Outlined.Link, onParseSettingsClick, Modifier.weight(1f))
+                QuickEntry("离线下载", Icons.Outlined.Download, onDownloadsClick, Modifier.weight(1f))
+                QuickEntry("插件中心", Icons.Outlined.Extension, onPluginCenterClick, Modifier.weight(1f))
+                QuickEntry("使用手册", Icons.Outlined.MenuBook, onManualClick, Modifier.weight(1f))
             }
         }
-        // 4. 外观
+        // 3. 外观
         item { SettingsCaption("外观") }
         item {
-            // 亮色 / 暗色 / 跟随系统（v0.80.0 内联三段）
-            V5Tile(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("主题模式", fontSize = 12.sp, color = v.onSurfaceVariant)
-                    Spacer(Modifier.width(12.dp))
-                    val modes = listOf(
-                        "亮色" to ThemeStore.MODE_LIGHT,
-                        "暗色" to ThemeStore.MODE_DARK,
-                        "跟随系统" to ThemeStore.MODE_SYSTEM,
-                    )
-                    V5Segmented(
-                        options = modes.map { it.first },
-                        selected = modes.indexOfFirst { it.second == themeMode },
-                        onSelect = { ThemeStore.setMode(context, modes[it].second) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+            // 亮色 / 暗色 / 跟随系统（v0.80.0 内联三段）——M3 分段按钮
+            SegItem(position = SegPos.First, icon = Icons.Outlined.Contrast, title = "主题模式") {
+                val modes = listOf(
+                    "亮色" to ThemeStore.MODE_LIGHT,
+                    "暗色" to ThemeStore.MODE_DARK,
+                    "跟随系统" to ThemeStore.MODE_SYSTEM,
+                )
+                V5Segmented(
+                    options = modes.map { it.first },
+                    selected = modes.indexOfFirst { it.second == themeMode },
+                    onSelect = { ThemeStore.setMode(context, modes[it].second) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // 主题色：单色 + 炫彩渐变预设（v0.87.1），横滑
-                V5Tile(modifier = Modifier.weight(1f).height(72.dp)) {
-                    Text("主题色", fontSize = 10.sp, color = v.outline)
-                    Spacer(Modifier.weight(1f))
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        items(ThemeStore.COLOR_OPTIONS) { argb ->
-                            ThemeSwatch(
-                                brush = androidx.compose.ui.graphics.SolidColor(Color(argb)),
-                                selected = themeKey == "c:$argb",
-                                onClick = { ThemeStore.setColor(context, argb) },
-                            )
+            // 主题色：海报取色（V5 新增）/ 系统取色（Android 12+）/ 单色预设 / 炫彩渐变预设（v0.87.1），横滑
+            val colorSource by ThemeStore.source.collectAsState()
+            val dark = cs.isDark
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.Palette,
+                title = "主题色",
+                subtitle = when (colorSource) {
+                    ThemeStore.SOURCE_POSTER -> "海报取色 · 跟随首页当前海报"
+                    ThemeStore.SOURCE_DYNAMIC -> "系统取色 · 跟随壁纸"
+                    else -> if (themeKey.startsWith("g:")) "炫彩预设 · 锚点色作种子" else "预设色 · 按 M3 色调生成整套配色"
+                },
+            ) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                ) {
+                    item {
+                        ThemeSwatch(
+                            selected = themeKey == "p:poster",
+                            label = "海报取色",
+                            onClick = { ThemeStore.setSource(context, ThemeStore.SOURCE_POSTER) },
+                        ) {
+                            PosterSwatchArt()
                         }
-                        items(ThemeStore.GRADIENT_OPTIONS) { preset ->
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= 31) {
+                        item {
                             ThemeSwatch(
-                                brush = Brush.horizontalGradient(preset.colors.map { Color(it) }),
-                                selected = themeKey == "g:${preset.id}",
-                                onClick = { ThemeStore.setGradient(context, preset.id) },
+                                selected = themeKey == "d:dynamic",
+                                label = "系统取色",
+                                onClick = { ThemeStore.setSource(context, ThemeStore.SOURCE_DYNAMIC) },
+                            ) {
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .background(cs.surfaceContainerHighest),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(Icons.Outlined.Wallpaper, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                                }
+                            }
+                        }
+                    }
+                    items(ThemeStore.COLOR_OPTIONS) { argb ->
+                        ThemeSwatch(
+                            selected = themeKey == "c:$argb",
+                            label = "主题色",
+                            onClick = { ThemeStore.setColor(context, argb) },
+                        ) {
+                            SeedSwatchArt(seedColorScheme(argb, dark))
+                        }
+                    }
+                    items(ThemeStore.GRADIENT_OPTIONS) { preset ->
+                        ThemeSwatch(
+                            selected = themeKey == "g:${preset.id}",
+                            label = preset.name,
+                            onClick = { ThemeStore.setGradient(context, preset.id) },
+                        ) {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(Brush.sweepGradient(preset.colors.map { Color(it) } + Color(preset.colors.first()))),
                             )
                         }
                     }
                 }
-                // v0.82.0：背景底图
-                KvTile(
-                    caption = "背景底图",
-                    value = if (customBg != null) "已自定义" else "默认",
-                    sub = if (customBg != null) "首页生效" else null,
-                    onClick = {
-                        if (customBg != null) showBgMenu = true
-                        else bgPicker.launch("image/*")
-                    },
-                    modifier = Modifier.weight(1f),
-                )
             }
         }
-        // 5. 播放 · 解析
+        item {
+            // v0.82.0：背景底图
+            SegItem(
+                position = SegPos.Last,
+                icon = Icons.Outlined.Wallpaper,
+                title = "背景底图",
+                subtitle = (if (customBg != null) "已自定义" else "默认") + " · 首页生效",
+                onClick = {
+                    if (customBg != null) showBgMenu = true
+                    else bgPicker.launch("image/*")
+                },
+            )
+        }
+        // 4. 播放 · 解析
         item { SettingsCaption("播放 · 解析") }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // v0.20.0：播放器内核——Media3（默认）/ libmpv；v0.29.0：libmpv 插件化，未安装时标注
-                KvTile(
-                    caption = "播放器内核",
-                    value = if (engine == PlayerEngine.MEDIA3) "Media3" else "libmpv",
-                    mono = true,
-                    sub = when {
-                        engine == PlayerEngine.MEDIA3 -> "默认内核"
-                        MpvPluginLoader.isInstalled(context) -> "插件内核"
-                        else -> "插件未安装"
-                    },
-                    showChevron = false,
-                    onClick = { showEngineDialog = true },
-                    modifier = Modifier.weight(1f),
-                )
-                // v0.27.7：重力感应自动横屏（默认开）
-                KvTile(
-                    caption = "重力感应横屏",
-                    value = if (gravityRotate) "自动" else "关闭",
-                    sub = "随手机方向",
-                    onClick = { PlayerSettings.setGravityRotate(context, !gravityRotate) },
-                    trailing = {
-                        AppSwitch(
-                            checked = gravityRotate,
-                            onCheckedChange = { PlayerSettings.setGravityRotate(context, it) },
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                // v0.114.0：JS 引擎（V8）状态——点按执行一次真实连接检测
-                val jsState = remember(jsTick) {
-                    when {
-                        JsRuntime.jsSourcesSupported -> 1
-                        JsRuntime.lastDisableReason != null -> 2
-                        else -> 0
-                    }
-                }
-                KvTile(
-                    caption = "JS 引擎",
-                    value = when (jsState) { 1 -> "V8 可用"; 2 -> "已禁用"; else -> "未检测" },
-                    dot = when (jsState) { 1 -> v.ok; 2 -> v.error; else -> v.outline },
-                    sub = when (jsState) {
-                        1 -> "JS 源正常"
-                        2 -> JsRuntime.lastDisableReason ?: "JS 源已禁用"
-                        else -> "点按检测"
-                    },
-                    showChevron = false,
-                    onClick = {
-                        scope.launch {
-                            runCatching { JsRuntime.sandbox() }
-                            jsTick++
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            // v0.20.0：播放器内核——Media3（默认）/ libmpv；v0.29.0：libmpv 插件化，未安装时标注
+            SegItem(
+                position = SegPos.First,
+                icon = Icons.Outlined.SmartDisplay,
+                title = "播放器内核",
+                subtitle = when {
+                    engine == PlayerEngine.MEDIA3 -> "Media3（默认）"
+                    MpvPluginLoader.isInstalled(context) -> "libmpv · 插件内核"
+                    else -> "libmpv · 插件未安装"
+                },
+                onClick = { showEngineDialog = true },
+            )
         }
-        // 6. 数据
+        item {
+            // v0.27.7：重力感应自动横屏（默认开）
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.ScreenRotation,
+                title = "重力感应横屏",
+                subtitle = if (gravityRotate) "自动 · 随手机方向" else "关闭",
+                onClick = { PlayerSettings.setGravityRotate(context, !gravityRotate) },
+                trailing = {
+                    AppSwitch(
+                        checked = gravityRotate,
+                        onCheckedChange = { PlayerSettings.setGravityRotate(context, it) },
+                    )
+                },
+            )
+        }
+        item {
+            // v0.114.0：JS 引擎（V8）状态——点按执行一次真实连接检测
+            val jsState = remember(jsTick) {
+                when {
+                    JsRuntime.jsSourcesSupported -> 1
+                    JsRuntime.lastDisableReason != null -> 2
+                    else -> 0
+                }
+            }
+            SegItem(
+                position = SegPos.Last,
+                icon = Icons.Outlined.Code,
+                title = "JS 引擎",
+                subtitle = when (jsState) {
+                    1 -> "V8 可用 · JS 源正常"
+                    2 -> "已禁用 · " + (JsRuntime.lastDisableReason ?: "JS 源已禁用")
+                    else -> "未检测 · 点按检测"
+                },
+                onClick = {
+                    scope.launch {
+                        runCatching { JsRuntime.sandbox() }
+                        jsTick++
+                    }
+                },
+                trailing = {
+                    V5Dot(
+                        when (jsState) { 1 -> cs.ok; 2 -> cs.error; else -> cs.outline },
+                        size = 10.dp,
+                    )
+                },
+            )
+        }
+        // 5. 数据
         item { SettingsCaption("数据") }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // v0.46.0：订阅自动刷新开关
-                KvTile(
-                    caption = "订阅自动刷新",
-                    value = if (subRefreshEnabled) "每天 1 次" else "关闭",
-                    sub = "失效的在订阅管理标出",
-                    onClick = {
-                        val next = !subRefreshEnabled
-                        SubRefreshStore.setEnabled(context, next)
-                        subRefreshEnabled = next
-                        SubRefreshWorker.reschedule(context)
-                    },
-                    trailing = {
-                        AppSwitch(
-                            checked = subRefreshEnabled,
-                            onCheckedChange = {
-                                SubRefreshStore.setEnabled(context, it)
-                                subRefreshEnabled = it
-                                SubRefreshWorker.reschedule(context)
-                            },
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                KvTile(
-                    caption = "追剧更新提醒",
-                    value = if (followCheckEnabled) "每天 2 次" else "关闭",
-                    sub = "有新集数发通知",
-                    onClick = {
-                        val next = !followCheckEnabled
-                        FollowStore.setCheckEnabled(context, next)
-                        followCheckEnabled = next
-                        FollowCheckWorker.reschedule(context)
-                    },
-                    trailing = {
-                        AppSwitch(
-                            checked = followCheckEnabled,
-                            onCheckedChange = {
-                                FollowStore.setCheckEnabled(context, it)
-                                followCheckEnabled = it
-                                FollowCheckWorker.reschedule(context)
-                            },
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            // v0.46.0：订阅自动刷新开关
+            SegItem(
+                position = SegPos.First,
+                icon = Icons.Outlined.Sync,
+                title = "订阅自动刷新",
+                subtitle = (if (subRefreshEnabled) "每天 1 次" else "关闭") + " · 失效的在订阅管理标出",
+                onClick = {
+                    val next = !subRefreshEnabled
+                    SubRefreshStore.setEnabled(context, next)
+                    subRefreshEnabled = next
+                    SubRefreshWorker.reschedule(context)
+                },
+                trailing = {
+                    AppSwitch(
+                        checked = subRefreshEnabled,
+                        onCheckedChange = {
+                            SubRefreshStore.setEnabled(context, it)
+                            subRefreshEnabled = it
+                            SubRefreshWorker.reschedule(context)
+                        },
+                    )
+                },
+            )
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // v0.51.0：WebDAV 云同步；v0.186.0：范围是订阅、追剧、书架、音乐、直播，不含插件与设置
-                val cloudConfigured = CloudSyncManager.isConfigured(context)
-                KvTile(
-                    caption = "WebDAV 云同步",
-                    value = if (cloudConfigured) "已配置" else "未配置",
-                    sub = if (cloudConfigured) CloudSyncManager.lastSyncText(context) else "坚果云/Alist/群晖",
-                    onClick = {
-                        lastSyncText = CloudSyncManager.lastSyncText(context)
-                        showCloudDialog = true
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                KvTile(
-                    caption = "备份与恢复",
-                    value = "导出 / 导入",
-                    sub = "订阅·追剧·书架·音乐·直播",
-                    onClick = { backupExpanded = !backupExpanded },
-                    trailing = {
-                        Icon(
-                            imageVector = if (backupExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                            contentDescription = if (backupExpanded) "收起" else "展开",
-                            tint = v.outline,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.NotificationsActive,
+                title = "追剧更新提醒",
+                subtitle = (if (followCheckEnabled) "每天 2 次" else "关闭") + " · 有新集数发通知",
+                onClick = {
+                    val next = !followCheckEnabled
+                    FollowStore.setCheckEnabled(context, next)
+                    followCheckEnabled = next
+                    FollowCheckWorker.reschedule(context)
+                },
+                trailing = {
+                    AppSwitch(
+                        checked = followCheckEnabled,
+                        onCheckedChange = {
+                            FollowStore.setCheckEnabled(context, it)
+                            followCheckEnabled = it
+                            FollowCheckWorker.reschedule(context)
+                        },
+                    )
+                },
+            )
+        }
+        item {
+            // v0.51.0：WebDAV 云同步；v0.186.0：范围是订阅、追剧、书架、音乐、直播，不含插件与设置
+            val cloudConfigured = CloudSyncManager.isConfigured(context)
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.CloudSync,
+                title = "WebDAV 云同步",
+                subtitle = if (cloudConfigured) "已配置 · " + CloudSyncManager.lastSyncText(context) else "未配置 · 坚果云/Alist/群晖",
+                onClick = {
+                    lastSyncText = CloudSyncManager.lastSyncText(context)
+                    showCloudDialog = true
+                },
+            )
+        }
+        item {
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.Backup,
+                title = "备份与恢复",
+                subtitle = "导出 / 导入 · 订阅·追剧·书架·音乐·直播",
+                onClick = { backupExpanded = !backupExpanded },
+                trailing = {
+                    Icon(
+                        imageVector = if (backupExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (backupExpanded) "收起" else "展开",
+                        tint = cs.onSurfaceVariant,
+                    )
+                },
+            )
         }
         item {
             AnimatedVisibility(visible = backupExpanded) {
-                V5Tile(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
-                    Text(
-                        "导出 / 导入 JSON 备份文件：订阅、追剧、书架、音乐、直播（不含插件、下载、播放历史与设置）",
-                        fontSize = 10.5.sp,
-                        color = v.outline,
-                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 2.dp),
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    SegItem(
+                        position = SegPos.Middle,
+                        icon = Icons.Outlined.Info,
+                        title = "说明",
+                        subtitle = "导出 / 导入 JSON 备份文件：订阅、追剧、书架、音乐、直播（不含插件、下载、播放历史与设置）",
                     )
-                    SettingsRow(
+                    SegItem(
+                        position = SegPos.Middle,
                         icon = Icons.Outlined.Backup,
                         title = "备份到文件",
                         subtitle = "导出到 /storage/emulated/0/xiaying/backup/",
                         onClick = { exportBackup() },
                     )
-                    SettingsRow(
+                    SegItem(
+                        position = SegPos.Middle,
                         icon = Icons.Outlined.Restore,
                         title = "从文件恢复",
                         subtitle = "从 JSON 备份文件恢复订阅、当前规则、追剧、书架、音乐、直播",
@@ -698,7 +734,8 @@ fun SettingsScreen(
                     )
                     // v0.216.0（C15）：上次恢复中断/失败后留下的恢复前快照
                     if (hasPreSnapshot) {
-                        SettingsRow(
+                        SegItem(
+                            position = SegPos.Middle,
                             icon = Icons.Outlined.History,
                             title = "恢复中断前的备份",
                             subtitle = "上次恢复没完成，导回恢复开始前的数据",
@@ -720,113 +757,106 @@ fun SettingsScreen(
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                KvTile(
-                    caption = "同时下载数",
-                    value = "$maxParallel 个并行",
-                    sub = "点按切换（1-3）",
-                    showChevron = false,
-                    onClick = {
-                        val next = if (maxParallel >= 3) 1 else maxParallel + 1
-                        DownloadStore.setMaxParallel(context, next)
-                        maxParallel = next
-                        DownloadManager.pump(context)
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                KvTile(
-                    caption = "清理缓存",
-                    value = cacheSize,
-                    mono = true,
-                    sub = "视频分片 + 图片缓存",
-                    onClick = { showClearCacheDialog = true },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.Downloading,
+                title = "同时下载数",
+                subtitle = "$maxParallel 个并行 · 点按切换（1-3）",
+                onClick = {
+                    val next = if (maxParallel >= 3) 1 else maxParallel + 1
+                    DownloadStore.setMaxParallel(context, next)
+                    maxParallel = next
+                    DownloadManager.pump(context)
+                },
+                trailing = {
+                    Text("$maxParallel", style = MaterialTheme.typography.titleMedium, color = cs.primary)
+                },
+            )
+        }
+        item {
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.CleaningServices,
+                title = "清理缓存",
+                subtitle = "$cacheSize · 视频分片 + 图片缓存",
+                onClick = { showClearCacheDialog = true },
+            )
         }
         item {
             // v0.188.0：旧字幕 key 清理入口——点开先说明条数，确认后才删
-            V5Tile(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
-                SettingsRow(
-                    icon = Icons.Outlined.Subtitles,
-                    title = "清理旧字幕记忆",
-                    subtitle = "只删旧格式按剧记忆，需手动确认",
-                    onClick = {
-                        legacySubtitleCount = countLegacyPerShowKeys(context)
-                        showClearLegacySubtitleDialog = true
-                    },
-                    divider = false,
-                )
-            }
+            SegItem(
+                position = SegPos.Last,
+                icon = Icons.Outlined.Subtitles,
+                title = "清理旧字幕记忆",
+                subtitle = "只删旧格式按剧记忆，需手动确认",
+                onClick = {
+                    legacySubtitleCount = countLegacyPerShowKeys(context)
+                    showClearLegacySubtitleDialog = true
+                },
+            )
         }
-        // 7. 插件
+        // 6. 插件（289：“插件市场源”占位格已删，插件中心只剩工具磁贴一个入口）
         item { SettingsCaption("插件") }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // 289 去重后用户纠偏：不要占位格——“插件市场源”点不了就整格删掉，
-                // 不留只展示市场数的空壳；插件中心只剩工具磁贴一个入口。
-                KvTile(
-                    caption = "显示不兼容插件",
-                    value = if (showIncompatible) "显示" else "隐藏",
-                    sub = "apk/import 仅查看",
-                    onClick = { PluginStore.setShowIncompatible(context, !showIncompatible) },
-                    trailing = {
-                        AppSwitch(
-                            checked = showIncompatible,
-                            onCheckedChange = { PluginStore.setShowIncompatible(context, it) },
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            SegItem(
+                position = SegPos.Single,
+                icon = Icons.Outlined.Extension,
+                title = "显示不兼容插件",
+                subtitle = (if (showIncompatible) "显示" else "隐藏") + " · apk/import 仅查看",
+                onClick = { PluginStore.setShowIncompatible(context, !showIncompatible) },
+                trailing = {
+                    AppSwitch(
+                        checked = showIncompatible,
+                        onCheckedChange = { PluginStore.setShowIncompatible(context, it) },
+                    )
+                },
+            )
         }
-        // 8. 帮助
+        // 7. 帮助
         item { SettingsCaption("帮助") }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                KvTile(
-                    caption = "运行日志悬浮窗",
-                    value = if (logEnabled) "已开启" else "关闭",
-                    sub = if (logEnabled) "小泡可拖动，点开看日志" else "排查问题时打开",
-                    onClick = { LogStore.setEnabled(context, !logEnabled) },
-                    trailing = {
-                        AppSwitch(
-                            checked = logEnabled,
-                            onCheckedChange = { LogStore.setEnabled(context, it) },
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                // v0.25.0：崩溃日志导出（xiaying/crash/ 打包 zip 经系统分享）
-                KvTile(
-                    caption = "导出崩溃日志",
-                    value = if (crashCount > 0) "共 $crashCount 份" else "暂无",
-                    sub = if (crashCount > 0) "打包分享" else "暂无崩溃记录",
-                    onClick = { exportCrashLog() },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            SegItem(
+                position = SegPos.First,
+                icon = Icons.Outlined.BugReport,
+                title = "运行日志悬浮窗",
+                subtitle = if (logEnabled) "已开启 · 小泡可拖动，点开看日志" else "关闭 · 排查问题时打开",
+                onClick = { LogStore.setEnabled(context, !logEnabled) },
+                trailing = {
+                    AppSwitch(
+                        checked = logEnabled,
+                        onCheckedChange = { LogStore.setEnabled(context, it) },
+                    )
+                },
+            )
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // v0.188.0：关于不可点，版本信息在值里展示
-                KvTile(
-                    caption = "关于侠影",
-                    value = com.movieshell.BuildConfig.VERSION_NAME,
-                    mono = true,
-                    sub = "本地影视聚合",
-                    onClick = null,
-                    modifier = Modifier.weight(1f),
-                )
-                // v0.30.0：更新日志独立入口
-                KvTile(
-                    caption = "更新日志",
-                    value = "每版内容",
-                    sub = "每一版的更新内容",
-                    onClick = onChangelogClick,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            // v0.25.0：崩溃日志导出（xiaying/crash/ 打包 zip 经系统分享）
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.Report,
+                title = "导出崩溃日志",
+                subtitle = if (crashCount > 0) "共 $crashCount 份 · 打包分享" else "暂无崩溃记录",
+                onClick = { exportCrashLog() },
+            )
+        }
+        item {
+            // v0.188.0：关于不可点，版本信息在副标题里展示
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.Info,
+                title = "关于侠影",
+                subtitle = "v${com.movieshell.BuildConfig.VERSION_NAME} · 本地影视聚合",
+            )
+        }
+        item {
+            // v0.30.0：更新日志独立入口
+            SegItem(
+                position = SegPos.Last,
+                icon = Icons.Outlined.NewReleases,
+                title = "更新日志",
+                subtitle = "每一版的更新内容",
+                onClick = onChangelogClick,
+            )
         }
     }
 
@@ -1169,15 +1199,14 @@ internal fun SettingsRow(
     )
 }
 
-/** v0.279.0 V4：设置分组小标题（10.5sp 500 t3，上 6dp）。 */
+/** v0.292.0 V5：设置分组标题（labelLarge primary，32dp 内缩 = 页边距 16 + 16，上 24 下 8）。 */
 @Composable
 private fun SettingsCaption(text: String) {
     Text(
         text = text,
-        fontSize = 10.5.sp,
-        fontWeight = FontWeight.Medium,
-        color = MaterialTheme.colorScheme.outline,
-        modifier = Modifier.padding(start = 2.dp, top = 8.dp, bottom = 0.dp),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, top = 22.dp, bottom = 8.dp),
     )
 }
 
@@ -1228,42 +1257,48 @@ private fun SingleChoiceDialog(
 
 /**
  * v0.80.0：信息卡统计项（追剧 / 历史 / 源）。
- * v0.279.0 V4：环形仪表磁贴——48dp 环 + 中间等宽数值，右侧标签 12/500 + 副标签 9.5 t3。
+ * v0.292.0 V5：surfaceContainerLowest 24dp 圆角卡，居中 56dp 统计环（CircularProgressIndicator 外观）
+ * + titleSmall 标签 + bodySmall 副标签。
  */
 @Composable
 private fun StatGaugeTile(
     label: String,
     value: String,
     progress: Float,
+    ringColor: Color,
     modifier: Modifier = Modifier,
     sub: String? = null,
-    sub2: String? = null,
     onClick: (() -> Unit)? = null,
 ) {
-    val v = MaterialTheme.colorScheme
-    V5Tile(modifier = modifier.height(68.dp), onClick = onClick) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            V5RingGauge(value = value, progress = progress)
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = v.onSurface, maxLines = 1)
-                if (sub != null) {
-                    Text(sub, fontSize = 9.5.sp, color = v.outline, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
-                }
-                if (sub2 != null) {
-                    Text(sub2, fontSize = 9.5.sp, color = v.outline, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
-                }
+    val cs = MaterialTheme.colorScheme
+    V5Tile(
+        modifier = modifier,
+        onClick = onClick,
+        color = cs.surfaceContainerLowest,
+        corner = V5.CornerCard,
+        padding = PaddingValues(horizontal = 8.dp, vertical = 16.dp),
+    ) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            V5RingGauge(value = value, progress = progress, color = ringColor)
+            Spacer(Modifier.height(8.dp))
+            Text(label, style = MaterialTheme.typography.titleSmall, color = cs.onSurface, maxLines = 1)
+            if (sub != null) {
+                Text(
+                    sub,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
 }
 
 /**
- * v0.80.0：快捷宫格入口（对标 DsPlayer 我的页宫格）。
- * v0.279.0 V4：工具磁贴——高 58，强调色图标在上、11.5/500 文字在下。
+ * v0.80.0：快捷宫格入口。
+ * v0.292.0 V5：工具磁贴——48dp primaryContainer 16dp 圆角图标井 + labelMedium 文字。
  */
 @Composable
 private fun QuickEntry(
@@ -1272,94 +1307,172 @@ private fun QuickEntry(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    V5Tile(modifier = modifier.height(58.dp), onClick = onClick) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.weight(1f))
+    val cs = MaterialTheme.colorScheme
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(V5.CornerLg))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(V5.CornerLg))
+                .background(cs.primaryContainer),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(imageVector = icon, contentDescription = null, tint = cs.onPrimaryContainer, modifier = Modifier.size(24.dp))
+        }
+        Spacer(Modifier.height(8.dp))
         Text(
             text = label,
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.labelMedium,
+            color = cs.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
+/** 分段列表位置：决定外圆角（组首尾 24dp，组内 6dp）。 */
+private enum class SegPos { First, Middle, Last, Single }
+
 /**
- * v0.279.0 V4：key–value 小卡——上面 10sp t3 标题，下面值 13/600（技术值等宽 14），
- * 右侧开关或箭头，可选 10sp t3 副标题；可选状态点（如 V8 可用 绿点）。
+ * v0.292.0 V5：Android 16 式分段列表项——surfaceContainerLowest 底，组首尾外角 24dp、内角 6dp，
+ * 前置 40dp primaryContainer 圆形图标，bodyLarge 标题 + bodyMedium 副标题，尾部开关/箭头/自定义；
+ * [content] 放在标题下方（主题模式分段按钮、主题色色圈）。
  */
 @Composable
-private fun KvTile(
-    caption: String,
-    value: String,
-    onClick: (() -> Unit)?,
-    modifier: Modifier = Modifier,
-    sub: String? = null,
-    mono: Boolean = false,
-    dot: Color? = null,
-    showChevron: Boolean = onClick != null,
+private fun SegItem(
+    position: SegPos,
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    content: (@Composable () -> Unit)? = null,
 ) {
-    val v = MaterialTheme.colorScheme
-    V5Tile(modifier = modifier.height(72.dp), onClick = onClick, padding = PaddingValues(start = 10.dp, end = 6.dp, top = 9.dp, bottom = 8.dp)) {
-        Text(caption, fontSize = 10.sp, color = v.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.weight(1f))
+    val cs = MaterialTheme.colorScheme
+    val big = V5.CornerCard
+    val small = V5.CornerXs
+    val shape = when (position) {
+        SegPos.First -> RoundedCornerShape(topStart = big, topEnd = big, bottomStart = small, bottomEnd = small)
+        SegPos.Middle -> RoundedCornerShape(small)
+        SegPos.Last -> RoundedCornerShape(topStart = small, topEnd = small, bottomStart = big, bottomEnd = big)
+        SegPos.Single -> RoundedCornerShape(big)
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(cs.surfaceContainerLowest)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (dot != null) {
-                V5Dot(dot)
-                Spacer(Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(cs.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(22.dp))
             }
-            Text(
-                value,
-                fontSize = if (mono) 14.sp else 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = if (mono) FontFamily.Monospace else null,
-                color = v.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = cs.onSurfaceVariant,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             when {
-                trailing != null -> Box(Modifier.height(20.dp), contentAlignment = Alignment.Center) { trailing() }
-                showChevron -> Icon(Icons.Filled.ChevronRight, null, tint = v.outline, modifier = Modifier.size(16.dp))
+                trailing != null -> {
+                    Spacer(Modifier.width(8.dp))
+                    trailing()
+                }
+                onClick != null && content == null -> {
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Filled.ChevronRight, null, tint = cs.onSurfaceVariant)
+                }
             }
         }
-        if (sub != null) {
-            Text(sub, fontSize = 10.sp, color = v.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (content != null) {
+            Spacer(Modifier.height(14.dp))
+            content()
         }
     }
 }
 
-/** v0.279.0 V4：主题色色圈（15dp；选中 = 2dp s1 间隙 + 1.5dp t1 圈）。 */
+/** 主题色色圈（48dp；选中 = 2dp primary 外圈 + 3dp 间隙）。 */
 @Composable
 private fun ThemeSwatch(
-    brush: Brush,
     selected: Boolean,
+    label: String,
     onClick: () -> Unit,
+    art: @Composable () -> Unit,
 ) {
-    val v = MaterialTheme.colorScheme
+    val cs = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
-            .size(21.dp)
+            .size(54.dp)
             .clip(CircleShape)
-            .then(if (selected) Modifier.border(1.5.dp, v.onSurface, CircleShape) else Modifier)
+            .then(if (selected) Modifier.border(2.dp, cs.primary, CircleShape) else Modifier)
             .clickable(onClick = onClick)
-            .semantics { this.selected = selected; contentDescription = if (selected) "已选主题色" else "主题色" },
+            .semantics { this.selected = selected; contentDescription = if (selected) "已选：$label" else label },
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
-                .size(15.dp)
+                .size(if (selected) 44.dp else 48.dp)
+                .clip(CircleShape),
+        ) { art() }
+    }
+}
+
+/** 预设色圈：左半 primary，右上 primaryContainer，右下 tertiaryContainer（M3 色板预览）。 */
+@Composable
+private fun SeedSwatchArt(scheme: androidx.compose.material3.ColorScheme) {
+    Row(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxSize().background(scheme.primary))
+        Column(Modifier.weight(1f).fillMaxSize()) {
+            Box(Modifier.weight(1f).fillMaxWidth().background(scheme.primaryContainer))
+            Box(Modifier.weight(1f).fillMaxWidth().background(scheme.tertiaryContainer))
+        }
+    }
+}
+
+/** 海报取色色圈：当前色板四象限 + 中心取色图标。 */
+@Composable
+private fun PosterSwatchArt() {
+    val cs = MaterialTheme.colorScheme
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.weight(1f)) {
+                Box(Modifier.weight(1f).fillMaxSize().background(cs.primaryContainer))
+                Box(Modifier.weight(1f).fillMaxSize().background(cs.primary))
+            }
+            Row(Modifier.weight(1f)) {
+                Box(Modifier.weight(1f).fillMaxSize().background(cs.tertiaryContainer))
+                Box(Modifier.weight(1f).fillMaxSize().background(cs.secondary))
+            }
+        }
+        Box(
+            Modifier
+                .size(24.dp)
                 .clip(CircleShape)
-                .background(brush),
-        )
+                .background(cs.surfaceContainerLowest),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Outlined.AutoAwesome, null, tint = cs.primary, modifier = Modifier.size(16.dp))
+        }
     }
 }
 
