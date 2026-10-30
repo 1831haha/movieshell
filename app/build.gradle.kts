@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 357
-        versionName = "0.289.0"
+        versionCode = 358
+        versionName = "0.290.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {
@@ -83,16 +83,21 @@ chaquopy {
         pip {
             // v0.14.6：PY 规则全量常用依赖（一次配全，避免 ModuleNotFoundError）
             // 注意：PyExecJS 无 Android arm64 版本，已剔除
-            install("requests")
+            // 290（Q7 第一批）：只锁体检报告里已证实的 APK 实际版本——
+            // 同一提交再构建也不会漂到别的版本；其余 6 个（beautifulsoup4、
+            // pyquery、pycryptodome、urllib3、chardet、idna）报告里没给
+            // APK 实际版本，不凭空猜版本，先不动，下一轮从构建 pip 日志
+            // 读到实际版本后再锁，锁错版本比不锁更危险。
+            install("requests==2.34.2")
             install("beautifulsoup4")
             install("pyquery")
             install("pycryptodome")
-            install("lxml")
-            install("Pillow")
+            install("lxml==5.3.0")
+            install("Pillow==11.0.0")
             install("urllib3")
             install("chardet")
             install("idna")
-            install("certifi")
+            install("certifi==2026.10.23")
         }
     }
 }

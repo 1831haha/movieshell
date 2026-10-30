@@ -14,7 +14,6 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.io.File
-import java.security.MessageDigest
 
 /**
  * v0.7.2：用户可管理的文件统一走公开目录。
@@ -317,15 +316,10 @@ object StoragePaths {
     }
 
     /** 流式 SHA-256（写法照 ServicePluginManager 的 hashStream，不整文件进内存）。 */
-    private fun sha256Of(file: File): String? = runCatching {
-        val md = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buf = ByteArray(8192)
-            var n: Int
-            while (input.read(buf).also { n = it } > 0) md.update(buf, 0, n)
-        }
-        md.digest().joinToString("") { "%02x".format(it) }
-    }.getOrNull()
+    // 290（Q5）：原来这里和 ExecutableTrust.sha256 是逐行相同的实现，
+    // 改一处漏另一处就是体检说的“改漏”；直接委托过去，只留一个实现，
+    // 签名（返回 String?，失败为 null）和调用点一行不动。
+    private fun sha256Of(file: File): String? = ExecutableTrust.sha256(file)
 
     /**
      * 内容是否一致：长度先比，长度相等再比 SHA-256；摘要算不出来时
