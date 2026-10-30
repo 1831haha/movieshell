@@ -91,7 +91,8 @@ object HomeCache {
     private fun catFile(context: Context, key: String, typeId: String): File {
         val dir = File(context.filesDir, "home_cache").also { it.mkdirs() }
         val safe = safeKey(key)
-        val safeTid = typeId.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(40).ifBlank { "0" }
+        // v0.294.1：中文分类 id（短剧/电影…）原来同长度全撞成 "__"，走 SafeFileName 保唯一
+        val safeTid = SafeFileName.encode(typeId, Regex("[^a-zA-Z0-9_-]"), 40, "0")
         return File(dir, "${safe}_cat_${safeTid}.json")
     }
 
@@ -101,8 +102,10 @@ object HomeCache {
      * 长 key 的分类文件删不掉，删源重装会读到旧分类缓存）。
      * 主文件 file() 的 take(80) 是另一套名字，不动它（动了会丢弃老主文件）。
      */
+    // v0.294.1：中文规则名（红果短剧.py / 西瓜影视.py）原来撞成同一个 py______py，换源读到别的源的缓存；
+    // 走 SafeFileName：ASCII key 结果不变，其余追加摘要。
     private fun safeKey(key: String): String =
-        key.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(60).ifBlank { "default" }
+        SafeFileName.encode(key, Regex("[^a-zA-Z0-9_-]"), 60, "default")
 
     /** 清某源缓存（源被删/禁用时调用，可选）。 */
     fun clear(context: Context, key: String) {
@@ -120,7 +123,7 @@ object HomeCache {
 
     private fun file(context: Context, key: String): File {
         val dir = File(context.filesDir, "home_cache").also { it.mkdirs() }
-        val safe = key.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(80).ifBlank { "default" }
+        val safe = SafeFileName.encode(key, Regex("[^a-zA-Z0-9_-]"), 80, "default")
         return File(dir, "$safe.json")
     }
 

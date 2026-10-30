@@ -1039,8 +1039,11 @@ fun HomeScreen(
         drpyActive = active
         val curCacheKey = homeCacheKey()
         val lastLoaded = SubSiteStore.lastLoadedSource(context)
+        // v0.294.1：用户在换源胶囊里显式点选 = 一律清空并强制重载，不再和 lastLoaded 比——
+        // lastLoaded 可能与屏上实际内容漂移（首次记账只记不载等），相等时会被当成“没换源”。
+        // 非用户路径（切 tab 回来、进程恢复）仍按 lastLoaded 比较。
         val switched = curCacheKey != null && (
-            fromUserSwitch && curCacheKey != lastLoaded ||
+            fromUserSwitch ||
                 lastLoaded != null && curCacheKey != lastLoaded
             )
         if (lastLoaded == null && curCacheKey != null) {

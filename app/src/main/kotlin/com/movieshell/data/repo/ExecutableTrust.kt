@@ -86,11 +86,18 @@ object ExecutableTrust {
         }
     }
 
-    /** 私有可信副本路径：key 里的斜杠与冒号转成下划线，防路径逃逸。 */
-    fun trustedPath(filesDir: File, key: String): File {
-        val safe = key.replace(Regex("[^A-Za-z0-9._-]+"), "_")
-        return File(File(filesDir, TRUSTED_DIR_NAME), safe)
-    }
+    /**
+     * 私有可信副本路径：key 里的斜杠与冒号转成下划线，防路径逃逸。
+     * v0.294.1：中文等非 ASCII 名原来全被吃成 `_`（「py:红果短剧.py」「py:西瓜影视.py」都成 `py_.py`），
+     * 多个规则共用一个副本、Python 桥按路径缓存 Spider → 换源后仍跑旧规则。
+     * 现在走 SafeFileName：纯 ASCII 名结果不变，其余追加 key 摘要保证唯一，保留扩展名。
+     */
+    fun trustedPath(filesDir: File, key: String): File =
+        File(File(filesDir, TRUSTED_DIR_NAME), trustedName(key))
+
+    /** 纯函数（可单测）：可信副本文件名。 */
+    fun trustedName(key: String): String =
+        SafeFileName.encode(key, Regex("[^A-Za-z0-9._-]+"), maxLen = 200, fallback = "_", keepExt = true)
 
     /**
      * 取可信副本。返回 null 表示拒绝执行（公开文件已变且旧副本也

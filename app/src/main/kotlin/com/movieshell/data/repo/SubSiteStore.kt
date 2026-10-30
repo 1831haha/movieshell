@@ -265,9 +265,8 @@ object SubSiteStore {
             ) {
                 runCatching {
                     val url = resolveUrl(URI(trimmedUrl), rec.origExt)
-                    val rawName = url.substringAfterLast("/").substringBefore("?").take(40)
-                        .replace(Regex("[^a-zA-Z0-9._-]"), "_").ifBlank { "ext.json" }
-                    val safeKey = rec.key.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(30)
+                    val rawName = extFileBase(url)
+                    val safeKey = extFileKey(rec.key)
                     File(File(context.filesDir, "spider"), "ext")
                         .let { File(it, "${safeKey}_$rawName") }
                         .takeIf { it.isFile }?.delete()
@@ -479,9 +478,8 @@ object SubSiteStore {
                 && !ext.trimStart().startsWith("{")
             ) {
                 val url = resolveUrl(baseUri, ext)
-                val rawName = url.substringAfterLast("/").substringBefore("?").take(40)
-                    .replace(Regex("[^a-zA-Z0-9._-]"), "_").ifBlank { "ext.json" }
-                val safeKey = sc.key.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(30)
+                val rawName = extFileBase(url)
+                val safeKey = extFileKey(sc.key)
                 val f = downloadTo(context, "spider", "ext", "${safeKey}_$rawName", url)
                 // 读出内容传给 spider（Hiker 类 spider 要的是规则 JSON 本身）；
                 // 读不到就回退原 ext，不比原来更差
@@ -756,12 +754,24 @@ object SubSiteStore {
      * v0.9.0 修：URL 里已带扩展名时不再追加（修 "xxx.js.js" 双后缀）。
      */
     private fun fileNameFor(subUrl: String, siteKey: String, url: String, suffix: String): String {
-        val safeKey = siteKey.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(40)
-        val base = url.substringAfterLast("/").substringBefore("?").take(40)
-            .replace(Regex("[^a-zA-Z0-9._-]"), "_").ifBlank { "rule" }
+        // v0.294.1：中文站点 key / 中文规则文件名原来全被吃成下划线，同长度的两个站会落到同一个文件；
+        // 走 SafeFileName（ASCII 结果不变，其余追加摘要保唯一）。
+        val safeKey = SafeFileName.encode(siteKey, UNSAFE_NAME, 40, "")
+        val base = SafeFileName.encode(
+            url.substringAfterLast("/").substringBefore("?").take(40), UNSAFE_NAME, 60, "rule", keepExt = true,
+        )
         val name = if (base.endsWith(suffix, ignoreCase = true)) base else base + suffix
         return "${subId(subUrl)}_${safeKey}_$name"
     }
+
+    private val UNSAFE_NAME = Regex("[^a-zA-Z0-9._-]")
+
+    /** v0.294.1：spider ext 本地文件名两段（下载与删除共用，保证一致且中文不撞名）。 */
+    private fun extFileBase(url: String): String = SafeFileName.encode(
+        url.substringAfterLast("/").substringBefore("?").take(40), UNSAFE_NAME, 60, "ext.json", keepExt = true,
+    )
+
+    private fun extFileKey(key: String): String = SafeFileName.encode(key, UNSAFE_NAME, 30, "")
 
     private fun baseOf(uri: URI): String {
         val port = if (uri.port == -1) "" else ":${uri.port}"

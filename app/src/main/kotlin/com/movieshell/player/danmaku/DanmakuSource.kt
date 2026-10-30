@@ -177,7 +177,8 @@ object DanmakuSource {
     private fun cacheFile(key: String): java.io.File? {
         val ctx = appContext ?: return null
         val dir = java.io.File(ctx.filesDir, "danmaku_cache").also { it.mkdirs() }
-        val safe = key.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(60)
+        // v0.294.1：key 含中文片名，原来全被吃成下划线、同长度片名共用一份弹幕缓存；走 SafeFileName 保唯一
+        val safe = com.movieshell.data.repo.SafeFileName.encode(key, Regex("[^a-zA-Z0-9_-]"), 60, "_")
         return java.io.File(dir, "$safe.json")
     }
 
