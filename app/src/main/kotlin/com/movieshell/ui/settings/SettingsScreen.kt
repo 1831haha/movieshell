@@ -264,30 +264,6 @@ fun SettingsScreen(
         }
     }
 
-    /** v0.25.0：崩溃日志打包 zip，经系统分享（FileProvider + ACTION_SEND） */
-    fun exportCrashLog() {
-        try {
-            val zip = CrashHandler.exportZip(context)
-            if (zip == null) {
-                AppToast.show(context, "暂无崩溃日志", long = false)
-                return
-            }
-            val uri = FileProvider.getUriForFile(
-                context, fileProviderAuthority(context), zip
-            )
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "application/zip"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                clipData = ClipData.newRawUri("crash", uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(send, "分享崩溃日志"))
-            LogBus.i("CrashHandler", "崩溃日志已导出分享：${zip.name}")
-        } catch (e: Exception) {
-            LogBus.e("CrashHandler", "崩溃日志导出失败：${e.message}")
-            AppToast.show(context, "导出失败：${e.message}", long = true)
-        }
-    }
     // 恢复仍需用户选文件，保留 picker
     // v0.186.0：importJson 改 suspend（新段走 suspend 写接口），这里进协程
     val importLauncher = rememberLauncherForActivityResult(
@@ -399,8 +375,6 @@ fun SettingsScreen(
     var showLiveAutoplayMenu by remember { mutableStateOf(false) }
     val logEnabled by LogStore.enabled.collectAsState()
     val themeKey by ThemeStore.themeKey.collectAsState()
-    var jsTick by remember { mutableStateOf(0) }
-    val crashCount = remember { CrashHandler.list(context).size }
     val statText: (Int) -> String = { n -> if (!statsLoaded) "…" else if (statsFailed) "—" else "$n" }
     LazyColumn(
         modifier = Modifier
@@ -643,38 +617,6 @@ fun SettingsScreen(
                 },
             )
         }
-        item {
-            // v0.114.0：JS 引擎（V8）状态——点按执行一次真实连接检测
-            val jsState = remember(jsTick) {
-                when {
-                    JsRuntime.jsSourcesSupported -> 1
-                    JsRuntime.lastDisableReason != null -> 2
-                    else -> 0
-                }
-            }
-            SegItem(
-                position = SegPos.Last,
-                icon = Icons.Outlined.Code,
-                title = "JS 引擎",
-                subtitle = when (jsState) {
-                    1 -> "V8 可用 · JS 源正常"
-                    2 -> "已禁用 · " + (JsRuntime.lastDisableReason ?: "JS 源已禁用")
-                    else -> "未检测 · 点按检测"
-                },
-                onClick = {
-                    scope.launch {
-                        runCatching { JsRuntime.sandbox() }
-                        jsTick++
-                    }
-                },
-                trailing = {
-                    V5Dot(
-                        when (jsState) { 1 -> cs.ok; 2 -> cs.error; else -> cs.outline },
-                        size = 10.dp,
-                    )
-                },
-            )
-        }
         // 5. 数据
         item { SettingsCaption("数据") }
         item {
@@ -874,16 +816,6 @@ fun SettingsScreen(
                         onCheckedChange = { LogStore.setEnabled(context, it) },
                     )
                 },
-            )
-        }
-        item {
-            // v0.25.0：崩溃日志导出（xiaying/crash/ 打包 zip 经系统分享）
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Outlined.Report,
-                title = "导出崩溃日志",
-                subtitle = if (crashCount > 0) "共 $crashCount 份 · 打包分享" else "暂无崩溃记录",
-                onClick = { exportCrashLog() },
             )
         }
         item {

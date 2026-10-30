@@ -27,7 +27,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -43,7 +42,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -64,6 +62,22 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import kotlin.math.roundToInt
 
 private const val PREFS = "movieshell_prefs"
@@ -84,25 +98,69 @@ private fun saveBubbleOffset(context: Context, offset: Offset) {
         .apply()
 }
 
+/** v0.294.8：悬浮按钮尺寸与贴边留白 */
+private val BUBBLE_SIZE = 44.dp
+private val EDGE_MARGIN = 8.dp
+
 /**
- * v0.273.0（T31）：悬浮球位置钳制——原来拖动无边界，拖出屏就再也点不到；
- * 读回的旧位置也不校验，换屏/转屏后可能落在屏外。至少留一半（24dp）在屏内。
+ * v0.273.0（T31）：悬浮球位置钳制——原来拖动无边界，拖出屏就再也点不到。
+ * v0.294.8：整颗按钮都留在屏内（贴边吸附后不再半截出屏）。
  */
-private fun coerceBubbleOffset(offset: Offset, maxWidthPx: Float, maxHeightPx: Float, bubblePx: Float): Offset {
-    val half = bubblePx / 2f
+private fun coerceBubbleOffset(offset: Offset, maxWidthPx: Float, maxHeightPx: Float, bubblePx: Float, marginPx: Float = 0f): Offset {
     return Offset(
-        x = offset.x.coerceIn(-half, maxWidthPx - half),
-        y = offset.y.coerceIn(-half, maxHeightPx - half),
+        x = offset.x.coerceIn(marginPx, (maxWidthPx - bubblePx - marginPx).coerceAtLeast(marginPx)),
+        y = offset.y.coerceIn(marginPx, (maxHeightPx - bubblePx - marginPx).coerceAtLeast(marginPx)),
     )
+}
+
+/**
+ * v0.294.8：日志悬浮按钮图标——圆角窗口里一个 `>` 提示符 + 光标横线 + 两行日志短线，
+ * 线条风格（圆头描边），不再用 Material Terminal 实心图标。
+ */
+val LogConsoleGlyph: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "LogConsoleGlyph",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f,
+    ).apply {
+        val stroke = SolidColor(Color.Black)
+        // 窗口外框
+        path(stroke = stroke, strokeLineWidth = 1.8f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
+            moveTo(6.5f, 4f); lineTo(17.5f, 4f)
+            arcTo(2.5f, 2.5f, 0f, false, true, 20f, 6.5f)
+            lineTo(20f, 17.5f)
+            arcTo(2.5f, 2.5f, 0f, false, true, 17.5f, 20f)
+            lineTo(6.5f, 20f)
+            arcTo(2.5f, 2.5f, 0f, false, true, 4f, 17.5f)
+            lineTo(4f, 6.5f)
+            arcTo(2.5f, 2.5f, 0f, false, true, 6.5f, 4f)
+            close()
+        }
+        // > 提示符
+        path(stroke = stroke, strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
+            moveTo(7.5f, 9f); lineTo(10.5f, 12f); lineTo(7.5f, 15f)
+        }
+        // 光标横线
+        path(stroke = stroke, strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round) {
+            moveTo(12.5f, 15f); lineTo(16.5f, 15f)
+        }
+        // 日志短线（细、淡）
+        path(stroke = stroke, strokeAlpha = 0.55f, strokeLineWidth = 1.4f, strokeLineCap = StrokeCap.Round) {
+            moveTo(13f, 9f); lineTo(16.5f, 9f)
+        }
+    }.build()
 }
 
 /**
  * v0.7.2：运行日志悬浮窗（应用内悬浮，不申请 SYSTEM_ALERT_WINDOW）。
  *
  * - 开关由设置页"运行日志悬浮窗"控制（LogStore，默认关）；
- * - 小泡：48dp 圆形，虚化风格（半透明底 + blur），可拖到任意位置（位置记住）；
- * v0.205.0：图标改 Code（</>，更像日志控制台）；静默 5 秒无新日志后整体虚化到 0.35，有新日志恢复。
- * v0.207.0：图标改 Terminal（>_，用户嫌 </> 丑、让助手定，终端样式一眼就是控制台）。
+ * - v0.294.8 重新设计：44dp 圆角方块色调按钮（primaryContainer 底 + 柔和投影，无黑圆底、无模糊光晕），
+ *   自绘线条控制台图标；空闲 5 秒淡到 0.45，按下/拖动/有新日志恢复不透明；
+ *   有未看的错误日志时右上角出 error 色计数角标（打开日志即清零）；
+ *   松手自动吸附到最近的左右边缘；默认位置在屏幕右侧中部偏上，不压底部播放控制条。
  * - 点开：BottomSheet = 日志列表（倒序、可按级别过滤）+ 导出日志 / 复制日志 / 关闭悬浮窗。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -114,85 +172,125 @@ fun LogBubbleOverlay() {
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val density = LocalDensity.current
+        val scope = rememberCoroutineScope()
+        val wPx = with(density) { maxWidth.toPx() }
+        val hPx = with(density) { maxHeight.toPx() }
+        val sizePx = with(density) { BUBBLE_SIZE.toPx() }
+        val marginPx = with(density) { EDGE_MARGIN.toPx() }
+        // v0.294.8：默认右侧、约 38% 高度——原来离底 190dp，正压在音乐/视频播放页进度条右端
         val defaultOffset = remember(maxWidth, maxHeight) {
-            with(density) {
-                Offset(
-                    x = maxWidth.toPx() - 64.dp.toPx(),
-                    y = maxHeight.toPx() - 190.dp.toPx(),
-                )
-            }
+            Offset(x = wPx - sizePx - marginPx, y = hPx * 0.38f)
         }
         // v0.273.0（T31）：读回旧位置先按当前屏钳制，再当初始位置。
         val initialOffset = remember(maxWidth, maxHeight) {
             val saved = loadBubbleOffset(context)
-            if (saved == null) defaultOffset else with(density) {
-                coerceBubbleOffset(saved, maxWidth.toPx(), maxHeight.toPx(), 48.dp.toPx())
-            }
+            if (saved == null) defaultOffset else coerceBubbleOffset(saved, wPx, hPx, sizePx, marginPx)
         }
         var offset by remember { mutableStateOf(initialOffset) }
         // v0.273.0（T31）：转屏/分屏后屏尺寸变了，已存位置可能越界，尺寸一变就重钳制。
         LaunchedEffect(maxWidth, maxHeight) {
-            offset = with(density) {
-                coerceBubbleOffset(offset, maxWidth.toPx(), maxHeight.toPx(), 48.dp.toPx())
-            }
+            offset = coerceBubbleOffset(offset, wPx, hPx, sizePx, marginPx)
         }
         var showSheet by remember { mutableStateOf(false) }
+        var dragging by remember { mutableStateOf(false) }
 
-        // v0.205.0：静默虚化——5 秒无新日志就淡到 0.35，有新日志恢复
+        // v0.205.0：静默虚化——5 秒无新日志就淡；v0.247.0（F29）条数 + 最新一条双 key
         val logEntries by LogBus.entries.collectAsState()
         var idleFaded by remember { mutableStateOf(false) }
-        // v0.247.0（F29）：原来以条数作 key，缓冲 2000 条封顶后新日志
-        // 只顶掉旧日志、条数不变，效果不重启、悬浮球一直虚着；现在
-        // 条数与最新一条双 key，封顶后新日志到了一样恢复明亮。
         LaunchedEffect(logEntries.size, logEntries.lastOrNull()) {
             idleFaded = false
             delay(5000)
             idleFaded = true
         }
-        val bubbleAlpha by animateFloatAsState(if (idleFaded) 0.35f else 1f, label = "logBubbleAlpha")
+        // v0.294.8：未看的错误计数（时间戳晚于上次打开日志的 E 级条目）
+        var seenAt by remember { mutableStateOf(System.currentTimeMillis()) }
+        val unseenErrors = remember(logEntries, seenAt) {
+            logEntries.count { it.level == 'E' && it.time > seenAt }
+        }
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val active = pressed || dragging || !idleFaded || unseenErrors > 0
+        val bubbleAlpha by animateFloatAsState(if (active) 1f else 0.45f, label = "logBubbleAlpha")
+        val bubbleScale by animateFloatAsState(if (pressed || dragging) 1.08f else 1f, label = "logBubbleScale")
 
         Box(
             modifier = Modifier
                 .offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
-                .size(48.dp)
+                .size(BUBBLE_SIZE + 8.dp) // 角标外扩留位
                 .alpha(bubbleAlpha)
                 .pointerInput(maxWidth, maxHeight) {
                     detectDragGestures(
-                        onDragEnd = { saveBubbleOffset(context, offset) },
+                        onDragStart = { dragging = true },
+                        onDragCancel = { dragging = false },
+                        onDragEnd = {
+                            dragging = false
+                            // v0.294.8：松手吸附到最近的左右边缘
+                            val targetX = if (offset.x + sizePx / 2f < wPx / 2f) marginPx
+                            else wPx - sizePx - marginPx
+                            scope.launch {
+                                animate(offset.x, targetX, animationSpec = spring(dampingRatio = 0.75f, stiffness = 500f)) { v, _ ->
+                                    offset = offset.copy(x = v)
+                                }
+                                saveBubbleOffset(context, offset)
+                            }
+                        },
                     ) { change, dragAmount ->
                         change.consume()
-                        // v0.273.0（T31）：拖动中即钳制，松手存的也是屏内位置。
-                        offset = with(density) {
-                            coerceBubbleOffset(
-                                offset + dragAmount,
-                                maxWidth.toPx(), maxHeight.toPx(), 48.dp.toPx(),
-                            )
-                        }
+                        offset = coerceBubbleOffset(offset + dragAmount, wPx, hPx, sizePx, marginPx)
                     }
-                }
-                .clip(CircleShape)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                .clickable { showSheet = true },
+                },
         ) {
-            // 虚化底层：半透明 + 模糊（v0.27.0：primaryContainer 配色 + 描边）
-            Box(
+            Surface(
+                onClick = {
+                    seenAt = System.currentTimeMillis()
+                    showSheet = true
+                },
+                interactionSource = interaction,
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                tonalElevation = 2.dp,
+                shadowElevation = 6.dp,
                 modifier = Modifier
-                    .matchParentSize()
-                    .blur(14.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)),
-            )
-            Icon(
-                imageVector = Icons.Filled.Terminal,
-                contentDescription = "运行日志",
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(24.dp),
-            )
+                    .align(Alignment.BottomStart)
+                    .size(BUBBLE_SIZE)
+                    .graphicsLayer { scaleX = bubbleScale; scaleY = bubbleScale },
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = LogConsoleGlyph,
+                        contentDescription = "运行日志",
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+            if (unseenErrors > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .heightIn(min = 18.dp)
+                        .widthIn(min = 18.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.error)
+                        .border(1.5.dp, MaterialTheme.colorScheme.surface, RoundedCornerShape(50))
+                        .padding(horizontal = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = if (unseenErrors > 99) "99+" else unseenErrors.toString(),
+                        color = MaterialTheme.colorScheme.onError,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
 
         if (showSheet) {
-            ModalBottomSheet(onDismissRequest = { showSheet = false }) {
+            ModalBottomSheet(onDismissRequest = {
+                showSheet = false
+                seenAt = System.currentTimeMillis()
+            }) {
                 LogSheetContent(onCloseSheet = { showSheet = false })
             }
         }

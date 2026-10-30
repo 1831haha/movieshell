@@ -587,26 +587,27 @@ fun MusicPlayerScreen(
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                // 主控制：上一首 / 主题色大播放键 / 下一首（居中，图标无底圈）
+                // 主控制：上一首 / 主题色播放键 / 下一首（居中，图标无底圈）
+                // v0.294.8：播放键 72→62dp、图标 40→32dp，上/下一首 56→48dp（用户嫌播放键太大）
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
+                    horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
                 ) {
                     IconButton(
                         onClick = { MusicPlayer.prev(context) },
-                        modifier = Modifier.size(56.dp),
+                        modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
                             Icons.Filled.SkipPrevious,
                             contentDescription = "上一首",
-                            modifier = Modifier.size(36.dp),
+                            modifier = Modifier.size(32.dp),
                             tint = Color.White,
                         )
                     }
                     FilledIconButton(
                         onClick = { MusicPlayer.toggle() },
-                        modifier = Modifier.size(72.dp),
+                        modifier = Modifier.size(62.dp),
                         shape = CircleShape,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
@@ -615,9 +616,9 @@ fun MusicPlayerScreen(
                     ) {
                         if (playState.loading) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(30.dp),
+                                modifier = Modifier.size(24.dp),
                                 color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 3.dp,
+                                strokeWidth = 2.5.dp,
                             )
                         } else {
                             Icon(
@@ -625,7 +626,7 @@ fun MusicPlayerScreen(
                                 else Icons.Filled.PlayArrow,
                                 contentDescription = if (playState.playing) "暂停" else "播放",
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(32.dp)
                                     .graphicsLayer {
                                         scaleX = playIconScale.value
                                         scaleY = playIconScale.value
@@ -635,12 +636,12 @@ fun MusicPlayerScreen(
                     }
                     IconButton(
                         onClick = { MusicPlayer.next(context) },
-                        modifier = Modifier.size(56.dp),
+                        modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
                             Icons.Filled.SkipNext,
                             contentDescription = "下一首",
-                            modifier = Modifier.size(36.dp),
+                            modifier = Modifier.size(32.dp),
                             tint = Color.White,
                         )
                     }
