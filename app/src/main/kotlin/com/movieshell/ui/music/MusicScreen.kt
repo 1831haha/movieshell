@@ -87,7 +87,6 @@ import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
-import com.movieshell.ui.components.accentTitleColor
 import kotlinx.coroutines.launch
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
@@ -1300,7 +1299,7 @@ private fun qualityChipColor(quality: String): Color {
         quality.contains("无损") || quality.contains("母带") || quality.contains("超高清") ||
             listOf("flac", "hires", "atmos", "master").any {
                 quality.contains(it, ignoreCase = true)
-            } -> accentTitleColor()
+            } -> V4.c.t1
         quality.contains("高清") || quality.contains("320k") ->
             V4.c.accent
         else -> MaterialTheme.colorScheme.onSurfaceVariant

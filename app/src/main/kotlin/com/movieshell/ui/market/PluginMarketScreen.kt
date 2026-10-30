@@ -69,7 +69,7 @@ import com.movieshell.data.repo.PluginMarket.MarketPlugin
 import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.V4Chip
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
@@ -92,7 +92,7 @@ import com.movieshell.ui.theme.V4Type
  * - 搜索过滤；不支持的 type 默认隐藏（设置里可开"显示不兼容插件"，置灰禁装）
  * - 卡片点击进详情页；卡片上可直接安装/更新/卸载
  *
- * v0.27.0 Soft Tech 换皮：卡片走 AppCard，筛选走 AppChip，搜索走 AppTextField，
+ * v0.27.0 Soft Tech 换皮：卡片走 AppCard，筛选走 V4Chip，搜索走 AppTextField，
  * 三态走 EmptyState / LoadingSkeleton。过滤与按钮状态机逻辑零变更。
  * v0.134.0：多市场归并——注册表里启用的市场并发拉取、按插件 id 去重
  * （注册表顺序在前者胜出），头部信息条汇总市场/插件/可更新数，市场增删改
@@ -313,18 +313,18 @@ fun PluginMarketScreen(
             }
             // v0.134.0：状态筛选 chips（数字随 merged/安装态实时派生）
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppChip(text = "全部", selected = statusFilter == 0, onClick = { statusFilter = 0 })
-                AppChip(
+                V4Chip(text = "全部", selected = statusFilter == 0, onClick = { statusFilter = 0 })
+                V4Chip(
                     text = "可更新 $updatableCount",
                     selected = statusFilter == 1,
                     onClick = { statusFilter = 1 },
                 )
-                AppChip(
+                V4Chip(
                     text = "已安装 $installedCount",
                     selected = statusFilter == 2,
                     onClick = { statusFilter = 2 },
                 )
-                AppChip(
+                V4Chip(
                     text = "未安装 ${merged.size - installedCount}",
                     selected = statusFilter == 3,
                     onClick = { statusFilter = 3 },
@@ -332,21 +332,21 @@ fun PluginMarketScreen(
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppChip(text = "全部", selected = category.isEmpty(), onClick = { category = "" })
-                AppChip(text = "环境", selected = category == "env", onClick = { category = "env" })
-                AppChip(text = "应用", selected = category == "app", onClick = { category = "app" })
+                V4Chip(text = "全部", selected = category.isEmpty(), onClick = { category = "" })
+                V4Chip(text = "环境", selected = category == "env", onClick = { category = "env" })
+                V4Chip(text = "应用", selected = category == "app", onClick = { category = "app" })
             }
             // v0.134.0：架构筛选——仅当归并结果含 2 种以上架构时才渲染这一行
             if (archOptions.size >= 2) {
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppChip(
+                    V4Chip(
                         text = "全部架构",
                         selected = archFilter.isEmpty(),
                         onClick = { archFilter = "" },
                     )
                     archOptions.forEach { abi ->
-                        AppChip(
+                        V4Chip(
                             text = abi,
                             selected = archFilter == abi,
                             onClick = { archFilter = abi },

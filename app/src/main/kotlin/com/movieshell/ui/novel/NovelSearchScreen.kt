@@ -32,7 +32,6 @@ import coil.compose.AsyncImage
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.accentTitleColor
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.TechDialog
@@ -99,7 +98,7 @@ fun NovelSearchScreen(
         onDispose { vm.setKeyword("") }
     }
     // v0.109.0 A9：亮色主题白底青字按底色明度自适应
-    val accent = accentTitleColor()
+    val accent = V4.c.t1
 
     val sources by BookSourceManager.sources.collectAsState()
     val pyRules by PyBookSourceManager.rules.collectAsState()

@@ -6,7 +6,7 @@ import com.movieshell.ui.components.V4Divider
 import com.movieshell.ui.components.V4IconButton
 import com.movieshell.ui.components.V4Tag
 import com.movieshell.ui.components.V4TagKind
-import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.V4Chip
 import com.movieshell.ui.components.dockClearance
 import com.movieshell.ui.components.v4BottomDivider
 import androidx.compose.ui.draw.drawBehind
@@ -482,7 +482,7 @@ fun LiveScreen(
                         .padding(horizontal = 12.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    AppChip(
+                    V4Chip(
                         text = "全部",
                         selected = selectedLiveSource == null,
                         small = true,
@@ -492,7 +492,7 @@ fun LiveScreen(
                         },
                     )
                     sourceKeys.forEach { key ->
-                        AppChip(
+                        V4Chip(
                             small = true,
                             text = liveSourceLabel(key),
                             selected = selectedLiveSource == key,

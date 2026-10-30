@@ -118,8 +118,8 @@ import com.movieshell.ui.download.DownloadScreen
 import com.movieshell.ui.follow.FollowScreen
 import com.movieshell.ui.history.HistoryScreen
 import com.movieshell.ui.reader.ReaderScreen
-import com.movieshell.ui.components.SoftBottomDock
-import com.movieshell.ui.components.SoftDockItem
+import com.movieshell.ui.components.V4BottomDock
+import com.movieshell.ui.components.V4DockItem
 import com.movieshell.ui.components.LocalDockClearance
 import com.movieshell.ui.components.V4DockFade
 import com.movieshell.ui.theme.V4
@@ -165,7 +165,7 @@ private data class Tab(
 // 全量重做：底栏 6 TAB——首页/直播/书架/音乐/AI/设置；框架先起来，
 // AI 具体内容后面再完善（AiScreen 目前只有新风格外壳，不做假功能）。
 // F2：AI 空壳先从底栏移除，底栏回到 5 TAB，功能做好再加回。
-// 未选中用 Outlined，选中用 Filled＋青色（SoftBottomDock 里处理）。
+// 未选中用 Outlined，选中用 Filled＋青色（V4BottomDock 里处理）。
 // v0.279.0 V4 NAV B：线性图标（Lucide 风格），选中/未选中同一套描边图标，
 // 选中靠强调色药丸 + 白色图标文字区分。
 private val tabs = listOf(
@@ -1055,8 +1055,8 @@ class MainActivity : ComponentActivity() {
                             val selectedIdx = tabs.indexOfFirst { t ->
                                 current?.hierarchy?.any { it.route == t.route } == true
                             }.takeIf { it >= 0 } ?: 0
-                            SoftBottomDock(
-                                items = tabs.map { SoftDockItem(it.label, it.icon, it.selectedIcon) },
+                            V4BottomDock(
+                                items = tabs.map { V4DockItem(it.label, it.icon, it.selectedIcon) },
                                 selectedIndex = selectedIdx,
                                 onSelect = { i -> navController.navigateTab(tabs[i].route) },
                             )

@@ -56,7 +56,6 @@ import com.movieshell.data.model.Novel
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
-import com.movieshell.ui.components.accentTitleColor
 import com.movieshell.ui.theme.LocalBrandGradient
 
 /**
@@ -171,7 +170,7 @@ fun NovelListCard(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         // v0.109.0 A9：书名在玻璃卡片上，亮色主题白底青字难读，用明度自适应青色
-                        color = accentTitleColor(),
+                        color = V4.c.t1,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
@@ -233,7 +232,7 @@ fun NovelListCard(
                 },
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (isDirFailed) Color.White else accentTitleColor(),
+                color = if (isDirFailed) Color.White else V4.c.t1,
                 modifier = Modifier
                     .background(
                         if (isDirFailed) V4.c.live

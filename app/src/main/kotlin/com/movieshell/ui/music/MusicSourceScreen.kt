@@ -70,7 +70,6 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
-import com.movieshell.ui.components.accentTitleColor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -503,7 +502,7 @@ fun MusicSourceScreen(onBack: () -> Unit = {}) {
                             if (source.builtin) {
                                 Spacer(Modifier.width(6.dp))
                                 // v0.109.0 A9：内置 chip 青底 16% 透，文字用明度自适应青色
-                                val accentChip = accentTitleColor()
+                                val accentChip = V4.c.t1
                                 Text(
                                     text = "内置",
                                     fontSize = 11.sp,

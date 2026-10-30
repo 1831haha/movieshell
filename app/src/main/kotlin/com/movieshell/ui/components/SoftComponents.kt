@@ -10,16 +10,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,10 +24,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,11 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -54,29 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.movieshell.ui.theme.SoftMotion
 import com.movieshell.ui.theme.V4
 import com.movieshell.ui.theme.V4Type
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.offset
-import androidx.compose.runtime.remember
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.min
 
 /**
  * v0.27.0 Soft Tech 公共组件（单入口，各屏不许自建卡片/按钮）。
@@ -181,65 +147,6 @@ fun AppButton(
             contentPadding = pad,
             content = content,
         )
-    }
-}
-
-/**
- * 筛选 chip（V4：6dp 圆角矩形，s1 底 t2 字；选中强调色 12% 底 + 强调色字，无描边无阴影）。
- * 深浅两套都走 V4 token。
- */
-@Composable
-fun AppChip(
-    text: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    small: Boolean = false, // v0.30.1：二级筛选行用小一号
-) {
-    val v = V4.c
-    Box(
-        modifier = modifier
-            .height(if (small) 26.dp else 28.dp)
-            .clip(RoundedCornerShape(V4.RPoster))
-            .background(if (selected) v.accentA else v.s1)
-            .clickable(onClick = onClick)
-            .semantics { this.selected = selected }
-            .padding(horizontal = if (small) 9.dp else 12.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = text,
-            fontSize = if (small) 11.5.sp else 12.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) v.accent else v.t2,
-            maxLines = 1,
-        )
-    }
-}
-
-/**
- * v0.109.0 A9：强调标题色。
- * v0.279.0 V4：分区标题一律主文字色 t1（V4 只有一个强调色，且只给选中/主操作用）。
- */
-@Composable
-fun accentTitleColor(): Color = V4.c.t1
-
-/** 分区标题（V4：32dp 高，12sp 600 t1 + 可选右侧操作）。 */
-@Composable
-fun SectionTitle(
-    title: String,
-    modifier: Modifier = Modifier,
-    action: @Composable (() -> Unit)? = null,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = V4.SectionHeader),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(title, style = V4Type.Section, color = V4.c.t1)
-        action?.invoke()
     }
 }
 
@@ -351,174 +258,4 @@ fun AppTextField(
             inner()
         },
     )
-}
-
-/** 悬浮 dock 导航项。 */
-data class SoftDockItem(
-    val label: String,
-    val icon: ImageVector,
-    val selectedIcon: ImageVector = icon,
-)
-
-/**
- * v0.279.0 V4 · NAV B：居中浮动胶囊底栏。
- *
- * - 高 48dp、整胶囊圆角、内边距 4、项间距 4；固定总宽 334dp（屏窄时按屏宽 − 24dp 收）。
- * - 选中项固定 84dp 宽强调色药丸（图标 + 文字），未选中 44dp 只有图标；
- *   药丸是一个整体在底层平移（220ms 强调减速），各项宽度同步 44↔84，底栏总宽不变。
- * - 文字 80ms 后淡入 + 左移 4dp；按下缩 0.94；切换时轻触觉。
- * - 未选中无文字，每项带无障碍描述（tab 名）。
- * - Compose 1.6 没有背景模糊：用 95% 不透明的 #161921 底（[V4Colors.navBg]）。
- * 调用方负责把它摆在内容之上（MainActivity 里浮在 NavHost 上方，不占内容高度）。
- */
-@Composable
-fun SoftBottomDock(
-    items: List<SoftDockItem>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val v = V4.c
-    val haptic = LocalHapticFeedback.current
-    BoxWithConstraints(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(bottom = V4.NavBottom),
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        val n = items.size.coerceAtLeast(1)
-        val gap = 4.dp
-        val pad = 4.dp
-        val border = 1.dp
-        val barWidth = min(V4.NavWidth, maxWidth - 24.dp)
-        val activeW = V4.NavItemActive
-        // 屏窄时只压未选中项；正常屏 = 44dp
-        val inactiveW = ((barWidth - border * 2 - pad * 2 - gap * (n - 1) - activeW) / (n - 1).coerceAtLeast(1))
-            .coerceAtMost(V4.NavItem)
-        val pillX by animateDpAsState(
-            targetValue = (inactiveW + gap) * selectedIndex.coerceIn(0, n - 1),
-            animationSpec = tween(SoftMotion.Fast, easing = SoftMotion.Ease),
-            label = "navPillX",
-        )
-        val shape = RoundedCornerShape(24.dp)
-        Box(
-            modifier = Modifier
-                .width(barWidth)
-                .heightIn(min = V4.NavHeight)
-                .shadow(
-                    elevation = 14.dp,
-                    shape = shape,
-                    ambientColor = Color.Black.copy(alpha = 0.55f),
-                    spotColor = Color.Black.copy(alpha = 0.55f),
-                )
-                .clip(shape)
-                .background(v.navBg)
-                .border(border, v.navBorder, shape)
-                .drawBehind {
-                    // 顶部 1px 内高光（rgba(255,255,255,.04)）
-                    if (v.isDark) {
-                        drawLine(
-                            color = Color.White.copy(alpha = 0.04f),
-                            start = Offset(size.height / 2, 1.dp.toPx()),
-                            end = Offset(size.width - size.height / 2, 1.dp.toPx()),
-                            strokeWidth = 1.dp.toPx(),
-                        )
-                    }
-                }
-                .padding(pad),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            // 底层：一个整体平移的强调色药丸
-            Box(
-                modifier = Modifier
-                    .offset(x = pillX)
-                    .width(activeW)
-                    .height(40.dp)
-                    .shadow(
-                        elevation = 6.dp,
-                        shape = RoundedCornerShape(20.dp),
-                        ambientColor = v.accent.copy(alpha = 0.32f),
-                        spotColor = v.accent.copy(alpha = 0.32f),
-                    )
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(v.accent),
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(gap),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                items.forEachIndexed { i, item ->
-                    val selected = i == selectedIndex
-                    val w by animateDpAsState(
-                        targetValue = if (selected) activeW else inactiveW,
-                        animationSpec = tween(SoftMotion.Fast, easing = SoftMotion.Ease),
-                        label = "navItemW",
-                    )
-                    val fg by animateColorAsState(
-                        targetValue = if (selected) v.onAccent else v.t2,
-                        animationSpec = tween(SoftMotion.Fast, easing = SoftMotion.Ease),
-                        label = "navItemFg",
-                    )
-                    val interaction = remember { MutableInteractionSource() }
-                    val pressed by interaction.collectIsPressedAsState()
-                    val scale by animateFloatAsState(
-                        targetValue = if (pressed) 0.94f else 1f,
-                        animationSpec = tween(90),
-                        label = "navPress",
-                    )
-                    Box(
-                        modifier = Modifier
-                            .width(w)
-                            .height(40.dp)
-                            .scale(scale)
-                            .clip(RoundedCornerShape(20.dp))
-                            .clickable(
-                                interactionSource = interaction,
-                                indication = null,
-                            ) {
-                                if (!selected) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                }
-                                onSelect(i)
-                            }
-                            .semantics {
-                                role = Role.Tab
-                                this.selected = selected
-                                contentDescription = item.label
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                        ) {
-                            Icon(
-                                imageVector = if (selected) item.selectedIcon else item.icon,
-                                contentDescription = null,
-                                tint = fg,
-                                modifier = Modifier.size(19.dp),
-                            )
-                            AnimatedVisibility(
-                                visible = selected,
-                                enter = fadeIn(tween(120, delayMillis = 80)) +
-                                    slideInHorizontally(tween(120, delayMillis = 80)) { -it / 6 },
-                                exit = fadeOut(tween(80)),
-                            ) {
-                                Row {
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        item.label,
-                                        style = V4Type.NavLabel,
-                                        color = v.onAccent,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }

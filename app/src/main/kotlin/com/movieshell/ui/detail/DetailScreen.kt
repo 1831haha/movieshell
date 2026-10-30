@@ -124,12 +124,12 @@ import com.movieshell.player.resolvePlayUrl
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.V4Chip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.PlainBlock
 import com.movieshell.ui.components.LoadingSkeleton
-import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.components.V4SectionTitle
 import com.movieshell.ui.theme.V4
 import com.movieshell.ui.theme.V4Type
 import com.movieshell.ui.theme.BrandGradientColors
@@ -338,7 +338,7 @@ fun DetailScreen(
     @Composable
     fun EpisodeChip(index: Int, name: String, selected: Boolean, onClick: () -> Unit) {
         Box {
-            AppChip(text = name, selected = selected, onClick = onClick)
+            V4Chip(text = name, selected = selected, onClick = onClick)
             if (following && index <= watchedEp) {
                 Icon(
                     Icons.Filled.CheckCircle,
@@ -790,7 +790,7 @@ fun DetailScreen(
                                 }
                             }
                             item {
-                                SectionTitle(
+                                V4SectionTitle(
                                     title = "选集（共 ${lineEpisodes.size} 集）",
                                     modifier = Modifier.padding(
                                         horizontal = V4.Gutter,
@@ -863,7 +863,7 @@ fun DetailScreen(
                         }
                         episodes.size > 1 -> {
                             item {
-                                SectionTitle(
+                                V4SectionTitle(
                                     title = "选集（共 ${episodes.size} 集）",
                                     modifier = Modifier.padding(
                                         horizontal = V4.Gutter,

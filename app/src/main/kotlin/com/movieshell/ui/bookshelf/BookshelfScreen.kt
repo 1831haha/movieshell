@@ -113,7 +113,6 @@ import com.movieshell.data.repo.NovelUpdateStore
 import com.movieshell.data.repo.ReadingProgressStore
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
-import com.movieshell.ui.components.accentTitleColor
 import com.movieshell.ui.market.PluginUi
 import com.movieshell.ui.theme.LocalBrandGradient
 import java.io.File
@@ -1293,7 +1292,7 @@ private fun GroupChip(
             name,
             fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) accentTitleColor()
+            color = if (selected) V4.c.t1
             else MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (count >= 0) {
@@ -1301,7 +1300,7 @@ private fun GroupChip(
             Text(
                 "$count",
                 fontSize = 11.sp,
-                color = if (selected) accentTitleColor().copy(alpha = 0.8f)
+                color = if (selected) V4.c.t1.copy(alpha = 0.8f)
                 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
         }

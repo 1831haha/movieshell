@@ -126,7 +126,7 @@ import com.movieshell.data.repo.ThemeStore
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.components.V4SectionTitle
 import com.movieshell.ui.theme.LocalBrandGradient
 import java.io.File
 import java.text.SimpleDateFormat
@@ -159,7 +159,7 @@ import androidx.compose.material.icons.filled.Image
 import coil.imageLoader
 import com.movieshell.data.repo.BackgroundStore
 
-// v0.27.0 Soft Tech 换皮：分组卡片走 AppCard，分组标题走 SectionTitle，
+// v0.27.0 Soft Tech 换皮：分组卡片走 AppCard，分组标题走 V4SectionTitle，
 // 对话框 20dp 圆角 + 输入框走 AppTextField，按钮走 AppButton。逻辑与文案零变更。
 
 @OptIn(ExperimentalMaterial3Api::class)

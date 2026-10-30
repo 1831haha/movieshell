@@ -58,7 +58,7 @@ import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.components.V4SectionTitle
 import kotlinx.coroutines.launch
 import java.io.File
 import com.movieshell.ui.theme.V4Type
@@ -69,7 +69,7 @@ import com.movieshell.ui.theme.V4Type
  * 进行中：进度条 + 暂停/继续/删除；已完成：点播本地文件/删除。
  * m3u8 下载到 30% 后可"边下边播"（播本地 index.m3u8）。
  *
- * v0.27.0 Soft Tech 换皮：任务卡走 AppCard，分区标题走 SectionTitle，
+ * v0.27.0 Soft Tech 换皮：任务卡走 AppCard，分区标题走 V4SectionTitle，
  * 空态走 EmptyState，按钮走 AppButton，进度条走主色。逻辑与文案零变更。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -301,7 +301,7 @@ fun DownloadScreen(
             ) {
                 if (active.isNotEmpty()) {
                     item {
-                        SectionTitle(title = "下载中（${active.size}）")
+                        V4SectionTitle(title = "下载中（${active.size}）")
                     }
                     items(active, key = { it.id }) { task ->
                         TaskCard(
@@ -325,7 +325,7 @@ fun DownloadScreen(
                 }
                 if (done.isNotEmpty()) {
                     item {
-                        SectionTitle(title = "已完成（${done.size}）")
+                        V4SectionTitle(title = "已完成（${done.size}）")
                     }
                     items(done, key = { it.id }) { task ->
                         TaskCard(

@@ -56,7 +56,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.V4Chip
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.EmptyKind
@@ -149,13 +149,13 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            AppChip(
+            V4Chip(
                 text = "所有源",
                 selected = !onlyCurrentSource,
                 onClick = { vm.setOnlyCurrentSource(false) },
                 small = true,
             )
-            AppChip(
+            V4Chip(
                 text = "只搜当前源",
                 selected = onlyCurrentSource,
                 onClick = { vm.setOnlyCurrentSource(true) },

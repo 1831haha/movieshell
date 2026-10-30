@@ -57,7 +57,7 @@ import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
-import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.V4Chip
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -276,7 +276,7 @@ private fun LogSheetContent(onCloseSheet: () -> Unit) {
 
 @Composable
 private fun LevelChip(label: String, level: Char, selected: Char, onSelect: (Char) -> Unit) {
-    AppChip(
+    V4Chip(
         text = label,
         selected = selected == level,
         onClick = { onSelect(level) },

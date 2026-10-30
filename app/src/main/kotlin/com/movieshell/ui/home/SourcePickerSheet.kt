@@ -79,7 +79,7 @@ import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubCurrent
 import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubSiteStore
-import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.V4Chip
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.faviconUrlForHost
@@ -572,9 +572,9 @@ fun SourcePickerSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                AppChip(text = "全部", selected = kindFilter == null, onClick = { kindFilter = null }, small = true)
+                V4Chip(text = "全部", selected = kindFilter == null, onClick = { kindFilter = null }, small = true)
                 kindsPresent.forEach { kind ->
-                    AppChip(
+                    V4Chip(
                         text = kindLabel(kind),
                         selected = kindFilter == kind,
                         onClick = { kindFilter = if (kindFilter == kind) null else kind },

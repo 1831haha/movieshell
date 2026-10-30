@@ -41,10 +41,10 @@ import com.movieshell.data.novel.PurifyRuleStore
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppToast
-import com.movieshell.ui.components.accentTitleColor
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.launch
+import com.movieshell.ui.theme.V4
 
 /**
  * v0.95.0 净化规则管理（对标阅读 3.0 替换规则）：
@@ -57,7 +57,7 @@ fun PurifyRulesScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // v0.109.0 A9：亮色主题白底青字按底色明度自适应
-    val accent = accentTitleColor()
+    val accent = V4.c.t1
 
     var rules by remember { mutableStateOf<List<PurifyRule>>(emptyList()) }
     var showAdd by remember { mutableStateOf(false) }

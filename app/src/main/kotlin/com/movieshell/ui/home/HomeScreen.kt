@@ -117,7 +117,7 @@ import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.V4Chip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.data.repo.ThemeStore
@@ -129,7 +129,7 @@ import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
 import com.movieshell.player.OrientationSensor
 import com.movieshell.player.PlaySession
-import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.components.V4SectionTitle
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.color

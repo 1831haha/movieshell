@@ -39,7 +39,7 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.components.V4SectionTitle
 import com.movieshell.ui.theme.V4Type
 
 /**
@@ -75,7 +75,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                 .padding(16.dp)
         ) {
             item {
-                SectionTitle(
+                V4SectionTitle(
                     title = "嗅探正则",
                     action = {
                         TextButton(onClick = { showAddPattern = true }) {

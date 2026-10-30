@@ -118,11 +118,11 @@ import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.CapsuleTabBar
-import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.V4Chip
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.ui.components.SectionTitle
+import com.movieshell.ui.components.V4SectionTitle
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.trash.TrashScreen
 import com.movieshell.ui.preview.openFileWithEditor
@@ -1022,7 +1022,7 @@ fun SourcesScreen(
         ) {
         // ===== 订阅源 =====
         item(span = { GridItemSpan(maxLineSpan) }) {
-            SectionTitle(title = "订阅源")
+            V4SectionTitle(title = "订阅源")
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1049,14 +1049,14 @@ fun SourcesScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    AppChip(
+                    V4Chip(
                         text = "全部",
                         small = true,
                         selected = effectiveFilter.isBlank(),
                         onClick = { subGroupFilter = "" },
                     )
                     subGroups.forEach { g ->
-                        AppChip(
+                        V4Chip(
                             text = g,
                             small = true,
                             selected = effectiveFilter == g,
@@ -1214,7 +1214,7 @@ fun SourcesScreen(
         ) {
         // ===== 本地源 =====
         item {
-            SectionTitle(title = "本地源")
+            V4SectionTitle(title = "本地源")
         }
         item {
             Text(
@@ -1228,10 +1228,10 @@ fun SourcesScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                AppChip(text = "全部", selected = localEngine == "all", onClick = { localEngine = "all" })
-                AppChip(text = "JS", selected = localEngine == TAB_JS, onClick = { localEngine = TAB_JS })
-                AppChip(text = "PY", selected = localEngine == TAB_PY, onClick = { localEngine = TAB_PY })
-                AppChip(text = "PHP", selected = localEngine == TAB_PHP, onClick = { localEngine = TAB_PHP })
+                V4Chip(text = "全部", selected = localEngine == "all", onClick = { localEngine = "all" })
+                V4Chip(text = "JS", selected = localEngine == TAB_JS, onClick = { localEngine = TAB_JS })
+                V4Chip(text = "PY", selected = localEngine == TAB_PY, onClick = { localEngine = TAB_PY })
+                V4Chip(text = "PHP", selected = localEngine == TAB_PHP, onClick = { localEngine = TAB_PHP })
             }
         }
         item {
@@ -2352,14 +2352,14 @@ private fun SubscriptionSiteRows(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            AppChip(
+            V4Chip(
                 text = "全部",
                 small = true,
                 selected = groupFilter.isBlank(),
                 onClick = { groupFilter = "" },
             )
             groups.forEach { g ->
-                AppChip(
+                V4Chip(
                     text = g,
                     small = true,
                     selected = groupFilter == g,

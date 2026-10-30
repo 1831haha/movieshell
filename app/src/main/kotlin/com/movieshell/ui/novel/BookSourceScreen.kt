@@ -50,7 +50,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
-import com.movieshell.ui.components.accentTitleColor
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -85,6 +84,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import com.movieshell.ui.theme.V4
 
 /**
  * v0.61.0 书源管理：列表 / 启用开关 / 删除 / 粘贴 JSON 导入。
@@ -105,7 +105,7 @@ fun BookSourceScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // v0.109.0 A9：亮色主题白底青字按底色明度自适应
-    val accent = accentTitleColor()
+    val accent = V4.c.t1
 
     val sources by BookSourceManager.sources.collectAsState()
     // v0.64.0：本地 PY 书源

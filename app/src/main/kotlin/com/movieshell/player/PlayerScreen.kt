@@ -24,7 +24,7 @@ import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SubtitleStyle
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
-import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.V4Chip
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.TechDialog
 import android.view.View
@@ -2046,7 +2046,7 @@ fun PlayerScreen(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             SPEEDS.forEachIndexed { i, v ->
-                                AppChip(
+                                V4Chip(
                                     text = "${v}X",
                                     selected = i == speedIndex,
                                     onClick = {
@@ -2066,7 +2066,7 @@ fun PlayerScreen(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             RESIZE_MODES.forEachIndexed { i, mode ->
-                                AppChip(
+                                V4Chip(
                                     text = mode.second,
                                     selected = i == resizeIndex,
                                     onClick = {
@@ -2084,12 +2084,12 @@ fun PlayerScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            AppChip(
+                            V4Chip(
                                 text = "Media3",
                                 selected = engine == PlayerEngine.MEDIA3,
                                 onClick = { switchToEngine(PlayerEngine.MEDIA3) },
                             )
-                            AppChip(
+                            V4Chip(
                                 text = "libmpv",
                                 selected = engine == PlayerEngine.LIBMPV,
                                 onClick = { switchToEngine(PlayerEngine.LIBMPV) },
@@ -2153,7 +2153,7 @@ fun PlayerScreen(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             PLAY_MODES.forEachIndexed { i, mode ->
-                                AppChip(
+                                V4Chip(
                                     text = mode,
                                     selected = i == playModeIndex,
                                     onClick = { playModeIndex = i },
@@ -2617,7 +2617,7 @@ private fun LineSheet(
                 Spacer(Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     itemsIndexed(lines) { i, line ->
-                        AppChip(
+                        V4Chip(
                             text = line.name,
                             selected = i == tab,
                             onClick = { tab = i },
@@ -2872,7 +2872,7 @@ private fun SubtitleDialog(
     var edge by remember { mutableIntStateOf(initialStyle.edge) }
     var position by remember { mutableIntStateOf(initialStyle.position) }
     var offsetSec by remember { mutableIntStateOf((initialStyle.offsetMs / 1000).toInt()) }
-    // v0.27.0：统一卡片容器 + AppChip 多选 + AppTextField
+    // v0.27.0：统一卡片容器 + V4Chip 多选 + AppTextField
     PlayerDialogCard(
         title = "字幕设置",
         onDismiss = onDismiss,
@@ -2962,7 +2962,7 @@ private fun SubtitleDialog(
                         SubtitleStyle.EDGE_OUTLINE to "描边",
                         SubtitleStyle.EDGE_SHADOW to "阴影",
                     ).forEach { (v, label) ->
-                        AppChip(
+                        V4Chip(
                             text = label,
                             selected = edge == v,
                             onClick = { edge = v },
@@ -2977,13 +2977,13 @@ private fun SubtitleDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Label("位置")
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AppChip(
+                    V4Chip(
                         text = "底部",
                         selected = position == SubtitleStyle.POS_BOTTOM,
                         onClick = { position = SubtitleStyle.POS_BOTTOM },
                         small = true,
                     )
-                    AppChip(
+                    V4Chip(
                         text = "顶部",
                         selected = position == SubtitleStyle.POS_TOP,
                         onClick = { position = SubtitleStyle.POS_TOP },

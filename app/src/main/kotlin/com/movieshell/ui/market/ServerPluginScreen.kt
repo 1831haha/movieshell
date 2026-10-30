@@ -69,7 +69,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.ServicePluginManager
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.AppChip
+import com.movieshell.ui.components.V4Chip
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
@@ -1037,7 +1037,7 @@ private fun ServiceEditor(
                     "__pkg__",
                     "__plugin:hello-service__",
                 ).forEach { ph ->
-                    AppChip(
+                    V4Chip(
                         text = ph,
                         selected = false,
                         small = true,
