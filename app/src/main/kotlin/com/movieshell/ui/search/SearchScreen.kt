@@ -1,5 +1,13 @@
 package com.movieshell.ui.search
 
+import androidx.compose.ui.draw.clip
+
+import androidx.compose.foundation.shape.RoundedCornerShape
+
+import androidx.compose.ui.graphics.SolidColor
+
+import androidx.compose.foundation.text.BasicTextField
+
 import com.movieshell.ui.theme.V5
 
 import androidx.compose.foundation.background
@@ -112,31 +120,51 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
 
     Column(modifier = Modifier.fillMaxSize()) {
         // 搜索框（v0.27.0：AppTextField；左右配搜索/清空按钮，点放大镜即搜）
+        // v0.292.0 V5：整条改 M3 搜索栏——56dp 胶囊 surfaceContainerHigh，放大镜在内左侧、清空在内右侧
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = V5.Gutter, vertical = 12.dp),
+                .padding(start = V5.Gutter, end = V5.Gutter, top = V5.StatusGap, bottom = 12.dp)
+                .height(V5.SearchBar)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = { doSearch(query) }) {
                 Icon(
                     Icons.Filled.Search,
                     contentDescription = "搜索",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = MaterialTheme.colorScheme.onSurface,
                 )
             }
-            AppTextField(
+            BasicTextField(
                 value = query,
                 onValueChange = { vm.setQuery(it) },
-                placeholder = "搜索影片、剧集、演员…",
-                modifier = Modifier.weight(1f),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { doSearch(query) }),
+                modifier = Modifier.weight(1f),
+                decorationBox = { inner ->
+                    if (query.isEmpty()) {
+                        Text(
+                            "搜索影片、剧集、演员…",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                    inner()
+                },
             )
             if (query.isNotEmpty()) {
                 IconButton(onClick = { vm.setQuery("") }) {
-                    Icon(Icons.Filled.Clear, contentDescription = "清空")
+                    Icon(Icons.Filled.Clear, contentDescription = "清空", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            } else {
+                Spacer(Modifier.width(12.dp))
             }
         }
 
