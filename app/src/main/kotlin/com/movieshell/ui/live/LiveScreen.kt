@@ -1,5 +1,6 @@
 package com.movieshell.ui.live
 
+import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.components.sheetListScrollGuard
 import com.movieshell.ui.components.V5Segmented
 
@@ -497,13 +498,15 @@ fun LiveScreen(
             // 第一个页签「切换直播源」（“切回接口默认直播源”=全部 + 各源单选），状态共用 selectedLiveSource。
             // 搜索行（默认收起，点卡片放大镜展开）
             if (showSearch) {
-                AppTextField(
+                // v0.294.6：统一 AppSearchBar；展开即聚焦
+                AppSearchBar(
                     value = query,
                     onValueChange = { query = it },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                     placeholder = "搜索频道",
+                    autoFocus = true,
                 )
             }
             if (refreshing) {

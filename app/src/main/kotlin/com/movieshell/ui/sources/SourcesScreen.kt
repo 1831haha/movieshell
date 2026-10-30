@@ -1,5 +1,6 @@
 package com.movieshell.ui.sources
 
+import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.theme.V5
 import com.movieshell.ui.theme.ok
 
@@ -1403,40 +1404,12 @@ fun SourcesScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                OutlinedTextField(
+                // v0.294.6：统一 AppSearchBar
+                AppSearchBar(
                     value = sourceQuery,
                     onValueChange = { sourceQuery = it },
-                    placeholder = { Text("搜索站源", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Filled.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    },
-                    trailingIcon = {
-                        if (sourceQuery.isNotEmpty()) {
-                            IconButton(onClick = { sourceQuery = "" }) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = "清空",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(50),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                    placeholder = "搜索站源",
+                    modifier = Modifier.weight(1f),
                 )
             }
         }

@@ -8,6 +8,9 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -142,9 +145,10 @@ fun NovelListCard(
             }
             Box(
                 modifier = Modifier
-                    .size(width = 68.dp, height = 92.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    // v0.294.6：封面改 2:3（64x96）+ 10dp 圆角，底色走 surfaceContainerHigh
+                    .size(width = 64.dp, height = 96.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                 contentAlignment = Alignment.Center,
             ) {
                 if (!novel.cover.isNullOrBlank()) {
@@ -268,7 +272,10 @@ fun NovelListCard(
     }
 }
 
-/** v0.98.0：网格卡片（封面墙）。 */
+/** v0.98.0：网格卡片（封面墙）。
+ * v0.294.6：Material You 紧凑重做——封面 2:3、12dp 圆角；书名最多两行（固定两行高，
+ * 网格对齐）；副标题「读到第 x 章」/作者/目录状态；角标：更新数（primary）、失败（error）、
+ * 未读（tertiaryContainer）；进度改封面底部细进度条，去掉黑色圆底进度环与黑圆多选底。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NovelGridCard(
@@ -282,120 +289,106 @@ fun NovelGridCard(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val cs = MaterialTheme.colorScheme
     val progress = novel.readFraction()
-    val cyan = MaterialTheme.colorScheme.primary
+    val total = novel.totalChapters.coerceAtLeast(1)
+    val read = novel.lastReadChapter.coerceIn(0, total - 1)
+    val coverShape = RoundedCornerShape(12.dp)
     Column(
         modifier = modifier.bookPressable(onClick = onClick, onLongClick = onLongClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .aspectRatio(2f / 3f)
+                .clip(coverShape)
+                .background(cs.surfaceContainerHigh)
+                .then(
+                    if (selectionMode && selected) Modifier.border(2.dp, cs.primary, coverShape)
+                    else Modifier,
+                ),
             contentAlignment = Alignment.Center,
         ) {
-            // 封面 3:4
-            Box(modifier = Modifier.fillMaxWidth()) {
-                if (!novel.cover.isNullOrBlank()) {
-                    AsyncImage(
-                        model = novel.cover,
-                        contentDescription = novel.title,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp),
-                        contentScale = ContentScale.Crop,
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = novel.title.firstOrNull()?.toString() ?: "书",
-                            fontSize = 30.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        )
-                    }
-                }
+            if (!novel.cover.isNullOrBlank()) {
+                AsyncImage(
+                    model = novel.cover,
+                    contentDescription = novel.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Text(
+                    text = novel.title.firstOrNull()?.toString() ?: "书",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = cs.onSurfaceVariant.copy(alpha = 0.5f),
+                )
             }
-            // 进度环（右下）
+            // 进度：封面底部 3dp 细条（读过才显示）
             if (progress > 0f) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(6.dp)
-                        .size(30.dp)
-                        .background(Color.Black.copy(alpha = 0.55f), CircleShape),
-                    contentAlignment = Alignment.Center,
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .background(Color.Black.copy(alpha = 0.18f)),
                 ) {
-                    CircularProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier.size(22.dp),
-                        color = cyan,
-                        trackColor = Color.White.copy(alpha = 0.25f),
-                        strokeWidth = 3.dp,
+                    Box(
+                        Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(progress.coerceIn(0.02f, 1f))
+                            .background(cs.primary),
                     )
                 }
             }
-            // v0.211.0：逐本状态——查完失败贴左上红“失败”（有更新时角标在，
-            // 失败不可能同时有更新，不冲突）；正在查则盖一层转圈在封面中央。
-            if (checkFailed && !checking) {
+            // 左上角标：失败 > 更新数 > 未读
+            val badge: Triple<String, Color, Color>? = when {
+                checkFailed && !checking -> Triple("失败", cs.error, cs.onError)
+                updateCount > 0 -> Triple("$updateCount", cs.primary, cs.onPrimary)
+                !novel.hasStartedReading -> Triple("未读", cs.tertiaryContainer, cs.onTertiaryContainer)
+                else -> null
+            }
+            badge?.let { (t, bg, fg) ->
                 Text(
-                    text = "失败",
+                    text = t,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = fg,
+                    maxLines = 1,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(6.dp)
-                        .background(MaterialTheme.colorScheme.error, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                        .background(bg, RoundedCornerShape(50))
+                        .padding(horizontal = 7.dp, vertical = 1.dp),
                 )
             }
+            // 正在检查更新：整张封面浅色蒙层 + 小转圈（不再是黑圆底）
             if (checking) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(36.dp)
-                        .background(Color.Black.copy(alpha = 0.5f), CircleShape),
+                        .fillMaxSize()
+                        .background(cs.surface.copy(alpha = 0.55f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(22.dp),
-                        color = Color.White,
+                        color = cs.primary,
                         strokeWidth = 2.dp,
                     )
                 }
             }
-            // v0.215.0：网格角标与列表同款——数字 pill、主题 primary、无脉冲、无“+”。
-            if (updateCount > 0 && !(checkFailed && !checking)) {
-                Text(
-                    text = "$updateCount",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(6.dp)
-                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp))
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                )
-            }
-            // 多选勾（右上）
+            // 多选勾（右上）：选中=primary 实心勾，未选=浅色描边圆
             if (selectionMode) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(6.dp)
-                        .size(24.dp)
-                        .background(
-                            if (selected) MaterialTheme.colorScheme.primary
-                            else Color.Black.copy(alpha = 0.5f),
-                            CircleShape,
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) cs.primary else cs.surface.copy(alpha = 0.85f))
+                        .then(
+                            if (selected) Modifier
+                            else Modifier.border(1.5.dp, cs.outline, CircleShape),
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -403,9 +396,8 @@ fun NovelGridCard(
                         Icon(
                             Icons.Filled.Check,
                             contentDescription = null,
-                            // v0.105.0：选中底是主题 primary（含浅色），用明度自适应的 onPrimary
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(16.dp),
+                            tint = cs.onPrimary,
+                            modifier = Modifier.size(15.dp),
                         )
                     }
                 }
@@ -414,51 +406,36 @@ fun NovelGridCard(
         Spacer(Modifier.height(6.dp))
         Text(
             novel.title,
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
+            color = cs.onSurface,
+            maxLines = 2,
+            minLines = 2,
+            lineHeight = 17.sp,
             overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
-        // v0.214.0：网格卡片也补最新章节标题（无标题时不占行）。
-        // v0.249.0：目录未到时这行显示状态文案，不显示假数据。
-        when (novel.dirState) {
-            NovelStore.DIR_LOADING -> Text(
-                "正在获取目录…",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            NovelStore.DIR_FAILED -> Text(
-                "目录获取失败，点击重试",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.error,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            else -> novel.latestChapterTitle?.takeIf { it.isNotBlank() }?.let { latest ->
-                Text(
-                    "最新：$latest",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+        val (sub, subColor) = when (novel.dirState) {
+            NovelStore.DIR_LOADING -> "正在获取目录…" to cs.onSurfaceVariant
+            NovelStore.DIR_FAILED -> "目录获取失败，点击重试" to cs.error
+            else -> (
+                if (novel.hasStartedReading) "读到第 ${read + 1} 章"
+                else novel.author?.takeIf { it.isNotBlank() } ?: "共 ${total} 章"
+                ) to cs.onSurfaceVariant
         }
+        Text(
+            sub,
+            style = MaterialTheme.typography.labelSmall,
+            color = subColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
-/** v0.98.0：趣味空状态。 */
+/** v0.98.0：趣味空状态。
+ * v0.294.6：紧凑化——不再顶 120dp 空白，图标井缩小，一句短提示 + 找书/导入两个按钮。 */
 @Composable
 fun BookshelfEmptyState(
     onFindBook: () -> Unit,
@@ -467,50 +444,46 @@ fun BookshelfEmptyState(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 120.dp, bottom = 48.dp),
+            .padding(top = 72.dp, bottom = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // v0.279.0 旧版：68dp s1 圆角图标井 + 15/600 标题 + t3 提示 + 主/次两个按钮
         Box(
             modifier = Modifier
-                .size(68.dp)
-                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(V5.CornerLg)),
+                .size(56.dp)
+                .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(V5.CornerLg)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = Icons.Outlined.Book,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(28.dp),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(26.dp),
             )
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(14.dp))
         Text(
-            "书架还在等它的第一本书",
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
+            "书架还是空的",
+            style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(4.dp))
         Text(
-            "找本小说开始读，打卡天数从今天算起",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.outline,
+            "搜本小说，或导入本地 TXT",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(20.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AppButton(
                 text = "去找书",
                 onClick = onFindBook,
                 icon = Icons.Filled.Search,
-                modifier = Modifier.width(146.dp),
             )
             AppButton(
                 text = "导入 TXT",
                 onClick = onImportTxt,
                 variant = AppButtonVariant.Secondary,
                 icon = Icons.Outlined.UploadFile,
-                modifier = Modifier.width(146.dp),
             )
         }
     }

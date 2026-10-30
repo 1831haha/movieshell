@@ -1,5 +1,6 @@
 package com.movieshell.ui.history
 
+import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.theme.V5
 
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -161,23 +162,13 @@ fun HistoryScreen(
                     .padding(horizontal = V5.Gutter, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    Icons.Filled.Search,
-                    contentDescription = "搜索",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(8.dp))
-                AppTextField(
+                // v0.294.6：统一 AppSearchBar
+                AppSearchBar(
                     value = query,
                     onValueChange = { query = it },
                     placeholder = "搜索标题",
                     modifier = Modifier.weight(1f),
                 )
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = { query = "" }) {
-                        Icon(Icons.Filled.Clear, contentDescription = "清空")
-                    }
-                }
             }
             if (filtered.isEmpty()) {
                 Box(

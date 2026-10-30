@@ -450,7 +450,8 @@ fun V5SearchField(
     icon: ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    height: Dp = V5.SearchBar,
+    // v0.294.6：与 AppSearchBar 同尺寸同排布（48dp、放大镜 22dp onSurfaceVariant、文字起点一致）
+    height: Dp = 48.dp,
 ) {
     val cs = MaterialTheme.colorScheme
     Row(
@@ -459,11 +460,13 @@ fun V5SearchField(
             .clip(RoundedCornerShape(50))
             .background(cs.surfaceContainerHigh)
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = cs.onSurface, modifier = Modifier.size(24.dp))
-        Spacer(Modifier.width(16.dp))
+        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
+        }
+        Spacer(Modifier.width(4.dp))
         Text(
             placeholder,
             style = MaterialTheme.typography.bodyLarge,

@@ -1,5 +1,8 @@
 package com.movieshell.ui.bookshelf
 
+import com.movieshell.ui.components.AppSearchBar
+import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material.icons.automirrored.filled.Sort
 import com.movieshell.ui.theme.V5
 
 import com.movieshell.ui.components.v5Bleed
@@ -491,6 +494,7 @@ fun BookshelfScreen(
     val sortNames = listOf("最近阅读", "更新时间", "书名", "阅读进度")
     // v0.179.0：右上角三点菜单（添加本地/书源管理）。
     var showTopMenu by remember { mutableStateOf(false) }
+    var showSortMenu by remember { mutableStateOf(false) }
     // v0.178.0：下拉刷新状态，复用首页同款官方 PullToRefreshBox。
     val pullRefreshState = rememberPullToRefreshState()
 
@@ -667,7 +671,7 @@ fun BookshelfScreen(
                     }
                 }
                 if (mainTab == 0) {
-                    val narrowHeader = LocalConfiguration.current.screenWidthDp < 360
+                    val narrowHeader = LocalConfiguration.current.screenWidthDp < 380
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (!narrowHeader) {
                             Text(
@@ -677,18 +681,53 @@ fun BookshelfScreen(
                             )
                             Spacer(Modifier.width(8.dp))
                         }
+                        // v0.294.6：顶栏动作统一 36dp 无底色图标钮——导入 / 排序 / 视图 / 找书 / 更多；
+                        // 新建分组收进「更多」菜单（功能不丢）。
                         IconButton(
-                            onClick = { showCreateGroup = true },
+                            onClick = { if (!importing) pickTxt.launch("text/plain") },
+                            enabled = !importing,
                             modifier = Modifier.size(36.dp),
                         ) {
                             Icon(
-                                Icons.Filled.Add,
-                                contentDescription = "新建分组",
+                                Icons.Outlined.UploadFile,
+                                contentDescription = "导入本地书籍",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp),
                             )
                         }
-                        Spacer(Modifier.width(4.dp))
+                        Box {
+                            IconButton(onClick = { showSortMenu = true }, modifier = Modifier.size(36.dp)) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Sort,
+                                    contentDescription = "排序",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                            AppDropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false },
+                            ) {
+                                sortNames.forEachIndexed { i, name ->
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Filled.Check,
+                                                contentDescription = null,
+                                                tint = if (sortMode == i) MaterialTheme.colorScheme.primary
+                                                else Color.Transparent,
+                                            )
+                                        },
+                                        onClick = {
+                                            showSortMenu = false
+                                            sortMode = i
+                                            BookshelfGroupStore.setSortMode(context, i)
+                                        },
+                                    )
+                                }
+                            }
+                        }
                         IconButton(
                             onClick = {
                                 viewMode = if (viewMode == BookshelfGroupStore.VIEW_LIST)
@@ -775,24 +814,17 @@ fun BookshelfScreen(
                                 // v0.251.0：顶栏拿掉的排序与更新失败筛选收进这里，功能不丢；
                                 // 未选中项用透明对勾占位，文字左对齐不错位。
                                 HorizontalDivider()
-                                sortNames.forEachIndexed { i, name ->
-                                    DropdownMenuItem(
-                                        text = { Text("排序：$name") },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Filled.Check,
-                                                contentDescription = null,
-                                                tint = if (sortMode == i) MaterialTheme.colorScheme.onSurface
-                                                else Color.Transparent,
-                                            )
-                                        },
-                                        onClick = {
-                                            showTopMenu = false
-                                            sortMode = i
-                                            BookshelfGroupStore.setSortMode(context, i)
-                                        },
-                                    )
-                                }
+                                // v0.294.6：排序挪到顶栏独立排序钮；这里补「新建分组」（原顶栏 + 号）。
+                                DropdownMenuItem(
+                                    text = { Text("新建分组") },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Add, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        showTopMenu = false
+                                        showCreateGroup = true
+                                    },
+                                )
                                 DropdownMenuItem(
                                     text = {
                                         Text(
@@ -834,47 +866,15 @@ fun BookshelfScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            "找书",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        // v0.223.0：与独立找书页同一样式——16dp 圆角填充条、左搜索
-                        // 图标、右清除，不再是胶囊描边框。
-                        OutlinedTextField(
+                        // v0.294.6：统一 AppSearchBar（48dp 胶囊；回车/放大镜即搜并收键盘），
+                        // 去掉左侧「找书」大字，框更宽；仍绑活动级 NovelSearchViewModel。
+                        AppSearchBar(
                             value = searchKeyword,
                             onValueChange = { searchVm.setKeyword(it) },
-                            placeholder = { Text("书名 / 作者") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(V5.CornerMd),
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Filled.Search, contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                            trailingIcon = {
-                                if (searchKeyword.isNotEmpty()) {
-                                    IconButton(onClick = { searchVm.setKeyword("") }) {
-                                        Icon(
-                                            Icons.Filled.Close, "清除",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                            },
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { searchVm.doSearch() }),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = Color.Transparent,
-                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                cursorColor = MaterialTheme.colorScheme.primary,
-                            ),
-                            modifier = Modifier.weight(1f).focusRequester(searchFocus),
+                            placeholder = "找书：书名 / 作者",
+                            onSearch = { searchVm.doSearch() },
+                            focusRequester = searchFocus,
+                            modifier = Modifier.weight(1f),
                         )
                         TextButton(onClick = { searching = false }) { Text("取消") }
                     }
@@ -959,10 +959,11 @@ fun BookshelfScreen(
                         )
                     }
                 } else if (viewMode == BookshelfGroupStore.VIEW_GRID) {
+                    // v0.294.6：列数随宽度自适应（每格 ≥96dp：手机 3 列、宽屏/平板更多）
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        columns = GridCells.Adaptive(minSize = 96.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         contentPadding = PaddingValues(top = 4.dp, bottom = dockClearance() + 8.dp),
                     ) {
                         if (checking) {

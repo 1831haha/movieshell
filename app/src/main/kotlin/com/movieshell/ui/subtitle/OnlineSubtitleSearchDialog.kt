@@ -1,5 +1,6 @@
 package com.movieshell.ui.subtitle
 
+import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -105,10 +106,12 @@ fun OnlineSubtitleSearchDialog(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            AppTextField(
+            // v0.294.6：统一 AppSearchBar（回车即搜）
+            AppSearchBar(
                 value = query,
                 onValueChange = { query = it },
                 placeholder = "影片标题",
+                onSearch = { if (!searching) doSearch(it) },
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))

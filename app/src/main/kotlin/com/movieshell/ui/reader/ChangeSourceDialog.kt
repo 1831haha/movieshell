@@ -1,5 +1,6 @@
 package com.movieshell.ui.reader
 
+import com.movieshell.ui.components.AppSearchBar
 import androidx.compose.foundation.clickable
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.layout.Arrangement
@@ -175,17 +176,14 @@ fun ChangeSourceDialog(
     ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    AppTextField(
+                    // v0.294.6：统一 AppSearchBar（回车/放大镜即搜）
+                    AppSearchBar(
                         value = keyword,
                         onValueChange = { keyword = it },
                         modifier = Modifier.weight(1f),
                         placeholder = "书名",
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { doSearch() }),
+                        onSearch = { doSearch() },
                     )
-                    IconButton(onClick = { doSearch() }) {
-                        Icon(Icons.Filled.Search, contentDescription = "搜索")
-                    }
                 }
                 Spacer(Modifier.height(8.dp))
                 Box(modifier = Modifier.fillMaxWidth().height(320.dp)) {

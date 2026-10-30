@@ -1,5 +1,6 @@
 package com.movieshell.ui.novel
 
+import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
@@ -381,12 +382,12 @@ fun BookSourceScreen(
         Spacer(Modifier.height(8.dp))
         // v0.197.0：阅读式顶部搜索（按名/地址过滤）+ 批量入口
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TechTextField(
+            // v0.294.6：统一 AppSearchBar
+            AppSearchBar(
                 value = srcQuery,
                 onValueChange = { srcQuery = it },
                 placeholder = "搜索书源",
                 modifier = Modifier.weight(1f),
-                singleLine = true,
             )
             Spacer(Modifier.width(8.dp))
             TextButton(onClick = {

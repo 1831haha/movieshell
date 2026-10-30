@@ -1,5 +1,9 @@
 package com.movieshell.ui.novel
 
+import com.movieshell.ui.components.AppSearchBar
+import com.movieshell.ui.components.AppHistoryChip
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardActions
@@ -75,6 +79,7 @@ import kotlinx.coroutines.launch
  * v0.64.0：JSON 书源 + 本地 PY 书源一起搜。
  * v0.66.0：支持锁定单个 PY 源（pySourceName 非空时只搜该源，用于书源管理点源直达）。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NovelSearchScreen(
     onBack: () -> Unit = {},
@@ -165,46 +170,23 @@ fun NovelSearchScreen(
         if (!hideSearchField) {
         // v0.223.0：找书搜索框重设计——整条一体：左搜索图标 + 无框输入 +
         // 右清除/搜索，不再是胶囊描边框 + 外挂搜索钮；填充底 + 聚焦青色描边。
-        OutlinedTextField(
+        // v0.294.6：统一 AppSearchBar（回车/放大镜/尾部「搜索」都触发并收键盘）
+        val kbNovel = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+        AppSearchBar(
             value = keyword,
             onValueChange = { vm.setKeyword(it) },
-            placeholder = { Text("书名 / 作者") },
-            singleLine = true,
-            shape = RoundedCornerShape(16.dp),
-            leadingIcon = {
-                Icon(
-                    Icons.Filled.Search, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            },
-            trailingIcon = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (keyword.isNotEmpty()) {
-                        IconButton(onClick = { vm.setKeyword("") }) {
-                            Icon(
-                                Icons.Filled.Close, "清除",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    TextButton(
-                        onClick = { vm.doSearch() },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    ) {
-                        Text("搜索", color = accent, fontSize = 14.sp)
-                    }
+            placeholder = "书名 / 作者",
+            onSearch = { vm.doSearch() },
+            focusRequester = searchFocus,
+            modifier = Modifier.fillMaxWidth(),
+            trailing = {
+                TextButton(
+                    onClick = { kbNovel?.hide(); vm.doSearch() },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                ) {
+                    Text("搜索", color = accent, fontSize = 14.sp)
                 }
             },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { vm.doSearch() }),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = Color.Transparent,
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                cursorColor = MaterialTheme.colorScheme.primary,
-            ),
-            modifier = Modifier.fillMaxWidth().focusRequester(searchFocus),
         )
         Spacer(Modifier.height(12.dp))
         }
@@ -259,38 +241,21 @@ fun NovelSearchScreen(
                                 }) { Text("清空", fontSize = 13.sp) }
                             }
                         }
-                        items(history.distinct(), key = { "h_$it" }) { h ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        vm.setKeyword(h)
-                                        vm.doSearch()
-                                    }
-                                    .padding(vertical = 8.dp),
+                        // v0.294.6：历史改紧凑 InputChip 流式排布
+                        item(key = "history_chips") {
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                Icon(
-                                    Icons.Filled.History,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    h,
-                                    fontSize = 15.sp,
-                                    modifier = Modifier.weight(1f),
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                IconButton(onClick = {
-                                    vm.removeHistory(h)
-                                }) {
-                                    Icon(
-                                        Icons.Filled.Close,
-                                        contentDescription = "删除",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp),
+                                history.distinct().forEach { h ->
+                                    AppHistoryChip(
+                                        text = h,
+                                        onClick = {
+                                            vm.setKeyword(h)
+                                            vm.doSearch()
+                                        },
+                                        onRemove = { vm.removeHistory(h) },
                                     )
                                 }
                             }

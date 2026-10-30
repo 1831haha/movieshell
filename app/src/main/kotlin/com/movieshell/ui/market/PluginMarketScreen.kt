@@ -1,5 +1,6 @@
 package com.movieshell.ui.market
 
+import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.components.sheetListScrollGuard
 import com.movieshell.ui.theme.V5
 
@@ -304,11 +305,13 @@ fun PluginMarketScreen(
                 }
             }
             if (searchOpen) {
-                AppTextField(
+                // v0.294.6：统一 AppSearchBar；展开即聚焦
+                AppSearchBar(
                     value = query,
                     onValueChange = { query = it },
                     placeholder = "搜索插件",
                     modifier = Modifier.fillMaxWidth(),
+                    autoFocus = true,
                 )
                 Spacer(Modifier.height(8.dp))
             }

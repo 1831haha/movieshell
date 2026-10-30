@@ -1,5 +1,6 @@
 package com.movieshell.ui.reader
 
+import com.movieshell.ui.components.AppSearchBar
 import android.app.Activity
 import android.graphics.Typeface
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -1116,10 +1117,13 @@ fun ReaderScreen(
                 subtitle = chapter?.title.orEmpty(),
                 forceDark = isReaderDark,
             ) {
-                TechTextField(
+                // v0.294.6：统一 AppSearchBar（实时匹配，回车收键盘）
+                AppSearchBar(
                     value = chapterSearchQuery,
                     onValueChange = { chapterSearchQuery = it },
                     placeholder = "输入要找的词",
+                    modifier = Modifier.fillMaxWidth(),
+                    autoFocus = true,
                 )
                 Spacer(Modifier.height(8.dp))
                 if (chapterSearchQuery.isNotBlank()) {

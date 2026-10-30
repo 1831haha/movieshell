@@ -1,5 +1,7 @@
 package com.movieshell.ui.music
 
+import com.movieshell.ui.components.AppSearchBar
+import com.movieshell.ui.components.AppHistoryChip
 import com.movieshell.ui.theme.V5
 import com.movieshell.ui.theme.artBrush
 
@@ -257,27 +259,15 @@ fun MusicScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (tab == 0) {
-                    AppTextField(
+                    // v0.294.6：统一 AppSearchBar（放大镜在框内，回车/点放大镜即搜）
+                    AppSearchBar(
                         value = query,
                         onValueChange = { vm.setQuery(it) },
-                        modifier = Modifier.weight(1f),
                         placeholder = "搜歌名 / 歌手",
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = {
-                            keyboard?.hide()
-                            doSearch(query)
-                        }),
+                        onSearch = { doSearch(it) },
+                        height = 44.dp,
+                        modifier = Modifier.weight(1f),
                     )
-                    Spacer(Modifier.width(4.dp))
-                    IconButton(
-                        onClick = {
-                            keyboard?.hide()
-                            doSearch(query)
-                        },
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(Icons.Filled.Search, contentDescription = "搜索", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-                    }
                     Spacer(Modifier.width(4.dp))
                     // v0.239.0：两个入口改胶囊钮——原来是裸蓝色文字链，
                     // 视觉上像没做完的半成品；现跟下方页签胶囊同款（浅灰底＋深字）。
@@ -728,33 +718,12 @@ private fun OnlineTab(
             ) {
                 // v0.133.0：历史词以词本身为 key，文件读侧无去重，渲染前 distinct 兜底防同词撞 key
                 items(searchHistory.distinct(), key = { it }) { h ->
-                    AppCard(
-                        modifier = Modifier.clickable { onHistorySearch(h) },
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(
-                                start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp,
-                            ),
-                        ) {
-                            Text(
-                                text = h,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                            )
-                            IconButton(
-                                onClick = { onHistoryRemove(h) },
-                                modifier = Modifier.size(24.dp),
-                            ) {
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = "删除",
-                                    modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
+                    // v0.294.6：历史词改紧凑 InputChip
+                    AppHistoryChip(
+                        text = h,
+                        onClick = { onHistorySearch(h) },
+                        onRemove = { onHistoryRemove(h) },
+                    )
                 }
             }
             Spacer(Modifier.height(4.dp))

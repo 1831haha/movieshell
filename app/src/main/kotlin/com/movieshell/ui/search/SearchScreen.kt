@@ -1,5 +1,8 @@
 package com.movieshell.ui.search
 
+import androidx.compose.foundation.layout.FlowRow
+import com.movieshell.ui.components.AppSearchBar
+import com.movieshell.ui.components.AppHistoryChip
 import androidx.compose.ui.draw.clip
 
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,7 +21,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -76,6 +78,7 @@ import com.movieshell.ui.components.PosterCard
 import kotlinx.coroutines.launch
 
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
     // v0.271.0（T25）：进详情前的切源是 suspend，点卡片时放协程里等切完。
@@ -121,52 +124,16 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
     Column(modifier = Modifier.fillMaxSize()) {
         // 搜索框（v0.27.0：AppTextField；左右配搜索/清空按钮，点放大镜即搜）
         // v0.292.0 V5：整条改 M3 搜索栏——56dp 胶囊 surfaceContainerHigh，放大镜在内左侧、清空在内右侧
-        Row(
+        // v0.294.6：换统一 AppSearchBar（48dp 胶囊；回车/放大镜即搜并收键盘）
+        AppSearchBar(
+            value = query,
+            onValueChange = { vm.setQuery(it) },
+            placeholder = "搜索影片、剧集、演员…",
+            onSearch = { doSearch(it) },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = V5.Gutter, end = V5.Gutter, top = V5.StatusGap, bottom = 12.dp)
-                .height(V5.SearchBar)
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = { doSearch(query) }) {
-                Icon(
-                    Icons.Filled.Search,
-                    contentDescription = "搜索",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-            BasicTextField(
-                value = query,
-                onValueChange = { vm.setQuery(it) },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { doSearch(query) }),
-                modifier = Modifier.weight(1f),
-                decorationBox = { inner ->
-                    if (query.isEmpty()) {
-                        Text(
-                            "搜索影片、剧集、演员…",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
-                    }
-                    inner()
-                },
-            )
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { vm.setQuery("") }) {
-                    Icon(Icons.Filled.Clear, contentDescription = "清空", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else {
-                Spacer(Modifier.width(12.dp))
-            }
-        }
+                .padding(start = V5.Gutter, end = V5.Gutter, top = V5.StatusGap, bottom = 10.dp),
+        )
 
         // v0.189.0：搜索范围开关——所有源 / 只搜当前源（首页当前源口径：
         // 订阅当前源 > drpy > PY > PHP；切开关且已搜过时按新范围立即重搜）
@@ -280,36 +247,18 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                         )
                     }
                 } else {
-                    items(history.distinct(), key = { it }) { h ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { vm.setQuery(h); doSearch(h) },
-                            verticalAlignment = Alignment.CenterVertically,
+                    // v0.294.6：历史改紧凑 InputChip 流式排布（点即搜，× 删单条）
+                    item {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.History,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text = h,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(vertical = 10.dp),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            IconButton(onClick = {
-                                // v0.67.0：单条删除走 Store.remove
-                                vm.removeHistory(h)
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = "删除",
-                                    modifier = Modifier.size(18.dp),
+                            history.distinct().forEach { h ->
+                                AppHistoryChip(
+                                    text = h,
+                                    onClick = { vm.setQuery(h); doSearch(h) },
+                                    onRemove = { vm.removeHistory(h) },
                                 )
                             }
                         }

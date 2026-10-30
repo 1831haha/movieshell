@@ -1,5 +1,7 @@
 package com.movieshell.ui.novel
 
+import androidx.compose.foundation.layout.fillMaxWidth
+import com.movieshell.ui.components.AppSearchBar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -131,10 +133,12 @@ fun ExploreAggregateScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        TechTextField(
+        // v0.294.6：统一 AppSearchBar
+        AppSearchBar(
             value = query,
             onValueChange = { query = it },
             placeholder = "筛选书名 / 作者",
+            modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
         when {
