@@ -67,6 +67,8 @@ object EngineHost {
         headers: Map<String, String> = emptyMap(),
         startPositionMs: Long = 0L,
         subtitleUrl: String? = null,
+        // v0.294.5：直播（含 HLS 直播/rtmp/flv 直播）——Media3 不走视频磁盘缓存
+        live: Boolean = false,
     ): Boolean {
         val t0 = SystemClock.elapsedRealtime()
         if (!isPlayableUrl(url)) {
@@ -111,7 +113,7 @@ object EngineHost {
         return try {
             if (eng == PlayerEngine.MEDIA3) {
                 PlayerManager.init(context)
-                PlayerManager.play(url, headers, startPositionMs, subtitleUrl)
+                PlayerManager.play(url, headers, startPositionMs, subtitleUrl, live)
             } else {
                 MpvPlayerManager.init(context)
                 MpvPlayerManager.play(url, headers, startPositionMs, subtitleUrl)

@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
@@ -48,7 +49,19 @@ object ChaquopyEngine : PyEngine {
      * withTimeout 等不到超时；只有把调用放进独立 scope 的 async、调用方只带超时等 await，
      * 调用方才能在 15 秒时真正放行。代价见 callBridge 注释：后台 Python 停不掉。
      */
-    private val pyCallScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /**
+     * v0.294.5：PY 调用并发封顶——原来挂 Dispatchers.IO（最多 64 线程），慢源/死循环的
+     * 超时调用在后台停不掉、一次次叠加成线程堆积。改为固定 4 线程的专用池：
+     * 同时最多 4 个 Python 调用在跑，多出的排队；排队中超时/被取消的调用直接作废、
+     * 不再启动（见 callBridge 的 deferred.cancel），超时调用不会无限叠加。
+     */
+    private const val PY_MAX_CONCURRENCY = 4
+    private val pyDispatcher = java.util.concurrent.Executors.newFixedThreadPool(PY_MAX_CONCURRENCY) { r ->
+        Thread(r, "py-bridge").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
+    private val pyRunning = java.util.concurrent.atomic.AtomicInteger(0)
+
+    private val pyCallScope = CoroutineScope(SupervisorJob() + pyDispatcher)
 
     @Volatile
     private var appContext: Context? = null
@@ -160,12 +173,19 @@ object ChaquopyEngine : PyEngine {
         bridgeMethod: String,
     ): String {
         val deferred = pyCallScope.async {
-            val mod = python().getModule("pyspider_bridge")
-            mod.callAttr(bridgeMethod, rulePath, method, argsJson).toString()
+            pyRunning.incrementAndGet()
+            try {
+                val mod = python().getModule("pyspider_bridge")
+                mod.callAttr(bridgeMethod, rulePath, method, argsJson).toString()
+            } finally {
+                pyRunning.decrementAndGet()
+            }
         }
         return try {
             withTimeoutOrNull(PY_TIMEOUT_MS) { deferred.await() } ?: run {
-                Log.w(TAG, "PY 调用超时（15 秒）: 规则=$rulePath 方法=$method")
+                // v0.294.5：还在排队没开跑的直接作废；已在跑的停不掉，但占的是封顶池里的线程
+                deferred.cancel()
+                Log.w(TAG, "PY 调用超时（15 秒）: 规则=$rulePath 方法=$method 在跑=${pyRunning.get()}")
                 LogBus.w(
                     TAG,
                     "PY 调用超时（15 秒）: 规则=$rulePath 方法=$method，" +
@@ -174,6 +194,8 @@ object ChaquopyEngine : PyEngine {
                 "{\"ok\":false,\"error\":\"PY 调用超时（15 秒）:$method\"}"
             }
         } catch (e: CancellationException) {
+            // v0.294.5：调用方取消时把排队中的调用一并作废，不白占 PY 池
+            deferred.cancel()
             // 调用方取消必须透出，不能被下方的 Exception 分支吞成失败 JSON，
             // 否则 PySourceManager“旧调用方收到 CancellationException”的契约落空。
             // 注意：这只是调用方等待的取消，桥上 Python 本身仍停不掉（见上文固有限制）。

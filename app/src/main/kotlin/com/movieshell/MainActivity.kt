@@ -158,8 +158,14 @@ class MainActivity : ComponentActivity() {
             finish()
             return
         }
+        // v0.294.5：root/模拟器提示只在首次（或检测结果变化时）弹一次短提示，不再每次启动长提示。
         if (guard.warnings.isNotEmpty()) {
-            AppToast.show(this, "当前为${guard.warnings.joinToString("、")}，继续使用风险自担", long = true)
+            val sig = guard.warnings.sorted().joinToString("|")
+            val gp = getSharedPreferences("movieshell_prefs", android.content.Context.MODE_PRIVATE)
+            if (gp.getString("guard_warned_sig", null) != sig) {
+                AppToast.show(this, "${guard.warnings.joinToString("、")}环境，风险自担", long = false)
+                gp.edit().putString("guard_warned_sig", sig).apply()
+            }
         }
         ThemeStore.init(this)
         // v0.237.0 的“跟随系统一次性切浅色”迁移已撤掉（v0.279.0 旧版）：默认改 经典暗色，
@@ -174,6 +180,9 @@ class MainActivity : ComponentActivity() {
         if (!StoragePaths.migrateFromPrivate(this) && StoragePaths.hasAccess(this)) {
             AppToast.show(this, "文件迁移失败，旧文件保留在原处（旧位置：${filesDir.absolutePath} 下的 drpy、py、php、web，新位置：${StoragePaths.publicRoot().absolutePath}）", long = true)
         }
+        // v0.294.5：授权前导入到私有回退目录的文件，授权后并入公开目录（不覆盖已有）
+        StoragePaths.mergePrivateRootIntoPublic(this)
+        storageAccessAtStart = StoragePaths.hasAccess(this)
         PlayerManager.init(this)
         DrpySourceManager.init(this)
         PySourceManager.init(this)
@@ -229,11 +238,15 @@ class MainActivity : ComponentActivity() {
                 // v0.274.0（T42）：弹窗状态改 rememberSaveable——原来转屏后
                 // remember 重置，跳过一次的弹窗又弹出来；已授权时也不弹，
                 // 防“授权后回 App、恢复的旧状态又把弹窗顶出来”。
-                var showPermDialog by rememberSaveable { mutableStateOf(!StoragePaths.hasAccess(this@MainActivity)) }
+                // v0.294.5：点过「跳过」就记住，不再每次启动都弹（设置里仍可去授权）。
+                var showPermDialog by rememberSaveable {
+                    mutableStateOf(!StoragePaths.hasAccess(this@MainActivity) && !StoragePaths.isPermPromptSkipped(this@MainActivity))
+                }
                 if (showPermDialog && !StoragePaths.hasAccess(this@MainActivity)) {
                     TechDialog(
                         onDismissRequest = {
                             showPermDialog = false
+                            StoragePaths.setPermPromptSkipped(this@MainActivity)
                             LogBus.w("StoragePaths", "用户跳过了存储权限申请")
                         },
                         title = "需要存储权限",
@@ -302,7 +315,11 @@ class MainActivity : ComponentActivity() {
                 // 的词；路由离开书架/找书两个搜书宿主时清框词，结果与历史不动。
                 val novelSearchVm: NovelSearchViewModel = viewModel()
                 LaunchedEffect(curRoute) {
-                    if (curRoute != null && curRoute != "bookshelf" && curRoute != "search") {
+                    // v0.294.5：只在切到别的底部 tab 时清词；从书架搜索点进详情/阅读再返回，
+                    // 路由短暂离开书架，原来也清词，返回后搜索框和结果就没了。
+                    if (curRoute != null && curRoute != "bookshelf" && curRoute != "search" &&
+                        tabs.any { it.route == curRoute }
+                    ) {
                         novelSearchVm.setKeyword("")
                     }
                     // v0.231.0：重进找书不留上次记录——228 只清了框词，结果列表还留在 ViewModel 里，空框配旧结果；进找书路由时把结果也清掉。
@@ -490,6 +507,38 @@ class MainActivity : ComponentActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /**
+     * v0.294.5：切后台/锁屏暂停视频。onUserLeaveHint 只管按 Home；锁屏、从通知跳走、
+     * 最近任务切走都不经过它，视频会在后台继续出声。这里在 onStop 兜底：
+     * 正在画中画（用户显式开的小窗）或旋转等配置变更时不暂停；音乐走 MusicService 后台播放，不受影响。
+     */
+    override fun onStop() {
+        super.onStop()
+        if (isChangingConfigurations) return
+        if (isInPictureInPictureMode) return
+        val playing = PlayerManager.player?.isPlaying == true ||
+            (EngineHost.engine() == PlayerEngine.LIBMPV && MpvPlayerManager.isPlaying)
+        if (playing) {
+            runCatching { EngineHost.pause() }
+            LogBus.i("App", "切到后台/锁屏，暂停视频（非画中画）")
+        }
+    }
+
+    /** v0.294.5：启动时有无存储权限；回到前台发现刚授予就把私有回退目录里的文件并过去 */
+    private var storageAccessAtStart = true
+
+    override fun onResume() {
+        super.onResume()
+        if (!storageAccessAtStart && StoragePaths.hasAccess(this)) {
+            storageAccessAtStart = true
+            val appCtx = applicationContext
+            lifecycleScope.launch(Dispatchers.IO) {
+                StoragePaths.migrateFromPrivate(appCtx)
+                StoragePaths.mergePrivateRootIntoPublic(appCtx)
+            }
+        }
     }
 
     override fun onDestroy() {

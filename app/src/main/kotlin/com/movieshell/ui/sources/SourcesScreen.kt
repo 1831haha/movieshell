@@ -200,20 +200,24 @@ internal sealed interface ImportResult {
  * - 后缀不在允许列表内 -> WrongExt
  */
 internal fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): ImportResult {
-    val displayName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+    val rawName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
         val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
     } ?: return ImportResult.Failed("读取文件名失败")
-    val ext = "." + displayName.substringAfterLast('.', "").lowercase()
+    val ext = "." + rawName.substringAfterLast('.', "").lowercase()
+    // v0.294.5：文件名清洗 + 规范路径校验，防「../」穿越写到规则目录外
+    val displayName = com.movieshell.data.repo.SafeFileName.importName(rawName, "rule_${System.currentTimeMillis()}$ext")
     if (target.extensions.none { it.equals(ext, ignoreCase = true) }) {
         return ImportResult.WrongExt
     }
     return try {
         val dir = targetDir(context, target.dirName)
-        var dst = File(dir, displayName)
+        var dst = com.movieshell.data.repo.SafeFileName.childInside(dir, displayName)
+            ?: return ImportResult.Failed("文件名非法")
         if (dst.exists()) {
             val base = displayName.substringBeforeLast('.')
-            dst = File(dir, "${base}_${System.currentTimeMillis()}$ext")
+            dst = com.movieshell.data.repo.SafeFileName.childInside(dir, "${base}_${System.currentTimeMillis()}$ext")
+                ?: return ImportResult.Failed("文件名非法")
         }
         context.contentResolver.openInputStream(uri)?.use { input ->
             dst.outputStream().use { input.copyTo(it) }
@@ -832,14 +836,19 @@ fun SourcesScreen(
     var pendingEditSub by remember { mutableStateOf<SourceEntry?>(null) }
 
     // ---------- 文件导入 ----------
-    var pendingImport by remember { mutableStateOf<ImportTarget?>(null) }
+    // v0.294.5：导入目标改 rememberSaveable（存 dirName）——系统选择器期间 Activity 被回收/转屏，
+    // 回来时 remember 已重置，选好的文件被静默丢弃。
+    var pendingImportDir by rememberSaveable { mutableStateOf<String?>(null) }
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri ->
-        val target = pendingImport
-        pendingImport = null
+        val target = listOf(IMPORT_DPRY, IMPORT_PY, IMPORT_PHP, IMPORT_WEB)
+            .firstOrNull { it.dirName == pendingImportDir }
+        pendingImportDir = null
         if (target == null || uri == null) return@rememberLauncherForActivityResult
-        when (val r = importRuleFile(context, uri, target)) {
+        // v0.294.5：拷文件放 IO 线程（原来在主线程拷，大文件/慢存储会卡顿甚至 ANR）
+        refreshScope.launch {
+        when (val r = withContext(Dispatchers.IO) { importRuleFile(context, uri, target) }) {
             is ImportResult.Ok -> {
                 when (target.dirName) {
                     "drpy" -> {
@@ -875,10 +884,11 @@ fun SourcesScreen(
             is ImportResult.Failed ->
                 AppToast.show(context, "导入失败：${r.reason}", long = true)
         }
+        }
     }
 
     fun requestImport(target: ImportTarget) {
-        pendingImport = target
+        pendingImportDir = target.dirName
         importLauncher.launch("*/*")
     }
 

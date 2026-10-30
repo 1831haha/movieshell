@@ -99,6 +99,9 @@ object ExecutableTrust {
     fun trustedName(key: String): String =
         SafeFileName.encode(key, Regex("[^A-Za-z0-9._-]+"), maxLen = 200, fallback = "_", keepExt = true)
 
+    private fun legacyTrustedName(key: String): String =
+        SafeFileName.legacyEncode(key, Regex("[^A-Za-z0-9._-]+"), maxLen = 200, fallback = "_", keepExt = true)
+
     /**
      * 取可信副本。返回 null 表示拒绝执行（公开文件已变且旧副本也
      * 不可信，或文件根本不存在）。调用方对 null 一律按执行失败处理，
@@ -114,6 +117,18 @@ object ExecutableTrust {
         val publicSha = sha256(publicFile) ?: return null
         val registered = registeredSha(filesDir, key)
         val trusted = trustedPath(filesDir, key)
+        // v0.294.5：文件名算法收紧后，老版本的可信副本在旧名下——新名还没有时搬过来，
+        // 避免“公开文件已变 + 不允许重新信任”时因找不到旧副本而拒绝执行。
+        if (!trusted.isFile) {
+            val legacy = File(File(filesDir, TRUSTED_DIR_NAME), legacyTrustedName(key))
+            if (legacy != trusted && legacy.isFile) {
+                runCatching {
+                    trusted.parentFile?.mkdirs()
+                    legacy.copyTo(trusted, overwrite = false)
+                    trusted.setReadOnly()
+                }
+            }
+        }
         if (registered == null) {
             // 首次见到：公开文件即导入源，拷入私有并锚定。
             if (!copyToTrusted(publicFile, trusted)) return null

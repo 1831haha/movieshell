@@ -542,7 +542,7 @@ fun PlayerScreen(
             val sub = runCatching { currentSubtitleUrl() }.getOrNull()
             val ok = EngineHost.play(
                 context, playUrl, headers = lastHeaders,
-                startPositionMs = rotatePosMs, subtitleUrl = sub,
+                startPositionMs = rotatePosMs, subtitleUrl = sub, live = isLive,
             )
             if (ok) {
                 EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
@@ -620,7 +620,7 @@ fun PlayerScreen(
         } else {
             EngineHost.play(
                 context, playUrl, headers = lastHeaders,
-                startPositionMs = startPositionMs, subtitleUrl = sub,
+                startPositionMs = startPositionMs, subtitleUrl = sub, live = isLive,
             )
         }
     }
@@ -826,7 +826,7 @@ fun PlayerScreen(
                         playUrl,
                         headers = headers,
                         startPositionMs = startPos,
-                        subtitleUrl = subtitleUrl,
+                        subtitleUrl = subtitleUrl, live = isLive,
                     )
                     // v0.21.0：应用字幕样式
                     if (ok) {
@@ -938,7 +938,7 @@ fun PlayerScreen(
                 val sub = runCatching { currentSubtitleUrl() }.getOrNull()
                 val ok = EngineHost.play(
                     context, playUrl, headers = lastHeaders,
-                    startPositionMs = pos, subtitleUrl = sub,
+                    startPositionMs = pos, subtitleUrl = sub, live = isLive,
                 )
                 if (ok) EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
                 else AppToast.show(context, "字幕应用失败", long = false)
@@ -977,7 +977,7 @@ fun PlayerScreen(
                 val sub = runCatching { currentSubtitleUrl() }.getOrNull()
                 val ok = EngineHost.play(
                     context, playUrl, headers = lastHeaders,
-                    startPositionMs = pos, subtitleUrl = sub,
+                    startPositionMs = pos, subtitleUrl = sub, live = isLive,
                 )
                 if (ok) EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
                 else AppToast.show(context, "切换后起播失败", long = false)
@@ -1044,7 +1044,7 @@ fun PlayerScreen(
                                         val sub = runCatching { currentSubtitleUrl() }.getOrNull()
                                         val ok = EngineHost.play(
                                             context, playUrl, headers = noRefHeaders,
-                                            startPositionMs = pos, subtitleUrl = sub,
+                                            startPositionMs = pos, subtitleUrl = sub, live = isLive,
                                         )
                                         if (!ok) playError = PlayError.classify("重试失败")
                                     } catch (t: Throwable) {
@@ -1165,7 +1165,9 @@ fun PlayerScreen(
                             val dx = ch.position.x - down.position.x
                             val dy = ch.position.y - down.position.y
                             if (abs(dx) > slop || abs(dy) > slop) {
-                                if (abs(dy) >= abs(dx)) hit = ch else break
+                                // v0.294.5：只认领“上滑”；底部 140dp 内的下滑原来也被认领吃掉，
+                                // 下滑亮度/音量等手势失灵。下滑一律放行给手势层。
+                                if (abs(dy) >= abs(dx) && dy < 0) hit = ch else break
                             }
                         }
                         hit
@@ -1319,7 +1321,9 @@ fun PlayerScreen(
                             cfgOrientation == Configuration.ORIENTATION_PORTRAIT &&
                             PlaySession.currentLine()?.episodes
                                 ?.getOrNull(PlaySession.episodeIndex + 1) != null &&
-                            down.position.y > size.height - 140.dp.toPx()
+                            down.position.y > size.height - 140.dp.toPx() &&
+                            // v0.294.5：起手是上滑才算切集；下滑照常走亮度/音量
+                            slopChange.position.y < down.position.y
                         var swipeUpPx = 0f
                         val swipeThresholdPx = 100.dp.toPx()
                         do {
@@ -2253,7 +2257,7 @@ fun PlayerScreen(
                             context, playSourceKey, it, PlaySession.episodeIndex,
                         )
                     }.orEmpty(),
-                initialStyle = PlayerSettings.subtitleStyle.value,
+                initialStyle = PlayerSettings.subtitleStyle.collectAsState().value,
                 onDismiss = { uiVm.showSubtitleDialog = false },
                 onSave = { url, style ->
                     val clean = url.trim()

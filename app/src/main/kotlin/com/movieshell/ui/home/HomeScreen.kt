@@ -351,6 +351,12 @@ fun HomeScreen(
     var contentGen by remember { mutableIntStateOf(0) }
     // v0.31.2：分类加载单飞——快速连点时取消上一次，保证同一时间只有一个分类请求在跑
     var categoryJob by remember { mutableStateOf<Job?>(null) }
+    // v0.294.5：分类先行进第一个分类——分类一回来（或缓存分类上屏）就立刻加载第 1 个分类，
+    // 不再等首屏 5s 结算。提前加载会把世代 +1，这里记下“哪一轮首页加载提前起了分类、
+    // 起完后的世代是多少”，首页这一轮的迟到结果仍被视为有效（genAlive），不被世代校验丢掉。
+    var earlyCatFromGen by remember { mutableIntStateOf(-1) }
+    var earlyCatGen by remember { mutableIntStateOf(-1) }
+    fun genAlive(g: Int): Boolean = g == contentGen || (g == earlyCatFromGen && earlyCatGen == contentGen)
     var shuffleSeed by remember { mutableIntStateOf(0) }
     // v0.215.0：分类分页——加载更多进行态（切分类时重置）；页码与到底标记已搬进 VM（F4）。
     var catLoadingMore by remember { mutableStateOf(false) }
@@ -416,6 +422,10 @@ fun HomeScreen(
      * 这里是 fire-and-forget 的收尾路径，宁可把清理（finish）和错误态做完，
      * 也不让取消导致转圈卡死或登记泄漏。
      */
+    // v0.294.5：loadDrpyCategory 声明在 fetchHomePayload 之后（局部函数需先声明），
+    // 用一个后绑定的回调让分类先行能提前进第 1 个分类。
+    var earlyLoadFirstCategory: () -> Unit = {}
+
     suspend fun awaitFlight(d: Deferred<HomeLoadGate.HomePayload?>): HomeLoadGate.HomePayload? =
         try {
             d.await()
@@ -434,6 +444,15 @@ fun HomeScreen(
      * - 用户补：慢请求回来先确认前台才刷 UI，后台只写缓存，防推荐区跳变。
      */
     suspend fun fetchHomePayload(key: String, myGen: Int): HomeLoadGate.HomePayload {
+        // v0.294.5：分类一到就进第 1 个分类（不等推荐/5s 结算）；每轮首页加载只提前起一次。
+        fun startFirstCategoryEarly() {
+            if (earlyCatFromGen == myGen || !genAlive(myGen) || !isHomeForeground()) return
+            if (vm.selectedCategoryId.value != "" || vm.categories.value.isEmpty()) return
+            earlyLoadFirstCategory()
+            earlyCatFromGen = myGen
+            earlyCatGen = contentGen
+            LogBus.i("Home", "分类已到，提前进入第 1 个分类（不等推荐）")
+        }
         // 1. 缓存先行
         var cacheVods: List<ModelVod> = emptyList()
         var cacheCats: List<CategoryType> = emptyList()
@@ -453,14 +472,17 @@ fun HomeScreen(
         // v0.50.0 E：缓存立刻上屏，不等网络
         // 换源后分类残留修复：缓存是按发起时源 key 读的，写回前再核一次当前源 key，
         // 换源了就不写——否则旧源缓存会在新源加载完成前把旧分类顶回分类行。
-        if ((cacheShown || cacheCats.isNotEmpty()) && myGen == contentGen && isHomeForeground() && key == homeCacheKey()) {
+        if ((cacheShown || cacheCats.isNotEmpty()) && genAlive(myGen) && isHomeForeground() && key == homeCacheKey()) {
             // v0.109.0：drpyList 恒不为 null（currentVideos 派生），之前写 == null
             // 导致缓存先行即时上屏恒被跳过——冷启动无数据时白等网络。改判 isEmpty()
             if (cacheShown && drpyList.isEmpty()) {
                 vm.setRecommend(cacheVods)
                 recommendStale = !cacheFresh
             }
-            if (cacheCats.isNotEmpty() && drpyCats.isEmpty()) vm.setCategories(cacheCats)
+            if (cacheCats.isNotEmpty() && drpyCats.isEmpty()) {
+                vm.setCategories(cacheCats)
+                startFirstCategoryEarly()
+            }
         }
         // 2. 并发刷新（推荐/分类各 25s 熔断，互不取消；首屏结算只等 5s）
         var netVods: List<ModelVod>? = null
@@ -472,10 +494,12 @@ fun HomeScreen(
             try {
                 // v0.166.0：降级 3s——推荐没回来先降级，不白屏等 5s
                 delay(3_000)
-                if (netVods != null || myGen != contentGen) return@launch
+                if (netVods != null || !genAlive(myGen)) return@launch
                 // v0.106.0：drpyList 恒不为 null（currentVideos 派生），之前写 != null
                 // 导致降级恒被跳过——熔断前用户一直看白屏。改判 isNotEmpty()
                 if (drpyList.isNotEmpty() || !isHomeForeground()) return@launch
+                // v0.294.5：已进分类视图（分类先行）就不在推荐流上降级/灭转圈
+                if (vm.selectedCategoryId.value != "") return@launch
                 val stale = cacheVods.takeIf { it.isNotEmpty() }
                 if (stale != null) {
                     vm.setRecommend(stale)
@@ -515,7 +539,7 @@ fun HomeScreen(
                     // v0.166.0：空结果不覆盖已渲染列表（22:28:09 回空刷掉 20 条的教训）
                     if (vods.isEmpty()) {
                         LogBus.i("Home", "推荐回空，保留已渲染列表")
-                    } else if (myGen == contentGen && isHomeForeground()) {
+                    } else if (genAlive(myGen) && isHomeForeground()) {
                         // v0.50.0（用户补）：慢请求回来先看前台；在后台只写缓存，不刷推荐区
                         vm.setRecommend(vods)
                         recommendStale = false
@@ -555,19 +579,21 @@ fun HomeScreen(
                     else LogBus.i("Home", "规则返回分类为空（非失败）")
                     // 超时且有缓存：立刻顶上，不等推荐
                     val cached = cacheCats.takeIf { it.isNotEmpty() }
-                    if (cached != null && myGen == contentGen && isHomeForeground() && key == homeCacheKey() && drpyCats.isEmpty()) {
+                    if (cached != null && genAlive(myGen) && isHomeForeground() && key == homeCacheKey() && drpyCats.isEmpty()) {
                         vm.setCategories(cached)
                         LogBus.i("Home", "分类用缓存先行：${cached.size} 个")
+                        startFirstCategoryEarly()
                     }
                 } else {
                     withContext(Dispatchers.IO) { HomeCache.saveCats(context, key, cats) }
                     // v0.50.0 A：分类先行渲染，不等推荐回来
                     // 换源后分类残留修复：同上，写回前核当前源 key，换源了不写。
-                    if (myGen == contentGen && isHomeForeground() && key == homeCacheKey()) {
+                    if (genAlive(myGen) && isHomeForeground() && key == homeCacheKey()) {
                         vm.setCategories(cats)
                         catsFailed = false
                         LogBus.i("Home", "分类先行渲染：${cats.size} 个（推荐未回）")
-                    } else if (myGen == contentGen) {
+                        startFirstCategoryEarly()
+                    } else if (genAlive(myGen)) {
                         LogBus.i("Home", "分类回来了但首页不在前台，只写缓存不刷 UI")
                     }
                 }
@@ -593,6 +619,8 @@ fun HomeScreen(
             recJob.join()
             catJob.join()
         }
+        // v0.294.5：结算时仍有路在跑＝源慢但活着（25s 上限内还会回填），不算失败、不进退避。
+        val stillPending = recJob.isActive || catJob.isActive
         // 3. 算最终 UI 状态（语义与之前一致；early-apply 已做，这里幂等收尾）
         val netOk = netVods != null && (netVods!!.isNotEmpty() || !cacheShown)
         val finalVods: List<ModelVod>? = when {
@@ -636,6 +664,7 @@ fun HomeScreen(
             catsFailed = finalCatsFailed,
             resetSelection = netOk,
             phpError = phpErrorVal,
+            pending = stillPending,
         )
     }
 
@@ -736,6 +765,8 @@ fun HomeScreen(
         }
     }
 
+    earlyLoadFirstCategory = { loadDrpyCategory(1) }
+
     /**
      * v0.215.0：分类加载更多——下一页追加（按 id 去重），空页=到底；
      * 切分类/换筛选期间不追加（选中分类变了就丢弃迟到结果）；无筛选时合并后落盘。
@@ -812,12 +843,14 @@ fun HomeScreen(
     ) {
         // v0.31.2：迟到结果丢弃——用户已经点了别的（分类/首页/筛选），旧 payload 不再应用，
         // 否则会出现"选中红果、内容却是首页"的错位。
-        if (gen != -1 && gen != contentGen) return
+        if (gen != -1 && !genAlive(gen)) return
+        // v0.294.5：本轮首页加载已提前进了第 1 个分类
+        val earlyStarted = gen != -1 && gen == earlyCatFromGen && earlyCatGen == contentGen
         // 换源后分类残留修复：payload 是按发起时源 key 算的，应用时源已换就整单丢弃，
         // 不能只靠世代号——换源有不走 loadHome 的路径（见 refreshDrpyState），那时世代没变，
         // 旧源的分类/推荐会把新源的分类行“复活”回来。同源下拉刷新时 key 不变，失败保留展示的语义不受影响。
         if (loadKey != null && loadKey != homeCacheKey()) return
-        vm.setLoading(false)
+        if (!(earlyStarted && categoryJob?.isActive == true)) vm.setLoading(false)
         // v0.152.0：payload 自带 PHP 失败原因时透出；成功 payload（phpError=null）则清掉旧原因。
         if (payload != null) phpHomeError = payload.phpError
         if (payload == null) {
@@ -842,7 +875,10 @@ fun HomeScreen(
             if (payload.cats.isNotEmpty()) {
                 // 离开推荐流视图，3s 降级立起的推荐空态一并清掉，失败改走分类内联重试。
                 recommendEmpty = false
-                loadDrpyCategory(1)
+                // v0.294.5：已提前进了同一个第 1 个分类就不重复拉
+                if (!(earlyStarted && vm.selectedCategoryId.value == payload.cats.first().typeId)) {
+                    loadDrpyCategory(1)
+                }
             } else if (effectiveReset) {
                 vm.selectCategory("")
             }
@@ -972,7 +1008,9 @@ fun HomeScreen(
                 onDone()
                 return@launch
             }
-            val ok = payload?.vods != null || prevVods.isNotEmpty()
+            // v0.294.5：分类或推荐任一拿到即算成功；结算时还在跑的慢源（pending）不算失败。
+            val ok = payload != null && (payload.vods != null || payload.cats.isNotEmpty() || payload.pending) ||
+                prevVods.isNotEmpty()
             HomeLoadGate.finish(key, deferred, ok)
             if (!ok) LogBus.w("Home", "首页数据全失败且无缓存（连续 ${HomeLoadGate.streak(key)} 次）")
             applyHomePayload(payload, prevVods, myGen, keepSelection, loadKey = key)

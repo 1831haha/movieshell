@@ -71,6 +71,38 @@ object PlayerSettings {
     private val _gravityRotate = MutableStateFlow(true)
     val gravityRotate: StateFlow<Boolean> = _gravityRotate
 
+    /**
+     * v0.294.5：直播自动播放——进直播页时是否自动起播上次/首个频道。
+     * 0=始终（默认，保持老行为）1=仅 Wi‑Fi 2=关闭（需点一下才播）。
+     */
+    const val LIVE_AUTOPLAY_ALWAYS = 0
+    const val LIVE_AUTOPLAY_WIFI = 1
+    const val LIVE_AUTOPLAY_OFF = 2
+    private const val KEY_LIVE_AUTOPLAY = "live_autoplay_mode"
+    private val _liveAutoplay = MutableStateFlow(LIVE_AUTOPLAY_ALWAYS)
+    val liveAutoplay: StateFlow<Int> = _liveAutoplay
+
+    fun setLiveAutoplay(context: Context, mode: Int) {
+        val m = mode.coerceIn(0, 2)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_LIVE_AUTOPLAY, m).apply()
+        _liveAutoplay.value = m
+    }
+
+    /** 当前网络下是否允许直播自动起播 */
+    fun liveAutoplayAllowed(context: Context): Boolean = when (_liveAutoplay.value) {
+        LIVE_AUTOPLAY_OFF -> false
+        LIVE_AUTOPLAY_WIFI -> runCatching {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+            caps != null && (
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ||
+                    caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)
+                )
+        }.getOrDefault(false)
+        else -> true
+    }
+
     /** v0.125.0：歌词颜色（0=跟随主题 primary，正值=ARGB 预设色） */
     /** v0.126.0：音乐在线搜索平台（LX code，归一后取值，认不出回 wy） */
     fun init(context: Context) {
@@ -86,6 +118,7 @@ object PlayerSettings {
             offsetMs = prefs.getLong(KEY_SUB_OFFSET, 0L).coerceIn(-10_000L, 10_000L),
         )
         _gravityRotate.value = prefs.getBoolean(KEY_GRAVITY_ROTATE, true)
+        _liveAutoplay.value = prefs.getInt(KEY_LIVE_AUTOPLAY, LIVE_AUTOPLAY_ALWAYS).coerceIn(0, 2)
     }
 
     /**

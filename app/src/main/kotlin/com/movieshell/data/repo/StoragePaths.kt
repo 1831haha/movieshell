@@ -455,4 +455,68 @@ object StoragePaths {
             false
         }
     }
+
+    private const val KEY_PERM_SKIPPED = "storage_perm_prompt_skipped"
+
+    /** v0.294.5：启动时的存储权限引导是否已被用户跳过（跳过一次就不再每次启动都弹） */
+    fun isPermPromptSkipped(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_PERM_SKIPPED, false)
+
+    fun setPermPromptSkipped(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_PERM_SKIPPED, true).apply()
+    }
+
+    /**
+     * v0.294.5：授权前导入的文件“消失”修复。无权限时 baseDir() 回退到私有
+     * filesDir/xiaying，授权后根目录换成公开目录，私有回退里的文件就看不到了。
+     * 有权限时把私有回退根整棵并进公开根：目标不存在才复制（绝不覆盖已有文件），
+     * 复制成功或内容一致才删源；同名不同内容的保留在原处并记日志，不丢任何一份。
+     * 幂等：私有回退根不存在或已空时直接返回。
+     * @return 本次并过去的文件数
+     */
+    @Synchronized
+    fun mergePrivateRootIntoPublic(context: Context): Int {
+        if (!hasAccess(context)) return 0
+        val src = privateRoot(context)
+        if (!src.isDirectory) return 0
+        val dst = publicRoot()
+        if (runCatching { src.canonicalPath == dst.canonicalPath }.getOrDefault(true)) return 0
+        var merged = 0
+        var kept = 0
+        fun walk(s: File, d: File) {
+            val children = s.listFiles() ?: return
+            for (c in children) {
+                val t = File(d, c.name)
+                if (c.isDirectory) {
+                    if (t.exists() && !t.isDirectory) { kept++; continue }
+                    t.mkdirs()
+                    walk(c, t)
+                    // 子目录搬空了就删掉
+                    if (c.listFiles()?.isEmpty() == true) c.delete()
+                } else if (c.isFile) {
+                    if (!t.exists()) {
+                        val ok = runCatching {
+                            c.copyTo(t, overwrite = false)
+                            t.isFile && t.length() == c.length()
+                        }.getOrDefault(false)
+                        if (ok) { c.delete(); merged++ } else kept++
+                    } else if (t.isFile && sameFileContent(c, t)) {
+                        c.delete()
+                    } else {
+                        kept++
+                        LogBus.w(TAG, "同名文件内容不同，保留私有目录里的旧份：${c.absolutePath}")
+                    }
+                }
+            }
+        }
+        return try {
+            walk(src, dst)
+            if (src.listFiles()?.isEmpty() == true) src.delete()
+            if (merged > 0) LogBus.i(TAG, "授权后合并私有回退目录：并入 $merged 个文件到 ${dst.absolutePath}（保留 $kept 个冲突项）")
+            merged
+        } catch (e: Exception) {
+            LogBus.e(TAG, "合并私有回退目录失败：${e.message}")
+            0
+        }
+    }
 }

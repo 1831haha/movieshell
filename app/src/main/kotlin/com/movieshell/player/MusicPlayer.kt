@@ -966,6 +966,9 @@ object MusicPlayer {
         }
     }
 
+    // v0.294.5（lint StaticFieldLeak）：只存 applicationContext（所有赋值点都是 context.applicationContext），
+    // 与进程同生命周期，不会泄漏 Activity。
+    @android.annotation.SuppressLint("StaticFieldLeak")
     private var appCtx: Context? = null
 
     fun next(context: Context) {

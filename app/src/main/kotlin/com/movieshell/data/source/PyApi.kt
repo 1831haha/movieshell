@@ -185,7 +185,8 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
             engine.invoke(rulePath, "detailContent", """{"ids":[${vodId.q()}]}""")
         ).firstOrNull() ?: return VodDetail(vodId = vodId)
         first.toVodDetail()
-    }.getOrDefault(VodDetail(vodId = vodId))
+    }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it } // v0.294.5：取消透出
+        .getOrDefault(VodDetail(vodId = vodId))
 
     /** 搜索。 */
     suspend fun search(rulePath: String, wd: String): List<Vod> =
@@ -219,7 +220,8 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
                 }?.toMap().orEmpty()
             if (url.isBlank()) LogBus.w(TAG, "playerContent 返回空 url（parse=$parse）")
             Triple(url, parse, header)
-        }.getOrDefault(Triple("", 0, emptyMap()))
+        }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it } // v0.294.5：取消透出
+            .getOrDefault(Triple("", 0, emptyMap()))
 
     // ---------------- 内部 ----------------
 

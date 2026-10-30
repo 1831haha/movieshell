@@ -109,10 +109,12 @@ object PyBookSourceManager {
 
     /** 导入 .py 书源文件：先写 .tmp、校验含 bookSearch、通过再改名。 */
     suspend fun import(context: Context, uri: Uri): ImportResult = withContext(Dispatchers.IO) {
-        val displayName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+        val rawName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
             val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
         } ?: return@withContext ImportResult.Failed("读取文件名失败")
+        // v0.294.5：文件名清洗，防路径穿越
+        val displayName = com.movieshell.data.repo.SafeFileName.importName(rawName, "book_${System.currentTimeMillis()}.py")
         if (!displayName.endsWith(".py", ignoreCase = true)) {
             return@withContext ImportResult.WrongExt
         }
@@ -121,10 +123,12 @@ object PyBookSourceManager {
         var tmp: File? = null
         try {
             val dir = dir(context)
-            var dst = File(dir, displayName)
+            var dst = com.movieshell.data.repo.SafeFileName.childInside(dir, displayName)
+                ?: return@withContext ImportResult.Failed("文件名非法")
             if (dst.exists()) {
                 val base = displayName.substringBeforeLast('.')
-                dst = File(dir, "${base}_${System.currentTimeMillis()}.py")
+                dst = com.movieshell.data.repo.SafeFileName.childInside(dir, "${base}_${System.currentTimeMillis()}.py")
+                    ?: return@withContext ImportResult.Failed("文件名非法")
             }
             val staging = File(dir, "${dst.name}.${UUID.randomUUID()}.tmp")
             tmp = staging
@@ -178,8 +182,9 @@ object PyBookSourceManager {
         val newName = "$base.py"
         if (newName == oldName) return@withContext true
         val dir = dir(context)
-        val src = File(dir, oldName)
-        val dst = File(dir, newName)
+        // v0.294.5：规范路径必须仍在书源目录内（挡 .. 等穿越）
+        val src = com.movieshell.data.repo.SafeFileName.childInside(dir, oldName) ?: return@withContext false
+        val dst = com.movieshell.data.repo.SafeFileName.childInside(dir, newName) ?: return@withContext false
         if (!src.isFile || dst.exists()) return@withContext false
         if (!src.renameTo(dst)) return@withContext false
         // v0.211.0 审计修复：PY 重命名原来只改文件名，书架上

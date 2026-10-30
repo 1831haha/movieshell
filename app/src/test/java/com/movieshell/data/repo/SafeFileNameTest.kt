@@ -26,18 +26,34 @@ class SafeFileNameTest {
     }
 
     @Test
-    fun asciiNamesKeepLegacyResult() {
-        // 老用户的可信副本/缓存文件继续命中
-        assertEquals("py_xl01.py", ExecutableTrust.trustedName("py:xl01.py"))
-        assertEquals("drpy_a-b.js", ExecutableTrust.trustedName("drpy:a-b.js"))
+    fun safeNamesKeepIdentity() {
+        // 不需要替换任何字符的名字原样保留（老文件继续命中）
+        assertEquals("xl01.py", ExecutableTrust.trustedName("xl01.py"))
+        assertEquals("a-b_c", SafeFileName.encode("a-b_c", Regex("[^a-zA-Z0-9_-]"), 80, "default"))
         assertEquals(
-            File(File("/f", "exec_trusted"), "py_xl01.py"),
-            ExecutableTrust.trustedPath(File("/f"), "py:xl01.py"),
+            File(File("/f", "exec_trusted"), "xl01.py"),
+            ExecutableTrust.trustedPath(File("/f"), "xl01.py"),
         )
-        assertEquals(
-            "py_xl01_py",
-            SafeFileName.encode("py_xl01.py", Regex("[^a-zA-Z0-9_-]"), 80, "default"),
+        // 有替换时保留扩展名、无路径逃逸
+        val t = ExecutableTrust.trustedName("py:xl01.py")
+        assertTrue(t, t.startsWith("py_xl01_") && t.endsWith(".py") && !t.contains(':'))
+    }
+
+    @Test
+    fun replacedCharsNeverCollide() {
+        // v0.294.5：. : / 被替换成 _ 后不能与原本就是 _ 的名字撞车
+        assertNotEquals(ExecutableTrust.trustedName("py:xl01.py"), ExecutableTrust.trustedName("py_xl01.py"))
+        val unsafe = Regex("[^a-zA-Z0-9_-]")
+        assertNotEquals(
+            SafeFileName.encode("py_xl01.py", unsafe, 80, "default"),
+            SafeFileName.encode("py_xl01_py", unsafe, 80, "default"),
         )
+        assertNotEquals(
+            SafeFileName.encode("a/b", unsafe, 80, "d"),
+            SafeFileName.encode("a:b", unsafe, 80, "d"),
+        )
+        // 旧算法结果仍可算出（迁移查找用）
+        assertEquals("py_xl01.py", SafeFileName.legacyEncode("py:xl01.py", Regex("[^A-Za-z0-9._-]+"), 200, "_", keepExt = true))
     }
 
     @Test

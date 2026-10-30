@@ -135,21 +135,24 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
         }
     }
 
-    if (confirmDeletePattern != null) {
+    // v0.294.5：捕获本地值、确认先判空再关，连点不再崩溃
+    confirmDeletePattern?.let { shown ->
         TechDialog(
             onDismissRequest = { confirmDeletePattern = null },
             title = "删除嗅探正则",
             confirmText = "删除",
             onConfirm = {
-                val pattern = confirmDeletePattern!!
+                val pattern = confirmDeletePattern
                 confirmDeletePattern = null
-                LogBus.i("UI", "删除嗅探正则: $pattern")
-                SniffPatternStore.remove(pattern)
-                refreshPatterns()
+                if (pattern != null) {
+                    LogBus.i("UI", "删除嗅探正则: $pattern")
+                    SniffPatternStore.remove(pattern)
+                    refreshPatterns()
+                }
             },
             dismissText = "取消",
         ) {
-            Text("删除「${confirmDeletePattern!!}」吗？", style = MaterialTheme.typography.bodyMedium)
+            Text("删除「$shown」吗？", style = MaterialTheme.typography.bodyMedium)
         }
     }
 
@@ -189,7 +192,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                     if (error != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = error!!,
+                            text = error.orEmpty(),
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall,
                         )

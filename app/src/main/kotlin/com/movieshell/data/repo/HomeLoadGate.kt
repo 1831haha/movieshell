@@ -32,6 +32,8 @@ object HomeLoadGate {
         val resetSelection: Boolean,
         /** v0.152.0：PHP 首页失败原因（null=不是 PHP 失败或有数据/缓存可展示），UI 据此给可见提示而非空态 */
         val phpError: String? = null,
+        /** v0.294.5：首屏结算时推荐/分类仍有路在跑（慢源未超时），不计失败 */
+        val pending: Boolean = false,
     )
 
     private val lock = Any()

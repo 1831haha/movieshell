@@ -174,9 +174,10 @@ fun BookshelfScreen(
     var selectedGroup by remember { mutableStateOf(BookshelfGroupStore.selectedGroup(context)) }
 
     // v0.197.0：阅读式页签（全部 / 更新失败）+ 上次检查失败的书 id（持久化在 prefs）
-    var shelfTab by remember { mutableStateOf(0) }
+    // v0.294.5：页签与找书态改 rememberSaveable——进书详情/阅读再返回不丢
+    var shelfTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
     // v0.248.0：书架内页签（书架 / 发现）；发现页是书架子结构，不占底部导航。
-    var mainTab by remember { mutableStateOf(0) }
+    var mainTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
     var failedIds by remember { mutableStateOf(BookshelfGroupStore.failedIds(context)) }
 
     // v0.98.0：多选模式
@@ -190,7 +191,7 @@ fun BookshelfScreen(
     val batchPyEnabled by com.movieshell.data.novel.PyBookSourceManager.enabled.collectAsState()
 
     // v0.195.0：书架内直接搜（不用单独找书页）
-    var searching by remember { mutableStateOf(false) }
+    var searching by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     // v0.243.0：找书态按系统返回先回书架——找书只是书架内的一个状态、
     // 不是导航路由，不拦截时返回会直接 pop 书架路由落到首页；与“取消”同义。
     BackHandler(enabled = searching) { searching = false }
@@ -499,10 +500,14 @@ fun BookshelfScreen(
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val name = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
-                        val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (i >= 0 && c.moveToFirst()) c.getString(i) else null
-                    } ?: "导入小说.txt"
+                    // v0.294.5：文件名清洗 + 规范路径校验，防路径穿越写出缓存目录
+                    val name = com.movieshell.data.repo.SafeFileName.importName(
+                        context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                            val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            if (i >= 0 && c.moveToFirst()) c.getString(i) else null
+                        },
+                        "导入小说.txt",
+                    )
                     val tmp = File(context.cacheDir, "import_${System.currentTimeMillis()}.txt")
                     val inputStream = context.contentResolver.openInputStream(uri)
                     if (inputStream == null) {
@@ -513,7 +518,8 @@ fun BookshelfScreen(
                     inputStream.use { input ->
                         tmp.outputStream().use { input.copyTo(it) }
                     }
-                    val named = File(tmp.parent, name)
+                    val named = com.movieshell.data.repo.SafeFileName.childInside(context.cacheDir, name)
+                        ?: run { tmp.delete(); return@runCatching "failed" }
                     // v0.218.0（S19）：先清掉上次残留的同名文件，否则改名
                     // 可能失败；改名失败直接判失败并删 tmp，不再拿着旧文件
                     // 往下走（会读错文件、提示却还是“已加入书架”）。

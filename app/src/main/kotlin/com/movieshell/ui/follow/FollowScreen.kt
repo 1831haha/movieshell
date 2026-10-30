@@ -63,15 +63,16 @@ fun FollowScreen(
     val items by FollowStore.list.collectAsState()
     var confirmUnfollow by remember { mutableStateOf<FollowItem?>(null) }
 
-    if (confirmUnfollow != null) {
+    // v0.294.5：弹窗内容用捕获的本地值，确认时先判空再关——连点两下不再因 !! 崩溃
+    confirmUnfollow?.let { shown ->
         TechDialog(
             onDismissRequest = { confirmUnfollow = null },
             title = "取消追剧",
             confirmText = "确定",
             onConfirm = {
-                val item = confirmUnfollow!!
+                val item = confirmUnfollow
                 confirmUnfollow = null
-                scope.launch {
+                if (item != null) scope.launch {
                     if (FollowStore.unfollow(context, item.id)) {
                         AppToast.show(context, "已取消追剧", long = false)
                     } else {
@@ -82,7 +83,7 @@ fun FollowScreen(
             },
             dismissText = "取消",
         ) {
-            Text("不再追《${confirmUnfollow!!.name}》？", style = MaterialTheme.typography.bodyMedium)
+            Text("不再追《${shown.name}》？", style = MaterialTheme.typography.bodyMedium)
         }
     }
 

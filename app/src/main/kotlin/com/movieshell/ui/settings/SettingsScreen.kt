@@ -97,6 +97,8 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
 import androidx.compose.material3.TextButton
@@ -393,6 +395,8 @@ fun SettingsScreen(
     val cs = MaterialTheme.colorScheme
     val customBg by BackgroundStore.customBg.collectAsState()
     val gravityRotate by PlayerSettings.gravityRotate.collectAsState()
+    val liveAutoplay by PlayerSettings.liveAutoplay.collectAsState()
+    var showLiveAutoplayMenu by remember { mutableStateOf(false) }
     val logEnabled by LogStore.enabled.collectAsState()
     val themeKey by ThemeStore.themeKey.collectAsState()
     var jsTick by remember { mutableStateOf(0) }
@@ -595,6 +599,47 @@ fun SettingsScreen(
                         checked = gravityRotate,
                         onCheckedChange = { PlayerSettings.setGravityRotate(context, it) },
                     )
+                },
+            )
+        }
+        item {
+            // v0.294.5：直播自动播放——始终 / 仅 Wi‑Fi / 关闭；点整行弹紧凑下拉选
+            val labels = listOf("始终", "仅 Wi‑Fi", "关闭")
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.LiveTv,
+                title = "直播自动播放",
+                subtitle = when (liveAutoplay) {
+                    PlayerSettings.LIVE_AUTOPLAY_WIFI -> "仅 Wi‑Fi 下进直播页自动起播"
+                    PlayerSettings.LIVE_AUTOPLAY_OFF -> "关闭 · 点频道才播"
+                    else -> "始终 · 进直播页自动起播"
+                },
+                onClick = { showLiveAutoplayMenu = true },
+                trailing = {
+                    Box {
+                        Text(
+                            labels.getOrElse(liveAutoplay) { labels[0] },
+                            style = MaterialTheme.typography.labelLarge,
+                            color = cs.primary,
+                        )
+                        DropdownMenu(
+                            expanded = showLiveAutoplayMenu,
+                            onDismissRequest = { showLiveAutoplayMenu = false },
+                        ) {
+                            labels.forEachIndexed { i, label ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        showLiveAutoplayMenu = false
+                                        PlayerSettings.setLiveAutoplay(context, i)
+                                    },
+                                    trailingIcon = if (i == liveAutoplay) {
+                                        { Icon(Icons.Outlined.Check, null, tint = cs.primary) }
+                                    } else null,
+                                )
+                            }
+                        }
+                    }
                 },
             )
         }

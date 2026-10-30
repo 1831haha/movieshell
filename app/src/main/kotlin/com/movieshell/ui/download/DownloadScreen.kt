@@ -130,9 +130,10 @@ fun DownloadScreen(
                 AppButton(
                     text = "仅移除记录",
                     onClick = {
-                        val t = confirmDelete!!
+                        // v0.294.5：先取值再关、空就不做（连点第二下时已为 null，不会崩溃）
+                        val t = confirmDelete
                         confirmDelete = null
-                        scope.launch {
+                        if (t != null) scope.launch {
                             DownloadStore.remove(context, t.id, deleteFiles = false)
                         }
                     },
@@ -142,9 +143,10 @@ fun DownloadScreen(
                 AppButton(
                     text = "删除文件",
                     onClick = {
-                        val t = confirmDelete!!
+                        // v0.294.5：先取值再关、空就不做（连点第二下时已为 null，不会崩溃）
+                        val t = confirmDelete
                         confirmDelete = null
-                        scope.launch { DownloadManager.delete(context, t.id) }
+                        if (t != null) scope.launch { DownloadManager.delete(context, t.id) }
                     },
                     variant = AppButtonVariant.Secondary,
                     modifier = Modifier.weight(1f),

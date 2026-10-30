@@ -151,7 +151,8 @@ fun MusicScreen(
         vm.doSearch(q0)
     }
 
-    var tab by remember { mutableIntStateOf(0) } // v0.81.0：0=在线 1=本地 2=收藏；v0.84.0：3=歌单
+    // v0.294.5：子页签改 rememberSaveable，进播放页/详情再返回、转屏都停在原页签
+    var tab by rememberSaveable { mutableIntStateOf(0) } // v0.81.0：0=在线 1=本地 2=收藏；v0.84.0：3=歌单
     // v0.117.0：列表页切换音源弹窗
     var showSourcePicker by remember { mutableStateOf(false) }
     // v0.128.0：歌单导入入口挪到标题行，状态与导入逻辑随之上提到本屏
@@ -380,7 +381,7 @@ fun MusicScreen(
                 }
             },
             // v0.126.0：平台区目标沿用本弹窗既有语义=当前在播歌曲（无在播/本地歌不渲染）
-            platformTrack = MusicPlayer.state.value.track?.takeIf { !it.isLocal },
+            platformTrack = MusicPlayer.state.collectAsState().value.track?.takeIf { !it.isLocal },
             onPickPlatform = { code ->
                 showSourcePicker = false
                 MusicPlayer.playOnPlatform(context, code)

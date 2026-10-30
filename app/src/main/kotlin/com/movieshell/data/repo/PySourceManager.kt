@@ -170,6 +170,8 @@ object PySourceManager {
         return latest(homeSlot) {
             runCatching { api.home(path) }
                 .onFailure { e ->
+                    // v0.294.5：取消（换源/离页/世代更替）不是失败，透出不记
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     recordFailure(e)
                     LogBus.e(TAG, "本地 PY home 失败: ${e::class.simpleName}: ${e.message}")
                 }
@@ -183,6 +185,8 @@ object PySourceManager {
         return latest(categoriesSlot) {
             runCatching { api.categories(path) }
                 .onFailure { e ->
+                    // v0.294.5：取消（换源/离页/世代更替）不是失败，透出不记
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     recordFailure(e)
                     LogBus.e(TAG, "本地 PY categories 失败: ${e::class.simpleName}: ${e.message}")
                 }
@@ -196,6 +200,8 @@ object PySourceManager {
         return latest(categorySlot) {
             runCatching { api.category(path, tid, pg, filter) }
                 .onFailure { e ->
+                    // v0.294.5：取消（换源/离页/世代更替）不是失败，透出不记
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     recordFailure(e)
                     LogBus.e(TAG, "本地 PY category 失败: ${e::class.simpleName}: ${e.message}")
                 }
@@ -209,6 +215,8 @@ object PySourceManager {
         return latest(detailSlot) {
             runCatching { api.detail(path, vodId) }
                 .onFailure { e ->
+                    // v0.294.5：取消（换源/离页/世代更替）不是失败，透出不记
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     recordFailure(e)
                     LogBus.e(TAG, "本地 PY detail 失败: ${e::class.simpleName}: ${e.message}")
                 }
@@ -222,6 +230,8 @@ object PySourceManager {
         return latest(searchSlot) {
             runCatching { api.search(path, wd) }
                 .onFailure { e ->
+                    // v0.294.5：取消（换源/离页/世代更替）不是失败，透出不记
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     recordFailure(e)
                     LogBus.e(TAG, "本地 PY search 失败: ${e::class.simpleName}: ${e.message}")
                 }
@@ -237,6 +247,8 @@ object PySourceManager {
         val path = activeRulePath() ?: return ""
         return runCatching { api.play(path, flag, id).first }
             .onFailure { e ->
+                // v0.294.5：取消（换源/离页/世代更替）不是失败，透出不记
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 recordFailure(e)
                 LogBus.e(TAG, "本地 PY play 失败：规则=$path flag=$flag 原因=${e.message ?: e::class.java.simpleName}")
             }
@@ -250,6 +262,8 @@ object PySourceManager {
         val path = activeRulePath() ?: return Triple("", 0, emptyMap())
         return runCatching { api.play(path, flag, id) }
             .onFailure { e ->
+                // v0.294.5：取消（换源/离页/世代更替）不是失败，透出不记
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 recordFailure(e)
                 LogBus.e(TAG, "本地 PY playRaw 失败：规则=$path flag=$flag 原因=${e.message ?: e::class.java.simpleName}")
             }

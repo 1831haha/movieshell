@@ -121,6 +121,16 @@ object PlayerManager {
         )
         exoPlayer = ExoPlayer.Builder(app)
             .setTrackSelector(trackSelector)
+            // v0.294.5：接管音频焦点（来电/别的 App 放声时暂停，结束后按系统规则恢复）
+            // 并在耳机拔出/蓝牙断开时自动暂停，不外放。
+            .setAudioAttributes(
+                androidx.media3.common.AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                /* handleAudioFocus = */ true,
+            )
+            .setHandleAudioBecomingNoisy(true)
             .build()
             .also {
                 it.addListener(listener)
@@ -145,6 +155,7 @@ object PlayerManager {
         headers: Map<String, String> = emptyMap(),
         startPositionMs: Long = 0L,
         subtitleUrl: String? = null,
+        live: Boolean = false,
     ) {
         // v0.102.0 P2-6：视频开播联动暂停音乐——只暂停不自动恢复，恢复走音乐迷你条手动。
         // MusicPlayer 无 fun pause()（只读），用现有 fadeOutAndPause（保留队列/状态）。
@@ -196,8 +207,14 @@ object PlayerManager {
             .setCache(videoCache(app))
             .setUpstreamDataSourceFactory(DefaultDataSource.Factory(app, httpFactory))
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        // v0.294.5：直播流不进磁盘缓存——直播分片只播一次，写缓存纯属白耗闪存、
+        // 还会把 500MB LRU 里的点播缓存挤掉；非 http(s) 协议同样直连上游。
+        val bypassCache = live || isLiveLikeUrl(url)
+        val upstreamFactory: androidx.media3.datasource.DataSource.Factory =
+            if (bypassCache) DefaultDataSource.Factory(app, httpFactory) else cacheFactory
+        if (bypassCache) LogBus.i("Player", "直播流：不走视频磁盘缓存")
         val adFilterFactory = AdFilteringDataSource.Factory(
-            cacheFactory,
+            upstreamFactory,
             enabledProvider = { SniffConfig.adFilterEnabled },
         )
         // v0.19.0：显式声明 FLV 提取器（HTTP-FLV 直播/点播），不依赖默认工厂的隐含行为
@@ -232,6 +249,13 @@ object PlayerManager {
         player.prepare()
         if (startPositionMs > 0) player.seekTo(startPositionMs)
         player.playWhenReady = true
+    }
+
+    /** v0.294.5：非 http(s) 的流式协议（rtmp/rtsp/rtp/udp/srt）一律视为直播 */
+    private fun isLiveLikeUrl(url: String): Boolean {
+        val u = url.trim().lowercase()
+        return listOf("rtmp://", "rtmps://", "rtsp://", "rtp://", "udp://", "srt://", "mms://")
+            .any { u.startsWith(it) }
     }
 
     fun pause() {

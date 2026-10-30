@@ -1,5 +1,6 @@
 package com.movieshell.data.repo
 
+import java.io.File
 import java.security.MessageDigest
 
 /**
@@ -11,7 +12,8 @@ import java.security.MessageDigest
  * 首页缓存（HomeCache）同理串台。
  *
  * 规则：
- * - key 只含 ASCII 安全字符（字母数字 . _ - : /）且不超长：沿用老算法结果（老文件/老副本继续命中）；
+ * - key 一个字符都不用替换且不超长：原样作文件名；
+ * - v0.294.5 起：只要有字符被替换（含 . : /），一律追加摘要，杜绝「py:a」「py_a」同名；
  * - 否则（含中文、空格等，或超长）：老算法结果截断 + `_` + key 的 SHA-256 前 12 位，保证唯一；
  * - keepExt=true 时保留原扩展名（Python 按 .py 后缀选 loader，不能丢）。
  */
@@ -27,7 +29,10 @@ object SafeFileName {
         keepExt: Boolean = false,
     ): String {
         val legacy = raw.replace(unsafe, "_")
-        if (LOSSLESS.matches(raw) && legacy.length <= maxLen) return legacy.ifBlank { fallback }
+        // v0.294.5：“无损”只认“一个字符都没被替换”。原来 LOSSLESS 把 . : / 也算安全，
+        // 但各调用方的 unsafe 正则会把它们换成 `_`，于是「py:a」「py_a」、「a.b」「a_b」
+        // 撞到同一个文件。现在只要有任何字符被替换就追加摘要，不同 key 永不同名。
+        if (legacy == raw && legacy.length <= maxLen) return legacy.ifBlank { fallback }
         val hash = sha256Hex(raw).take(12)
         val ext = if (keepExt) raw.substringAfterLast('.', "").takeIf { EXT.matches(it) } else null
         val stemRaw = if (ext != null) raw.dropLast(ext.length + 1) else raw
@@ -35,6 +40,46 @@ object SafeFileName {
         val stem = stemRaw.replace(unsafe, "_").take((maxLen - suffix.length).coerceAtLeast(0))
         return stem + suffix
     }
+
+    /** v0.294.5：旧版（≤v0.294.4）算法结果，仅供老文件迁移查找用，新文件不要用。 */
+    fun legacyEncode(
+        raw: String,
+        unsafe: Regex,
+        maxLen: Int,
+        fallback: String,
+        keepExt: Boolean = false,
+    ): String {
+        val legacy = raw.replace(unsafe, "_")
+        if (LOSSLESS.matches(raw) && legacy.length <= maxLen) return legacy.ifBlank { fallback }
+        return encode(raw, unsafe, maxLen, fallback, keepExt)
+    }
+
+    private val IMPORT_BAD = Regex("[\\u0000-\\u001f\\u007f:*?\"<>|]")
+
+    /**
+     * v0.294.5：导入文件名清洗（防路径穿越）。系统选择器给的 DISPLAY_NAME 理论上可以是
+     * 「../../xx.py」「a/b.js」这类带路径的串：只取最后一段，去掉控制符与 Windows/FAT 非法字符，
+     * 去掉开头的点（不产生 . / .. / 隐藏文件），中文原样保留；清洗后为空用 fallback。
+     */
+    fun importName(raw: String?, fallback: String, maxLen: Int = 120): String {
+        var n = (raw ?: "").substringAfterLast('/').substringAfterLast('\\')
+        n = n.replace(IMPORT_BAD, "_").trim().trimStart('.').trim()
+        if (n.isEmpty() || n == "." || n == "..") return fallback
+        if (n.length > maxLen) {
+            val ext = n.substringAfterLast('.', "").takeIf { EXT.matches(it) }
+            n = if (ext != null) n.dropLast(ext.length + 1).take(maxLen - ext.length - 1) + "." + ext else n.take(maxLen)
+        }
+        return n
+    }
+
+    /**
+     * v0.294.5：dir 下的子文件，规范化路径必须仍在 dir 里，否则返回 null（拒绝写）。
+     */
+    fun childInside(dir: File, name: String): File? = runCatching {
+        val base = dir.canonicalFile
+        val f = File(base, name).canonicalFile
+        if (f.parentFile == base) f else null
+    }.getOrNull()
 
     fun sha256Hex(s: String): String =
         MessageDigest.getInstance("SHA-256").digest(s.toByteArray(Charsets.UTF_8))

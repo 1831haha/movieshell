@@ -70,6 +70,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.PlayArrow
+import com.movieshell.data.repo.PlayerSettings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -138,6 +140,8 @@ private object LiveSelection {
     // v0.171.0：分组与源行选中态也进单例，切 tab 离页重组不再回首组/全部
     var selectedGroup: String? = null
     var selectedLiveSource: String? = null
+    // v0.294.5：本次进程里用户是否已主动点过播放（点过就不再受“直播自动播放”设置拦）
+    var userStarted = false
 }
 
 /** 直播 Tab：DsPlayer 式布局（v0.80.0 重做）——顶部 16:9 播放器 + 节目信息卡 + 两列（分组/频道）+ 播放器下方源行 */
@@ -247,7 +251,14 @@ fun LiveScreen(
         }
     }
 
+    // v0.294.5：直播自动播放设置——不允许自动起播时，自动选中的频道先不起播，显示“点击播放”
+    var autoplayHeld by remember {
+        mutableStateOf(!LiveSelection.userStarted && !PlayerSettings.liveAutoplayAllowed(context))
+    }
+
     fun playChannel(ch: LiveChannel) {
+        autoplayHeld = false
+        LiveSelection.userStarted = true
         // v0.277.0（T10）：同台再点不再一律 return——原来 selected
         // 不变、PlayerScreen 的 url 也不变，卡住/最终失败后用户再点
         // 同台完全没反应，只能切别的台再切回来。改：正在播就照旧
@@ -380,7 +391,31 @@ fun LiveScreen(
                                 .clip(RoundedCornerShape(V5.CornerCard)))
                     .background(Color.Black),
             ) {
-                if (playing != null) {
+                if (playing != null && autoplayHeld) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                autoplayHeld = false
+                                LiveSelection.userStarted = true
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Filled.PlayArrow,
+                                contentDescription = "播放",
+                                tint = Color.White,
+                                modifier = Modifier.size(48.dp),
+                            )
+                            Text(
+                                "${playing.name} · 点击播放",
+                                color = Color.White.copy(alpha = 0.75f),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                } else if (playing != null) {
                     // v0.277.0（T10）：重拉计数作 key——同台再点递增时
                     // 播放器整棵重建，起播链路重新跑一遍；正常切台时
                     // 计数不变，走原来的 url 变化起播，不多重建。

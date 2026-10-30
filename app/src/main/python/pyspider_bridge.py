@@ -86,6 +86,9 @@ except Exception:
 # 若响应体是未解开的压缩二进制，前几个字节的 hex 能直接看出是哪种压缩。
 _last_resp_info = None
 
+# v0.294.5：调用方未指定 timeout 时的默认值（连接, 读取）秒
+_DEFAULT_TIMEOUT = (15, 15)
+
 
 def _install_resp_sniffer():
     try:
@@ -96,6 +99,10 @@ def _install_resp_sniffer():
 
     def send(self, request, **kwargs):
         global _last_resp_info
+        # v0.294.5：规则没给 timeout（requests 默认 None＝无限等）时补默认 15s 连接/读取，
+        # 防止一个挂死的请求把 PY 调用线程永久占住、后续调用排队堆积。
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = _DEFAULT_TIMEOUT
         resp = orig_send(self, request, **kwargs)
         try:
             raw = resp.content[:200] if resp is not None else b""

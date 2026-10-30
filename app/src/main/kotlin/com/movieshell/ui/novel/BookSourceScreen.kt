@@ -198,7 +198,8 @@ fun BookSourceScreen(
     }
     var testResult by remember { mutableStateOf<String?>(null) }
     // v0.76.0：导进来的是影视 spider——弹窗提示，可一键转去影视源导入
-    var videoSpiderUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    // v0.294.5：rememberSaveable——转屏/进程重建后“导入为影视源”确认不丢
+    var videoSpiderUri by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<android.net.Uri?>(null) }
 
     LaunchedEffect(Unit) {
         BookSourceManager.load(context)
@@ -265,11 +266,14 @@ fun BookSourceScreen(
             onConfirm = {
                 videoSpiderUri = null
                 scope.launch {
+                    // v0.294.5：拷文件放 IO 线程，不卡主线程
                     val msg = when (
-                        val r = com.movieshell.ui.sources.importRuleFile(
-                            context, uri,
-                            com.movieshell.ui.sources.IMPORT_PY,
-                        )
+                        val r = withContext(Dispatchers.IO) {
+                            com.movieshell.ui.sources.importRuleFile(
+                                context, uri,
+                                com.movieshell.ui.sources.IMPORT_PY,
+                            )
+                        }
                     ) {
                         is com.movieshell.ui.sources.ImportResult.Ok ->
                             "已导入为影视源 ${r.fileName}，去站源页查看"
