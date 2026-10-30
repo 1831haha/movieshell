@@ -19,6 +19,11 @@ import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Book
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.Icons
 import android.content.Context
 import android.net.Uri
@@ -114,6 +119,8 @@ fun NavGraphBuilder.appDestinations(
     navController: NavHostController,
     context: Context,
     scope: CoroutineScope,
+    // v0.293.0 修复：openReaderChecked 仍定义在 MainActivity，拆分时漏传，补为参数。
+    openReaderChecked: (String) -> Unit,
 ) {
                         composable("home") {
                             // v0.53.0（三点之3）：viewModel() 按 home 的 back stack entry 作用域，

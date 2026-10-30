@@ -45,6 +45,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -166,6 +169,7 @@ private const val LONG_PRESS_MS = 400L
  * v0.19.0：线路/选集走 PlaySession（详情页进入前写入），播放器内可切线路；
  * 播放失败自动按线路顺序重试；支持外挂字幕与画中画。
  */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class) // v0.84.0：Slider 自定义 track 用到实验性 SliderState API；v0.255.0：标题跑马灯 basicMarquee；v0.293.0 修复：Q3 搬移误删了本注解，齿轮弹窗 FlowRow 需 ExperimentalLayoutApi
 @Composable
 fun PlayerScreen(
     url: String,

@@ -46,8 +46,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
@@ -416,7 +414,7 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                     ) {
-                        appDestinations(navController, this@MainActivity, this@MainActivity.lifecycleScope)
+                        appDestinations(navController, this@MainActivity, this@MainActivity.lifecycleScope, openReaderChecked)
                     }
                     // v0.292.0 V5：M3 NavigationBar 贴底（实底，不再浮动/淡出）+ 音乐 tab 的迷你播放条
                     if (showBottomBar) {
