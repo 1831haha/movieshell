@@ -20,6 +20,7 @@ object ReaderSettings {
     private const val KEY_BG_THEME = "reader_bg_theme"
     private const val KEY_FONT_FAMILY = "reader_font_family"
     private const val KEY_PAGE_MODE = "reader_page_mode"
+    private const val KEY_MARGIN = "reader_margin_dp"
 
     data class Settings(
         val fontSize: Int = 18,
@@ -42,6 +43,8 @@ object ReaderSettings {
         val bgTheme: Int = 1,
         /** v0.89.0：翻页模式 0=上下滚动 1=左右覆盖 2=仿真翻页 */
         val pageMode: Int = 1,
+        /** v0.294.5：正文左右边距（dp）：14 窄 / 20 适中（默认，与旧版一致）/ 28 宽 */
+        val marginDp: Int = 20,
     )
 
     fun load(context: Context): Settings {
@@ -66,6 +69,7 @@ object ReaderSettings {
             volumePageTurn = p.getBoolean(KEY_VOLUME_PAGE, true),
             bgTheme = bgTheme,
             pageMode = p.getInt(KEY_PAGE_MODE, 1).coerceIn(0, 2),
+            marginDp = p.getInt(KEY_MARGIN, 20).coerceIn(8, 40),
         )
     }
 
@@ -79,6 +83,7 @@ object ReaderSettings {
             .putBoolean(KEY_VOLUME_PAGE, s.volumePageTurn)
             .putInt(KEY_BG_THEME, s.bgTheme)
             .putInt(KEY_PAGE_MODE, s.pageMode)
+            .putInt(KEY_MARGIN, s.marginDp)
             .apply()
     }
 }

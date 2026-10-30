@@ -54,6 +54,8 @@ fun ContinuousReaderFlow(
     getTitleHeight: (Int) -> Float,
     onChapterLayout: (chapterIndex: Int, bodyLayout: TextLayoutResult, titleHeightPx: Float) -> Unit,
     onViewportChanged: (chapterIndex: Int, charOffset: Int) -> Unit,
+    // v0.294.5：正文左右边距（阅读设置「边距」）
+    horizontalPadding: androidx.compose.ui.unit.Dp = 20.dp,
 ) {
     val density = LocalDensity.current
     val titleBottomPx = with(density) { 16.dp.toPx() }
@@ -70,7 +72,7 @@ fun ContinuousReaderFlow(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                    .padding(horizontal = horizontalPadding, vertical = 12.dp),
             ) {
                 Text(
                     text = chapter.title,

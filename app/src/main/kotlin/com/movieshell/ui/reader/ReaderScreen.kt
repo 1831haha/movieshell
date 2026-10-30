@@ -8,6 +8,11 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.ModalBottomSheet
+import com.movieshell.ui.components.sheetListScrollGuard
 import androidx.compose.material3.SliderDefaults
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.background
@@ -153,6 +158,7 @@ private sealed class LandingTarget {
     data class LastText(override val chapter: Int) : LandingTarget()
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderScreen(
     novelId: String,
@@ -196,6 +202,11 @@ fun ReaderScreen(
     var bgTheme by remember { mutableIntStateOf(savedSettings.bgTheme) }
     // v0.89.0：翻页模式 0=上下滚动 1=左右覆盖 2=仿真翻页
     var pageMode by remember { mutableIntStateOf(savedSettings.pageMode) }
+    // v0.294.5：正文左右边距（持久化）；夜间切换前的日间背景（夜间钮切回用）
+    var marginDp by remember { mutableIntStateOf(savedSettings.marginDp) }
+    var lastDayTheme by remember {
+        mutableIntStateOf(savedSettings.bgTheme.takeIf { it != 3 && it != 7 && it != 10 } ?: 1)
+    }
     var showToc by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     // v0.36.0：行距三档、亮度（-1=跟随系统）
@@ -253,7 +264,7 @@ fun ReaderScreen(
     var showChapterSearch by remember { mutableStateOf(false) }
     var chapterSearchQuery by remember { mutableStateOf("") }
     // v0.61.0：设置变化即存档（v0.89.0：加 bgTheme/pageMode；nightMode 按 bgTheme 回填做兼容）
-    LaunchedEffect(fontSize, bgTheme, fontFamily, lineHeightRatio, brightness, volumePageTurn, pageMode) {
+    LaunchedEffect(fontSize, bgTheme, fontFamily, lineHeightRatio, brightness, volumePageTurn, pageMode, marginDp) {
         ReaderSettings.save(
             context,
             ReaderSettings.Settings(
@@ -265,6 +276,7 @@ fun ReaderScreen(
                 volumePageTurn = volumePageTurn,
                 bgTheme = bgTheme,
                 pageMode = pageMode,
+                marginDp = marginDp,
             ),
         )
     }
@@ -489,7 +501,7 @@ fun ReaderScreen(
         fontWeight = FontWeight.Bold,
     )
     val titleBottomPx = with(density) { 16.dp.toPx() }
-    val innerWidthPx = (pageWidth - with(density) { 40.dp.toPx() }).toInt().coerceAtLeast(0)
+    val innerWidthPx = (pageWidth - with(density) { (marginDp * 2).dp.toPx() }).toInt().coerceAtLeast(0)
     val innerHeightPx = (pageHeight - with(density) { 24.dp.toPx() }).coerceAtLeast(0f)
     // v0.194.0追加：一屏步长（屏高减一行）——音量键与点击分区共用。
     val pageStep = remember(pageHeight, fontSize, lineHeightRatio, density) {
@@ -503,9 +515,9 @@ fun ReaderScreen(
     // 遇到未到正文的章先静默拉取、等正文到了再续；样式/尺寸/布局版本一变
     // 就整体重建（key 对不上时先清零再排，不把新旧样式的页混在一起）。
     var paginationBuiltKey by remember { mutableStateOf("") }
-    LaunchedEffect(pageMode, layoutVersion, pageWidth, pageHeight, fontSize, lineHeightRatio, readerFont, chapters) {
+    LaunchedEffect(pageMode, layoutVersion, pageWidth, pageHeight, fontSize, lineHeightRatio, readerFont, chapters, marginDp) {
         if (pageMode == 0) return@LaunchedEffect
-        val key = "$fontSize|$lineHeightRatio|$fontFamily|$pageWidth|$pageHeight|$layoutVersion"
+        val key = "$fontSize|$lineHeightRatio|$fontFamily|$pageWidth|$pageHeight|$marginDp|$layoutVersion"
         if (paginationBuiltKey != key) {
             pagination = BookPagination.empty(layoutVersion)
             paginationBuiltKey = key
@@ -563,7 +575,7 @@ fun ReaderScreen(
     }
     // v0.244.0：显示条件一变（字号/行距/字体/屏尺寸），布局版本 +1——分页
     // 整体重建，落点按视口重新定位（下面的 layoutVersion 效果接管）。
-    LaunchedEffect(fontSize, lineHeightRatio, fontFamily, pageWidth, pageHeight) {
+    LaunchedEffect(fontSize, lineHeightRatio, fontFamily, pageWidth, pageHeight, marginDp) {
         if (loaded) layoutVersion++
     }
 
@@ -1257,6 +1269,7 @@ fun ReaderScreen(
                         viewportOffset = off
                         chapterIndex = idx
                     },
+                    horizontalPadding = marginDp.dp,
                 )
             } else {
                 HorizontalPager(
@@ -1285,7 +1298,7 @@ fun ReaderScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                                .padding(horizontal = marginDp.dp, vertical = 12.dp),
                         ) {
                             // v0.244.0：全局页按片段渲染——标题与正文同属一页时
                             // 自然同页，标题不再只挂在每章第 0 页；定位进行中
@@ -1348,10 +1361,19 @@ fun ReaderScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                    .padding(horizontal = marginDp.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // v0.294.5：沉浸页脚加时间与电量（每 30 秒刷新一次）
+                val (clockText, batteryPct) = rememberClockAndBattery()
+                Text(
+                    if (batteryPct >= 0) "$clockText  $batteryPct%" else clockText,
+                    color = fg.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    modifier = Modifier.padding(end = 12.dp),
+                )
                 Text(
                     chapter?.title ?: "",
                     color = fg.copy(alpha = 0.6f),
@@ -1398,6 +1420,16 @@ fun ReaderScreen(
                 onShowToc = { showToc = true },
                 onOpenSettings = { openSettings() },
                 onOpenDisplaySettings = { openDisplaySettings() },
+                // v0.294.5：底栏夜间一键切换（夜间黑 ↔ 上次的日间背景）
+                isNight = isReaderDark,
+                onToggleNight = {
+                    if (isReaderDark) {
+                        bgTheme = lastDayTheme
+                    } else {
+                        lastDayTheme = bgTheme
+                        bgTheme = 3
+                    }
+                },
             )
         }
     }
@@ -1480,7 +1512,15 @@ fun ReaderScreen(
                             ReaderPill(label, lineHeightRatio == ratio) { lineHeightRatio = ratio }
                         }
                     }
-                    // 背景：十一档，最后一档跟随系统（深浅渐变点）
+                    // v0.294.5：边距三档（左右留白），改完实时重排
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("边距", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        listOf(14 to "窄", 20 to "适中", 28 to "宽").forEachIndexed { i, (dp, label) ->
+                            if (i > 0) Spacer(Modifier.width(4.dp))
+                            ReaderPill(label, marginDp == dp) { marginDp = dp }
+                        }
+                    }
+                    // 背景：十一档色块，最后一档跟随系统（深浅渐变）
                     ReaderBgRow(bgTheme) { bgTheme = it }
                 }
                 // v0.251.0：完成按钮去掉（设置即改即保存，完成只有关闭作用）；
@@ -1591,43 +1631,89 @@ fun ReaderScreen(
         val tocListState = rememberLazyListState()
         LaunchedEffect(showToc) {
             if (chapterIndex in chapters.indices) {
-                tocListState.scrollToItem(chapterIndex.coerceAtLeast(0))
+                tocListState.scrollToItem((chapterIndex - 3).coerceAtLeast(0))
             }
         }
-        TechDialog(
+        // v0.294.5：目录改紧凑底部面板（跟阅读背景深浅走），打开即滚到当前章；
+        // 列表挂嵌套滚动守卫——列表不在顶时下滑只滚列表，到顶再下滑才收起。
+        ModalBottomSheet(
             onDismissRequest = { showToc = false },
-            title = "目录（${chapters.size} 章）",
-            dismissText = "关闭",
-            forceDark = isReaderDark,
-        ) {
-                LazyColumn(
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            containerColor = readerScheme.surface,
+            contentColor = readerScheme.onSurface,
+            dragHandle = {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        // v0.193.0：原来没限高，34 章直接把弹窗撑满屏；限高后
-                        // 内部滚动，弹窗只到约半屏。
-                        // v0.194.0：弹窗体跟随主题，非当前章改回主题 onSurface
-                        // （深浅主题都可读，193 写死浅色已废止）。
-                        .heightIn(max = 420.dp),
-                    state = tocListState,
-                ) {
-                    items(chapters) { c ->
+                        .padding(top = 8.dp, bottom = 4.dp)
+                        .size(36.dp, 4.dp)
+                        .clip(CircleShape)
+                        .background(readerScheme.onSurface.copy(alpha = 0.2f)),
+                )
+            },
+        ) {
+            MaterialTheme(
+                colorScheme = readerScheme,
+                typography = MaterialTheme.typography,
+                shapes = MaterialTheme.shapes,
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = c.title,
-                            fontSize = 14.sp,
-                            color = if (c.index == chapterIndex) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { locate(LandingTarget.Title(c.index)) }
-                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                            "目录",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "共 ${chapters.size} 章",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = {
+                            scope.launch {
+                                if (chapterIndex in chapters.indices) {
+                                    tocListState.animateScrollToItem((chapterIndex - 3).coerceAtLeast(0))
+                                }
+                            }
+                        }) { Text("定位当前") }
+                    }
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.6f).dp)
+                            .sheetListScrollGuard { tocListState.canScrollBackward },
+                        state = tocListState,
+                    ) {
+                        items(chapters) { c ->
+                            val isCur = c.index == chapterIndex
+                            Text(
+                                text = c.title,
+                                fontSize = 14.sp,
+                                fontWeight = if (isCur) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (isCur) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(
+                                        if (isCur) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                        else Color.Transparent,
+                                    )
+                                    .clickable { locate(LandingTarget.Title(c.index)) }
+                                    .padding(vertical = 10.dp, horizontal = 10.dp),
+                            )
+                        }
                     }
                 }
             }
         }
+    }
 
     // v0.89.0：书签列表（TechDialog）
     if (showBookmarks) {
@@ -1877,22 +1963,71 @@ private fun ReaderBgRow(selected: Int, onSelect: (Int) -> Unit) {
                 .width(40.dp)
                 .padding(top = 5.dp),
         )
+        // v0.294.5：背景改圆形色块（下方小字名），选中描主题色边 + 勾；档位 ID 不变
         FlowRow(
             modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            ReaderPill("白", selected == 0, dotColor = Color.White) { onSelect(0) }
-            ReaderPill("米黄", selected == 1, dotColor = Color(0xFFF7F3E8)) { onSelect(1) }
-            ReaderPill("护眼绿", selected == 2, dotColor = Color(0xFFE8F0E4)) { onSelect(2) }
-            ReaderPill("夜间黑", selected == 3, dotColor = Color(0xFF121212)) { onSelect(3) }
-            ReaderPill("跟随系统", selected == 4, dotFollowSystem = true) { onSelect(4) }
-            ReaderPill("雾蓝", selected == 5, dotColor = Color(0xFFDCE8EF)) { onSelect(5) }
-            ReaderPill("暖灰", selected == 6, dotColor = Color(0xFFD8D4CA)) { onSelect(6) }
-            ReaderPill("深灰", selected == 7, dotColor = Color(0xFF20242B)) { onSelect(7) }
-            ReaderPill("樱粉", selected == 8, dotColor = Color(0xFFFBE9EC)) { onSelect(8) }
-            ReaderPill("淡紫", selected == 9, dotColor = Color(0xFFE9E4F3)) { onSelect(9) }
-            ReaderPill("墨绿", selected == 10, dotColor = Color(0xFF1E2B26)) { onSelect(10) }
+            listOf(
+                0 to ("白" to Color.White),
+                1 to ("米黄" to Color(0xFFF7F3E8)),
+                2 to ("护眼绿" to Color(0xFFE8F0E4)),
+                5 to ("雾蓝" to Color(0xFFDCE8EF)),
+                6 to ("暖灰" to Color(0xFFD8D4CA)),
+                8 to ("樱粉" to Color(0xFFFBE9EC)),
+                9 to ("淡紫" to Color(0xFFE9E4F3)),
+                3 to ("夜间黑" to Color(0xFF121212)),
+                7 to ("深灰" to Color(0xFF20242B)),
+                10 to ("墨绿" to Color(0xFF1E2B26)),
+                4 to ("跟随系统" to Color.Unspecified),
+            ).forEach { (id, pair) ->
+                val (label, color) = pair
+                val isSel = selected == id
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .width(44.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onSelect(id) },
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(CircleShape)
+                            .then(
+                                if (color == Color.Unspecified) {
+                                    Modifier.background(Brush.horizontalGradient(listOf(Color.White, Color(0xFF121212))))
+                                } else {
+                                    Modifier.background(color)
+                                },
+                            )
+                            .border(
+                                if (isSel) 2.dp else 1.dp,
+                                if (isSel) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
+                                CircleShape,
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (isSel) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = "已选",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        label,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        color = if (isSel) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
@@ -1922,6 +2057,8 @@ private fun ReaderBottomBar(
     onShowToc: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDisplaySettings: () -> Unit,
+    isNight: Boolean = false,
+    onToggleNight: () -> Unit = {},
 ) {
     // 拖动进度条只跟手，松手才定位，避免拖动中反复加载。
     // v0.245.0 修复：SliderState.isDragging 是 Material3 内部属性，外部访问
@@ -1939,6 +2076,19 @@ private fun ReaderBottomBar(
                 .height(1.dp)
                 .background(fg.copy(alpha = 0.08f)),
         )
+        // v0.294.5：章节位置小字（第 x / y 章 · 本章 %）
+        if (chapterCount > 0) {
+            Text(
+                "第 ${chapterIndex + 1} / $chapterCount 章 · 本章 ${(sliderValue * 100).toInt()}%",
+                color = fg.copy(alpha = 0.55f),
+                fontSize = 11.sp,
+                maxLines = 1,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2006,33 +2156,72 @@ private fun ReaderBottomBar(
                 }
             }
         }
+        // v0.294.5：第二行改为图标在上、小字在下的紧凑四钮：目录 / 界面 / 夜间 / 设置（无底圈）
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(8.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onShowToc) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.List, "目录", tint = fg, modifier = Modifier.padding(end = 4.dp))
-                    Text("目录", color = fg)
-                }
+            ReaderBarAction(fg = fg, label = "目录", onClick = onShowToc) {
+                Icon(Icons.Filled.List, null, tint = fg, modifier = Modifier.size(22.dp))
             }
-            // v0.242.0：图 2 底栏第二排是 目录 / 朗读 / 界面 / 设置；
-            // 朗读按用户定不做，界面用 Aa 字样（与图 2 一致），开显示面板。
-            TextButton(onClick = onOpenDisplaySettings) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Aa", color = fg, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 4.dp))
-                    Text("界面", color = fg)
-                }
+            // v0.242.0：界面用 Aa 字样（与图 2 一致），开显示面板。
+            ReaderBarAction(fg = fg, label = "界面", onClick = onOpenDisplaySettings) {
+                Text("Aa", color = fg, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
-            TextButton(onClick = onOpenSettings) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Settings, "设置", tint = fg, modifier = Modifier.padding(end = 4.dp))
-                    Text("设置", color = fg)
-                }
+            ReaderBarAction(fg = fg, label = if (isNight) "日间" else "夜间", onClick = onToggleNight) {
+                Icon(
+                    if (isNight) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+                    null,
+                    tint = fg,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            ReaderBarAction(fg = fg, label = "设置", onClick = onOpenSettings) {
+                Icon(Icons.Filled.Settings, null, tint = fg, modifier = Modifier.size(22.dp))
             }
         }
     }
+}
+
+/** v0.294.5：阅读底栏单钮——图标在上、11sp 小字在下，圆角点按区，无底圈。 */
+@Composable
+private fun ReaderBarAction(
+    fg: Color,
+    label: String,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(modifier = Modifier.height(24.dp), contentAlignment = Alignment.Center) { icon() }
+        Text(label, color = fg.copy(alpha = 0.85f), fontSize = 11.sp, maxLines = 1)
+    }
+}
+
+/** v0.294.5：沉浸页脚的时间（HH:mm）与电量百分比（读不到为 -1），30 秒刷新一次。 */
+@Composable
+private fun rememberClockAndBattery(): Pair<String, Int> {
+    val ctx = LocalContext.current
+    val fmt = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    var clock by remember { mutableStateOf(fmt.format(Date())) }
+    var battery by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            clock = fmt.format(Date())
+            battery = runCatching {
+                val bm = ctx.getSystemService(android.content.Context.BATTERY_SERVICE) as android.os.BatteryManager
+                bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            }.getOrDefault(-1).takeIf { it in 0..100 } ?: -1
+            kotlinx.coroutines.delay(30_000)
+        }
+    }
+    return clock to battery
 }

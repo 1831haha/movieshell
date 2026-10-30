@@ -22,6 +22,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -68,7 +69,7 @@ internal fun MiniPlayer(
                     contentDescription = null,
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .clip(RoundedCornerShape(12.dp)),
                     contentScale = ContentScale.Crop,
                 )
             } else {
@@ -83,7 +84,8 @@ internal fun MiniPlayer(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = current.name,
-                    style = MaterialTheme.typography.bodyMedium,
+                    // v0.294.5：歌名 titleSmall 加粗、歌手次要色，层级更清楚
+                    style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -101,11 +103,11 @@ internal fun MiniPlayer(
             IconButton(onClick = { MusicPlayer.prev(context) }) {
                 Icon(Icons.Filled.SkipPrevious, contentDescription = "上一首")
             }
-            IconButton(
+            // v0.294.5：播停改主题色调实心小圆（与全屏播放页大播放键同语言），其余图标无底圈
+            FilledTonalIconButton(
                 onClick = { MusicPlayer.toggle() },
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape),
+                modifier = Modifier.size(40.dp),
+                shape = CircleShape,
             ) {
                 if (playState.loading) {
                     CircularProgressIndicator(
@@ -123,15 +125,28 @@ internal fun MiniPlayer(
                 Icon(Icons.Filled.SkipNext, contentDescription = "下一首")
             }
             // v0.215.0：迷你条关闭入口（停播并清掉迷你条；原来只能进播放页停）。
-            IconButton(onClick = { MusicPlayer.stop() }) {
-                Icon(Icons.Filled.Close, contentDescription = "关闭")
+            IconButton(onClick = { MusicPlayer.stop() }, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "关闭",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         // v0.215.0：迷你条进度（读播放器 state 的 position/duration；未解析出时长时不画）。
         if (playState.durationMs > 0) {
             LinearProgressIndicator(
                 progress = { (playState.positionMs.toFloat() / playState.durationMs).coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .padding(bottom = 6.dp)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                drawStopIndicator = {},
+                gapSize = 0.dp,
             )
         }
         }
