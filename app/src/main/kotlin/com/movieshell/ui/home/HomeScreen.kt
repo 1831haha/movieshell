@@ -1,5 +1,18 @@
 package com.movieshell.ui.home
 
+import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
+import androidx.compose.material3.carousel.rememberCarouselState
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.draw.alpha
+import com.movieshell.ui.components.V5TopTabs
+import com.movieshell.ui.components.V5Chip
+import com.movieshell.ui.components.V5SmallButton
+import com.movieshell.ui.theme.MediaProgressFill
+import com.movieshell.ui.theme.MediaScrim
+
 import com.movieshell.ui.theme.V5
 
 import androidx.compose.ui.text.font.FontWeight
@@ -1203,16 +1216,43 @@ fun HomeScreen(
     // v0.82.0：用户自定义背景底图（设置页更换）优先
     val customBg by BackgroundStore.customBg.collectAsState()
     LaunchedEffect(Unit) { BackgroundStore.load(context) }
-    // v0.237.0 浅色高密度：浅色下不要光斑、自定义底图、半透明罩，
-    // 直接纯白底，内容密度优先；深色保持原样（与 MainActivity 同款模式判定）。
+    // v0.237.0 浅色高密度：浅色下不要光斑、自定义底图、半透明罩；深色保持原样。
     val themeMode by ThemeStore.mode.collectAsState()
     val darkTheme = when (themeMode) {
         ThemeStore.MODE_LIGHT -> false
         ThemeStore.MODE_DARK -> true
         else -> isSystemInDarkTheme()
     }
-    // v0.279.0 V4：平底——不再画光斑；自定义背景底图（设置页更换）照旧在深色下生效。
-    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    val cs = MaterialTheme.colorScheme
+    // v0.292.0 V5：首页 Hero 走马灯 = 今日推荐（推荐流）前 5 张有海报的片；只在“推荐”视图显示。
+    val heroItems: List<ModelVod> = remember(filtered, selectedCategory) {
+        if (selectedCategory != "") emptyList()
+        else filtered.filter { it.vodPic.isNotBlank() }.take(5)
+    }
+    // v0.292.0 V5：海报取色——设置里选了“海报取色”时，用首张 Hero 海报算种子色（MCU QuantizerCelebi + Score），
+    // 失败/没海报时不动（主题按已选主题色兜底）。
+    val colorSource by ThemeStore.source.collectAsState()
+    val heroSeedUrl = heroItems.firstOrNull()?.vodPic
+    LaunchedEffect(heroSeedUrl, colorSource) {
+        if (colorSource == ThemeStore.SOURCE_POSTER && !heroSeedUrl.isNullOrBlank()) {
+            PosterSeed.extract(context, heroSeedUrl)?.let { ThemeStore.setPosterSeed(it) }
+        }
+    }
+    // v0.292.0：订阅源站点数（换源胶囊上的“N 源”），切源时后台读一次缓存
+    var siteCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(subSite?.key, sourceLabel) {
+        siteCount = withContext(Dispatchers.IO) {
+            runCatching {
+                val cur = SubSiteStore.getCurrent(context)
+                if (subSite != null && cur != null) {
+                    SubSiteStore.getCached(context, cur.subUrl)?.sites
+                        ?.count { it.enabled && it.kind != SubSiteStore.KIND_UNSUPPORTED } ?: 0
+                } else 0
+            }.getOrDefault(0)
+        }
+    }
+    // v0.279.0 起平底；自定义背景底图（设置页更换）照旧在深色下生效。
+    Box(modifier = Modifier.fillMaxSize().background(cs.background)) {
         if (darkTheme) {
             if (customBg != null) {
                 AsyncImage(
@@ -1235,12 +1275,11 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    if (darkTheme && customBg != null) MaterialTheme.colorScheme.background.copy(alpha = 0.62f)
-                    else MaterialTheme.colorScheme.background
+                    if (darkTheme && customBg != null) cs.background.copy(alpha = 0.62f)
+                    else cs.background
                 ),
         ) {
-            // v0.45.0：官方 Material3 下拉刷新（替换手搓版）
-            // v0.58：外层 Box（v0.291.0 起不再画全屏骨架覆盖层，骨架在网格内）
+            // v0.45.0：官方 Material3 下拉刷新
             Box(modifier = Modifier.fillMaxSize()) {
             PullToRefreshBox(
                 state = pullRefreshState,
@@ -1248,56 +1287,64 @@ fun HomeScreen(
                 onRefresh = { doRefresh() },
                 modifier = Modifier.fillMaxSize(),
             ) {
+            // F5：按屏宽自适应列数（窄屏网格降一列，宽屏加列，列表模式 1 列）
+            val gridCols = when {
+                homeLayout.columns <= 1 -> 1
+                LocalConfiguration.current.screenWidthDp < 360 ->
+                    (homeLayout.columns - 1).coerceAtLeast(2)
+                LocalConfiguration.current.screenWidthDp >= 600 ->
+                    homeLayout.columns + 2
+                else -> homeLayout.columns
+            }
+            // v0.292.0 V5：海报卡整体比例（2:3 海报 + 两行文字）；四列密排列间 8，其余 12（design-tokens 第 4 节）
+            val posterRatio = when (homeLayout.columns) {
+                4 -> 0.50f
+                3 -> 0.53f
+                else -> 0.57f
+            }
             LazyVerticalGrid(
-                // v0.78.3：列数跟布局走（海报网格 3 列/大海报 2 列/列表模式 1 列）
-                // v0.237.0：浅色下边距与间距收紧（12/8dp），一屏多放内容
-                // F5：固定列数在窄屏每张海报只剩 70 多 dp、横屏又过大，改按屏宽自适应：
-                // 窄屏（<360dp）网格模式降一列，宽屏（>=600dp，平板/横屏）加列，
-                // 常规宽度与用户选的布局一致，列表模式仍 1 列。
-                columns = GridCells.Fixed(
-                    when {
-                        homeLayout.columns <= 1 -> 1
-                        LocalConfiguration.current.screenWidthDp < 360 ->
-                            (homeLayout.columns - 1).coerceAtLeast(2)
-                        LocalConfiguration.current.screenWidthDp >= 600 ->
-                            homeLayout.columns + 2
-                        else -> homeLayout.columns
-                    },
-                ),
+                columns = GridCells.Fixed(gridCols),
                 state = gridState,
                 modifier = Modifier.fillMaxSize(),
-                // v0.238.0：顶部贴顶——网格顶边距归零，顶栏贴到内容顶
-                // v0.279.0 V4：12dp 页边距、列间 8 / 行间 12；底部让出浮动底栏（dockClearance）。
-                contentPadding = PaddingValues(start = V5.Gutter, top = 0.dp, end = V5.Gutter, bottom = dockClearance() + 8.dp),
-                verticalArrangement = Arrangement.spacedBy(if (homeLayout.columns > 1) 12.dp else 0.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                // v0.292.0 V5：16dp 页边距；行间 16、列间 12（四列 8）；底部让出底栏（dockClearance）。
+                contentPadding = PaddingValues(start = V5.Gutter, top = 0.dp, end = V5.Gutter, bottom = dockClearance() + 16.dp),
+                verticalArrangement = Arrangement.spacedBy(if (homeLayout.columns > 1) 16.dp else 0.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (homeLayout.columns >= 4) 8.dp else 12.dp),
             ) {
-                // v0.60：顶栏合一——搜索收成放大镜图标，历史/追剧/换源放一行（用户要求）
-                // v0.62：历史/追剧按内容自适应（不许被挤竖排），换源胶囊弹性收窄
+                // v0.292.0 V5 顶栏：28dp 标志 + 「侠影」（titleLarge）+ 右侧站源胶囊；
+                // 搜索栏紧贴其下（0 间距），布局切换已移到海报网格的分区标题上。
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    // v0.279.0 V4 顶栏：搜索框（点进搜索页）+ 布局切换 + 站源胶囊（状态点 + 名称 + 下拉）。
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 6.dp, bottom = 2.dp),
+                            .height(V5.TopBar),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        V5SearchField(
-                            placeholder = "搜索",
-                            icon = Icons.Filled.Search,
-                            onClick = onSearchClick,
-                            modifier = Modifier.weight(1f),
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(cs.primaryContainer),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.Movie,
+                                contentDescription = null,
+                                tint = cs.onPrimaryContainer,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "侠影",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = cs.onSurface,
+                            maxLines = 1,
                         )
-                        // v0.78.3：首页布局切换（对标 DsPlayer）
-                        V5IconButton(
-                            icon = homeLayout.icon,
-                            contentDescription = "切换布局",
-                            onClick = { showLayoutPicker = true },
-                        )
+                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.weight(1f))
                         // 换源胶囊（v0.7.1 入口）：点按打开换源表，长按刷新当前源（v0.174.0）；
-                        // 恢复之前口径：胶囊外圈 + 里面点加外圈的状态环，颜色按状态走——
-                        // 加载中黄（转圈）/ 有数据绿 / 失败红 / 未选源灰。
+                        // 状态点颜色按状态走——加载中琥珀（转圈）/ 有数据绿 / 失败红 / 未选源灰。
                         val sourceRingState = when {
                             drpyLoading || loadingCat != null -> StatusRingState.Loading
                             drpyReady -> StatusRingState.Ready
@@ -1306,74 +1353,131 @@ fun HomeScreen(
                         }
                         Row(
                             modifier = Modifier
-                                .weight(1.25f)
-                                .heightIn(min = V5.Field)
-                                .clip(RoundedCornerShape(V5.CornerMd))
-                                .background(MaterialTheme.colorScheme.surfaceContainer)
-                                .border(
-                                    BorderStroke(1.5.dp, sourceRingState.color()),
-                                    RoundedCornerShape(V5.CornerMd),
-                                )
+                                .widthIn(max = 220.dp)
+                                .height(40.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(cs.surfaceContainerHigh)
                                 .combinedClickable(
                                     onClick = { showSourceSheet = true },
                                     onLongClick = {
                                         if (drpyActive) doRefresh() else showSourceSheet = true
                                     },
                                 )
-                                .padding(horizontal = 10.dp),
+                                .padding(start = 12.dp, end = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             StatusRing(
                                 state = sourceRingState,
-                                diameter = 18.dp,
+                                diameter = 14.dp,
                             )
-                            Spacer(Modifier.width(7.dp))
+                            Spacer(Modifier.width(8.dp))
                             Text(
                                 text = sourceLabel.replace("本地·", "本地 · "),
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Medium,
+                                color = cs.onSurface,
+                                style = MaterialTheme.typography.labelLarge,
                                 maxLines = 1,
                                 softWrap = false,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f, fill = false),
                             )
+                            if (siteCount > 0) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "$siteCount 源",
+                                    color = cs.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            }
+                            Spacer(Modifier.width(4.dp))
                             Icon(
                                 imageVector = Icons.Filled.ExpandMore,
                                 contentDescription = if (drpyActive) "切换站源，长按刷新当前源" else "切换站源",
-                                tint = MaterialTheme.colorScheme.outline,
-                                modifier = Modifier.size(16.dp),
+                                tint = cs.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
                 }
-                // v0.75.0：继续观看——有未看完的点播记录时，顶栏下方横滑一排
+                // v0.292.0 V5：M3 SearchBar（收起态，点进搜索页）
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    V5SearchField(
+                        placeholder = "搜索影片、剧集、演员…",
+                        icon = Icons.Filled.Search,
+                        onClick = onSearchClick,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                // 分类标签栏：只在有真实分类时显示（v0.28.1：横向滚动）。
+                // v0.292.0 V5：M3 主要可滚动标签栏，首格「推荐」= 首页推荐流（selectedCategory == ""），
+                // 其后是规则自己的分类（第 i 格对应第 i 个分类，loadDrpyCategory 按 1 计）。
+                if (drpyCats.isNotEmpty() && !(recommendEmpty && !drpyReady)) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        V5TopTabs(
+                            titles = listOf("推荐") + chipLabels,
+                            selected = selectedPosition,
+                            onSelect = { index ->
+                                if (index == 0) {
+                                    // 回推荐流：只切展示（VM 里推荐缓存还在），不发网络请求；
+                                    // 在飞的分类请求作废，筛选清空（不同分类筛选组不同）。
+                                    if (selectedCategory != "") {
+                                        categoryJob?.cancel()
+                                        setFilters(emptyMap())
+                                        vm.selectCategory("")
+                                        scope.launch { gridState.scrollToItem(0) }
+                                    }
+                                } else {
+                                    // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
+                                    loadDrpyCategory(index)
+                                }
+                            },
+                            modifier = Modifier
+                                .v5Bleed(V5.Gutter)
+                                .padding(top = 8.dp),
+                        )
+                    }
+                }
+                // v0.292.0 V5：Hero 走马灯（M3 Carousel 多项浏览：大项 304 宽 212 高 28dp 圆角 + 窄项预览）
+                if (heroItems.isNotEmpty() && !(recommendEmpty && !drpyReady)) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        HomeHeroCarousel(
+                            items = heroItems,
+                            onClick = { vod -> goDetail(vod.vodId, vod.vodName) },
+                            modifier = Modifier.padding(top = 16.dp),
+                        )
+                    }
+                }
+                // v0.75.0：继续观看——有未看完的点播记录时横滑一排
                 if (watchHistory.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         val cwList = watchHistory.distinctBy { it.url.ifBlank { "vod:${it.vodId}" } }
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            // v0.279.0 V4：区块标题 + 计数 + “全部 ›”（进播放历史页）
+                        Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            // v0.292.0 V5：分区标题 20/500 + 「历史 ›」（进播放历史页）
                             V5SectionHeader(
                                 title = "继续观看",
-                                count = "${cwList.size}",
-                                actionText = "全部",
+                                actionText = "历史",
                                 trailingChevron = true,
                                 onAction = onHistoryClick,
                             )
                             LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                contentPadding = PaddingValues(end = 4.dp),
+                                modifier = Modifier.v5Bleed(V5.Gutter),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                contentPadding = PaddingValues(horizontal = V5.Gutter),
                             ) {
-                                // v0.212.0 审计修复：url 为空的多条老记录原来按空 url
-                                // 去重合并成一条；空 url 用 vodId 兜底去重。
+                                // v0.212.0 审计修复：url 为空的多条老记录按 vodId 兜底去重。
                                 items(cwList, key = { it.url.ifBlank { "vod:${it.vodId}" } }) { h ->
                                     val progress = if (h.durationMs > 0) {
                                         (h.positionMs.toFloat() / h.durationMs).coerceIn(0f, 1f)
                                     } else 0f
+                                    // 历史记录不存海报：推荐流里有同一部片就借它的海报，没有用主题色占位
+                                    val cwPic = remember(h.vodId, drpyList) {
+                                        drpyList.firstOrNull { it.vodId == h.vodId }?.vodPic.orEmpty()
+                                    }
                                     Column(
                                         modifier = Modifier
-                                            .width(182.dp)
-                                            .clip(RoundedCornerShape(V5.CornerMd))
+                                            .width(172.dp)
+                                            .clip(RoundedCornerShape(V5.CornerLg))
                                             .clickable {
                                                 onContinueWatch(
                                                     h.vodId, h.title,
@@ -1386,15 +1490,51 @@ fun HomeScreen(
                                             seed = h.title,
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(100.dp),
-                                            ring = false,
+                                                .height(98.dp),
+                                            shape = RoundedCornerShape(V5.CornerLg),
+                                            ring = cwPic.isBlank(),
                                         ) {
+                                            if (cwPic.isNotBlank()) {
+                                                AsyncImage(
+                                                    model = cwPic,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = ContentScale.Crop,
+                                                )
+                                                Box(
+                                                    Modifier
+                                                        .fillMaxSize()
+                                                        .background(
+                                                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                                0.45f to Color.Transparent,
+                                                                1f to Color.Black.copy(alpha = 0.55f),
+                                                            ),
+                                                        ),
+                                                )
+                                            }
+                                            // play_circle（右上，视觉提示；点整卡继续播放）
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(8.dp)
+                                                    .size(28.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.White.copy(alpha = 0.85f)),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Icon(
+                                                    Icons.Filled.PlayArrow,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(20.dp),
+                                                    tint = Color(0xFF221A14),
+                                                )
+                                            }
                                             // v0.215.0：继续观看单条删除；v0.261.0：48dp 触摸区；
                                             // v0.265.0：先按卡片身份 commit() 同步删盘，再从盘里 reload。
                                             Box(
                                                 modifier = Modifier
-                                                    .align(Alignment.TopEnd)
-                                                    .size(36.dp)
+                                                    .align(Alignment.TopStart)
+                                                    .size(40.dp)
                                                     .clickable {
                                                         HistoryStore.deleteContinueWatch(context, h)
                                                         reloadWatchHistory()
@@ -1404,42 +1544,44 @@ fun HomeScreen(
                                                 Box(
                                                     modifier = Modifier
                                                         .size(22.dp)
-                                                        .clip(RoundedCornerShape(V5.CornerSm))
-                                                        .background(Color.Black.copy(alpha = 0.45f)),
+                                                        .clip(CircleShape)
+                                                        .background(Color.Black.copy(alpha = 0.40f)),
                                                     contentAlignment = Alignment.Center,
                                                 ) {
                                                     Icon(
                                                         Icons.Filled.Close,
                                                         contentDescription = "删除这条记录",
                                                         modifier = Modifier.size(14.dp),
-                                                        tint = Color(0xFFE6E8EE),
+                                                        tint = Color.White,
                                                     )
                                                 }
                                             }
-                                            // 底部进度（时长未知时不画进度，只显示集数）
+                                            // 底部 4dp 进度（白 35% 轨道 + #FFB77A 填充；时长未知时不画）
                                             if (h.durationMs > 0) {
                                                 Box(
                                                     modifier = Modifier
                                                         .align(Alignment.BottomStart)
+                                                        .padding(horizontal = 12.dp, vertical = 10.dp)
                                                         .fillMaxWidth()
-                                                        .height(3.dp)
-                                                        .background(Color.White.copy(alpha = 0.10f)),
+                                                        .height(4.dp)
+                                                        .clip(RoundedCornerShape(2.dp))
+                                                        .background(Color.White.copy(alpha = 0.35f)),
                                                 ) {
                                                     Box(
                                                         Modifier
                                                             .fillMaxWidth(progress)
-                                                            .height(3.dp)
-                                                            .background(MaterialTheme.colorScheme.primary),
+                                                            .height(4.dp)
+                                                            .clip(RoundedCornerShape(2.dp))
+                                                            .background(MediaProgressFill),
                                                     )
                                                 }
                                             }
                                         }
-                                        Spacer(Modifier.height(6.dp))
+                                        Spacer(Modifier.height(8.dp))
                                         Text(
                                             text = h.title,
-                                            fontSize = 12.5.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurface,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = cs.onSurface,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
@@ -1459,8 +1601,8 @@ fun HomeScreen(
                                                     append(continueSource)
                                                 }
                                             }.ifBlank { "继续观看" },
-                                            fontSize = 10.5.sp,
-                                            color = MaterialTheme.colorScheme.outline,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = cs.onSurfaceVariant,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
@@ -1470,17 +1612,14 @@ fun HomeScreen(
                         }
                     }
                 }
-                // 加载时上面的流动条已去掉：加载状态只看换源胶囊的状态环（黄圈转），
-                // 不再在顶部和正片之间画一条跑马灯式的流动条。
-    
-                // v0.27.4：首页不再自动加载推荐流；无数据时干净空态（不再转圈/报错/演示数据）
+                // v0.27.4：首页不再自动加载推荐流；无数据时干净空态
                 // v0.50.0：3s 首屏无数据时给空态+重试（推荐区局部，不整页报错）
                 if (recommendEmpty && !drpyReady) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         EmptyState(
                             kind = EmptyKind.Error,
                             icon = Icons.Filled.Refresh,
-                            // v0.152.0：PHP 失败时标题/提示给真实原因，不再只说"网络超时或规则异常"。
+                            // v0.152.0：PHP 失败时标题/提示给真实原因。
                             title = if (phpHomeError != null) "PHP 运行失败" else "推荐加载失败",
                             hint = phpHomeError ?: "网络超时或规则异常",
                             actionText = "重试",
@@ -1488,9 +1627,7 @@ fun HomeScreen(
                         )
                     }
                 } else if (!drpyReady && drpyCats.isEmpty() && !drpyLoading && loadingCat == null) {
-                    // v0.59：分类和视频都没有才显示空态；有分类无视频时走 else 显示分类行
-                    // B6：没选源的空和选了源但真没内容的空要分开——之前都说
-                    // “先添加并启用站源”，已选源的用户被误导去重复加源。
+                    // v0.59：分类和视频都没有才显示空态；B6：没选源与选了源真没内容分开文案。
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         EmptyState(
                             kind = EmptyKind.Empty,
@@ -1506,27 +1643,8 @@ fun HomeScreen(
                         )
                     }
                 } else {
-                    // 分类行：只在有真实分类时显示（v0.28.1：横向滚动，分类多时可左滑）
                     if (drpyCats.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            // 全量重做：分类行收成共享 FilterBar（DaoBox filter_bar）。
-                            // v0.144.0：首格"全部"已删，格下标与分类序号错一位：
-                            // 第 index 格对应第 index+1 个分类（loadDrpyCategory 按 1 计）；
-                            // 在“推荐”时 selectedPosition==0，selectedIndex==-1，都不选中。
-                            // 恢复之前分类：V4 的顶部文字 tab 不好看，改回 v0.278.0 的 FilterBar 胶囊 chip 行。
-                            // 在“推荐”时 selectedPosition==0，selectedIndex==-1，都不选中。
-                            FilterBar(
-                                labels = chipLabels,
-                                selectedIndex = selectedPosition - 1,
-                                onSelect = { index ->
-                                    // v0.12.1：有分类即按站点分类加载（CMS/spider/drpy 通用）
-                                    loadDrpyCategory(index + 1)
-                                },
-                            )
-                        }
-                        // v0.110.0：分类内容加载失败（超时/规则异常）给内联错误+重试，
-                        // 口径照抄 v0.29.0 分类行的"分类加载失败，点击重试"；
-                        // 之前失败后顶部细条转圈卡死、无任何反馈（审查报告第 10 条）
+                        // v0.110.0：分类内容加载失败（超时/规则异常）给内联错误+重试
                         if (failedCat != null && failedCat == selectedCategory) {
                             item(span = { GridItemSpan(maxLineSpan) }) {
                                 TextButton(onClick = { loadDrpyCategory(selectedPosition, filterMap) }) {
@@ -1534,29 +1652,22 @@ fun HomeScreen(
                                 }
                             }
                         }
-                        // v0.44.0：二级筛选行——选中分类的 filters 全组各一行（之前只取第一组）
+                        // v0.44.0：二级筛选——选中分类的全部筛选组。
+                        // v0.292.0 V5：每组一个 M3 FilterChip（▾ 展开取值）；已选组 secondaryContainer + 勾，
+                        // 点已选中的值取消本组筛选（与原来行为一致），多组互不干扰。
                         val activeCat = drpyCats.firstOrNull { it.typeId == selectedCategory }
                         val filterGroups = activeCat?.filters.orEmpty()
                         if (selectedCategory != "" && filterGroups.isNotEmpty()) {
-                            // v0.279.0 V4：全部筛选维度收进一条 34dp 横条——“组名 当前值”，
-                            // 点开下拉选；点已选中的取消本组筛选（与原 chip 行为一致），多组互不干扰。
                             item(span = { GridItemSpan(maxLineSpan) }) {
                                 Row(
                                     modifier = Modifier
                                         .v5Bleed(V5.Gutter)
                                         .heightIn(min = V5.FilterStrip)
-                                        .v5BottomDivider(MaterialTheme.colorScheme.outlineVariant)
                                         .horizontalScroll(rememberScrollState())
                                         .padding(horizontal = V5.Gutter),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    Icon(
-                                        Icons.Filled.Tune,
-                                        contentDescription = "筛选",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(15.dp),
-                                    )
                                     filterGroups.forEach { filterGroup ->
                                         HomeFilterDim(
                                             name = filterGroup.name,
@@ -1574,64 +1685,89 @@ fun HomeScreen(
                             }
                         }
                     } else if (catsFailed) {
-                        // v0.29.0：分类加载失败且为空，给重试入口（之前静默隐藏）
+                        // v0.29.0：分类加载失败且为空，给重试入口
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             TextButton(onClick = { loadCats() }) {
                                 Text("分类加载失败，点击重试")
                             }
                         }
                     }
-    
-                    // v0.237.0 浅色高密度：首页 Hero 大卡撤掉——一屏少一条大卡，
-                    // 网格直接三列密排；HeroCard 组件仍留给书架继续读用。
 
-                    // 分区标题 + 换一换（v0.39.0：mockup 风格"今日推荐"）
-                    // v0.50.0：stale 时标题旁小字提示"旧内容·刷新中"
-                    // v0.145.0：进分类后标题跟当前分类走（选中 0 的推荐流视图才叫今日推荐）。
+                    // 分区标题：推荐视图叫“今日推荐”，进分类后跟当前分类走（+ 已选筛选值）。
+                    // v0.50.0：stale 时标题旁小字“旧内容·刷新中”；右侧「换一换」（FilledTonal）+ 布局切换（M3 Menu）。
                     item(span = { GridItemSpan(maxLineSpan) }) {
+                        val activeCat = drpyCats.firstOrNull { it.typeId == selectedCategory }
+                        val pickedFilterNames = activeCat?.filters.orEmpty().mapNotNull { g ->
+                            val sel = filterMap[g.key] ?: return@mapNotNull null
+                            g.options.firstOrNull { it.value == sel }?.name
+                        }
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             V5SectionHeader(
-                                title = drpyCats.firstOrNull { it.typeId == selectedCategory }?.typeName ?: "今日推荐",
-                                count = if (filtered.isNotEmpty()) "${filtered.size}" else null,
-                                modifier = Modifier.weight(1f),
+                                title = activeCat?.typeName ?: "今日推荐",
+                                modifier = Modifier.weight(1f, fill = false),
                             )
+                            if (pickedFilterNames.isNotEmpty()) {
+                                Text(
+                                    text = " · " + pickedFilterNames.joinToString(" · "),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = cs.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                            }
                             if (recommendStale) {
+                                Spacer(Modifier.width(8.dp))
                                 Text(
                                     text = "旧内容·刷新中",
-                                    fontSize = 10.5.sp,
-                                    color = MaterialTheme.colorScheme.outline,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = cs.onSurfaceVariant,
                                 )
-                                Spacer(Modifier.width(8.dp))
                             }
+                            Spacer(Modifier.weight(0.01f))
                             // v0.212.0：换一换按种子真随机洗牌，换批即回顶。
-                            V5SectionHeader(
-                                title = "",
-                                actionText = "换一换",
-                                actionIcon = Icons.Filled.Refresh,
-                                onAction = {
+                            V5SmallButton(
+                                text = "换一换",
+                                icon = Icons.Filled.Refresh,
+                                onClick = {
                                     shuffleSeed++
                                     scope.launch { gridState.scrollToItem(0) }
                                 },
-                                modifier = Modifier.width(72.dp),
+                                modifier = Modifier.height(36.dp),
                             )
+                            Spacer(Modifier.width(4.dp))
+                            // v0.78.3：首页布局切换（v0.292.0 V5：从顶栏挪到网格分区标题旁，M3 Menu）
+                            Box {
+                                V5IconButton(
+                                    icon = homeLayout.icon,
+                                    contentDescription = "切换布局",
+                                    onClick = { showLayoutPicker = true },
+                                    tonal = showLayoutPicker,
+                                    tint = cs.onSurfaceVariant,
+                                    size = 48.dp,
+                                )
+                                HomeLayoutMenu(
+                                    expanded = showLayoutPicker,
+                                    current = homeLayout,
+                                    onDismiss = { showLayoutPicker = false },
+                                    onPick = { entry ->
+                                        HomeSettings.setLayout(context, entry)
+                                        showLayoutPicker = false
+                                    },
+                                )
+                            }
                         }
                     }
 
-                    // v0.291.0：骨架屏进网格——原来切分类无旧数据时在 Box 里后画
-                    // 全屏 Column 骨架，盖住网格第一行的顶栏（搜索/换源胶囊）点不到；
-                    // 现在骨架就是网格里的海报形占位，顶栏始终在上面可点。
+                    // v0.291.0：骨架屏进网格——切分类无旧数据时网格里放海报形占位，顶栏始终可点。
                     if (loadingCat != null && drpyList.isEmpty()) {
                         val skeletonModifier = if (homeLayout.columns > 1) {
-                            Modifier.fillMaxWidth().aspectRatio(
-                                when (homeLayout.columns) {
-                                    4 -> 0.535f
-                                    3 -> 0.6f
-                                    else -> 0.64f
-                                },
-                            )
+                            Modifier.fillMaxWidth().aspectRatio(posterRatio)
                         } else {
                             Modifier.fillMaxWidth().height(72.dp)
                         }
@@ -1642,9 +1778,7 @@ fun HomeScreen(
 
                     // 网格海报墙 / 列表（v0.78.3：布局切换）
                     items(filtered, key = { it.vodId.ifBlank { "noid:${it.vodName}" } }) { vod ->
-                        // v0.80.0：rating 已在海报底部跑马灯展示，副标题只留年份，不重复
-                        // v0.212.0 审计修复：分类（typeName）明明带回来了，首页三种
-                        // 布局却全程不显示；副标题改成“年份 · 分类”两段式。
+                        // v0.212.0：副标题“年份 · 分类”两段式。
                         val subtitle = listOfNotNull(
                             vod.vodYear.takeIf { it.isNotBlank() },
                             vod.typeName.takeIf { it.isNotBlank() },
@@ -1665,19 +1799,12 @@ fun HomeScreen(
                                 subtitle = subtitle,
                                 badge = vod.vodRemarks,
                                 posterUrl = vod.vodPic,
-                                modifier = Modifier.aspectRatio(
-                                    when (homeLayout.columns) {
-                                        4 -> 0.535f
-                                        3 -> 0.6f
-                                        else -> 0.64f
-                                    },
-                                ),
+                                modifier = Modifier.aspectRatio(posterRatio),
                                 onClick = { goDetail(vod.vodId, vod.vodName) },
                             )
                         }
                     }
-                    // v0.215.0：分类分页脚——推荐视图（分类 0）不分页，只分类视图有“加载更多”；
-                    // 空页后显示“没有更多了”，不再重复请求。
+                    // v0.215.0：分类分页脚——只分类视图有“加载更多”；空页后显示“没有更多了”。
                     if (selectedCategory != "" && filtered.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             Box(
@@ -1689,13 +1816,13 @@ fun HomeScreen(
                                 when {
                                     catLoadingMore -> Text(
                                         "加载中…",
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = cs.onSurfaceVariant,
                                     )
                                     selectedCategory in noMoreCats -> Text(
                                         "没有更多了",
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = cs.onSurfaceVariant,
                                     )
                                     else -> AppButton(
                                         text = "加载更多",
@@ -1709,56 +1836,9 @@ fun HomeScreen(
                 }
             }
             } // v0.45.0：闭合 PullToRefreshBox
-            // v0.291.0：全屏骨架覆盖层已删（骨架改放网格内，见上）；
-            // 外层 Box 保留不动，少 churn。
-            } // v0.58：闭合切分类 loading Box
+            } // v0.58：闭合外层 Box
         } // 闭合 Column
-    
-        // v0.78.3：首页布局切换
-        if (showLayoutPicker) {
-            Dialog(onDismissRequest = { showLayoutPicker = false }) {
-                AppCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp),
-                ) {
-                    Column(modifier = Modifier.padding(V5.Gutter)) {
-                        Text(
-                            text = "首页布局",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                        HomeLayout.entries.forEach { entry ->
-                            SettingsRow(
-                                icon = entry.icon,
-                                title = entry.label,
-                                subtitle = when (entry) {
-                                    HomeLayout.GRID_4 -> "信息密度最高的海报墙"
-                                    HomeLayout.GRID_3 -> "一屏看更多"
-                                    HomeLayout.GRID_2 -> "海报更大"
-                                    HomeLayout.COMPACT_LIST -> "小图 + 文字"
-                                    HomeLayout.TEXT_ONLY -> "密度最高"
-                                },
-                                onClick = {
-                                    HomeSettings.setLayout(context, entry)
-                                    showLayoutPicker = false
-                                },
-                                trailing = {
-                                    if (entry == homeLayout) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Check,
-                                            contentDescription = "当前",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                        )
-                                    }
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-        }
+
 
         // 站源切换（v0.7.1）
         // v0.109.0 B7：换源器改 DsPlayer 式小图标模式——居中 Dialog 换成底部弹窗，
@@ -1826,7 +1906,7 @@ private fun HomeCompactRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .v5BottomDivider(MaterialTheme.colorScheme.outlineVariant)
+            .clip(RoundedCornerShape(V5.CornerMd))
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1836,15 +1916,15 @@ private fun HomeCompactRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit
                 model = vod.vodPic,
                 contentDescription = null,
                 modifier = Modifier
-                    .size(width = 48.dp, height = 68.dp)
-                    .clip(RoundedCornerShape(6.dp)),
+                    .size(width = 56.dp, height = 84.dp)
+                    .clip(RoundedCornerShape(V5.CornerMd)),
                 contentScale = ContentScale.Crop,
             )
         } else {
             Box(
                 modifier = Modifier
-                    .size(width = 48.dp, height = 68.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .size(width = 56.dp, height = 84.dp)
+                    .clip(RoundedCornerShape(V5.CornerMd))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1867,9 +1947,9 @@ private fun HomeTextRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .v5BottomDivider(MaterialTheme.colorScheme.outlineVariant)
+            .v5BottomDivider(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             .clickable(onClick = onClick)
-            .padding(horizontal = 2.dp, vertical = 10.dp),
+            .padding(horizontal = 4.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         HomeRowTexts(vod, subtitle, subtitleGap = false)
@@ -1913,8 +1993,9 @@ private fun HomeCapsule(
 }
 
 /**
- * v0.279.0 V4：筛选条里的一个维度——“组名 当前值”，点开下拉列出全部选项。
- * 选中项强调色；再点已选中的取消本组筛选（与原来 chip 行为一致）。
+ * 筛选条里的一个维度（v0.279.0 起“组名 当前值”下拉；v0.292.0 V5：M3 FilterChip + ▾）。
+ * 未选显示组名，已选显示所选值并带勾（secondaryContainer）；点开下拉列出全部选项，
+ * 再点已选中的取消本组筛选（与原来 chip 行为一致）。
  */
 @Composable
 private fun HomeFilterDim(
@@ -1924,28 +2005,15 @@ private fun HomeFilterDim(
     onPick: (String) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
-    val v = MaterialTheme.colorScheme
+    val cs = MaterialTheme.colorScheme
     val selName = options.firstOrNull { it.second == selectedValue }?.first
     Box {
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(V5.CornerSm))
-                .clickable { open = true }
-                .padding(vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (name.isNotBlank()) {
-                Text(name, fontSize = 12.sp, color = v.outline, maxLines = 1)
-                Spacer(Modifier.width(5.dp))
-            }
-            Text(
-                selName ?: "全部",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (selName != null) v.primary else v.onSurface,
-                maxLines = 1,
-            )
-        }
+        V5Chip(
+            text = selName ?: name.ifBlank { "全部" },
+            selected = selName != null,
+            onClick = { open = true },
+            trailingIcon = Icons.Filled.ArrowDropDown,
+        )
         AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             options.forEach { (label, value) ->
                 val on = value == selectedValue
@@ -1953,20 +2021,192 @@ private fun HomeFilterDim(
                     text = {
                         Text(
                             label,
-                            fontSize = 12.5.sp,
-                            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (on) v.primary else v.onSurface,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (on) cs.onSecondaryContainer else cs.onSurface,
                         )
                     },
                     trailingIcon = if (on) {
-                        { Icon(Icons.Filled.Check, null, tint = v.primary, modifier = Modifier.size(16.dp)) }
+                        { Icon(Icons.Filled.Check, null, tint = cs.onSecondaryContainer, modifier = Modifier.size(20.dp)) }
                     } else null,
                     onClick = {
                         open = false
                         onPick(value)
                     },
-                    modifier = Modifier.height(38.dp),
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp)
+                        .clip(RoundedCornerShape(V5.CornerMd))
+                        .background(if (on) cs.secondaryContainer else Color.Transparent),
                 )
+            }
+        }
+    }
+}
+
+/**
+ * v0.292.0 V5：首页布局菜单（M3 Menu，16dp 圆角 surfaceContainer）——锚在海报网格分区标题的布局按钮上，
+ * 5 项带说明文字；当前项 secondaryContainer 底 + 尾部勾。选项与持久化同 v0.78.3。
+ */
+@Composable
+private fun HomeLayoutMenu(
+    expanded: Boolean,
+    current: HomeLayout,
+    onDismiss: () -> Unit,
+    onPick: (HomeLayout) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    AppDropdownMenu(expanded = expanded, onDismissRequest = onDismiss, modifier = Modifier.width(272.dp)) {
+        Text(
+            "首页布局",
+            style = MaterialTheme.typography.labelMedium,
+            color = cs.onSurfaceVariant,
+            modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 4.dp),
+        )
+        HomeLayout.entries.forEach { entry ->
+            val on = entry == current
+            DropdownMenuItem(
+                leadingIcon = {
+                    Icon(entry.icon, null, tint = if (on) cs.onSecondaryContainer else cs.onSurfaceVariant)
+                },
+                text = {
+                    Column {
+                        Text(
+                            entry.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (on) cs.onSecondaryContainer else cs.onSurface,
+                        )
+                        Text(
+                            when (entry) {
+                                HomeLayout.GRID_4 -> "信息密度最高的海报墙"
+                                HomeLayout.GRID_3 -> "一屏看更多"
+                                HomeLayout.GRID_2 -> "海报更大"
+                                HomeLayout.COMPACT_LIST -> "小图 + 文字"
+                                HomeLayout.TEXT_ONLY -> "密度最高"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurfaceVariant,
+                        )
+                    }
+                },
+                trailingIcon = if (on) {
+                    { Icon(Icons.Filled.Check, contentDescription = "当前", tint = cs.onSecondaryContainer) }
+                } else null,
+                onClick = { onPick(entry) },
+                modifier = Modifier
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                    .clip(RoundedCornerShape(V5.CornerMd))
+                    .background(if (on) cs.secondaryContainer else Color.Transparent),
+            )
+        }
+    }
+}
+
+/**
+ * v0.292.0 V5：首页 Hero 走马灯（M3 HorizontalMultiBrowseCarousel：大项 304dp 宽、212dp 高、28dp 圆角，
+ * 右侧窄项预览）。数据 = 今日推荐推荐流前 5 张有海报的片；底部渐变遮罩 + 「今日推荐」玻璃角标 + 备注，
+ * 片名 30/36 粗体 +2 字距，副标题“年份 · 类型”。窄项随宽度淡出文字。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HomeHeroCarousel(
+    items: List<ModelVod>,
+    onClick: (ModelVod) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val state = rememberCarouselState { items.size }
+    HorizontalMultiBrowseCarousel(
+        state = state,
+        preferredItemWidth = 304.dp,
+        itemSpacing = 8.dp,
+        minSmallItemWidth = 40.dp,
+        maxSmallItemWidth = 64.dp,
+        modifier = modifier
+            .v5Bleed(V5.Gutter)
+            .height(212.dp),
+        contentPadding = PaddingValues(horizontal = V5.Gutter),
+    ) { i ->
+        val vod = items[i]
+        val info = carouselItemInfo
+        val textAlpha = ((info.size - info.minSize) / (info.maxSize - info.minSize).coerceAtLeast(1f))
+            .coerceIn(0f, 1f)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .maskClip(RoundedCornerShape(V5.CornerXl))
+                .clickable { onClick(vod) },
+        ) {
+            V5Art(seed = vod.vodName, modifier = Modifier.fillMaxSize(), shape = RoundedCornerShape(0.dp)) {
+                var failed by remember(vod.vodPic) { mutableStateOf(false) }
+                if (!failed) {
+                    AsyncImage(
+                        model = vod.vodPic,
+                        contentDescription = vod.vodName,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        onError = { failed = true },
+                    )
+                }
+            }
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            0.35f to Color.Transparent,
+                            1f to MediaScrim,
+                        ),
+                    ),
+            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 20.dp, end = 20.dp, bottom = 18.dp)
+                    .alpha(textAlpha),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.White.copy(alpha = 0.22f))
+                            .padding(horizontal = 10.dp, vertical = 3.dp),
+                    ) {
+                        Text("今日推荐", style = MaterialTheme.typography.labelMedium, color = Color.White, maxLines = 1)
+                    }
+                    if (vod.vodRemarks.isNotBlank()) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            vod.vodRemarks,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.9f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    vod.vodName,
+                    color = Color.White,
+                    fontSize = 30.sp,
+                    lineHeight = 36.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val meta = listOfNotNull(
+                    vod.vodYear.takeIf { it.isNotBlank() },
+                    vod.typeName.takeIf { it.isNotBlank() },
+                ).joinToString(" · ")
+                if (meta.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        meta,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.85f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
