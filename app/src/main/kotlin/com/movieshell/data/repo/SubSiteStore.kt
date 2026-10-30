@@ -70,6 +70,10 @@ data class SubSiteRecord(
     val note: String = "",
     /** v0.112.0：用户分组（订阅站点列表分组筛选） */
     val group: String = "",
+    /** v0.294.7（L4）：站点级 playUrl / click / timeout（秒） */
+    val playUrl: String = "",
+    val click: String = "",
+    val timeout: Int = 0,
 )
 
 @Serializable
@@ -84,6 +88,11 @@ data class SubCache(
     val spiderJar: String = "",
     /** v0.43.0：多仓子仓列表；非空时本条目是多仓容器，sites 为空 */
     val warehouses: List<WarehouseEntry> = emptyList(),
+    /** v0.294.7（M1）：订阅顶层 flags（VIP 线路标识，命中即走解析） */
+    val flags: List<String> = emptyList(),
+    /** v0.294.7（M6）：订阅顶层 rules / ads */
+    val sniffRules: List<com.movieshell.data.source.SniffHostRule> = emptyList(),
+    val ads: List<String> = emptyList(),
 )
 
 @Serializable
@@ -231,6 +240,16 @@ object SubSiteStore {
 
     fun getCached(context: Context, subUrl: String): SubCache? = loadAll(context)[subUrl]
 
+    /** v0.294.7（M1）：某订阅的顶层 flags（VIP 线路标识）。 */
+    fun getFlags(context: Context, subUrl: String): List<String> =
+        getCached(context, subUrl)?.flags.orEmpty()
+
+    /** v0.294.7（M6）：全部订阅的嗅探规则与广告域名汇总。 */
+    fun allSniffRules(context: Context): Pair<List<com.movieshell.data.source.SniffHostRule>, List<String>> {
+        val all = loadAll(context).values
+        return all.flatMap { it.sniffRules } to all.flatMap { it.ads }.distinct()
+    }
+
     /** 取某订阅的解析线路（顶层 parses 数组）：refresh 时随订阅持久化，无缓存返回空。 */
     fun getParses(context: Context, subUrl: String): List<ParseConfig> =
         getCached(context, subUrl)?.parses.orEmpty()
@@ -249,6 +268,7 @@ object SubSiteStore {
         // 用了 trim 兜底、删缓存却只删原样 key，调用方传了带空白的地址
         // 就会“查得到、删不掉”，缓存记录残留成死链。
         val trimmedUrl = subUrl.trim()
+        com.movieshell.data.source.SniffRules.invalidate()
         val cache = getCached(context, trimmedUrl)
         val all = loadAll(context).toMutableMap()
         if (all.remove(trimmedUrl) != null) saveAll(context, all)
@@ -431,6 +451,9 @@ object SubSiteStore {
                     sites = sites,
                     parses = config.parses,
                     spiderJar = JarSpiderStore.resolveJarUrl(subUrl.trim(), config.spider),
+                    flags = config.flags,
+                    sniffRules = config.rules,
+                    ads = config.ads,
                 )
                 val all = loadAll(context).toMutableMap()
                 all[cache.subUrl] = cache
@@ -438,6 +461,7 @@ object SubSiteStore {
                 // v0.8.0：订阅刷新后 spider jar 可能已更新，清掉旧缓存下次重下
                 // （写盘失败时抛在上面，不走到这里，旧 jar 仍对得上旧缓存）
                 SpiderEngine.evict(context, cache.subUrl)
+                com.movieshell.data.source.SniffRules.invalidate()
                 cache
             }.onFailure { LogBus.e(TAG, "订阅刷新失败 $subUrl：${it.message}") }
                 .onSuccess {
@@ -464,6 +488,7 @@ object SubSiteStore {
             key = sc.key, name = sc.name.ifBlank { sc.key }, type = sc.type,
             origApi = api, origExt = ext, searchable = searchable,
             typeLabel = sc.typeLabel,
+            playUrl = sc.playUrl.trim(), click = sc.click.trim(), timeout = sc.timeout.coerceIn(0, 120),
         )
         // 小说/漫画站：App 只做视频点播，该类型统一标不支持（UI 打徽标，home/search 跳过）
         val isNovelOrComic = sc.typeLabel.trim().let { it.contains("小说") || it.contains("漫画") }

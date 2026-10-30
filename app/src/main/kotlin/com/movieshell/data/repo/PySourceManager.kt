@@ -245,7 +245,7 @@ object PySourceManager {
         // 排障时分不清是规则没给地址还是执行失败。失败记规则路径 + 原因。
         // 无激活规则时仍静默交空（不是一次失败，调用方按无规则处理）。
         val path = activeRulePath() ?: return ""
-        return runCatching { api.play(path, flag, id).first }
+        return runCatching { api.play(path, flag, id).url }
             .onFailure { e ->
                 // v0.294.5：取消（换源/离页/世代更替）不是失败，透出不记
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -257,9 +257,9 @@ object PySourceManager {
     }
 
     /** v0.27.1：本地 PY 播放原始结果（url, parse, header），供 PlayResolver 做收尾。 */
-    suspend fun playRaw(flag: String, id: String): Triple<String, Int, Map<String, String>> {
-        // v0.188.0 M14：与 playUrl 同款，失败记规则路径 + 原因，不再静默交空 Triple。
-        val path = activeRulePath() ?: return Triple("", 0, emptyMap())
+    suspend fun playRaw(flag: String, id: String): com.movieshell.data.source.RawPlay {
+        // v0.188.0 M14：与 playUrl 同款，失败记规则路径 + 原因，不再静默交空结果。
+        val path = activeRulePath() ?: return com.movieshell.data.source.RawPlay()
         return runCatching { api.play(path, flag, id) }
             .onFailure { e ->
                 // v0.294.5：取消（换源/离页/世代更替）不是失败，透出不记
@@ -268,7 +268,7 @@ object PySourceManager {
                 LogBus.e(TAG, "本地 PY playRaw 失败：规则=$path flag=$flag 原因=${e.message ?: e::class.java.simpleName}")
             }
             .onSuccess { managerLastError = null }
-            .getOrNull() ?: Triple("", 0, emptyMap())
+            .getOrNull() ?: com.movieshell.data.source.RawPlay()
     }
 
     /**

@@ -44,10 +44,11 @@ object SniffPatternStore {
         return list
     }
 
-    /** 编译好的正则（忽略大小写），编译失败的跳过。结果缓存，增删/保存时失效。 */
+    /** 编译好的正则（忽略大小写），编译失败的跳过。结果缓存，增删/保存时失效。
+     * v0.294.7（L3）：以 `!` 开头的条目是排除正则，不在这里返回，见 [excluded]。 */
     fun compiled(): List<Regex> {
         compiledCache?.let { return it }
-        val compiled = list().mapNotNull { pattern ->
+        val compiled = list().filterNot { it.startsWith("!") }.mapNotNull { pattern ->
             runCatching { pattern.toRegex(RegexOption.IGNORE_CASE) }
                 .onFailure { Log.w(TAG, "正则编译失败: $pattern") }
                 .getOrNull()
@@ -56,12 +57,26 @@ object SniffPatternStore {
         return compiled
     }
 
+    @Volatile
+    private var excludedCache: List<Regex>? = null
+
+    /** v0.294.7（L3）：排除正则（条目以 `!` 开头）——命中的地址一律不当直链。 */
+    fun excluded(): List<Regex> {
+        excludedCache?.let { return it }
+        val ex = list().filter { it.startsWith("!") }.mapNotNull { pattern ->
+            runCatching { pattern.removePrefix("!").toRegex(RegexOption.IGNORE_CASE) }.getOrNull()
+        }
+        excludedCache = ex
+        return ex
+    }
+
     /** 添加一条正则，返回是否成功（含格式校验）。 */
     fun add(pattern: String): Boolean {
         val p = pattern.trim()
         if (p.isBlank()) return false
         // 先校验能编译
-        runCatching { p.toRegex() }.onFailure { return false }
+        runCatching { p.removePrefix("!").toRegex() }.onFailure { return false }
+        if (p == "!") return false
         val cur = list().toMutableList()
         if (p in cur) return true // 已存在算成功
         cur += p
@@ -85,6 +100,7 @@ object SniffPatternStore {
             if (!ok) return false
             cached = list
             compiledCache = null
+            excludedCache = null
             LogBus.i(TAG, "嗅探正则已保存 ${list.size} 条")
             true
         }.onFailure {

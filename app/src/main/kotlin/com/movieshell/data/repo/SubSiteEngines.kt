@@ -110,10 +110,16 @@ object SubSiteEngines {
     }
 
     /** v0.27.1：订阅 PY 站播放原始结果（url, parse, header），供 PlayResolver 做收尾。 */
-    suspend fun pyPlayRaw(site: Site, flag: String, id: String): Triple<String, Int, Map<String, String>> {
-        if (!site.isSubSite() || !site.isPySite()) return Triple("", 0, emptyMap())
+    suspend fun pyPlayRaw(
+        site: Site,
+        flag: String,
+        id: String,
+        vipFlags: List<String> = com.movieshell.data.source.PlayRouting.DEFAULT_VIP_FLAGS,
+    ): com.movieshell.data.source.RawPlay {
+        val empty = com.movieshell.data.source.RawPlay()
+        if (!site.isSubSite() || !site.isPySite()) return empty
         val f = File(site.api)
-        if (!f.isFile) return Triple("", 0, emptyMap())
+        if (!f.isFile) return empty
         // S2：播放同样走可信副本，不读公开文件。
         val trusted = runCatching {
             ExecutableTrust.trustedFile(
@@ -122,9 +128,10 @@ object SubSiteEngines {
                 "site:${site.key}",
                 allowRetrust = false,
             )
-        }.getOrNull() ?: return Triple("", 0, emptyMap())
-        return runCatching { PyApi(ChaquopyEngine).play(trusted.absolutePath, flag, id) }
-            .getOrDefault(Triple("", 0, emptyMap()))
+        }.getOrNull() ?: return empty
+        return runCatching { PyApi(ChaquopyEngine).play(trusted.absolutePath, flag, id, vipFlags) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+            .getOrDefault(empty)
     }
 }
 
@@ -192,6 +199,12 @@ private class PooledDrpyEngine(
     override suspend fun play(flag: String, id: String): String =
         SubDrpyPool.withEngine(siteKey, ruleFile) { eng ->
             eng.play(flag, id).also { lastSeenError = eng.lastError }
+        }
+
+    // v0.294.7（H2）：池内引擎完整结果透传
+    override suspend fun playRaw(flag: String, id: String): com.movieshell.data.source.RawPlay =
+        SubDrpyPool.withEngine(siteKey, ruleFile) { eng ->
+            eng.playRaw(flag, id).also { lastSeenError = eng.lastError }
         }
 
     override fun release() {
@@ -349,7 +362,7 @@ private class SubPyEngine(private val rulePath: String) : DrpyEngine {
             .getOrNull().orEmpty()
 
     override suspend fun play(flag: String, id: String): String =
-        runCatching { api.play(rulePath, flag, id).first }
+        runCatching { api.play(rulePath, flag, id).url }
             .onFailure { recordFailure(it) }
             .onSuccess { lastSeenError = null }
             .getOrNull().orEmpty()

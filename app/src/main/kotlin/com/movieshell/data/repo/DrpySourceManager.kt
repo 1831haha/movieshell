@@ -317,6 +317,21 @@ object DrpySourceManager {
             .getOrNull().orEmpty()
     }
 
+    /** v0.294.7（H2）：完整播放结果（parse/jx/header/playUrl）。 */
+    suspend fun playRaw(flag: String, id: String): com.movieshell.data.source.RawPlay {
+        val eng = engine
+        val gen = generation
+        val outcome = runCatching { eng?.playRaw(flag, id) }
+        if (isStale(gen, eng)) return com.movieshell.data.source.RawPlay()
+        return outcome
+            .onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                recordFailure("play", it)
+            }
+            .onSuccess { managerLastError = null }
+            .getOrNull() ?: com.movieshell.data.source.RawPlay()
+    }
+
     suspend fun playUrl(flag: String, id: String): String {
         val eng = engine
         val gen = generation
@@ -356,6 +371,9 @@ object DrpySourceManager {
         override suspend fun search(wd: String): List<Vod> = this@DrpySourceManager.search(wd)
         override suspend fun play(flag: String, id: String): String =
             this@DrpySourceManager.playUrl(flag, id)
+
+        override suspend fun playRaw(flag: String, id: String): com.movieshell.data.source.RawPlay =
+            this@DrpySourceManager.playRaw(flag, id)
 
         override fun release() {
             // 生命周期归 setActiveRule 管，适配器不销毁

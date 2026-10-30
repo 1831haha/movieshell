@@ -204,24 +204,29 @@ class PyApi(private val engine: PyEngine = ChaquopyEngine) {
      * - header（如 Referer/UA）透传给播放器，防盗链站点必需。
      * - parse=1 表示需走解析线路，由调用方（PlayResolver）分流。
      */
-    suspend fun play(rulePath: String, flag: String, id: String): Triple<String, Int, Map<String, String>> =
+    suspend fun play(
+        rulePath: String,
+        flag: String,
+        id: String,
+        vipFlags: List<String> = PlayRouting.DEFAULT_VIP_FLAGS,
+    ): RawPlay =
         runCatching {
+            // v0.294.7（M1）：vipFlags 不再恒为空数组——传订阅 flags（无则默认 VIP 表）
+            val vf = vipFlags.joinToString(",", "[", "]") { it.q() }
             val data = envelope(
                 engine.invoke(
                     rulePath, "playerContent",
-                    """{"flag":${flag.q()},"id":${id.q()},"vipFlags":[]}"""
+                    """{"flag":${flag.q()},"id":${id.q()},"vipFlags":$vf}"""
                 )
-            ) ?: return Triple("", 0, emptyMap())
+            ) ?: return RawPlay()
             val url = data.optString("url")
             val parse = data["parse"]?.toString()?.trim('"')?.toIntOrNull() ?: 0
-            val header = (data["header"] as? JsonObject)
-                ?.entries?.mapNotNull { (k, v) ->
-                    (v as? JsonPrimitive)?.contentOrNull?.let { k to it }
-                }?.toMap().orEmpty()
+            val jx = data["jx"]?.toString()?.trim('"')?.toIntOrNull() ?: 0
+            val header = com.movieshell.player.PlayHeaders.fromJson(data["header"] ?: data["headers"])
             if (url.isBlank()) LogBus.w(TAG, "playerContent 返回空 url（parse=$parse）")
-            Triple(url, parse, header)
+            RawPlay(url = url, parse = parse, jx = jx, header = header, playUrl = data.optString("playUrl"))
         }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it } // v0.294.5：取消透出
-            .getOrDefault(Triple("", 0, emptyMap()))
+            .getOrDefault(RawPlay())
 
     // ---------------- 内部 ----------------
 

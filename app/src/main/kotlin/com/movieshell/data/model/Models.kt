@@ -22,7 +22,10 @@ data class TvBoxConfig(
     val sites: List<SiteConfig> = emptyList(),
     val parses: List<ParseConfig> = emptyList(),
     val flags: List<String> = emptyList(),
-    val spider: String = ""
+    val spider: String = "",
+    /** v0.294.7（M6）：订阅顶层嗅探规则 / 广告域名 */
+    val rules: List<com.movieshell.data.source.SniffHostRule> = emptyList(),
+    val ads: List<String> = emptyList(),
 )
 
 /**
@@ -45,7 +48,13 @@ data class SiteConfig(
     /** 扩展字段"类型"：如 "小说"/"漫画"（type=4 站用它标识非视频站） */
     val typeLabel: String = "",
     /** 内部字段：聚合搜索拼装的配置 JSON 里带的订阅 URL（spider 站定位 jar 用） */
-    val subUrl: String = ""
+    val subUrl: String = "",
+    /** v0.294.7（L4）：站点级解析前缀（TVBox playUrl，规则没给 playUrl 时用它） */
+    val playUrl: String = "",
+    /** v0.294.7（L4）：嗅探时要点的元素（CSS 选择器） */
+    val click: String = "",
+    /** v0.294.7（L4）：站点级嗅探超时（秒，0=默认） */
+    val timeout: Int = 0,
 )
 
 /**
@@ -64,7 +73,7 @@ data class ParseConfig(
     val ext: String = "",
     /** ext 对象里的 header（如 User-Agent），请求解析线路时带上 */
     val header: Map<String, String> = emptyMap(),
-    /** ext 对象里的 flag（该线路声明可解析的站点 flag），v0.7 仅解析保留、暂不参与过滤 */
+    /** ext 对象里的 flag（该线路声明可解析的站点 flag）；v0.294.7 起参与线路排序（命中当前 flag 的先试） */
     val flags: List<String> = emptyList()
 )
 

@@ -74,8 +74,14 @@ object SniffEngine {
      * 真后缀直链（.m3u8/.mp4 等）不受这两条影响。
      */
     fun sniffKind(url: String, isMainFrame: Boolean = false): SniffKind? {
+        // v0.294.7（L3/M6）：排除优先——用户 `!` 排除正则、订阅 rules.exclude 命中即不当直链
+        if (matchesExcludePattern(url)) return null
+        val sub = runCatching { SniffRules.match(url) }.getOrNull()
+        if (sub == false) return null
         // 自定义正则优先
         if (matchesCustomPattern(url)) return SniffKind.DIRECT
+        // v0.294.7（M6）：订阅 rules.regex 命中（主 frame 导航除外）
+        if (sub == true && !isMainFrame) return SniffKind.DIRECT
         val lower = url.lowercase()
         if (lower.startsWith("rtmp://")) return SniffKind.RTMP
         val path = lower.substringBefore('#').substringBefore('?')
@@ -122,6 +128,14 @@ object SniffEngine {
         }.getOrDefault(false)
     }
 
+    /** v0.294.7（L3）：用户排除正则（实验室页以 `!` 开头的条目） */
+    fun matchesExcludePattern(url: String): Boolean {
+        if (url.isBlank()) return false
+        return runCatching {
+            com.movieshell.data.repo.SniffPatternStore.excluded().any { it.containsMatchIn(url) }
+        }.getOrDefault(false)
+    }
+
     /** 明确不是媒体的静态资源后缀：这类 URL 连探测都不做 */
     private val STATIC_EXTS = setOf(
         ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico",
@@ -136,14 +150,16 @@ object SniffEngine {
     private val AD_URL_KEYWORDS = listOf(
         "advert", "doubleclick", "googlesyndication", "googleadservices",
         "adsrv", "popad", "adserver", "/ads/", ".ads.", "/ad/",
-        "preview",
+        // v0.294.7（L3）：原来的裸 "preview" 会误杀正常地址（如 /video/preview_hd/），收窄为路径段/文件名形态
+        "/preview/", "preview.m3u8", "preview.mp4", "_preview.", "-preview.",
+        "/adjump/", "/guanggao/",
     )
 
     /** 广告地址判定（v0.94，纯函数）：URL 含广告特征 → 不进候选列表 */
     fun isAdUrl(url: String): Boolean {
         if (url.isBlank()) return false
         val lower = url.lowercase()
-        return AD_URL_KEYWORDS.any { it in lower }
+        return AD_URL_KEYWORDS.any { it in lower } || runCatching { SniffRules.isAdUrl(url) }.getOrDefault(false)
     }
 
     /**
@@ -160,7 +176,7 @@ object SniffEngine {
     fun isAdHost(host: String): Boolean {
         if (host.isBlank()) return false
         val lower = host.lowercase()
-        return AD_HOST_KEYWORDS.any { it in lower }
+        return AD_HOST_KEYWORDS.any { it in lower } || runCatching { SniffRules.isAdHost(lower) }.getOrDefault(false)
     }
 
     /**

@@ -23,7 +23,12 @@ data class SpiderPlayResult(
     val url: String = "",
     val parse: Int = 0,
     val header: Map<String, String> = emptyMap(),
-)
+    /** v0.294.7：jx=1 走解析线路；playUrl 是 TVBox 解析前缀（json:/parse:/解析页地址） */
+    val jx: Int = 0,
+    val playUrl: String = "",
+) {
+    fun toRaw() = com.movieshell.data.source.RawPlay(url = url, parse = parse, jx = jx, header = header, playUrl = playUrl)
+}
 
 /**
  * v0.8.0：Java spider（csp_ 站）运行时。
@@ -234,10 +239,16 @@ object SpiderEngine {
             .getOrDefault(emptyList())
     }
 
-    suspend fun play(site: Site, flag: String, id: String): SpiderPlayResult =
+    suspend fun play(
+        site: Site,
+        flag: String,
+        id: String,
+        // v0.294.7（M1）：vipFlags 传订阅 flags（无则默认 VIP 表），原来恒为空列表
+        vipFlags: List<String> = com.movieshell.data.source.PlayRouting.DEFAULT_VIP_FLAGS,
+    ): SpiderPlayResult =
         withContext(Dispatchers.IO) {
             val sp = getSpider(requireContext(), site) ?: return@withContext SpiderPlayResult()
-            runCatching { parsePlayJson(sp.playerContent(flag, id, emptyList())) }
+            runCatching { parsePlayJson(sp.playerContent(flag, id, vipFlags)) }
                 .onFailure { LogBus.e(TAG, "play 失败 ${site.name}：${it.message}") }
                 .getOrDefault(SpiderPlayResult())
         }
@@ -286,14 +297,26 @@ object SpiderEngine {
         fun opt(key: String): String =
             (o[key] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
         // parse 可能是数字 1 也可能是字符串 "1"，两种都认
-        val parseRaw = (o["parse"] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content
-        val header = (o["header"] as? JsonObject)
-            ?.entries?.associate { (k, v) -> k to (v as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty() }
-            .orEmpty()
+        fun optInt(key: String): Int =
+            (o[key] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content?.trim()?.toIntOrNull() ?: 0
+        // v0.294.7：header 值为数字/布尔、或整个 header 是 JSON 字符串时也认（原来非字符串值被丢成空）
+        val header = com.movieshell.player.PlayHeaders.fromJson(o["header"] ?: o["headers"])
+        // v0.294.7（Bug7）：playUrl 是 TVBox 的解析前缀，不是播放地址；只有 url 为空且
+        // playUrl 本身就是媒体直链时才按旧行为当地址用（兼容少数把直链写进 playUrl 的 spider）。
+        var url = opt("url")
+        var playUrl = opt("playUrl")
+        if (url.isBlank() && playUrl.isNotBlank() &&
+            com.movieshell.data.source.PlayRouting.isMediaUrl(playUrl)
+        ) {
+            url = playUrl
+            playUrl = ""
+        }
         SpiderPlayResult(
-            url = opt("url").ifBlank { opt("playUrl") },
-            parse = parseRaw?.toIntOrNull() ?: 0,
+            url = url,
+            parse = optInt("parse"),
             header = header,
+            jx = optInt("jx"),
+            playUrl = playUrl,
         )
     }.getOrDefault(SpiderPlayResult())
 }

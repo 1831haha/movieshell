@@ -60,6 +60,12 @@ interface DrpyEngine {
      */
     suspend fun play(flag: String, id: String): String
 
+    /**
+     * v0.294.7（Bug2 / H2）：带 parse/jx/header/playUrl 的完整播放结果。
+     * 默认实现只包一层 [play]（parse=0），只有 V8DrpyEngine 与池/管理器适配器真正透传。
+     */
+    suspend fun playRaw(flag: String, id: String): RawPlay = RawPlay(url = play(flag, id))
+
     /** 销毁引擎，释放资源。 */
     fun release()
 }

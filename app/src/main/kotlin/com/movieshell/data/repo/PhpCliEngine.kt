@@ -155,15 +155,15 @@ object PhpCliEngine {
         flag: String,
         id: String,
         scriptName: String? = null,
-    ): Triple<String, Int, Map<String, String>> {
+    ): com.movieshell.data.source.RawPlay {
         val first = runQuery(context, scriptName, "ac=play&flag=${enc(flag)}&id=${enc(id)}")
             ?.let { Type4Api().parsePlay(it) }
         if (first != null && (first.url.isNotBlank() || first.parse != 0)) {
-            return Triple(first.url, first.parse, first.header)
+            return first.toRaw()
         }
         val second = runQuery(context, scriptName, "play=${enc(id)}")
             ?.let { Type4Api().parsePlay(it) } ?: Type4PlayResult()
-        return Triple(second.url, second.parse, second.header)
+        return second.toRaw()
     }
 
     /** 跑一次查询，返回提取出的 JSON 文本；php 未装、脚本不存在、超时、非 JSON 一律 null（不抛），原因记 [lastErrorFor]。 */

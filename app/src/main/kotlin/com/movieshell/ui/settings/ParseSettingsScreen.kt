@@ -83,7 +83,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
         if (url in testing || probingAll) return
         testing = testing + url
         scope.launch {
-            val ok = runCatching { ParseApi().probe(parse) }
+            val ok = runCatching { ParseApi().probe(parse, context) }
                 .onFailure { LogBus.w("ParseSettings", "测活异常：${it.message}") }
                 .getOrDefault(false)
             if (customParses.any { it.url == url }) {
@@ -106,7 +106,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
             val api = ParseApi()
             targets.map { p ->
                 async {
-                    val ok = runCatching { api.probe(p) }.getOrDefault(false)
+                    val ok = runCatching { api.probe(p, context) }.getOrDefault(false)
                     if (customParses.any { it.url == p.url }) {
                         probeResults = probeResults + (p.url to ok)
                     }

@@ -32,8 +32,13 @@ import java.util.concurrent.ConcurrentHashMap
 data class Type4PlayResult(
     val url: String = "",
     val parse: Int = 0,
-    val header: Map<String, String> = emptyMap()
-)
+    val header: Map<String, String> = emptyMap(),
+    /** v0.294.7：jx / playUrl（TVBox 口径） */
+    val jx: Int = 0,
+    val playUrl: String = "",
+) {
+    fun toRaw() = RawPlay(url = url, parse = parse, jx = jx, header = header, playUrl = playUrl)
+}
 
 /**
  * type=4 搜索返回。
@@ -294,18 +299,15 @@ class Type4Api(
             return Type4PlayResult()
         }
         val root = raw ?: return Type4PlayResult()
-        val header = (root["header"] as? JsonObject)?.entries
-            ?.mapNotNull { (k, v) ->
-                val value = (v as? JsonPrimitive)
-                    ?.takeUnless { it is JsonNull }
-                    ?.contentOrNull?.trim().orEmpty()
-                if (k.lowercase() in headerAllow && value.isNotEmpty()) k to value else null
-            }
-            ?.toMap().orEmpty()
+        // v0.294.7：header 可为 JSON 字符串 / 非字符串值；仍只放行白名单头
+        val header = com.movieshell.player.PlayHeaders.fromJson(root["header"] ?: root["headers"])
+            .filterKeys { it.lowercase() in headerAllow }
         Type4PlayResult(
             url = root.optString("url").trim(),
             parse = root.optInt("parse") ?: 0,
-            header = header
+            header = header,
+            jx = root.optInt("jx") ?: 0,
+            playUrl = root.optString("playUrl").trim(),
         )
     }.onFailure {
         val reason = "播放解析失败: ${it.message}"

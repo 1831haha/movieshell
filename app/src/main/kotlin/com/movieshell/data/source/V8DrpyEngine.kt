@@ -380,11 +380,14 @@ class V8DrpyEngine(
         parseVodList(json)
     }
 
-    override suspend fun play(flag: String, id: String): String = withContext(Dispatchers.IO) {
+    override suspend fun play(flag: String, id: String): String = playRaw(flag, id).url
+
+    /** v0.294.7（H2）：lazy 结果完整透传（url/parse/jx/header/playUrl）。 */
+    override suspend fun playRaw(flag: String, id: String): RawPlay = withContext(Dispatchers.IO) {
         val json = evalForJsonWithRetry(
             "(function(){return __drpyPlay(${JSONObject.quote(flag)}, ${JSONObject.quote(id)});})()"
-        ) ?: return@withContext ""
-        parsePlayUrl(json)
+        ) ?: return@withContext RawPlay()
+        parsePlayRaw(json)
     }
 
     /**
@@ -659,14 +662,24 @@ class V8DrpyEngine(
         }.getOrDefault(VodDetail(vodId = id))
     }
 
-    private fun parsePlayUrl(json: String): String {
+    private fun parsePlayRaw(json: String): RawPlay {
         return runCatching {
             val o = JSONObject(json)
-            o.optString("url", o.optString("play_url", ""))
+            val header = LinkedHashMap<String, String>()
+            (o.optJSONObject("header") ?: o.optJSONObject("headers"))?.let { h ->
+                h.keys().forEach { k -> h.opt(k)?.toString()?.trim()?.takeIf { it.isNotEmpty() && it != "null" }?.let { header[k] = it } }
+            }
+            RawPlay(
+                url = o.optString("url", o.optString("play_url", "")),
+                parse = o.optString("parse", "0").trim().toIntOrNull() ?: 0,
+                jx = o.optString("jx", "0").trim().toIntOrNull() ?: 0,
+                header = com.movieshell.player.PlayHeaders.normalize(header),
+                playUrl = o.optString("playUrl", ""),
+            )
         }.onFailure {
             val reason = "播放地址解析失败: ${it.message}"
             lastError = reason
             LogBus.w(TAG, reason)
-        }.getOrDefault("")
+        }.getOrDefault(RawPlay())
     }
 }

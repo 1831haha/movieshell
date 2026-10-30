@@ -1376,9 +1376,21 @@ globalThis.__drpyPlay = async function (flag, id) {
             if (r == null && ctx.input && typeof ctx.input === 'object') r = ctx.input;
             if (typeof r === 'string') return JSON.stringify({ url: r, parse: 0 });
             r = r || {};
-            return JSON.stringify({ url: str(r.url), parse: Number(r.parse || 0) });
+            // v0.294.7：jx/header/playUrl 一并透传（原来只交 url/parse，宿主拿不到 Referer、
+            // 也分不清“走 jx 解析”与“嗅探该页”）；header 可能是 JSON 字符串。
+            var hd = r.header || r.headers || null;
+            if (typeof hd === 'string') { try { hd = JSON.parse(hd); } catch (e) { hd = null; } }
+            if (!hd || typeof hd !== 'object') hd = {};
+            return JSON.stringify({
+                url: str(r.url), parse: Number(r.parse || 0), jx: Number(r.jx || 0),
+                header: hd, playUrl: str(r.playUrl || '')
+            });
         }
-        return JSON.stringify({ url: str(id), parse: 0 });
+        // v0.294.7：无 lazy 时按 drpy2 口径交 parse=1（宿主侧路由：直链直接播、
+        // VIP 站走 jx、其余嗅探该页，嗅探失败回退原地址直接播）。
+        var hd0 = {};
+        try { hd0 = buildHeaders(rule, null); } catch (e) { hd0 = {}; }
+        return JSON.stringify({ url: str(id), parse: 1, jx: 0, header: hd0 });
     } catch (e) { return errJson(e); }
 };
 
