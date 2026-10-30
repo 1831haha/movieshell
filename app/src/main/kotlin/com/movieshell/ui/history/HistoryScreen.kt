@@ -53,12 +53,12 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 private val dayFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -158,7 +158,7 @@ fun HistoryScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = SoftDimens.PagePadding, vertical = 8.dp),
+                    .padding(horizontal = V4.Gutter, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
@@ -206,7 +206,7 @@ fun HistoryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(
-                                    horizontal = SoftDimens.PagePadding,
+                                    horizontal = V4.Gutter,
                                     vertical = 4.dp,
                                 )
                                 .clip(RoundedCornerShape(12.dp))
@@ -233,10 +233,10 @@ fun HistoryScreen(
                     item(key = "d:$day") {
                         Text(
                             text = dayLabel(list.first().timestamp),
-                            style = SoftType.CardTitle,
+                            style = V4Type.RowTitle,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(
-                                horizontal = SoftDimens.PagePadding,
+                                horizontal = V4.Gutter,
                                 vertical = 8.dp,
                             ),
                         )
@@ -311,11 +311,11 @@ private fun HistoryRow(
     AppCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = SoftDimens.PagePadding, vertical = 4.dp)
+            .padding(horizontal = V4.Gutter, vertical = 4.dp)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Row(
-            modifier = Modifier.padding(SoftDimens.CardSpacing),
+            modifier = Modifier.padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -330,14 +330,14 @@ private fun HistoryRow(
                             Text(
                                 "直播",
                                 color = MaterialTheme.colorScheme.onErrorContainer,
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                             )
                         }
                         Spacer(Modifier.width(6.dp))
                     }
                     Text(
                         text = entry.title.ifBlank { "未知标题" },
-                        style = SoftType.CardTitle,
+                        style = V4Type.RowTitle,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -348,14 +348,14 @@ private fun HistoryRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = timeFmt.format(Date(entry.timestamp)),
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     progressText(entry)?.let { pt ->
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = pt,
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }

@@ -128,9 +128,6 @@ import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.SectionTitle
 import com.movieshell.ui.theme.LocalBrandGradient
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -915,7 +912,7 @@ fun SettingsScreen(
         ) {
             Text(
                 "清理视频缓存（m3u8 分片）与图片缓存，共 $cacheSize。播放记录与站源配置不会被删除。",
-                style = SoftType.Body,
+                style = V4Type.Body,
             )
         }
     }
@@ -941,7 +938,7 @@ fun SettingsScreen(
                 } else {
                     "只删旧格式按剧记忆，新格式记忆不受影响。"
                 },
-                style = SoftType.Body,
+                style = V4Type.Body,
             )
         }
     }
@@ -962,7 +959,7 @@ fun SettingsScreen(
             dismissText = "关闭",
         ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(lastSyncText, style = SoftType.Caption,
+                    Text(lastSyncText, style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
                     TechTextField(
@@ -1020,7 +1017,7 @@ fun SettingsScreen(
                         )
                         Text(
                             "我知道风险：允许局域网 http（密码仅 Base64 编码传输）",
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -1139,7 +1136,7 @@ fun SettingsScreen(
                 }
             },
         ) {
-            Text(cloudConflictText, style = SoftType.Caption)
+            Text(cloudConflictText, style = V4Type.Meta)
         }
     }
 
@@ -1252,7 +1249,7 @@ private fun SingleChoiceDialog(
             Column {
                 options.forEach { option ->
                     ListItem(
-                        headlineContent = { Text(option, style = SoftType.Body) },
+                        headlineContent = { Text(option, style = V4Type.Body) },
                         trailingContent = {
                             RadioButton(
                                 selected = option == selected,

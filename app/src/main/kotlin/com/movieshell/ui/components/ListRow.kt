@@ -28,9 +28,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 /**
  * v0.234.0 新 UI：通用列表行（DaoBox list_row 词汇的 Compose 版）。
@@ -47,7 +46,7 @@ fun ListRow(
     onClick: (() -> Unit)? = null,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
-    val thumbShape = RoundedCornerShape(SoftDimens.PosterCorner)
+    val thumbShape = RoundedCornerShape(V4.RPoster)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -60,7 +59,7 @@ fun ListRow(
                 .size(48.dp)
                 .clip(thumbShape)
                 .background(com.movieshell.ui.theme.V4.c.s2)
-                .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, thumbShape),
+                .border(1.dp, V4.c.div, thumbShape),
             contentAlignment = Alignment.Center,
         ) {
             var imageFailed by remember(thumbUrl) { mutableStateOf(false) }
@@ -88,7 +87,7 @@ fun ListRow(
         ) {
             Text(
                 text = title,
-                style = SoftType.CardTitle,
+                style = V4Type.RowTitle,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -96,7 +95,7 @@ fun ListRow(
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

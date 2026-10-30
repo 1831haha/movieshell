@@ -113,7 +113,6 @@ fun MovieShellTheme(
     }
     CompositionLocalProvider(
         LocalV4 provides v4,
-        LocalSoftExtra provides if (darkTheme) SoftExtraDark else SoftExtraLight,
         LocalBrandGradient provides brandColors,
     ) {
         MaterialTheme(

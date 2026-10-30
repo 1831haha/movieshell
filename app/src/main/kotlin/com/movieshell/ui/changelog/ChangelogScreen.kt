@@ -29,7 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.theme.SoftType
+import com.movieshell.ui.theme.V4Type
 
 /**
  * 更新日志独立页（v0.30.0）。
@@ -76,18 +76,18 @@ private fun ChangelogItem(entry: ChangelogEntry) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = entry.version,
-                        style = SoftType.Title,
+                        style = V4Type.ScreenTitle,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         text = entry.title,
-                        style = SoftType.Body,
+                        style = V4Type.Body,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (entry.date.isNotBlank()) {
                         Text(
                             text = entry.date,
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         )
                     }
@@ -104,12 +104,12 @@ private fun ChangelogItem(entry: ChangelogEntry) {
                         Row(modifier = Modifier.padding(vertical = 3.dp)) {
                             Text(
                                 text = "· ",
-                                style = SoftType.Body,
+                                style = V4Type.Body,
                                 color = MaterialTheme.colorScheme.primary,
                             )
                             Text(
                                 text = line,
-                                style = SoftType.Body,
+                                style = V4Type.Body,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f),
                             )

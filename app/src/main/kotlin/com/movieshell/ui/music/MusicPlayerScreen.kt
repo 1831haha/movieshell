@@ -117,8 +117,6 @@ import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.accentTitleColor
 import com.movieshell.ui.theme.LocalBrandGradient
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
 import kotlinx.coroutines.launch
 
 /**
@@ -440,10 +438,10 @@ fun MusicPlayerScreen(
                                     Row(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(20.dp))
-                                            .background(LocalSoftExtra.current.glass)
+                                            .background(V4.c.s1)
                                             .border(
-                                                SoftDimens.BorderWidth,
-                                                LocalSoftExtra.current.border,
+                                                1.dp,
+                                                V4.c.div,
                                                 RoundedCornerShape(20.dp),
                                             )
                                             .padding(horizontal = 10.dp, vertical = 8.dp),

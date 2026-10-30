@@ -35,9 +35,9 @@ import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.player.PlayerDialogCard
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import com.movieshell.ui.theme.V4Type
 
 /**
  * 在线字幕搜索对话框（v0.28.0，详情页/播放器共用）。
@@ -135,13 +135,13 @@ fun OnlineSubtitleSearchDialog(
                 ) {
                     CircularProgressIndicator()
                     Spacer(Modifier.width(12.dp))
-                    Text("下载中…", style = SoftType.Body)
+                    Text("下载中…", style = V4Type.Body)
                 }
             }
             results.isEmpty() && searched -> {
                 Text(
                     "没搜到，换个关键词试试",
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(24.dp),
                 )
@@ -175,7 +175,7 @@ fun OnlineSubtitleSearchDialog(
                         ) {
                             Text(
                                 text = item.title,
-                                style = SoftType.Body,
+                                style = V4Type.Body,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             val meta = listOf(item.language, item.format, item.size, item.downloads)
@@ -183,7 +183,7 @@ fun OnlineSubtitleSearchDialog(
                             if (meta.isNotBlank()) {
                                 Text(
                                     text = meta,
-                                    style = SoftType.Caption,
+                                    style = V4Type.Meta,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -195,7 +195,7 @@ fun OnlineSubtitleSearchDialog(
         Spacer(Modifier.height(4.dp))
         Text(
             text = "下载的字幕自动按剧记忆，下次播放直接挂载",
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

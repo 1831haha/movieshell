@@ -22,7 +22,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.movieshell.ui.theme.SoftType
 import com.movieshell.ui.theme.V4
 import com.movieshell.ui.theme.V4Type
 import androidx.compose.material3.LocalContentColor

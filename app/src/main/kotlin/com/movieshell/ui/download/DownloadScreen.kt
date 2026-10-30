@@ -59,10 +59,9 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.SectionTitle
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
 import java.io.File
+import com.movieshell.ui.theme.V4Type
 
 /**
  * 下载管理（v0.26.0）。
@@ -123,7 +122,7 @@ fun DownloadScreen(
             title = "删除任务",
             dismissText = null,
         ) {
-            Text("同时删除已下载的文件？", style = SoftType.Body)
+            Text("同时删除已下载的文件？", style = V4Type.Body)
             Spacer(Modifier.height(12.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -169,10 +168,10 @@ fun DownloadScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("看完自动删除", style = SoftType.Body)
+                            Text("看完自动删除", style = V4Type.Body)
                             Text(
                                 "本地文件播到 95% 以上时自动删",
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -189,10 +188,10 @@ fun DownloadScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("自动清理已完成", style = SoftType.Body)
+                            Text("自动清理已完成", style = V4Type.Body)
                             Text(
                                 "启动时清理 N 天前完成的任务（含文件）",
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -219,10 +218,10 @@ fun DownloadScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("空间不足提醒", style = SoftType.Body)
+                            Text("空间不足提醒", style = V4Type.Body)
                             Text(
                                 "下载前剩余空间不足 500MB 时提醒",
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -251,7 +250,7 @@ fun DownloadScreen(
         ) {
             Text(
                 "将删除全部已完成任务的记录与已下载文件，此操作不可恢复。",
-                style = SoftType.Body,
+                style = V4Type.Body,
             )
         }
     }
@@ -297,7 +296,7 @@ fun DownloadScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(inner)
-                    .padding(SoftDimens.CardSpacing),
+                    .padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (active.isNotEmpty()) {
@@ -373,20 +372,20 @@ private fun TaskCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = task.title,
-                        style = SoftType.CardTitle,
+                        style = V4Type.RowTitle,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = statusText(task),
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 if (onPlay != null) {
                     IconButton(
                         onClick = onPlay,
-                        modifier = Modifier.size(SoftDimens.TouchTarget),
+                        modifier = Modifier.size(48.dp),
                     ) {
                         Icon(Icons.Filled.PlayArrow, contentDescription = "播放")
                     }
@@ -401,7 +400,7 @@ private fun TaskCard(
                 if (onPauseResume != null) {
                     IconButton(
                         onClick = onPauseResume,
-                        modifier = Modifier.size(SoftDimens.TouchTarget),
+                        modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
                             if (task.status == DlStatus.DOWNLOADING || task.status == DlStatus.QUEUED)
@@ -412,7 +411,7 @@ private fun TaskCard(
                 }
                 IconButton(
                     onClick = onDelete,
-                    modifier = Modifier.size(SoftDimens.TouchTarget),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(
                         Icons.Filled.Delete,

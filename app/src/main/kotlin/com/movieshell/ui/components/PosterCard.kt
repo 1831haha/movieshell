@@ -31,9 +31,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import com.movieshell.ui.theme.V4
 import com.movieshell.ui.theme.V4Type
 

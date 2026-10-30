@@ -129,9 +129,6 @@ import com.movieshell.ui.preview.openFileWithEditor
 import com.movieshell.ui.preview.previewKindDir
 import com.movieshell.ui.preview.shareFile
 import com.movieshell.ui.theme.LocalBrandGradient
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -143,6 +140,8 @@ import kotlinx.coroutines.launch
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.movieshell.data.source.SourceProbeWorker
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 /** 站源条目：开关/备注/分组状态用 mutableStateOf 包裹，保证变更即时刷新 */
 class SourceEntry(
@@ -285,11 +284,10 @@ private data class ProbeTarget(
 /** 探活徽标颜色（Soft Tech 柔和版） */
 @Composable
 private fun ProbeDot(probe: SourceProbe.Result?) {
-    val soft = LocalSoftExtra.current
-    val color = when (probe) {
-        is SourceProbe.Result.Ok -> soft.success
-        is SourceProbe.Result.Slow -> soft.warning
-        is SourceProbe.Result.Fail -> soft.errorSoft
+        val color = when (probe) {
+        is SourceProbe.Result.Ok -> V4.c.ok
+        is SourceProbe.Result.Slow -> V4.c.vip
+        is SourceProbe.Result.Fail -> V4.c.live
         is SourceProbe.Result.Unsupported ->
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
         null -> return
@@ -305,11 +303,10 @@ private fun ProbeDot(probe: SourceProbe.Result?) {
 /** v0.86.0：检测 tab 的逐源结果行——名称 + 状态徽标 + 耗时/失败原因 */
 @Composable
 private fun ProbeResultRow(target: ProbeTarget, result: SourceProbe.Result?) {
-    val soft = LocalSoftExtra.current
-    val (label, color) = when (result) {
-        is SourceProbe.Result.Ok -> "${result.ms}ms" to soft.success
-        is SourceProbe.Result.Slow -> "${result.ms}ms" to soft.warning
-        is SourceProbe.Result.Fail -> result.reason to soft.errorSoft
+        val (label, color) = when (result) {
+        is SourceProbe.Result.Ok -> "${result.ms}ms" to V4.c.ok
+        is SourceProbe.Result.Slow -> "${result.ms}ms" to V4.c.vip
+        is SourceProbe.Result.Fail -> result.reason to V4.c.live
         is SourceProbe.Result.Unsupported -> "不支持" to
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
         null -> "待检测" to MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -336,7 +333,7 @@ private fun ProbeResultRow(target: ProbeTarget, result: SourceProbe.Result?) {
             Spacer(Modifier.width(10.dp))
             Text(
                 text = target.label,
-                style = SoftType.Body,
+                style = V4Type.Body,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -344,14 +341,14 @@ private fun ProbeResultRow(target: ProbeTarget, result: SourceProbe.Result?) {
             )
             Text(
                 text = statusText,
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = color,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 text = label,
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1084,7 +1081,7 @@ fun SourcesScreen(
             }
             Text(
                 text = statusText,
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -1159,7 +1156,7 @@ fun SourcesScreen(
             ) {
                 Text(
                     text = "网页源 · ${visibleWeb.size} 个",
-                    style = SoftType.CardTitle,
+                    style = V4Type.RowTitle,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
@@ -1222,7 +1219,7 @@ fun SourcesScreen(
         item {
             Text(
                 text = "本地规则文件（PY / JS / drpy / JAR），单击设为当前源",
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -1244,7 +1241,7 @@ fun SourcesScreen(
             ) {
                 Text(
                     text = "共 ${visibleLocal.size} 个规则 · 单击激活，长按更多操作",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
@@ -1318,7 +1315,7 @@ fun SourcesScreen(
                 Text(
                     text = "对已启用源调 home() 探活，8 秒超时；绿=正常(≤3s) 黄=缓慢(>3s) 红=失败；" +
                         "开始后可切走/退后台，跑完发通知",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -1328,7 +1325,7 @@ fun SourcesScreen(
                         text = "上次检测：${SourceProbeStore.agoText(probeReport.time)}" +
                             " · 正常 $ok / 缓慢 $slow / 失败 $fail" +
                             if (unsupported > 0) " / 不支持 $unsupported" else "",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1356,14 +1353,14 @@ fun SourcesScreen(
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = "正在检测：$probeLabel",
-                        style = SoftType.Body,
+                        style = V4Type.Body,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         text = "已完成 $probeDone / $probeTotal（后台运行中，可切走）",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1452,15 +1449,15 @@ fun SourcesScreen(
         ModalBottomSheet(
             onDismissRequest = { menuItem = null },
             shape = RoundedCornerShape(
-                topStart = SoftDimens.CardCorner,
-                topEnd = SoftDimens.CardCorner,
+                topStart = V4.RField,
+                topEnd = V4.RField,
             ),
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
             Column(modifier = Modifier.padding(bottom = 24.dp)) {
                 Text(
                     text = item.fileName,
-                    style = SoftType.CardTitle,
+                    style = V4Type.RowTitle,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1523,10 +1520,10 @@ fun SourcesScreen(
             dismissText = "关闭",
         ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("文件名：${item.fileName}", style = SoftType.Body)
-                    Text("大小：${PluginMarket.formatSize(file.length())}", style = SoftType.Body)
-                    Text("修改时间：$modified", style = SoftType.Body)
-                    Text("路径：${file.absolutePath}", style = SoftType.Body)
+                    Text("文件名：${item.fileName}", style = V4Type.Body)
+                    Text("大小：${PluginMarket.formatSize(file.length())}", style = V4Type.Body)
+                    Text("修改时间：$modified", style = V4Type.Body)
+                    Text("路径：${file.absolutePath}", style = V4Type.Body)
                 }
         }
     }
@@ -1544,7 +1541,7 @@ fun SourcesScreen(
         ) {
                 Text(
                     "将「${item.fileName}」移入回收站，可随时恢复。",
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                 )
         }
     }
@@ -1562,7 +1559,7 @@ fun SourcesScreen(
         ) {
                 Text(
                     "将「${sub.name}」移入回收站，可随时恢复。",
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                 )
         }
     }
@@ -1585,7 +1582,7 @@ fun SourcesScreen(
             Column {
                 Text(
                     text = "备注",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(4.dp))
@@ -1598,7 +1595,7 @@ fun SourcesScreen(
                 Spacer(Modifier.height(12.dp))
                 Text(
                     text = "分组",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(4.dp))
@@ -1630,14 +1627,14 @@ fun SourcesScreen(
             Text(
                 text = "正在检测：$probeLabel",
                 color = MaterialTheme.colorScheme.onSurface,
-                style = SoftType.Body,
+                style = V4Type.Body,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 text = "已完成 $probeDone / $probeTotal",
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -1660,7 +1657,7 @@ fun SourcesScreen(
                     Spacer(Modifier.height(12.dp))
                     Text(
                         text = "输入站源订阅地址（CMS 接口 JSON）",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(12.dp))
@@ -1674,15 +1671,15 @@ fun SourcesScreen(
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = "请输入以 http:// 或 https:// 开头的有效地址",
-                            style = SoftType.Caption,
-                            color = LocalSoftExtra.current.errorSoft,
+                            style = V4Type.Meta,
+                            color = V4.c.live,
                         )
                     }
                     // v0.112.0：订阅级备注/分组（选填）
                     Spacer(Modifier.height(12.dp))
                     Text(
                         text = "备注",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1695,7 +1692,7 @@ fun SourcesScreen(
                     Spacer(Modifier.height(12.dp))
                     Text(
                         text = "分组",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1719,13 +1716,13 @@ fun SourcesScreen(
                 Column {
                     Text(
                         text = "输入网站名称和地址，长按条目菜单可打开嗅探浏览器",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
                         text = "名称",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1738,7 +1735,7 @@ fun SourcesScreen(
                     Spacer(Modifier.height(12.dp))
                     Text(
                         text = "网址",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1752,8 +1749,8 @@ fun SourcesScreen(
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = "请输入以 http:// 或 https:// 开头的有效地址",
-                            style = SoftType.Caption,
-                            color = LocalSoftExtra.current.errorSoft,
+                            style = V4Type.Meta,
+                            color = V4.c.live,
                         )
                     }
                 }
@@ -1791,7 +1788,7 @@ private fun FileCard(
                 Text(
                     text = badgeLabel,
                     color = MaterialTheme.colorScheme.primary,
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
                 )
             }
@@ -1807,7 +1804,7 @@ private fun FileCard(
             Spacer(Modifier.width(6.dp))
             Text(
                 text = item.displayName,
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 fontWeight = if (item.isActive) FontWeight.Bold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1841,7 +1838,7 @@ private fun MenuRow(
     destructive: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val tint = if (destructive) LocalSoftExtra.current.errorSoft
+    val tint = if (destructive) V4.c.live
     else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         modifier = Modifier
@@ -1859,7 +1856,7 @@ private fun MenuRow(
         Spacer(Modifier.width(16.dp))
         Text(
             text = label,
-            style = SoftType.Body,
+            style = V4Type.Body,
             color = if (destructive) tint else MaterialTheme.colorScheme.onSurface,
         )
     }
@@ -1893,7 +1890,7 @@ private fun KindBadge(kind: String) {    val (label, color) = when (kind) {
         Text(
             text = label,
             color = color,
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
         )
     }
@@ -1914,11 +1911,10 @@ private fun SubscriptionInfoLines(
     // v0.115.0 修：本函数是多子节点发射器，必须自带 Column——v0.108.0 起收起卡片
     // 把它套在 Box（裁剪）里，Box 会把 Row/Text 全部叠在同一位置，文字互相重叠
     Column {
-    val soft = LocalSoftExtra.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = entry.name,
-            style = SoftType.CardTitle,
+            style = V4Type.RowTitle,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1935,7 +1931,7 @@ private fun SubscriptionInfoLines(
     }
     Text(
         text = siteText,
-        style = SoftType.Caption,
+        style = V4Type.Meta,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -1954,7 +1950,7 @@ private fun SubscriptionInfoLines(
         Spacer(Modifier.height(4.dp))
         Text(
             text = subNoteLine,
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1963,26 +1959,26 @@ private fun SubscriptionInfoLines(
     Spacer(Modifier.height(4.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
         val (latencyText, latencyColor) = when (probe) {
-            is SourceProbe.Result.Ok -> "${probe.ms}ms" to soft.success
-            is SourceProbe.Result.Slow -> "${probe.ms}ms" to soft.warning
-            is SourceProbe.Result.Fail -> "无法连接" to soft.errorSoft
+            is SourceProbe.Result.Ok -> "${probe.ms}ms" to V4.c.ok
+            is SourceProbe.Result.Slow -> "${probe.ms}ms" to V4.c.vip
+            is SourceProbe.Result.Fail -> "无法连接" to V4.c.live
             else -> "待检测" to MaterialTheme.colorScheme.onSurfaceVariant
         }
         Text(
             text = latencyText,
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             fontWeight = FontWeight.Bold,
             color = latencyColor,
             maxLines = 1,
         )
         Text(
             text = " · ",
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             text = "检测 ${SourceProbeStore.agoText(probeTime)}",
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1993,7 +1989,7 @@ private fun SubscriptionInfoLines(
         Text(
             text = if (!refreshStatus.ok) "已失效（刷新失败）"
             else "上次刷新：${timeAgo(refreshStatus.checkedAt)}",
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             color = if (!refreshStatus.ok) MaterialTheme.colorScheme.error
             else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -2014,10 +2010,10 @@ private fun RainbowRingCard(
             .fillMaxWidth()
             .background(
                 Brush.linearGradient(LocalBrandGradient.current),
-                RoundedCornerShape(SoftDimens.CardCorner),
+                RoundedCornerShape(V4.RField),
             )
             .padding(1.5.dp)
-            .clip(RoundedCornerShape(SoftDimens.CardCorner)),
+            .clip(RoundedCornerShape(V4.RField)),
     ) {
         AppCard(modifier = Modifier.fillMaxWidth(), onClick = onClick, content = content)
     }
@@ -2159,7 +2155,7 @@ private fun SubscriptionExpandedCard(
                 SelectionContainer(modifier = Modifier.weight(1f)) {
                     Text(
                         text = subUrl,
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -2224,7 +2220,7 @@ private fun SubscriptionCacheBody(
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = "正在解析订阅…",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -2239,7 +2235,7 @@ private fun SubscriptionCacheBody(
         cache.warehouses.isNotEmpty() && depth == 0 -> {
             Text(
                 text = "子仓（${cache.warehouses.size}）· 展开子仓查看站点",
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
@@ -2253,13 +2249,13 @@ private fun SubscriptionCacheBody(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = wh.name,
-                                style = SoftType.Body,
+                                style = V4Type.Body,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 text = wh.url,
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -2309,7 +2305,7 @@ private fun SubscriptionCacheBody(
             if (cache.warehouses.isNotEmpty()) {
                 Text(
                     text = "该子仓仍为多仓（${cache.warehouses.size} 个子仓），请将其链接单独添加为订阅",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 4.dp),
                 )
@@ -2378,7 +2374,7 @@ private fun SubscriptionSiteRows(
     ) {
         Text(
             text = "站点（${visibleSites.size}）· 点站点设为当前源并回主页",
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
@@ -2408,7 +2404,7 @@ private fun SubscriptionSiteRows(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = rec.name,
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -2425,7 +2421,7 @@ private fun SubscriptionSiteRows(
                 if (subLine.isNotEmpty()) {
                     Text(
                         text = subLine,
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -2491,7 +2487,7 @@ private fun SubscriptionSiteRows(
             Column {
                 Text(
                     text = "备注",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(4.dp))
@@ -2504,7 +2500,7 @@ private fun SubscriptionSiteRows(
                 Spacer(Modifier.height(12.dp))
                 Text(
                     text = "分组",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(4.dp))

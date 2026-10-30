@@ -49,10 +49,9 @@ import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.source.ParseApi
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppTextField
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import com.movieshell.ui.theme.V4Type
 
 /**
  * 解析接口子页面（v0.78.2）。
@@ -131,7 +130,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner)
-                .padding(SoftDimens.PagePadding),
+                .padding(V4.Gutter),
         ) {
             item {
                 SettingsGroup(title = "管理") {
@@ -150,13 +149,13 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                         )
                     }
                 }
-                Spacer(Modifier.height(SoftDimens.CardSpacing))
+                Spacer(Modifier.height(8.dp))
             }
             if (customParses.isEmpty()) {
                 item {
                     Text(
                         text = "暂无自定义解析，播放时只用订阅自带的解析线路",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
@@ -165,7 +164,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                 item {
                     Text(
                         text = "共 ${customParses.size} 条（点单条测活）",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
@@ -267,34 +266,34 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                         RadioButton(selected = parseType == 1, onClick = { parseType = 1 })
                         Text(
                             "JSON 接口",
-                            style = SoftType.Body,
+                            style = V4Type.Body,
                             modifier = Modifier.clickable { parseType = 1 },
                         )
                         Spacer(modifier = Modifier.width(16.dp))
                         RadioButton(selected = parseType == 0, onClick = { parseType = 0 })
                         Text(
                             "网页嗅探",
-                            style = SoftType.Body,
+                            style = V4Type.Body,
                             modifier = Modifier.clickable { parseType = 0 },
                         )
                         Spacer(modifier = Modifier.width(16.dp))
                         RadioButton(selected = parseType == 99, onClick = { parseType = 99 })
                         Text(
                             "yt-dlp 通用",
-                            style = SoftType.Body,
+                            style = V4Type.Body,
                             modifier = Modifier.clickable { parseType = 99 },
                         )
                     }
                     Text(
                         text = "JSON：GET 地址+视频地址，取返回 JSON 的 url 字段；嗅探：用 WebView 打开抓直链；yt-dlp 通用：无规则视频页的通用解析，需先在插件市场安装 yt-dlp 通用解析包，地址栏留空即可（自动填 ytdlp://generic，仅作线路标识）",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     addError?.let { err ->
                         Spacer(Modifier.height(8.dp))
                         Text(
                             text = err,
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.error,
                         )
                     }

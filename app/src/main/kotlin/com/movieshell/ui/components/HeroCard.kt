@@ -28,8 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
+import com.movieshell.ui.theme.V4
 
 /**
  * v0.234.0 新 UI：Hero 大卡（DaoBox hero_card 词汇的 Compose 版）。
@@ -47,14 +46,14 @@ fun HeroCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
-    val shape = RoundedCornerShape(SoftDimens.CardCorner)
+    val shape = RoundedCornerShape(V4.RField)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
             .clip(shape)
-            .background(LocalSoftExtra.current.glass)
-            .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, shape)
+            .background(V4.c.s1)
+            .border(1.dp, V4.c.div, shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         var imageFailed by remember(coverUrl) { mutableStateOf(false) }
@@ -97,7 +96,7 @@ fun HeroCard(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(10.dp)
-                    .clip(RoundedCornerShape(SoftDimens.ChipCorner))
+                    .clip(RoundedCornerShape(V4.RPoster))
                     .background(Color(0x88000000))
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             ) {

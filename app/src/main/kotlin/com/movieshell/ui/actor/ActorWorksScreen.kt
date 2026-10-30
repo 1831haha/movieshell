@@ -42,11 +42,11 @@ import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.search.buildSearchConfigJson
 import com.movieshell.ui.search.goDetail
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 /**
  * v0.88.0：演员作品页。详情页点演员名进入，聚合搜索该演员的作品海报墙。
@@ -130,12 +130,12 @@ fun ActorWorksScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(SoftDimens.PagePadding),
-                    verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                        .padding(V4.Gutter),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         text = "正在搜索「$actorName」的作品…",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     repeat(4) {
@@ -177,19 +177,19 @@ fun ActorWorksScreen(
             else -> {
                 Text(
                     text = "共 ${works.size} 部作品 · $sourceCount 个源",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(
-                        horizontal = SoftDimens.PagePadding,
+                        horizontal = V4.Gutter,
                         vertical = 4.dp,
                     ),
                 )
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(SoftDimens.PagePadding),
-                    verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
-                    horizontalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                    contentPadding = PaddingValues(V4.Gutter),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(works, key = { (site, vod) -> "${site.key}:${vod.vodId}" }) { (site, vod) ->
                         val subtitle = vod.vodYear.ifBlank { vod.typeName }.takeIf { it.isNotBlank() }

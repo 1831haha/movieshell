@@ -48,10 +48,10 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.movieshell.ui.theme.V4Type
 
 /**
  * v0.127.0：插件中心——把原「插件市场」「服务插件」两个入口合并为一个
@@ -141,7 +141,7 @@ private fun InstalledPluginsBody(onDetail: (String, String) -> Unit) {
             item {
                 Text(
                     "暂无已安装插件。去「市场」页签逛逛，或在「服务」页签装本地服务。",
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -168,14 +168,14 @@ private fun InstalledPluginsBody(onDetail: (String, String) -> Unit) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 p.name,
-                                style = SoftType.CardTitle,
+                                style = V4Type.RowTitle,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 desc,
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
@@ -273,7 +273,7 @@ private fun TagChip(text: String) {
     ) {
         Text(
             text,
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

@@ -24,8 +24,6 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.movieshell.ui.theme.LocalBrandGradient
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftType
 
 /**
  * v0.91.0：胶囊分段 tab（原 v0.90.0 SourcesScreen 私有实现，抽成公共组件）。

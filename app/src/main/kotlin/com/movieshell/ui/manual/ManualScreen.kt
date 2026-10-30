@@ -30,8 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 /** 手册章节：标题 + 3~5 条口语化要点。内容是代码常量，不读 assets。 */
 private data class ManualSection(
@@ -310,10 +310,10 @@ fun ManualScreen(onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(inner),
             contentPadding = PaddingValues(
-                horizontal = SoftDimens.PagePadding,
-                vertical = SoftDimens.CardSpacing,
+                horizontal = V4.Gutter,
+                vertical = 8.dp,
             ),
-            verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             itemsIndexed(MANUAL_SECTIONS) { index, section ->
                 ManualSectionCard(index = index + 1, section = section)
@@ -326,17 +326,17 @@ fun ManualScreen(onBack: () -> Unit) {
 @Composable
 private fun ManualSectionCard(index: Int, section: ManualSection) {
     AppCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(SoftDimens.PagePadding)) {
+        Column(modifier = Modifier.padding(V4.Gutter)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "$index",
-                    style = SoftType.Title,
+                    style = V4Type.ScreenTitle,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = section.title,
-                    style = SoftType.Title,
+                    style = V4Type.ScreenTitle,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
@@ -348,13 +348,13 @@ private fun ManualSectionCard(index: Int, section: ManualSection) {
                 ) {
                     Text(
                         text = "•",
-                        style = SoftType.Body,
+                        style = V4Type.Body,
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = point,
-                        style = SoftType.Body,
+                        style = V4Type.Body,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )

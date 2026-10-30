@@ -51,9 +51,9 @@ import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import java.io.File
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 /** FileProvider authority：跟随 applicationId（debug/release 包名不同） */
 fun fileProviderAuthority(context: Context) = "${context.packageName}.fileprovider"
@@ -307,15 +307,15 @@ fun FilePreviewScreen(
             if (truncated) {
                 AppCard(
                     modifier = Modifier.padding(
-                        horizontal = SoftDimens.PagePadding,
+                        horizontal = V4.Gutter,
                         vertical = 8.dp,
                     ),
                 ) {
                     Text(
                         text = "文件超过 200KB，仅显示前 200KB（只读预览不影响原文件）",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(SoftDimens.CardSpacing),
+                        modifier = Modifier.padding(8.dp),
                     )
                 }
             }
@@ -323,7 +323,7 @@ fun FilePreviewScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = SoftDimens.PagePadding),
+                    .padding(horizontal = V4.Gutter),
             ) {
                 // v0.273.0（T30 余项）：高亮结果 remember 缓存——原来每次重组都
                 // 对整段文本跑一遍正则高亮；文本已在 v0.246.0 限流到 200KB，
@@ -340,7 +340,7 @@ fun FilePreviewScreen(
                     lineHeight = 19.sp,
                     modifier = Modifier
                         .verticalScroll(rememberScrollState())
-                        .padding(SoftDimens.CardSpacing),
+                        .padding(8.dp),
                 )
             }
             Spacer(Modifier.height(8.dp))

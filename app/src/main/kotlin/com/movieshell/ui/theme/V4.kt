@@ -208,3 +208,9 @@ fun V4Colors.artBrush(seed: String): Brush {
         end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY),
     )
 }
+
+/** 动画时序（原 SoftTech.SoftMotion，286 随 SoftTech 删除迁入 V4，数值不变）。 */
+object SoftMotion {
+    const val Fast = 220
+    val Ease = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0f, 0f, 1f)
+}

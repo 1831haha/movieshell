@@ -27,9 +27,6 @@ import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppChip
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.TechDialog
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -158,6 +155,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
@@ -1194,7 +1193,7 @@ fun PlayerScreen(
             Text(
                 text = "暂无可播放地址",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = SoftType.Body,
+                style = V4Type.Body,
                 modifier = Modifier.align(Alignment.Center),
             )
         } else {
@@ -1382,11 +1381,11 @@ fun PlayerScreen(
                     .align(Alignment.Center)
                     .background(
                         Color.Black.copy(alpha = 0.7f),
-                        RoundedCornerShape(SoftDimens.PosterCorner),
+                        RoundedCornerShape(V4.RPoster),
                     )
                     .padding(horizontal = 20.dp, vertical = 12.dp),
             ) {
-                Text(hint, color = Color.White, style = SoftType.Caption)
+                Text(hint, color = Color.White, style = V4Type.Meta)
             }
         }
 
@@ -1473,7 +1472,7 @@ fun PlayerScreen(
                 Text(
                     text = title,
                     color = Color.White,
-                    style = SoftType.CardTitle,
+                    style = V4Type.RowTitle,
                     maxLines = 1,
                     softWrap = false,
                     // v0.255.0：标题超长跑马灯（basicMarquee 只在溢出时滚，短标题不动；
@@ -1486,7 +1485,7 @@ fun PlayerScreen(
                     Text(
                         text = "自动",
                         color = Color.White.copy(alpha = 0.7f),
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         maxLines = 1,
                     )
                     Spacer(Modifier.width(4.dp))
@@ -1496,7 +1495,7 @@ fun PlayerScreen(
                     Text(
                         text = streamInfo,
                         color = Color.White.copy(alpha = 0.7f),
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         maxLines = 1,
                     )
                     Spacer(Modifier.width(4.dp))
@@ -1504,16 +1503,16 @@ fun PlayerScreen(
                 // v0.24.0：直播角标（v0.27.0：柔和错误色胶囊）
                 if (isLive) {
                     Surface(
-                        shape = RoundedCornerShape(SoftDimens.ChipCorner),
-                        color = LocalSoftExtra.current.errorSoft,
+                        shape = RoundedCornerShape(V4.RPoster),
+                        color = V4.c.live,
                     ) {
                         Text(
                             text = "直播",
                             // v0.109.0 A9：errorSoft 亮色主题下是深红 #DC2626，黑字在其上约 2.9:1；
                             // 按底色明度自适应（暗底黑字、深红底白字）
-                            color = if (LocalSoftExtra.current.errorSoft.luminance() > 0.18f)
+                            color = if (V4.c.live.luminance() > 0.18f)
                                 Color.Black else Color.White,
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }
@@ -1524,7 +1523,7 @@ fun PlayerScreen(
                     Text(
                         text = clockText,
                         color = Color.White,
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                     )
                     Spacer(Modifier.width(4.dp))
                 }
@@ -1626,7 +1625,7 @@ fun PlayerScreen(
                     Text(
                         text = streamInfo,
                         color = Color.White.copy(alpha = 0.85f),
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                     )
                 }
             }
@@ -1694,9 +1693,9 @@ fun PlayerScreen(
             snackbar = { data ->
                 Snackbar(
                     snackbarData = data,
-                    shape = RoundedCornerShape(SoftDimens.ButtonCorner),
+                    shape = RoundedCornerShape(V4.RField),
                     containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = LocalSoftExtra.current.errorSoft,
+                    contentColor = V4.c.live,
                     actionColor = MaterialTheme.colorScheme.primary,
                 )
             },
@@ -1740,7 +1739,7 @@ fun PlayerScreen(
                     Text(
                         text = fmtTime(if (scrubbing) scrubPos else pos),
                         color = Color.White,
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                     )
                     // v0.125.0：进度条抽成 PlayerSeekBar 组件（内部关掉 48dp 最小
                     // 交互高度、行高压到 28dp），进度线贴到按钮行正上方、落在视频
@@ -1761,7 +1760,7 @@ fun PlayerScreen(
                     Text(
                         text = fmtTime(dur),
                         color = Color.White,
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                     )
                 }
                 }
@@ -1826,26 +1825,26 @@ fun PlayerScreen(
                                 // v0.74.0：倍速记忆
                                 PlayerSettings.setSpeed(context, SPEEDS[speedIndex])
                             },
-                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                            modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
                             // 目标界面样式：1.0X（大写 X）
                             Text(
                                 "${SPEEDS[speedIndex]}X",
                                 color = Color.White,
-                                style = SoftType.Body,
+                                style = V4Type.Body,
                             )
                         }
                     }
                     if (!isLive) {
                         TextButton(
                             onClick = { showLines = true },
-                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                            modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
                             // v0.228.0：选集图标去掉只留文字——图标+文字占 72dp，
                             // “选集”两字自明，省 20dp 给尾巴的按钮。
-                            Text("选集", color = Color.White, style = SoftType.Body)
+                            Text("选集", color = Color.White, style = V4Type.Body)
                         }
                     }
                     // v0.259.0：横屏完整条、竖屏精简条。竖屏只留暂停/上一集/
@@ -1862,12 +1861,12 @@ fun PlayerScreen(
                                     else PlayerEngine.MEDIA3
                                 )
                             },
-                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                            modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
                             Text(
                                 if (engine == PlayerEngine.MEDIA3) "Media3" else "libmpv",
-                                color = Color.White, style = SoftType.Body,
+                                color = Color.White, style = V4Type.Body,
                             )
                         }
                         TextButton(
@@ -1875,10 +1874,10 @@ fun PlayerScreen(
                                 resizeIndex = (resizeIndex + 1) % RESIZE_MODES.size
                                 PlayerSettings.setResizeMode(context, resizeIndex)
                             },
-                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                            modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
-                            Text(RESIZE_MODES[resizeIndex].second, color = Color.White, style = SoftType.Body)
+                            Text(RESIZE_MODES[resizeIndex].second, color = Color.White, style = V4Type.Body)
                         }
                         RoundControlButton(
                             icon = Icons.Filled.Refresh,
@@ -1888,32 +1887,32 @@ fun PlayerScreen(
                         )
                         TextButton(
                             onClick = { playModeIndex = (playModeIndex + 1) % PLAY_MODES.size },
-                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                            modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
-                            Text(PLAY_MODES[playModeIndex], color = Color.White, style = SoftType.Body)
+                            Text(PLAY_MODES[playModeIndex], color = Color.White, style = V4Type.Body)
                         }
                         TextButton(
                             onClick = { showSubtitleDialog = true },
-                            modifier = Modifier.height(SoftDimens.TouchTarget),
+                            modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
-                            Text("字幕", color = Color.White, style = SoftType.Body)
+                            Text("字幕", color = Color.White, style = V4Type.Body)
                         }
                         if (vodId != null) {
                             TextButton(
                                 onClick = { showSkipSettings = true },
-                                modifier = Modifier.height(SoftDimens.TouchTarget),
+                                modifier = Modifier.height(48.dp),
                                 contentPadding = PaddingValues(horizontal = 6.dp),
                             ) {
-                                Text("片头", color = Color.White, style = SoftType.Body)
+                                Text("片头", color = Color.White, style = V4Type.Body)
                             }
                             TextButton(
                                 onClick = { showSkipSettings = true },
-                                modifier = Modifier.height(SoftDimens.TouchTarget),
+                                modifier = Modifier.height(48.dp),
                                 contentPadding = PaddingValues(horizontal = 6.dp),
                             ) {
-                                Text("片尾", color = Color.White, style = SoftType.Body)
+                                Text("片尾", color = Color.White, style = V4Type.Body)
                             }
                         }
                     }
@@ -1988,23 +1987,23 @@ fun PlayerScreen(
                         .fillMaxWidth()
                         .fillMaxHeight(0.75f)
                         .border(
-                            SoftDimens.BorderWidth,
-                            LocalSoftExtra.current.border,
+                            1.dp,
+                            V4.c.div,
                             RoundedCornerShape(
-                                topStart = SoftDimens.CardCorner,
-                                topEnd = SoftDimens.CardCorner,
+                                topStart = V4.RField,
+                                topEnd = V4.RField,
                             ),
                         ),
                     shape = RoundedCornerShape(
-                        topStart = SoftDimens.CardCorner,
-                        topEnd = SoftDimens.CardCorner,
+                        topStart = V4.RField,
+                        topEnd = V4.RField,
                     ),
                     color = MaterialTheme.colorScheme.surface,
                 ) {
                     Column(
                         Modifier
                             .fillMaxSize()
-                            .padding(SoftDimens.PagePadding)
+                            .padding(V4.Gutter)
                             .verticalScroll(rememberScrollState())
                     ) {
                         Box(
@@ -2022,7 +2021,7 @@ fun PlayerScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "设置",
-                                style = SoftType.CardTitle,
+                                style = V4Type.RowTitle,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f),
                             )
@@ -2039,7 +2038,7 @@ fun PlayerScreen(
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("倍速", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Text("倍速", style = V4Type.Body, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2059,7 +2058,7 @@ fun PlayerScreen(
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("缩放", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Text("缩放", style = V4Type.Body, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2078,7 +2077,7 @@ fun PlayerScreen(
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("播放", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Text("播放", style = V4Type.Body, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2102,7 +2101,7 @@ fun PlayerScreen(
                                 Text(
                                     text = "片头 ${PlayerSettings.getSkipIntroFor(context, playSourceKey, vodId, PlaySession.episodeIndex)} 秒 / " +
                                         "片尾 ${PlayerSettings.getSkipOutroFor(context, playSourceKey, vodId, PlaySession.episodeIndex)} 秒",
-                                    style = SoftType.Caption,
+                                    style = V4Type.Meta,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.weight(1f),
                                 )
@@ -2114,7 +2113,7 @@ fun PlayerScreen(
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("轨道", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Text("轨道", style = V4Type.Body, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2134,11 +2133,11 @@ fun PlayerScreen(
                         }
                         Text(
                             text = "当前片源暂无可切换的音轨 / 视轨",
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(12.dp))
-                        Text("屏显", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Text("屏显", style = V4Type.Body, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         AppButton(
                             text = "进入画中画",
@@ -2146,7 +2145,7 @@ fun PlayerScreen(
                             variant = AppButtonVariant.Ghost,
                         )
                         Spacer(Modifier.height(12.dp))
-                        Text("其它", style = SoftType.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Text("其它", style = V4Type.Body, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2368,7 +2367,7 @@ fun PlayerScreen(
         if (showServiceMissingDialog) {
             PlayerDialogCard(
                 title = "磁力转播服务未启动",
-                titleColor = LocalSoftExtra.current.errorSoft,
+                titleColor = V4.c.live,
                 onDismiss = { showServiceMissingDialog = false },
                 buttons = {
                     AppButton(
@@ -2380,7 +2379,7 @@ fun PlayerScreen(
             ) {
                 Text(
                     "重试 3 次仍未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream，启动后再点一次播放",
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
@@ -2589,25 +2588,25 @@ private fun LineSheet(
                 .fillMaxWidth()
                 .fillMaxHeight(0.6f)
                 .border(
-                    SoftDimens.BorderWidth,
-                    LocalSoftExtra.current.border,
+                    1.dp,
+                    V4.c.div,
                     RoundedCornerShape(
-                        topStart = SoftDimens.CardCorner,
-                        topEnd = SoftDimens.CardCorner,
+                        topStart = V4.RField,
+                        topEnd = V4.RField,
                     ),
                 ),
             shape = RoundedCornerShape(
-                topStart = SoftDimens.CardCorner,
-                topEnd = SoftDimens.CardCorner,
+                topStart = V4.RField,
+                topEnd = V4.RField,
             ),
             // v0.39.0：深色毛玻璃风格（mockup 风格）
             color = Color(0xF21E242F),
         ) {
-            Column(Modifier.fillMaxSize().padding(SoftDimens.PagePadding)) {
+            Column(Modifier.fillMaxSize().padding(V4.Gutter)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "线路 / 选集",
-                        style = SoftType.CardTitle,
+                        style = V4Type.RowTitle,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
@@ -2638,7 +2637,7 @@ private fun LineSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onPick(tab, i) },
-                            shape = RoundedCornerShape(SoftDimens.PosterCorner),
+                            shape = RoundedCornerShape(V4.RPoster),
                             color = if (selected) {
                                 cyan.copy(alpha = 0.22f)
                             } else {
@@ -2648,7 +2647,7 @@ private fun LineSheet(
                             Text(
                                 text = ep.name.ifBlank { "第${i + 1}集" },
                                 maxLines = 1,
-                                style = SoftType.Body,
+                                style = V4Type.Body,
                                 color = if (selected) {
                                     cyan
                                 } else {
@@ -2681,7 +2680,7 @@ internal fun PlayerDialogCard(
     scrollable: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val cardShape = RoundedCornerShape(SoftDimens.CardCorner)
+    val cardShape = RoundedCornerShape(V4.RField)
     // AlertDialog 时代按返回先关面板：内联卡片后补回同样的返回拦截
     BackHandler(onBack = onDismiss)
     // v0.155.0：横屏全屏时屏高只有约 360dp，旧卡片（标题+400dp 内容+按钮）要 520dp+，
@@ -2703,17 +2702,17 @@ internal fun PlayerDialogCard(
                 .align(Alignment.Center)
                 .fillMaxWidth(0.88f)
                 .widthIn(max = 480.dp)
-                .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, cardShape),
+                .border(1.dp, V4.c.div, cardShape),
             shape = cardShape,
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp,
         ) {
-            Column(Modifier.padding(SoftDimens.PagePadding)) {
+            Column(Modifier.padding(V4.Gutter)) {
                 // v0.155.0：标题行右上角常驻关闭键，不用再去底下找取消、也不用硬点遮罩
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         title,
-                        style = SoftType.CardTitle,
+                        style = V4Type.RowTitle,
                         color = titleColor,
                         modifier = Modifier.weight(1f),
                     )
@@ -2823,13 +2822,13 @@ private fun InfoFieldRow(label: String, value: String, onCopy: () -> Unit) {
     ) {
         Text(
             text = label,
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.width(56.dp),
         )
         Text(
             text = value,
-            style = SoftType.Body,
+            style = V4Type.Body,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
@@ -2903,7 +2902,7 @@ private fun SubtitleDialog(
         fun Label(text: String) {
             Text(
                 text = text,
-                style = SoftType.Body,
+                style = V4Type.Body,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.width(64.dp),
                 maxLines = 1,
@@ -2921,7 +2920,7 @@ private fun SubtitleDialog(
                 )
                 Text(
                     text = "${size}sp",
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.width(48.dp),
                 )
@@ -2943,7 +2942,7 @@ private fun SubtitleDialog(
                                     color = if (c == color) {
                                         MaterialTheme.colorScheme.primary
                                     } else {
-                                        LocalSoftExtra.current.border
+                                        V4.c.div
                                     },
                                     shape = CircleShape,
                                 )
@@ -3011,7 +3010,7 @@ private fun SubtitleDialog(
                 )
                 Text(
                     text = offsetLabel,
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.width(44.dp),
                     maxLines = 1,
@@ -3020,7 +3019,7 @@ private fun SubtitleDialog(
         }
         Text(
             text = "支持 .srt / .vtt / .ass 地址，保存后立即生效",
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(6.dp))
@@ -3099,7 +3098,7 @@ private fun SleepTimerDialog(
         // 明说，不改语义。
         Text(
             "定时和播完本集只能二选一，选新的会取消旧的",
-            style = SoftType.Body,
+            style = V4Type.Body,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         listOf(15, 30, 60, 90).forEach { m ->
@@ -3109,7 +3108,7 @@ private fun SleepTimerDialog(
             ) {
                 Text(
                     "$m 分钟后停止",
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
@@ -3120,7 +3119,7 @@ private fun SleepTimerDialog(
         ) {
             Text(
                 "播完本集停止",
-                style = SoftType.Body,
+                style = V4Type.Body,
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
@@ -3130,8 +3129,8 @@ private fun SleepTimerDialog(
         ) {
             Text(
                 "关闭定时",
-                style = SoftType.Body,
-                color = LocalSoftExtra.current.errorSoft,
+                style = V4Type.Body,
+                color = V4.c.live,
             )
         }
     }
@@ -3185,7 +3184,7 @@ private fun SkipSettingsDialog(
     ) {
         Text(
             text = "每部剧单独设置，互不影响",
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(12.dp))

@@ -75,8 +75,6 @@ import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.TechDialog
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -85,6 +83,8 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 /**
  * 插件市场页（v0.23.0）。
@@ -280,7 +280,7 @@ fun PluginMarketScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner)
-                .padding(horizontal = SoftDimens.PagePadding),
+                .padding(horizontal = V4.Gutter),
         ) {
             // v0.134.0：头部信息条（embedded 与否都渲染）——汇总数 + 刷新 + 管理 + 搜索开关
             Row(
@@ -291,7 +291,7 @@ fun PluginMarketScreen(
                     if (updatableCount > 0) " · $updatableCount 个可更新" else ""
                 Text(
                     text = countsText,
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = { reload() }) {
@@ -377,12 +377,12 @@ fun PluginMarketScreen(
                     )
                 }
                 loading -> {
-                    Column(verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         // v0.96.1：加载态给明确文案，骨架屏不再"无声干转"
                         Text(
                             text = if (loadingSlow) "网络较慢，正在尝试镜像线路，请稍候…"
                             else "正在加载插件市场…",
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         repeat(3) {
@@ -390,7 +390,7 @@ fun PluginMarketScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(148.dp),
-                                shape = RoundedCornerShape(SoftDimens.CardCorner),
+                                shape = RoundedCornerShape(V4.RField),
                             )
                         }
                     }
@@ -439,7 +439,7 @@ fun PluginMarketScreen(
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             items(shown, key = { it.id }) { p ->
                                 PluginCard(
@@ -522,11 +522,11 @@ private fun PluginCard(
                     Spacer(Modifier.size(10.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = plugin.name, style = SoftType.CardTitle)
+                    Text(text = plugin.name, style = V4Type.RowTitle)
                     if (plugin.author.isNotBlank()) {
                         Text(
                             text = plugin.author,
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -554,7 +554,7 @@ private fun PluginCard(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = plugin.desc,
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                 )
@@ -602,8 +602,8 @@ private fun ManageMarketsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(
-            topStart = SoftDimens.CardCorner,
-            topEnd = SoftDimens.CardCorner,
+            topStart = V4.RField,
+            topEnd = V4.RField,
         ),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
@@ -615,7 +615,7 @@ private fun ManageMarketsSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "管理市场", style = SoftType.CardTitle)
+                Text(text = "管理市场", style = V4Type.RowTitle)
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { editTarget = MarketEditTarget.Add }) {
                     Icon(Icons.Filled.Add, contentDescription = "添加市场")
@@ -626,10 +626,10 @@ private fun ManageMarketsSheet(
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(text = src.name, style = SoftType.Body)
+                                Text(text = src.name, style = V4Type.Body)
                                 Text(
                                     text = src.url,
-                                    style = SoftType.Caption,
+                                    style = V4Type.Meta,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -703,7 +703,7 @@ private fun ManageMarketsSheet(
                         }
                         Text(
                             text = subText,
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -711,11 +711,11 @@ private fun ManageMarketsSheet(
             }
             Text(
                 text = "停用的市场不参与拉取与归并；删除仅移除列表项与缓存。",
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             // GitHub 加速代理：单一入口、全 App 生效（数据层按域作用于拉取与下载）
-            Text(text = "GitHub 加速代理（作用于 GitHub 域直链）", style = SoftType.CardTitle)
+            Text(text = "GitHub 加速代理（作用于 GitHub 域直链）", style = V4Type.RowTitle)
             val githubProxy by PluginStore.githubProxy.collectAsState()
             AppTextField(
                 value = githubProxy,
@@ -725,7 +725,7 @@ private fun ManageMarketsSheet(
             )
             Text(
                 text = "仅作用于 raw.githubusercontent.com 与 github.com 域的市场拉取与插件下载，存在一处、全 App 生效。",
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -796,7 +796,7 @@ private fun ManageMarketsSheet(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = "可添加 DsPlayer 官方市场（实验性）：${PluginStore.DSPLAYER_MARKET_URL}",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

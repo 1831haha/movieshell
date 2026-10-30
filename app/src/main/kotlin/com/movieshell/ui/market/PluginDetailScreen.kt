@@ -48,13 +48,13 @@ import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 /**
  * 插件详情页（v0.23.0）：图标/作者/版本/大小/标签/平台/完整描述/更新说明/安装按钮。
- * v0.27.0 Soft Tech 换皮：字阶统一 SoftType，空态走 EmptyState。逻辑与文案零变更。
+ * v0.27.0 V4 换皮：字阶统一 V4Type，空态走 EmptyState。逻辑与文案零变更。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -103,7 +103,7 @@ fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit
                 .fillMaxSize()
                 .padding(inner)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = SoftDimens.PagePadding, vertical = SoftDimens.CardSpacing),
+                .padding(horizontal = V4.Gutter, vertical = 8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (plugin.iconUrl.isNotBlank()) {
@@ -112,30 +112,30 @@ fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit
                         contentDescription = plugin.name,
                         modifier = Modifier
                             .size(72.dp)
-                            .clip(RoundedCornerShape(SoftDimens.ButtonCorner))
+                            .clip(RoundedCornerShape(V4.RField))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentScale = ContentScale.Crop,
                     )
                 }
                 Spacer(Modifier.size(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = plugin.name, style = SoftType.Title)
+                    Text(text = plugin.name, style = V4Type.ScreenTitle)
                     if (plugin.author.isNotBlank()) {
                         Text(
                             text = "作者：${plugin.author}",
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Text(
                         text = "v${plugin.version}",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (plugin.sourceMarket.isNotBlank()) {
                         Text(
                             text = "来自：${plugin.sourceMarket}",
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -164,15 +164,15 @@ fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit
             }
             if (plugin.desc.isNotBlank()) {
                 Spacer(Modifier.height(12.dp))
-                Text(text = plugin.desc, style = SoftType.Body)
+                Text(text = plugin.desc, style = V4Type.Body)
             }
             if (plugin.changelog.isNotBlank()) {
                 Spacer(Modifier.height(12.dp))
-                Text(text = "更新说明", style = SoftType.CardTitle)
+                Text(text = "更新说明", style = V4Type.RowTitle)
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = plugin.changelog,
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -269,7 +269,7 @@ fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit
             if (typeNote.isNotBlank()) {
                 Text(
                     text = typeNote,
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

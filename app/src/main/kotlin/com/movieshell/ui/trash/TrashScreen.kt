@@ -40,11 +40,11 @@ import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 private val timeFmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
 
@@ -161,7 +161,7 @@ private fun TrashContent(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = SoftDimens.PagePadding),
+            .padding(horizontal = V4.Gutter),
     ) {
         // embedded 模式没有顶栏，清空按钮放这里
         if (embedded) {
@@ -179,7 +179,7 @@ private fun TrashContent(
         item {
             Text(
                 "删除的源和规则文件会先放这里，可恢复；彻底删除后无法找回",
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 8.dp),
             )
@@ -191,13 +191,13 @@ private fun TrashContent(
                     .padding(vertical = 4.dp),
             ) {
                 Row(
-                    modifier = Modifier.padding(SoftDimens.CardSpacing),
+                    modifier = Modifier.padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = item.name,
-                            style = SoftType.CardTitle,
+                            style = V4Type.RowTitle,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -205,7 +205,7 @@ private fun TrashContent(
                         Spacer(Modifier.height(2.dp))
                         Text(
                             text = "${kindLabel(item.kind)} · 删除于 ${timeFmt.format(Date(item.deletedAt))}",
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,

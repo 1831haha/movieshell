@@ -51,10 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
 import com.movieshell.ui.theme.SoftMotion
-import com.movieshell.ui.theme.SoftType
 import com.movieshell.ui.theme.V4
 import com.movieshell.ui.theme.V4Type
 import androidx.compose.animation.AnimatedVisibility
@@ -96,12 +93,12 @@ fun AppCard(
     // v0.196.0：长按回调（书源卡片长按编辑）；给了才用 combinedClickable，否则沿用 clickable
     onLongClick: (() -> Unit)? = null,
     // v0.78.2：允许自定义形状（如详情页信息卡只要顶部圆角，与播放器衔接）
-    shape: RoundedCornerShape = RoundedCornerShape(SoftDimens.CardCorner),
+    shape: RoundedCornerShape = RoundedCornerShape(V4.RField),
     content: @Composable () -> Unit,
 ) {
     Surface(
         modifier = modifier
-            .border(SoftDimens.BorderWidth, V4.c.div, shape)
+            .border(1.dp, V4.c.div, shape)
             .then(
                 when {
                     onLongClick != null -> Modifier.combinedClickable(
@@ -263,7 +260,7 @@ fun EmptyState(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 48.dp, horizontal = SoftDimens.PagePadding),
+            .padding(vertical = 48.dp, horizontal = V4.Gutter),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
@@ -302,7 +299,7 @@ fun EmptyState(
 @Composable
 fun LoadingSkeleton(
     modifier: Modifier = Modifier,
-    shape: RoundedCornerShape = RoundedCornerShape(SoftDimens.PosterCorner),
+    shape: RoundedCornerShape = RoundedCornerShape(V4.RPoster),
 ) {
     val t = rememberInfiniteTransition(label = "skeleton")
     val alpha by t.animateFloat(

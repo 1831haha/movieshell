@@ -88,8 +88,6 @@ import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.components.accentTitleColor
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
 import kotlinx.coroutines.launch
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity

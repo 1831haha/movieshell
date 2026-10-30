@@ -37,9 +37,9 @@ import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.PosterCard
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.launch
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 /**
  * 我的追剧（v0.26.0）：海报墙，按最近更新排序。
@@ -81,7 +81,7 @@ fun FollowScreen(
             },
             dismissText = "取消",
         ) {
-            Text("不再追《${confirmUnfollow!!.name}》？", style = SoftType.Body)
+            Text("不再追《${confirmUnfollow!!.name}》？", style = V4Type.Body)
         }
     }
 
@@ -109,9 +109,9 @@ fun FollowScreen(
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
                 modifier = Modifier.fillMaxSize().padding(inner),
-                contentPadding = PaddingValues(SoftDimens.PagePadding),
+                contentPadding = PaddingValues(V4.Gutter),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(SoftDimens.CardSpacing),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(items, key = { it.id }) { item ->
                     FollowCard(

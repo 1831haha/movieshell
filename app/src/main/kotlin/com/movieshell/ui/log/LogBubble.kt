@@ -58,15 +58,14 @@ import com.movieshell.data.repo.StoragePaths
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppChip
-import com.movieshell.ui.theme.LocalSoftExtra
-import com.movieshell.ui.theme.SoftDimens
-import com.movieshell.ui.theme.SoftType
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
+import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V4Type
 
 private const val PREFS = "movieshell_prefs"
 private const val KEY_BUBBLE_X = "log_bubble_x"
@@ -173,7 +172,7 @@ fun LogBubbleOverlay() {
                     }
                 }
                 .clip(CircleShape)
-                .border(SoftDimens.BorderWidth, LocalSoftExtra.current.border, CircleShape)
+                .border(1.dp, V4.c.div, CircleShape)
                 .clickable { showSheet = true },
         ) {
             // 虚化底层：半透明 + 模糊（v0.27.0：primaryContainer 配色 + 描边）
@@ -226,7 +225,7 @@ private fun LogSheetContent(onCloseSheet: () -> Unit) {
     ) {
         Text(
             text = "运行日志（${entries.size} 条）",
-            style = SoftType.Title,
+            style = V4Type.ScreenTitle,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.height(8.dp))
@@ -287,10 +286,9 @@ private fun LevelChip(label: String, level: Char, selected: Char, onSelect: (Cha
 @Composable
 private fun LogLine(e: LogBus.Entry) {
     val fmt = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
-    val extra = LocalSoftExtra.current
-    val color = when (e.level) {
-        'E' -> extra.errorSoft
-        'W' -> extra.warning
+        val color = when (e.level) {
+        'E' -> V4.c.live
+        'W' -> V4.c.vip
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Text(

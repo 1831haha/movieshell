@@ -78,12 +78,12 @@ import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
-import com.movieshell.ui.theme.SoftType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.movieshell.ui.theme.V4Type
 
 /**
  * 服务插件页（v0.120.0 C3）：已装服务插件的启动/停止/日志/卸载 + 文件安装 + 环境自检。
@@ -382,7 +382,7 @@ fun ServerPluginScreen(
                     }
                     Text(
                         "运行中 $runningCount · 共 ${plugins.size} 个服务",
-                        style = SoftType.Caption,
+                        style = V4Type.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (embedded) {
@@ -450,7 +450,7 @@ fun ServerPluginScreen(
                             Spacer(Modifier.size(10.dp))
                             Text(
                                 p.name,
-                                style = SoftType.CardTitle,
+                                style = V4Type.RowTitle,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -466,7 +466,7 @@ fun ServerPluginScreen(
                             ) {
                                 Text(
                                     ":${p.port}",
-                                    style = SoftType.Caption,
+                                    style = V4Type.Meta,
                                     fontFamily = FontFamily.Default,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -474,7 +474,7 @@ fun ServerPluginScreen(
                             Spacer(Modifier.size(6.dp))
                             Text(
                                 "v${p.version}",
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             // v0.132.0：自启动小标记
@@ -490,7 +490,7 @@ fun ServerPluginScreen(
                                 ) {
                                     Text(
                                         "自启动",
-                                        style = SoftType.Caption,
+                                        style = V4Type.Meta,
                                         color = MaterialTheme.colorScheme.primary,
                                     )
                                 }
@@ -499,7 +499,7 @@ fun ServerPluginScreen(
                         // 第二行：一句话作用（server.json 的 desc，缺失用兜底文案）
                         Text(
                             info?.desc?.ifBlank { null } ?: "本地 HTTP 服务",
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
@@ -508,7 +508,7 @@ fun ServerPluginScreen(
                         // 第三行：状态行
                         Text(
                             "状态：$statusText · 127.0.0.1:${p.port}",
-                            style = SoftType.Caption,
+                            style = V4Type.Meta,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 2.dp),
                         )
@@ -516,7 +516,7 @@ fun ServerPluginScreen(
                         if (info != null) {
                             Text(
                                 info.commandLine,
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 fontFamily = FontFamily.Default,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -525,7 +525,7 @@ fun ServerPluginScreen(
                             )
                             Text(
                                 info.workDirPath,
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -661,10 +661,10 @@ fun ServerPluginScreen(
                     .verticalScroll(rememberScrollState()),
             ) {
                 if (logLines.isEmpty()) {
-                    Text("（暂无日志）", style = SoftType.Body)
+                    Text("（暂无日志）", style = V4Type.Body)
                 } else {
                     logLines.forEach { line ->
-                        Text(line, style = SoftType.Caption, fontFamily = FontFamily.Default)
+                        Text(line, style = V4Type.Meta, fontFamily = FontFamily.Default)
                         Spacer(Modifier.height(2.dp))
                     }
                 }
@@ -753,14 +753,14 @@ fun ServerPluginScreen(
                         Text(
                             if (item.ok) "✓" else "✗",
                             color = if (item.ok) V4.c.ok else V4.c.live,
-                            style = SoftType.Body,
+                            style = V4Type.Body,
                         )
                         Spacer(Modifier.size(8.dp))
                         Column {
-                            Text(item.name, style = SoftType.Body)
+                            Text(item.name, style = V4Type.Body)
                             Text(
                                 item.detail,
-                                style = SoftType.Caption,
+                                style = V4Type.Meta,
                             )
                         }
                     }
@@ -779,13 +779,13 @@ private fun ConfigRow(label: String, value: String) {
     ) {
         Text(
             label,
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.width(72.dp),
         )
         Text(
             value,
-            style = SoftType.Caption,
+            style = V4Type.Meta,
             fontFamily = FontFamily.Default,
             modifier = Modifier.weight(1f),
         )
@@ -797,7 +797,7 @@ private fun ConfigRow(label: String, value: String) {
 private fun FieldLabel(text: String) {
     Text(
         text,
-        style = SoftType.Caption,
+        style = V4Type.Meta,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
@@ -819,7 +819,7 @@ private fun EditorSection(
             if (title != null) {
                 Text(
                     title,
-                    style = SoftType.CardTitle,
+                    style = V4Type.RowTitle,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
@@ -945,7 +945,7 @@ private fun ServiceEditor(
             )
             Text(
                 "0 或留空 = 自动分配（从 29578 起找空闲端口）",
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             FieldLabel("运行时")
@@ -996,7 +996,7 @@ private fun ServiceEditor(
             ) {
                 Text(
                     "自启动",
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
@@ -1008,13 +1008,13 @@ private fun ServiceEditor(
             ) {
                 Text(
                     "常驻前台",
-                    style = SoftType.Body,
+                    style = V4Type.Body,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
                     "下一版生效",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.width(8.dp))
@@ -1024,7 +1024,7 @@ private fun ServiceEditor(
             EditorSection(title = "占位符") {
             Text(
                 "点按插入到最近聚焦的字段末尾",
-                style = SoftType.Caption,
+                style = V4Type.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             FlowRow(
@@ -1133,7 +1133,7 @@ private fun ServiceEditor(
             } else {
                 Text(
                     healthPath.ifBlank { "（未设置）" } + "（仅 HTTP 探活时可编辑）",
-                    style = SoftType.Caption,
+                    style = V4Type.Meta,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
