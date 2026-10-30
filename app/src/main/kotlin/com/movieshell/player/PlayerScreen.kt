@@ -2317,6 +2317,10 @@ fun PlayerScreen(
             com.movieshell.ui.subtitle.OnlineSubtitleSearchDialog(
                 keyword = title,
                 vodId = vodId,
+                // 修复（Q3 回归）：显式传本会话快照的 playSourceKey，与上面读字幕
+                // （getSubtitleFor(context, playSourceKey, …)）同一个 key；Q3 删了
+                // DetailSiteHolder 后不传会回退到激活规则名，订阅站下载的字幕就读不回来。
+                sourceKey = playSourceKey,
                 onPick = { url ->
                     sessionSubtitle = url
                     showOnlineSubtitle = false
