@@ -80,6 +80,12 @@ object ParseProgressBus {
     }
 
     fun clearFailure() { _failure.value = null }
+
+    // v0.294.7（H7）：其它页面（播放器菜单 / 错误框）请求打开网页手动嗅探
+    private val _manualSniff = MutableStateFlow<String?>(null)
+    val manualSniff: StateFlow<String?> = _manualSniff.asStateFlow()
+    fun requestManualSniff(pageUrl: String) { if (pageUrl.isNotBlank()) _manualSniff.value = pageUrl }
+    fun consumeManualSniff() { _manualSniff.value = null }
 }
 
 /**

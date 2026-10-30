@@ -630,6 +630,23 @@ fun PlayerScreen(
      * v0.25.0：抽成独立函数，自动换内核失败时复用；全部试完仍失败才置 errorMsg。
      * 注意声明位置：同 playCurrentUrl，初始失败链与错误回调都要调它。
      */
+    /** v0.294.7（H7）：本集原始地址（规则给的网页地址），可用于网页手动嗅探；不是网页返回 null */
+    fun currentEpisodePage(): String? {
+        val ep = PlaySession.lines.getOrNull(PlaySession.lineIndex)?.episodes?.getOrNull(PlaySession.episodeIndex)
+        val u = ep?.url?.substringAfter('$')?.trim().orEmpty().ifBlank { playUrl }
+        if (!(u.startsWith("http://", true) || u.startsWith("https://", true))) return null
+        return u
+    }
+
+    fun openManualSniff() {
+        val page = currentEpisodePage() ?: run {
+            AppToast.show(context, "本集没有可嗅探的网页地址", long = false)
+            return
+        }
+        runCatching { EngineHost.pause() }
+        com.movieshell.data.source.ParseProgressBus.requestManualSniff(page)
+    }
+
     fun tryNextLine(fallbackMsg: String) {
         val lines = PlaySession.lines
         val resolver = PlaySession.resolver
@@ -691,6 +708,8 @@ fun PlayerScreen(
      * 新引擎 play(pos)，不得改覆盖后才读新引擎位置当断点。
      */
     fun handlePlayFailure(msg: String) {
+        // v0.294.7（L1）：解析结果缓存里这条地址播不了，作废，下次重新解析
+        com.movieshell.data.source.ParseCache.invalidateResult(playUrl)
         if (sameEngineRetries.intValue < 2) {
             sameEngineRetries.intValue++
             LogBus.i(
@@ -1058,6 +1077,17 @@ fun PlayerScreen(
                             },
                         ) {
                             androidx.compose.material3.Text("清除 Referer 后重试")
+                        }
+                    }
+                    // v0.294.7（H7）：播不了时可直接打开原网页手动嗅探
+                    if (!isLive && currentEpisodePage() != null) {
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                playError = null
+                                openManualSniff()
+                            },
+                        ) {
+                            androidx.compose.material3.Text("网页嗅探本集")
                         }
                     }
                 }
@@ -2133,6 +2163,16 @@ fun PlayerScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
+                            if (!isLive) {
+                                AppButton(
+                                    text = "网页嗅探本集",
+                                    onClick = {
+                                        uiVm.showGearSheet = false
+                                        openManualSniff()
+                                    },
+                                    variant = AppButtonVariant.Ghost,
+                                )
+                            }
                             AppButton(
                                 text = if (sleepRemaining > 0 || sleepArmed) "定时关闭（进行中）" else "定时关闭",
                                 onClick = { uiVm.showSleepDialog = true },

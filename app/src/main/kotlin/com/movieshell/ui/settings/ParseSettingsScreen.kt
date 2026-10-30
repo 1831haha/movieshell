@@ -26,6 +26,9 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.TextButton
+import com.movieshell.data.source.SniffConfig
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -75,6 +78,11 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
     var probeDone by remember { mutableStateOf(0) }
     var probeTotal by remember { mutableStateOf(0) }
     var showAddDialog by remember { mutableStateOf(false) }
+    // v0.294.7（M8 / H3）：解析总时长上限与单条嗅探超时
+    SniffConfig.ensureLoaded(context)
+    var budgetSec by remember { mutableStateOf((SniffConfig.parseBudgetMs / 1000).toInt()) }
+    var autoSniffSec by remember { mutableStateOf((SniffConfig.autoSniffTimeoutMs / 1000).toInt()) }
+    var timeDialog by remember { mutableStateOf<String?>(null) } // "budget" / "sniff"
 
     fun probeOne(index: Int) {
         val parse = customParses.getOrNull(index) ?: return
@@ -151,6 +159,21 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                     }
                 }
                 Spacer(Modifier.height(8.dp))
+                SettingsGroup(title = "解析策略") {
+                    SettingsRow(
+                        icon = Icons.Filled.Timer,
+                        title = "解析总时长上限",
+                        subtitle = "$budgetSec 秒 · 多条线路同时尝试，先拿到的先播",
+                        onClick = { timeDialog = "budget" },
+                    )
+                    SettingsRow(
+                        icon = Icons.Filled.Timer,
+                        title = "单条嗅探超时",
+                        subtitle = "$autoSniffSec 秒 · 网页类线路 / 站内网页后台嗅探",
+                        onClick = { timeDialog = "sniff" },
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
             }
             if (customParses.isEmpty()) {
                 item {
@@ -223,6 +246,39 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                                 }
                             }
                         },
+                    )
+                }
+            }
+        }
+    }
+
+    timeDialog?.let { which ->
+        val isBudget = which == "budget"
+        val options = if (isBudget) listOf(20, 30, 45, 60, 90) else listOf(10, 15, 20, 30)
+        val current = if (isBudget) budgetSec else autoSniffSec
+        TechDialog(
+            onDismissRequest = { timeDialog = null },
+            title = if (isBudget) "解析总时长上限" else "单条嗅探超时",
+            subtitle = if (isBudget) "到点还没解析出来就停止，提示解析失败" else "后台网页嗅探单条最多等待多久",
+            dismissText = "取消",
+        ) {
+            options.forEach { v ->
+                TextButton(
+                    onClick = {
+                        if (isBudget) {
+                            SniffConfig.update(context, parseBudget = v * 1000L)
+                            budgetSec = (SniffConfig.parseBudgetMs / 1000).toInt()
+                        } else {
+                            SniffConfig.update(context, autoSniffTimeout = v * 1000L)
+                            autoSniffSec = (SniffConfig.autoSniffTimeoutMs / 1000).toInt()
+                        }
+                        timeDialog = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "$v 秒" + if (v == current) " ✓" else "",
+                        color = if (v == current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }

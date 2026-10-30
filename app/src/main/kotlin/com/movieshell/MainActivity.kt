@@ -489,6 +489,12 @@ class MainActivity : ComponentActivity() {
                 PyDepGuideOverlay()
                 // v0.201.0：Cloudflare/WebView 验证通道（有请求时弹全屏验证页）
                 VerifyGateDialog()
+                // v0.294.7：解析进度胶囊 + 解析失败对话框（手动嗅探入口）
+                com.movieshell.ui.components.ParseProgressOverlay(onManualSniff = { pageUrl ->
+                    runCatching {
+                        navController.navigate("web_sniff/${Uri.encode("手动嗅探")}/${Uri.encode(pageUrl)}")
+                    }
+                })
                 }
             }
         }

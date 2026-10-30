@@ -84,7 +84,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "匹配到的 URL 直接视为可播直链（如：\\.m3u8\\?.*token=.*）",
+                    text = "匹配到的 URL 直接视为可播直链（如：\\.m3u8\\?.*token=.*）；以 ! 开头为排除规则，匹配到的 URL 永不当作视频（如：!/preview/）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -96,7 +96,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                         kind = EmptyKind.Empty,
                         icon = Icons.Filled.Tune,
                         title = "暂无自定义正则",
-                        hint = "添加后，匹配到的 URL 直接视为可播直链",
+                        hint = "添加后，匹配到的 URL 直接视为可播直链；! 开头为排除",
                     )
                 }
             } else {
@@ -175,7 +175,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
         ) {
                 Column {
                     Text(
-                        text = "正则表达式",
+                        text = "正则表达式（! 开头 = 排除）",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

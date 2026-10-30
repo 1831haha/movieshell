@@ -14,7 +14,9 @@ import com.movieshell.data.repo.LogBus
  * 三信号综合判定（保守：至少两项命中才剔除，宁可漏过不误伤正片）：
  *  a) URI/路径命中广告关键词；
  *  b) 分片组时长中位数明显偏离全片时长中位数（<50% 或 >200%）；
- *  c) 单独成组、数量少（1~3 片）、插在正片中间、且偏短的分片组。
+ *  c) 单独成组、数量少（1~3 片）、插在正片中间、且偏短的分片组；
+ *  d) v0.294.7（M5）：该组分片的目录（主机 + 父路径）和正片主目录不同——
+ *     插播广告几乎都来自另一台服务器/另一个目录，正片分片则同一目录连号。
  *
  * 剔除方式：从返回给 ExoPlayer 的播放列表文本中删掉整组分片行
  * （EXTINF + 附属标签 + URI），并删掉该组 opening 的 DISCONTINUITY 标记；
@@ -23,7 +25,7 @@ import com.movieshell.data.repo.LogBus
  *
  * 已知局限（照实）：
  *  - 只处理 Media3 链路；libmpv 链路拦截不了；
- *  - 只有 URL 以 .m3u8 结尾的播放列表会走过滤，无后缀 m3u8 走不到；
+ *  - v0.294.7 起无后缀 m3u8 也会按 Content-Type / 探测结果走过滤（见 AdFilteringDataSource）；
  *  - 加密分片（#EXT-X-KEY）一律不碰，直接放行；
  *  - 单组播放列表（无 DISCONTINUITY）基本不会触发剔除。
  */
@@ -72,6 +74,11 @@ object M3u8AdFilter {
         val lastGroup = segments.last().groupId
         val groupIds = segments.map { it.groupId }
 
+        // M5：正片主目录 = 分片数最多的目录（占比需过半才算有主目录）
+        val dirs = segments.map { dirOf(it.uri, baseUrl) }
+        val mainDir = dirs.groupingBy { it }.eachCount().maxByOrNull { it.value }
+            ?.takeIf { it.value * 2 > segments.size }?.key
+
         val removedSegIdx = mutableSetOf<Int>()
         val removedBoundaryLines = mutableSetOf<Int>()
         var seqAdjust = 0
@@ -86,7 +93,9 @@ object M3u8AdFilter {
                 (gMed < 0.5 * p50 || gMed > 2.0 * p50)
             val sigC = idxs.size in 1..3 && gid != firstGroup && gid != lastGroup &&
                 gMed >= 0 && gMed < p50
-            if (listOf(sigA, sigB, sigC).count { it } >= 2) {
+            val sigD = mainDir != null && idxs.size < segments.size / 2 &&
+                idxs.all { dirs[it] != mainDir }
+            if (listOf(sigA, sigB, sigC, sigD).count { it } >= 2) {
                 removedSegIdx.addAll(idxs)
                 parsed.groupBoundary[gid]?.let { boundaryLine ->
                     removedBoundaryLines.add(boundaryLine)
@@ -188,6 +197,24 @@ object M3u8AdFilter {
             }
         }
         return Parsed(segments, groupBoundary)
+    }
+
+    /**
+     * 分片所在目录（纯函数，可测）：相对地址按 baseUrl 补全后取「主机 + 父路径」，
+     * 去掉查询串；baseUrl 为空的相对地址只取父路径。
+     */
+    internal fun dirOf(uri: String, baseUrl: String): String {
+        val u = uri.trim().substringBefore('?').substringBefore('#')
+        val abs = when {
+            u.startsWith("http://", true) || u.startsWith("https://", true) -> u.substringAfter("://")
+            u.startsWith("//") -> u.removePrefix("//")
+            u.startsWith("/") -> baseUrl.substringAfter("://", "").substringBefore('/') + u
+            else -> {
+                val b = baseUrl.substringBefore('?').substringAfter("://", baseUrl)
+                b.substringBeforeLast('/', "") + "/" + u
+            }
+        }
+        return abs.substringBeforeLast('/', "").lowercase()
     }
 
     private fun isM3u8(content: String): Boolean =

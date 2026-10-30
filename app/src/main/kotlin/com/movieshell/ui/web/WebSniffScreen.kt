@@ -103,7 +103,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /** 嗅探超时：20 秒内没抓到直链则提示用户，可继续手动浏览 */
-private const val SNIFF_TIMEOUT_MS = 20_000L
 
 /** 拦截到的 URL 记录上限（供"嗅探测试"用，太多只留最近的） */
 private const val SEEN_URL_CAP = 300
@@ -195,7 +194,10 @@ fun WebSniffScreen(
     // v0.94：广告过滤总开关（候选排除 + 去广告 JS 注入 + 广告域名拦截）
     var adFilter by remember { mutableStateOf(SniffConfig.adFilterEnabled) }
     var menuOpen by remember { mutableStateOf(false) }
-    var cfgDialog by remember { mutableStateOf<String?>(null) } // "concurrency" / "retry" / null
+    var cfgDialog by remember { mutableStateOf<String?>(null) } // "concurrency" / "retry" / "timeout" / null
+    // v0.294.7（M8）：UA 切换（手机/电脑）与嗅探超时可调
+    var uaMode by remember { mutableIntStateOf(SniffConfig.uaMode) }
+    var sniffTimeoutSec by remember { mutableIntStateOf((SniffConfig.sniffTimeoutMs / 1000).toInt()) }
     // v0.149：嗅探链路观测（DS 案例 5 要求 init/nav/pageFinished/timeout 全程 LogBus）
     val pageFinishedCount = remember { AtomicInteger(0) }
     // v0.149：主 frame 当前 URL（onPageStarted 更新；onLoadResource 靠它认主 frame）
@@ -339,7 +341,9 @@ fun WebSniffScreen(
             }
             // v0.186.0：拦截存下的原始头优先于现拼头（现拼 Referer 取的是主 frame
             // 地址、UA 取当前 WebView 设置，iframe 与跨域候选的原始头会被改写）。
-            val headersToUse = if (candidate.headers.isNotEmpty()) candidate.headers else headersBuilt
+            // v0.294.7（Bug3 小项）：原始头优先，缺的 Cookie / UA / Referer 用现拼头补齐
+            // （WebView 拦截到的请求头里没有 Cookie，原来带原始头时 Cookie 整个丢了）
+            val headersToUse = com.movieshell.player.PlayHeaders.merge(candidate.headers, headersBuilt)
             probeScope.launch(Dispatchers.IO) {
                 val denied = !SniffEngine.matchesCustomPattern(candidate.url) &&
                     SniffEngine.settlementDenied(candidate.url, probeClient, headersToUse)
@@ -672,6 +676,25 @@ fun WebSniffScreen(
                                     onClick = { menuOpen = false; cfgDialog = "retry" },
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("网页 UA：${if (uaMode == SniffConfig.UA_DESKTOP) "电脑" else "手机"}") },
+                                    onClick = {
+                                        menuOpen = false
+                                        val next = if (uaMode == SniffConfig.UA_DESKTOP) SniffConfig.UA_MOBILE else SniffConfig.UA_DESKTOP
+                                        SniffConfig.update(context, ua = next)
+                                        uaMode = SniffConfig.uaMode
+                                        webViewRef?.let { v ->
+                                            v.settings.userAgentString =
+                                                if (uaMode == SniffConfig.UA_DESKTOP) SniffConfig.DESKTOP_UA else null
+                                            v.reload()
+                                        }
+                                        AppToast.show(context, "已切换为${if (uaMode == SniffConfig.UA_DESKTOP) "电脑" else "手机"}版网页，正在刷新", long = false)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("嗅探超时：$sniffTimeoutSec 秒") },
+                                    onClick = { menuOpen = false; cfgDialog = "timeout" },
+                                )
+                                DropdownMenuItem(
                                     text = { Text("过滤广告地址：${if (adFilter) "开" else "关"}") },
                                     onClick = {
                                         menuOpen = false
@@ -759,6 +782,10 @@ fun WebSniffScreen(
                         // v0.10：混合内容放行 + 第三方 Cookie（部分站点的视频/鉴权依赖它们）
                         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                        // v0.294.7（M8）：电脑版 UA（部分站手机版不出播放器）
+                        if (SniffConfig.uaMode == SniffConfig.UA_DESKTOP) {
+                            settings.userAgentString = SniffConfig.DESKTOP_UA
+                        }
                         webChromeClient = object : WebChromeClient() {
                             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                 progress = newProgress
@@ -1001,17 +1028,25 @@ fun WebSniffScreen(
     val cfg = cfgDialog
     if (cfg != null) {
         val isConcurrency = cfg == "concurrency"
+        val isTimeout = cfg == "timeout"
         TechDialog(
             onDismissRequest = { cfgDialog = null },
-            title = if (isConcurrency) "探测并发数" else "失败重试",
-            subtitle = if (isConcurrency) "深度嗅探同时探测几个地址" else "可疑地址探测失败后重试几次",
+            title = when { isTimeout -> "嗅探超时"; isConcurrency -> "探测并发数"; else -> "失败重试" },
+            subtitle = when {
+                isTimeout -> "超过这个时间还没抓到地址就提示（不关页面，已有候选保留）"
+                isConcurrency -> "深度嗅探同时探测几个地址"
+                else -> "可疑地址探测失败后重试几次"
+            },
             onConfirm = null,
             content = {
-                (if (isConcurrency) listOf(4, 6, 8) else listOf(0, 1, 2)).forEach { v ->
-                    val selected = v == if (isConcurrency) concurrency else retryCount
+                (when { isTimeout -> listOf(10, 20, 30, 60); isConcurrency -> listOf(4, 6, 8); else -> listOf(0, 1, 2) }).forEach { v ->
+                    val selected = v == when { isTimeout -> sniffTimeoutSec; isConcurrency -> concurrency; else -> retryCount }
                     TextButton(
                         onClick = {
-                            if (isConcurrency) {
+                            if (isTimeout) {
+                                SniffConfig.update(context, sniffTimeout = v * 1000L)
+                                sniffTimeoutSec = (SniffConfig.sniffTimeoutMs / 1000).toInt()
+                            } else if (isConcurrency) {
                                 SniffConfig.update(context, concurrency = v)
                                 concurrency = SniffConfig.deepSniffConcurrency
                             } else {
@@ -1024,7 +1059,7 @@ fun WebSniffScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            text = (if (isConcurrency) "$v" else "$v 次") +
+                            text = (when { isTimeout -> "$v 秒"; isConcurrency -> "$v"; else -> "$v 次" }) +
                                 if (selected) " ✓" else "",
                             color = if (selected) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurface,
@@ -1035,13 +1070,16 @@ fun WebSniffScreen(
         )
     }
 
-    // 20 秒嗅探超时：只 Toast，不关闭页面
+    // 嗅探超时（默认 20 秒，v0.294.7 起可调）：只 Toast，不关闭页面
     LaunchedEffect(url) {
         SniffConfig.ensureLoaded(context)
         concurrency = SniffConfig.deepSniffConcurrency
         retryCount = SniffConfig.probeRetry
         adFilter = SniffConfig.adFilterEnabled
-        delay(SNIFF_TIMEOUT_MS)
+        uaMode = SniffConfig.uaMode
+        sniffTimeoutSec = (SniffConfig.sniffTimeoutMs / 1000).toInt()
+        runCatching { com.movieshell.data.source.SniffRules.ensureLoaded(context) }
+        delay(SniffConfig.sniffTimeoutMs)
         // v0.149 案例 5 超时观测：预算耗尽时只结算统计、永不作废已有候选——
         // DS 荣耀案"候选已到手却被超时作废"在本架构下不可能发生：候选列表模式下
         // 超时从不清空候选，超时后用户仍可点选；这里只记一笔观测日志供事后复盘。
