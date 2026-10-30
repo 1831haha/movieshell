@@ -1,5 +1,7 @@
 package com.movieshell.ui.home
 
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.Image
 import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -1323,20 +1325,12 @@ fun HomeScreen(
                             .height(V5.TopBar),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(cs.primaryContainer),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Filled.Movie,
-                                contentDescription = null,
-                                tint = cs.onPrimaryContainer,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
+                        // v0.294.4：品牌标换成启动图标同款「交影」（深暖棕圆角方 + X 笔画 + 播放镂空），不随主题着色。
+                        Image(
+                            painter = painterResource(com.movieshell.R.drawable.ic_brand_mark),
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                        )
                         Spacer(Modifier.width(10.dp))
                         Text(
                             "侠影",

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- v0.294.4：Android 12+ 系统启动画面——图标默认取 @mipmap/ic_launcher（「交影」），
+         底色与图标背景同为深暖棕，图标圆底与启动画面融为一体。其余与 values/strings.xml 同名样式一致。 -->
+    <style name="Theme.MovieShell" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/black</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+        <item name="android:windowSplashScreenBackground">#1C130D</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#2A1D14</item>
+    </style>
+</resources>

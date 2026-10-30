@@ -1,5 +1,7 @@
 package com.movieshell.ui.settings
 
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.Icon
 import com.movieshell.ui.components.V5Segmented
@@ -846,6 +848,13 @@ fun SettingsScreen(
                 icon = Icons.Outlined.Info,
                 title = "关于侠影",
                 subtitle = "v${com.movieshell.BuildConfig.VERSION_NAME} · 本地影视聚合",
+                leading = {
+                    Image(
+                        painter = painterResource(com.movieshell.R.drawable.ic_brand_mark),
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp),
+                    )
+                },
             )
         }
         item {
@@ -1352,6 +1361,8 @@ private fun SegItem(
     onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
     content: (@Composable () -> Unit)? = null,
+    // v0.294.4：自定义 40dp 前导图（关于侠影用品牌标）；为 null 走默认 primaryContainer 圆底图标
+    leading: (@Composable () -> Unit)? = null,
 ) {
     val cs = MaterialTheme.colorScheme
     val big = V5.CornerCard
@@ -1371,7 +1382,9 @@ private fun SegItem(
             .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
+            if (leading != null) {
+                Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { leading() }
+            } else Box(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
