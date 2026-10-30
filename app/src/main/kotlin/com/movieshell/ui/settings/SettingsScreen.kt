@@ -24,7 +24,6 @@ import androidx.compose.material.icons.outlined.Subtitles
 import android.content.ClipData
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
-import com.movieshell.ui.search.currentSourceName as searchCurrentSourceName
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -202,9 +201,7 @@ fun SettingsScreen(
     var showClearLegacySubtitleDialog by remember { mutableStateOf(false) }
     var legacySubtitleCount by remember { mutableIntStateOf(-1) }
     // v0.78.2：解析接口已搬进子页面（ParseSettingsScreen），本页只留入口
-    // v0.23.0：插件市场源（多源）+ 显示不兼容插件开关
-    // v0.134.0：市场增删改收敛到插件中心「市场 → 管理」，本页只留市场数展示
-    val marketSources by PluginStore.marketSources.collectAsState()
+    // v0.23.0：显示不兼容插件开关
     val showIncompatible by PluginStore.showIncompatible.collectAsState()
     // v0.26.0：追剧更新检测开关 + 下载并行数
     var followCheckEnabled by remember { mutableStateOf(FollowStore.isCheckEnabled(context)) }
@@ -311,7 +308,6 @@ fun SettingsScreen(
     var statsLoaded by remember { mutableStateOf(false) }
     // v0.171.0：任一统计加载失败时整行标失败，不再用 0 冒充"真没有"
     var statsFailed by remember { mutableStateOf(false) }
-    var currentSourceName by remember { mutableStateOf("未设置") }
     // v0.82.0：背景底图
     var showBgMenu by remember { mutableStateOf(false) }
     val bgPicker = rememberLauncherForActivityResult(
@@ -357,14 +353,6 @@ fun SettingsScreen(
                     PhpSourceManager.listRules().size
             }
         }
-        // v0.217.0（F63）：当前源只展示搜索页同一口径——原来设置页自己
-        // 另写一套（只看缓存记录名，禁用／不支持的源也照样显示，缺 PHP
-        // 分支），与搜索页“未设置当前源”打架；现在复用搜索页的算法，
-        // 只有搜索页认的当前源才显示，否则显示“未设置”。
-        // v0.247.0（F41）第 3 轮：刷新失败保留上一次有效值——首屏初值
-        // 就是“未设置”，首屏失败显示不变；回页刷新失败不再把已显示的
-        // 有效源名覆成“未设置”。
-        currentSourceName = runCatching { searchCurrentSourceName(context) }.getOrNull() ?: currentSourceName
         statsFailed = failed
         statsLoaded = true
     }
@@ -412,48 +400,9 @@ fun SettingsScreen(
                 Text("v${com.movieshell.BuildConfig.VERSION_NAME}", style = V4Type.MonoSmall, color = v.t3)
             }
         }
-        // 1. 资料磁贴：只展示侠头像 + 侠影 + 版本 + 当前源（绿点），不再是入口
-        // （289 去重：站源管理原来一页三处——资料磁贴、仪表“源”、工具磁贴，
-        // 只留仪表“源”这一个入口，它是你 10-28 明确要求恢复可点的那个）。
-        item {
-            V4Tile(modifier = Modifier.fillMaxWidth(), onClick = null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(v.accent),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("侠", color = v.onAccent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("侠影", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = v.t1)
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "v${com.movieshell.BuildConfig.VERSION_NAME}",
-                                style = V4Type.MonoSmall,
-                                color = v.t3,
-                            )
-                        }
-                        Spacer(Modifier.height(3.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            V4Dot(if (currentSourceName == "未设置") v.t3 else v.ok)
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = currentSourceName,
-                                fontSize = 11.sp,
-                                color = v.t2,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        // 289 去重后用户纠偏：不要占位格——资料磁贴点不了就整块删掉，
+        // 不留一个看着像入口、点着没反应的大格子；站源管理只剩仪表“源”一个入口。
+        // （页头“设置 + 版本号”还在，版本号不丢；当前源名改看首页换源胶囊。）
         // 2. 三个环形仪表：追剧（有更新占比）/ 历史（占 50 条上限）/ 源（本地占比）
         item {
             Row(
@@ -796,16 +745,8 @@ fun SettingsScreen(
         item { SettingsCaption("插件") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                KvTile(
-                    caption = "插件市场源",
-                    value = "${marketSources.size} 个市场",
-                    // 289 去重：这格只展示市场数，不再是入口（原来点它和工具磁贴
-                    // “插件中心”去同一个地方）；管理市场只走工具磁贴“插件中心”。
-                    // onClick 为 null 时 KvTile 自动不画箭头。
-                    sub = "在插件中心管理",
-                    onClick = null,
-                    modifier = Modifier.weight(1f),
-                )
+                // 289 去重后用户纠偏：不要占位格——“插件市场源”点不了就整格删掉，
+                // 不留只展示市场数的空壳；插件中心只剩工具磁贴一个入口。
                 KvTile(
                     caption = "显示不兼容插件",
                     value = if (showIncompatible) "显示" else "隐藏",
