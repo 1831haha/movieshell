@@ -2,8 +2,10 @@ package com.movieshell.data.source
 
 import coil.ImageLoader
 import coil.decode.DataSource
+import coil.decode.ImageSource
 import coil.fetch.FetchResult
 import coil.fetch.Fetcher
+import coil.fetch.SourceResult
 import coil.request.Options
 import com.movieshell.data.repo.PySourceManager
 import okio.Buffer
@@ -20,27 +22,30 @@ import okio.Buffer
  */
 class ProxyImageFetcher(
     private val data: String,
+    private val options: Options,
 ) : Fetcher {
 
     override suspend fun fetch(): FetchResult? {
         val innerUrl = parseProxyUrl(data) ?: return null
         val rulePath = PySourceManager.activeRulePathForProxy() ?: return null
         val image = ChaquopyEngine.fetchProxyImage(rulePath, innerUrl) ?: return null
-        return FetchResult.SourceResult(
-            source = Buffer().write(image.bytes),
+        // Coil 2.6.0 实测签名：SourceResult 是 coil.fetch 下的顶层类（非 FetchResult 的嵌套类），
+        // 其 source 必须是 ImageSource，不能直接传 okio Buffer；写法照抄同版本 ByteBufferFetcher。
+        return SourceResult(
+            source = ImageSource(Buffer().write(image.bytes), options.context),
             mimeType = image.contentType,
             dataSource = DataSource.NETWORK,
         )
     }
 
-    class Factory : Fetcher.Factory {
+    class Factory : Fetcher.Factory<String> {
         override fun create(
-            data: Any,
+            data: String,
             options: Options,
             imageLoader: ImageLoader,
         ): Fetcher? {
-            if (data is String && data.startsWith("proxy://")) {
-                return ProxyImageFetcher(data)
+            if (data.startsWith("proxy://")) {
+                return ProxyImageFetcher(data, options)
             }
             return null
         }
