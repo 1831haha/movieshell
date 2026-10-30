@@ -21,13 +21,35 @@ object SniffPlayHeaders {
     /** 插入序 LinkedHashMap，用于淘汰最旧条目。 */
     private val map = LinkedHashMap<String, Entry>()
 
-    /** 存下某直链对应的请求头（覆盖旧值）。 */
+    /** 存下某直链对应的请求头（覆盖旧值）。v0.294.7：键名按 [PlayHeaders.normalize] 规整。 */
     fun put(url: String, headers: Map<String, String>) {
-        if (url.isBlank() || headers.isEmpty()) return
+        val h = PlayHeaders.normalize(headers)
+        if (url.isBlank() || h.isEmpty()) return
         val now = System.currentTimeMillis()
         synchronized(lock) {
             evictExpiredLocked(now)
-            map[url] = Entry(headers, now)
+            map[url] = Entry(h, now)
+            while (map.size > MAX_ENTRIES) {
+                val eldest = map.keys.firstOrNull() ?: break
+                map.remove(eldest)
+            }
+        }
+    }
+
+    /**
+     * v0.294.7（H5）：只补缺不覆盖——已存的头（嗅探时抓到的真实 Referer/UA/Cookie）优先，
+     * [headers]（规则给的原始头）只补已存里没有的键。没有已存记录时等同 [put]。
+     */
+    fun putFallback(url: String, headers: Map<String, String>) {
+        if (url.isBlank()) return
+        val now = System.currentTimeMillis()
+        synchronized(lock) {
+            evictExpiredLocked(now)
+            val existing = map[url]?.headers
+            val merged = PlayHeaders.merge(existing, headers)
+            if (merged.isEmpty()) return
+            map.remove(url)
+            map[url] = Entry(merged, now)
             while (map.size > MAX_ENTRIES) {
                 val eldest = map.keys.firstOrNull() ?: break
                 map.remove(eldest)

@@ -32,7 +32,8 @@ object ParseStore {
      * 进程重启即清零，不做持久化，避免一次误判永久丢线。
      */
     private const val TRIP_MS = 24L * 60 * 60 * 1000
-    private val trippedUntil = mutableMapOf<String, Long>()
+    // v0.294.7：多条解析并发读写，换 ConcurrentHashMap
+    private val trippedUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     fun isTripped(url: String): Boolean =
         (trippedUntil[url.trim()] ?: 0L) > System.currentTimeMillis()
@@ -44,6 +45,77 @@ object ParseStore {
 
     fun clearTripped(url: String) {
         trippedUntil.remove(url.trim())
+        softFails.remove(url.trim())
+    }
+
+    /** v0.294.7：按指定时长熔断（软失败累计用，较短） */
+    fun markTrippedFor(url: String, ms: Long) {
+        trippedUntil[url.trim()] = System.currentTimeMillis() + ms
+        LogBus.w("ParseStore", "解析线路连续无结果，暂停 ${ms / 60000} 分钟：$url")
+    }
+
+    // ---------------- v0.294.7（M4）：线路成绩（成功率排序） ----------------
+
+    private data class Stat(val ok: Int, val fail: Int, val avgMs: Long)
+    private val stats = java.util.concurrent.ConcurrentHashMap<String, Stat>()
+    private val softFails = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private const val SOFT_TRIP_COUNT = 3
+    private const val SOFT_TRIP_MS = 30L * 60 * 1000
+
+    /** 成功率得分（拉普拉斯平滑，0..1；越快略加分）。无记录 = 0.5。 */
+    fun score(url: String): Double {
+        val st = stats[url.trim()] ?: return 0.5
+        val rate = (st.ok + 1.0) / (st.ok + st.fail + 2.0)
+        val speed = if (st.ok > 0) (1.0 - (st.avgMs.coerceIn(0, 20_000) / 20_000.0)) * 0.1 else 0.0
+        return rate + speed
+    }
+
+    fun recordSuccess(url: String, costMs: Long) {
+        val k = url.trim()
+        softFails.remove(k)
+        stats.compute(k) { _, old ->
+            val o = old ?: Stat(0, 0, 0)
+            val avg = if (o.ok == 0) costMs else (o.avgMs * o.ok + costMs) / (o.ok + 1)
+            Stat((o.ok + 1).coerceAtMost(1000), o.fail, avg)
+        }
+        persistStatsLater()
+    }
+
+    /** 没拿到地址（超时/空结果）：计失败；连续 3 次暂停 30 分钟（进程内）。 */
+    fun recordSoftFail(url: String) {
+        val k = url.trim()
+        stats.compute(k) { _, old -> val o = old ?: Stat(0, 0, 0); Stat(o.ok, (o.fail + 1).coerceAtMost(1000), o.avgMs) }
+        val n = (softFails[k] ?: 0) + 1
+        softFails[k] = n
+        if (n >= SOFT_TRIP_COUNT) {
+            softFails.remove(k)
+            markTrippedFor(k, SOFT_TRIP_MS)
+        }
+        persistStatsLater()
+    }
+
+    private const val KEY_STATS = "parse_line_stats_v1"
+    @Volatile private var appCtx: Context? = null
+    @Volatile private var statsLoaded = false
+
+    private fun loadStats(context: Context) {
+        if (statsLoaded) return
+        statsLoaded = true
+        runCatching {
+            val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_STATS, null) ?: return
+            raw.split('\n').forEach { line ->
+                val parts = line.split('\t')
+                if (parts.size == 4) stats[parts[0]] = Stat(parts[1].toInt(), parts[2].toInt(), parts[3].toLong())
+            }
+        }
+    }
+
+    private fun persistStatsLater() {
+        val ctx = appCtx ?: return
+        runCatching {
+            val raw = stats.entries.take(300).joinToString("\n") { (k, v) -> "$k\t${v.ok}\t${v.fail}\t${v.avgMs}" }
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_STATS, raw).apply()
+        }
     }
 
     /**
@@ -72,6 +144,8 @@ object ParseStore {
 
     /** 懒加载：首次调用时从 prefs 读入；从未保存过则写入预装线路。 */
     fun load(context: Context) {
+        if (appCtx == null) appCtx = context.applicationContext
+        loadStats(context)
         if (loaded) return
         loaded = true
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

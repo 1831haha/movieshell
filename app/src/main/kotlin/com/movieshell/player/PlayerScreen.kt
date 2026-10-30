@@ -806,8 +806,11 @@ fun PlayerScreen(
                     // v0.16.2：按源取片头（siteKey 区分源）
                     // v0.20.0：走 EngineHost，按当前内核（Media3/libmpv）起播
                     // v0.160.0：直播频道自带 ua 先打底，嗅探头优先覆盖；无 ua 时不编
-                    val headers = liveHeaders + SniffPlayHeaders.take(playUrl)
+                    // v0.294.7：忽略大小写合并（嗅探头优先，直播 ua 补缺）
+                    val headers = PlayHeaders.merge(SniffPlayHeaders.take(playUrl), liveHeaders)
                     lastHeaders = headers
+                    // v0.294.7（H6）：URL 看不出类型时起播前探测一次（≤3 秒），无后缀 m3u8 直接按 HLS 起播
+                    MediaTypeSniffer.ensureHint(playUrl, headers)
                     val skipIntro = PlayerSettings.getSkipIntroFor(
                         context, playSourceKey, vodId, PlaySession.episodeIndex,
                     )

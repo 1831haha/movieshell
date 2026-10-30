@@ -438,7 +438,7 @@ object MpvPlayerManager {
     ): String {
         val opts = ArrayList<String>()
         opts += if (startPositionMs > 0) "start=${startPositionMs / 1000.0}" else "start=none"
-        val rest = headers.toMutableMap()
+        val rest = PlayHeaders.normalize(headers).toMutableMap()
         rest.remove("User-Agent")?.takeIf { it.isNotBlank() }?.let { ua ->
             opts += "user-agent=${q(ua)}"
         }

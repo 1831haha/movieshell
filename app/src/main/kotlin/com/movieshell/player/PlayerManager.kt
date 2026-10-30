@@ -184,7 +184,8 @@ object PlayerManager {
         }
         // v0.14.5：记录播放地址（截断防刷屏）
         LogBus.i("Player", "播放: ${url.take(120)}${if (url.length > 120) "..." else ""}")
-        val rest = headers.toMutableMap()
+        // v0.294.7：键名规整（小写 user-agent 也认作 UA，不再被默认 UA 顶掉）
+        val rest = PlayHeaders.normalize(headers).toMutableMap()
         val ua = rest.remove("User-Agent")?.takeIf { it.isNotBlank() } ?: DEFAULT_UA
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(ua)
@@ -221,8 +222,19 @@ object PlayerManager {
         val extractorsFactory = ExtractorsFactory {
             arrayOf<Extractor>(FlvExtractor()) + DefaultExtractorsFactory().createExtractors()
         }
+        // v0.294.7（H6）：无后缀 HLS/DASH 显式声明 MIME（URL 推断或起播前探测结果），
+        // 否则 Media3 按后缀当普通文件、报无法识别格式。看不出类型时不设，行为同旧版。
+        val mime = when (MediaTypeSniffer.hint(url)) {
+            MediaTypeSniffer.Kind.HLS -> MimeTypes.APPLICATION_M3U8
+            MediaTypeSniffer.Kind.DASH -> MimeTypes.APPLICATION_MPD
+            else -> null
+        }
+        if (mime != null && !url.substringBefore('?').lowercase().let { it.endsWith(".m3u8") || it.endsWith(".mpd") }) {
+            LogBus.i("Player", "按识别结果声明流类型：$mime")
+        }
         val mediaItem = MediaItem.Builder()
             .setUri(url)
+            .apply { if (mime != null) setMimeType(mime) }
             .apply {
                 // v0.19.0：外挂字幕（srt/vtt）
                 val sub = subtitleUrl?.trim().orEmpty()

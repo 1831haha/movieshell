@@ -32,9 +32,10 @@ class AdFilteringDataSource(
 
     override fun open(dataSpec: DataSpec): Long {
         val url = dataSpec.uri.toString()
-        val isPlaylist = url.substringBefore("?").lowercase().endsWith(".m3u8")
-
         val length = upstream.open(dataSpec)
+        // v0.294.7：除 .m3u8 后缀外，再认 Content-Type（mpegurl 各变体）与起播前识别结果——
+        // 无后缀 m3u8 也能去广告。分片（video/mp2t 等）不会命中。
+        val isPlaylist = isPlaylistRequest(url, upstream.responseHeaders)
 
         // 只处理播放列表；分片直接透传；总开关关闭时整体透传
         if (!isPlaylist || length == 0L || !enabledProvider()) {
@@ -92,6 +93,24 @@ class AdFilteringDataSource(
     }
 
     override fun getUri() = upstream.uri
+
+    override fun getResponseHeaders(): Map<String, List<String>> = upstream.responseHeaders
+
+    companion object {
+        /** 纯函数：是否当作播放列表处理（后缀 / Content-Type / 识别提示）。 */
+        fun isPlaylistRequest(url: String, responseHeaders: Map<String, List<String>>?): Boolean {
+            val path = url.substringBefore("?").substringBefore("#").lowercase()
+            if (path.endsWith(".m3u8") || path.endsWith(".m3u")) return true
+            if (path.endsWith(".ts") || path.endsWith(".mp4") || path.endsWith(".m4s") || path.endsWith(".key")) return false
+            val ct = responseHeaders?.entries
+                ?.firstOrNull { it.key != null && it.key.equals("Content-Type", ignoreCase = true) }
+                ?.value?.firstOrNull()
+            if (MediaTypeSniffer.inferFromContentType(ct) == MediaTypeSniffer.Kind.HLS) return true
+            // 起播前探测确认过是 HLS 的那一条主地址（精确匹配，不按路径猜，免得把无后缀分片整段读进内存）
+            return MediaTypeSniffer.explicitHint(url) == MediaTypeSniffer.Kind.HLS &&
+                MediaTypeSniffer.inferFromContentType(ct) != MediaTypeSniffer.Kind.PROGRESSIVE
+        }
+    }
     override fun close() {
         filteredStream?.close()
         filteredStream = null
