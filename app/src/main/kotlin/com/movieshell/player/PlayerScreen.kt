@@ -589,6 +589,10 @@ fun PlayerScreen(
     var lastUrl by remember { mutableStateOf<String?>(null) }
     // v0.75.0：存 prev 进度时用旧集数（PlaySession.episodeIndex 已先更新到新集）
     var lastEpIdx by remember { mutableIntStateOf(PlaySession.episodeIndex) }
+    // 上滑切集覆盖层认领标志（只在手势处理里读写，不进组合订阅）：
+    // 控制栏可见时覆盖层先于手势层收到事件，认领后手势层的 slop 随即失败，
+    // 若照旧走轻点切换会把控制栏藏掉、覆盖层随之解散导致切集流产。
+    var swipeNextOverlayClaimed by remember { mutableStateOf(false) }
     // v0.25.0：起播链路顶层兜底——任何未预期异常转 Toast，绝不崩
     // v0.54：弹幕开关变化时按需加载/清空（不重进播放器也能开关）
     LaunchedEffect(danmakuEnabled) {
@@ -1228,7 +1232,10 @@ fun PlayerScreen(
                         if (slopChange == null || mode == 0) {
                             // v0.27.7：轻点切换自绘控制层显隐（Media3 原生控制器已关闭）
                             // v0.40.0：锁定时轻点不切换控制层（防误触，只留解锁按钮）
-                            if (!uiVm.locked) uiVm.controlsVisible = !uiVm.controlsVisible
+                            // 覆盖层已认领上滑切集时不切换：覆盖层先消费竖滑，手势层
+                            // 的 slop 随即失败，若照旧切换会把控制栏藏掉、覆盖层随
+                            // 控制栏消失而中途解散，切集流产。
+                            if (!swipeNextOverlayClaimed && !uiVm.locked) uiVm.controlsVisible = !uiVm.controlsVisible
                             return@awaitEachGesture
                         }
                         var last = slopChange.position
@@ -1880,6 +1887,73 @@ fun PlayerScreen(
                 // v0.259.0：清晰度“自动”已移到顶栏标题旁只读显示；
                 // 引擎等横屏完整条项只在横屏追加，竖屏收进齿轮。
             }
+        }
+
+        // 底部上滑切下一集·控制栏可见时：手势层在控制栏之下，控制栏显示时
+        // 从控制区起手的竖滑到不了手势层（进度条/按钮先消费），全屏竖屏下
+        // 控制栏一显示上滑就没反应。补一层只认上滑切集的覆盖层，与手势层
+        // 各管一摊：控制栏隐藏时覆盖层不存在，走手势层原逻辑；控制栏可见
+        // 时覆盖层在控制栏之上认领竖滑，横滑/轻点/长按一律不消费，原样交
+        // 给进度条、按钮与手势层，绝不重复切集。选集抽屉与齿轮页是同 Box
+        // 内嵌片（非 Dialog），打开时覆盖层不认领，免得抢选集列表的滚动。
+        if (playUrl.isNotBlank() && uiVm.controlsVisible && !uiVm.locked &&
+            !uiVm.showLines && !uiVm.showGearSheet
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .zIndex(2f)
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val candidate = !embedded && !isLive &&
+                                cfgOrientation == Configuration.ORIENTATION_PORTRAIT &&
+                                PlaySession.currentLine()?.episodes
+                                    ?.getOrNull(PlaySession.episodeIndex + 1) != null &&
+                                down.position.y > size.height - 140.dp.toPx()
+                            if (!candidate) return@awaitEachGesture
+                            var vertical = false
+                            val slopChange = try {
+                                withTimeout(LONG_PRESS_MS) {
+                                    awaitTouchSlopOrCancellation(down.id) { change, _ ->
+                                        val dx = change.position.x - down.position.x
+                                        val dy = change.position.y - down.position.y
+                                        vertical = abs(dy) >= abs(dx)
+                                    }
+                                }
+                            } catch (e: TimeoutCancellationException) {
+                                // 长按：交给手势层 2x 快放，这里不认领
+                                null
+                            }
+                            if (slopChange == null || !vertical) return@awaitEachGesture
+                            swipeNextOverlayClaimed = true
+                            try {
+                                var last = slopChange.position
+                                var swipeUpPx = 0f
+                                val swipeThresholdPx = 100.dp.toPx()
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                        ?: break
+                                    last = change.position
+                                    swipeUpPx = down.position.y - last.y
+                                    uiVm.gestureHint = if (swipeUpPx >= swipeThresholdPx)
+                                        "松手切下一集" else "继续上滑切下一集"
+                                    change.consume()
+                                } while (change.pressed)
+                                uiVm.gestureHint = null
+                                if (swipeUpPx >= swipeThresholdPx) {
+                                    switchEpisode(
+                                        PlaySession.lineIndex,
+                                        PlaySession.episodeIndex + 1,
+                                    )
+                                }
+                            } finally {
+                                swipeNextOverlayClaimed = false
+                            }
+                        }
+                    },
+            )
         }
 
         // v0.19.0：线路+选集抽屉；v0.24.0：直播不显示

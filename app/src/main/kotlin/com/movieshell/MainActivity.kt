@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
@@ -365,7 +364,10 @@ class MainActivity : ComponentActivity() {
                     // v0.261.0：水平方向不再保留——safeDrawing Horizontal 在横竖屏切换后
                     // 会在左侧留下一条约 107/1000 宽的白边（详情页播放器左白边实测），
                     // 各页本身已有 12/16dp 内边距，播放器更要贴边，水平 inset 不能再叠加。
-                    contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
+                    // 底部同样归零——顶部双倍的前车之鉴：窗口本身已在系统导航栏
+                    // 上方，Scaffold 再加 safeDrawing 底部等于又顶起一个导航栏高度，底栏与
+                    // 系统栏之间露出一截窗口底色，底部黑边看起来宽了一倍。
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
                     containerColor = MaterialTheme.colorScheme.background,
                     bottomBar = {
                         if (showMiniPlayer && !showBottomBar) {
