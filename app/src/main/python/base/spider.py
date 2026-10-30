@@ -368,7 +368,8 @@ class BaseSpider:
 
     @staticmethod
     def str2json(str):
-        return json.loads(str)
+        # v0.294.2：strict=False 容忍站点 JSON 字符串里未转义的控制字符（Invalid control character）
+        return json.loads(str, strict=False)
 
     @staticmethod
     def json2str(str):

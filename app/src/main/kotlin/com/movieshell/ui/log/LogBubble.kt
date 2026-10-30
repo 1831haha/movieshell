@@ -1,5 +1,6 @@
 package com.movieshell.ui.log
 
+import com.movieshell.ui.components.sheetListScrollGuard
 import android.content.ClipData
 import com.movieshell.ui.components.AppToast
 import android.content.Context
@@ -239,7 +240,9 @@ private fun LogSheetContent(onCloseSheet: () -> Unit) {
             state = listState,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 380.dp),
+                .heightIn(max = 380.dp)
+                // v0.294.2：列表不在顶时下滑只滚列表，不拖动/收起弹窗
+                .sheetListScrollGuard { listState.canScrollBackward },
         ) {
             items(shown.size) { i -> LogLine(shown[i]) }
         }

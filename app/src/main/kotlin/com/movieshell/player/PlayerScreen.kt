@@ -108,6 +108,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -1127,10 +1130,75 @@ fun PlayerScreen(
 
     // v0.65：嵌入模式用 16:9 盒子（详情页顶部），独立模式全屏；
     // v0.96.2：嵌入横屏时占满（直播页手动横屏按钮 / 物理横屏），cfgOrientation 上面已读
+    // 底部上滑切下一集·控制栏可见时（v0.294.0 引入）：手势层在控制栏之下，控制栏显示时
+    // 从控制区起手的竖滑到不了手势层（进度条/按钮先消费）。
+    // v0.294.2：原实现是盖在控制栏之上的 fillMaxSize 兄弟覆盖层——Compose（ui 1.6.8）
+    // 命中测试对重叠兄弟只派发给最上面那个，覆盖层不消费也会把事件“吃掉”，
+    // 控制栏一显示，全屏、选集、播放等按钮全部点不动（详情页小窗点全屏没反应即此）。
+    // 改为挂在播放器外层 Box 上、走 PointerEventPass.Initial 先看事件：只在越过
+    // touch slop 且竖向时才认领并消费，轻点/横滑/长按一律不碰，按钮与进度条照常收到。
+    val swipeNextEnabled by rememberUpdatedState(
+        playUrl.isNotBlank() && !embedded && !isLive &&
+            cfgOrientation == Configuration.ORIENTATION_PORTRAIT
+    )
     Box(
         modifier = (if (embedded && cfgOrientation != Configuration.ORIENTATION_LANDSCAPE)
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
         else Modifier.fillMaxSize()).background(Color.Black)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val candidate = swipeNextEnabled && uiVm.controlsVisible && !uiVm.locked &&
+                        !uiVm.showLines && !uiVm.showGearSheet &&
+                        PlaySession.currentLine()?.episodes
+                            ?.getOrNull(PlaySession.episodeIndex + 1) != null &&
+                        down.position.y > size.height - 140.dp.toPx()
+                    if (!candidate) return@awaitEachGesture
+                    val slop = viewConfiguration.touchSlop
+                    // 在 Initial 阶段自己判 slop：未越过 slop 前不消费任何事件。
+                    val slopChange = withTimeoutOrNull(LONG_PRESS_MS) {
+                        var hit: PointerInputChange? = null
+                        while (hit == null) {
+                            val ev = awaitPointerEvent(PointerEventPass.Initial)
+                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!ch.pressed || ch.isConsumed) break
+                            val dx = ch.position.x - down.position.x
+                            val dy = ch.position.y - down.position.y
+                            if (abs(dx) > slop || abs(dy) > slop) {
+                                if (abs(dy) >= abs(dx)) hit = ch else break
+                            }
+                        }
+                        hit
+                    }
+                    // 长按（超时）/ 轻点 / 横滑：不认领，交给按钮、进度条与手势层
+                    if (slopChange == null) return@awaitEachGesture
+                    slopChange.consume()
+                    swipeNextOverlayClaimed = true
+                    try {
+                        var swipeUpPx = down.position.y - slopChange.position.y
+                        val swipeThresholdPx = 100.dp.toPx()
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            swipeUpPx = down.position.y - change.position.y
+                            uiVm.gestureHint = if (swipeUpPx >= swipeThresholdPx)
+                                "松手切下一集" else "继续上滑切下一集"
+                            change.consume()
+                            if (!change.pressed) break
+                        }
+                        uiVm.gestureHint = null
+                        if (swipeUpPx >= swipeThresholdPx) {
+                            switchEpisode(
+                                PlaySession.lineIndex,
+                                PlaySession.episodeIndex + 1,
+                            )
+                        }
+                    } finally {
+                        uiVm.gestureHint = null
+                        swipeNextOverlayClaimed = false
+                    }
+                }
+            }
     ) {
         if (playUrl.isBlank()) {
             Text(
@@ -1887,73 +1955,6 @@ fun PlayerScreen(
                 // v0.259.0：清晰度“自动”已移到顶栏标题旁只读显示；
                 // 引擎等横屏完整条项只在横屏追加，竖屏收进齿轮。
             }
-        }
-
-        // 底部上滑切下一集·控制栏可见时：手势层在控制栏之下，控制栏显示时
-        // 从控制区起手的竖滑到不了手势层（进度条/按钮先消费），全屏竖屏下
-        // 控制栏一显示上滑就没反应。补一层只认上滑切集的覆盖层，与手势层
-        // 各管一摊：控制栏隐藏时覆盖层不存在，走手势层原逻辑；控制栏可见
-        // 时覆盖层在控制栏之上认领竖滑，横滑/轻点/长按一律不消费，原样交
-        // 给进度条、按钮与手势层，绝不重复切集。选集抽屉与齿轮页是同 Box
-        // 内嵌片（非 Dialog），打开时覆盖层不认领，免得抢选集列表的滚动。
-        if (playUrl.isNotBlank() && uiVm.controlsVisible && !uiVm.locked &&
-            !uiVm.showLines && !uiVm.showGearSheet
-        ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .zIndex(2f)
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            val candidate = !embedded && !isLive &&
-                                cfgOrientation == Configuration.ORIENTATION_PORTRAIT &&
-                                PlaySession.currentLine()?.episodes
-                                    ?.getOrNull(PlaySession.episodeIndex + 1) != null &&
-                                down.position.y > size.height - 140.dp.toPx()
-                            if (!candidate) return@awaitEachGesture
-                            var vertical = false
-                            val slopChange = try {
-                                withTimeout(LONG_PRESS_MS) {
-                                    awaitTouchSlopOrCancellation(down.id) { change, _ ->
-                                        val dx = change.position.x - down.position.x
-                                        val dy = change.position.y - down.position.y
-                                        vertical = abs(dy) >= abs(dx)
-                                    }
-                                }
-                            } catch (e: TimeoutCancellationException) {
-                                // 长按：交给手势层 2x 快放，这里不认领
-                                null
-                            }
-                            if (slopChange == null || !vertical) return@awaitEachGesture
-                            swipeNextOverlayClaimed = true
-                            try {
-                                var last = slopChange.position
-                                var swipeUpPx = 0f
-                                val swipeThresholdPx = 100.dp.toPx()
-                                do {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id }
-                                        ?: break
-                                    last = change.position
-                                    swipeUpPx = down.position.y - last.y
-                                    uiVm.gestureHint = if (swipeUpPx >= swipeThresholdPx)
-                                        "松手切下一集" else "继续上滑切下一集"
-                                    change.consume()
-                                } while (change.pressed)
-                                uiVm.gestureHint = null
-                                if (swipeUpPx >= swipeThresholdPx) {
-                                    switchEpisode(
-                                        PlaySession.lineIndex,
-                                        PlaySession.episodeIndex + 1,
-                                    )
-                                }
-                            } finally {
-                                swipeNextOverlayClaimed = false
-                            }
-                        }
-                    },
-            )
         }
 
         // v0.19.0：线路+选集抽屉；v0.24.0：直播不显示

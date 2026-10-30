@@ -1,5 +1,6 @@
 package com.movieshell.ui.market
 
+import com.movieshell.ui.components.sheetListScrollGuard
 import com.movieshell.ui.theme.V5
 
 import android.os.SystemClock
@@ -599,6 +600,8 @@ private fun ManageMarketsSheet(
     var deleteFor by remember { mutableStateOf<PluginStore.MarketSource?>(null) }
     var validating by remember { mutableStateOf(false) }
 
+    // v0.294.2：弹窗内滚动不在顶时下滑只滚内容，不拖动/收起弹窗
+    val sheetScroll = rememberScrollState()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(
@@ -610,7 +613,8 @@ private fun ManageMarketsSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
+                .sheetListScrollGuard { sheetScroll.canScrollBackward }
+                .verticalScroll(sheetScroll)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {

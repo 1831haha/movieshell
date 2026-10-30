@@ -1,5 +1,6 @@
 package com.movieshell.ui.live
 
+import com.movieshell.ui.components.sheetListScrollGuard
 import com.movieshell.ui.components.V5Segmented
 
 import androidx.compose.material.icons.filled.GraphicEq
@@ -607,6 +608,8 @@ private fun LiveSettingsSheet(
     val context = LocalContext.current
     var tab by remember { mutableStateOf(0) }
     var epgText by remember(globalEpg) { mutableStateOf(globalEpg) }
+    // v0.294.2：弹窗内滚动不在顶时下滑只滚内容，不拖动/收起弹窗
+    val sheetScroll = rememberScrollState()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(
@@ -618,7 +621,8 @@ private fun LiveSettingsSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
+                .sheetListScrollGuard { sheetScroll.canScrollBackward }
+                .verticalScroll(sheetScroll)
                 .padding(horizontal = 24.dp, vertical = 8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {

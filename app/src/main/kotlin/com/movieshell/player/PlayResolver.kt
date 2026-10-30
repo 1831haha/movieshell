@@ -37,6 +37,16 @@ suspend fun resolvePlayUrl(
     if (MagnetPlayer.isMagnet(episode.url)) return episode.url
     val flag = episode.flag.ifBlank { "" }
     val epUrl = episode.url
+    return normalizeResolvedPlayUrl(resolvePlayUrlRaw(context, subSite, flag, epUrl))
+}
+
+/** v0.294.2：原 resolvePlayUrl 主体；出口统一经 [normalizeResolvedPlayUrl] 剥「集名$」前缀。 */
+private suspend fun resolvePlayUrlRaw(
+    context: Context,
+    subSite: Site?,
+    flag: String,
+    epUrl: String,
+): String {
     // v0.246.0：取消重抛——原来外层 runCatching 把取消当普通失败吞掉返回 ""，
     // 调用方以为只是没地址，实际是任务被取消。内层三路顺延同理。
     return try {
@@ -77,12 +87,13 @@ suspend fun resolvePlayUrl(
             // CMS 站：vod_play_url 里就是直链，直接播
             // v0.21.0：防盗链兜底——CMS 直链默认带站点 Referer（经 SniffPlayHeaders 透传）
             subSite.isCmsSite() -> {
-                if (epUrl.isNotBlank()) {
+                val u = normalizeResolvedPlayUrl(epUrl)
+                if (u.isNotBlank()) {
                     apiRoot(subSite.api).takeIf { it.isNotBlank() }?.let { referer ->
-                        SniffPlayHeaders.put(epUrl, mapOf("Referer" to referer))
+                        SniffPlayHeaders.put(u, mapOf("Referer" to referer))
                     }
                 }
-                epUrl
+                u
             }
             // PY 站：playerContent 拿直链 + header；parse=1 时走解析线路（与 Java spider 一致）
             subSite.isPySite() ->
@@ -97,10 +108,11 @@ suspend fun resolvePlayUrl(
                 if (r.parse == 1 && r.url.isBlank()) {
                     AppToast.show(context, "解析失败", long = true)
                 }
-                if (r.url.isNotBlank() && r.header.isNotEmpty()) {
-                    SniffPlayHeaders.put(r.url, r.header)
+                val u = normalizeResolvedPlayUrl(r.url)
+                if (u.isNotBlank() && r.header.isNotEmpty()) {
+                    SniffPlayHeaders.put(u, r.header)
                 }
-                r.url
+                u
             }
             // PHP 站（CLI）：playerContent 拿播放 JSON；parse=1 走解析线路
             subSite.isPhpSite() ->
@@ -118,10 +130,11 @@ suspend fun resolvePlayUrl(
                 if (r.parse == 1 && r.url.isBlank()) {
                     AppToast.show(context, "解析失败", long = true)
                 }
-                if (r.url.isNotBlank() && r.header.isNotEmpty()) {
-                    SniffPlayHeaders.put(r.url, r.header)
+                val u = normalizeResolvedPlayUrl(r.url)
+                if (u.isNotBlank() && r.header.isNotEmpty()) {
+                    SniffPlayHeaders.put(u, r.header)
                 }
-                r.url
+                u
             }
             else ->
                 SubSiteEngines.drpyEngineFor(subSite)?.play(flag, epUrl).orEmpty()
@@ -157,7 +170,9 @@ private suspend fun finishPyPlay(
             Triple("", 0, emptyMap())
         }
     }
-    val (url, parse, header) = r
+    val (rawUrl, parse, header) = r
+    // v0.294.2：先剥「集名$」前缀，header 与解析线路都按真实地址走
+    val url = normalizeResolvedPlayUrl(rawUrl)
     if (url.isBlank()) {
         AppToast.show(context, "该规则未返回播放地址", long = true)
         return ""

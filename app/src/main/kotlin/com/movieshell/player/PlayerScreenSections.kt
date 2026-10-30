@@ -114,10 +114,10 @@ internal fun RoundControlButton(
 ) {
     IconButton(
         onClick = onClick,
-        modifier = modifier
-            .size(size)
-            // v0.292.0 V5（03-player）：媒体控件圆钮——黑 32% 底，图标 22dp
-            .background(Color.Black.copy(alpha = 0.32f), CircleShape),
+        // v0.292.0 V5（03-player）：媒体控件圆钮，图标 22dp。
+        // v0.294.2：去掉每个图标外一圈黑 32% 圆底（用户：“把播放界面的图标一圈的黑边去掉”），
+        // 只留纯白图标；顶/底栏的渐变压暗是单独一层，可读性不受影响。
+        modifier = modifier.size(size),
     ) {
         Icon(icon, contentDescription = desc, tint = tint, modifier = Modifier.size(22.dp))
     }

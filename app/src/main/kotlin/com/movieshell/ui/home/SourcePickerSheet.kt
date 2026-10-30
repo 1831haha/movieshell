@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -82,6 +83,7 @@ import com.movieshell.data.repo.SubCurrent
 import com.movieshell.data.repo.SubSiteRecord
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.V5Chip
+import com.movieshell.ui.components.sheetListScrollGuard
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.faviconUrlForHost
@@ -396,6 +398,8 @@ fun SourcePickerSheet(
     // 新组合，标记天然复位；搜索/筛选改动会取消在途滚动，标记只在滚动完成后才置位，
     // 避免一次取消就永久丢定位）。
     val gridState: LazyGridState = rememberLazyGridState()
+    // v0.294.2：列表三种排法（列表/宽卡/紧凑）也要知道是否在顶，供嵌套滚动守卫判断
+    val listState = rememberLazyListState()
     var scrolledToCurrent by remember { mutableStateOf(false) }
     LaunchedEffect(loading, visible) {
         if (loading || scrolledToCurrent) return@LaunchedEffect
@@ -610,7 +614,7 @@ fun SourcePickerSheet(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().sheetListScrollGuard { gridState.canScrollBackward },
             ) {
                 items(visible, key = { it.id }) { item ->
                     SourceCard2Col(item = item)
@@ -628,7 +632,7 @@ fun SourcePickerSheet(
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().sheetListScrollGuard { gridState.canScrollBackward },
             ) {
                 items(visible, key = { it.id }) { item ->
                     SourceGridCard(item = item)
@@ -636,13 +640,14 @@ fun SourcePickerSheet(
             }
         } else if (layoutMode == 2) {
             LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(
                     start = V5.Gutter,
                     end = V5.Gutter,
                     bottom = 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().sheetListScrollGuard { listState.canScrollBackward },
             ) {
                 items(visible, key = { it.id }) { item ->
                     SourceListRow(item = item)
@@ -650,13 +655,14 @@ fun SourcePickerSheet(
             }
         } else if (layoutMode == 3) {
             LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(
                     start = V5.Gutter,
                     end = V5.Gutter,
                     bottom = 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().sheetListScrollGuard { listState.canScrollBackward },
             ) {
                 items(visible, key = { it.id }) { item ->
                     SourceWideCard(item = item)
@@ -673,7 +679,7 @@ fun SourcePickerSheet(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().sheetListScrollGuard { gridState.canScrollBackward },
             ) {
                 items(visible, key = { it.id }) { item ->
                     SourceGridCard(item = item)
@@ -681,13 +687,14 @@ fun SourcePickerSheet(
             }
         } else {
             LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(
                     start = V5.Gutter,
                     end = V5.Gutter,
                     bottom = 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().sheetListScrollGuard { listState.canScrollBackward },
             ) {
                 items(visible, key = { it.id }) { item ->
                     SourceCompactRow(item = item)
