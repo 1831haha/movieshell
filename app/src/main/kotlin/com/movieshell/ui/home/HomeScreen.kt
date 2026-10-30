@@ -1039,8 +1039,13 @@ fun HomeScreen(
         drpyActive = active
         val curCacheKey = homeCacheKey()
         val lastLoaded = SubSiteStore.lastLoadedSource(context)
+        // 显式换源（用户在胶囊里点选）一定重载：lastLoaded 只记“上次切到哪”，
+        // 它可能与当前展示脱节（首次记账只记不加载、切后加载没跑完又切）；
+        // 靠它相等就跳过加载时，胶囊已随弹窗关闭重组出新名字，内容却还停在
+        // 旧源，正是“点了胶囊内容没跟着换”。显式切换多一次重载无妨；
+        // 非显式路径（切 tab 回来、进程恢复）仍用 lastLoaded 比对，避免无谓重载。
         val switched = curCacheKey != null && (
-            fromUserSwitch && curCacheKey != lastLoaded ||
+            fromUserSwitch ||
                 lastLoaded != null && curCacheKey != lastLoaded
             )
         if (lastLoaded == null && curCacheKey != null) {
