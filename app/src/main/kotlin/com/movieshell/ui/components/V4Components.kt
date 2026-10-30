@@ -682,7 +682,6 @@ data class V4DockItem(
  * - Compose 1.6 没有背景模糊：用 95% 不透明的 #161921 底（[V4Colors.navBg]）。
  * 调用方负责把它摆在内容之上（MainActivity 里浮在 NavHost 上方，不占内容高度）。
  */
-@Composable
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun V4BottomDock(
