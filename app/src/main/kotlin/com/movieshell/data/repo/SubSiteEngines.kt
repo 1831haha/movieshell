@@ -128,11 +128,6 @@ object SubSiteEngines {
     }
 }
 
-/** 详情页站点上下文：从订阅站源点进详情时由 Home/Search/Favorites 写入，DetailScreen 读取。 */
-object DetailSiteHolder {
-    var site: Site? = null
-}
-
 /** 空引擎：规则文件丢失等异常情况用，全空结果，不抛异常。 */
 private object EmptyDrpyEngine : DrpyEngine {
     override fun loadRule(js: String) {}

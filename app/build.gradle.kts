@@ -6,6 +6,20 @@ plugins {
     id("com.chaquo.python")
 }
 
+// Q4：固定 release 签名——四项均从 Gradle 属性（-P）或同名环境变量读取，
+// CI 由仓库 Secrets 解码出 keystore 文件后注入；仓库里不存任何密钥。
+// 四项不全时不配签名：assembleRelease 产出未签名包（app-release-unsigned.apk），
+// 是否允许由 CI 工作流把关（push 到 main 缺 Secrets 直接失败，不再回退随机 key）。
+fun releaseSigningValue(name: String): String? =
+    (providers.gradleProperty(name).orNull ?: providers.environmentVariable(name).orNull)
+        ?.takeIf { it.isNotBlank() }
+val releaseStoreFile = releaseSigningValue("SIGNING_STORE_FILE")
+val releaseStorePassword = releaseSigningValue("SIGNING_STORE_PASSWORD")
+val releaseKeyAlias = releaseSigningValue("SIGNING_KEY_ALIAS")
+val releaseKeyPassword = releaseSigningValue("SIGNING_KEY_PASSWORD")
+val hasReleaseSigning = releaseStoreFile != null && releaseStorePassword != null &&
+    releaseKeyAlias != null && releaseKeyPassword != null
+
 android {
     namespace = "com.movieshell"
     compileSdk = 34
@@ -14,8 +28,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 358
-        versionName = "0.290.0"
+        versionCode = 359
+        versionName = "0.290.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {
@@ -28,8 +42,22 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             // v0.27.3：release 瘦身——R8 混淆 + 资源压缩，dex 65MB 压到 20MB 内
             isMinifyEnabled = true
             isShrinkResources = true
@@ -52,6 +80,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+    // Q4：CI 门槛——lint 报错即失败；存量问题记在 lint-baseline.xml 里，只拦新增问题。
+    // 更新基线：gradle :app:updateLintBaseline（只在确认存量问题可接受时做）。
+    lint {
+        baseline = file("lint-baseline.xml")
+        abortOnError = true
+        checkReleaseBuilds = true
     }
     packaging {
         resources {
