@@ -34,12 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 
-/**
- * 海报卡片（v0.32.0 影院黑毛玻璃 → v0.279.0 V4：无卡片底无描边，
- * 只有 6dp 圆角海报 + 1px 12% 圆环占位；左上角等宽小标签（含 VIP 用琥珀色，
- * 其余备注用暗底标签）；下面 11.5/500 片名一行 + t3 10.5 副标题）。
- * 无海报/图挂时用 V4 柔和渐变占位 + 片名首字，不用假海报。
- */
+/** 海报卡片（v0.292.0 V5 M3 口径，见函数内注释）。 */
 @Composable
 fun PosterCard(
     title: String,
@@ -49,7 +44,9 @@ fun PosterCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
-    val v = MaterialTheme.colorScheme
+    // v0.292.0 V5：海报 12dp 圆角 2:3（比例由调用方定），左下角标（62% 黑底 + labelSmall 白字；VIP 用 tertiaryContainer），
+    // 下面 titleSmall 14/500 片名 + bodySmall onSurfaceVariant 副标题。无图/图挂时主题色柔和占位 + 片名首字。
+    val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(V5.CornerMd)
     Column(
         modifier = modifier
@@ -64,8 +61,7 @@ fun PosterCard(
             shape = shape,
             ring = posterUrl.isNullOrBlank(),
         ) {
-            // v0.212.0 审计修复：海报加载失败原来是空白块，地址有效但图
-            // 挂了时不回落占位；失败后改显示标题首字占位，与无图同款。
+            // v0.212.0 审计修复：海报加载失败后改显示标题首字占位，与无图同款。
             var imageFailed by remember(posterUrl) { mutableStateOf(false) }
             if (!posterUrl.isNullOrBlank() && !imageFailed) {
                 AsyncImage(
@@ -79,44 +75,38 @@ fun PosterCard(
                 Text(
                     text = title.firstOrNull()?.toString() ?: "",
                     modifier = Modifier.align(Alignment.Center),
-                    color = v.onSurface.copy(alpha = 0.22f),
+                    color = cs.onSurface.copy(alpha = 0.28f),
                     fontSize = 28.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            // 1px 内描边，海报与平底分开
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .border(1.dp, v.outlineVariant, shape),
-            )
             if (!badge.isNullOrBlank()) {
                 val isVip = badge.contains("vip", ignoreCase = true)
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(5.dp)
+                        .align(Alignment.BottomStart)
+                        .padding(6.dp)
                         .clip(RoundedCornerShape(V5.CornerXs))
-                        .background(if (isVip) Color(0xE6151208) else Color(0xB3000000))
-                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                        .background(if (isVip) cs.tertiaryContainer else Color(0x9E000000))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
                 ) {
                     Text(
                         text = badge,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isVip) v.tertiary else Color(0xFFE6E8EE),
+                        color = if (isVip) cs.onTertiaryContainer else Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
         }
-        Column(modifier = Modifier.padding(top = 6.dp, start = 1.dp, end = 1.dp, bottom = 2.dp)) {
+        Column(modifier = Modifier.padding(top = 8.dp, start = 2.dp, end = 2.dp, bottom = 2.dp)) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                color = v.onSurface,
+                color = cs.onSurface,
             )
             if (subtitle != null) {
                 Text(
@@ -124,7 +114,7 @@ fun PosterCard(
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = v.outline,
+                    color = cs.onSurfaceVariant,
                 )
             }
         }

@@ -26,8 +26,7 @@ import androidx.compose.ui.unit.dp
  */
 
 /**
- * 开关（v0.279.0 V4：32×18 小开关——开 = 强调色底 + 白拇指，关 = s3 底 + 灰拇指）。
- * 自绘而不用 Material Switch（52×32 太大，和 44dp 设置行比例不对）；触摸区仍 ≥ 40dp。
+ * 开关（v0.292.0 V5：M3 Switch 52×32，开 = primary 轨道；设置行改 56/72dp 后比例合适）。
  */
 @Composable
 fun AppSwitch(
@@ -39,7 +38,7 @@ fun AppSwitch(
     V5Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = modifier, enabled = enabled)
 }
 
-/** 滑杆：强调色轨道 + 白色拇指（阅读器进度、音量类场景）。 */
+/** 滑杆（v0.292.0 V5：M3 primary 轨道 + primary 拇指，未走轨道 secondaryContainer）。 */
 @Composable
 fun AppSlider(
     value: Float,
@@ -56,14 +55,14 @@ fun AppSlider(
         onValueChangeFinished = onValueChangeFinished,
         valueRange = valueRange,
         colors = SliderDefaults.colors(
-            thumbColor = Color.White,
+            thumbColor = v.primary,
             activeTrackColor = v.primary,
-            inactiveTrackColor = v.surfaceContainerHighest,
+            inactiveTrackColor = v.secondaryContainer,
         ),
     )
 }
 
-/** 下拉菜单（V4：s1 底 + 8dp 圆角 + 1px 分隔线描边）。 */
+/** 下拉菜单（v0.292.0 V5：M3 Menu——surfaceContainer 底、16dp 圆角、3dp 阴影、无描边）。 */
 @Composable
 fun AppDropdownMenu(
     expanded: Boolean,
@@ -75,10 +74,9 @@ fun AppDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
         modifier = modifier,
-        shape = RoundedCornerShape(V5.CornerMd),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        shadowElevation = 8.dp,
+        shape = RoundedCornerShape(V5.CornerLg),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        shadowElevation = 3.dp,
         tonalElevation = 0.dp,
         content = content,
     )

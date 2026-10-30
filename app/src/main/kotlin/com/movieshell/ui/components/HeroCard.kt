@@ -47,14 +47,14 @@ fun HeroCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
-    val shape = RoundedCornerShape(V5.CornerMd)
+    // v0.292.0 V5：M3 Carousel 大项口径——28dp 圆角、底部渐变遮罩、玻璃角标。
+    val shape = RoundedCornerShape(V5.CornerXl)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainer)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         var imageFailed by remember(coverUrl) { mutableStateOf(false) }
@@ -97,8 +97,8 @@ fun HeroCard(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(10.dp)
-                    .clip(RoundedCornerShape(V5.CornerMd))
-                    .background(Color(0x88000000))
+                    .clip(RoundedCornerShape(50))
+                    .background(Color(0x33FFFFFF))
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             ) {
                 Text(
