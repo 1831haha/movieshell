@@ -41,7 +41,7 @@ fun CapsuleTabBar(
 ) {
     // v0.279.0 V4：胶囊渐变 tab 改 V4 分段控件（s1 轨道 + s3 选中块，无渐变），
     // 页边距 12dp；参数与行为不变。
-    V4Segmented(
+    V5Segmented(
         options = titles,
         selected = selected,
         onSelect = onSelect,

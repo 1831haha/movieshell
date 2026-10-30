@@ -1,5 +1,8 @@
 package com.movieshell.ui.components
 
+import com.movieshell.ui.theme.V5
+import androidx.compose.material3.MaterialTheme
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
@@ -22,8 +25,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.CompositionLocalProvider
 import com.movieshell.ui.theme.LocalBrandGradient
@@ -46,12 +47,12 @@ fun TabTopBar(
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     // v0.279.0 V4：42dp 顶栏，标题 15/600 主文字色，底部 1px 分隔线（去掉渐变品牌线）。
-    val v = V4.c
+    val v = MaterialTheme.colorScheme
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = V4.TopBar)
+                .heightIn(min = V5.TopBar)
                 .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -60,7 +61,7 @@ fun TabTopBar(
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
-                        tint = v.t1,
+                        tint = v.onSurface,
                         modifier = Modifier.size(20.dp),
                     )
                 }
@@ -70,13 +71,13 @@ fun TabTopBar(
             }
             Text(
                 text = title,
-                style = V4Type.ScreenTitle,
-                color = v.t1,
+                style = MaterialTheme.typography.titleLarge,
+                color = v.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            CompositionLocalProvider(LocalContentColor provides v.t2) {
+            CompositionLocalProvider(LocalContentColor provides v.onSurfaceVariant) {
                 actions()
             }
         }
@@ -84,7 +85,7 @@ fun TabTopBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(v.div),
+                .background(v.outlineVariant),
         )
     }
 }

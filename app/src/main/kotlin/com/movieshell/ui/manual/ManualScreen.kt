@@ -1,5 +1,7 @@
 package com.movieshell.ui.manual
 
+import com.movieshell.ui.theme.V5
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.only
@@ -30,8 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 
 /** 手册章节：标题 + 3~5 条口语化要点。内容是代码常量，不读 assets。 */
 private data class ManualSection(
@@ -310,7 +310,7 @@ fun ManualScreen(onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(inner),
             contentPadding = PaddingValues(
-                horizontal = V4.Gutter,
+                horizontal = V5.Gutter,
                 vertical = 8.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -326,17 +326,17 @@ fun ManualScreen(onBack: () -> Unit) {
 @Composable
 private fun ManualSectionCard(index: Int, section: ManualSection) {
     AppCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(V4.Gutter)) {
+        Column(modifier = Modifier.padding(V5.Gutter)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "$index",
-                    style = V4Type.ScreenTitle,
+                    style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = section.title,
-                    style = V4Type.ScreenTitle,
+                    style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
@@ -348,13 +348,13 @@ private fun ManualSectionCard(index: Int, section: ManualSection) {
                 ) {
                     Text(
                         text = "•",
-                        style = V4Type.Body,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = point,
-                        style = V4Type.Body,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )

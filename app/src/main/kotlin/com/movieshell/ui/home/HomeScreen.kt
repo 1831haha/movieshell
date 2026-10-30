@@ -1,14 +1,14 @@
 package com.movieshell.ui.home
 
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
+import com.movieshell.ui.theme.V5
+
 import androidx.compose.ui.text.font.FontWeight
-import com.movieshell.ui.components.V4SearchField
-import com.movieshell.ui.components.V4IconButton
-import com.movieshell.ui.components.V4Art
-import com.movieshell.ui.components.V4SectionHeader
-import com.movieshell.ui.components.v4Bleed
-import com.movieshell.ui.components.v4BottomDivider
+import com.movieshell.ui.components.V5SearchField
+import com.movieshell.ui.components.V5IconButton
+import com.movieshell.ui.components.V5Art
+import com.movieshell.ui.components.V5SectionHeader
+import com.movieshell.ui.components.v5Bleed
+import com.movieshell.ui.components.v5BottomDivider
 import com.movieshell.ui.components.dockClearance
 import com.movieshell.ui.components.AppDropdownMenu
 import com.movieshell.ui.components.LoadingSkeleton
@@ -117,7 +117,7 @@ import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.V4Chip
+import com.movieshell.ui.components.V5Chip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.data.repo.ThemeStore
@@ -129,7 +129,7 @@ import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
 import com.movieshell.player.OrientationSensor
 import com.movieshell.player.PlaySession
-import com.movieshell.ui.components.V4SectionTitle
+import com.movieshell.ui.components.V5SectionTitle
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.color
@@ -1212,7 +1212,7 @@ fun HomeScreen(
         else -> isSystemInDarkTheme()
     }
     // v0.279.0 V4：平底——不再画光斑；自定义背景底图（设置页更换）照旧在深色下生效。
-    Box(modifier = Modifier.fillMaxSize().background(V4.c.bg)) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (darkTheme) {
             if (customBg != null) {
                 AsyncImage(
@@ -1235,8 +1235,8 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    if (darkTheme && customBg != null) V4.c.bg.copy(alpha = 0.62f)
-                    else V4.c.bg
+                    if (darkTheme && customBg != null) MaterialTheme.colorScheme.background.copy(alpha = 0.62f)
+                    else MaterialTheme.colorScheme.background
                 ),
         ) {
             // v0.45.0：官方 Material3 下拉刷新（替换手搓版）
@@ -1268,7 +1268,7 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize(),
                 // v0.238.0：顶部贴顶——网格顶边距归零，顶栏贴到内容顶
                 // v0.279.0 V4：12dp 页边距、列间 8 / 行间 12；底部让出浮动底栏（dockClearance）。
-                contentPadding = PaddingValues(start = V4.Gutter, top = 0.dp, end = V4.Gutter, bottom = dockClearance() + 8.dp),
+                contentPadding = PaddingValues(start = V5.Gutter, top = 0.dp, end = V5.Gutter, bottom = dockClearance() + 8.dp),
                 verticalArrangement = Arrangement.spacedBy(if (homeLayout.columns > 1) 12.dp else 0.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -1283,14 +1283,14 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        V4SearchField(
+                        V5SearchField(
                             placeholder = "搜索",
                             icon = Icons.Filled.Search,
                             onClick = onSearchClick,
                             modifier = Modifier.weight(1f),
                         )
                         // v0.78.3：首页布局切换（对标 DsPlayer）
-                        V4IconButton(
+                        V5IconButton(
                             icon = homeLayout.icon,
                             contentDescription = "切换布局",
                             onClick = { showLayoutPicker = true },
@@ -1307,12 +1307,12 @@ fun HomeScreen(
                         Row(
                             modifier = Modifier
                                 .weight(1.25f)
-                                .heightIn(min = V4.Field)
-                                .clip(RoundedCornerShape(V4.RField))
-                                .background(V4.c.s1)
+                                .heightIn(min = V5.Field)
+                                .clip(RoundedCornerShape(V5.CornerMd))
+                                .background(MaterialTheme.colorScheme.surfaceContainer)
                                 .border(
                                     BorderStroke(1.5.dp, sourceRingState.color()),
-                                    RoundedCornerShape(V4.RField),
+                                    RoundedCornerShape(V5.CornerMd),
                                 )
                                 .combinedClickable(
                                     onClick = { showSourceSheet = true },
@@ -1330,7 +1330,7 @@ fun HomeScreen(
                             Spacer(Modifier.width(7.dp))
                             Text(
                                 text = sourceLabel.replace("本地·", "本地 · "),
-                                color = V4.c.t1,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
@@ -1341,7 +1341,7 @@ fun HomeScreen(
                             Icon(
                                 imageVector = Icons.Filled.ExpandMore,
                                 contentDescription = if (drpyActive) "切换站源，长按刷新当前源" else "切换站源",
-                                tint = V4.c.t3,
+                                tint = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.size(16.dp),
                             )
                         }
@@ -1353,7 +1353,7 @@ fun HomeScreen(
                         val cwList = watchHistory.distinctBy { it.url.ifBlank { "vod:${it.vodId}" } }
                         Column(modifier = Modifier.fillMaxWidth()) {
                             // v0.279.0 V4：区块标题 + 计数 + “全部 ›”（进播放历史页）
-                            V4SectionHeader(
+                            V5SectionHeader(
                                 title = "继续观看",
                                 count = "${cwList.size}",
                                 actionText = "全部",
@@ -1373,7 +1373,7 @@ fun HomeScreen(
                                     Column(
                                         modifier = Modifier
                                             .width(182.dp)
-                                            .clip(RoundedCornerShape(V4.RPoster))
+                                            .clip(RoundedCornerShape(V5.CornerMd))
                                             .clickable {
                                                 onContinueWatch(
                                                     h.vodId, h.title,
@@ -1382,7 +1382,7 @@ fun HomeScreen(
                                                 )
                                             },
                                     ) {
-                                        V4Art(
+                                        V5Art(
                                             seed = h.title,
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -1404,7 +1404,7 @@ fun HomeScreen(
                                                 Box(
                                                     modifier = Modifier
                                                         .size(22.dp)
-                                                        .clip(RoundedCornerShape(V4.RSm))
+                                                        .clip(RoundedCornerShape(V5.CornerSm))
                                                         .background(Color.Black.copy(alpha = 0.45f)),
                                                     contentAlignment = Alignment.Center,
                                                 ) {
@@ -1429,7 +1429,7 @@ fun HomeScreen(
                                                         Modifier
                                                             .fillMaxWidth(progress)
                                                             .height(3.dp)
-                                                            .background(V4.c.accent),
+                                                            .background(MaterialTheme.colorScheme.primary),
                                                     )
                                                 }
                                             }
@@ -1439,7 +1439,7 @@ fun HomeScreen(
                                             text = h.title,
                                             fontSize = 12.5.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = V4.c.t1,
+                                            color = MaterialTheme.colorScheme.onSurface,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
@@ -1460,7 +1460,7 @@ fun HomeScreen(
                                                 }
                                             }.ifBlank { "继续观看" },
                                             fontSize = 10.5.sp,
-                                            color = V4.c.t3,
+                                            color = MaterialTheme.colorScheme.outline,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
@@ -1543,18 +1543,18 @@ fun HomeScreen(
                             item(span = { GridItemSpan(maxLineSpan) }) {
                                 Row(
                                     modifier = Modifier
-                                        .v4Bleed(V4.Gutter)
-                                        .heightIn(min = V4.FilterStrip)
-                                        .v4BottomDivider(V4.c.div)
+                                        .v5Bleed(V5.Gutter)
+                                        .heightIn(min = V5.FilterStrip)
+                                        .v5BottomDivider(MaterialTheme.colorScheme.outlineVariant)
                                         .horizontalScroll(rememberScrollState())
-                                        .padding(horizontal = V4.Gutter),
+                                        .padding(horizontal = V5.Gutter),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                                 ) {
                                     Icon(
                                         Icons.Filled.Tune,
                                         contentDescription = "筛选",
-                                        tint = V4.c.t2,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(15.dp),
                                     )
                                     filterGroups.forEach { filterGroup ->
@@ -1593,7 +1593,7 @@ fun HomeScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            V4SectionHeader(
+                            V5SectionHeader(
                                 title = drpyCats.firstOrNull { it.typeId == selectedCategory }?.typeName ?: "今日推荐",
                                 count = if (filtered.isNotEmpty()) "${filtered.size}" else null,
                                 modifier = Modifier.weight(1f),
@@ -1602,12 +1602,12 @@ fun HomeScreen(
                                 Text(
                                     text = "旧内容·刷新中",
                                     fontSize = 10.5.sp,
-                                    color = V4.c.t3,
+                                    color = MaterialTheme.colorScheme.outline,
                                 )
                                 Spacer(Modifier.width(8.dp))
                             }
                             // v0.212.0：换一换按种子真随机洗牌，换批即回顶。
-                            V4SectionHeader(
+                            V5SectionHeader(
                                 title = "",
                                 actionText = "换一换",
                                 actionIcon = Icons.Filled.Refresh,
@@ -1722,10 +1722,10 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .heightIn(max = 420.dp),
                 ) {
-                    Column(modifier = Modifier.padding(V4.Gutter)) {
+                    Column(modifier = Modifier.padding(V5.Gutter)) {
                         Text(
                             text = "首页布局",
-                            style = V4Type.RowTitle,
+                            style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(bottom = 8.dp),
                         )
@@ -1734,7 +1734,7 @@ fun HomeScreen(
                                 icon = entry.icon,
                                 title = entry.label,
                                 subtitle = when (entry) {
-                                    HomeLayout.GRID_4 -> "V4 默认，信息密度最高的海报墙"
+                                    HomeLayout.GRID_4 -> "信息密度最高的海报墙"
                                     HomeLayout.GRID_3 -> "一屏看更多"
                                     HomeLayout.GRID_2 -> "海报更大"
                                     HomeLayout.COMPACT_LIST -> "小图 + 文字"
@@ -1767,8 +1767,8 @@ fun HomeScreen(
             ModalBottomSheet(
                 onDismissRequest = { showSourceSheet = false },
                 shape = RoundedCornerShape(
-                    topStart = V4.RField,
-                    topEnd = V4.RField,
+                    topStart = V5.CornerMd,
+                    topEnd = V5.CornerMd,
                 ),
                 containerColor = MaterialTheme.colorScheme.surface,
             ) {
@@ -1789,7 +1789,7 @@ private fun RowScope.HomeRowTexts(vod: ModelVod, subtitle: String?, subtitleGap:
     Column(modifier = Modifier.weight(1f)) {
         Text(
             text = vod.vodName,
-            style = V4Type.Body,
+            style = MaterialTheme.typography.bodyMedium,
             // v0.82.0：显示不全跑马灯
             modifier = Modifier.basicMarquee(),
             color = MaterialTheme.colorScheme.onSurface,
@@ -1799,7 +1799,7 @@ private fun RowScope.HomeRowTexts(vod: ModelVod, subtitle: String?, subtitleGap:
             if (subtitleGap) Spacer(Modifier.height(4.dp))
             Text(
                 text = subtitle,
-                style = V4Type.Meta,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1816,7 +1816,7 @@ private fun HomeRowRemarks(remarks: String, leadingSpacer: Boolean) {
     Text(
         text = remarks,
         fontSize = 11.sp,
-        color = V4.c.vip,
+        color = MaterialTheme.colorScheme.tertiary,
         maxLines = 1,
     )
 }
@@ -1826,7 +1826,7 @@ private fun HomeCompactRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .v4BottomDivider(V4.c.div)
+            .v5BottomDivider(MaterialTheme.colorScheme.outlineVariant)
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1850,7 +1850,7 @@ private fun HomeCompactRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit
             ) {
                 Text(
                     text = vod.vodName.take(1),
-                    style = V4Type.RowTitle,
+                    style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -1867,7 +1867,7 @@ private fun HomeTextRow(vod: ModelVod, subtitle: String?, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .v4BottomDivider(V4.c.div)
+            .v5BottomDivider(MaterialTheme.colorScheme.outlineVariant)
             .clickable(onClick = onClick)
             .padding(horizontal = 2.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1903,7 +1903,7 @@ private fun HomeCapsule(
             Spacer(Modifier.width(6.dp))
             Text(
                 text = text,
-                style = V4Type.RowTitle,
+                style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 softWrap = false,
@@ -1924,25 +1924,25 @@ private fun HomeFilterDim(
     onPick: (String) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
-    val v = V4.c
+    val v = MaterialTheme.colorScheme
     val selName = options.firstOrNull { it.second == selectedValue }?.first
     Box {
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(V4.RSm))
+                .clip(RoundedCornerShape(V5.CornerSm))
                 .clickable { open = true }
                 .padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (name.isNotBlank()) {
-                Text(name, fontSize = 12.sp, color = v.t3, maxLines = 1)
+                Text(name, fontSize = 12.sp, color = v.outline, maxLines = 1)
                 Spacer(Modifier.width(5.dp))
             }
             Text(
                 selName ?: "全部",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                color = if (selName != null) v.accent else v.t1,
+                color = if (selName != null) v.primary else v.onSurface,
                 maxLines = 1,
             )
         }
@@ -1955,11 +1955,11 @@ private fun HomeFilterDim(
                             label,
                             fontSize = 12.5.sp,
                             fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (on) v.accent else v.t1,
+                            color = if (on) v.primary else v.onSurface,
                         )
                     },
                     trailingIcon = if (on) {
-                        { Icon(Icons.Filled.Check, null, tint = v.accent, modifier = Modifier.size(16.dp)) }
+                        { Icon(Icons.Filled.Check, null, tint = v.primary, modifier = Modifier.size(16.dp)) }
                     } else null,
                     onClick = {
                         open = false

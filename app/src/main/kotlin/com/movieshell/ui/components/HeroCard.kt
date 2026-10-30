@@ -1,5 +1,7 @@
 package com.movieshell.ui.components
 
+import com.movieshell.ui.theme.V5
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,7 +30,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.movieshell.ui.theme.V4
 
 /**
  * v0.234.0 新 UI：Hero 大卡（DaoBox hero_card 词汇的 Compose 版）。
@@ -46,14 +47,14 @@ fun HeroCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
-    val shape = RoundedCornerShape(V4.RField)
+    val shape = RoundedCornerShape(V5.CornerMd)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
             .clip(shape)
-            .background(V4.c.s1)
-            .border(1.dp, V4.c.div, shape)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         var imageFailed by remember(coverUrl) { mutableStateOf(false) }
@@ -96,7 +97,7 @@ fun HeroCard(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(10.dp)
-                    .clip(RoundedCornerShape(V4.RPoster))
+                    .clip(RoundedCornerShape(V5.CornerMd))
                     .background(Color(0x88000000))
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             ) {

@@ -1,5 +1,7 @@
 package com.movieshell.ui.components
 
+import com.movieshell.ui.theme.V5
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,8 +30,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 
 /**
  * v0.234.0 新 UI：通用列表行（DaoBox list_row 词汇的 Compose 版）。
@@ -46,7 +46,7 @@ fun ListRow(
     onClick: (() -> Unit)? = null,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
-    val thumbShape = RoundedCornerShape(V4.RPoster)
+    val thumbShape = RoundedCornerShape(V5.CornerMd)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -58,8 +58,8 @@ fun ListRow(
             modifier = Modifier
                 .size(48.dp)
                 .clip(thumbShape)
-                .background(com.movieshell.ui.theme.V4.c.s2)
-                .border(1.dp, V4.c.div, thumbShape),
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, thumbShape),
             contentAlignment = Alignment.Center,
         ) {
             var imageFailed by remember(thumbUrl) { mutableStateOf(false) }
@@ -87,7 +87,7 @@ fun ListRow(
         ) {
             Text(
                 text = title,
-                style = V4Type.RowTitle,
+                style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -95,7 +95,7 @@ fun ListRow(
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
-                    style = V4Type.Meta,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

@@ -1,14 +1,14 @@
 package com.movieshell.ui.live
 
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
-import com.movieshell.ui.components.V4Divider
-import com.movieshell.ui.components.V4IconButton
-import com.movieshell.ui.components.V4Tag
-import com.movieshell.ui.components.V4TagKind
-import com.movieshell.ui.components.V4Chip
+import com.movieshell.ui.theme.V5
+
+import com.movieshell.ui.components.V5Divider
+import com.movieshell.ui.components.V5IconButton
+import com.movieshell.ui.components.V5Tag
+import com.movieshell.ui.components.V5TagKind
+import com.movieshell.ui.components.V5Chip
 import com.movieshell.ui.components.dockClearance
-import com.movieshell.ui.components.v4BottomDivider
+import com.movieshell.ui.components.v5BottomDivider
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.heightIn
@@ -451,14 +451,14 @@ fun LiveScreen(
                     Text(
                         text = "线路",
                         fontSize = 12.sp,
-                        color = V4.c.t3,
+                        color = MaterialTheme.colorScheme.outline,
                     )
                     Spacer(Modifier.width(10.dp))
                     Row(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(V4.RField))
-                            .background(V4.c.s1)
+                            .clip(RoundedCornerShape(V5.CornerMd))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
                             .horizontalScroll(rememberScrollState())
                             .padding(2.dp),
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -482,7 +482,7 @@ fun LiveScreen(
                         .padding(horizontal = 12.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    V4Chip(
+                    V5Chip(
                         text = "全部",
                         selected = selectedLiveSource == null,
                         small = true,
@@ -492,7 +492,7 @@ fun LiveScreen(
                         },
                     )
                     sourceKeys.forEach { key ->
-                        V4Chip(
+                        V5Chip(
                             small = true,
                             text = liveSourceLabel(key),
                             selected = selectedLiveSource == key,
@@ -546,8 +546,8 @@ fun LiveScreen(
             // v0.160.0：两列：分组 | 频道（右列源已移到播放器下方）
             // v0.279.0 V4：分组栏 + 频道列表直接贴平底，顶部 1px 分隔线；
             // 列表底部留出浮动底栏高度（dockClearance）。
-            V4Divider()
-            val dividerColor = V4.c.div
+            V5Divider()
+            val dividerColor = MaterialTheme.colorScheme.outlineVariant
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -664,8 +664,8 @@ private fun LiveSettingsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(
-            topStart = V4.RField,
-            topEnd = V4.RField,
+            topStart = V5.CornerMd,
+            topEnd = V5.CornerMd,
         ),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
@@ -678,7 +678,7 @@ private fun LiveSettingsSheet(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "直播设置",
-                    style = V4Type.RowTitle,
+                    style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.weight(1f))
@@ -688,7 +688,7 @@ private fun LiveSettingsSheet(
             }
             Text(
                 text = "切换生效直播源 / 配置 EPG 节目单兜底源",
-                style = V4Type.Meta,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
@@ -715,7 +715,7 @@ private fun LiveSettingsSheet(
                 ) {
                     Text(
                         text = "切回接口默认直播源",
-                        style = V4Type.Body,
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = if (selectedLiveSource == null) FontWeight.Bold else FontWeight.Normal,
                         color = if (selectedLiveSource == null) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurface,
@@ -724,7 +724,7 @@ private fun LiveSettingsSheet(
                 if (sourceKeys.isEmpty()) {
                     Text(
                         text = "暂无直播源",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -743,7 +743,7 @@ private fun LiveSettingsSheet(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = liveSourceLabel(key),
-                                style = V4Type.Body,
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = if (selectedLiveSource == key) FontWeight.Bold else FontWeight.Normal,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -751,7 +751,7 @@ private fun LiveSettingsSheet(
                         }
                         Text(
                             text = if (key == "manual") "手动" else "接口",
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -759,11 +759,11 @@ private fun LiveSettingsSheet(
             } else {
                 Text(
                     text = "全局节目单（兜底）",
-                    style = V4Type.RowTitle,
+                    style = MaterialTheme.typography.bodyLarge,
                 )
                 Text(
                     text = "本源无节目单时用它查正在播 / 下一档；不填则不兜底，不内置任何源",
-                    style = V4Type.Meta,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -801,7 +801,7 @@ private fun LiveSettingsSheet(
             )
             Text(
                 text = "添加/删除订阅、导入本地、手动加频道走整页",
-                style = V4Type.Meta,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(24.dp))
@@ -827,7 +827,7 @@ private fun ProgramInfoCard(
     val (now, next) = epg ?: (null to null)
     // v0.279.0 V4：节目信息不再是卡片——平底一行：台名 15/600 + 分组 t3，
     // 下面一行节目单（t2/t3），右侧三个线性图标（搜索/收藏/直播设置）。
-    val v = V4.c
+    val v = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -838,8 +838,8 @@ private fun ProgramInfoCard(
             Box(
                 modifier = Modifier
                     .size(30.dp)
-                    .clip(RoundedCornerShape(V4.RPoster))
-                    .background(v.s1),
+                    .clip(RoundedCornerShape(V5.CornerMd))
+                    .background(v.surfaceContainer),
                 contentAlignment = Alignment.Center,
             ) {
                 AsyncImage(
@@ -857,7 +857,7 @@ private fun ProgramInfoCard(
                     text = channel?.name ?: "暂无频道",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = v.t1,
+                    color = v.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
@@ -867,7 +867,7 @@ private fun ProgramInfoCard(
                     Text(
                         text = channel?.group.orEmpty(),
                         fontSize = 11.sp,
-                        color = v.t3,
+                        color = v.outline,
                         maxLines = 1,
                     )
                 }
@@ -875,13 +875,13 @@ private fun ProgramInfoCard(
             Spacer(Modifier.height(2.dp))
             if (now != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("正在播", fontSize = 11.sp, color = v.t3)
+                    Text("正在播", fontSize = 11.sp, color = v.outline)
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = now.title,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Medium,
-                        color = v.t2,
+                        color = v.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
@@ -889,15 +889,15 @@ private fun ProgramInfoCard(
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = "${timeFmt.format(Date(now.startMs))}-${timeFmt.format(Date(now.stopMs))}",
-                        style = V4Type.MonoSmall,
-                        color = v.t3,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = v.outline,
                     )
                 }
                 if (next != null) {
                     Text(
                         text = "下一档 ${timeFmt.format(Date(next.startMs))} ${next.title}",
                         fontSize = 11.sp,
-                        color = v.t3,
+                        color = v.outline,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -906,23 +906,23 @@ private fun ProgramInfoCard(
                 Text(
                     text = if (!hasEpgSource) "暂无节目单，可在直播设置 EPG 里填全局节目单地址" else "节目单加载中…",
                     fontSize = 11.sp,
-                    color = v.t2,
+                    color = v.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
         // v0.176.0：顶栏移过来的三个入口，无频道时只留搜索和设置，收藏无台可收
-        V4IconButton(Icons.Outlined.Search, "搜索频道", onSearchClick)
+        V5IconButton(Icons.Outlined.Search, "搜索频道", onSearchClick)
         if (channel != null) {
-            V4IconButton(
+            V5IconButton(
                 if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
                 if (isFavorite) "取消收藏" else "收藏",
                 onFavoriteClick,
-                tint = if (isFavorite) v.vip else v.t2,
+                tint = if (isFavorite) v.tertiary else v.onSurfaceVariant,
             )
         }
-        V4IconButton(Icons.Outlined.Settings, "直播设置", onSettingsClick)
+        V5IconButton(Icons.Outlined.Settings, "直播设置", onSettingsClick)
     }
 }
 
@@ -942,14 +942,14 @@ private fun GroupButton(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val v = V4.c
+    val v = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(48.dp)
-            .background(if (selected) v.s1 else Color.Transparent)
+            .background(if (selected) v.surfaceContainer else Color.Transparent)
             .drawBehind {
-                if (selected) drawRect(v.accent, size = androidx.compose.ui.geometry.Size(2.dp.toPx(), size.height))
+                if (selected) drawRect(v.primary, size = androidx.compose.ui.geometry.Size(2.dp.toPx(), size.height))
             }
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp),
@@ -959,7 +959,7 @@ private fun GroupButton(
             text = name,
             fontSize = 12.5.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) v.t1 else v.t2,
+            color = if (selected) v.onSurface else v.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -979,21 +979,21 @@ private fun ChannelCell(
 ) {
     // v0.279.0 V4：40dp 频道行——等宽序号、台名、分组 t3、直播标签、收藏星；
     // 在播行强调色 12% 底 + 强调色字，行间 1px 分隔线。
-    val v = V4.c
+    val v = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = V4.RowChannel + 8.dp)
-            .background(if (isPlaying) v.accentA else Color.Transparent)
-            .v4BottomDivider(v.div)
+            .heightIn(min = V5.RowChannel + 8.dp)
+            .background(if (isPlaying) v.secondaryContainer else Color.Transparent)
+            .v5BottomDivider(v.outlineVariant)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(start = 12.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = "%02d".format(index),
-            style = V4Type.MonoMeta,
-            color = if (isPlaying) v.accent else v.t3,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (isPlaying) v.primary else v.outline,
             modifier = Modifier.width(26.dp),
         )
         if (channel.logo.isNotBlank()) {
@@ -1002,7 +1002,7 @@ private fun ChannelCell(
                 contentDescription = channel.name,
                 modifier = Modifier
                     .size(22.dp)
-                    .clip(RoundedCornerShape(V4.RSm)),
+                    .clip(RoundedCornerShape(V5.CornerSm)),
                 contentScale = ContentScale.Fit,
             )
             Spacer(Modifier.width(8.dp))
@@ -1014,7 +1014,7 @@ private fun ChannelCell(
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                color = if (isPlaying) v.accent else v.t1,
+                color = if (isPlaying) v.primary else v.onSurface,
                 modifier = Modifier.weight(1f, fill = false),
             )
             if (channel.group.isNotBlank()) {
@@ -1022,7 +1022,7 @@ private fun ChannelCell(
                 Text(
                     text = channel.group,
                     fontSize = 11.sp,
-                    color = v.t3,
+                    color = v.outline,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
@@ -1030,16 +1030,16 @@ private fun ChannelCell(
             }
             if (channel.stale) {
                 Spacer(Modifier.width(6.dp))
-                Text(text = "过期", fontSize = 10.sp, color = v.live, maxLines = 1)
+                Text(text = "过期", fontSize = 10.sp, color = v.error, maxLines = 1)
             }
         }
         Spacer(Modifier.width(6.dp))
-        V4Tag("直播", V4TagKind.Live)
+        V5Tag("直播", V5TagKind.Live)
         IconButton(onClick = onFavorite, modifier = Modifier.size(36.dp)) {
             Icon(
                 if (channel.favorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
                 contentDescription = if (channel.favorite) "取消收藏" else "收藏",
-                tint = if (channel.favorite) v.vip else if (isPlaying) v.accent else v.t3,
+                tint = if (channel.favorite) v.tertiary else if (isPlaying) v.primary else v.outline,
                 modifier = Modifier.size(17.dp),
             )
         }
@@ -1053,13 +1053,13 @@ private fun SourceButton(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val v = V4.c
+    val v = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
             .widthIn(min = 50.dp)
             .height(28.dp)
-            .clip(RoundedCornerShape(V4.RPoster))
-            .background(if (selected) v.s3 else Color.Transparent)
+            .clip(RoundedCornerShape(V5.CornerMd))
+            .background(if (selected) v.surfaceContainerHighest else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
@@ -1068,7 +1068,7 @@ private fun SourceButton(
             text = label,
             fontSize = 12.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) v.t1 else v.t2,
+            color = if (selected) v.onSurface else v.onSurfaceVariant,
             maxLines = 1,
         )
     }
@@ -1101,8 +1101,8 @@ private fun ChannelDetailSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(
-            topStart = V4.RField,
-            topEnd = V4.RField,
+            topStart = V5.CornerMd,
+            topEnd = V5.CornerMd,
         ),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
@@ -1130,7 +1130,7 @@ private fun ChannelDetailSheet(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         channel.name,
-                        style = V4Type.RowTitle,
+                        style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
@@ -1140,7 +1140,7 @@ private fun ChannelDetailSheet(
                                 channel.sourceKey.startsWith("m3u:") -> "订阅：" + channel.sourceKey.removePrefix("m3u:")
                                 else -> "本地源"
                             },
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1148,7 +1148,7 @@ private fun ChannelDetailSheet(
                     Icon(
                         if (channel.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
                         contentDescription = "收藏",
-                        tint = if (channel.favorite) V4.c.vip
+                        tint = if (channel.favorite) MaterialTheme.colorScheme.tertiary
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1158,25 +1158,25 @@ private fun ChannelDetailSheet(
             if (channel.epgUrl.isNotBlank() || globalEpgDetail.isNotBlank()) {
                 Text(
                     "节目单",
-                    style = V4Type.RowTitle,
+                    style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.height(4.dp))
                 when {
-                    epgLoading -> Text("加载中…", style = V4Type.Meta)
+                    epgLoading -> Text("加载中…", style = MaterialTheme.typography.bodySmall)
                     epg == null || (epg?.first == null && epg?.second == null) ->
-                        Text("暂无节目数据", style = V4Type.Meta)
+                        Text("暂无节目数据", style = MaterialTheme.typography.bodySmall)
                     else -> {
                         epg?.first?.let { p ->
                             Text(
                                 "正在播：${p.title}（${timeFmt.format(Date(p.startMs))}–${timeFmt.format(Date(p.stopMs))}）",
-                                style = V4Type.Body,
+                                style = MaterialTheme.typography.bodyMedium,
                             )
                         }
                         epg?.second?.let { p ->
                             Text(
                                 "接下来：${p.title}（${timeFmt.format(Date(p.startMs))}）",
-                                style = V4Type.Body,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -1324,11 +1324,11 @@ fun LiveManageScreen(onBack: () -> Unit) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
                             "全局节目单（兜底）",
-                            style = V4Type.RowTitle,
+                            style = MaterialTheme.typography.bodyLarge,
                         )
                         Text(
                             "本源无节目单时用它查正在播 / 下一档；不填则不兜底，不内置任何源",
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(8.dp))
@@ -1384,11 +1384,11 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 s.name,
-                                style = V4Type.RowTitle,
+                                style = MaterialTheme.typography.bodyLarge,
                             )
                             Text(
                                 if (s.type == LiveSource.LOCAL_FILE) "本地文件" else s.url,
-                                style = V4Type.Meta,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -1432,7 +1432,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                 Column {
                     Text(
                         text = "名称",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1443,7 +1443,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = "订阅地址",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1457,8 +1457,8 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = "请输入 http(s) 开头的地址",
-                            style = V4Type.Meta,
-                            color = V4.c.live,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
                         )
                     }
                 }
@@ -1491,7 +1491,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                 Column {
                     Text(
                         text = "频道名",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1502,7 +1502,7 @@ fun LiveManageScreen(onBack: () -> Unit) {
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = "播放地址",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1516,14 +1516,14 @@ fun LiveManageScreen(onBack: () -> Unit) {
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = "请输入 http(s) 开头的地址",
-                            style = V4Type.Meta,
-                            color = V4.c.live,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
                         )
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = "台标地址（可选）",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))

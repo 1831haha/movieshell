@@ -1,5 +1,7 @@
 package com.movieshell.ui.preview
 
+import com.movieshell.ui.theme.V5
+
 import android.content.ClipData
 import com.movieshell.ui.components.AppToast
 import android.content.Context
@@ -52,8 +54,6 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import java.io.File
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 
 /** FileProvider authority：跟随 applicationId（debug/release 包名不同） */
 fun fileProviderAuthority(context: Context) = "${context.packageName}.fileprovider"
@@ -307,13 +307,13 @@ fun FilePreviewScreen(
             if (truncated) {
                 AppCard(
                     modifier = Modifier.padding(
-                        horizontal = V4.Gutter,
+                        horizontal = V5.Gutter,
                         vertical = 8.dp,
                     ),
                 ) {
                     Text(
                         text = "文件超过 200KB，仅显示前 200KB（只读预览不影响原文件）",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(8.dp),
                     )
@@ -323,7 +323,7 @@ fun FilePreviewScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = V4.Gutter),
+                    .padding(horizontal = V5.Gutter),
             ) {
                 // v0.273.0（T30 余项）：高亮结果 remember 缓存——原来每次重组都
                 // 对整段文本跑一遍正则高亮；文本已在 v0.246.0 限流到 200KB，

@@ -1,6 +1,8 @@
 package com.movieshell.ui.settings
 
-import com.movieshell.ui.theme.V4
+import com.movieshell.ui.theme.V5
+import com.movieshell.ui.theme.ok
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.safeDrawing
@@ -51,7 +53,6 @@ import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppTextField
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
-import com.movieshell.ui.theme.V4Type
 
 /**
  * 解析接口子页面（v0.78.2）。
@@ -130,7 +131,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner)
-                .padding(V4.Gutter),
+                .padding(V5.Gutter),
         ) {
             item {
                 SettingsGroup(title = "管理") {
@@ -155,7 +156,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                 item {
                     Text(
                         text = "暂无自定义解析，播放时只用订阅自带的解析线路",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
@@ -164,7 +165,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                 item {
                     Text(
                         text = "共 ${customParses.size} 条（点单条测活）",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
@@ -197,7 +198,7 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                                     true -> Icon(
                                         Icons.Filled.CheckCircle,
                                         contentDescription = "正常",
-                                        tint = V4.c.ok,
+                                        tint = MaterialTheme.colorScheme.ok,
                                         modifier = Modifier.size(20.dp),
                                     )
                                     false -> Icon(
@@ -266,34 +267,34 @@ fun ParseSettingsScreen(onBack: () -> Unit) {
                         RadioButton(selected = parseType == 1, onClick = { parseType = 1 })
                         Text(
                             "JSON 接口",
-                            style = V4Type.Body,
+                            style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.clickable { parseType = 1 },
                         )
                         Spacer(modifier = Modifier.width(16.dp))
                         RadioButton(selected = parseType == 0, onClick = { parseType = 0 })
                         Text(
                             "网页嗅探",
-                            style = V4Type.Body,
+                            style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.clickable { parseType = 0 },
                         )
                         Spacer(modifier = Modifier.width(16.dp))
                         RadioButton(selected = parseType == 99, onClick = { parseType = 99 })
                         Text(
                             "yt-dlp 通用",
-                            style = V4Type.Body,
+                            style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.clickable { parseType = 99 },
                         )
                     }
                     Text(
                         text = "JSON：GET 地址+视频地址，取返回 JSON 的 url 字段；嗅探：用 WebView 打开抓直链；yt-dlp 通用：无规则视频页的通用解析，需先在插件市场安装 yt-dlp 通用解析包，地址栏留空即可（自动填 ytdlp://generic，仅作线路标识）",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     addError?.let { err ->
                         Spacer(Modifier.height(8.dp))
                         Text(
                             text = err,
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
                     }

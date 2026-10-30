@@ -1,5 +1,13 @@
 package com.movieshell
 
+import androidx.compose.ui.graphics.luminance
+
+import androidx.compose.ui.graphics.toArgb
+
+import androidx.compose.runtime.SideEffect
+
+import com.movieshell.ui.theme.V5
+
 import android.net.Uri
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.AppToastOverlay
@@ -42,6 +50,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
@@ -118,11 +127,9 @@ import com.movieshell.ui.download.DownloadScreen
 import com.movieshell.ui.follow.FollowScreen
 import com.movieshell.ui.history.HistoryScreen
 import com.movieshell.ui.reader.ReaderScreen
-import com.movieshell.ui.components.V4BottomDock
-import com.movieshell.ui.components.V4DockItem
+import com.movieshell.ui.components.V5NavigationBar
+import com.movieshell.ui.components.V5NavItem
 import com.movieshell.ui.components.LocalDockClearance
-import com.movieshell.ui.components.V4DockFade
-import com.movieshell.ui.theme.V4
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
@@ -150,7 +157,7 @@ import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.settings.SniffPatternsScreen
 import com.movieshell.ui.sources.SourcesScreen
 import com.movieshell.ui.theme.MovieShellTheme
-import com.movieshell.ui.theme.SoftMotion
+import com.movieshell.ui.theme.V5Motion
 import com.movieshell.ui.web.WebSniffScreen
 import com.movieshell.ui.music.MusicPlayerScreen
 
@@ -166,15 +173,16 @@ private data class Tab(
 // 全量重做：底栏 6 TAB——首页/直播/书架/音乐/AI/设置；框架先起来，
 // AI 具体内容后面再完善（AiScreen 目前只有新风格外壳，不做假功能）。
 // F2：AI 空壳先从底栏移除，底栏回到 5 TAB，功能做好再加回。
-// 未选中用 Outlined，选中用 Filled＋青色（V4BottomDock 里处理）。
+// 未选中用 Outlined，选中用 Filled＋青色（V5NavigationBar 里处理）。
 // v0.279.0 V4 NAV B：线性图标（Lucide 风格），选中/未选中同一套描边图标，
 // 选中靠强调色药丸 + 白色图标文字区分。
 private val tabs = listOf(
-    Tab("home", "首页", Icons.Outlined.Home, Icons.Outlined.Home),
-    Tab("live", "直播", Icons.Outlined.LiveTv, Icons.Outlined.LiveTv),
-    Tab("bookshelf", "书架", Icons.Outlined.Book, Icons.Outlined.Book),
-    Tab("music", "音乐", Icons.Outlined.MusicNote, Icons.Outlined.MusicNote),
-    Tab("settings", "设置", Icons.Outlined.Settings, Icons.Outlined.Settings),
+    // v0.292.0 V5：M3 NavigationBar——未选中描边图标、选中实心图标（Material Symbols 口径）。
+    Tab("home", "首页", Icons.Outlined.Home, Icons.Filled.Home),
+    Tab("live", "直播", Icons.Outlined.LiveTv, Icons.Filled.LiveTv),
+    Tab("bookshelf", "书架", Icons.Outlined.Book, Icons.Filled.Book),
+    Tab("music", "音乐", Icons.Outlined.MusicNote, Icons.Filled.MusicNote),
+    Tab("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings),
 )
 
 // v0.222.0：tab 级目的地（含经 navigateTab 到达的 search）——tab 切换的
@@ -400,6 +408,24 @@ class MainActivity : ComponentActivity() {
                 val showBottomBar = (current?.hierarchy?.any { dest ->
                     tabs.any { it.route == dest.route }
                 } == true) && !liveLandscape && !imeVisible
+                // v0.292.0 V5：系统栏跟 M3 色板走——状态栏取当前页底色（设置页 surfaceContainer，
+                // 其余 surface），导航栏有底栏时与 NavigationBar 同色；图标深浅随色板明暗。
+                // 视频播放页自己管沉浸式（隐藏系统栏），这里只改颜色不改可见性。
+                val sysScheme = MaterialTheme.colorScheme
+                val statusBg = if (curRoute == "settings") sysScheme.surfaceContainer else sysScheme.background
+                val navBg = if (showBottomBar) sysScheme.surfaceContainer else sysScheme.background
+                SideEffect {
+                    val w = this@MainActivity.window
+                    @Suppress("DEPRECATION")
+                    w.statusBarColor = statusBg.toArgb()
+                    @Suppress("DEPRECATION")
+                    w.navigationBarColor = navBg.toArgb()
+                    val light = statusBg.luminance() > 0.5f
+                    androidx.core.view.WindowCompat.getInsetsController(w, w.decorView).apply {
+                        isAppearanceLightStatusBars = light
+                        isAppearanceLightNavigationBars = navBg.luminance() > 0.5f
+                    }
+                }
                 // v0.91.0：全局迷你播放条——有在播曲目且不在播放页/视频页时，悬在底部导航上方
                 // v0.108.0 B3：只在音乐 tab（含其子页）显示，小说/看剧 tab 不再出现；
                 // 锁屏通知走 MediaSession 不动
@@ -418,7 +444,7 @@ class MainActivity : ComponentActivity() {
                 // F6：dockClearance 须在 Scaffold 外算——Scaffold 内容 lambda 内
                 // 定义的值，Scaffold 外的 AppToastOverlay 引用不到（v0.283.0 构建挂点）。
                 val dockClearance = if (showBottomBar) {
-                    V4.DockClearance + (if (showMiniPlayer) miniPlayerHeight else 0.dp)
+                    V5.DockClearance + (if (showMiniPlayer) miniPlayerHeight else 0.dp)
                 } else 0.dp
                 Scaffold(
                     // v0.238.0 顶部贴顶：Scaffold 默认把状态栏高度算进内容内边距，
@@ -450,8 +476,8 @@ class MainActivity : ComponentActivity() {
                         // 里 initialState 是正在退出的页、targetState 是要进入的页，
                         // 两边都是 tab 才判 tab 切换，tab 与子页之间仍走原转场。
                         enterTransition = {
-                            fadeIn(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) +
-                                slideInVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { with(density) { 8.dp.roundToPx() } }
+                            fadeIn(tween(V5Motion.Fast, easing = V5Motion.Ease)) +
+                                slideInVertically(tween(V5Motion.Fast, easing = V5Motion.Ease)) { with(density) { 8.dp.roundToPx() } }
                         },
                         exitTransition = {
                             if (initialState.destination.route?.let { it in TAB_ROUTES } == true &&
@@ -459,11 +485,11 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 fadeOut(tween(0))
                             } else {
-                                fadeOut(tween(SoftMotion.Fast, easing = SoftMotion.Ease))
+                                fadeOut(tween(V5Motion.Fast, easing = V5Motion.Ease))
                             }
                         },
                         popEnterTransition = {
-                            fadeIn(tween(SoftMotion.Fast, easing = SoftMotion.Ease))
+                            fadeIn(tween(V5Motion.Fast, easing = V5Motion.Ease))
                         },
                         popExitTransition = {
                             if (initialState.destination.route?.let { it in TAB_ROUTES } == true &&
@@ -471,8 +497,8 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 fadeOut(tween(0))
                             } else {
-                                fadeOut(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) +
-                                    slideOutVertically(tween(SoftMotion.Fast, easing = SoftMotion.Ease)) { with(density) { 8.dp.roundToPx() } }
+                                fadeOut(tween(V5Motion.Fast, easing = V5Motion.Ease)) +
+                                    slideOutVertically(tween(V5Motion.Fast, easing = V5Motion.Ease)) { with(density) { 8.dp.roundToPx() } }
                             }
                         },
                     ) {
@@ -1036,9 +1062,8 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
-                    // v0.279.0 V4 NAV B：底栏后面的内容淡出 + 浮动胶囊（+ 音乐 tab 的迷你播放条）
+                    // v0.292.0 V5：M3 NavigationBar 贴底（实底，不再浮动/淡出）+ 音乐 tab 的迷你播放条
                     if (showBottomBar) {
-                        V4DockFade(Modifier.align(Alignment.BottomCenter))
                         Column(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
@@ -1056,8 +1081,8 @@ class MainActivity : ComponentActivity() {
                             val selectedIdx = tabs.indexOfFirst { t ->
                                 current?.hierarchy?.any { it.route == t.route } == true
                             }.takeIf { it >= 0 } ?: 0
-                            V4BottomDock(
-                                items = tabs.map { V4DockItem(it.label, it.icon, it.selectedIcon) },
+                            V5NavigationBar(
+                                items = tabs.map { V5NavItem(it.label, it.icon, it.selectedIcon) },
                                 selectedIndex = selectedIdx,
                                 onSelect = { i -> navController.navigateTab(tabs[i].route) },
                                 // 288（用户定案）：长按底部首页 tab 刷新当前源。
@@ -1072,7 +1097,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
-                    } // 闭合 V4 内容 Box
+                    } // 闭合内容 Box
                     } // 闭合 LocalDockClearance
                 }
                 // v0.211.0：全仓统一精致提示悬浮层（替代系统 Toast，挂根 Box 最上层）

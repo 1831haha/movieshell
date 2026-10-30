@@ -1,5 +1,8 @@
 package com.movieshell.ui.ai
 
+import com.movieshell.ui.theme.V5
+import androidx.compose.material3.MaterialTheme
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -23,11 +26,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.movieshell.ui.components.V4Divider
-import com.movieshell.ui.components.V4Dot
+import com.movieshell.ui.components.V5Divider
+import com.movieshell.ui.components.V5Dot
 import com.movieshell.ui.components.dockClearance
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 
 /**
  * 全量重做框架：AI TAB 先空着（用户 2026-10-26 定：空着吧，先做别的）。
@@ -38,24 +39,24 @@ import com.movieshell.ui.theme.V4Type
  */
 @Composable
 fun AiScreen() {
-    val v = V4.c
+    val v = MaterialTheme.colorScheme
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(v.bg),
+            .background(v.background),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(46.dp)
-                .padding(horizontal = V4.Gutter),
+                .padding(horizontal = V5.Gutter),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("AI", style = V4Type.ScreenTitle, color = v.t1)
+            Text("AI", style = MaterialTheme.typography.titleLarge, color = v.onSurface)
             Spacer(Modifier.weight(1f))
-            Text("COMING SOON", style = V4Type.MonoSmall, color = v.t3)
+            Text("COMING SOON", style = MaterialTheme.typography.bodySmall, color = v.outline)
         }
-        V4Divider()
+        V5Divider()
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -67,31 +68,31 @@ fun AiScreen() {
                 Box(
                     modifier = Modifier
                         .size(64.dp)
-                        .background(v.accent.copy(alpha = 0.10f), RoundedCornerShape(V4.RWell))
-                        .border(1.dp, v.accent.copy(alpha = 0.22f), RoundedCornerShape(V4.RWell)),
+                        .background(v.primary.copy(alpha = 0.10f), RoundedCornerShape(V5.CornerLg))
+                        .border(1.dp, v.primary.copy(alpha = 0.22f), RoundedCornerShape(V5.CornerLg)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.Outlined.SmartToy,
                         contentDescription = null,
-                        tint = v.accent,
+                        tint = v.primary,
                         modifier = Modifier.size(26.dp),
                     )
                 }
                 Spacer(Modifier.height(18.dp))
-                Text("AI 即将上线", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = v.t1)
+                Text("AI 即将上线", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = v.onSurface)
                 Spacer(Modifier.height(6.dp))
-                Text("AI 功能正在完善，后面再补", fontSize = 12.sp, color = v.t3)
+                Text("AI 功能正在完善，后面再补", fontSize = 12.sp, color = v.outline)
                 Spacer(Modifier.height(14.dp))
                 Row(
                     modifier = Modifier
-                        .background(v.s1, RoundedCornerShape(V4.RSm + 2.dp))
+                        .background(v.surfaceContainer, RoundedCornerShape(V5.CornerSm + 2.dp))
                         .padding(horizontal = 10.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    V4Dot(v.vip)
+                    V5Dot(v.tertiary)
                     Spacer(Modifier.width(6.dp))
-                    Text("开发中", fontSize = 11.sp, color = v.t2)
+                    Text("开发中", fontSize = 11.sp, color = v.onSurfaceVariant)
                 }
             }
         }

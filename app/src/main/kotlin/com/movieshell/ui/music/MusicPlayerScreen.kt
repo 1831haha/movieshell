@@ -1,6 +1,5 @@
 package com.movieshell.ui.music
 
-import com.movieshell.ui.theme.V4
 import android.animation.ValueAnimator
 import androidx.compose.animation.core.Animatable
 import com.movieshell.ui.components.AppToast
@@ -437,10 +436,10 @@ fun MusicPlayerScreen(
                                     Row(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(20.dp))
-                                            .background(V4.c.s1)
+                                            .background(MaterialTheme.colorScheme.surfaceContainer)
                                             .border(
                                                 1.dp,
-                                                V4.c.div,
+                                                MaterialTheme.colorScheme.outlineVariant,
                                                 RoundedCornerShape(20.dp),
                                             )
                                             .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -879,7 +878,7 @@ private fun PlayingBars(playing: Boolean, reducedMotion: Boolean) {
                         transformOrigin = TransformOrigin(0.5f, 1f)
                     }
                     .clip(RoundedCornerShape(2.dp))
-                    .background(V4.c.accent),
+                    .background(MaterialTheme.colorScheme.primary),
             )
         }
     }
@@ -1135,7 +1134,7 @@ private fun MusicQueueDialog(
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = { MusicPlayer.clearQueue() }) {
-                    Text("清空", color = V4.c.live)
+                    Text("清空", color = MaterialTheme.colorScheme.error)
                 }
             }
         }
@@ -1402,7 +1401,7 @@ private fun musicQualityTint(quality: String): Color {
         quality.contains("无损") || quality.contains("母带") || quality.contains("超高清") ||
             listOf("flac", "hires", "atmos", "master").any {
                 quality.contains(it, ignoreCase = true)
-            } -> V4.c.t1
+            } -> MaterialTheme.colorScheme.onSurface
         quality.contains("高清") || quality.contains("320k") ->
             if (lightBg) Color(0xFF1D4ED8) else Color(0xFF60A5FA)
         else -> MaterialTheme.colorScheme.onSurfaceVariant

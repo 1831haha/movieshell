@@ -12,9 +12,9 @@ import androidx.compose.ui.unit.dp
 /**
  * 全量重做新 UI：筛选条（DaoBox filter_bar 词汇的 Compose 版）。
  *
- * 横向滚动的分类 chip 行：首页分类行原来是内联 Row + V4Chip，
+ * 横向滚动的分类 chip 行：首页分类行原来是内联 Row + V5Chip，
  * 收成共享组件后分类各屏同调一处。行为与原来逐字一致：
- * 8.dp 间距、选中态走 V4Chip；selectedIndex 为 -1 时都不选中
+ * 8.dp 间距、选中态走 V5Chip；selectedIndex 为 -1 时都不选中
  *（首页在“推荐”时就是这个状态）。
  */
 @Composable
@@ -31,7 +31,7 @@ fun FilterBar(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         labels.forEachIndexed { index, label ->
-            V4Chip(
+            V5Chip(
                 text = label,
                 selected = index == selectedIndex,
                 onClick = { onSelect(index) },

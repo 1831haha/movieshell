@@ -57,15 +57,13 @@ import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
-import com.movieshell.ui.components.V4Chip
+import com.movieshell.ui.components.V5Chip
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 
 private const val PREFS = "movieshell_prefs"
 private const val KEY_BUBBLE_X = "log_bubble_x"
@@ -172,7 +170,7 @@ fun LogBubbleOverlay() {
                     }
                 }
                 .clip(CircleShape)
-                .border(1.dp, V4.c.div, CircleShape)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
                 .clickable { showSheet = true },
         ) {
             // 虚化底层：半透明 + 模糊（v0.27.0：primaryContainer 配色 + 描边）
@@ -225,7 +223,7 @@ private fun LogSheetContent(onCloseSheet: () -> Unit) {
     ) {
         Text(
             text = "运行日志（${entries.size} 条）",
-            style = V4Type.ScreenTitle,
+            style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.height(8.dp))
@@ -276,7 +274,7 @@ private fun LogSheetContent(onCloseSheet: () -> Unit) {
 
 @Composable
 private fun LevelChip(label: String, level: Char, selected: Char, onSelect: (Char) -> Unit) {
-    V4Chip(
+    V5Chip(
         text = label,
         selected = selected == level,
         onClick = { onSelect(level) },
@@ -287,8 +285,8 @@ private fun LevelChip(label: String, level: Char, selected: Char, onSelect: (Cha
 private fun LogLine(e: LogBus.Entry) {
     val fmt = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
         val color = when (e.level) {
-        'E' -> V4.c.live
-        'W' -> V4.c.vip
+        'E' -> MaterialTheme.colorScheme.error
+        'W' -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Text(

@@ -1,12 +1,14 @@
 package com.movieshell.ui.settings
 
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
-import com.movieshell.ui.components.V4Tile
-import com.movieshell.ui.components.V4Row
-import com.movieshell.ui.components.V4Dot
-import com.movieshell.ui.components.V4RingGauge
-import com.movieshell.ui.components.V4Segmented
+import com.movieshell.ui.theme.V5
+import androidx.compose.ui.text.font.FontFamily
+import com.movieshell.ui.theme.ok
+
+import com.movieshell.ui.components.V5Tile
+import com.movieshell.ui.components.V5Row
+import com.movieshell.ui.components.V5Dot
+import com.movieshell.ui.components.V5RingGauge
+import com.movieshell.ui.components.V5Segmented
 import com.movieshell.ui.components.dockClearance
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.semantics.contentDescription
@@ -125,7 +127,7 @@ import com.movieshell.data.repo.ThemeStore
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.V4SectionTitle
+import com.movieshell.ui.components.V5SectionTitle
 import com.movieshell.ui.theme.LocalBrandGradient
 import java.io.File
 import java.text.SimpleDateFormat
@@ -158,7 +160,7 @@ import androidx.compose.material.icons.filled.Image
 import coil.imageLoader
 import com.movieshell.data.repo.BackgroundStore
 
-// v0.27.0 Soft Tech 换皮：分组卡片走 AppCard，分组标题走 V4SectionTitle，
+// v0.27.0 Soft Tech 换皮：分组卡片走 AppCard，分组标题走 V5SectionTitle，
 // 对话框 20dp 圆角 + 输入框走 AppTextField，按钮走 AppButton。逻辑与文案零变更。
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -375,7 +377,7 @@ fun SettingsScreen(
     // v0.279.0 V4 · SETTINGS B：bento 仪表盘——资料磁贴 + 三个环形仪表（追剧/历史/源，真实统计）
     // + 3×2 工具磁贴 + 分组 key–value 小卡（开关/当前值）。原有每一项设置、入口、动作都保留，
     // 位置对照见提交说明里的清单；弹窗与逻辑一行未动。
-    val v = V4.c
+    val v = MaterialTheme.colorScheme
     val customBg by BackgroundStore.customBg.collectAsState()
     val gravityRotate by PlayerSettings.gravityRotate.collectAsState()
     val logEnabled by LogStore.enabled.collectAsState()
@@ -386,8 +388,8 @@ fun SettingsScreen(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = V4.Gutter,
-            end = V4.Gutter,
+            start = V5.Gutter,
+            end = V5.Gutter,
             bottom = dockClearance() + 8.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -403,14 +405,14 @@ fun SettingsScreen(
                         .height(44.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("设置", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = v.t1)
+                    Text("设置", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = v.onSurface)
                     Spacer(Modifier.weight(1f))
-                    Text("v${com.movieshell.BuildConfig.VERSION_NAME}", style = V4Type.MonoSmall, color = v.t3)
+                    Text("v${com.movieshell.BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = v.outline)
                 }
                 Text(
                     text = "当前源：$currentSourceName",
                     fontSize = 11.sp,
-                    color = v.t2,
+                    color = v.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -474,16 +476,16 @@ fun SettingsScreen(
         item { SettingsCaption("外观") }
         item {
             // 亮色 / 暗色 / 跟随系统（v0.80.0 内联三段）
-            V4Tile(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+            V5Tile(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("主题模式", fontSize = 12.sp, color = v.t2)
+                    Text("主题模式", fontSize = 12.sp, color = v.onSurfaceVariant)
                     Spacer(Modifier.width(12.dp))
                     val modes = listOf(
                         "亮色" to ThemeStore.MODE_LIGHT,
                         "暗色" to ThemeStore.MODE_DARK,
                         "跟随系统" to ThemeStore.MODE_SYSTEM,
                     )
-                    V4Segmented(
+                    V5Segmented(
                         options = modes.map { it.first },
                         selected = modes.indexOfFirst { it.second == themeMode },
                         onSelect = { ThemeStore.setMode(context, modes[it].second) },
@@ -495,8 +497,8 @@ fun SettingsScreen(
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 // 主题色：单色 + 炫彩渐变预设（v0.87.1），横滑
-                V4Tile(modifier = Modifier.weight(1f).height(72.dp)) {
-                    Text("主题色", fontSize = 10.sp, color = v.t3)
+                V5Tile(modifier = Modifier.weight(1f).height(72.dp)) {
+                    Text("主题色", fontSize = 10.sp, color = v.outline)
                     Spacer(Modifier.weight(1f))
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -574,7 +576,7 @@ fun SettingsScreen(
                 KvTile(
                     caption = "JS 引擎",
                     value = when (jsState) { 1 -> "V8 可用"; 2 -> "已禁用"; else -> "未检测" },
-                    dot = when (jsState) { 1 -> v.ok; 2 -> v.live; else -> v.t3 },
+                    dot = when (jsState) { 1 -> v.ok; 2 -> v.error; else -> v.outline },
                     sub = when (jsState) {
                         1 -> "JS 源正常"
                         2 -> JsRuntime.lastDisableReason ?: "JS 源已禁用"
@@ -665,7 +667,7 @@ fun SettingsScreen(
                         Icon(
                             imageVector = if (backupExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                             contentDescription = if (backupExpanded) "收起" else "展开",
-                            tint = v.t3,
+                            tint = v.outline,
                             modifier = Modifier.size(18.dp),
                         )
                     },
@@ -675,11 +677,11 @@ fun SettingsScreen(
         }
         item {
             AnimatedVisibility(visible = backupExpanded) {
-                V4Tile(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
+                V5Tile(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
                     Text(
                         "导出 / 导入 JSON 备份文件：订阅、追剧、书架、音乐、直播（不含插件、下载、播放历史与设置）",
                         fontSize = 10.5.sp,
-                        color = v.t3,
+                        color = v.outline,
                         modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 2.dp),
                     )
                     SettingsRow(
@@ -744,7 +746,7 @@ fun SettingsScreen(
         }
         item {
             // v0.188.0：旧字幕 key 清理入口——点开先说明条数，确认后才删
-            V4Tile(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
+            V5Tile(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
                 SettingsRow(
                     icon = Icons.Outlined.Subtitles,
                     title = "清理旧字幕记忆",
@@ -873,7 +875,7 @@ fun SettingsScreen(
         ) {
             Text(
                 "清理视频缓存（m3u8 分片）与图片缓存，共 $cacheSize。播放记录与站源配置不会被删除。",
-                style = V4Type.Body,
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }
@@ -899,7 +901,7 @@ fun SettingsScreen(
                 } else {
                     "只删旧格式按剧记忆，新格式记忆不受影响。"
                 },
-                style = V4Type.Body,
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }
@@ -920,7 +922,7 @@ fun SettingsScreen(
             dismissText = "关闭",
         ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(lastSyncText, style = V4Type.Meta,
+                    Text(lastSyncText, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
                     TechTextField(
@@ -978,7 +980,7 @@ fun SettingsScreen(
                         )
                         Text(
                             "我知道风险：允许局域网 http（密码仅 Base64 编码传输）",
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -1097,7 +1099,7 @@ fun SettingsScreen(
                 }
             },
         ) {
-            Text(cloudConflictText, style = V4Type.Meta)
+            Text(cloudConflictText, style = MaterialTheme.typography.bodySmall)
         }
     }
 
@@ -1138,7 +1140,7 @@ internal fun SettingsGroup(
     Column {
         SettingsCaption(title)
         Spacer(Modifier.height(6.dp))
-        V4Tile(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
+        V5Tile(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
             content()
         }
     }
@@ -1156,7 +1158,7 @@ internal fun SettingsRow(
     divider: Boolean = true,
 ) {
     // v0.279.0 V4：44dp 行，图标 17 t2，标题 13/500，副标题 11 t3，右侧箭头 t3 或开关。
-    V4Row(
+    V5Row(
         title = title,
         subtitle = subtitle,
         icon = icon,
@@ -1174,7 +1176,7 @@ private fun SettingsCaption(text: String) {
         text = text,
         fontSize = 10.5.sp,
         fontWeight = FontWeight.Medium,
-        color = V4.c.t3,
+        color = MaterialTheme.colorScheme.outline,
         modifier = Modifier.padding(start = 2.dp, top = 8.dp, bottom = 0.dp),
     )
 }
@@ -1210,7 +1212,7 @@ private fun SingleChoiceDialog(
             Column {
                 options.forEach { option ->
                     ListItem(
-                        headlineContent = { Text(option, style = V4Type.Body) },
+                        headlineContent = { Text(option, style = MaterialTheme.typography.bodyMedium) },
                         trailingContent = {
                             RadioButton(
                                 selected = option == selected,
@@ -1238,21 +1240,21 @@ private fun StatGaugeTile(
     sub2: String? = null,
     onClick: (() -> Unit)? = null,
 ) {
-    val v = V4.c
-    V4Tile(modifier = modifier.height(68.dp), onClick = onClick) {
+    val v = MaterialTheme.colorScheme
+    V5Tile(modifier = modifier.height(68.dp), onClick = onClick) {
         Row(
             modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            V4RingGauge(value = value, progress = progress)
+            V5RingGauge(value = value, progress = progress)
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
-                Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = v.t1, maxLines = 1)
+                Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = v.onSurface, maxLines = 1)
                 if (sub != null) {
-                    Text(sub, fontSize = 9.5.sp, color = v.t3, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                    Text(sub, fontSize = 9.5.sp, color = v.outline, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                 }
                 if (sub2 != null) {
-                    Text(sub2, fontSize = 9.5.sp, color = v.t3, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                    Text(sub2, fontSize = 9.5.sp, color = v.outline, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -1270,11 +1272,11 @@ private fun QuickEntry(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    V4Tile(modifier = modifier.height(58.dp), onClick = onClick) {
+    V5Tile(modifier = modifier.height(58.dp), onClick = onClick) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = V4.c.accent,
+            tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(18.dp),
         )
         Spacer(Modifier.weight(1f))
@@ -1282,7 +1284,7 @@ private fun QuickEntry(
             text = label,
             fontSize = 11.5.sp,
             fontWeight = FontWeight.Medium,
-            color = V4.c.t1,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -1305,32 +1307,32 @@ private fun KvTile(
     showChevron: Boolean = onClick != null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
-    val v = V4.c
-    V4Tile(modifier = modifier.height(72.dp), onClick = onClick, padding = PaddingValues(start = 10.dp, end = 6.dp, top = 9.dp, bottom = 8.dp)) {
-        Text(caption, fontSize = 10.sp, color = v.t3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val v = MaterialTheme.colorScheme
+    V5Tile(modifier = modifier.height(72.dp), onClick = onClick, padding = PaddingValues(start = 10.dp, end = 6.dp, top = 9.dp, bottom = 8.dp)) {
+        Text(caption, fontSize = 10.sp, color = v.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.weight(1f))
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (dot != null) {
-                V4Dot(dot)
+                V5Dot(dot)
                 Spacer(Modifier.width(6.dp))
             }
             Text(
                 value,
                 fontSize = if (mono) 14.sp else 13.sp,
                 fontWeight = FontWeight.SemiBold,
-                fontFamily = if (mono) V4.Mono else null,
-                color = v.t1,
+                fontFamily = if (mono) FontFamily.Monospace else null,
+                color = v.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             when {
                 trailing != null -> Box(Modifier.height(20.dp), contentAlignment = Alignment.Center) { trailing() }
-                showChevron -> Icon(Icons.Filled.ChevronRight, null, tint = v.t3, modifier = Modifier.size(16.dp))
+                showChevron -> Icon(Icons.Filled.ChevronRight, null, tint = v.outline, modifier = Modifier.size(16.dp))
             }
         }
         if (sub != null) {
-            Text(sub, fontSize = 10.sp, color = v.t3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(sub, fontSize = 10.sp, color = v.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -1342,12 +1344,12 @@ private fun ThemeSwatch(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val v = V4.c
+    val v = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
             .size(21.dp)
             .clip(CircleShape)
-            .then(if (selected) Modifier.border(1.5.dp, v.t1, CircleShape) else Modifier)
+            .then(if (selected) Modifier.border(1.5.dp, v.onSurface, CircleShape) else Modifier)
             .clickable(onClick = onClick)
             .semantics { this.selected = selected; contentDescription = if (selected) "已选主题色" else "主题色" },
         contentAlignment = Alignment.Center,

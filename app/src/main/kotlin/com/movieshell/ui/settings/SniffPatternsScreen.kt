@@ -39,8 +39,7 @@ import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.ui.components.V4SectionTitle
-import com.movieshell.ui.theme.V4Type
+import com.movieshell.ui.components.V5SectionTitle
 
 /**
  * v0.79.0：嗅探自定义正则管理（原实验室页，实验室 tab 删除后搬到设置→源管理）。
@@ -75,7 +74,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                 .padding(16.dp)
         ) {
             item {
-                V4SectionTitle(
+                V5SectionTitle(
                     title = "嗅探正则",
                     action = {
                         TextButton(onClick = { showAddPattern = true }) {
@@ -86,7 +85,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = "匹配到的 URL 直接视为可播直链（如：\\.m3u8\\?.*token=.*）",
-                    style = V4Type.Meta,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -116,7 +115,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                         ) {
                             Text(
                                 text = pattern,
-                                style = V4Type.Body,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f),
                             )
@@ -150,7 +149,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
             },
             dismissText = "取消",
         ) {
-            Text("删除「${confirmDeletePattern!!}」吗？", style = V4Type.Body)
+            Text("删除「${confirmDeletePattern!!}」吗？", style = MaterialTheme.typography.bodyMedium)
         }
     }
 
@@ -174,7 +173,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                 Column {
                     Text(
                         text = "正则表达式",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -192,7 +191,7 @@ fun SniffPatternsScreen(onBack: () -> Unit = {}) {
                         Text(
                             text = error!!,
                             color = MaterialTheme.colorScheme.error,
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     }
                 }

@@ -1,5 +1,7 @@
 package com.movieshell.ui.trash
 
+import com.movieshell.ui.theme.V5
+
 import androidx.compose.foundation.layout.Arrangement
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.layout.Box
@@ -43,8 +45,6 @@ import com.movieshell.ui.components.EmptyState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 
 private val timeFmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
 
@@ -161,7 +161,7 @@ private fun TrashContent(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = V4.Gutter),
+            .padding(horizontal = V5.Gutter),
     ) {
         // embedded 模式没有顶栏，清空按钮放这里
         if (embedded) {
@@ -179,7 +179,7 @@ private fun TrashContent(
         item {
             Text(
                 "删除的源和规则文件会先放这里，可恢复；彻底删除后无法找回",
-                style = V4Type.Meta,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 8.dp),
             )
@@ -197,7 +197,7 @@ private fun TrashContent(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = item.name,
-                            style = V4Type.RowTitle,
+                            style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -205,7 +205,7 @@ private fun TrashContent(
                         Spacer(Modifier.height(2.dp))
                         Text(
                             text = "${kindLabel(item.kind)} · 删除于 ${timeFmt.format(Date(item.deletedAt))}",
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,

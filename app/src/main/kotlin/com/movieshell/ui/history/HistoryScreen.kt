@@ -1,5 +1,7 @@
 package com.movieshell.ui.history
 
+import com.movieshell.ui.theme.V5
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.background
@@ -57,8 +59,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 
 private val dayFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 private val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -158,7 +158,7 @@ fun HistoryScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = V4.Gutter, vertical = 8.dp),
+                    .padding(horizontal = V5.Gutter, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
@@ -206,7 +206,7 @@ fun HistoryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(
-                                    horizontal = V4.Gutter,
+                                    horizontal = V5.Gutter,
                                     vertical = 4.dp,
                                 )
                                 .clip(RoundedCornerShape(12.dp))
@@ -233,10 +233,10 @@ fun HistoryScreen(
                     item(key = "d:$day") {
                         Text(
                             text = dayLabel(list.first().timestamp),
-                            style = V4Type.RowTitle,
+                            style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(
-                                horizontal = V4.Gutter,
+                                horizontal = V5.Gutter,
                                 vertical = 8.dp,
                             ),
                         )
@@ -311,7 +311,7 @@ private fun HistoryRow(
     AppCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = V4.Gutter, vertical = 4.dp)
+            .padding(horizontal = V5.Gutter, vertical = 4.dp)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Row(
@@ -330,14 +330,14 @@ private fun HistoryRow(
                             Text(
                                 "直播",
                                 color = MaterialTheme.colorScheme.onErrorContainer,
-                                style = V4Type.Meta,
+                                style = MaterialTheme.typography.bodySmall,
                             )
                         }
                         Spacer(Modifier.width(6.dp))
                     }
                     Text(
                         text = entry.title.ifBlank { "未知标题" },
-                        style = V4Type.RowTitle,
+                        style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -348,14 +348,14 @@ private fun HistoryRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = timeFmt.format(Date(entry.timestamp)),
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     progressText(entry)?.let { pt ->
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = pt,
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }

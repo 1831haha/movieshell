@@ -58,10 +58,9 @@ import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.ui.components.V4SectionTitle
+import com.movieshell.ui.components.V5SectionTitle
 import kotlinx.coroutines.launch
 import java.io.File
-import com.movieshell.ui.theme.V4Type
 
 /**
  * 下载管理（v0.26.0）。
@@ -69,7 +68,7 @@ import com.movieshell.ui.theme.V4Type
  * 进行中：进度条 + 暂停/继续/删除；已完成：点播本地文件/删除。
  * m3u8 下载到 30% 后可"边下边播"（播本地 index.m3u8）。
  *
- * v0.27.0 Soft Tech 换皮：任务卡走 AppCard，分区标题走 V4SectionTitle，
+ * v0.27.0 Soft Tech 换皮：任务卡走 AppCard，分区标题走 V5SectionTitle，
  * 空态走 EmptyState，按钮走 AppButton，进度条走主色。逻辑与文案零变更。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -122,7 +121,7 @@ fun DownloadScreen(
             title = "删除任务",
             dismissText = null,
         ) {
-            Text("同时删除已下载的文件？", style = V4Type.Body)
+            Text("同时删除已下载的文件？", style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(12.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -168,10 +167,10 @@ fun DownloadScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("看完自动删除", style = V4Type.Body)
+                            Text("看完自动删除", style = MaterialTheme.typography.bodyMedium)
                             Text(
                                 "本地文件播到 95% 以上时自动删",
-                                style = V4Type.Meta,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -188,10 +187,10 @@ fun DownloadScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("自动清理已完成", style = V4Type.Body)
+                            Text("自动清理已完成", style = MaterialTheme.typography.bodyMedium)
                             Text(
                                 "启动时清理 N 天前完成的任务（含文件）",
-                                style = V4Type.Meta,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -218,10 +217,10 @@ fun DownloadScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("空间不足提醒", style = V4Type.Body)
+                            Text("空间不足提醒", style = MaterialTheme.typography.bodyMedium)
                             Text(
                                 "下载前剩余空间不足 500MB 时提醒",
-                                style = V4Type.Meta,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -250,7 +249,7 @@ fun DownloadScreen(
         ) {
             Text(
                 "将删除全部已完成任务的记录与已下载文件，此操作不可恢复。",
-                style = V4Type.Body,
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }
@@ -301,7 +300,7 @@ fun DownloadScreen(
             ) {
                 if (active.isNotEmpty()) {
                     item {
-                        V4SectionTitle(title = "下载中（${active.size}）")
+                        V5SectionTitle(title = "下载中（${active.size}）")
                     }
                     items(active, key = { it.id }) { task ->
                         TaskCard(
@@ -325,7 +324,7 @@ fun DownloadScreen(
                 }
                 if (done.isNotEmpty()) {
                     item {
-                        V4SectionTitle(title = "已完成（${done.size}）")
+                        V5SectionTitle(title = "已完成（${done.size}）")
                     }
                     items(done, key = { it.id }) { task ->
                         TaskCard(
@@ -372,13 +371,13 @@ private fun TaskCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = task.title,
-                        style = V4Type.RowTitle,
+                        style = MaterialTheme.typography.bodyLarge,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = statusText(task),
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }

@@ -1,5 +1,7 @@
 package com.movieshell.ui.components
 
+import com.movieshell.ui.theme.V5
+
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
@@ -12,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.movieshell.ui.theme.V4
 
 /**
  * v0.211.0：全仓统一精致控件（替代系统原生默认样式）。
@@ -35,7 +36,7 @@ fun AppSwitch(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    V4Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = modifier, enabled = enabled)
+    V5Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = modifier, enabled = enabled)
 }
 
 /** 滑杆：强调色轨道 + 白色拇指（阅读器进度、音量类场景）。 */
@@ -47,7 +48,7 @@ fun AppSlider(
     onValueChangeFinished: (() -> Unit)? = null,
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
 ) {
-    val v = V4.c
+    val v = MaterialTheme.colorScheme
     Slider(
         value = value,
         onValueChange = onValueChange,
@@ -56,8 +57,8 @@ fun AppSlider(
         valueRange = valueRange,
         colors = SliderDefaults.colors(
             thumbColor = Color.White,
-            activeTrackColor = v.accent,
-            inactiveTrackColor = v.s3,
+            activeTrackColor = v.primary,
+            inactiveTrackColor = v.surfaceContainerHighest,
         ),
     )
 }
@@ -74,9 +75,9 @@ fun AppDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
         modifier = modifier,
-        shape = RoundedCornerShape(V4.RField),
-        containerColor = V4.c.s2,
-        border = androidx.compose.foundation.BorderStroke(1.dp, V4.c.div2),
+        shape = RoundedCornerShape(V5.CornerMd),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         shadowElevation = 8.dp,
         tonalElevation = 0.dp,
         content = content,

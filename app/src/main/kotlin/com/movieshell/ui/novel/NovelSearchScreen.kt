@@ -1,6 +1,5 @@
 package com.movieshell.ui.novel
 
-import com.movieshell.ui.theme.V4
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardActions
@@ -98,7 +97,7 @@ fun NovelSearchScreen(
         onDispose { vm.setKeyword("") }
     }
     // v0.109.0 A9：亮色主题白底青字按底色明度自适应
-    val accent = V4.c.t1
+    val accent = MaterialTheme.colorScheme.onSurface
 
     val sources by BookSourceManager.sources.collectAsState()
     val pyRules by PyBookSourceManager.rules.collectAsState()
@@ -199,11 +198,11 @@ fun NovelSearchScreen(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { vm.doSearch() }),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = V4.c.accent,
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
                 unfocusedBorderColor = Color.Transparent,
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                cursorColor = V4.c.accent,
+                cursorColor = MaterialTheme.colorScheme.primary,
             ),
             modifier = Modifier.fillMaxWidth().focusRequester(searchFocus),
         )

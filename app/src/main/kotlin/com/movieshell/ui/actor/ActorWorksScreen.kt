@@ -1,5 +1,7 @@
 package com.movieshell.ui.actor
 
+import com.movieshell.ui.theme.V5
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,8 +47,6 @@ import com.movieshell.ui.search.goDetail
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 
 /**
  * v0.88.0：演员作品页。详情页点演员名进入，聚合搜索该演员的作品海报墙。
@@ -130,12 +130,12 @@ fun ActorWorksScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(V4.Gutter),
+                        .padding(V5.Gutter),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         text = "正在搜索「$actorName」的作品…",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     repeat(4) {
@@ -177,17 +177,17 @@ fun ActorWorksScreen(
             else -> {
                 Text(
                     text = "共 ${works.size} 部作品 · $sourceCount 个源",
-                    style = V4Type.Meta,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(
-                        horizontal = V4.Gutter,
+                        horizontal = V5.Gutter,
                         vertical = 4.dp,
                     ),
                 )
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(V4.Gutter),
+                    contentPadding = PaddingValues(V5.Gutter),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {

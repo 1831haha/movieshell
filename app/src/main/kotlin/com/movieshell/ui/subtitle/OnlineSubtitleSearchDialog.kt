@@ -37,7 +37,6 @@ import com.movieshell.ui.components.AppTextField
 import com.movieshell.player.PlayerDialogCard
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import com.movieshell.ui.theme.V4Type
 
 /**
  * 在线字幕搜索对话框（v0.28.0，详情页/播放器共用）。
@@ -135,13 +134,13 @@ fun OnlineSubtitleSearchDialog(
                 ) {
                     CircularProgressIndicator()
                     Spacer(Modifier.width(12.dp))
-                    Text("下载中…", style = V4Type.Body)
+                    Text("下载中…", style = MaterialTheme.typography.bodyMedium)
                 }
             }
             results.isEmpty() && searched -> {
                 Text(
                     "没搜到，换个关键词试试",
-                    style = V4Type.Body,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(24.dp),
                 )
@@ -175,7 +174,7 @@ fun OnlineSubtitleSearchDialog(
                         ) {
                             Text(
                                 text = item.title,
-                                style = V4Type.Body,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             val meta = listOf(item.language, item.format, item.size, item.downloads)
@@ -183,7 +182,7 @@ fun OnlineSubtitleSearchDialog(
                             if (meta.isNotBlank()) {
                                 Text(
                                     text = meta,
-                                    style = V4Type.Meta,
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -195,7 +194,7 @@ fun OnlineSubtitleSearchDialog(
         Spacer(Modifier.height(4.dp))
         Text(
             text = "下载的字幕自动按剧记忆，下次播放直接挂载",
-            style = V4Type.Meta,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

@@ -77,7 +77,6 @@ import com.movieshell.data.source.SniffEngine
 import com.movieshell.data.source.SniffEngine.SniffKind
 import com.movieshell.player.SniffPlayHeaders
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.TechDialog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -93,7 +92,6 @@ import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import com.movieshell.ui.theme.V4Type
 
 /** 嗅探超时：20 秒内没抓到直链则提示用户，可继续手动浏览 */
 private const val SNIFF_TIMEOUT_MS = 20_000L
@@ -898,7 +896,7 @@ fun WebSniffScreen(
                     }
                     Text(
                         text = currentUrl,
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1145,7 +1143,7 @@ fun WebSniffScreen(
                 if (results.isEmpty()) {
                     Text(
                         "没抓到可播直链，可以换个页面再试一次。",
-                        style = V4Type.Body,
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                 } else {
                     LazyColumn {
@@ -1170,12 +1168,12 @@ fun WebSniffScreen(
                                 ) {
                                     Text(
                                         text = "[$label]",
-                                        style = V4Type.Meta,
+                                        style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.primary,
                                     )
                                     Text(
                                         text = u,
-                                        style = V4Type.Body,
+                                        style = MaterialTheme.typography.bodyMedium,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                     )
@@ -1307,7 +1305,7 @@ private fun SniffCandidatePanel(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "嗅探候选",
-                    style = V4Type.ScreenTitle,
+                    style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.width(8.dp))
@@ -1319,20 +1317,20 @@ private fun SniffCandidatePanel(
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = "嗅探中…",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
                     Text(
                         text = "${candidates.size} 条，点选播放",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             Text(
                 text = "已拦截 $seenCount 个请求 · iframe $iframeCount 个",
-                style = V4Type.Meta,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (ordered.isNotEmpty()) {
@@ -1357,7 +1355,7 @@ private fun SniffCandidatePanel(
                             ) {
                                 Text(
                                     text = formatLabelOf(c.url),
-                                    style = V4Type.Meta,
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
                             }
@@ -1365,14 +1363,14 @@ private fun SniffCandidatePanel(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = c.url,
-                                    style = V4Type.Body,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
                                 Text(
                                     text = "来源：" + c.source,
-                                    style = V4Type.Meta,
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }

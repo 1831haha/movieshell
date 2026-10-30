@@ -1,5 +1,7 @@
 package com.movieshell.ui.search
 
+import com.movieshell.ui.theme.V5
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -56,15 +58,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.V4Chip
+import com.movieshell.ui.components.V5Chip
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.PosterCard
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 import kotlinx.coroutines.launch
 
 
@@ -115,7 +115,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = V4.Gutter, vertical = 12.dp),
+                .padding(horizontal = V5.Gutter, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = { doSearch(query) }) {
@@ -145,17 +145,17 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = V4.Gutter),
+                .padding(horizontal = V5.Gutter),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            V4Chip(
+            V5Chip(
                 text = "所有源",
                 selected = !onlyCurrentSource,
                 onClick = { vm.setOnlyCurrentSource(false) },
                 small = true,
             )
-            V4Chip(
+            V5Chip(
                 text = "只搜当前源",
                 selected = onlyCurrentSource,
                 onClick = { vm.setOnlyCurrentSource(true) },
@@ -164,7 +164,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
             if (onlyCurrentSource) {
                 Text(
                     text = currentSourceName?.let { "当前源：$it" } ?: "未设置当前源",
-                    style = V4Type.Meta,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -185,7 +185,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
             AppCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = V4.Gutter),
+                    .padding(horizontal = V5.Gutter),
             ) {
                 Column(modifier = Modifier.padding(vertical = 4.dp)) {
                     suggestions.forEach { s ->
@@ -205,7 +205,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                             Spacer(Modifier.width(12.dp))
                             Text(
                                 text = s,
-                                style = V4Type.Body,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -225,7 +225,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
         if (submitted.isBlank()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = V4.Gutter),
+                contentPadding = PaddingValues(horizontal = V5.Gutter),
             ) {
                 // 搜索历史
                 item {
@@ -246,7 +246,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                     item {
                         Text(
                             text = "暂无搜索历史",
-                            style = V4Type.Body,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 8.dp),
                         )
@@ -271,7 +271,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                                 modifier = Modifier
                                     .weight(1f)
                                     .padding(vertical = 10.dp),
-                                style = V4Type.Body,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             IconButton(onClick = {
@@ -299,17 +299,17 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(V4.Gutter),
+                        .padding(V5.Gutter),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         text = "聚合搜索中…",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         text = "先到的源会先显示，不用等全部搜完",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     repeat(4) {
@@ -332,7 +332,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                         skippedLabel?.let {
                             Text(
                                 text = it,
-                                style = V4Type.Meta,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             // v0.163.0：全被跳过时空页也给重试入口，别只剩“返回”
@@ -343,7 +343,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                         failedLabel?.let {
                             Text(
                                 text = it,
-                                style = V4Type.Meta,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -352,7 +352,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                         if (onlyCurrentSource && currentSourceName == null) {
                             Text(
                                 text = "当前没有设置首页源，先去站源管理设一个当前源，或切回所有源再搜",
-                                style = V4Type.Meta,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             TextButton(onClick = { vm.setOnlyCurrentSource(false) }) {
@@ -364,7 +364,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                         if (onlyCurrentSource && currentSourceName != null) {
                             Text(
                                 text = "只搜当前源 $currentSourceName，已搜完，确实没有结果",
-                                style = V4Type.Meta,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -391,7 +391,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(
-                            horizontal = V4.Gutter,
+                            horizontal = V5.Gutter,
                             vertical = 4.dp,
                         ),
                     verticalAlignment = Alignment.CenterVertically,
@@ -405,7 +405,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                             (if (searching) " · 还在搜…" else "") +
                             (skippedLabel?.let { " · $it" } ?: "") +
                             (failedLabel?.let { " · $it" } ?: ""),
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
@@ -462,9 +462,9 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                                 } else {
                                     "该源没有结果"
                                 },
-                                style = V4Type.Meta,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(V4.Gutter),
+                                modifier = Modifier.padding(V5.Gutter),
                             )
                         }
                     } else {
@@ -502,7 +502,7 @@ fun SearchScreen(onVodClick: (vodId: String, siteKey: String) -> Unit) {
                                 item(span = { GridItemSpan(2) }) {
                                     Text(
                                         text = "还在搜其他源，有结果会陆续出现…",
-                                        style = V4Type.Meta,
+                                        style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(vertical = 4.dp),
                                     )
@@ -537,7 +537,7 @@ private fun LeftSourceItem(
     ) {
         Text(
             text = name,
-            style = V4Type.Body,
+            style = MaterialTheme.typography.bodyMedium,
             color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
             else MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
@@ -545,7 +545,7 @@ private fun LeftSourceItem(
         )
         Text(
             text = status,
-            style = V4Type.Meta,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -568,7 +568,7 @@ private fun SectionHeader(
         Spacer(Modifier.width(6.dp))
         Text(
             text = title,
-            style = V4Type.RowTitle,
+            style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
     }

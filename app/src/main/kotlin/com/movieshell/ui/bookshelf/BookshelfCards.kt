@@ -1,9 +1,10 @@
 package com.movieshell.ui.bookshelf
 
+import com.movieshell.ui.theme.V5
+
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material.icons.filled.Search
-import com.movieshell.ui.theme.V4
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -170,7 +171,7 @@ fun NovelListCard(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         // v0.109.0 A9：书名在玻璃卡片上，亮色主题白底青字难读，用明度自适应青色
-                        color = V4.c.t1,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
@@ -232,11 +233,11 @@ fun NovelListCard(
                 },
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (isDirFailed) Color.White else V4.c.t1,
+                color = if (isDirFailed) Color.White else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .background(
-                        if (isDirFailed) V4.c.live
-                        else V4.c.accent.copy(alpha = 0.14f),
+                        if (isDirFailed) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                         RoundedCornerShape(10.dp),
                     )
                     .padding(horizontal = 8.dp, vertical = 3.dp),
@@ -258,7 +259,7 @@ fun NovelListCard(
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     modifier = Modifier
-                        .background(V4.c.live, RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.error, RoundedCornerShape(10.dp))
                         .padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
@@ -282,7 +283,7 @@ fun NovelGridCard(
     modifier: Modifier = Modifier,
 ) {
     val progress = novel.readFraction()
-    val cyan = V4.c.accent
+    val cyan = MaterialTheme.colorScheme.primary
     Column(
         modifier = modifier.bookPressable(onClick = onClick, onLongClick = onLongClick),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -351,7 +352,7 @@ fun NovelGridCard(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(6.dp)
-                        .background(V4.c.live, RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.error, RoundedCornerShape(8.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
@@ -436,7 +437,7 @@ fun NovelGridCard(
             NovelStore.DIR_FAILED -> Text(
                 "目录获取失败，点击重试",
                 fontSize = 11.sp,
-                color = V4.c.live,
+                color = MaterialTheme.colorScheme.error,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
@@ -473,13 +474,13 @@ fun BookshelfEmptyState(
         Box(
             modifier = Modifier
                 .size(68.dp)
-                .background(V4.c.s1, RoundedCornerShape(V4.RWell)),
+                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(V5.CornerLg)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = Icons.Outlined.Book,
                 contentDescription = null,
-                tint = V4.c.t2,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(28.dp),
             )
         }
@@ -488,13 +489,13 @@ fun BookshelfEmptyState(
             "书架还在等它的第一本书",
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
-            color = V4.c.t1,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.height(6.dp))
         Text(
             "找本小说开始读，打卡天数从今天算起",
             fontSize = 12.sp,
-            color = V4.c.t3,
+            color = MaterialTheme.colorScheme.outline,
         )
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

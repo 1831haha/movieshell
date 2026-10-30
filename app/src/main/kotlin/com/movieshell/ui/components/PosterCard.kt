@@ -1,5 +1,7 @@
 package com.movieshell.ui.components
 
+import com.movieshell.ui.theme.V5
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -31,8 +33,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 
 /**
  * 海报卡片（v0.32.0 影院黑毛玻璃 → v0.279.0 V4：无卡片底无描边，
@@ -49,14 +49,14 @@ fun PosterCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
-    val v = V4.c
-    val shape = RoundedCornerShape(V4.RPoster)
+    val v = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(V5.CornerMd)
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(V4.RPoster))
+            .clip(RoundedCornerShape(V5.CornerMd))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
-        V4Art(
+        V5Art(
             seed = title,
             modifier = Modifier
                 .fillMaxWidth()
@@ -79,7 +79,7 @@ fun PosterCard(
                 Text(
                     text = title.firstOrNull()?.toString() ?: "",
                     modifier = Modifier.align(Alignment.Center),
-                    color = v.t1.copy(alpha = 0.22f),
+                    color = v.onSurface.copy(alpha = 0.22f),
                     fontSize = 28.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -88,7 +88,7 @@ fun PosterCard(
             Box(
                 Modifier
                     .matchParentSize()
-                    .border(1.dp, v.div, shape),
+                    .border(1.dp, v.outlineVariant, shape),
             )
             if (!badge.isNullOrBlank()) {
                 val isVip = badge.contains("vip", ignoreCase = true)
@@ -96,14 +96,14 @@ fun PosterCard(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(5.dp)
-                        .clip(RoundedCornerShape(V4.RTag))
+                        .clip(RoundedCornerShape(V5.CornerXs))
                         .background(if (isVip) Color(0xE6151208) else Color(0xB3000000))
                         .padding(horizontal = 4.dp, vertical = 1.dp),
                 ) {
                     Text(
                         text = badge,
-                        style = V4Type.Tag,
-                        color = if (isVip) v.vip else Color(0xFFE6E8EE),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isVip) v.tertiary else Color(0xFFE6E8EE),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -113,18 +113,18 @@ fun PosterCard(
         Column(modifier = Modifier.padding(top = 6.dp, start = 1.dp, end = 1.dp, bottom = 2.dp)) {
             Text(
                 text = title,
-                style = V4Type.PosterTitle,
+                style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                color = v.t1,
+                color = v.onSurface,
             )
             if (subtitle != null) {
                 Text(
                     text = subtitle,
-                    style = V4Type.Meta,
+                    style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = v.t3,
+                    color = v.outline,
                 )
             }
         }

@@ -1,5 +1,7 @@
 package com.movieshell.ui.components
 
+import androidx.compose.material3.MaterialTheme
+
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -31,7 +33,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.movieshell.ui.theme.V4
 import androidx.compose.ui.unit.sp
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -127,8 +128,8 @@ fun AppToastOverlay(bottomPadding: androidx.compose.ui.unit.Dp = 16.dp) {
                     // v0.279.0 V4：平面提示条——底栏同款 #161921 实底 + 1px 分隔线描边 + 8dp 圆角。
                     .shadow(12.dp, RoundedCornerShape(8.dp))
                     .clip(RoundedCornerShape(8.dp))
-                    .background(V4.c.navSolid)
-                    .border(1.dp, V4.c.div2, RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
                     .clickable { AppToast.dismiss(m.id) }
                     .padding(horizontal = 18.dp, vertical = 13.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -137,12 +138,12 @@ fun AppToastOverlay(bottomPadding: androidx.compose.ui.unit.Dp = 16.dp) {
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(V4.c.accent),
+                        .background(MaterialTheme.colorScheme.primary),
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
                     text = m.text,
-                    color = V4.c.t1,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
                     // v0.272.0（T34）：原来 maxLines=3，稍长一点的提示就被截掉后半句；

@@ -1,5 +1,7 @@
 package com.movieshell.player
 
+import com.movieshell.ui.theme.V5
+
 import android.app.Activity
 import com.movieshell.ui.components.AppToast
 import android.app.PictureInPictureParams
@@ -24,7 +26,7 @@ import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SubtitleStyle
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
-import com.movieshell.ui.components.V4Chip
+import com.movieshell.ui.components.V5Chip
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.TechDialog
 import android.view.View
@@ -102,8 +104,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -155,8 +155,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
@@ -1193,7 +1191,7 @@ fun PlayerScreen(
             Text(
                 text = "暂无可播放地址",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = V4Type.Body,
+                style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.align(Alignment.Center),
             )
         } else {
@@ -1381,11 +1379,11 @@ fun PlayerScreen(
                     .align(Alignment.Center)
                     .background(
                         Color.Black.copy(alpha = 0.7f),
-                        RoundedCornerShape(V4.RPoster),
+                        RoundedCornerShape(V5.CornerMd),
                     )
                     .padding(horizontal = 20.dp, vertical = 12.dp),
             ) {
-                Text(hint, color = Color.White, style = V4Type.Meta)
+                Text(hint, color = Color.White, style = MaterialTheme.typography.bodySmall)
             }
         }
 
@@ -1472,7 +1470,7 @@ fun PlayerScreen(
                 Text(
                     text = title,
                     color = Color.White,
-                    style = V4Type.RowTitle,
+                    style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     softWrap = false,
                     // v0.255.0：标题超长跑马灯（basicMarquee 只在溢出时滚，短标题不动；
@@ -1485,7 +1483,7 @@ fun PlayerScreen(
                     Text(
                         text = "自动",
                         color = Color.White.copy(alpha = 0.7f),
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                     )
                     Spacer(Modifier.width(4.dp))
@@ -1495,7 +1493,7 @@ fun PlayerScreen(
                     Text(
                         text = streamInfo,
                         color = Color.White.copy(alpha = 0.7f),
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                     )
                     Spacer(Modifier.width(4.dp))
@@ -1503,16 +1501,16 @@ fun PlayerScreen(
                 // v0.24.0：直播角标（v0.27.0：柔和错误色胶囊）
                 if (isLive) {
                     Surface(
-                        shape = RoundedCornerShape(V4.RPoster),
-                        color = V4.c.live,
+                        shape = RoundedCornerShape(V5.CornerMd),
+                        color = MaterialTheme.colorScheme.error,
                     ) {
                         Text(
                             text = "直播",
                             // v0.109.0 A9：errorSoft 亮色主题下是深红 #DC2626，黑字在其上约 2.9:1；
                             // 按底色明度自适应（暗底黑字、深红底白字）
-                            color = if (V4.c.live.luminance() > 0.18f)
+                            color = if (MaterialTheme.colorScheme.error.luminance() > 0.18f)
                                 Color.Black else Color.White,
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }
@@ -1523,7 +1521,7 @@ fun PlayerScreen(
                     Text(
                         text = clockText,
                         color = Color.White,
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.width(4.dp))
                 }
@@ -1625,7 +1623,7 @@ fun PlayerScreen(
                     Text(
                         text = streamInfo,
                         color = Color.White.copy(alpha = 0.85f),
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }
@@ -1693,9 +1691,9 @@ fun PlayerScreen(
             snackbar = { data ->
                 Snackbar(
                     snackbarData = data,
-                    shape = RoundedCornerShape(V4.RField),
+                    shape = RoundedCornerShape(V5.CornerMd),
                     containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = V4.c.live,
+                    contentColor = MaterialTheme.colorScheme.error,
                     actionColor = MaterialTheme.colorScheme.primary,
                 )
             },
@@ -1739,7 +1737,7 @@ fun PlayerScreen(
                     Text(
                         text = fmtTime(if (scrubbing) scrubPos else pos),
                         color = Color.White,
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                     )
                     // v0.125.0：进度条抽成 PlayerSeekBar 组件（内部关掉 48dp 最小
                     // 交互高度、行高压到 28dp），进度线贴到按钮行正上方、落在视频
@@ -1760,7 +1758,7 @@ fun PlayerScreen(
                     Text(
                         text = fmtTime(dur),
                         color = Color.White,
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 }
@@ -1832,7 +1830,7 @@ fun PlayerScreen(
                             Text(
                                 "${SPEEDS[speedIndex]}X",
                                 color = Color.White,
-                                style = V4Type.Body,
+                                style = MaterialTheme.typography.bodyMedium,
                             )
                         }
                     }
@@ -1844,7 +1842,7 @@ fun PlayerScreen(
                         ) {
                             // v0.228.0：选集图标去掉只留文字——图标+文字占 72dp，
                             // “选集”两字自明，省 20dp 给尾巴的按钮。
-                            Text("选集", color = Color.White, style = V4Type.Body)
+                            Text("选集", color = Color.White, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                     // v0.259.0：横屏完整条、竖屏精简条。竖屏只留暂停/上一集/
@@ -1866,7 +1864,7 @@ fun PlayerScreen(
                         ) {
                             Text(
                                 if (engine == PlayerEngine.MEDIA3) "Media3" else "libmpv",
-                                color = Color.White, style = V4Type.Body,
+                                color = Color.White, style = MaterialTheme.typography.bodyMedium,
                             )
                         }
                         TextButton(
@@ -1877,7 +1875,7 @@ fun PlayerScreen(
                             modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
-                            Text(RESIZE_MODES[resizeIndex].second, color = Color.White, style = V4Type.Body)
+                            Text(RESIZE_MODES[resizeIndex].second, color = Color.White, style = MaterialTheme.typography.bodyMedium)
                         }
                         RoundControlButton(
                             icon = Icons.Filled.Refresh,
@@ -1890,14 +1888,14 @@ fun PlayerScreen(
                             modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
-                            Text(PLAY_MODES[playModeIndex], color = Color.White, style = V4Type.Body)
+                            Text(PLAY_MODES[playModeIndex], color = Color.White, style = MaterialTheme.typography.bodyMedium)
                         }
                         TextButton(
                             onClick = { showSubtitleDialog = true },
                             modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
-                            Text("字幕", color = Color.White, style = V4Type.Body)
+                            Text("字幕", color = Color.White, style = MaterialTheme.typography.bodyMedium)
                         }
                         if (vodId != null) {
                             TextButton(
@@ -1905,14 +1903,14 @@ fun PlayerScreen(
                                 modifier = Modifier.height(48.dp),
                                 contentPadding = PaddingValues(horizontal = 6.dp),
                             ) {
-                                Text("片头", color = Color.White, style = V4Type.Body)
+                                Text("片头", color = Color.White, style = MaterialTheme.typography.bodyMedium)
                             }
                             TextButton(
                                 onClick = { showSkipSettings = true },
                                 modifier = Modifier.height(48.dp),
                                 contentPadding = PaddingValues(horizontal = 6.dp),
                             ) {
-                                Text("片尾", color = Color.White, style = V4Type.Body)
+                                Text("片尾", color = Color.White, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
@@ -1988,22 +1986,22 @@ fun PlayerScreen(
                         .fillMaxHeight(0.75f)
                         .border(
                             1.dp,
-                            V4.c.div,
+                            MaterialTheme.colorScheme.outlineVariant,
                             RoundedCornerShape(
-                                topStart = V4.RField,
-                                topEnd = V4.RField,
+                                topStart = V5.CornerMd,
+                                topEnd = V5.CornerMd,
                             ),
                         ),
                     shape = RoundedCornerShape(
-                        topStart = V4.RField,
-                        topEnd = V4.RField,
+                        topStart = V5.CornerMd,
+                        topEnd = V5.CornerMd,
                     ),
                     color = MaterialTheme.colorScheme.surface,
                 ) {
                     Column(
                         Modifier
                             .fillMaxSize()
-                            .padding(V4.Gutter)
+                            .padding(V5.Gutter)
                             .verticalScroll(rememberScrollState())
                     ) {
                         Box(
@@ -2021,7 +2019,7 @@ fun PlayerScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "设置",
-                                style = V4Type.RowTitle,
+                                style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f),
                             )
@@ -2038,7 +2036,7 @@ fun PlayerScreen(
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("倍速", style = V4Type.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Text("倍速", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2046,7 +2044,7 @@ fun PlayerScreen(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             SPEEDS.forEachIndexed { i, v ->
-                                V4Chip(
+                                V5Chip(
                                     text = "${v}X",
                                     selected = i == speedIndex,
                                     onClick = {
@@ -2058,7 +2056,7 @@ fun PlayerScreen(
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("缩放", style = V4Type.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Text("缩放", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2066,7 +2064,7 @@ fun PlayerScreen(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             RESIZE_MODES.forEachIndexed { i, mode ->
-                                V4Chip(
+                                V5Chip(
                                     text = mode.second,
                                     selected = i == resizeIndex,
                                     onClick = {
@@ -2077,19 +2075,19 @@ fun PlayerScreen(
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("播放", style = V4Type.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Text("播放", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            V4Chip(
+                            V5Chip(
                                 text = "Media3",
                                 selected = engine == PlayerEngine.MEDIA3,
                                 onClick = { switchToEngine(PlayerEngine.MEDIA3) },
                             )
-                            V4Chip(
+                            V5Chip(
                                 text = "libmpv",
                                 selected = engine == PlayerEngine.LIBMPV,
                                 onClick = { switchToEngine(PlayerEngine.LIBMPV) },
@@ -2101,7 +2099,7 @@ fun PlayerScreen(
                                 Text(
                                     text = "片头 ${PlayerSettings.getSkipIntroFor(context, playSourceKey, vodId, PlaySession.episodeIndex)} 秒 / " +
                                         "片尾 ${PlayerSettings.getSkipOutroFor(context, playSourceKey, vodId, PlaySession.episodeIndex)} 秒",
-                                    style = V4Type.Meta,
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.weight(1f),
                                 )
@@ -2113,7 +2111,7 @@ fun PlayerScreen(
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Text("轨道", style = V4Type.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Text("轨道", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2133,11 +2131,11 @@ fun PlayerScreen(
                         }
                         Text(
                             text = "当前片源暂无可切换的音轨 / 视轨",
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(12.dp))
-                        Text("屏显", style = V4Type.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Text("屏显", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         AppButton(
                             text = "进入画中画",
@@ -2145,7 +2143,7 @@ fun PlayerScreen(
                             variant = AppButtonVariant.Ghost,
                         )
                         Spacer(Modifier.height(12.dp))
-                        Text("其它", style = V4Type.Body, color = MaterialTheme.colorScheme.onSurface)
+                        Text("其它", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2153,7 +2151,7 @@ fun PlayerScreen(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             PLAY_MODES.forEachIndexed { i, mode ->
-                                V4Chip(
+                                V5Chip(
                                     text = mode,
                                     selected = i == playModeIndex,
                                     onClick = { playModeIndex = i },
@@ -2367,7 +2365,7 @@ fun PlayerScreen(
         if (showServiceMissingDialog) {
             PlayerDialogCard(
                 title = "磁力转播服务未启动",
-                titleColor = V4.c.live,
+                titleColor = MaterialTheme.colorScheme.error,
                 onDismiss = { showServiceMissingDialog = false },
                 buttons = {
                     AppButton(
@@ -2379,7 +2377,7 @@ fun PlayerScreen(
             ) {
                 Text(
                     "重试 3 次仍未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream，启动后再点一次播放",
-                    style = V4Type.Body,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
@@ -2589,24 +2587,24 @@ private fun LineSheet(
                 .fillMaxHeight(0.6f)
                 .border(
                     1.dp,
-                    V4.c.div,
+                    MaterialTheme.colorScheme.outlineVariant,
                     RoundedCornerShape(
-                        topStart = V4.RField,
-                        topEnd = V4.RField,
+                        topStart = V5.CornerMd,
+                        topEnd = V5.CornerMd,
                     ),
                 ),
             shape = RoundedCornerShape(
-                topStart = V4.RField,
-                topEnd = V4.RField,
+                topStart = V5.CornerMd,
+                topEnd = V5.CornerMd,
             ),
             // v0.39.0：深色毛玻璃风格（mockup 风格）
             color = Color(0xF21E242F),
         ) {
-            Column(Modifier.fillMaxSize().padding(V4.Gutter)) {
+            Column(Modifier.fillMaxSize().padding(V5.Gutter)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "线路 / 选集",
-                        style = V4Type.RowTitle,
+                        style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
@@ -2617,7 +2615,7 @@ private fun LineSheet(
                 Spacer(Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     itemsIndexed(lines) { i, line ->
-                        V4Chip(
+                        V5Chip(
                             text = line.name,
                             selected = i == tab,
                             onClick = { tab = i },
@@ -2637,7 +2635,7 @@ private fun LineSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onPick(tab, i) },
-                            shape = RoundedCornerShape(V4.RPoster),
+                            shape = RoundedCornerShape(V5.CornerMd),
                             color = if (selected) {
                                 cyan.copy(alpha = 0.22f)
                             } else {
@@ -2647,7 +2645,7 @@ private fun LineSheet(
                             Text(
                                 text = ep.name.ifBlank { "第${i + 1}集" },
                                 maxLines = 1,
-                                style = V4Type.Body,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = if (selected) {
                                     cyan
                                 } else {
@@ -2680,7 +2678,7 @@ internal fun PlayerDialogCard(
     scrollable: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val cardShape = RoundedCornerShape(V4.RField)
+    val cardShape = RoundedCornerShape(V5.CornerMd)
     // AlertDialog 时代按返回先关面板：内联卡片后补回同样的返回拦截
     BackHandler(onBack = onDismiss)
     // v0.155.0：横屏全屏时屏高只有约 360dp，旧卡片（标题+400dp 内容+按钮）要 520dp+，
@@ -2702,17 +2700,17 @@ internal fun PlayerDialogCard(
                 .align(Alignment.Center)
                 .fillMaxWidth(0.88f)
                 .widthIn(max = 480.dp)
-                .border(1.dp, V4.c.div, cardShape),
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, cardShape),
             shape = cardShape,
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp,
         ) {
-            Column(Modifier.padding(V4.Gutter)) {
+            Column(Modifier.padding(V5.Gutter)) {
                 // v0.155.0：标题行右上角常驻关闭键，不用再去底下找取消、也不用硬点遮罩
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         title,
-                        style = V4Type.RowTitle,
+                        style = MaterialTheme.typography.bodyLarge,
                         color = titleColor,
                         modifier = Modifier.weight(1f),
                     )
@@ -2822,13 +2820,13 @@ private fun InfoFieldRow(label: String, value: String, onCopy: () -> Unit) {
     ) {
         Text(
             text = label,
-            style = V4Type.Meta,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.width(56.dp),
         )
         Text(
             text = value,
-            style = V4Type.Body,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
@@ -2872,7 +2870,7 @@ private fun SubtitleDialog(
     var edge by remember { mutableIntStateOf(initialStyle.edge) }
     var position by remember { mutableIntStateOf(initialStyle.position) }
     var offsetSec by remember { mutableIntStateOf((initialStyle.offsetMs / 1000).toInt()) }
-    // v0.27.0：统一卡片容器 + V4Chip 多选 + AppTextField
+    // v0.27.0：统一卡片容器 + V5Chip 多选 + AppTextField
     PlayerDialogCard(
         title = "字幕设置",
         onDismiss = onDismiss,
@@ -2902,7 +2900,7 @@ private fun SubtitleDialog(
         fun Label(text: String) {
             Text(
                 text = text,
-                style = V4Type.Body,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.width(64.dp),
                 maxLines = 1,
@@ -2920,7 +2918,7 @@ private fun SubtitleDialog(
                 )
                 Text(
                     text = "${size}sp",
-                    style = V4Type.Body,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.width(48.dp),
                 )
@@ -2942,7 +2940,7 @@ private fun SubtitleDialog(
                                     color = if (c == color) {
                                         MaterialTheme.colorScheme.primary
                                     } else {
-                                        V4.c.div
+                                        MaterialTheme.colorScheme.outlineVariant
                                     },
                                     shape = CircleShape,
                                 )
@@ -2962,7 +2960,7 @@ private fun SubtitleDialog(
                         SubtitleStyle.EDGE_OUTLINE to "描边",
                         SubtitleStyle.EDGE_SHADOW to "阴影",
                     ).forEach { (v, label) ->
-                        V4Chip(
+                        V5Chip(
                             text = label,
                             selected = edge == v,
                             onClick = { edge = v },
@@ -2977,13 +2975,13 @@ private fun SubtitleDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Label("位置")
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    V4Chip(
+                    V5Chip(
                         text = "底部",
                         selected = position == SubtitleStyle.POS_BOTTOM,
                         onClick = { position = SubtitleStyle.POS_BOTTOM },
                         small = true,
                     )
-                    V4Chip(
+                    V5Chip(
                         text = "顶部",
                         selected = position == SubtitleStyle.POS_TOP,
                         onClick = { position = SubtitleStyle.POS_TOP },
@@ -3010,7 +3008,7 @@ private fun SubtitleDialog(
                 )
                 Text(
                     text = offsetLabel,
-                    style = V4Type.Body,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.width(44.dp),
                     maxLines = 1,
@@ -3019,7 +3017,7 @@ private fun SubtitleDialog(
         }
         Text(
             text = "支持 .srt / .vtt / .ass 地址，保存后立即生效",
-            style = V4Type.Meta,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(6.dp))
@@ -3098,7 +3096,7 @@ private fun SleepTimerDialog(
         // 明说，不改语义。
         Text(
             "定时和播完本集只能二选一，选新的会取消旧的",
-            style = V4Type.Body,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         listOf(15, 30, 60, 90).forEach { m ->
@@ -3108,7 +3106,7 @@ private fun SleepTimerDialog(
             ) {
                 Text(
                     "$m 分钟后停止",
-                    style = V4Type.Body,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
@@ -3119,7 +3117,7 @@ private fun SleepTimerDialog(
         ) {
             Text(
                 "播完本集停止",
-                style = V4Type.Body,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
@@ -3129,8 +3127,8 @@ private fun SleepTimerDialog(
         ) {
             Text(
                 "关闭定时",
-                style = V4Type.Body,
-                color = V4.c.live,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
             )
         }
     }
@@ -3184,7 +3182,7 @@ private fun SkipSettingsDialog(
     ) {
         Text(
             text = "每部剧单独设置，互不影响",
-            style = V4Type.Meta,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(12.dp))

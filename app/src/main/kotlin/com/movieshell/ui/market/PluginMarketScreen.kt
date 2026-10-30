@@ -1,5 +1,7 @@
 package com.movieshell.ui.market
 
+import com.movieshell.ui.theme.V5
+
 import android.os.SystemClock
 import com.movieshell.ui.components.AppDropdownMenu
 import com.movieshell.ui.components.AppSwitch
@@ -69,7 +71,7 @@ import com.movieshell.data.repo.PluginMarket.MarketPlugin
 import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.ui.components.AppCard
-import com.movieshell.ui.components.V4Chip
+import com.movieshell.ui.components.V5Chip
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
@@ -83,8 +85,6 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 
 /**
  * 插件市场页（v0.23.0）。
@@ -92,7 +92,7 @@ import com.movieshell.ui.theme.V4Type
  * - 搜索过滤；不支持的 type 默认隐藏（设置里可开"显示不兼容插件"，置灰禁装）
  * - 卡片点击进详情页；卡片上可直接安装/更新/卸载
  *
- * v0.27.0 Soft Tech 换皮：卡片走 AppCard，筛选走 V4Chip，搜索走 AppTextField，
+ * v0.27.0 Soft Tech 换皮：卡片走 AppCard，筛选走 V5Chip，搜索走 AppTextField，
  * 三态走 EmptyState / LoadingSkeleton。过滤与按钮状态机逻辑零变更。
  * v0.134.0：多市场归并——注册表里启用的市场并发拉取、按插件 id 去重
  * （注册表顺序在前者胜出），头部信息条汇总市场/插件/可更新数，市场增删改
@@ -280,7 +280,7 @@ fun PluginMarketScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner)
-                .padding(horizontal = V4.Gutter),
+                .padding(horizontal = V5.Gutter),
         ) {
             // v0.134.0：头部信息条（embedded 与否都渲染）——汇总数 + 刷新 + 管理 + 搜索开关
             Row(
@@ -291,7 +291,7 @@ fun PluginMarketScreen(
                     if (updatableCount > 0) " · $updatableCount 个可更新" else ""
                 Text(
                     text = countsText,
-                    style = V4Type.Body,
+                    style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = { reload() }) {
@@ -313,18 +313,18 @@ fun PluginMarketScreen(
             }
             // v0.134.0：状态筛选 chips（数字随 merged/安装态实时派生）
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                V4Chip(text = "全部", selected = statusFilter == 0, onClick = { statusFilter = 0 })
-                V4Chip(
+                V5Chip(text = "全部", selected = statusFilter == 0, onClick = { statusFilter = 0 })
+                V5Chip(
                     text = "可更新 $updatableCount",
                     selected = statusFilter == 1,
                     onClick = { statusFilter = 1 },
                 )
-                V4Chip(
+                V5Chip(
                     text = "已安装 $installedCount",
                     selected = statusFilter == 2,
                     onClick = { statusFilter = 2 },
                 )
-                V4Chip(
+                V5Chip(
                     text = "未安装 ${merged.size - installedCount}",
                     selected = statusFilter == 3,
                     onClick = { statusFilter = 3 },
@@ -332,21 +332,21 @@ fun PluginMarketScreen(
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                V4Chip(text = "全部", selected = category.isEmpty(), onClick = { category = "" })
-                V4Chip(text = "环境", selected = category == "env", onClick = { category = "env" })
-                V4Chip(text = "应用", selected = category == "app", onClick = { category = "app" })
+                V5Chip(text = "全部", selected = category.isEmpty(), onClick = { category = "" })
+                V5Chip(text = "环境", selected = category == "env", onClick = { category = "env" })
+                V5Chip(text = "应用", selected = category == "app", onClick = { category = "app" })
             }
             // v0.134.0：架构筛选——仅当归并结果含 2 种以上架构时才渲染这一行
             if (archOptions.size >= 2) {
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    V4Chip(
+                    V5Chip(
                         text = "全部架构",
                         selected = archFilter.isEmpty(),
                         onClick = { archFilter = "" },
                     )
                     archOptions.forEach { abi ->
-                        V4Chip(
+                        V5Chip(
                             text = abi,
                             selected = archFilter == abi,
                             onClick = { archFilter = abi },
@@ -382,7 +382,7 @@ fun PluginMarketScreen(
                         Text(
                             text = if (loadingSlow) "网络较慢，正在尝试镜像线路，请稍候…"
                             else "正在加载插件市场…",
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         repeat(3) {
@@ -390,7 +390,7 @@ fun PluginMarketScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(148.dp),
-                                shape = RoundedCornerShape(V4.RField),
+                                shape = RoundedCornerShape(V5.CornerMd),
                             )
                         }
                     }
@@ -522,11 +522,11 @@ private fun PluginCard(
                     Spacer(Modifier.size(10.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = plugin.name, style = V4Type.RowTitle)
+                    Text(text = plugin.name, style = MaterialTheme.typography.bodyLarge)
                     if (plugin.author.isNotBlank()) {
                         Text(
                             text = plugin.author,
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -554,7 +554,7 @@ private fun PluginCard(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = plugin.desc,
-                    style = V4Type.Meta,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                 )
@@ -602,8 +602,8 @@ private fun ManageMarketsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(
-            topStart = V4.RField,
-            topEnd = V4.RField,
+            topStart = V5.CornerMd,
+            topEnd = V5.CornerMd,
         ),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
@@ -615,7 +615,7 @@ private fun ManageMarketsSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "管理市场", style = V4Type.RowTitle)
+                Text(text = "管理市场", style = MaterialTheme.typography.bodyLarge)
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { editTarget = MarketEditTarget.Add }) {
                     Icon(Icons.Filled.Add, contentDescription = "添加市场")
@@ -626,10 +626,10 @@ private fun ManageMarketsSheet(
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(text = src.name, style = V4Type.Body)
+                                Text(text = src.name, style = MaterialTheme.typography.bodyMedium)
                                 Text(
                                     text = src.url,
-                                    style = V4Type.Meta,
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -703,7 +703,7 @@ private fun ManageMarketsSheet(
                         }
                         Text(
                             text = subText,
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -711,11 +711,11 @@ private fun ManageMarketsSheet(
             }
             Text(
                 text = "停用的市场不参与拉取与归并；删除仅移除列表项与缓存。",
-                style = V4Type.Meta,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             // GitHub 加速代理：单一入口、全 App 生效（数据层按域作用于拉取与下载）
-            Text(text = "GitHub 加速代理（作用于 GitHub 域直链）", style = V4Type.RowTitle)
+            Text(text = "GitHub 加速代理（作用于 GitHub 域直链）", style = MaterialTheme.typography.bodyLarge)
             val githubProxy by PluginStore.githubProxy.collectAsState()
             AppTextField(
                 value = githubProxy,
@@ -725,7 +725,7 @@ private fun ManageMarketsSheet(
             )
             Text(
                 text = "仅作用于 raw.githubusercontent.com 与 github.com 域的市场拉取与插件下载，存在一处、全 App 生效。",
-                style = V4Type.Meta,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -796,7 +796,7 @@ private fun ManageMarketsSheet(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = "可添加 DsPlayer 官方市场（实验性）：${PluginStore.DSPLAYER_MARKET_URL}",
-                    style = V4Type.Meta,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

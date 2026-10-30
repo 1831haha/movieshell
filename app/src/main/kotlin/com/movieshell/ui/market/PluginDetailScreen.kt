@@ -1,5 +1,7 @@
 package com.movieshell.ui.market
 
+import com.movieshell.ui.theme.V5
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.safeDrawing
@@ -49,8 +51,6 @@ import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
 import kotlinx.coroutines.launch
-import com.movieshell.ui.theme.V4
-import com.movieshell.ui.theme.V4Type
 
 /**
  * 插件详情页（v0.23.0）：图标/作者/版本/大小/标签/平台/完整描述/更新说明/安装按钮。
@@ -103,7 +103,7 @@ fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit
                 .fillMaxSize()
                 .padding(inner)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = V4.Gutter, vertical = 8.dp),
+                .padding(horizontal = V5.Gutter, vertical = 8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (plugin.iconUrl.isNotBlank()) {
@@ -112,30 +112,30 @@ fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit
                         contentDescription = plugin.name,
                         modifier = Modifier
                             .size(72.dp)
-                            .clip(RoundedCornerShape(V4.RField))
+                            .clip(RoundedCornerShape(V5.CornerMd))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentScale = ContentScale.Crop,
                     )
                 }
                 Spacer(Modifier.size(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = plugin.name, style = V4Type.ScreenTitle)
+                    Text(text = plugin.name, style = MaterialTheme.typography.titleLarge)
                     if (plugin.author.isNotBlank()) {
                         Text(
                             text = "作者：${plugin.author}",
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Text(
                         text = "v${plugin.version}",
-                        style = V4Type.Meta,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (plugin.sourceMarket.isNotBlank()) {
                         Text(
                             text = "来自：${plugin.sourceMarket}",
-                            style = V4Type.Meta,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -164,15 +164,15 @@ fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit
             }
             if (plugin.desc.isNotBlank()) {
                 Spacer(Modifier.height(12.dp))
-                Text(text = plugin.desc, style = V4Type.Body)
+                Text(text = plugin.desc, style = MaterialTheme.typography.bodyMedium)
             }
             if (plugin.changelog.isNotBlank()) {
                 Spacer(Modifier.height(12.dp))
-                Text(text = "更新说明", style = V4Type.RowTitle)
+                Text(text = "更新说明", style = MaterialTheme.typography.bodyLarge)
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = plugin.changelog,
-                    style = V4Type.Meta,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -269,7 +269,7 @@ fun PluginDetailScreen(pluginId: String, market: String = "", onBack: () -> Unit
             if (typeNote.isNotBlank()) {
                 Text(
                     text = typeNote,
-                    style = V4Type.Meta,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
