@@ -1,5 +1,6 @@
 package com.movieshell.player
 
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.movieshell.ui.theme.MediaProgressFill
 
 import androidx.compose.ui.graphics.Brush
@@ -253,6 +254,8 @@ fun PlayerScreen(
     onLiveError: (() -> Unit)? = null,
     // v0.160.0：直播频道自带的请求头（插件 lives 里 ua 字段，有才传；没有不编 UA/Referer）
     liveHeaders: Map<String, String> = emptyMap(),
+    // Q3：覆盖层状态改由 PlayerUiViewModel 持有（默认按当前目的地作用域取实例，独立页与详情嵌入页均不改调用处）。
+    uiVm: PlayerUiViewModel = viewModel(),
 ) {
     val context = LocalContext.current
     // v0.186.0：本播放会话的源 key（字幕与片头片尾新 key 用）。
@@ -292,11 +295,8 @@ fun PlayerScreen(
     // v0.125.0：全屏画面比例偏好（持久化恢复；v0.255.0 起默认适应，见 PlayerSettings）
     var resizeIndex by remember { mutableIntStateOf(PlayerSettings.getResizeMode(context)) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-    var showServiceMissingDialog by remember { mutableStateOf(false) }
-    var gestureHint by remember { mutableStateOf<String?>(null) } // 手势临时指示
     // v0.124.0：本播放器是否已把窗口切进沉浸式全出血（恢复时凭它守卫，没动过不恢复）
     var immersiveApplied by remember { mutableStateOf(false) }
-    var showSkipSettings by remember { mutableStateOf(false) } // v0.16.3：按剧片头片尾设置
     // v0.19.0
     var playUrl by remember { mutableStateOf(url) } // 实际播放地址（切线路/重试时更新）
     val triedLines = remember { mutableSetOf<Int>() } // 已试过的线路下标（声明前置：LaunchedEffect(url) 里引用）
@@ -310,22 +310,13 @@ fun PlayerScreen(
             playUrl = url
         }
     }
-    var showLines by remember { mutableStateOf(false) } // 线路+选集切换抽屉
-    var showSubtitleDialog by remember { mutableStateOf(false) } // 外挂字幕
-    var showOnlineSubtitle by remember { mutableStateOf(false) } // v0.28.0：在线字幕搜索
     var sessionSubtitle by remember { mutableStateOf<String?>(null) } // 本次字幕覆盖（未设置则按剧记忆）
-    var pipMode by remember { mutableStateOf(false) } // 画中画
     // v0.54：弹幕（只看不发；用户明确发送功能永远不做）
     val danmakuEnabled by com.movieshell.player.danmaku.DanmakuSettings.enabled.collectAsState()
     var danmakuList by remember { mutableStateOf(emptyList<com.movieshell.player.danmaku.Danmaku>()) }
-    var showDanmakuSettings by remember { mutableStateOf(false) } // v0.56
     // v0.27.7：自绘控制层显隐（Media3 原生控制器已关闭，双引擎统一）；播放状态从引擎取
-    var controlsVisible by remember { mutableStateOf(true) }
     var isPlaying by remember { mutableStateOf(true) }
     // v0.40.0：锁屏模式（锁定后只留解锁按钮，防误触）+ 右上角齿轮
-    var locked by remember { mutableStateOf(false) }
-    var showGearSheet by remember { mutableStateOf(false) } // v0.259.0：齿轮底部页，替代三个点菜单
-    var showInfoDialog by remember { mutableStateOf(false) } // v0.259.0：简介弹窗
     // v0.259.0：追剧开关状态直接读 FollowStore 流，播放器与详情页天然同步；
     // 源 key 为空时不建“|vodId”这种不可靠条目，开关直接隐藏。
     val followList by FollowStore.list.collectAsState()
@@ -349,7 +340,6 @@ fun PlayerScreen(
         rotateWasPlaying = EngineHost.isPlayingNow()
         rotatePosMs = EngineHost.currentPosition()
     }
-    var showSleepDialog by remember { mutableStateOf(false) } // v0.21.0：定时关闭
     val sessionLines = remember { PlaySession.lines } // 进入前详情页已写入
     val snackbarHostState = remember { SnackbarHostState() }
     // v0.20.0：双引擎——Media3（默认）/ libmpv，记忆选择
@@ -457,9 +447,9 @@ fun PlayerScreen(
     DisposableEffect(Unit) {
         val activity = context as? ComponentActivity
         if (activity == null) return@DisposableEffect onDispose {}
-        pipMode = activity.isInPictureInPictureMode
+        uiVm.pipMode = activity.isInPictureInPictureMode
         val listener = Consumer<PictureInPictureModeChangedInfo> { info ->
-            pipMode = info.isInPictureInPictureMode
+            uiVm.pipMode = info.isInPictureInPictureMode
         }
         activity.addOnPictureInPictureModeChangedListener(listener)
         onDispose { activity.removeOnPictureInPictureModeChangedListener(listener) }
@@ -852,7 +842,7 @@ fun PlayerScreen(
                     .takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
                 if (MagnetPlayer.isMagnet(playUrl)) {
                     // v0.25.0：服务缺失对话框只属于磁力分支，不与普通起播失败混用
-                    showServiceMissingDialog = !MagnetPlayer.playIfReady(
+                    uiVm.showServiceMissingDialog = !MagnetPlayer.playIfReady(
                         context = context,
                         magnet = playUrl,
                         title = title,
@@ -1180,10 +1170,10 @@ fun PlayerScreen(
     }
 
     // 手势指示条：显示约 0.9 秒后自动隐藏
-    LaunchedEffect(gestureHint) {
-        if (gestureHint != null) {
+    LaunchedEffect(uiVm.gestureHint) {
+        if (uiVm.gestureHint != null) {
             delay(900)
-            gestureHint = null
+            uiVm.gestureHint = null
         }
     }
 
@@ -1251,7 +1241,7 @@ fun PlayerScreen(
         }
 
         // v0.19.0：画中画时只留播放画面，全部自绘 UI 隐藏
-        if (!pipMode) {
+        if (!uiVm.pipMode) {
         // 手势层：左右滑动=±10 秒快进/快退；左半屏上下=亮度；右半屏上下=音量。
         // v0.27.7：轻点切换自绘控制层显隐（Media3 原生控制器已关闭，不再透传）。
         Box(
@@ -1278,7 +1268,7 @@ fun PlayerScreen(
                         if (longPressed) {
                             if (playUrl.isNotBlank()) {
                                 EngineHost.setPlaybackSpeed(2.0f)
-                                gestureHint = "2x 快放中…"
+                                uiVm.gestureHint = "2x 快放中…"
                                 // 等待松手（消费事件，避免透传点中控制器）
                                 while (true) {
                                     val event = awaitPointerEvent()
@@ -1287,14 +1277,14 @@ fun PlayerScreen(
                                     if (c == null || !c.pressed) break
                                 }
                                 EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
-                                gestureHint = null
+                                uiVm.gestureHint = null
                             }
                             return@awaitEachGesture
                         }
                         if (slopChange == null || mode == 0) {
                             // v0.27.7：轻点切换自绘控制层显隐（Media3 原生控制器已关闭）
                             // v0.40.0：锁定时轻点不切换控制层（防误触，只留解锁按钮）
-                            if (!locked) controlsVisible = !controlsVisible
+                            if (!uiVm.locked) uiVm.controlsVisible = !uiVm.controlsVisible
                             return@awaitEachGesture
                         }
                         var last = slopChange.position
@@ -1306,7 +1296,7 @@ fun PlayerScreen(
                         // 走亮度/音量分支，起点区域本身就是区分依据，不再另设
                         // 速度阈值（慢拖 100dp 松手也是明确意图，速度门槛只会
                         // 让慢拖用户觉得“滑了没反应”）。
-                        val swipeNextCandidate = !embedded && !isLive && !locked &&
+                        val swipeNextCandidate = !embedded && !isLive && !uiVm.locked &&
                             cfgOrientation == Configuration.ORIENTATION_PORTRAIT &&
                             PlaySession.currentLine()?.episodes
                                 ?.getOrNull(PlaySession.episodeIndex + 1) != null &&
@@ -1332,7 +1322,7 @@ fun PlayerScreen(
                                             (EngineHost.currentPosition() + dir * 10_000L)
                                                 .coerceIn(0L, end)
                                         )
-                                        gestureHint =
+                                        uiVm.gestureHint =
                                             if (dir > 0) "快进 10 秒 »" else "« 快退 10 秒"
                                     }
                                 }
@@ -1342,14 +1332,14 @@ fun PlayerScreen(
                                         // 抵消，不到阈值松手回弹，提示只说意图，
                                         // 不在拖动中切集。
                                         swipeUpPx = down.position.y - last.y
-                                        gestureHint = if (swipeUpPx >= swipeThresholdPx)
+                                        uiVm.gestureHint = if (swipeUpPx >= swipeThresholdPx)
                                             "松手切下一集" else "继续上滑切下一集"
                                     } else {
                                         accY += dy
                                         if (abs(accY) >= ADJUST_STEP_PX) {
                                             val up = accY < 0
                                             accY = 0f
-                                            gestureHint = if (leftHalf) {
+                                            uiVm.gestureHint = if (leftHalf) {
                                                 val pct = adjustBrightness(context, up)
                                                 if (pct >= 0) "亮度 $pct%" else null
                                             } else {
@@ -1367,7 +1357,7 @@ fun PlayerScreen(
                         // 由 switchEpisode/起播链路处理），不到阈值只清提示
                         // 回弹，不切集；同一次拖动绝不触发两次。
                         if (mode == 2 && swipeNextCandidate) {
-                            gestureHint = null
+                            uiVm.gestureHint = null
                             if (swipeUpPx >= swipeThresholdPx) {
                                 switchEpisode(
                                     PlaySession.lineIndex,
@@ -1380,7 +1370,7 @@ fun PlayerScreen(
         )
 
         // 手势指示条：中央临时小胶囊（半透明黑底 + 12sp 白字）
-        gestureHint?.let { hint ->
+        uiVm.gestureHint?.let { hint ->
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -1396,20 +1386,20 @@ fun PlayerScreen(
 
         // v0.27.7：播放中 4 秒无操作自动隐藏控制层（暂停时保持显示）
         // v0.40.0：锁定时不自动隐藏（解锁按钮常显）
-        LaunchedEffect(controlsVisible, isPlaying, locked) {
-            if (controlsVisible && isPlaying && !locked) {
+        LaunchedEffect(uiVm.controlsVisible, isPlaying, uiVm.locked) {
+            if (uiVm.controlsVisible && isPlaying && !uiVm.locked) {
                 delay(4000)
-                controlsVisible = false
+                uiVm.controlsVisible = false
             }
         }
 
         // v0.27.7：中央大播放键——暂停时显示；点后恢复播放并带出控制层
         // v0.40.0：锁定时隐藏（防误触）
-        if (!isPlaying && playUrl.isNotBlank() && !locked) {
+        if (!isPlaying && playUrl.isNotBlank() && !uiVm.locked) {
             IconButton(
                 onClick = {
                     EngineHost.togglePlayPause()
-                    controlsVisible = true
+                    uiVm.controlsVisible = true
                 },
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -1432,8 +1422,8 @@ fun PlayerScreen(
         // v0.65：加时钟 + 分辨率行（对标目标界面）
         var clockText by remember { mutableStateOf("") }
         var streamInfo by remember { mutableStateOf("") }
-        LaunchedEffect(controlsVisible) {
-            if (!controlsVisible) return@LaunchedEffect
+        LaunchedEffect(uiVm.controlsVisible) {
+            if (!uiVm.controlsVisible) return@LaunchedEffect
             while (true) {
                 clockText = java.text.SimpleDateFormat("HH:mm", Locale.getDefault())
                     .format(java.util.Date())
@@ -1442,7 +1432,7 @@ fun PlayerScreen(
                 kotlinx.coroutines.delay(10_000)
             }
         }
-        if (controlsVisible && !locked) {
+        if (uiVm.controlsVisible && !uiVm.locked) {
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -1567,7 +1557,7 @@ fun PlayerScreen(
                 RoundControlButton(
                     icon = Icons.Filled.Info,
                     desc = "简介",
-                    onClick = { showInfoDialog = true },
+                    onClick = { uiVm.showInfoDialog = true },
                 )
                 if (!isLive && followPlayerKey != null && vodId != null) {
                     RoundControlButton(
@@ -1616,7 +1606,7 @@ fun PlayerScreen(
                     RoundControlButton(
                         icon = Icons.Filled.Settings,
                         desc = "设置",
-                        onClick = { showGearSheet = true },
+                        onClick = { uiVm.showGearSheet = true },
                     )
                 }
             }
@@ -1635,25 +1625,25 @@ fun PlayerScreen(
                 }
             }
             } // Column：顶栏区
-        } // if (controlsVisible && !locked)：顶部栏
+        } // if (uiVm.controlsVisible && !uiVm.locked)：顶部栏
 
         // v0.40.0：悬浮按钮——锁定 + 截图（目标界面：圆形半透明黑底）
         // v0.65：移到右侧（对标目标界面）
         // 锁定时只显示解锁按钮（常显，不跟随控制层自动隐藏）
-        if (locked) {
+        if (uiVm.locked) {
             RoundControlButton(
                 icon = Icons.Filled.LockOpen,
                 desc = "解锁",
                 onClick = {
-                    locked = false
-                    controlsVisible = true
+                    uiVm.locked = false
+                    uiVm.controlsVisible = true
                 },
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .zIndex(1f)
                     .padding(end = 16.dp),
             )
-        } else if (controlsVisible) {
+        } else if (uiVm.controlsVisible) {
             Column(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -1665,7 +1655,7 @@ fun PlayerScreen(
                 RoundControlButton(
                     icon = Icons.Filled.Lock,
                     desc = "锁定",
-                    onClick = { locked = true },
+                    onClick = { uiVm.locked = true },
                 )
                 RoundControlButton(
                     icon = Icons.Filled.CameraAlt,
@@ -1724,7 +1714,7 @@ fun PlayerScreen(
         }
         // v0.40.0：底部控制条按目标界面重做——两行式：进度行 + 控制行
         // 锁定时隐藏（只留解锁按钮）
-        if (playUrl.isNotBlank() && controlsVisible && !locked) {
+        if (playUrl.isNotBlank() && uiVm.controlsVisible && !uiVm.locked) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -1844,7 +1834,7 @@ fun PlayerScreen(
                     }
                     if (!isLive) {
                         TextButton(
-                            onClick = { showLines = true },
+                            onClick = { uiVm.showLines = true },
                             modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
@@ -1899,7 +1889,7 @@ fun PlayerScreen(
                             Text(PLAY_MODES[playModeIndex], color = Color.White, style = MaterialTheme.typography.bodyMedium)
                         }
                         TextButton(
-                            onClick = { showSubtitleDialog = true },
+                            onClick = { uiVm.showSubtitleDialog = true },
                             modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
@@ -1907,14 +1897,14 @@ fun PlayerScreen(
                         }
                         if (vodId != null) {
                             TextButton(
-                                onClick = { showSkipSettings = true },
+                                onClick = { uiVm.showSkipSettings = true },
                                 modifier = Modifier.height(48.dp),
                                 contentPadding = PaddingValues(horizontal = 6.dp),
                             ) {
                                 Text("片头", color = Color.White, style = MaterialTheme.typography.bodyMedium)
                             }
                             TextButton(
-                                onClick = { showSkipSettings = true },
+                                onClick = { uiVm.showSkipSettings = true },
                                 modifier = Modifier.height(48.dp),
                                 contentPadding = PaddingValues(horizontal = 6.dp),
                             ) {
@@ -1949,14 +1939,14 @@ fun PlayerScreen(
         }
 
         // v0.19.0：线路+选集抽屉；v0.24.0：直播不显示
-        if (showLines && !isLive) {
+        if (uiVm.showLines && !isLive) {
             LineSheet(
                 lines = sessionLines,
                 lineIndex = PlaySession.lineIndex,
                 episodeIndex = PlaySession.episodeIndex,
-                onDismiss = { showLines = false },
+                onDismiss = { uiVm.showLines = false },
                 onPick = { lineIdx, epIdx ->
-                    showLines = false
+                    uiVm.showLines = false
                     switchEpisode(lineIdx, epIdx)
                 },
             )
@@ -1975,9 +1965,9 @@ fun PlayerScreen(
         // LazyRow 横向藏着，2.0X 等选项要横滑才看得到，改 FlowRow 一次全露；
         // ③窄屏下轨道/其它行的 Row 会溢出，改 FlowRow 自动换行；④补顶部拖拽条
         // 与关闭键的正常着色，页体不再是“只有一排芯片、标题看不见”的样子。
-        if (showGearSheet) {
+        if (uiVm.showGearSheet) {
             Dialog(
-                onDismissRequest = { showGearSheet = false },
+                onDismissRequest = { uiVm.showGearSheet = false },
                 properties = DialogProperties(usePlatformDefaultWidth = false),
             ) {
             Box(Modifier.fillMaxSize()) {
@@ -1985,7 +1975,7 @@ fun PlayerScreen(
                     Modifier
                         .fillMaxSize()
                         .background(Color.Black.copy(alpha = 0.55f))
-                        .clickable(onClick = { showGearSheet = false })
+                        .clickable(onClick = { uiVm.showGearSheet = false })
                 )
                 Surface(
                     modifier = Modifier
@@ -2032,7 +2022,7 @@ fun PlayerScreen(
                                 modifier = Modifier.weight(1f),
                             )
                             IconButton(
-                                onClick = { showGearSheet = false },
+                                onClick = { uiVm.showGearSheet = false },
                                 modifier = Modifier.size(32.dp),
                             ) {
                                 Icon(
@@ -2113,7 +2103,7 @@ fun PlayerScreen(
                                 )
                                 AppButton(
                                     text = "跳过设置",
-                                    onClick = { showSkipSettings = true },
+                                    onClick = { uiVm.showSkipSettings = true },
                                     variant = AppButtonVariant.Ghost,
                                 )
                             }
@@ -2128,12 +2118,12 @@ fun PlayerScreen(
                         ) {
                             AppButton(
                                 text = "字幕设置",
-                                onClick = { showSubtitleDialog = true },
+                                onClick = { uiVm.showSubtitleDialog = true },
                                 variant = AppButtonVariant.Ghost,
                             )
                             AppButton(
                                 text = "在线字幕",
-                                onClick = { showOnlineSubtitle = true },
+                                onClick = { uiVm.showOnlineSubtitle = true },
                                 variant = AppButtonVariant.Ghost,
                             )
                         }
@@ -2174,7 +2164,7 @@ fun PlayerScreen(
                         ) {
                             AppButton(
                                 text = if (sleepRemaining > 0 || sleepArmed) "定时关闭（进行中）" else "定时关闭",
-                                onClick = { showSleepDialog = true },
+                                onClick = { uiVm.showSleepDialog = true },
                                 variant = AppButtonVariant.Ghost,
                             )
                             AppButton(
@@ -2189,7 +2179,7 @@ fun PlayerScreen(
                             if (danmakuEnabled) {
                                 AppButton(
                                     text = "弹幕设置",
-                                    onClick = { showDanmakuSettings = true },
+                                    onClick = { uiVm.showDanmakuSettings = true },
                                     variant = AppButtonVariant.Ghost,
                                 )
                             }
@@ -2202,21 +2192,21 @@ fun PlayerScreen(
         }
 
         // v0.259.0：简介弹窗（五字段，详情页与播放器共用 InfoPopupDialog）
-        if (showInfoDialog) {
+        if (uiVm.showInfoDialog) {
             InfoPopupDialog(
                 name = infoName.ifBlank { title },
                 remarks = infoRemarks,
                 year = infoYear,
                 desc = infoDesc,
                 vodId = vodId,
-                onDismiss = { showInfoDialog = false },
+                onDismiss = { uiVm.showInfoDialog = false },
             )
         }
 
         // v0.19.0：外挂字幕设置
         // v0.21.0：升级为样式面板（大小/颜色/描边/位置）+ 时间偏移 ±10s
         // v0.56：弹幕设置对话框
-        if (showDanmakuSettings) {
+        if (uiVm.showDanmakuSettings) {
             val ds = com.movieshell.player.danmaku.DanmakuSettings
             val sizeIdx by ds.textSize.collectAsState()
             val alphaV by ds.alpha.collectAsState()
@@ -2224,10 +2214,10 @@ fun PlayerScreen(
             val areaIdx by ds.area.collectAsState()
             val lineHeightIdx by ds.lineHeight.collectAsState()
             TechDialog(
-                onDismissRequest = { showDanmakuSettings = false },
+                onDismissRequest = { uiVm.showDanmakuSettings = false },
                 title = "弹幕设置",
                 confirmText = "确定",
-                onConfirm = { showDanmakuSettings = false },
+                onConfirm = { uiVm.showDanmakuSettings = false },
             ) {
                     androidx.compose.foundation.layout.Column {
                         // 字号
@@ -2292,7 +2282,7 @@ fun PlayerScreen(
                 }
         }
 
-        if (showSubtitleDialog) {
+        if (uiVm.showSubtitleDialog) {
             SubtitleDialog(
                 initial = sessionSubtitle
                     ?: vodId?.let {
@@ -2301,7 +2291,7 @@ fun PlayerScreen(
                         )
                     }.orEmpty(),
                 initialStyle = PlayerSettings.subtitleStyle.value,
-                onDismiss = { showSubtitleDialog = false },
+                onDismiss = { uiVm.showSubtitleDialog = false },
                 onSave = { url, style ->
                     val clean = url.trim()
                     sessionSubtitle = clean.ifBlank { null }
@@ -2309,15 +2299,15 @@ fun PlayerScreen(
                         context, playSourceKey, vodId, PlaySession.episodeIndex, clean,
                     )
                     PlayerSettings.setSubtitleStyle(context, style)
-                    showSubtitleDialog = false
+                    uiVm.showSubtitleDialog = false
                     replayWithSubtitle()
                 },
-                onOnlineSearch = { showOnlineSubtitle = true },
+                onOnlineSearch = { uiVm.showOnlineSubtitle = true },
             )
         }
 
         // v0.28.0：在线字幕搜索（搜当前标题，下载后自动应用+按剧记忆）
-        if (showOnlineSubtitle) {
+        if (uiVm.showOnlineSubtitle) {
             com.movieshell.ui.subtitle.OnlineSubtitleSearchDialog(
                 keyword = title,
                 vodId = vodId,
@@ -2327,20 +2317,20 @@ fun PlayerScreen(
                 episodeIndex = PlaySession.episodeIndex,
                 onPick = { url ->
                     sessionSubtitle = url
-                    showOnlineSubtitle = false
-                    showSubtitleDialog = false
+                    uiVm.showOnlineSubtitle = false
+                    uiVm.showSubtitleDialog = false
                     replayWithSubtitle()
                 },
-                onDismiss = { showOnlineSubtitle = false },
+                onDismiss = { uiVm.showOnlineSubtitle = false },
             )
         }
 
         // v0.21.0：定时关闭
-        if (showSleepDialog) {
+        if (uiVm.showSleepDialog) {
             SleepTimerDialog(
-                onDismiss = { showSleepDialog = false },
+                onDismiss = { uiVm.showSleepDialog = false },
                 onPickMinutes = { m ->
-                    showSleepDialog = false
+                    uiVm.showSleepDialog = false
                     VideoSleepTimer.startMinutes(m) {
                         EngineHost.pause()
                         AppToast.show(context, "定时关闭：已暂停播放", long = false)
@@ -2349,12 +2339,12 @@ fun PlayerScreen(
                     AppToast.show(context, "将在 $m 分钟后停止播放", long = false)
                 },
                 onPickAfterEpisode = {
-                    showSleepDialog = false
+                    uiVm.showSleepDialog = false
                     VideoSleepTimer.armAfterEpisode()
                     AppToast.show(context, "本集播完后将停止播放", long = false)
                 },
                 onCancelTimer = {
-                    showSleepDialog = false
+                    uiVm.showSleepDialog = false
                     VideoSleepTimer.cancel()
                     AppToast.show(context, "定时关闭已取消", long = false)
                 },
@@ -2362,27 +2352,27 @@ fun PlayerScreen(
         }
 
         // v0.16.3：按剧片头片尾设置
-        if (showSkipSettings && vodId != null) {
+        if (uiVm.showSkipSettings && vodId != null) {
             SkipSettingsDialog(
                 vodId = vodId,
                 sourceKey = playSourceKey,
                 episodeIndex = PlaySession.episodeIndex,
-                onDismiss = { showSkipSettings = false },
+                onDismiss = { uiVm.showSkipSettings = false },
             )
         }
 
-        } // if (!pipMode)：画中画时只留播放画面
+        } // if (!uiVm.pipMode)：画中画时只留播放画面
 
         // 磁力转播服务未启动提示（v0.27.0：统一卡片容器，标题柔和错误色）
-        if (showServiceMissingDialog) {
+        if (uiVm.showServiceMissingDialog) {
             PlayerDialogCard(
                 title = "磁力转播服务未启动",
                 titleColor = MaterialTheme.colorScheme.error,
-                onDismiss = { showServiceMissingDialog = false },
+                onDismiss = { uiVm.showServiceMissingDialog = false },
                 buttons = {
                     AppButton(
                         text = "知道了",
-                        onClick = { showServiceMissingDialog = false },
+                        onClick = { uiVm.showServiceMissingDialog = false },
                         variant = AppButtonVariant.Ghost,
                     )
                 },
