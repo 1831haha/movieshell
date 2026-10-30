@@ -116,6 +116,9 @@ object PySourceManager {
 
     fun activeRuleName(): String? = activeName
 
+    /** v0.291.0：proxy:// 封面取图用——返回当前激活 PY 规则的可信副本路径（与调规则同一路径）。 */
+    fun activeRulePathForProxy(): String? = activeRulePath()
+
     fun hasActiveRule(): Boolean = activeName != null
 
     /** 切换 active 规则。主线程调用；name=null 时清空。v0.22.0：切换时取消全部在途读请求。v0.187.0 H03：取消只取消等待，停不掉桥上正在执行的 Python，见类注释固有限制。 */

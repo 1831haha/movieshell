@@ -1,6 +1,8 @@
 package com.movieshell
 
 import android.app.Application
+import coil.Coil
+import coil.ImageLoader
 import com.movieshell.data.maintain.CacheAutoClean
 import com.movieshell.data.novel.LegadoJsEngine
 import com.movieshell.data.novel.NovelMigration
@@ -13,6 +15,7 @@ import com.movieshell.data.repo.SpiderEngine
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.source.JsRuntime
+import com.movieshell.data.source.ProxyImageFetcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,6 +30,13 @@ class XiaYingApp : Application() {
         super.onCreate()
         CrashHandler.install(this)
         LogBus.readLastCrash(this)
+        // v0.291.0：proxy:// 封面取图器——只接管 proxy:// 地址，其余走 Coil 默认，
+        // 须在任何图片加载前注册，故放在 Application.onCreate。
+        Coil.setImageLoader(
+            ImageLoader.Builder(this)
+                .components { add(ProxyImageFetcher.Factory()) }
+                .build(),
+        )
         // v0.113.0：V8 sandbox 上下文注入（进程级单例，首次用 JS 源时才真正连接）
         JsRuntime.init(this)
         // B3：引擎与相关 Store 的初始化挪到 Application——原来只在

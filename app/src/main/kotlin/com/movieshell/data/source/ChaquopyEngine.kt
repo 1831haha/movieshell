@@ -1,6 +1,7 @@
 package com.movieshell.data.source
 
 import android.content.Context
+import android.util.Base64
 import android.util.Log
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
@@ -12,6 +13,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /**
  * Chaquopy 内置 Python 引擎。
@@ -184,6 +189,32 @@ object ChaquopyEngine : PyEngine {
     /** v0.64.0 书源入口：走 pyspider_bridge.book_call。 */
     override suspend fun bookInvoke(rulePath: String, method: String, argsJson: String): String =
         callBridge(rulePath, method, argsJson, "book_call")
+
+    /**
+     * v0.291.0：proxy:// 封面取图。部分 PY 规则把封面写成 proxy://do=py&url=..，
+     * 只有规则自己的 localProxy 知道取图要带什么 Referer；桥一律走 JSON 字符串，
+     * 图片字节经 pyspider_bridge.proxy_image 转 base64 回传，这里再解回字节。
+     * 规则取图失败时按约定返回 1x1 透明 png（约 70 字节），按过小判失败返回 null，
+     * 让图片加载回落首字占位，不把透明小图当成封面。
+     */
+    data class ProxyImage(val bytes: ByteArray, val contentType: String?)
+
+    suspend fun fetchProxyImage(rulePath: String, imageUrl: String): ProxyImage? {
+        val escaped = imageUrl.replace("\\", "\\\\").replace("\"", "\\\"")
+        val text = callBridge(rulePath, "localProxy", "{\"url\":\"$escaped\"}", "proxy_image")
+        return runCatching {
+            val root = Json.parseToJsonElement(text).jsonObject
+            if ((root["ok"] as? JsonPrimitive)?.contentOrNull != "true") return null
+            val data = (root["data"] as? JsonObject) ?: return null
+            val encoded = (data["base64"] as? JsonPrimitive)?.contentOrNull ?: return null
+            val bytes = Base64.decode(encoded, Base64.DEFAULT)
+            if (bytes.size < 200) return null
+            ProxyImage(
+                bytes,
+                (data["contentType"] as? JsonPrimitive)?.contentOrNull,
+            )
+        }.getOrNull()
+    }
 
     /** v0.64.0：清掉指定规则文件的桥缓存。 */
     override suspend fun resetRuleCache(rulePath: String): Unit = withContext(Dispatchers.IO) {

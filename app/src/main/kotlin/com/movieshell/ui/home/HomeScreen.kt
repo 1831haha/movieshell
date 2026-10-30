@@ -1240,7 +1240,7 @@ fun HomeScreen(
                 ),
         ) {
             // v0.45.0：官方 Material3 下拉刷新（替换手搓版）
-            // v0.58：切分类 loading 覆盖层——Box 包一层，顶部细条/骨架屏
+            // v0.58：外层 Box（v0.291.0 起不再画全屏骨架覆盖层，骨架在网格内）
             Box(modifier = Modifier.fillMaxSize()) {
             PullToRefreshBox(
                 state = pullRefreshState,
@@ -1620,6 +1620,26 @@ fun HomeScreen(
                         }
                     }
 
+                    // v0.291.0：骨架屏进网格——原来切分类无旧数据时在 Box 里后画
+                    // 全屏 Column 骨架，盖住网格第一行的顶栏（搜索/换源胶囊）点不到；
+                    // 现在骨架就是网格里的海报形占位，顶栏始终在上面可点。
+                    if (loadingCat != null && drpyList.isEmpty()) {
+                        val skeletonModifier = if (homeLayout.columns > 1) {
+                            Modifier.fillMaxWidth().aspectRatio(
+                                when (homeLayout.columns) {
+                                    4 -> 0.535f
+                                    3 -> 0.6f
+                                    else -> 0.64f
+                                },
+                            )
+                        } else {
+                            Modifier.fillMaxWidth().height(72.dp)
+                        }
+                        items(12) {
+                            LoadingSkeleton(modifier = skeletonModifier)
+                        }
+                    }
+
                     // 网格海报墙 / 列表（v0.78.3：布局切换）
                     items(filtered, key = { it.vodId.ifBlank { "noid:${it.vodName}" } }) { vod ->
                         // v0.80.0：rating 已在海报底部跑马灯展示，副标题只留年份，不重复
@@ -1689,27 +1709,8 @@ fun HomeScreen(
                 }
             }
             } // v0.45.0：闭合 PullToRefreshBox
-            // 切分类时——有旧数据：不再在屏幕顶部画流动条（加载看换源胶囊黄圈），
-            // 旧列表原样留着；无旧数据：骨架屏（不闪"暂无内容"空态）
-            if (loadingCat != null) {
-                if (drpyList.isEmpty()) {
-                    // 骨架屏：简单灰色占位块
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(V4.Gutter),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        repeat(6) {
-                            LoadingSkeleton(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(120.dp),
-                            )
-                        }
-                    }
-                }
-            }
+            // v0.291.0：全屏骨架覆盖层已删（骨架改放网格内，见上）；
+            // 外层 Box 保留不动，少 churn。
             } // v0.58：闭合切分类 loading Box
         } // 闭合 Column
     

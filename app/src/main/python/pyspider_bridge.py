@@ -10,6 +10,7 @@
 - 规则里的 `from base.spider import Spider` 能解析到本包内 bundled 的 base/spider.py。
 """
 
+import base64
 import importlib.util
 import inspect
 import json
@@ -196,6 +197,54 @@ def call(rule_path, method, args_json):
                 "error": "%s: %s" % (type(e).__name__, e),
                 "trace": traceback.format_exc(limit=8),
                 "last_resp": _last_resp_info,
+            }
+        )
+
+
+def proxy_image(rule_path, _method, args_json):
+    """localProxy 取图：供 Kotlin 图片加载调规则自带的 localProxy。
+
+    背景：部分 PY 规则把封面写成 proxy://do=py&url=..，只有规则自己的
+    localProxy 知道取图要带什么 Referer；Kotlin 侧直接拿真实地址去要图
+    会被图站防盗链拦下。桥在这里调一次 localProxy，把返回的字节转 base64
+    经 JSON 回传（桥一律走 JSON 字符串，字节不能直传）。
+    返回：{"ok": true, "data": {"status": .., "contentType": .., "base64": ..}}。
+    规则没有 localProxy、或返回格式不对时返回 ok:false；规则取图失败时
+    按约定返回 1x1 透明 png，Kotlin 侧按字节过小判失败、回落占位。
+    """
+    try:
+        spider = _load_spider(rule_path)
+        fn = getattr(spider, "localProxy", None)
+        if not callable(fn):
+            return _to_json({"ok": False, "error": "规则没有 localProxy 方法"})
+        args = json.loads(args_json) if args_json else {}
+        url = args.get("url") or ""
+        if not url:
+            return _to_json({"ok": False, "error": "proxy_image 缺少 url"})
+        result = fn({"url": url})
+        if not isinstance(result, (list, tuple)) or len(result) < 3:
+            return _to_json({"ok": False, "error": "localProxy 返回格式不对"})
+        status, ctype, data = result[0], result[1], result[2]
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        elif isinstance(data, bytearray):
+            data = bytes(data)
+        if not isinstance(data, bytes):
+            return _to_json({"ok": False, "error": "localProxy 返回的不是图片字节"})
+        return _to_json({
+            "ok": True,
+            "data": {
+                "status": status,
+                "contentType": ctype,
+                "base64": base64.b64encode(data).decode("ascii"),
+            },
+        })
+    except Exception as e:
+        return _to_json(
+            {
+                "ok": False,
+                "error": "%s: %s" % (type(e).__name__, e),
+                "trace": traceback.format_exc(limit=8),
             }
         )
 
