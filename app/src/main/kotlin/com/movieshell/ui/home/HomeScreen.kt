@@ -124,6 +124,7 @@ import com.movieshell.data.repo.ThemeStore
 import com.movieshell.ui.components.FilterBar
 import com.movieshell.ui.components.PosterCard
 import android.app.Activity
+import android.content.Context
 import android.content.pm.ActivityInfo
 import com.movieshell.player.HistoryEntry
 import com.movieshell.player.HistoryStore
@@ -201,95 +202,27 @@ fun HomeScreen(
     var subSite by remember { mutableStateOf<Site?>(null) }
     var lastSubKey by rememberSaveable { mutableStateOf<String?>(null) }
 
-    /** 读持久化的订阅当前源；记录被删/被标不支持/订阅被关时返回 null */
-    fun currentSubSite(): Site? {
-        val cur = SubSiteStore.getCurrent(context) ?: return null
-        val subEnabled =
-            ApiSourceStore.load(context).find { it.url == cur.subUrl }?.enabled ?: false
-        if (!subEnabled) return null
-        val cache = SubSiteStore.getCached(context, cur.subUrl) ?: return null
-        val rec = cache.sites.firstOrNull { it.key == cur.siteKey } ?: return null
-        if (!rec.enabled || rec.kind == SubSiteStore.KIND_UNSUPPORTED) return null
-        return SubSiteStore.toSite(cur.subUrl, rec)
-    }
-
+    // Q1：数据源分发的实现搬到文件底部的 homeEngine*/homeIsDrpySource/homeFetchDrpyFilters，
+    // 这里只留同名局部函数，调用时现读 subSite（与原来读取时机一致）。
     /** 当前数据源的首页：订阅当前源 > 本地 drpy > 本地 PY > 本地 PHP（CLI） */
-    suspend fun engineHome(): List<ModelVod> {
-        val s = subSite
-        if (s != null) return runCatching { subRepo.home(s) }.getOrDefault(emptyList())
-        return runCatching {
-            if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.home()
-            else if (SourceStateStore.activePyRule() != null) PySourceManager.home()
-            else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.home(context)
-            else emptyList()
-        }.getOrDefault(emptyList())
-    }
+    suspend fun engineHome(): List<ModelVod> = homeEngineHome(subSite, subRepo, context)
 
-    /**
-     * 当前数据源的分类：订阅 CMS 站走 CMS 分类接口，drpy/PY 站走引擎 categories()。
-     * v0.217.0（F2）：照抄 engineCategory 的可空口径——异常返回 null（调用方判失败，
-     * 给可见反馈+重试），不再吞成 emptyList；空列表只表示规则真没分类。
-     */
-    suspend fun engineCats(): List<CategoryType>? {
-        val s = subSite
-        if (s != null) {
-            if (s.isCmsSite()) return runCatching { subRepo.category(s, "", 1).first }
-                .getOrNull()
-            if (s.isJavaSpider()) return runCatching { subRepo.category(s, "", 1).first }
-                .getOrNull()
-            if (s.isPySite()) return runCatching { SubSiteEngines.pyEngineFor(s)?.categories() }
-                .getOrNull()
-            return runCatching { SubSiteEngines.drpyEngineFor(s)?.categories() }
-                .getOrNull()
-        }
-        return runCatching {
-            if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.categories()
-            else if (SourceStateStore.activePyRule() != null) PySourceManager.categories()
-            else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.categories(context)
-            else emptyList()
-        }.getOrNull()
-    }
+    /** 当前数据源的分类；异常返回 null，空列表只表示规则真没分类（见 homeEngineCats）。 */
+    suspend fun engineCats(): List<CategoryType>? = homeEngineCats(subSite, subRepo, context)
 
-    /**
-     * 当前数据源的分类内容。
-     * v0.110.0：异常返回 null（调用方判失败，给可见反馈+重试），不再吞成 emptyList；
-     * 空列表=规则真没内容（非失败）。唯一调用方 loadDrpyCategory。
-     */
+    /** 当前数据源的分类内容；异常返回 null，空列表=规则真没内容（见 homeEngineCategory）。 */
     suspend fun engineCategory(
         tid: String,
         pg: Int,
         filter: Map<String, String> = emptyMap()
-    ): List<ModelVod>? {
-        val s = subSite
-        // v0.44.0：订阅路径也要透传筛选（之前丢了，drpy 筛选点了没效果）
-        if (s != null) return runCatching { subRepo.category(s, tid, pg, filter).second }
-            .getOrNull()
-        return runCatching {
-            // v0.44.0：订阅路径也要透传筛选（之前丢了，drpy 筛选点了没效果）
-            // v0.48.0：本地 drpy 同样漏传 filter（v0.44.0 宣称生效实际没传），补上
-            if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.category(tid, pg, filter)
-            else if (SourceStateStore.activePyRule() != null) PySourceManager.category(tid, pg, filter)
-            else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.category(context, tid, pg)
-            else emptyList()
-        }.getOrNull()
-    }
+    ): List<ModelVod>? = homeEngineCategory(subSite, subRepo, context, tid, pg, filter)
 
     /** v0.44.0：当前源是否为 drpy（订阅站或本地规则）。 */
-    fun isDrpySource(): Boolean {
-        val s = subSite
-        if (s != null) return s.isDrpySite()
-        return SourceStateStore.activeDrpyRule() != null
-    }
+    fun isDrpySource(): Boolean = homeIsDrpySource(subSite)
 
     /** v0.44.0：拉取某 drpy 分类的筛选组（订阅走 SiteRepository，本地走 DrpySourceManager）。 */
-    suspend fun fetchDrpyFilters(tid: String): List<FilterGroup> {
-        val s = subSite
-        return if (s != null) {
-            runCatching { subRepo.filters(s, tid) }.getOrNull().orEmpty()
-        } else {
-            runCatching { DrpySourceManager.filters(tid) }.getOrNull().orEmpty()
-        }
-    }
+    suspend fun fetchDrpyFilters(tid: String): List<FilterGroup> =
+        homeFetchDrpyFilters(subSite, subRepo, tid)
 
     /**
      * 进详情：订阅当前源时把站点 key 带给详情页（详情/播放按站走引擎），
@@ -358,12 +291,7 @@ fun HomeScreen(
     // HistoryStore（最多 50 条）按以前模式不变，只改首页展示条数。
     var watchHistory by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
     fun reloadWatchHistory() {
-        watchHistory = HistoryStore.getHistory(context)
-            .filter { e ->
-                e.kind == "vod" && e.vodId.isNotBlank() &&
-                    !(e.durationMs > 0 && e.positionMs >= e.durationMs * 0.95)
-            }
-            .take(5)
+        watchHistory = loadContinueWatchEntries(context)
     }
     DisposableEffect(homeLifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -388,13 +316,7 @@ fun HomeScreen(
     }
 
     /** v0.25.0：当前数据源的缓存 key（订阅站 key / 本地规则名） */
-    fun homeCacheKey(): String? = when {
-        subSite != null -> "sub_${subSite?.key}"
-        SourceStateStore.activeDrpyRule() != null -> "drpy_${DrpySourceManager.activeRuleName()}"
-        SourceStateStore.activePyRule() != null -> "py_${PySourceManager.activeRuleName()}"
-        SourceStateStore.activePhpRule() != null -> "php_${SourceStateStore.activePhpRule()}"
-        else -> null
-    }
+    fun homeCacheKey(): String? = homeCacheKeyFor(subSite)
 
     /**
      * 等待单飞结果。异常（含取消）一律按 null 处理、调用方按失败态展示：
@@ -579,49 +501,7 @@ fun HomeScreen(
             catJob.join()
         }
         // 3. 算最终 UI 状态（语义与之前一致；early-apply 已做，这里幂等收尾）
-        val netOk = netVods != null && (netVods!!.isNotEmpty() || !cacheShown)
-        val finalVods: List<ModelVod>? = when {
-            // B6：规则真回空列表是“空”，不是“失败”——之前 ifEmpty 转 null，
-            // 真空被当成失败走 recommendEmpty 报错；现在空列表原样保留，
-            // 失败（netVods==null）才走 null 分支，UI 才能分开显示。
-            netOk -> netVods
-            cacheVods.isNotEmpty() -> cacheVods
-            else -> null
-        }
-        val finalCats: List<CategoryType>
-        val finalCatsFailed: Boolean
-        when {
-            !netCats.isNullOrEmpty() -> {
-                finalCats = netCats!!
-                finalCatsFailed = false
-            }
-            cacheCats.isNotEmpty() -> {
-                finalCats = cacheCats
-                finalCatsFailed = false
-            }
-            netCats == null -> {
-                // 分类超时且无缓存：UI 给重试入口
-                finalCats = emptyList()
-                finalCatsFailed = true
-            }
-            else -> {
-                // 规则本来就没分类，不是失败
-                finalCats = emptyList()
-                finalCatsFailed = false
-            }
-        }
-        // v0.152.0：PHP 失败原因只在"真没数据可展示"时透出；有缓存顶上时不拿失败去盖缓存。
-        val phpErrorVal = if (SourceStateStore.activePhpRule() != null &&
-            netVods.isNullOrEmpty() && netCats.isNullOrEmpty() &&
-            cacheVods.isEmpty() && cacheCats.isEmpty()
-        ) PhpCliEngine.lastErrorFor(null)?.take(140) else null
-        return HomeLoadGate.HomePayload(
-            vods = finalVods,
-            cats = finalCats,
-            catsFailed = finalCatsFailed,
-            resetSelection = netOk,
-            phpError = phpErrorVal,
-        )
+        return settleHomePayload(netVods, netCats, cacheVods, cacheCats, cacheShown)
     }
 
     // v0.145.0 修：从下方挪到 applyHomePayload 之前——Kotlin 局部函数必须先声明后调用（首轮构建即挂于此）。
@@ -1012,7 +892,7 @@ fun HomeScreen(
      * 首次记账（lastLoaded==null，新装/升级）只记不加载，冷启动保持 v0.27.4 干净空态。
      */
     fun refreshDrpyState(fromUserSwitch: Boolean = false) {
-        val cur = currentSubSite()
+        val cur = readCurrentSubSite(context)
         val curKey = cur?.key
         // v0.33.1：lastSubKey 为 null（记不住上次）时不算换源，避免切 tab 回来误重置。
         // 只有明确记得上次的 key 且变了，才是用户真的换了源。
@@ -1191,13 +1071,7 @@ fun HomeScreen(
     }
 
     // 站源入口行文案：订阅当前源 > 本地 drpy > 本地 PY > 本地 PHP；都没有 -> 演示数据
-    val sourceLabel: String = when {
-        subSite != null -> subSite?.name?.ifBlank { "订阅源" } ?: "订阅源"
-        SourceStateStore.activeDrpyRule() != null -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
-        SourceStateStore.activePyRule() != null -> "本地·${PySourceManager.activeRuleName().orEmpty()}"
-        SourceStateStore.activePhpRule() != null -> "本地·${SourceStateStore.activePhpRule().orEmpty()}"
-        else -> "选择站源"
-    }
+    val sourceLabel: String = homeSourceLabel(subSite)
 
     // v0.32.0 影院黑：流动渐变光斑垫底，内容浮上
     // v0.82.0：用户自定义背景底图（设置页更换）优先
@@ -1214,22 +1088,7 @@ fun HomeScreen(
     // v0.279.0 V4：平底——不再画光斑；自定义背景底图（设置页更换）照旧在深色下生效。
     Box(modifier = Modifier.fillMaxSize().background(V4.c.bg)) {
         if (darkTheme) {
-            if (customBg != null) {
-                AsyncImage(
-                    model = customBg,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-                // 深色罩：保证文字可读
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.55f)),
-                )
-            } else {
-                FlowingGlowBackground(modifier = Modifier.fillMaxSize())
-            }
+            HomeDarkBackdrop(customBg = customBg)
         }
         Column(
             modifier = Modifier
@@ -1276,198 +1135,40 @@ fun HomeScreen(
                 // v0.62：历史/追剧按内容自适应（不许被挤竖排），换源胶囊弹性收窄
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     // v0.279.0 V4 顶栏：搜索框（点进搜索页）+ 布局切换 + 站源胶囊（状态点 + 名称 + 下拉）。
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 6.dp, bottom = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        V4SearchField(
-                            placeholder = "搜索",
-                            icon = Icons.Filled.Search,
-                            onClick = onSearchClick,
-                            modifier = Modifier.weight(1f),
-                        )
-                        // v0.78.3：首页布局切换（对标 DsPlayer）
-                        V4IconButton(
-                            icon = homeLayout.icon,
-                            contentDescription = "切换布局",
-                            onClick = { showLayoutPicker = true },
-                        )
-                        // 换源胶囊（v0.7.1 入口）：点按打开换源表，长按刷新当前源（v0.174.0）；
-                        // 恢复之前口径：胶囊外圈 + 里面点加外圈的状态环，颜色按状态走——
-                        // 加载中黄（转圈）/ 有数据绿 / 失败红 / 未选源灰。
-                        val sourceRingState = when {
-                            drpyLoading || loadingCat != null -> StatusRingState.Loading
-                            drpyReady -> StatusRingState.Ready
-                            sourceLabel == "选择站源" || contentGen == 0 -> StatusRingState.Idle
-                            else -> StatusRingState.Failed
-                        }
-                        Row(
-                            modifier = Modifier
-                                .weight(1.25f)
-                                .heightIn(min = V4.Field)
-                                .clip(RoundedCornerShape(V4.RField))
-                                .background(V4.c.s1)
-                                .border(
-                                    BorderStroke(1.5.dp, sourceRingState.color()),
-                                    RoundedCornerShape(V4.RField),
-                                )
-                                .combinedClickable(
-                                    onClick = { showSourceSheet = true },
-                                    onLongClick = {
-                                        if (drpyActive) doRefresh() else showSourceSheet = true
-                                    },
-                                )
-                                .padding(horizontal = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            StatusRing(
-                                state = sourceRingState,
-                                diameter = 18.dp,
-                            )
-                            Spacer(Modifier.width(7.dp))
-                            Text(
-                                text = sourceLabel.replace("本地·", "本地 · "),
-                                color = V4.c.t1,
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Icon(
-                                imageVector = Icons.Filled.ExpandMore,
-                                contentDescription = if (drpyActive) "切换站源，长按刷新当前源" else "切换站源",
-                                tint = V4.c.t3,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
+                    // 换源胶囊（v0.7.1 入口）：点按打开换源表，长按刷新当前源（v0.174.0）；
+                    // 恢复之前口径：胶囊外圈 + 里面点加外圈的状态环，颜色按状态走——
+                    // 加载中黄（转圈）/ 有数据绿 / 失败红 / 未选源灰。
+                    val sourceRingState = when {
+                        drpyLoading || loadingCat != null -> StatusRingState.Loading
+                        drpyReady -> StatusRingState.Ready
+                        sourceLabel == "选择站源" || contentGen == 0 -> StatusRingState.Idle
+                        else -> StatusRingState.Failed
                     }
+                    HomeTopBar(
+                        layoutIcon = homeLayout.icon,
+                        sourceLabel = sourceLabel,
+                        sourceRingState = sourceRingState,
+                        drpyActive = drpyActive,
+                        onSearchClick = onSearchClick,
+                        onLayoutClick = { showLayoutPicker = true },
+                        onSourceClick = { showSourceSheet = true },
+                        onSourceLongClick = {
+                            if (drpyActive) doRefresh() else showSourceSheet = true
+                        },
+                    )
                 }
                 // v0.75.0：继续观看——有未看完的点播记录时，顶栏下方横滑一排
                 if (watchHistory.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        val cwList = watchHistory.distinctBy { it.url.ifBlank { "vod:${it.vodId}" } }
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            // v0.279.0 V4：区块标题 + 计数 + “全部 ›”（进播放历史页）
-                            V4SectionHeader(
-                                title = "继续观看",
-                                count = "${cwList.size}",
-                                actionText = "全部",
-                                trailingChevron = true,
-                                onAction = onHistoryClick,
-                            )
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                contentPadding = PaddingValues(end = 4.dp),
-                            ) {
-                                // v0.212.0 审计修复：url 为空的多条老记录原来按空 url
-                                // 去重合并成一条；空 url 用 vodId 兜底去重。
-                                items(cwList, key = { it.url.ifBlank { "vod:${it.vodId}" } }) { h ->
-                                    val progress = if (h.durationMs > 0) {
-                                        (h.positionMs.toFloat() / h.durationMs).coerceIn(0f, 1f)
-                                    } else 0f
-                                    Column(
-                                        modifier = Modifier
-                                            .width(182.dp)
-                                            .clip(RoundedCornerShape(V4.RPoster))
-                                            .clickable {
-                                                onContinueWatch(
-                                                    h.vodId, h.title,
-                                                    h.episodeIndex.coerceAtLeast(0),
-                                                    h.sourceType, h.sourceKey,
-                                                )
-                                            },
-                                    ) {
-                                        V4Art(
-                                            seed = h.title,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(100.dp),
-                                            ring = false,
-                                        ) {
-                                            // v0.215.0：继续观看单条删除；v0.261.0：48dp 触摸区；
-                                            // v0.265.0：先按卡片身份 commit() 同步删盘，再从盘里 reload。
-                                            Box(
-                                                modifier = Modifier
-                                                    .align(Alignment.TopEnd)
-                                                    .size(36.dp)
-                                                    .clickable {
-                                                        HistoryStore.deleteContinueWatch(context, h)
-                                                        reloadWatchHistory()
-                                                    },
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(22.dp)
-                                                        .clip(RoundedCornerShape(V4.RSm))
-                                                        .background(Color.Black.copy(alpha = 0.45f)),
-                                                    contentAlignment = Alignment.Center,
-                                                ) {
-                                                    Icon(
-                                                        Icons.Filled.Close,
-                                                        contentDescription = "删除这条记录",
-                                                        modifier = Modifier.size(14.dp),
-                                                        tint = Color(0xFFE6E8EE),
-                                                    )
-                                                }
-                                            }
-                                            // 底部进度（时长未知时不画进度，只显示集数）
-                                            if (h.durationMs > 0) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .align(Alignment.BottomStart)
-                                                        .fillMaxWidth()
-                                                        .height(3.dp)
-                                                        .background(Color.White.copy(alpha = 0.10f)),
-                                                ) {
-                                                    Box(
-                                                        Modifier
-                                                            .fillMaxWidth(progress)
-                                                            .height(3.dp)
-                                                            .background(V4.c.accent),
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(
-                                            text = h.title,
-                                            fontSize = 12.5.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = V4.c.t1,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        // v0.212.0：时长未知不显示百分比；v0.215.0：来源名（源 key 去扩展名）。
-                                        val continueSource = h.sourceKey
-                                            .removeSuffix(".js").removeSuffix(".py")
-                                            .takeIf { it.isNotBlank() }
-                                        Text(
-                                            text = buildString {
-                                                if (h.episodeIndex >= 0) append("第${h.episodeIndex + 1}集")
-                                                if (h.durationMs > 0) {
-                                                    if (isNotEmpty()) append(" · ")
-                                                    append("${(progress * 100).toInt()}%")
-                                                }
-                                                if (continueSource != null) {
-                                                    if (isNotEmpty()) append(" · ")
-                                                    append(continueSource)
-                                                }
-                                            }.ifBlank { "继续观看" },
-                                            fontSize = 10.5.sp,
-                                            color = V4.c.t3,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        HomeContinueWatchSection(
+                            watchHistory = watchHistory,
+                            onHistoryClick = onHistoryClick,
+                            onContinueWatch = onContinueWatch,
+                            onDelete = { h ->
+                                HistoryStore.deleteContinueWatch(context, h)
+                                reloadWatchHistory()
+                            },
+                        )
                     }
                 }
                 // 加载时上面的流动条已去掉：加载状态只看换源胶囊的状态环（黄圈转），
@@ -1541,36 +1242,16 @@ fun HomeScreen(
                             // v0.279.0 V4：全部筛选维度收进一条 34dp 横条——“组名 当前值”，
                             // 点开下拉选；点已选中的取消本组筛选（与原 chip 行为一致），多组互不干扰。
                             item(span = { GridItemSpan(maxLineSpan) }) {
-                                Row(
-                                    modifier = Modifier
-                                        .v4Bleed(V4.Gutter)
-                                        .heightIn(min = V4.FilterStrip)
-                                        .v4BottomDivider(V4.c.div)
-                                        .horizontalScroll(rememberScrollState())
-                                        .padding(horizontal = V4.Gutter),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Tune,
-                                        contentDescription = "筛选",
-                                        tint = V4.c.t2,
-                                        modifier = Modifier.size(15.dp),
-                                    )
-                                    filterGroups.forEach { filterGroup ->
-                                        HomeFilterDim(
-                                            name = filterGroup.name,
-                                            options = filterGroup.options.map { it.name to it.value },
-                                            selectedValue = filterMap[filterGroup.key],
-                                            onPick = { value ->
-                                                val isSel = filterMap[filterGroup.key] == value
-                                                val next = if (isSel) filterMap - filterGroup.key
-                                                else filterMap + (filterGroup.key to value)
-                                                loadDrpyCategory(selectedPosition, next)
-                                            },
-                                        )
-                                    }
-                                }
+                                HomeFilterStrip(
+                                    filterGroups = filterGroups,
+                                    filterMap = filterMap,
+                                    onPick = { groupKey, value ->
+                                        val isSel = filterMap[groupKey] == value
+                                        val next = if (isSel) filterMap - groupKey
+                                        else filterMap + (groupKey to value)
+                                        loadDrpyCategory(selectedPosition, next)
+                                    },
+                                )
                             }
                         }
                     } else if (catsFailed) {
@@ -1589,101 +1270,35 @@ fun HomeScreen(
                     // v0.50.0：stale 时标题旁小字提示"旧内容·刷新中"
                     // v0.145.0：进分类后标题跟当前分类走（选中 0 的推荐流视图才叫今日推荐）。
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            V4SectionHeader(
-                                title = drpyCats.firstOrNull { it.typeId == selectedCategory }?.typeName ?: "今日推荐",
-                                count = if (filtered.isNotEmpty()) "${filtered.size}" else null,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (recommendStale) {
-                                Text(
-                                    text = "旧内容·刷新中",
-                                    fontSize = 10.5.sp,
-                                    color = V4.c.t3,
-                                )
-                                Spacer(Modifier.width(8.dp))
-                            }
+                        HomeSectionTitleRow(
+                            title = drpyCats.firstOrNull { it.typeId == selectedCategory }?.typeName ?: "今日推荐",
+                            count = if (filtered.isNotEmpty()) "${filtered.size}" else null,
+                            stale = recommendStale,
                             // v0.212.0：换一换按种子真随机洗牌，换批即回顶。
-                            V4SectionHeader(
-                                title = "",
-                                actionText = "换一换",
-                                actionIcon = Icons.Filled.Refresh,
-                                onAction = {
-                                    shuffleSeed++
-                                    scope.launch { gridState.scrollToItem(0) }
-                                },
-                                modifier = Modifier.width(72.dp),
-                            )
-                        }
+                            onShuffle = {
+                                shuffleSeed++
+                                scope.launch { gridState.scrollToItem(0) }
+                            },
+                        )
                     }
 
                     // 网格海报墙 / 列表（v0.78.3：布局切换）
                     items(filtered, key = { it.vodId.ifBlank { "noid:${it.vodName}" } }) { vod ->
-                        // v0.80.0：rating 已在海报底部跑马灯展示，副标题只留年份，不重复
-                        // v0.212.0 审计修复：分类（typeName）明明带回来了，首页三种
-                        // 布局却全程不显示；副标题改成“年份 · 分类”两段式。
-                        val subtitle = listOfNotNull(
-                            vod.vodYear.takeIf { it.isNotBlank() },
-                            vod.typeName.takeIf { it.isNotBlank() },
-                        ).joinToString(" · ").takeIf { it.isNotBlank() }
-                        when (homeLayout) {
-                            HomeLayout.COMPACT_LIST -> HomeCompactRow(
-                                vod = vod,
-                                subtitle = subtitle,
-                                onClick = { goDetail(vod.vodId, vod.vodName) },
-                            )
-                            HomeLayout.TEXT_ONLY -> HomeTextRow(
-                                vod = vod,
-                                subtitle = subtitle,
-                                onClick = { goDetail(vod.vodId, vod.vodName) },
-                            )
-                            else -> PosterCard(
-                                title = vod.vodName,
-                                subtitle = subtitle,
-                                badge = vod.vodRemarks,
-                                posterUrl = vod.vodPic,
-                                modifier = Modifier.aspectRatio(
-                                    when (homeLayout.columns) {
-                                        4 -> 0.535f
-                                        3 -> 0.6f
-                                        else -> 0.64f
-                                    },
-                                ),
-                                onClick = { goDetail(vod.vodId, vod.vodName) },
-                            )
-                        }
+                        HomeVodItem(
+                            vod = vod,
+                            homeLayout = homeLayout,
+                            onClick = { goDetail(vod.vodId, vod.vodName) },
+                        )
                     }
                     // v0.215.0：分类分页脚——推荐视图（分类 0）不分页，只分类视图有“加载更多”；
                     // 空页后显示“没有更多了”，不再重复请求。
                     if (selectedCategory != "" && filtered.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 12.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                when {
-                                    catLoadingMore -> Text(
-                                        "加载中…",
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    selectedCategory in noMoreCats -> Text(
-                                        "没有更多了",
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    else -> AppButton(
-                                        text = "加载更多",
-                                        onClick = { loadMoreCategory() },
-                                        variant = AppButtonVariant.Secondary,
-                                    )
-                                }
-                            }
+                            HomeLoadMoreFooter(
+                                loadingMore = catLoadingMore,
+                                noMore = selectedCategory in noMoreCats,
+                                onLoadMore = { loadMoreCategory() },
+                            )
                         }
                     }
                 }
@@ -1694,20 +1309,7 @@ fun HomeScreen(
             if (loadingCat != null) {
                 if (drpyList.isEmpty()) {
                     // 骨架屏：简单灰色占位块
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(V4.Gutter),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        repeat(6) {
-                            LoadingSkeleton(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(120.dp),
-                            )
-                        }
-                    }
+                    HomeCategorySkeleton()
                 }
             }
             } // v0.58：闭合切分类 loading Box
@@ -1715,69 +1317,683 @@ fun HomeScreen(
     
         // v0.78.3：首页布局切换
         if (showLayoutPicker) {
-            Dialog(onDismissRequest = { showLayoutPicker = false }) {
-                AppCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp),
-                ) {
-                    Column(modifier = Modifier.padding(V4.Gutter)) {
-                        Text(
-                            text = "首页布局",
-                            style = V4Type.RowTitle,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                        HomeLayout.entries.forEach { entry ->
-                            SettingsRow(
-                                icon = entry.icon,
-                                title = entry.label,
-                                subtitle = when (entry) {
-                                    HomeLayout.GRID_4 -> "V4 默认，信息密度最高的海报墙"
-                                    HomeLayout.GRID_3 -> "一屏看更多"
-                                    HomeLayout.GRID_2 -> "海报更大"
-                                    HomeLayout.COMPACT_LIST -> "小图 + 文字"
-                                    HomeLayout.TEXT_ONLY -> "密度最高"
-                                },
-                                onClick = {
-                                    HomeSettings.setLayout(context, entry)
-                                    showLayoutPicker = false
-                                },
-                                trailing = {
-                                    if (entry == homeLayout) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Check,
-                                            contentDescription = "当前",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                        )
-                                    }
-                                },
-                            )
-                        }
-                    }
-                }
-            }
+            HomeLayoutPickerDialog(
+                current = homeLayout,
+                onDismiss = { showLayoutPicker = false },
+                onPick = { entry ->
+                    HomeSettings.setLayout(context, entry)
+                    showLayoutPicker = false
+                },
+            )
         }
 
         // 站源切换（v0.7.1）
         // v0.109.0 B7：换源器改 DsPlayer 式小图标模式——居中 Dialog 换成底部弹窗，
         // 内含标题/搜索/类型筛选/4 列图标网格（ui/home/SourcePickerSheet.kt）。
         if (showSourceSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { showSourceSheet = false },
-                shape = RoundedCornerShape(
-                    topStart = V4.RField,
-                    topEnd = V4.RField,
-                ),
-                containerColor = MaterialTheme.colorScheme.surface,
-            ) {
-                SourcePickerSheet(
-                    onDismiss = { showSourceSheet = false },
-                    onChanged = { refreshDrpyState(fromUserSwitch = true) },
+            HomeSourcePickerSheet(
+                onDismiss = { showSourceSheet = false },
+                onChanged = { refreshDrpyState(fromUserSwitch = true) },
+            )
+        }
+    } // v0.32.0：闭合 Box（流动光斑垫底）
+}
+
+// ---- Q1：数据源分发（原 HomeScreen 内的局部函数实现；site 由调用方现读传入） ----
+
+/** 当前数据源的首页：订阅当前源 > 本地 drpy > 本地 PY > 本地 PHP（CLI） */
+private suspend fun homeEngineHome(site: Site?, subRepo: SiteRepository, context: Context): List<ModelVod> {
+    val s = site
+    if (s != null) return runCatching { subRepo.home(s) }.getOrDefault(emptyList())
+    return runCatching {
+        if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.home()
+        else if (SourceStateStore.activePyRule() != null) PySourceManager.home()
+        else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.home(context)
+        else emptyList()
+    }.getOrDefault(emptyList())
+}
+
+/**
+ * 当前数据源的分类：订阅 CMS 站走 CMS 分类接口，drpy/PY 站走引擎 categories()。
+ * v0.217.0（F2）：照抄 engineCategory 的可空口径——异常返回 null（调用方判失败，
+ * 给可见反馈+重试），不再吞成 emptyList；空列表只表示规则真没分类。
+ */
+private suspend fun homeEngineCats(site: Site?, subRepo: SiteRepository, context: Context): List<CategoryType>? {
+    val s = site
+    if (s != null) {
+        if (s.isCmsSite()) return runCatching { subRepo.category(s, "", 1).first }
+            .getOrNull()
+        if (s.isJavaSpider()) return runCatching { subRepo.category(s, "", 1).first }
+            .getOrNull()
+        if (s.isPySite()) return runCatching { SubSiteEngines.pyEngineFor(s)?.categories() }
+            .getOrNull()
+        return runCatching { SubSiteEngines.drpyEngineFor(s)?.categories() }
+            .getOrNull()
+    }
+    return runCatching {
+        if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.categories()
+        else if (SourceStateStore.activePyRule() != null) PySourceManager.categories()
+        else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.categories(context)
+        else emptyList()
+    }.getOrNull()
+}
+
+/**
+ * 当前数据源的分类内容。
+ * v0.110.0：异常返回 null（调用方判失败，给可见反馈+重试），不再吞成 emptyList；
+ * 空列表=规则真没内容（非失败）。唯一调用方 loadDrpyCategory。
+ */
+private suspend fun homeEngineCategory(
+    site: Site?,
+    subRepo: SiteRepository,
+    context: Context,
+    tid: String,
+    pg: Int,
+    filter: Map<String, String>,
+): List<ModelVod>? {
+    val s = site
+    // v0.44.0：订阅路径也要透传筛选（之前丢了，drpy 筛选点了没效果）
+    if (s != null) return runCatching { subRepo.category(s, tid, pg, filter).second }
+        .getOrNull()
+    return runCatching {
+        // v0.44.0：订阅路径也要透传筛选（之前丢了，drpy 筛选点了没效果）
+        // v0.48.0：本地 drpy 同样漏传 filter（v0.44.0 宣称生效实际没传），补上
+        if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.category(tid, pg, filter)
+        else if (SourceStateStore.activePyRule() != null) PySourceManager.category(tid, pg, filter)
+        else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.category(context, tid, pg)
+        else emptyList()
+    }.getOrNull()
+}
+
+/** v0.44.0：当前源是否为 drpy（订阅站或本地规则）。 */
+private fun homeIsDrpySource(site: Site?): Boolean {
+    val s = site
+    if (s != null) return s.isDrpySite()
+    return SourceStateStore.activeDrpyRule() != null
+}
+
+/** v0.44.0：拉取某 drpy 分类的筛选组（订阅走 SiteRepository，本地走 DrpySourceManager）。 */
+private suspend fun homeFetchDrpyFilters(site: Site?, subRepo: SiteRepository, tid: String): List<FilterGroup> {
+    val s = site
+    return if (s != null) {
+        runCatching { subRepo.filters(s, tid) }.getOrNull().orEmpty()
+    } else {
+        runCatching { DrpySourceManager.filters(tid) }.getOrNull().orEmpty()
+    }
+}
+
+/** v0.25.0：当前数据源的缓存 key（订阅站 key / 本地规则名） */
+private fun homeCacheKeyFor(site: Site?): String? = when {
+    site != null -> "sub_${site.key}"
+    SourceStateStore.activeDrpyRule() != null -> "drpy_${DrpySourceManager.activeRuleName()}"
+    SourceStateStore.activePyRule() != null -> "py_${PySourceManager.activeRuleName()}"
+    SourceStateStore.activePhpRule() != null -> "php_${SourceStateStore.activePhpRule()}"
+    else -> null
+}
+
+// ---- Q1：HomeScreen 拆分出的纯函数（无状态，只做读取与计算，行为与原内联代码一致） ----
+
+/** 读持久化的订阅当前源；记录被删/被标不支持/订阅被关时返回 null */
+private fun readCurrentSubSite(context: Context): Site? {
+    val cur = SubSiteStore.getCurrent(context) ?: return null
+    val subEnabled =
+        ApiSourceStore.load(context).find { it.url == cur.subUrl }?.enabled ?: false
+    if (!subEnabled) return null
+    val cache = SubSiteStore.getCached(context, cur.subUrl) ?: return null
+    val rec = cache.sites.firstOrNull { it.key == cur.siteKey } ?: return null
+    if (!rec.enabled || rec.kind == SubSiteStore.KIND_UNSUPPORTED) return null
+    return SubSiteStore.toSite(cur.subUrl, rec)
+}
+
+/** v0.75.0/v0.266.0：首页继续观看条目——只留有点播 vodId、没看完的，最新 5 张。 */
+private fun loadContinueWatchEntries(context: Context): List<HistoryEntry> =
+    HistoryStore.getHistory(context)
+        .filter { e ->
+            e.kind == "vod" && e.vodId.isNotBlank() &&
+                !(e.durationMs > 0 && e.positionMs >= e.durationMs * 0.95)
+        }
+        .take(5)
+
+/** 站源入口行文案：订阅当前源 > 本地 drpy > 本地 PY > 本地 PHP；都没有 -> 选择站源 */
+private fun homeSourceLabel(subSite: Site?): String = when {
+    subSite != null -> subSite.name.ifBlank { "订阅源" }
+    SourceStateStore.activeDrpyRule() != null -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
+    SourceStateStore.activePyRule() != null -> "本地·${PySourceManager.activeRuleName().orEmpty()}"
+    SourceStateStore.activePhpRule() != null -> "本地·${SourceStateStore.activePhpRule().orEmpty()}"
+    else -> "选择站源"
+}
+
+/**
+ * fetchHomePayload 第 3 步：按网络结果与缓存快照算最终 UI 状态，打包成 HomePayload。
+ * 纯计算（只额外读 PHP 激活规则与其失败原因），语义与原内联代码一致。
+ */
+private fun settleHomePayload(
+    netVods: List<ModelVod>?,
+    netCats: List<CategoryType>?,
+    cacheVods: List<ModelVod>,
+    cacheCats: List<CategoryType>,
+    cacheShown: Boolean,
+): HomeLoadGate.HomePayload {
+    val netOk = netVods != null && (netVods.isNotEmpty() || !cacheShown)
+    val finalVods: List<ModelVod>? = when {
+        // B6：规则真回空列表是“空”，不是“失败”——之前 ifEmpty 转 null，
+        // 真空被当成失败走 recommendEmpty 报错；现在空列表原样保留，
+        // 失败（netVods==null）才走 null 分支，UI 才能分开显示。
+        netOk -> netVods
+        cacheVods.isNotEmpty() -> cacheVods
+        else -> null
+    }
+    val finalCats: List<CategoryType>
+    val finalCatsFailed: Boolean
+    when {
+        !netCats.isNullOrEmpty() -> {
+            finalCats = netCats
+            finalCatsFailed = false
+        }
+        cacheCats.isNotEmpty() -> {
+            finalCats = cacheCats
+            finalCatsFailed = false
+        }
+        netCats == null -> {
+            // 分类超时且无缓存：UI 给重试入口
+            finalCats = emptyList()
+            finalCatsFailed = true
+        }
+        else -> {
+            // 规则本来就没分类，不是失败
+            finalCats = emptyList()
+            finalCatsFailed = false
+        }
+    }
+    // v0.152.0：PHP 失败原因只在"真没数据可展示"时透出；有缓存顶上时不拿失败去盖缓存。
+    val phpErrorVal = if (SourceStateStore.activePhpRule() != null &&
+        netVods.isNullOrEmpty() && netCats.isNullOrEmpty() &&
+        cacheVods.isEmpty() && cacheCats.isEmpty()
+    ) PhpCliEngine.lastErrorFor(null)?.take(140) else null
+    return HomeLoadGate.HomePayload(
+        vods = finalVods,
+        cats = finalCats,
+        catsFailed = finalCatsFailed,
+        resetSelection = netOk,
+        phpError = phpErrorVal,
+    )
+}
+
+// ---- Q1：HomeScreen 拆分出的子 Composable（只收参数与回调，不持有首页状态） ----
+
+/** v0.82.0：深色下的背景层——自定义底图 + 深色罩，或流动光斑。 */
+@Composable
+private fun HomeDarkBackdrop(customBg: java.io.File?) {
+    if (customBg != null) {
+        AsyncImage(
+            model = customBg,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        // 深色罩：保证文字可读
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.55f)),
+        )
+    } else {
+        FlowingGlowBackground(modifier = Modifier.fillMaxSize())
+    }
+}
+
+/** v0.279.0 V4 顶栏：搜索框（点进搜索页）+ 布局切换 + 站源胶囊（状态点 + 名称 + 下拉）。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HomeTopBar(
+    layoutIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    sourceLabel: String,
+    sourceRingState: StatusRingState,
+    drpyActive: Boolean,
+    onSearchClick: () -> Unit,
+    onLayoutClick: () -> Unit,
+    onSourceClick: () -> Unit,
+    onSourceLongClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        V4SearchField(
+            placeholder = "搜索",
+            icon = Icons.Filled.Search,
+            onClick = onSearchClick,
+            modifier = Modifier.weight(1f),
+        )
+        // v0.78.3：首页布局切换（对标 DsPlayer）
+        V4IconButton(
+            icon = layoutIcon,
+            contentDescription = "切换布局",
+            onClick = onLayoutClick,
+        )
+        Row(
+            modifier = Modifier
+                .weight(1.25f)
+                .heightIn(min = V4.Field)
+                .clip(RoundedCornerShape(V4.RField))
+                .background(V4.c.s1)
+                .border(
+                    BorderStroke(1.5.dp, sourceRingState.color()),
+                    RoundedCornerShape(V4.RField),
+                )
+                .combinedClickable(
+                    onClick = onSourceClick,
+                    onLongClick = onSourceLongClick,
+                )
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            StatusRing(
+                state = sourceRingState,
+                diameter = 18.dp,
+            )
+            Spacer(Modifier.width(7.dp))
+            Text(
+                text = sourceLabel.replace("本地·", "本地 · "),
+                color = V4.c.t1,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                imageVector = Icons.Filled.ExpandMore,
+                contentDescription = if (drpyActive) "切换站源，长按刷新当前源" else "切换站源",
+                tint = V4.c.t3,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}
+
+/** v0.75.0：继续观看区块——区块标题 + 计数 + “全部 ›”，下方横滑一排卡片。 */
+@Composable
+private fun HomeContinueWatchSection(
+    watchHistory: List<HistoryEntry>,
+    onHistoryClick: () -> Unit,
+    onContinueWatch: (vodId: String, title: String, episodeIndex: Int, sourceType: String, sourceKey: String) -> Unit,
+    onDelete: (HistoryEntry) -> Unit,
+) {
+    val cwList = watchHistory.distinctBy { it.url.ifBlank { "vod:${it.vodId}" } }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // v0.279.0 V4：区块标题 + 计数 + “全部 ›”（进播放历史页）
+        V4SectionHeader(
+            title = "继续观看",
+            count = "${cwList.size}",
+            actionText = "全部",
+            trailingChevron = true,
+            onAction = onHistoryClick,
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(end = 4.dp),
+        ) {
+            // v0.212.0 审计修复：url 为空的多条老记录原来按空 url
+            // 去重合并成一条；空 url 用 vodId 兜底去重。
+            items(cwList, key = { it.url.ifBlank { "vod:${it.vodId}" } }) { h ->
+                HomeContinueWatchCard(
+                    h = h,
+                    onClick = {
+                        onContinueWatch(
+                            h.vodId, h.title,
+                            h.episodeIndex.coerceAtLeast(0),
+                            h.sourceType, h.sourceKey,
+                        )
+                    },
+                    onDelete = { onDelete(h) },
                 )
             }
         }
-    } // v0.32.0：闭合 Box（流动光斑垫底）
+    }
+}
+
+/** 继续观看单张卡片：封面（删除按钮 + 底部进度）+ 标题 + “第N集 · 百分比 · 来源”。 */
+@Composable
+private fun HomeContinueWatchCard(
+    h: HistoryEntry,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val progress = if (h.durationMs > 0) {
+        (h.positionMs.toFloat() / h.durationMs).coerceIn(0f, 1f)
+    } else 0f
+    Column(
+        modifier = Modifier
+            .width(182.dp)
+            .clip(RoundedCornerShape(V4.RPoster))
+            .clickable(onClick = onClick),
+    ) {
+        V4Art(
+            seed = h.title,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(100.dp),
+            ring = false,
+        ) {
+            // v0.215.0：继续观看单条删除；v0.261.0：48dp 触摸区；
+            // v0.265.0：先按卡片身份 commit() 同步删盘，再从盘里 reload。
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(36.dp)
+                    .clickable(onClick = onDelete),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(RoundedCornerShape(V4.RSm))
+                        .background(Color.Black.copy(alpha = 0.45f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "删除这条记录",
+                        modifier = Modifier.size(14.dp),
+                        tint = Color(0xFFE6E8EE),
+                    )
+                }
+            }
+            // 底部进度（时长未知时不画进度，只显示集数）
+            if (h.durationMs > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .background(Color.White.copy(alpha = 0.10f)),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(progress)
+                            .height(3.dp)
+                            .background(V4.c.accent),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = h.title,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.Medium,
+            color = V4.c.t1,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        // v0.212.0：时长未知不显示百分比；v0.215.0：来源名（源 key 去扩展名）。
+        val continueSource = h.sourceKey
+            .removeSuffix(".js").removeSuffix(".py")
+            .takeIf { it.isNotBlank() }
+        Text(
+            text = buildString {
+                if (h.episodeIndex >= 0) append("第${h.episodeIndex + 1}集")
+                if (h.durationMs > 0) {
+                    if (isNotEmpty()) append(" · ")
+                    append("${(progress * 100).toInt()}%")
+                }
+                if (continueSource != null) {
+                    if (isNotEmpty()) append(" · ")
+                    append(continueSource)
+                }
+            }.ifBlank { "继续观看" },
+            fontSize = 10.5.sp,
+            color = V4.c.t3,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * v0.279.0 V4：全部筛选维度收进一条 34dp 横条——“组名 当前值”，
+ * 点开下拉选；点已选中的取消本组筛选（与原 chip 行为一致），多组互不干扰。
+ * onPick 回传（组 key, 选项值），取消/叠加逻辑由调用方算。
+ */
+@Composable
+private fun HomeFilterStrip(
+    filterGroups: List<FilterGroup>,
+    filterMap: Map<String, String>,
+    onPick: (groupKey: String, value: String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .v4Bleed(V4.Gutter)
+            .heightIn(min = V4.FilterStrip)
+            .v4BottomDivider(V4.c.div)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = V4.Gutter),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Icon(
+            Icons.Filled.Tune,
+            contentDescription = "筛选",
+            tint = V4.c.t2,
+            modifier = Modifier.size(15.dp),
+        )
+        filterGroups.forEach { filterGroup ->
+            HomeFilterDim(
+                name = filterGroup.name,
+                options = filterGroup.options.map { it.name to it.value },
+                selectedValue = filterMap[filterGroup.key],
+                onPick = { value -> onPick(filterGroup.key, value) },
+            )
+        }
+    }
+}
+
+/** 分区标题行：当前分类名/今日推荐 + 计数，stale 时小字“旧内容·刷新中”，右侧“换一换”。 */
+@Composable
+private fun HomeSectionTitleRow(
+    title: String,
+    count: String?,
+    stale: Boolean,
+    onShuffle: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        V4SectionHeader(
+            title = title,
+            count = count,
+            modifier = Modifier.weight(1f),
+        )
+        if (stale) {
+            Text(
+                text = "旧内容·刷新中",
+                fontSize = 10.5.sp,
+                color = V4.c.t3,
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+        V4SectionHeader(
+            title = "",
+            actionText = "换一换",
+            actionIcon = Icons.Filled.Refresh,
+            onAction = onShuffle,
+            modifier = Modifier.width(72.dp),
+        )
+    }
+}
+
+/** 网格海报墙 / 列表的一格（v0.78.3：按首页布局选海报卡、紧凑行或文字行）。 */
+@Composable
+private fun HomeVodItem(
+    vod: ModelVod,
+    homeLayout: HomeLayout,
+    onClick: () -> Unit,
+) {
+    // v0.80.0：rating 已在海报底部跑马灯展示，副标题只留年份，不重复
+    // v0.212.0 审计修复：分类（typeName）明明带回来了，首页三种
+    // 布局却全程不显示；副标题改成“年份 · 分类”两段式。
+    val subtitle = listOfNotNull(
+        vod.vodYear.takeIf { it.isNotBlank() },
+        vod.typeName.takeIf { it.isNotBlank() },
+    ).joinToString(" · ").takeIf { it.isNotBlank() }
+    when (homeLayout) {
+        HomeLayout.COMPACT_LIST -> HomeCompactRow(
+            vod = vod,
+            subtitle = subtitle,
+            onClick = onClick,
+        )
+        HomeLayout.TEXT_ONLY -> HomeTextRow(
+            vod = vod,
+            subtitle = subtitle,
+            onClick = onClick,
+        )
+        else -> PosterCard(
+            title = vod.vodName,
+            subtitle = subtitle,
+            badge = vod.vodRemarks,
+            posterUrl = vod.vodPic,
+            modifier = Modifier.aspectRatio(
+                when (homeLayout.columns) {
+                    4 -> 0.535f
+                    3 -> 0.6f
+                    else -> 0.64f
+                },
+            ),
+            onClick = onClick,
+        )
+    }
+}
+
+/** v0.215.0：分类分页脚——加载中 / 没有更多了 / “加载更多”按钮。 */
+@Composable
+private fun HomeLoadMoreFooter(
+    loadingMore: Boolean,
+    noMore: Boolean,
+    onLoadMore: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            loadingMore -> Text(
+                "加载中…",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            noMore -> Text(
+                "没有更多了",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            else -> AppButton(
+                text = "加载更多",
+                onClick = onLoadMore,
+                variant = AppButtonVariant.Secondary,
+            )
+        }
+    }
+}
+
+/** 切分类且无旧数据时的骨架屏：6 个灰色占位块。 */
+@Composable
+private fun HomeCategorySkeleton() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(V4.Gutter),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        repeat(6) {
+            LoadingSkeleton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp),
+            )
+        }
+    }
+}
+
+/** v0.78.3：首页布局切换弹窗。 */
+@Composable
+private fun HomeLayoutPickerDialog(
+    current: HomeLayout,
+    onDismiss: () -> Unit,
+    onPick: (HomeLayout) -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        AppCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 420.dp),
+        ) {
+            Column(modifier = Modifier.padding(V4.Gutter)) {
+                Text(
+                    text = "首页布局",
+                    style = V4Type.RowTitle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                HomeLayout.entries.forEach { entry ->
+                    SettingsRow(
+                        icon = entry.icon,
+                        title = entry.label,
+                        subtitle = when (entry) {
+                            HomeLayout.GRID_4 -> "V4 默认，信息密度最高的海报墙"
+                            HomeLayout.GRID_3 -> "一屏看更多"
+                            HomeLayout.GRID_2 -> "海报更大"
+                            HomeLayout.COMPACT_LIST -> "小图 + 文字"
+                            HomeLayout.TEXT_ONLY -> "密度最高"
+                        },
+                        onClick = { onPick(entry) },
+                        trailing = {
+                            if (entry == current) {
+                                Icon(
+                                    imageVector = Icons.Filled.Check,
+                                    contentDescription = "当前",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 站源切换（v0.7.1）
+ * v0.109.0 B7：换源器改 DsPlayer 式小图标模式——居中 Dialog 换成底部弹窗，
+ * 内含标题/搜索/类型筛选/4 列图标网格（ui/home/SourcePickerSheet.kt）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HomeSourcePickerSheet(
+    onDismiss: () -> Unit,
+    onChanged: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(
+            topStart = V4.RField,
+            topEnd = V4.RField,
+        ),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        SourcePickerSheet(
+            onDismiss = onDismiss,
+            onChanged = onChanged,
+        )
+    }
 }
 
 /** v0.78.3：紧凑列表行——小海报 + 标题 + 副标题 */
