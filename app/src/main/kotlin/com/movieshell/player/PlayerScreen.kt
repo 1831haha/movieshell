@@ -1989,70 +1989,15 @@ fun PlayerScreen(
                 onDismissRequest = { uiVm.showGearSheet = false },
                 properties = DialogProperties(usePlatformDefaultWidth = false),
             ) {
-            Box(Modifier.fillMaxSize()) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.55f))
-                        .clickable(onClick = { uiVm.showGearSheet = false })
-                )
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .fillMaxHeight(0.75f)
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.outlineVariant,
-                            RoundedCornerShape(
-                                topStart = V5.CornerMd,
-                                topEnd = V5.CornerMd,
-                            ),
-                        ),
-                    shape = RoundedCornerShape(
-                        topStart = V5.CornerMd,
-                        topEnd = V5.CornerMd,
-                    ),
-                    color = MaterialTheme.colorScheme.surface,
-                ) {
+            // v0.294.3：齿轮页改用 PlayerPanel——横屏是右侧抽屉（不再整宽底板盖住画面），竖屏仍是底部面板
+            PlayerPanel(onDismiss = { uiVm.showGearSheet = false }, portraitHeightFraction = 0.75f) {
+                    PlayerPanelHeader(title = "设置", onDismiss = { uiVm.showGearSheet = false })
                     Column(
                         Modifier
                             .fillMaxSize()
-                            .padding(V5.Gutter)
                             .verticalScroll(rememberScrollState())
                     ) {
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(36.dp, 4.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
-                            )
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "设置",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f),
-                            )
-                            IconButton(
-                                onClick = { uiVm.showGearSheet = false },
-                                modifier = Modifier.size(32.dp),
-                            ) {
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = "关闭",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(4.dp))
                         Text("倍速", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         FlowRow(
@@ -2205,7 +2150,6 @@ fun PlayerScreen(
                         }
                         Spacer(Modifier.height(12.dp))
                     }
-                }
             }
             }
         }
@@ -2377,6 +2321,8 @@ fun PlayerScreen(
                 sourceKey = playSourceKey,
                 episodeIndex = PlaySession.episodeIndex,
                 onDismiss = { uiVm.showSkipSettings = false },
+                currentPositionMs = { EngineHost.currentPosition() },
+                durationMs = { EngineHost.duration() },
             )
         }
 

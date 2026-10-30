@@ -1,5 +1,6 @@
 package com.movieshell.ui.detail
 
+import androidx.compose.ui.draw.alpha
 import com.movieshell.ui.theme.ok
 
 import com.movieshell.data.repo.FollowItem
@@ -1308,15 +1309,35 @@ fun DetailScreen(
             }
             var resolving by remember { mutableStateOf(false) }
             Dialog(onDismissRequest = { if (!resolving) showDownloadDialog = false }) {
-                AppCard {
-                    Column(modifier = Modifier.padding(V5.Gutter)) {
-                        Text(
-                            text = "选择要下载的剧集",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                // v0.294.3：封顶 420dp；选集由整宽勾选行（一屏只见几集）改为多列紧凑方格，点格即选/取消，标题行加全选
+                AppCard(modifier = Modifier.widthIn(max = 420.dp)) {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "选择要下载的剧集",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            val allSelected = selected.size == lineEpisodes.size && lineEpisodes.isNotEmpty()
+                            TextButton(
+                                onClick = {
+                                    selected = if (allSelected) emptySet() else lineEpisodes.indices.toSet()
+                                },
+                                enabled = !resolving,
+                            ) {
+                                Text(if (allSelected) "全不选" else "全选", style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
                         Spacer(Modifier.height(8.dp))
-                        LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                        val dlLabels = lineEpisodes.mapIndexed { i, ep -> ep.name.ifBlank { "第${i + 1}集" } }
+                        val dlLong = dlLabels.any { it.length > 5 }
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(if (dlLong) 132.dp else 64.dp),
+                            modifier = Modifier.heightIn(max = 320.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             items(
                                 lineEpisodes.size,
                                 // v0.188.0：按集身份取 key，不用下标；换线路后下标复用不再串位。
@@ -1324,32 +1345,29 @@ fun DetailScreen(
                                 key = { episodeKey(lineEpisodes[it]) },
                             ) { i ->
                                 val ep = lineEpisodes[i]
-                                Row(
+                                val magnet = MagnetPlayer.isMagnet(ep.url)
+                                val on = selected.contains(i)
+                                val cs = MaterialTheme.colorScheme
+                                Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
+                                        .height(40.dp)
+                                        .clip(RoundedCornerShape(V5.CornerSm))
+                                        .background(if (on) cs.primaryContainer else cs.surfaceContainerHighest)
                                         .clickable(enabled = !resolving) {
-                                            selected = if (selected.contains(i)) selected - i else selected + i
+                                            selected = if (on) selected - i else selected + i
                                         }
-                                        .padding(vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
+                                        .padding(horizontal = 6.dp)
+                                        .alpha(if (magnet) 0.45f else 1f),
+                                    contentAlignment = Alignment.Center,
                                 ) {
-                                    Checkbox(
-                                        checked = selected.contains(i),
-                                        onCheckedChange = null,
-                                        enabled = !resolving,
-                                    )
-                                    Spacer(Modifier.width(8.dp))
                                     Text(
-                                        text = ep.name.ifBlank { "第${i + 1}集" },
-                                        modifier = Modifier.weight(1f),
+                                        // 磁力不支持下载：格子变灰并标注
+                                        text = if (magnet) "${dlLabels[i]}·磁力" else dlLabels[i],
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = if (on) cs.onPrimaryContainer else cs.onSurface,
                                     )
-                                    if (MagnetPlayer.isMagnet(ep.url)) {
-                                        Text(
-                                            "磁力不支持",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
                                 }
                             }
                         }

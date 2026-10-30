@@ -10,6 +10,30 @@ package com.movieshell.player
  * SUB_COLORS、BRIGHTNESS_STEP 仍保持 private。组件本体取 V5 现版。
  */
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.unit.coerceIn
+import com.movieshell.ui.theme.XiaYingDarkScheme
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Context
@@ -300,8 +324,104 @@ internal fun enterPip(context: Context) {
 }
 
 /**
- * v0.19.0：播放器内线路+选集切换抽屉。
- * 上方线路横滑 chips，下方该线路的选集列表；当前播放高亮。
+ * v0.294.3：播放器面板统一容器（线路/选集、齿轮设置共用）。
+ * - 横屏（宽>高）：右侧抽屉——约 40% 屏宽（300–440dp）、满高、从右滑入，左侧圆角；
+ *   视频左半边仍露出来，不再是铺满整宽的底部大板盖住画面。
+ * - 竖屏：底部面板，高度 [portraitHeightFraction]，与原来一致。
+ * - 点遮罩关闭；配色恒走深色（播放器是黑底，浅色主题下原来写死深底 + 跟主题的深色字会看不清）。
+ */
+@Composable
+internal fun PlayerPanel(
+    onDismiss: () -> Unit,
+    portraitHeightFraction: Float = 0.6f,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val cfg = LocalConfiguration.current
+    val landscape = cfg.screenWidthDp > cfg.screenHeightDp
+    val base = MaterialTheme.colorScheme
+    val dark = base.background.luminance() < 0.5f
+    val scheme = if (dark) base
+    else XiaYingDarkScheme.copy(primary = base.inversePrimary, onPrimary = base.onPrimaryContainer)
+    val enter = remember { MutableTransitionState(false).apply { targetState = true } }
+    MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
+        Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = if (landscape) 0.35f else 0.55f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismiss,
+                    )
+            )
+            val shape = if (landscape) {
+                RoundedCornerShape(topStart = V5.CornerLgI, bottomStart = V5.CornerLgI)
+            } else {
+                RoundedCornerShape(topStart = V5.CornerLgI, topEnd = V5.CornerLgI)
+            }
+            AnimatedVisibility(
+                visibleState = enter,
+                enter = if (landscape) slideInHorizontally { it } + fadeIn()
+                else slideInVertically { it } + fadeIn(),
+                modifier = Modifier.align(if (landscape) Alignment.CenterEnd else Alignment.BottomCenter),
+            ) {
+                Surface(
+                    modifier = if (landscape) {
+                        Modifier
+                            .fillMaxHeight()
+                            .width((cfg.screenWidthDp * 0.4f).dp.coerceIn(300.dp, 440.dp))
+                    } else {
+                        Modifier.fillMaxWidth().fillMaxHeight(portraitHeightFraction)
+                    }.clickable(
+                        // 吞掉面板内空白处的点击，免得穿透到遮罩/播放器
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    ),
+                    shape = shape,
+                    color = scheme.surfaceContainer.copy(alpha = 0.96f),
+                    contentColor = scheme.onSurface,
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .then(if (landscape) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End + WindowInsetsSides.Vertical)) else Modifier)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        content = content,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** v0.294.3：面板标题行（标题 + 右侧关闭）。 */
+@Composable
+internal fun PlayerPanelHeader(title: String, onDismiss: () -> Unit, trailing: @Composable RowScope.() -> Unit = {}) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        trailing()
+        IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = "关闭",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+/**
+ * v0.19.0：播放器内线路+选集切换抽屉。上方线路横滑 chips，下方该线路的选集；当前播放高亮。
+ * v0.294.3：横屏改右侧抽屉（见 [PlayerPanel]）；选集由整宽高行（一屏只见两三集）改为多列紧凑
+ * 方格（40dp 高，集名短时自适应约 64dp 一格，集名长时两列/宽格省略号）；打开即滚到当前集。
  */
 @Composable
 internal fun LineSheet(
@@ -313,89 +433,77 @@ internal fun LineSheet(
 ) {
     var tab by remember { mutableIntStateOf(lineIndex.coerceIn(lines.indices)) }
     val tabEpisodes = lines.getOrNull(tab)?.episodes.orEmpty()
-    Box(Modifier.fillMaxSize()) {
-        // 半透明遮罩，点击关闭
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.55f))
-                .clickable(onClick = onDismiss)
+    val labels = remember(tabEpisodes) {
+        tabEpisodes.mapIndexed { i, ep -> ep.name.ifBlank { "第${i + 1}集" } }
+    }
+    // 集名都短（如 01、第12集）走小方格；有长名（如「第1集 重逢」）走宽格省略号
+    val longNames = remember(labels) { labels.any { it.length > 5 } }
+    val gridState = rememberLazyGridState()
+    LaunchedEffect(tab) {
+        if (tab == lineIndex && episodeIndex in tabEpisodes.indices) {
+            gridState.scrollToItem(episodeIndex)
+        } else {
+            gridState.scrollToItem(0)
+        }
+    }
+    PlayerPanel(onDismiss = onDismiss) {
+        PlayerPanelHeader(
+            title = "线路 / 选集",
+            onDismiss = onDismiss,
+            trailing = {
+                Text(
+                    text = "共 ${tabEpisodes.size} 集",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 4.dp),
+                )
+            },
         )
-        Surface(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .fillMaxHeight(0.6f)
-                .border(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant,
-                    RoundedCornerShape(
-                        topStart = V5.CornerMd,
-                        topEnd = V5.CornerMd,
-                    ),
-                ),
-            shape = RoundedCornerShape(
-                topStart = V5.CornerMd,
-                topEnd = V5.CornerMd,
-            ),
-            // v0.39.0：深色毛玻璃风格（mockup 风格）
-            color = Color(0xF21E242F),
-        ) {
-            Column(Modifier.fillMaxSize().padding(V5.Gutter)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "线路 / 选集",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
+        if (lines.size > 1) {
+            Spacer(Modifier.height(4.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                itemsIndexed(lines) { i, line ->
+                    V5Chip(
+                        text = line.name,
+                        selected = i == tab,
+                        onClick = { tab = i },
+                        small = true,
                     )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Filled.Close, contentDescription = "关闭")
-                    }
                 }
-                Spacer(Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    itemsIndexed(lines) { i, line ->
-                        V5Chip(
-                            text = line.name,
-                            selected = i == tab,
-                            onClick = { tab = i },
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Adaptive(if (longNames) 132.dp else 64.dp),
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 8.dp),
+        ) {
+            itemsIndexed(labels) { i, label ->
+                val selected = tab == lineIndex && i == episodeIndex
+                val cs = MaterialTheme.colorScheme
+                Box(
+                    modifier = Modifier
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(V5.CornerSm))
+                        .background(if (selected) cs.primaryContainer else cs.surfaceContainerHighest)
+                        .then(
+                            if (selected) Modifier.border(1.dp, cs.primary, RoundedCornerShape(V5.CornerSm))
+                            else Modifier
                         )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                        .clickable { onPick(tab, i) }
+                        .padding(horizontal = 6.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    itemsIndexed(tabEpisodes) { i, ep ->
-                        val selected = tab == lineIndex && i == episodeIndex
-                        // v0.39.0：选中集青色高光（mockup 风格）
-                        val cyan = Color(0xFF4DD0E1)
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPick(tab, i) },
-                            shape = RoundedCornerShape(V5.CornerMd),
-                            color = if (selected) {
-                                cyan.copy(alpha = 0.22f)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
-                        ) {
-                            Text(
-                                text = ep.name.ifBlank { "第${i + 1}集" },
-                                maxLines = 1,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (selected) {
-                                    cyan
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                            )
-                        }
-                    }
+                    Text(
+                        text = label,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (selected) cs.onPrimaryContainer else cs.onSurface,
+                    )
                 }
             }
         }
@@ -417,9 +525,12 @@ internal fun PlayerDialogCard(
     // v0.156.0：字幕面板要一页完整、不许拖动才看全，传 false 关掉内容区滚动；
     // 其他面板默认仍可滚动，不受影响
     scrollable: Boolean = true,
+    // v0.294.3：卡片最大宽度——原来 88% 屏宽封顶 480dp，横屏下两个输入框也撑成一大块；
+    // 默认收到 420dp，跳过设置等小面板传 360dp，字幕两列面板传 560dp。
+    maxWidth: Dp = 420.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val cardShape = RoundedCornerShape(V5.CornerMd)
+    val cardShape = RoundedCornerShape(V5.CornerLgI)
     // AlertDialog 时代按返回先关面板：内联卡片后补回同样的返回拦截
     BackHandler(onBack = onDismiss)
     // v0.155.0：横屏全屏时屏高只有约 360dp，旧卡片（标题+400dp 内容+按钮）要 520dp+，
@@ -439,19 +550,19 @@ internal fun PlayerDialogCard(
         Surface(
             modifier = Modifier
                 .align(Alignment.Center)
-                .fillMaxWidth(0.88f)
-                .widthIn(max = 480.dp)
+                .fillMaxWidth(0.92f)
+                .widthIn(max = maxWidth)
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, cardShape),
             shape = cardShape,
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 0.dp,
         ) {
-            Column(Modifier.padding(V5.Gutter)) {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
                 // v0.155.0：标题行右上角常驻关闭键，不用再去底下找取消、也不用硬点遮罩
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         title,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         color = titleColor,
                         modifier = Modifier.weight(1f),
                     )
@@ -467,7 +578,7 @@ internal fun PlayerDialogCard(
                         )
                     }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
                 Column(
                     modifier = if (scrollable) {
                         Modifier
@@ -632,6 +743,7 @@ internal fun SubtitleDialog(
             )
         },
         scrollable = false,
+        maxWidth = 560.dp,
     ) {
         // v0.156.0：一页完整、不许拖动——每组改成标签+控件同一行，不再标签一行、控件一行堆高；
         // 横屏（宽>高）再左右分两列，左列地址/搜索/大小/颜色，右列描边/位置/时间偏移，高度压进内容区上限。
@@ -816,6 +928,7 @@ internal fun SubtitleDialog(
 }
 
 /** v0.21.0：定时关闭选项（15/30/60/90 分钟 / 播完本集 / 关闭定时）。 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun SleepTimerDialog(
     onDismiss: () -> Unit,
@@ -827,6 +940,7 @@ internal fun SleepTimerDialog(
     PlayerDialogCard(
         title = "定时关闭",
         onDismiss = onDismiss,
+        maxWidth = 380.dp,
         buttons = {
             AppButton(text = "取消", onClick = onDismiss, variant = AppButtonVariant.Ghost)
         },
@@ -839,35 +953,22 @@ internal fun SleepTimerDialog(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        listOf(15, 30, 60, 90).forEach { m ->
-            TextButton(
-                onClick = { onPickMinutes(m) },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    "$m 分钟后停止",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+        // v0.294.3：原来 6 个整宽文字按钮竖着堆满一屏，改成一组紧凑 chip。
+        Spacer(Modifier.height(10.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(15, 30, 60, 90).forEach { m ->
+                V5Chip(text = "$m 分钟", selected = false, onClick = { onPickMinutes(m) })
             }
+            V5Chip(text = "播完本集", selected = false, onClick = onPickAfterEpisode)
         }
-        TextButton(
-            onClick = onPickAfterEpisode,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                "播完本集停止",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-        TextButton(
-            onClick = onCancelTimer,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+        Spacer(Modifier.height(4.dp))
+        TextButton(onClick = onCancelTimer) {
             Text(
                 "关闭定时",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.error,
             )
         }
@@ -884,6 +985,9 @@ internal fun SkipSettingsDialog(
     sourceKey: String?,
     episodeIndex: Int,
     onDismiss: () -> Unit,
+    // v0.294.3：“用当前进度”快捷填——片头取当前播放位置，片尾取剩余时长；拿不到（<=0）就不显示按钮
+    currentPositionMs: () -> Long = { 0L },
+    durationMs: () -> Long = { 0L },
 ) {
     val context = LocalContext.current
     var intro by remember {
@@ -896,11 +1000,14 @@ internal fun SkipSettingsDialog(
             PlayerSettings.getSkipOutroFor(context, sourceKey, vodId, episodeIndex).toString(),
         )
     }
+    val pos = remember { currentPositionMs().coerceAtLeast(0L) }
+    val dur = remember { durationMs().coerceAtLeast(0L) }
 
-    // v0.27.0：统一卡片容器 + AppTextField
+    // v0.27.0：统一卡片容器；v0.294.3：收窄到 360dp、两个框带「片头」「片尾」标签与“秒”单位并排一行
     PlayerDialogCard(
         title = "本剧跳过设置",
         onDismiss = onDismiss,
+        maxWidth = 360.dp,
         buttons = {
             AppButton(text = "取消", onClick = onDismiss, variant = AppButtonVariant.Ghost)
             AppButton(
@@ -921,23 +1028,64 @@ internal fun SkipSettingsDialog(
         },
     ) {
         Text(
-            text = "每部剧单独设置，互不影响",
+            text = "每部剧单独设置，互不影响（0 为不跳过，最多 600 秒）",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            SkipField(
+                label = "片头",
+                value = intro,
+                onValueChange = { intro = it.filter { c -> c.isDigit() }.take(3) },
+                quickLabel = if (pos > 0) "用当前进度" else null,
+                onQuick = { intro = (pos / 1000).coerceIn(0, 600).toString() },
+                modifier = Modifier.weight(1f),
+            )
+            SkipField(
+                label = "片尾",
+                value = outro,
+                onValueChange = { outro = it.filter { c -> c.isDigit() }.take(3) },
+                quickLabel = if (dur > 0 && pos in 1 until dur) "用剩余时长" else null,
+                onQuick = { outro = ((dur - pos) / 1000).coerceIn(0, 600).toString() },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SkipField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    quickLabel: String?,
+    onQuick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(4.dp))
         AppTextField(
-            value = intro,
-            onValueChange = { intro = it.filter { c -> c.isDigit() } },
-            placeholder = "跳过片头（秒）",
+            value = value,
+            onValueChange = onValueChange,
+            placeholder = "0",
+            suffix = "秒",
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(8.dp))
-        AppTextField(
-            value = outro,
-            onValueChange = { outro = it.filter { c -> c.isDigit() } },
-            placeholder = "跳过片尾（秒）",
-            modifier = Modifier.fillMaxWidth(),
-        )
+        if (quickLabel != null) {
+            TextButton(
+                onClick = onQuick,
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                modifier = Modifier.height(32.dp),
+            ) {
+                Text(quickLabel, style = MaterialTheme.typography.labelMedium)
+            }
+        }
     }
 }

@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.text.input.VisualTransformation
@@ -95,13 +98,21 @@ fun TechDialog(
             typography = MaterialTheme.typography,
             shapes = MaterialTheme.shapes,
         ) {
+        // v0.294.3：横屏下平台默认宽能拉到五六百 dp，一个确认框横跨大半屏；
+        // 统一封顶（默认 420dp，显式给了宽度比例的封顶 560dp），横屏边距收紧。
+        val cfg = LocalConfiguration.current
+        val landscape = cfg.screenWidthDp > cfg.screenHeightDp
         Box(
             modifier = Modifier
                 .fillMaxWidth(widthFraction ?: 1f)
+                .widthIn(max = if (widthFraction != null) 560.dp else 420.dp)
                 // v0.279.0 旧版：平面弹窗——s1 底 + 1px 分隔线描边 + 12dp 圆角，去掉渐变描边。
                 .clip(RoundedCornerShape(28.dp))
                 .background(dialogBg)
-                .padding(horizontal = 24.dp, vertical = 24.dp),
+                .padding(
+                    horizontal = if (landscape) 20.dp else 24.dp,
+                    vertical = if (landscape) 16.dp else 24.dp,
+                ),
         ) {
             Column {
                 Text(
@@ -179,6 +190,8 @@ fun TechTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
 ) {
     val shape = RoundedCornerShape(12.dp)
+    // v0.294.3：有值时占位提示缩成框内顶部小标签（同 AppTextField），预填值的编辑框不再“无标签”
+    val floatLabel = value.isNotEmpty() && placeholder.isNotBlank() && placeholder.any { !it.isDigit() }
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
     BasicTextField(
@@ -201,16 +214,30 @@ fun TechTextField(
                 else MaterialTheme.colorScheme.outline,
                 shape = shape,
             )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = if (floatLabel) 6.dp else 12.dp),
         decorationBox = { inner ->
-            if (value.isEmpty() && placeholder.isNotBlank()) {
-                Text(
-                    text = placeholder,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Column {
+                if (floatLabel) {
+                    Text(
+                        text = placeholder,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (focused) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Box {
+                    if (value.isEmpty() && placeholder.isNotBlank()) {
+                        Text(
+                            text = placeholder,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    inner()
+                }
             }
-            inner()
         },
     )
 }

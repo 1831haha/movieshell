@@ -956,9 +956,14 @@ fun AppTextField(
     singleLine: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
+    /** v0.294.3：输入框右侧单位（如“秒”），空则不显示。 */
+    suffix: String? = null,
 ) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(V5.CornerMd)
+    // v0.294.3：有值时占位提示缩成框内顶部小标签——原来一填值提示就消失，
+    // 预填的框（如跳过设置的两个 0）看不出各是什么；纯数字占位（如 "0"）不当标签。
+    val floatLabel = value.isNotEmpty() && placeholder.isNotBlank() && placeholder.any { !it.isDigit() }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -970,12 +975,35 @@ fun AppTextField(
         modifier = modifier
             .clip(shape)
             .background(cs.surfaceContainerHigh)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = if (floatLabel) 6.dp else 12.dp),
         decorationBox = { inner ->
-            if (value.isEmpty() && placeholder.isNotBlank()) {
-                Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    if (floatLabel) {
+                        Text(
+                            placeholder,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = cs.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Box {
+                        if (value.isEmpty() && placeholder.isNotBlank()) {
+                            Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
+                        }
+                        inner()
+                    }
+                }
+                if (!suffix.isNullOrBlank()) {
+                    Text(
+                        suffix,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = cs.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
             }
-            inner()
         },
     )
 }
