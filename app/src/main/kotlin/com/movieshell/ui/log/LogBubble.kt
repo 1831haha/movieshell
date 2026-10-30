@@ -81,8 +81,9 @@ import androidx.compose.ui.graphics.vector.path
 import kotlin.math.roundToInt
 
 private const val PREFS = "movieshell_prefs"
-private const val KEY_BUBBLE_X = "log_bubble_x"
-private const val KEY_BUBBLE_Y = "log_bubble_y"
+// v0.294.8：换新键——旧版默认位置压在播放控件上，升级后统一回到新默认位置一次
+private const val KEY_BUBBLE_X = "log_bubble_x_v2"
+private const val KEY_BUBBLE_Y = "log_bubble_y_v2"
 
 private fun loadBubbleOffset(context: Context): Offset? {
     val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
