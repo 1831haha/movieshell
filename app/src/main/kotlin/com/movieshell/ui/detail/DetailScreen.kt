@@ -420,6 +420,8 @@ fun DetailScreen(
     var playingEp by remember(vodId) { mutableIntStateOf(0) }
     // v0.217.0（F10）：播放解析世代号，只认最后一次点按
     var playGen by remember(vodId) { mutableIntStateOf(0) }
+    // v0.294.9：上一集还在跑的解析任务——点新一集时取消，释放后台嗅探 WebView 名额
+    val resolveJobRef = remember(vodId) { arrayOfNulls<kotlinx.coroutines.Job>(1) }
 
     /**
      * v0.217.0（F11）：“当前规则是否可用”唯一入口——点播、下载共用。
@@ -458,7 +460,13 @@ fun DetailScreen(
         val myGen = playGen
         // v0.106.0：解析走应用级 PlayResolveScope——rememberCoroutineScope 会在切页/
         // 返回时取消，导致 "The coroutine scope left the composition"（16 条线路全灭）
-        PlayResolveScope.launch {
+        resolveJobRef[0]?.let { prev ->
+            if (prev.isActive) {
+                LogBus.i("Detail", "新一集开始解析，取消上一集未完成的解析")
+                prev.cancel()
+            }
+        }
+        resolveJobRef[0] = PlayResolveScope.launch {
             embeddedResolving = true
             embeddedError = null
             if (MagnetPlayer.isMagnet(ep.url)) {

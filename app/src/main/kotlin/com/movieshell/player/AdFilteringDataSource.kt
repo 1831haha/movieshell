@@ -69,7 +69,11 @@ class AdFilteringDataSource(
         // 记“透传原文”却返回已读到头的上游流，Media3 读到的是 EOF，
         // 兜底根本不成立；现在失败与成功同一条返回路径。
         val filtered = try {
-            M3u8AdFilter.filter(text, url)
+            // v0.294.9：订阅 rules 的 m3u8 正文正则先跑，再做统计判定
+            val ruled = runCatching {
+                M3u8AdFilter.applyRuleRegex(text, com.movieshell.data.source.SniffRules.m3u8BodyRegex(url))
+            }.getOrDefault(text)
+            M3u8AdFilter.filter(ruled, url)
         } catch (e: Exception) {
             LogBus.e("AdFilter", "过滤失败，返回原文: ${e.message}")
             text

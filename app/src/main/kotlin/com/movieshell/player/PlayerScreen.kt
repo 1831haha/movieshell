@@ -770,6 +770,17 @@ fun PlayerScreen(
             }
             return
         }
+        // v0.294.9：同页嗅探备选——换线路前先试同一页面嗅出的其它地址
+        val alt = com.movieshell.data.source.SniffAlternates.next(playUrl)
+        if (alt != null && alt.url != playUrl) {
+            LogBus.i("Player", "播放失败，改用同页另一个嗅探地址：${alt.url.take(100)}")
+            AppToast.show(context, "换用同页另一个视频地址", long = false)
+            if (alt.headers.isNotEmpty()) SniffPlayHeaders.put(alt.url, alt.headers)
+            sameEngineRetries.intValue = 0
+            autoSwitching = true
+            playUrl = alt.url
+            return
+        }
         tryNextLine(msg)
     }
 
@@ -830,6 +841,8 @@ fun PlayerScreen(
                     lastHeaders = headers
                     // v0.294.7（H6）：URL 看不出类型时起播前探测一次（≤3 秒），无后缀 m3u8 直接按 HLS 起播
                     MediaTypeSniffer.ensureHint(playUrl, headers)
+                    // v0.294.9：订阅 rules（含 m3u8 正文去广告正则）在起播前就绪
+                    runCatching { com.movieshell.data.source.SniffRules.ensureLoaded(context) }
                     val skipIntro = PlayerSettings.getSkipIntroFor(
                         context, playSourceKey, vodId, PlaySession.episodeIndex,
                     )

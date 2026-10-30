@@ -16,6 +16,12 @@ import kotlinx.serialization.json.contentOrNull
  * （兼容 `host` 字符串、`rule` 作 regex 别名；`*` 表示所有域名）。命中 host 且匹配 regex
  * 的请求当直链；匹配 exclude 的一律不当直链。
  * `ads`：广告域名列表，嗅探 WebView 直接拦截、m3u8 分片 URL 命中即视为广告信号。
+ *
+ * v0.294.9：
+ * - `regex` 里含 `#EXT` 的条目是 **m3u8 正文去广告正则**（FongMi 生态写法，如量子/非凡），
+ *   不再拿去匹配网址，改由 [m3u8BodyRegex] 交给 [com.movieshell.player.M3u8AdFilter.applyRuleRegex]；
+ * - `script`（字符串或数组）：命中域名的页面在后台嗅探时轮询执行，返回 http 地址即为结果；
+ * - host 支持 `*` 通配（如 `.cdnlz*`）。
  */
 @Serializable
 data class SniffHostRule(
@@ -23,11 +29,18 @@ data class SniffHostRule(
     val hosts: List<String> = emptyList(),
     val regex: List<String> = emptyList(),
     val exclude: List<String> = emptyList(),
+    val script: List<String> = emptyList(),
 )
 
 object SniffRules {
 
-    private class Compiled(val hosts: List<String>, val regex: List<Regex>, val exclude: List<Regex>)
+    private class Compiled(
+        val hosts: List<String>,
+        val regex: List<Regex>,
+        val exclude: List<Regex>,
+        val body: List<Regex>,
+        val script: List<String>,
+    )
 
     @Volatile private var compiled: List<Compiled> = emptyList()
     @Volatile private var adHosts: List<String> = emptyList()
@@ -46,10 +59,11 @@ object SniffRules {
             val hosts = (strList("hosts") + strList("host")).distinct()
             val regex = (strList("regex") + strList("rule")).distinct()
             val exclude = strList("exclude")
-            if (hosts.isEmpty() || (regex.isEmpty() && exclude.isEmpty())) null
+            val script = strList("script")
+            if (hosts.isEmpty() || (regex.isEmpty() && exclude.isEmpty() && script.isEmpty())) null
             else SniffHostRule(
                 name = (o["name"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
-                hosts = hosts, regex = regex, exclude = exclude,
+                hosts = hosts, regex = regex, exclude = exclude, script = script,
             )
         }
     }
@@ -61,10 +75,13 @@ object SniffRules {
 
     fun set(rules: List<SniffHostRule>, ads: List<String>) {
         compiled = rules.map { r ->
+            val (bodyRe, urlRe) = r.regex.partition { isBodyRegex(it) }
             Compiled(
                 hosts = r.hosts.map { it.lowercase() },
-                regex = r.regex.mapNotNull { runCatching { it.toRegex(RegexOption.IGNORE_CASE) }.getOrNull() },
+                regex = urlRe.mapNotNull { runCatching { it.toRegex(RegexOption.IGNORE_CASE) }.getOrNull() },
                 exclude = r.exclude.mapNotNull { runCatching { it.toRegex(RegexOption.IGNORE_CASE) }.getOrNull() },
+                body = bodyRe.mapNotNull { runCatching { it.toRegex() }.getOrNull() },
+                script = r.script,
             )
         }
         adHosts = ads.map { it.lowercase() }.distinct()
@@ -89,8 +106,34 @@ object SniffRules {
     private fun hostOf(url: String): String =
         url.substringAfter("://", "").substringBefore('/').substringBefore('?').substringBefore(':').lowercase()
 
-    private fun hostMatches(ruleHost: String, host: String): Boolean =
-        ruleHost == "*" || (host.isNotEmpty() && host.contains(ruleHost))
+    /** 纯函数：正则是否是 m3u8 正文规则（含 #EXT 标签） */
+    fun isBodyRegex(re: String): Boolean = re.contains("#EXT", ignoreCase = true)
+
+    /** 纯函数：规则域名匹配——`*` 全部；含 `*` 按通配；否则包含匹配。 */
+    fun hostMatches(ruleHost: String, host: String): Boolean {
+        if (ruleHost == "*") return true
+        if (host.isEmpty() || ruleHost.isEmpty()) return false
+        if (!ruleHost.contains('*')) return host.contains(ruleHost)
+        val re = ruleHost.split('*').joinToString(".*") { Regex.escape(it) }
+        return runCatching { Regex(re).containsMatchIn(host) }.getOrDefault(false)
+    }
+
+    /** v0.294.9：该 m3u8 地址域名命中的正文去广告正则 */
+    fun m3u8BodyRegex(url: String): List<Regex> {
+        val list = compiled
+        if (list.isEmpty()) return emptyList()
+        val host = hostOf(url)
+        return list.filter { r -> r.body.isNotEmpty() && r.hosts.any { hostMatches(it, host) } }.flatMap { it.body }
+    }
+
+    /** v0.294.9：该页面域名命中的嗅探脚本 */
+    fun scriptsFor(url: String): List<String> {
+        val list = compiled
+        if (list.isEmpty()) return emptyList()
+        val host = hostOf(url)
+        return list.filter { r -> r.script.isNotEmpty() && r.hosts.any { hostMatches(it, host) } }
+            .flatMap { it.script }.distinct()
+    }
 
     /** true=按订阅规则是直链；false=被订阅 exclude 排除；null=无规则命中。 */
     fun match(url: String): Boolean? {

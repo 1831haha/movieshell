@@ -16,7 +16,11 @@ import com.movieshell.data.repo.LogBus
  *  b) 分片组时长中位数明显偏离全片时长中位数（<50% 或 >200%）；
  *  c) 单独成组、数量少（1~3 片）、插在正片中间、且偏短的分片组；
  *  d) v0.294.7（M5）：该组分片的目录（主机 + 父路径）和正片主目录不同——
- *     插播广告几乎都来自另一台服务器/另一个目录，正片分片则同一目录连号。
+ *     插播广告几乎都来自另一台服务器/另一个目录，正片分片则同一目录连号；
+ *  e) v0.294.9：文件名模式不同——正片分片文件名「长度 + 字符类（纯数字/十六进制/其它）」
+ *     高度一致，广告分片往往换了命名（参考 drpy-node fixAdM3u8Ai 的公共前缀思路）；
+ *     或正片是连号数字、该组序号远离正片序号范围（序号跳变）。
+ * 另：v0.294.9 起订阅 rules 里的 m3u8 正文正则（[applyRuleRegex]）先于以上统计判定执行。
  *
  * 剔除方式：从返回给 ExoPlayer 的播放列表文本中删掉整组分片行
  * （EXTINF + 附属标签 + URI），并删掉该组 opening 的 DISCONTINUITY 标记；
@@ -79,6 +83,13 @@ object M3u8AdFilter {
         val mainDir = dirs.groupingBy { it }.eachCount().maxByOrNull { it.value }
             ?.takeIf { it.value * 2 > segments.size }?.key
 
+        // v0.294.9（e）：正片文件名模式 = 占比过半的「长度:字符类」
+        val shapes = segments.map { nameShape(it.uri) }
+        val mainShape = shapes.groupingBy { it }.eachCount().maxByOrNull { it.value }
+            ?.takeIf { it.value * 2 > segments.size }?.key
+        val mainNums = segments.indices.filter { shapes[it] == mainShape }
+            .mapNotNull { nameNumber(segments[it].uri) }
+
         val removedSegIdx = mutableSetOf<Int>()
         val removedBoundaryLines = mutableSetOf<Int>()
         var seqAdjust = 0
@@ -95,7 +106,11 @@ object M3u8AdFilter {
                 gMed >= 0 && gMed < p50
             val sigD = mainDir != null && idxs.size < segments.size / 2 &&
                 idxs.all { dirs[it] != mainDir }
-            if (listOf(sigA, sigB, sigC, sigD).count { it } >= 2) {
+            val sigE = idxs.size < segments.size / 2 && (
+                (mainShape != null && idxs.all { shapes[it] != mainShape }) ||
+                    sequenceJump(idxs.mapNotNull { nameNumber(segments[it].uri) }, mainNums, idxs.size)
+                )
+            if (listOf(sigA, sigB, sigC, sigD, sigE).count { it } >= 2) {
                 removedSegIdx.addAll(idxs)
                 parsed.groupBoundary[gid]?.let { boundaryLine ->
                     removedBoundaryLines.add(boundaryLine)
@@ -216,6 +231,72 @@ object M3u8AdFilter {
         }
         return abs.substringBeforeLast('/', "").lowercase()
     }
+
+    /** 纯函数：分片文件名模式「长度:字符类」（D 纯数字 / H 十六进制 / A 其它；扩展名不计） */
+    internal fun nameShape(uri: String): String {
+        val name = uri.trim().substringBefore('?').substringBefore('#').substringAfterLast('/')
+            .substringBeforeLast('.')
+        if (name.isEmpty()) return "0:E"
+        val cls = when {
+            name.all { it.isDigit() } -> "D"
+            name.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' } -> "H"
+            else -> "A"
+        }
+        return "${name.length}:$cls"
+    }
+
+    /** 纯函数：文件名末尾的数字序号（无则 null；超长截掉防溢出） */
+    internal fun nameNumber(uri: String): Long? {
+        val name = uri.trim().substringBefore('?').substringBefore('#').substringAfterLast('/')
+            .substringBeforeLast('.')
+        val digits = Regex("(\\d+)$").find(name)?.groupValues?.get(1) ?: return null
+        return digits.takeLast(15).toLongOrNull()
+    }
+
+    /**
+     * 纯函数：序号跳变——正片序号足够多（≥4）时，该组序号全部落在正片序号范围之外
+     * 且离范围的距离超过正片片数（防止首尾相邻的正常续号被误判）。
+     */
+    internal fun sequenceJump(groupNums: List<Long>, mainNums: List<Long>, groupSize: Int): Boolean {
+        if (mainNums.size < 4 || groupNums.size != groupSize || groupNums.isEmpty()) return false
+        val lo = mainNums.min()
+        val hi = mainNums.max()
+        val margin = mainNums.size.toLong()
+        return groupNums.all { it < lo - margin || it > hi + margin }
+    }
+
+    /**
+     * v0.294.9：订阅 rules 的 m3u8 正文正则去广告（FongMi 口径，纯函数）。
+     * - 命中片段删除；若命中片段以 `#EXT-X-DISCONTINUITY` 开头，替换为一个 DISCONTINUITY（保留正片分界）；
+     * - 命中片段里的 `#EXT-X-KEY` 行原样保留（不丢解密密钥）；
+     * - 保底：删完剩余分片 < 3 或删掉一半以上，放弃本条正则的结果；任何异常返回原文。
+     */
+    fun applyRuleRegex(content: String, regexes: List<Regex>): String {
+        if (regexes.isEmpty() || !isM3u8(content)) return content
+        return runCatching {
+            var cur = content
+            val before = countSegments(content)
+            for (re in regexes) {
+                val next = re.replace(cur) { m ->
+                    val keys = m.value.lines().filter { it.trim().startsWith("#EXT-X-KEY") }
+                    buildString {
+                        if (m.value.trimStart().startsWith("#EXT-X-DISCONTINUITY")) append("#EXT-X-DISCONTINUITY\n")
+                        keys.forEach { append(it.trim()).append('\n') }
+                    }
+                }
+                val left = countSegments(next)
+                if (next != cur && left >= 3 && left * 2 >= before) cur = next
+            }
+            if (cur != content) {
+                LogBus.i("AdFilter", "订阅正文规则去广告：${before - countSegments(cur)} 个分片")
+                // 删出来的连续 DISCONTINUITY 合并成一个
+                cur = cur.replace(Regex("(#EXT-X-DISCONTINUITY\\s*\\n)(\\s*#EXT-X-DISCONTINUITY\\s*\\n)+"), "$1")
+            }
+            cur
+        }.getOrDefault(content)
+    }
+
+    private fun countSegments(content: String): Int = content.lines().count { it.trim().startsWith("#EXTINF") }
 
     private fun isM3u8(content: String): Boolean =
         content.trimStart().startsWith("#EXTM3U")

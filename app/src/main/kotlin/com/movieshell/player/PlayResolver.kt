@@ -274,6 +274,23 @@ private suspend fun parseWith(ctx: RouteContext, parses: List<ParseConfig>, u: S
 
 /** 站内页嗅探（H4）：后台 WebView 抓真实流；可在进度条上取消。 */
 private suspend fun sniffPage(ctx: RouteContext, page: String, raw: RawPlay): String? {
+    // v0.294.9：苹果CMS 播放页免嗅——源码里直接有 player_aaaa 配置时不开 WebView
+    val mac = runCatching { com.movieshell.data.source.MacCmsPlayer.fetch(page, raw.header) }
+        .onFailure { if (it is CancellationException) throw it }.getOrNull()
+    if (!mac.isNullOrBlank()) {
+        when {
+            PlayRouting.isVipUrl(mac) -> {
+                val r = jxList(ctx, mac, raw)
+                if (r.isNotBlank() || ctx.cancelled) return r.ifBlank { null }
+            }
+            PlayRouting.isMediaUrl(mac) -> {
+                val h = PlayHeaders.merge(raw.header, mapOf("Referer" to page))
+                SniffPlayHeaders.put(mac, h)
+                return mac
+            }
+            else -> LogBus.d("Play", "免嗅地址不是直链，继续网页嗅探：${mac.take(80)}")
+        }
+    }
     val session = ParseProgressBus.begin(listOf(ParseConfig(name = "网页嗅探", url = page, type = 0)))
     ParseProgressBus.onLineStart(session, session.lines.first())
     val hit = try {

@@ -42,6 +42,11 @@ import kotlin.coroutines.resume
  * - WebView：混合内容放行、第三方 Cookie、UA 取线路 header 或嗅探 UA 设置（不带 wv 标记）；
  *   全局最多 2 个后台 WebView 并发。
  * 命中的请求头 = 拦截原始头 + Cookie（CookieManager）+ UA/Referer 补缺。
+ *
+ * v0.294.9：
+ * - 命中时把同页排名前 3 的候选登记到 [SniffAlternates]，播放失败先试同页备选再换线路；
+ * - 不加载图片（blockNetworkImage）、字体/图片请求直接回空——页面更快、少耗流量（参考海阔 blockRules）；
+ * - 订阅 rules 的 `script`：命中域名的页面每 500ms 执行一次，返回 http 地址即作为候选。
  */
 object AutoSniffer {
 
@@ -89,13 +94,23 @@ object AutoSniffer {
                     val pageRef = java.util.concurrent.atomic.AtomicReference(pageUrl)
                     var best: Hit? = null
                     var bestRank = Int.MAX_VALUE
+                    // 全部通过结算的候选（主线程读写），命中时取前 3 登记备选
+                    val accepted = ArrayList<Pair<Int, Hit>>()
                     var graceJob: Job? = null
                     val ua = PlayHeaders.get(headers, "User-Agent")?.takeIf { it.isNotBlank() } ?: SniffConfig.uaString()
 
                     fun finish(hit: Hit?) {
                         if (!done.compareAndSet(false, true)) return
                         job.cancel()
-                        if (hit != null) LogBus.i(TAG, "${label.ifBlank { "嗅探" }}命中：${hit.url.take(120)}")
+                        if (hit != null) {
+                            LogBus.i(TAG, "${label.ifBlank { "嗅探" }}命中：${hit.url.take(120)}")
+                            runCatching {
+                                val others = accepted.sortedBy { it.first }.map { it.second }.filter { it.url != hit.url }
+                                val group = (listOf(hit) + others).map { SniffAlternates.Candidate(it.url, it.headers) }
+                                SniffAlternates.register(group)
+                                if (group.size > 1) LogBus.d(TAG, "同页备选 ${minOf(group.size, 3) - 1} 个")
+                            }
+                        }
                         if (cont.isActive) cont.resume(hit)
                     }
 
@@ -114,6 +129,7 @@ object AutoSniffer {
                     fun offerMain(hit: Hit) {
                         if (done.get()) return
                         val rank = SniffEngine.rankIndex(hit.url)
+                        accepted.add(rank to hit)
                         if (rank == 0) { finish(hit); return }
                         if (rank < bestRank) { best = hit; bestRank = rank }
                         if (graceJob == null) {
@@ -169,6 +185,8 @@ object AutoSniffer {
                     wv.settings.mediaPlaybackRequiresUserGesture = false
                     wv.settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                     wv.settings.userAgentString = ua
+                    // v0.294.9：后台嗅探不加载图片（只要视频地址，页面更快）
+                    wv.settings.blockNetworkImage = true
                     runCatching {
                         CookieManager.getInstance().setAcceptCookie(true)
                         CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
@@ -207,7 +225,12 @@ object AutoSniffer {
                             if (SniffConfig.adFilterEnabled && SniffEngine.isAdHost(request?.url?.host.orEmpty())) {
                                 return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
                             }
-                            consider(reqUrl, request?.requestHeaders, request?.isForMainFrame == true)
+                            val mainFrame = request?.isForMainFrame == true
+                            consider(reqUrl, request?.requestHeaders, mainFrame)
+                            // v0.294.9：字体 / 图片请求直接回空（先判过候选再拦，伪装成图片的分片不受影响）
+                            if (!mainFrame && isStaticJunk(reqUrl)) {
+                                return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+                            }
                             return super.shouldInterceptRequest(view, request)
                         }
                     }
@@ -246,6 +269,23 @@ object AutoSniffer {
                             }
                         }
                     }
+                    // v0.294.9：订阅 rules 的 script（命中当前页面域名才跑；没有就不启动）
+                    CoroutineScope(job + Dispatchers.Main).launch {
+                        delay(800)
+                        while (isActive && !done.get()) {
+                            val scripts = runCatching { SniffRules.scriptsFor(pageRef.get()) }.getOrDefault(emptyList())
+                            if (scripts.isEmpty()) { delay(1_500); continue }
+                            scripts.forEach { sc ->
+                                wv.evaluateJavascript(ruleScriptJs(sc)) { raw ->
+                                    val r = decodeJsResult(raw).trim()
+                                    if (r.startsWith("http://", true) || r.startsWith("https://", true) || r.startsWith("//")) {
+                                        candidate(SniffEngine.resolveUrl(pageRef.get(), r), null)
+                                    }
+                                }
+                            }
+                            delay(500)
+                        }
+                    }
                     cont.invokeOnCancellation { job.cancel() }
                     val extra = headers.filterKeys { !it.equals("User-Agent", true) }
                     if (extra.isNotEmpty()) wv.loadUrl(pageUrl, extra) else wv.loadUrl(pageUrl)
@@ -261,6 +301,28 @@ object AutoSniffer {
                 }
             }
         }
+    }
+
+    private val JUNK_SUFFIXES = listOf(
+        ".woff", ".woff2", ".ttf", ".otf", ".eot",
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp",
+    )
+
+    /** v0.294.9（纯函数）：字体 / 图片资源（按路径后缀） */
+    fun isStaticJunk(url: String): Boolean {
+        val path = url.substringBefore('#').substringBefore('?').lowercase()
+        return JUNK_SUFFIXES.any { path.endsWith(it) }
+    }
+
+    /**
+     * 订阅 script 包装：先按函数体执行（支持 return 写法），没返回值且脚本里没有 return 再按表达式求值；
+     * 异常吞掉；只把字符串结果带回。
+     */
+    internal fun ruleScriptJs(script: String): String {
+        val q = JSONObject.quote(script)
+        return "(function(){var s=$q;var r=null;try{r=(new Function(s))();}catch(e){}" +
+            "if(r==null&&s.indexOf('return')<0){try{r=(0,eval)(s);}catch(e){}}" +
+            "return (typeof r==='string')?r:'';})()"
     }
 
     private fun clickJs(selector: String): String =

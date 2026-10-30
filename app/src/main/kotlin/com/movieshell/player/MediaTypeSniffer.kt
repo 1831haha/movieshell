@@ -81,7 +81,9 @@ object MediaTypeSniffer {
      */
     suspend fun ensureHint(url: String, headers: Map<String, String>): Kind? {
         hints[url]?.let { return it }
+        // 地址能看出类型（含明确媒体后缀）就不探测——一次性签名地址经不起多请求一次
         inferFromUrl(url)?.let { return it }
+        if (com.movieshell.data.source.SniffEngine.hasClearMediaSuffix(url)) return null
         val lower = url.lowercase()
         if (!(lower.startsWith("http://") || lower.startsWith("https://"))) return null
         val kind = withTimeoutOrNull(3_000L) {

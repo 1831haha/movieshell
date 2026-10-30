@@ -302,10 +302,29 @@ object SniffEngine {
         client: OkHttpClient,
         headers: Map<String, String>,
     ): Boolean {
+        // v0.294.9（一次性地址保护）：后缀已明确是媒体的不再多请求一次——
+        // 部分签名地址访问一次即失效，探测会把真正起播的那次请求作废。
+        if (hasClearMediaSuffix(url)) return false
         val ct = withTimeoutOrNull(SniffConfig.probeTimeoutMs) {
             withContext(Dispatchers.IO) { fetchContentType(url, client, headers) }
         } ?: return false
+        // 顺手登记流类型，起播时 MediaTypeSniffer 不用再探一次
+        com.movieshell.player.MediaTypeSniffer.inferFromContentType(ct)?.let {
+            com.movieshell.player.MediaTypeSniffer.putHint(url, it)
+        }
         return settlementDenied(ct)
+    }
+
+    private val CLEAR_MEDIA_SUFFIXES = listOf(
+        ".m3u8", ".m3u", ".mp4", ".m4v", ".flv", ".mpd", ".mkv", ".webm", ".mov", ".avi",
+        ".m4a", ".mp3", ".aac", ".flac", ".ogg", ".wav",
+    )
+
+    /** v0.294.9（纯函数）：路径（去查询串/锚点）以明确的媒体后缀结尾 */
+    fun hasClearMediaSuffix(url: String): Boolean {
+        val path = url.trim().substringBefore('#').substringBefore('?').lowercase()
+        if (!(path.startsWith("http://") || path.startsWith("https://"))) return false
+        return CLEAR_MEDIA_SUFFIXES.any { path.endsWith(it) }
     }
 
     private fun fetchContentType(
