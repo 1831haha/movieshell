@@ -1,5 +1,9 @@
 package com.movieshell.player
 
+import com.movieshell.ui.theme.MediaProgressFill
+
+import androidx.compose.ui.graphics.Brush
+
 import com.movieshell.ui.theme.V5
 
 import android.app.Activity
@@ -214,9 +218,10 @@ private fun RoundControlButton(
         onClick = onClick,
         modifier = modifier
             .size(size)
-            .background(Color.Black.copy(alpha = 0.45f), CircleShape),
+            // v0.292.0 V5（03-player）：媒体控件圆钮——黑 32% 底，图标 22dp
+            .background(Color.Black.copy(alpha = 0.32f), CircleShape),
     ) {
-        Icon(icon, contentDescription = desc, tint = tint, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = desc, tint = tint, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -1407,14 +1412,15 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .zIndex(1f)
-                    .size(64.dp)
-                    .background(Color.Black.copy(alpha = 0.45f), CircleShape),
+                    // v0.292.0 V5：中央播放键 80dp、28 圆角 primaryContainer
+                    .size(if (embedded) 64.dp else 80.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(V5.CornerXl)),
             ) {
                 Icon(
                     Icons.Filled.PlayArrow,
                     contentDescription = "播放",
-                    tint = Color.White,
-                    modifier = Modifier.size(36.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(40.dp),
                 )
             }
         }
@@ -1443,7 +1449,8 @@ fun PlayerScreen(
                     // 全屏手势层会话抢走、按钮点了没反应（用户反馈横屏返回/暂停失效）
                     .zIndex(1f)
                     .let { if (embedded) it else it.statusBarsPadding() }
-                    .background(Color.Black),
+                    // v0.292.0 V5：顶栏改上→下渐隐遮罩（黑 62% → 透明），不再整条实黑
+                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.62f), Color.Transparent))),
             ) {
             Row(
                 modifier = Modifier
@@ -1501,15 +1508,13 @@ fun PlayerScreen(
                 // v0.24.0：直播角标（v0.27.0：柔和错误色胶囊）
                 if (isLive) {
                     Surface(
-                        shape = RoundedCornerShape(V5.CornerMd),
-                        color = MaterialTheme.colorScheme.error,
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.errorContainer,
                     ) {
                         Text(
                             text = "直播",
-                            // v0.109.0 A9：errorSoft 亮色主题下是深红 #DC2626，黑字在其上约 2.9:1；
-                            // 按底色明度自适应（暗底黑字、深红底白字）
-                            color = if (MaterialTheme.colorScheme.error.luminance() > 0.18f)
-                                Color.Black else Color.White,
+                            // v0.292.0 V5：直播角标 errorContainer / onErrorContainer（M3 配对色，对比度有保证）
+                            color = MaterialTheme.colorScheme.onErrorContainer,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
@@ -1567,7 +1572,7 @@ fun PlayerScreen(
                         icon = if (playerFollowing) Icons.Filled.PlaylistAddCheck
                         else Icons.Filled.PlaylistAdd,
                         desc = if (playerFollowing) "已追剧" else "追剧",
-                        tint = if (playerFollowing) Color(0xFF4DD0E1) else Color.White,
+                        tint = if (playerFollowing) MediaProgressFill else Color.White,
                         onClick = {
                             val key = followPlayerKey
                             val id = vodId
@@ -1724,7 +1729,8 @@ fun PlayerScreen(
                     .zIndex(1f)
                     .fillMaxWidth()
                     // v0.84.0：半透明，少遮挡画面；用户反馈再调低一点
-                    .background(Color.Black.copy(alpha = 0.3f))
+                    // v0.292.0 V5：底栏改下→上渐隐遮罩（透明 → 黑 60%）
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))))
                     // v0.69.1：嵌入模式收窄底部黑边
                     .padding(horizontal = 12.dp, vertical = if (embedded) 0.dp else 2.dp),
             ) {

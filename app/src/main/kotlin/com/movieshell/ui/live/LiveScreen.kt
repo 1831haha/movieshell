@@ -437,27 +437,6 @@ fun LiveScreen(
                         }
                     }
                 }
-                // 直播角标（errorContainer；不接收点击，不挡播放器手势）
-                if (!fullscreenPlayer && playing != null) {
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(12.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(MaterialTheme.colorScheme.errorContainer)
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.onErrorContainer),
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text("直播", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onErrorContainer)
-                    }
-                }
             }
             // v0.96.2：横屏全屏只留播放器，其他 UI 隐藏
             if (!fullscreenPlayer) {
