@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.Subtitles
 import android.content.ClipData
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
+import com.movieshell.ui.search.currentSourceName as searchCurrentSourceName
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -308,6 +309,8 @@ fun SettingsScreen(
     var statsLoaded by remember { mutableStateOf(false) }
     // v0.171.0：任一统计加载失败时整行标失败，不再用 0 冒充"真没有"
     var statsFailed by remember { mutableStateOf(false) }
+    // 源名只作页头纯文字展示（不是格子、不可点），复用搜索页同一口径
+    var currentSourceName by remember { mutableStateOf("未设置") }
     // v0.82.0：背景底图
     var showBgMenu by remember { mutableStateOf(false) }
     val bgPicker = rememberLauncherForActivityResult(
@@ -353,6 +356,8 @@ fun SettingsScreen(
                     PhpSourceManager.listRules().size
             }
         }
+        // 源名复用搜索页算法（与首页换源胶囊同一口径），刷新失败保留上次有效值
+        currentSourceName = runCatching { searchCurrentSourceName(context) }.getOrNull() ?: currentSourceName
         statsFailed = failed
         statsLoaded = true
     }
@@ -387,22 +392,33 @@ fun SettingsScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // 页头：设置 + 版本号（等宽 t3）
+        // 页头：设置 + 版本号（等宽 t3）；下面一行纯文字显示当前源名——
+        // 不是格子、不可点、不带箭头，所以不算入口，也不复活已删的资料磁贴；
+        // 资料卡的“源”入口（仪表“源”，点进站源管理）原样保留，仍是唯一入口。
         item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("设置", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = v.t1)
-                Spacer(Modifier.weight(1f))
-                Text("v${com.movieshell.BuildConfig.VERSION_NAME}", style = V4Type.MonoSmall, color = v.t3)
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("设置", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = v.t1)
+                    Spacer(Modifier.weight(1f))
+                    Text("v${com.movieshell.BuildConfig.VERSION_NAME}", style = V4Type.MonoSmall, color = v.t3)
+                }
+                Text(
+                    text = "当前源：$currentSourceName",
+                    fontSize = 11.sp,
+                    color = v.t2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
         // 289 去重后用户纠偏：不要占位格——资料磁贴点不了就整块删掉，
-        // 不留一个看着像入口、点着没反应的大格子；站源管理只剩仪表“源”一个入口。
-        // （页头“设置 + 版本号”还在，版本号不丢；当前源名改看首页换源胶囊。）
+        // 不留一个看着像入口、点着没反应的大格子；站源管理只剩仪表“源”一个入口，
+        // 源名改在页头用一行纯文字显示（见页头那块）。
         // 2. 三个环形仪表：追剧（有更新占比）/ 历史（占 50 条上限）/ 源（本地占比）
         item {
             Row(
