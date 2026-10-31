@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.30",
+        date = "2026-11-01",
+        title = "磁力取元数据：先查公共种子缓存，进度显示 DHT 与节点数。",
+        details = listOf(
+            "按 infohash 先到公共种子缓存取 .torrent（校验一致才用），没命中再走 DHT/tracker。",
+            "补充 http/https tracker，部分网络屏蔽 UDP 时也有机会找到节点。",
+            "进度重新显示 DHT 节点数和已连接节点数，便于判断是网络问题还是没人做种。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.29",
         date = "2026-11-01",
         title = "磁力引擎移到独立进程：解析磁力时崩溃不再带走整个侠影。",

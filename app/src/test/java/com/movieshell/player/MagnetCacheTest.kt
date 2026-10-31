@@ -24,3 +24,16 @@ class MagnetCacheTest {
         assertEquals(emptyList<String>(), MagnetCache.selectToDelete(listOf(e("a", 1, 0)), now, 1L shl 30, 3 * day, emptySet()))
     }
 }
+
+class TorrentLogicTest {
+    @org.junit.Test fun looksLikeTorrent() {
+        val good = ("d8:announce3:abc4:infod6:lengthi1e4:name1:a" + "x".repeat(80) + "ee").toByteArray()
+        org.junit.Assert.assertTrue(MagnetStreamLogic.looksLikeTorrent(good))
+        org.junit.Assert.assertFalse(MagnetStreamLogic.looksLikeTorrent("<!DOCTYPE html>".repeat(10).toByteArray()))
+        org.junit.Assert.assertFalse(MagnetStreamLogic.looksLikeTorrent(null))
+    }
+    @org.junit.Test fun peersStatus() {
+        org.junit.Assert.assertEquals("正在获取磁力元数据（9s，DHT 19，节点 3）…", MagnetStreamLogic.statusFetchingPeers(9, 19, 3))
+        org.junit.Assert.assertEquals("正在获取磁力元数据（9s）…", MagnetStreamLogic.statusFetchingPeers(9, -1, -1))
+    }
+}

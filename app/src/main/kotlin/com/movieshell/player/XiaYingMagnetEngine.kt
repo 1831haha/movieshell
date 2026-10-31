@@ -4,6 +4,7 @@ import android.content.Context
 import com.movieshell.data.repo.LogBus
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ensureActive
@@ -208,9 +209,29 @@ object XiaYingMagnetEngine {
         // v0.294.29：元数据阶段回到库自带 fetchMagnet（v0.294.27 的手动 handle 轮询
         // 在元数据阶段反复调用 torrentFile()/remove()，疑似原生崩溃根源）。
         // 本引擎跑在独立 :magnet 进程，取消=杀进程，不再需要可取消的 handle。
-        status(MagnetStreamLogic.statusFetching(0))
-        val data = withTimeoutOrNull((META_TIMEOUT_SEC + 5) * 1000L) {
-            var elapsed = 0
+        fun dht(): Long = runCatching { sm.dhtNodes() }.getOrDefault(-1L)
+        fun metaPeers(): Int = runCatching {
+            val h = hintHash?.let { sm.find(org.libtorrent4j.Sha1Hash.parseHex(it)) }
+            if (h != null && h.isValid) h.status().numPeers() else -1
+        }.getOrDefault(-1)
+        status(MagnetStreamLogic.statusFetching(0, dht()))
+        // v0.294.30：先用 8 秒并行尝试公共种子缓存（按 infohash 取 .torrent），
+        // 同时让 DHT 暖机；缓存没命中再走 DHT/tracker 取元数据。
+        val cached: ByteArray? = if (hintHash != null && hintHash.length == 40) {
+            withTimeoutOrNull(8_000L) {
+                val job = async(Dispatchers.IO) { TorrentCache.fetch(hintHash) }
+                var e = 0
+                while (!job.isCompleted) {
+                    if (myGen != prepareGen) { job.cancel(); return@withTimeoutOrNull null }
+                    delay(1000); e++
+                    status(MagnetStreamLogic.statusFetching(e, dht()) + "（查种子缓存）")
+                }
+                job.await()
+            }
+        } else null
+        if (cached != null) status("已从种子缓存取得元数据")
+        val data = cached ?: withTimeoutOrNull((META_TIMEOUT_SEC + 5) * 1000L) {
+            var elapsed = 8
             val holder = AtomicReference<ByteArray?>(null)
             val th = Thread({
                 holder.set(runCatching { sm.fetchMagnet(enriched, META_TIMEOUT_SEC, root) }.getOrNull())
@@ -219,7 +240,7 @@ object XiaYingMagnetEngine {
                 if (myGen != prepareGen) return@withTimeoutOrNull null
                 delay(1000)
                 elapsed++
-                status(MagnetStreamLogic.statusFetching(elapsed))
+                status(MagnetStreamLogic.statusFetchingPeers(elapsed, dht(), metaPeers()))
             }
             holder.get()
         }

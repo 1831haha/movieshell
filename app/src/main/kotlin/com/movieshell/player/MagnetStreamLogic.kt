@@ -21,6 +21,11 @@ object MagnetStreamLogic {
         "udp://tracker1.bt.moack.co.kr:80/announce",
         "http://tracker.openbittorrent.com:80/announce",
         "udp://explodie.org:6969/announce",
+        "https://tracker.tamersunion.org:443/announce",
+        "https://tracker.gbitt.info:443/announce",
+        "http://tracker.bt4g.com:2095/announce",
+        "https://tracker.lilithraws.org:443/announce",
+        "http://tracker.opentrackr.org:1337/announce",
     )
 
     data class FileCand(val index: Int, val name: String, val size: Long)
@@ -82,6 +87,17 @@ object MagnetStreamLogic {
         return if (elapsedSec < 5) "正在连接磁力网络$dht…"
         else "正在获取磁力元数据（${elapsedSec}s$dht）…"
     }
+
+    fun statusFetchingPeers(elapsedSec: Int, dhtNodes: Long, peers: Int): String {
+        val parts = mutableListOf("${elapsedSec}s")
+        if (dhtNodes >= 0) parts += "DHT $dhtNodes"
+        if (peers >= 0) parts += "节点 $peers"
+        return "正在获取磁力元数据（" + parts.joinToString("，") + "）…"
+    }
+
+    /** .torrent 字节是否像合法种子（bencode 字典且含 info） */
+    fun looksLikeTorrent(b: ByteArray?): Boolean =
+        b != null && b.size > 64 && b[0] == 'd'.code.toByte() && String(b, 0, minOf(b.size, 4096), Charsets.ISO_8859_1).contains("4:info")
 
     fun statusTimeout(timeoutSec: Int): String =
         "获取磁力元数据超时（${timeoutSec}s）。资源可能无人做种，或当前网络访问 DHT/tracker 受限。可换 Wi‑Fi/关 VPN 重试，或用其他应用打开。"
