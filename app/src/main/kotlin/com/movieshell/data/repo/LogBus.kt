@@ -59,6 +59,12 @@ object LogBus {
         }
         runCatching {
             val f = CrashHandler.latest(context) ?: return
+            // v0.294.10：同一份崩溃记录只回显一次（按文件名+修改时间记已展示），
+            // 旧崩溃（如 v0.260 的）不再每次启动都打印成「上次崩溃」；文件本身保留在 xiaying/crash/。
+            val prefs = context.getSharedPreferences("log_bus", android.content.Context.MODE_PRIVATE)
+            val stamp = f.lastModified()
+            if (stamp <= prefs.getLong("crash_shown_mtime", 0L) || f.name == prefs.getString("crash_shown_name", null)) return
+            prefs.edit().putLong("crash_shown_mtime", stamp).putString("crash_shown_name", f.name).apply()
             // v0.246.0：原来全文件 readText() 后才 take(200) 行，异常大日志白占内存。
             // 改流式读前 200 行，读到就停。
             // v0.246.0 补（GPT 审）：按原始行数限 200 行、再滤空行——

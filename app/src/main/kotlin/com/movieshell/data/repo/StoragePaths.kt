@@ -457,6 +457,7 @@ object StoragePaths {
     }
 
     private const val KEY_PERM_SKIPPED = "storage_perm_prompt_skipped"
+    private const val KEY_MERGE_WARNED = "merge_conflict_warned"
 
     /** v0.294.5：启动时的存储权限引导是否已被用户跳过（跳过一次就不再每次启动都弹） */
     fun isPermPromptSkipped(context: Context): Boolean =
@@ -483,6 +484,9 @@ object StoragePaths {
         if (runCatching { src.canonicalPath == dst.canonicalPath }.getOrDefault(true)) return 0
         var merged = 0
         var kept = 0
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val warned = (prefs.getStringSet(KEY_MERGE_WARNED, null) ?: emptySet()).toMutableSet()
+        var newlyWarned = false
         fun walk(s: File, d: File) {
             val children = s.listFiles() ?: return
             for (c in children) {
@@ -502,15 +506,25 @@ object StoragePaths {
                         if (ok) { c.delete(); merged++ } else kept++
                     } else if (t.isFile && sameFileContent(c, t)) {
                         c.delete()
+                    } else if (c.name == ".nomedia" && t.isFile) {
+                        // v0.294.10：.nomedia 只是标记文件，内容无意义；公开目录已有就删私有份，不再每次告警
+                        c.delete()
                     } else {
                         kept++
-                        LogBus.w(TAG, "同名文件内容不同，保留私有目录里的旧份：${c.absolutePath}")
+                        // v0.294.10：同一冲突（路径+大小+修改时间）只告警一次，不再每次启动重复刷日志
+                        val sig = "${c.absolutePath}|${c.length()}|${c.lastModified()}"
+                        if (sig !in warned) {
+                            warned.add(sig)
+                            newlyWarned = true
+                            LogBus.w(TAG, "同名文件内容不同，保留私有目录里的旧份（只提示一次）：${c.absolutePath}")
+                        }
                     }
                 }
             }
         }
         return try {
             walk(src, dst)
+            if (newlyWarned) prefs.edit().putStringSet(KEY_MERGE_WARNED, warned.toList().takeLast(200).toSet()).apply()
             if (src.listFiles()?.isEmpty() == true) src.delete()
             if (merged > 0) LogBus.i(TAG, "授权后合并私有回退目录：并入 $merged 个文件到 ${dst.absolutePath}（保留 $kept 个冲突项）")
             merged

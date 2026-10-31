@@ -100,6 +100,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import com.movieshell.ui.components.TechDialog
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.movieshell.ui.components.TechTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -177,7 +180,7 @@ import com.movieshell.data.repo.BackgroundStore
 // v0.27.0 Soft Tech 换皮：分组卡片走 AppCard，分组标题走 V5SectionTitle，
 // 对话框 20dp 圆角 + 输入框走 AppTextField，按钮走 AppButton。逻辑与文案零变更。
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     onManualClick: () -> Unit = {},
@@ -211,6 +214,8 @@ fun SettingsScreen(
     // v0.20.0：播放器内核（Media3 默认，libmpv 可选，记忆选择）
     val engine by PlayerSettings.engine.collectAsState()
     var showEngineDialog by remember { mutableStateOf(false) }
+    var showThemeModeDialog by remember { mutableStateOf(false) }
+    var showThemeColorDialog by remember { mutableStateOf(false) }
     var cacheSize by remember { mutableStateOf("计算中…") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     // v0.188.0：旧字幕记忆清理入口用——只在用户点清理行时统计条数、点确认时删除，
@@ -445,25 +450,23 @@ fun SettingsScreen(
         // 3. 外观
         item { SettingsCaption("外观") }
         item {
-            // 亮色 / 暗色 / 跟随系统（v0.80.0 内联三段）——M3 分段按钮
-            SegItem(position = SegPos.First, icon = Icons.Outlined.Contrast, title = "主题模式") {
-                val modes = listOf(
-                    "亮色" to ThemeStore.MODE_LIGHT,
-                    "暗色" to ThemeStore.MODE_DARK,
-                    "跟随系统" to ThemeStore.MODE_SYSTEM,
-                )
-                V5Segmented(
-                    options = modes.map { it.first },
-                    selected = modes.indexOfFirst { it.second == themeMode },
-                    onSelect = { ThemeStore.setMode(context, modes[it].second) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+            // v0.294.10：主题模式改为「点开选择」——v0.294.4 给 SegItem 末尾加了 leading 参数后，
+            // 这里的尾随 lambda 被当成 leading 画进 40dp 图标位（看着像半黑半棕的圆），选项丢失、点击无反应。
+            val modeLabel = when (themeMode) {
+                ThemeStore.MODE_LIGHT -> "浅色"
+                ThemeStore.MODE_DARK -> "深色"
+                else -> "跟随系统"
             }
+            SegItem(
+                position = SegPos.First,
+                icon = Icons.Outlined.Contrast,
+                title = "主题模式",
+                subtitle = modeLabel,
+                onClick = { showThemeModeDialog = true },
+            )
         }
         item {
-            // 主题色：海报取色（V5 新增）/ 系统取色（Android 12+）/ 单色预设 / 炫彩渐变预设（v0.87.1），横滑
             val colorSource by ThemeStore.source.collectAsState()
-            val dark = cs.isDark
             SegItem(
                 position = SegPos.Middle,
                 icon = Icons.Outlined.Palette,
@@ -471,65 +474,12 @@ fun SettingsScreen(
                 subtitle = when (colorSource) {
                     ThemeStore.SOURCE_POSTER -> "海报取色 · 跟随首页当前海报"
                     ThemeStore.SOURCE_DYNAMIC -> "系统取色 · 跟随壁纸"
-                    else -> if (themeKey.startsWith("g:")) "炫彩预设 · 锚点色作种子" else "预设色 · 按 M3 色调生成整套配色"
+                    else -> if (themeKey.startsWith("g:")) {
+                        "炫彩预设 · " + (ThemeStore.GRADIENT_OPTIONS.firstOrNull { "g:${it.id}" == themeKey }?.name ?: "锚点色作种子")
+                    } else "预设色 · 按 M3 色调生成整套配色"
                 },
-            ) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    contentPadding = PaddingValues(vertical = 4.dp),
-                ) {
-                    item {
-                        ThemeSwatch(
-                            selected = themeKey == "p:poster",
-                            label = "海报取色",
-                            onClick = { ThemeStore.setSource(context, ThemeStore.SOURCE_POSTER) },
-                        ) {
-                            PosterSwatchArt()
-                        }
-                    }
-                    if (android.os.Build.VERSION.SDK_INT >= 31) {
-                        item {
-                            ThemeSwatch(
-                                selected = themeKey == "d:dynamic",
-                                label = "系统取色",
-                                onClick = { ThemeStore.setSource(context, ThemeStore.SOURCE_DYNAMIC) },
-                            ) {
-                                Box(
-                                    Modifier
-                                        .fillMaxSize()
-                                        .background(cs.surfaceContainerHighest),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(Icons.Outlined.Wallpaper, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
-                                }
-                            }
-                        }
-                    }
-                    items(ThemeStore.COLOR_OPTIONS) { argb ->
-                        ThemeSwatch(
-                            selected = themeKey == "c:$argb",
-                            label = "主题色",
-                            onClick = { ThemeStore.setColor(context, argb) },
-                        ) {
-                            SeedSwatchArt(seedColorScheme(argb, dark))
-                        }
-                    }
-                    items(ThemeStore.GRADIENT_OPTIONS) { preset ->
-                        ThemeSwatch(
-                            selected = themeKey == "g:${preset.id}",
-                            label = preset.name,
-                            onClick = { ThemeStore.setGradient(context, preset.id) },
-                        ) {
-                            Box(
-                                Modifier
-                                    .fillMaxSize()
-                                    .background(Brush.sweepGradient(preset.colors.map { Color(it) } + Color(preset.colors.first()))),
-                            )
-                        }
-                    }
-                }
-            }
+                onClick = { showThemeColorDialog = true },
+            )
         }
         item {
             // v0.82.0：背景底图
@@ -848,6 +798,97 @@ fun SettingsScreen(
 
     // v0.20.0：播放器内核选择（持久化，播放器内一键切换走同一偏好）
     // v0.29.0：libmpv 插件化——未安装时选 libmpv 提示去插件市场，不切换
+    // v0.294.10：主题模式 / 主题色选择弹窗
+    if (showThemeModeDialog) {
+        TechDialog(
+            onDismissRequest = { showThemeModeDialog = false },
+            title = "主题模式",
+            dismissText = "关闭",
+        ) {
+            val modes = listOf(
+                "跟随系统" to ThemeStore.MODE_SYSTEM,
+                "浅色" to ThemeStore.MODE_LIGHT,
+                "深色" to ThemeStore.MODE_DARK,
+            )
+            V5Segmented(
+                options = modes.map { it.first },
+                selected = modes.indexOfFirst { it.second == themeMode },
+                onSelect = {
+                    ThemeStore.setMode(context, modes[it].second)
+                    showThemeModeDialog = false
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+    if (showThemeColorDialog) {
+        val cs = MaterialTheme.colorScheme
+        val dark = cs.isDark
+        TechDialog(
+            onDismissRequest = { showThemeColorDialog = false },
+            title = "主题色",
+            subtitle = "点选即生效",
+            dismissText = "关闭",
+        ) {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    run {
+                        ThemeSwatch(
+                            selected = themeKey == "p:poster",
+                            label = "海报取色",
+                            onClick = { ThemeStore.setSource(context, ThemeStore.SOURCE_POSTER) },
+                        ) {
+                            PosterSwatchArt()
+                        }
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= 31) {
+                        run {
+                            ThemeSwatch(
+                                selected = themeKey == "d:dynamic",
+                                label = "系统取色",
+                                onClick = { ThemeStore.setSource(context, ThemeStore.SOURCE_DYNAMIC) },
+                            ) {
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .background(cs.surfaceContainerHighest),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(Icons.Outlined.Wallpaper, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                                }
+                            }
+                        }
+                    }
+                    ThemeStore.COLOR_OPTIONS.forEach { argb ->
+                        ThemeSwatch(
+                            selected = themeKey == "c:$argb",
+                            label = "主题色",
+                            onClick = { ThemeStore.setColor(context, argb) },
+                        ) {
+                            SeedSwatchArt(seedColorScheme(argb, dark))
+                        }
+                    }
+                    ThemeStore.GRADIENT_OPTIONS.forEach { preset ->
+                        ThemeSwatch(
+                            selected = themeKey == "g:${preset.id}",
+                            label = preset.name,
+                            onClick = { ThemeStore.setGradient(context, preset.id) },
+                        ) {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(Brush.sweepGradient(preset.colors.map { Color(it) } + Color(preset.colors.first()))),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
     if (showEngineDialog) {
         SingleChoiceDialog(
             title = "播放器内核",
@@ -1337,9 +1378,10 @@ private fun SegItem(
     subtitle: String? = null,
     onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
-    content: (@Composable () -> Unit)? = null,
     // v0.294.4：自定义 40dp 前导图（关于侠影用品牌标）；为 null 走默认 primaryContainer 圆底图标
     leading: (@Composable () -> Unit)? = null,
+    // v0.294.10：content 必须放最后——尾随 lambda 写法对应最后一个参数（曾因 leading 排在后面导致主题行失效）
+    content: (@Composable () -> Unit)? = null,
 ) {
     val cs = MaterialTheme.colorScheme
     val big = V5.CornerCard
