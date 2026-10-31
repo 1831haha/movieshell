@@ -83,6 +83,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -135,7 +136,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
-private val SPEEDS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+private val SPEEDS = PlayerGestureMath.SPEED_CHOICES
 
 // v0.65：循环模式（对标目标界面"顺序播放"按钮）
 private val PLAY_MODES = listOf("顺序播放", "单集循环", "列表循环")
@@ -986,6 +987,9 @@ fun PlayerScreen(
 
     // v0.25.0：切换中防抖（快速连点不叠请求）
     var switchingEngine by remember { mutableStateOf(false) }
+    var showSpeedMenu by remember { mutableStateOf(false) }
+    // v0.294.21：切内核时定格的最后一帧（新内核出画前盖在画面上，不黑屏）
+    var frozenFrame by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     /**
      * v0.209.0：播放器内点选切换内核（菜单直选 Exo/mpv，点谁切谁）。
      * v0.255.0：底部引擎/清晰度菜单已收进顶部更多菜单，旧的两个显隐状态删掉。
@@ -999,6 +1003,7 @@ fun PlayerScreen(
         scope.launch {
             try {
                 val pos = EngineHost.currentPosition()
+                frozenFrame = FrameGrab.capture(videoView)
                 // v0.123.0：手动切 libmpv 前先查插件在不在，没装别把用户带进黑屏
                 if (target == PlayerEngine.LIBMPV && !MpvPluginLoader.isInstalled(context)) {
                     AppToast.show(context, "libmpv 插件未安装，请先到插件市场安装", long = true)
@@ -1014,12 +1019,20 @@ fun PlayerScreen(
                     context, playUrl, headers = lastHeaders,
                     startPositionMs = pos, subtitleUrl = sub, live = isLive,
                 )
-                if (ok) EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
-                else AppToast.show(context, "切换后起播失败", long = false)
+                if (ok) {
+                    EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
+                    EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
+                    // 新内核真正出画（开始播放且进度走动）或超时后撤掉定格帧
+                    withTimeoutOrNull(8000) {
+                        while (!(EngineHost.isPlayingNow() && EngineHost.currentPosition() > pos)) delay(100)
+                        delay(150)
+                    }
+                } else AppToast.show(context, "切换后起播失败", long = false)
             } catch (t: Throwable) {
                 LogBus.e("Player", "手动切换内核异常：${t::class.java.simpleName}: ${t.message}")
                 AppToast.show(context, "切换内核失败", long = false)
             } finally {
+                frozenFrame = null
                 switchingEngine = false
             }
         }
@@ -1304,6 +1317,19 @@ fun PlayerScreen(
             )
         }
 
+        frozenFrame?.let { bmp ->
+            androidx.compose.foundation.Image(
+                bitmap = bmp,
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
+            CircularProgressIndicator(
+                color = Color.White.copy(alpha = 0.85f),
+                strokeWidth = 3.dp,
+                modifier = Modifier.align(Alignment.Center).size(36.dp),
+            )
+        }
         // v0.19.0：画中画时只留播放画面，全部自绘 UI 隐藏
         if (!uiVm.pipMode) {
         // 手势层：左右滑动=±10 秒快进/快退；左半屏上下=亮度；右半屏上下=音量。
@@ -1331,15 +1357,33 @@ fun PlayerScreen(
                         }
                         if (longPressed) {
                             if (playUrl.isNotBlank()) {
-                                EngineHost.setPlaybackSpeed(2.0f)
-                                uiVm.gestureHint = "2x 快放中…"
-                                // 等待松手（消费事件，避免透传点中控制器）
+                                // v0.294.21：长按 = 3 倍速；按住不放左右拖 = 跳进度（右进左退），
+                                // 进度条与时间跟手，松手才真正 seek，并恢复原倍速
+                                EngineHost.setPlaybackSpeed(PlayerGestureMath.BOOST_SPEED)
+                                uiVm.gestureHint = "3X 快进中 ▶▶  左右拖动调进度"
+                                val startMs = EngineHost.currentPosition()
+                                val durMs = EngineHost.duration()
+                                val slopPx = viewConfiguration.touchSlop * 2
+                                var dragging = false
+                                var target = startMs
                                 while (true) {
                                     val event = awaitPointerEvent()
                                     val c = event.changes.firstOrNull { it.id == down.id }
                                     c?.consume()
                                     if (c == null || !c.pressed) break
+                                    val dx = c.position.x - down.position.x
+                                    if (!dragging && abs(dx) > slopPx && !isLive) {
+                                        dragging = true
+                                        uiVm.controlsVisible = true
+                                    }
+                                    if (dragging) {
+                                        target = PlayerGestureMath.scrubTarget(startMs, dx, size.width.toFloat(), durMs)
+                                        uiVm.gestureScrubMs = target
+                                        uiVm.gestureHint = PlayerGestureMath.scrubHint(startMs, target, durMs)
+                                    }
                                 }
+                                if (dragging) EngineHost.seekTo(target)
+                                uiVm.gestureScrubMs = null
                                 EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
                                 uiVm.gestureHint = null
                             }
@@ -1444,10 +1488,11 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .background(
-                        Color.Black.copy(alpha = 0.7f),
+                        Color.Black.copy(alpha = 0.55f),
                         RoundedCornerShape(V5.CornerMd),
                     )
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                    // v0.294.21：指示胶囊收小
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
             ) {
                 Text(hint, color = Color.White, style = MaterialTheme.typography.bodySmall)
             }
@@ -1455,8 +1500,8 @@ fun PlayerScreen(
 
         // v0.27.7：播放中 4 秒无操作自动隐藏控制层（暂停时保持显示）
         // v0.40.0：锁定时不自动隐藏（解锁按钮常显）
-        LaunchedEffect(uiVm.controlsVisible, isPlaying, uiVm.locked) {
-            if (uiVm.controlsVisible && isPlaying && !uiVm.locked) {
+        LaunchedEffect(uiVm.controlsVisible, isPlaying, uiVm.locked, uiVm.gestureScrubMs == null) {
+            if (uiVm.controlsVisible && isPlaying && !uiVm.locked && uiVm.gestureScrubMs == null) {
                 delay(4000)
                 uiVm.controlsVisible = false
             }
@@ -1475,12 +1520,13 @@ fun PlayerScreen(
                     .zIndex(1f)
                     // v0.292.0 V5：中央播放键 80dp、28 圆角 primaryContainer
                     .size(if (embedded) 64.dp else 80.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(V5.CornerXl)),
+                    // v0.294.21：半透明深色底，画面透出来
+                    .background(Color.Black.copy(alpha = 0.42f), RoundedCornerShape(V5.CornerXl)),
             ) {
                 Icon(
                     Icons.Filled.PlayArrow,
                     contentDescription = "播放",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    tint = Color.White.copy(alpha = 0.9f),
                     modifier = Modifier.size(40.dp),
                 )
             }
@@ -1802,7 +1848,7 @@ fun PlayerScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        text = fmtTime(if (scrubbing) scrubPos else pos),
+                        text = fmtTime(uiVm.gestureScrubMs ?: if (scrubbing) scrubPos else pos),
                         color = Color.White,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -1810,7 +1856,7 @@ fun PlayerScreen(
                     // 交互高度、行高压到 28dp），进度线贴到按钮行正上方、落在视频
                     // 底边附近（用户反馈"进度条太高卡视角"）；拖动行为不变。
                     PlayerSeekBar(
-                        value = (if (scrubbing) scrubPos else pos).toFloat(),
+                        value = (uiVm.gestureScrubMs ?: if (scrubbing) scrubPos else pos).toFloat(),
                         valueRange = 0f..dur.coerceAtLeast(1L).toFloat(),
                         onValueChange = {
                             scrubPos = it.toLong()
@@ -1884,12 +1930,8 @@ fun PlayerScreen(
                     // v0.121.0：直播隐藏倍速（用户反馈"直播不需要倍速"；直播流也不允许变速）
                     if (!isLive) {
                         TextButton(
-                            onClick = {
-                                speedIndex = (speedIndex + 1) % SPEEDS.size
-                                EngineHost.setPlaybackSpeed(SPEEDS[speedIndex])
-                                // v0.74.0：倍速记忆
-                                PlayerSettings.setSpeed(context, SPEEDS[speedIndex])
-                            },
+                            // v0.294.21：点击弹出倍速选择（不再循环切换）
+                            onClick = { showSpeedMenu = true },
                             modifier = Modifier.height(48.dp),
                             contentPadding = PaddingValues(horizontal = 6.dp),
                         ) {
@@ -1898,6 +1940,17 @@ fun PlayerScreen(
                                 "${SPEEDS[speedIndex]}X",
                                 color = Color.White,
                                 style = MaterialTheme.typography.bodyMedium,
+                            )
+                            SpeedPickerMenu(
+                                expanded = showSpeedMenu,
+                                current = SPEEDS[speedIndex],
+                                onDismiss = { showSpeedMenu = false },
+                                onPick = { v ->
+                                    showSpeedMenu = false
+                                    speedIndex = SPEEDS.indexOf(v).coerceAtLeast(0)
+                                    EngineHost.setPlaybackSpeed(v)
+                                    PlayerSettings.setSpeed(context, v)
+                                },
                             )
                         }
                     }

@@ -30,5 +30,7 @@ class PlayerUiViewModel : ViewModel() {
     var controlsVisible by mutableStateOf(true)
     var locked by mutableStateOf(false)
     var gestureHint by mutableStateOf<String?>(null)
+    /** v0.294.21：长按拖动跳进度时的预览目标（非 null 时进度条/时间跟手显示它）。 */
+    var gestureScrubMs by mutableStateOf<Long?>(null)
     var pipMode by mutableStateOf(false)
 }
