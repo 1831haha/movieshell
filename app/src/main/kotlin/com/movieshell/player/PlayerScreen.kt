@@ -2441,13 +2441,21 @@ fun PlayerScreen(
 
         } // if (!uiVm.pipMode)：画中画时只留播放画面
 
-        // 磁力转播服务未启动提示（v0.27.0：统一卡片容器，标题柔和错误色）
+        // v0.294.23：磁力转播不可用提示（自动拉起失败后的中文说明，去掉 DsPlayer 字样）
         if (uiVm.showServiceMissingDialog) {
             PlayerDialogCard(
-                title = "磁力转播服务未启动",
+                title = "磁力还不能播",
                 titleColor = MaterialTheme.colorScheme.error,
                 onDismiss = { uiVm.showServiceMissingDialog = false },
                 buttons = {
+                    AppButton(
+                        text = "用其他应用打开",
+                        onClick = {
+                            MagnetPlayer.openExternally(context, playUrl)
+                            uiVm.showServiceMissingDialog = false
+                        },
+                        variant = AppButtonVariant.Secondary,
+                    )
                     AppButton(
                         text = "知道了",
                         onClick = { uiVm.showServiceMissingDialog = false },
@@ -2456,7 +2464,8 @@ fun PlayerScreen(
                 },
             ) {
                 Text(
-                    "重试 3 次仍未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream，启动后再点一次播放",
+                    MagnetPlayer.lastFailMessage
+                        ?: "本机磁力转播服务未就绪。磁力链接需要本地转成 HTTP 才能播，请到「插件中心 → 服务」安装并启动「磁力转播服务」。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )

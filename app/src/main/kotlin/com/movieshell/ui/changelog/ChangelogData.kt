@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.23",
+        date = "2026-10-31",
+        title = "磁力播放：自动拉起转播服务，去掉 DsPlayer 提示。",
+        details = listOf(
+            "点播磁力时若本机「磁力转播服务」已安装但未运行，会自动尝试启动并等待就绪，不必再去服务页手点。",
+            "按服务实际端口探活（不再写死只认 17890）；磁力转播可占用 17890。",
+            "失败提示改为侠影中文说明，并提供「用其他应用打开」；Media3/mpv 本身仍不能直接播 magnet，必须有本地转流。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.22",
         date = "2026-10-31",
         title = "修复订阅 PY 源无法加载（可信副本丢 .py）。",

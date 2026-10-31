@@ -328,6 +328,7 @@ fun DetailScreen(
     // v0.47.0：简介默认折叠
     var showDetailInfo by remember { mutableStateOf(false) } // v0.259.0：详情简介入口，点开简介弹窗
     var showMagnetDialog by remember { mutableStateOf(false) }
+    var lastMagnetUrl by remember { mutableStateOf("") }
     // v0.21.0：封面点开放大
     var showCoverDialog by remember { mutableStateOf(false) }
     val coverUrl = detail?.vodPic.orEmpty()
@@ -476,7 +477,7 @@ fun DetailScreen(
                 // 世代已过：新一集已在解析，本单不再动任何状态
                 if (myGen != playGen) return@launch
                 // 服务通则已直接起播；不通则弹窗提示
-                if (!ok) showMagnetDialog = true
+                if (!ok) { lastMagnetUrl = ep.url; showMagnetDialog = true }
                 embeddedResolving = false
             } else {
                 val link = try {
@@ -1285,17 +1286,25 @@ fun DetailScreen(
             }
         }
 
-        // 磁力转播服务未启动提示
+        // v0.294.23：磁力转播不可用（自动拉起失败）
         if (showMagnetDialog) {
             TechDialog(
                 onDismissRequest = { showMagnetDialog = false },
-                title = "磁力转播服务未启动",
-                confirmText = "知道了",
-                onConfirm = { showMagnetDialog = false },
+                title = "磁力还不能播",
+                confirmText = "用其他应用打开",
+                onConfirm = {
+                    if (lastMagnetUrl.isNotBlank()) MagnetPlayer.openExternally(context, lastMagnetUrl)
+                    showMagnetDialog = false
+                },
+                dismissText = "知道了",
             ) {
-                Text("重试 3 次仍未检测到本机磁力转播服务（127.0.0.1:17890），请先在 DsPlayer 的服务页启动 magnet-stream，启动后再点一次播放")
+                Text(
+                    MagnetPlayer.lastFailMessage
+                        ?: "本机磁力转播服务未就绪。请到「插件中心 → 服务」安装并启动「磁力转播服务」，或用其他应用打开。",
+                )
             }
         }
+
     
         // v0.259.0：详情简介弹窗，与播放器信息图标共用同一套五字段规则
         if (showDetailInfo) {

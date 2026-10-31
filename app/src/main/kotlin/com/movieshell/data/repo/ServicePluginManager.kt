@@ -963,13 +963,17 @@ object ServicePluginManager {
     ): Int {
         val taken = reg.filterKeys { it != excludeId }.values.map { it.port }.toSet()
         var p = if (want > 0) want else BASE_PORT
-        if (want > 0 && want in RESERVED_PORTS) {
+        // v0.294.23：磁力转播固定口 17890——MagnetPlayer 默认探这个口；
+        // 其它服务仍不许占用保留口。excludeId 是 magnet-stream 时放行 want。
+        val allowReserved = excludeId == "magnet-stream" && want == 17890
+        if (want > 0 && want in RESERVED_PORTS && !allowReserved) {
             LogBus.w(TAG, "端口 $want 为保留端口，自动顺延")
         }
-        val start = if (want > 0 && want !in RESERVED_PORTS) want else BASE_PORT
+        val start = if (want > 0 && (want !in RESERVED_PORTS || allowReserved)) want else BASE_PORT
         p = start
         while (p < BASE_PORT + 2000) {
-            if (p !in RESERVED_PORTS && p !in taken && canBind(p)) return p
+            val reservedOk = allowReserved && p == want
+            if ((p !in RESERVED_PORTS || reservedOk) && p !in taken && canBind(p)) return p
             p++
         }
         throw IllegalStateException("无可用端口（$start 起 2000 范围内）")
