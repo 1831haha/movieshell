@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.29",
+        date = "2026-11-01",
+        title = "磁力引擎移到独立进程：解析磁力时崩溃不再带走整个侠影。",
+        details = listOf(
+            "libtorrent 跑在单独的 :magnet 进程，主界面通过本机回环控制；该进程崩了只提示「磁力引擎意外退出」。",
+            "取元数据阶段回到稳定的库自带实现，去掉 v0.294.27 的手动句柄轮询（疑似崩溃来源），公共 tracker 仍保留。",
+            "启动时把上次非正常退出原因（含原生崩溃摘要）写进运行日志，便于排查。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.28",
         date = "2026-11-01",
         title = "修复启动闪退：磁力引擎改为真正按需加载。",

@@ -29,7 +29,11 @@ class XiaYingApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashHandler.install(this)
+        // v0.294.29：:magnet 子进程只跑磁力引擎，不做主进程那套初始化
+        if (com.movieshell.data.repo.ProcessExitLog.isMagnetProcess(this)) return
         LogBus.readLastCrash(this)
+        // v0.294.29：上次进程（含 :magnet）非正常退出原因写进运行日志（原生崩溃 Java 抓不到）
+        com.movieshell.data.repo.ProcessExitLog.logAsync(this)
         // v0.294.28：启动只清磁力缓存目录，绝不加载 libtorrent（避免 JNI 启动闪退）
         runCatching { com.movieshell.player.MagnetCache.pruneAsync(this) }
         // v0.291.0：proxy:// 封面取图器——只接管 proxy:// 地址，其余走 Coil 默认，

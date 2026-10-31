@@ -87,15 +87,14 @@ object MagnetPlayer {
     }
 
     suspend fun ensureReady(context: Context, magnet: String): Ready = withContext(Dispatchers.IO) {
-        if (XiaYingMagnetEngine.isNativeAvailable()) {
-            when (val r = XiaYingMagnetEngine.prepare(context, magnet)) {
-                is XiaYingMagnetEngine.Ready -> return@withContext Ready.Ok(r.streamUrl)
-                is XiaYingMagnetEngine.Fail -> {
-                    LogBus.w("MagnetPlayer", "自建引擎：${r.message}")
-                    when (val legacy = ensureLegacyBase(context)) {
-                        is Ready.Ok -> return@withContext Ready.Ok(streamUrl(magnet, legacy.playUrl))
-                        is Ready.Fail -> return@withContext Ready.Fail(r.message)
-                    }
+        // v0.294.29：自建引擎跑在独立 :magnet 进程（原生崩溃不再带走主程序）
+        when (val r = MagnetRemote.prepare(context, magnet)) {
+            is MagnetRemote.Result.Ok -> return@withContext Ready.Ok(r.url)
+            is MagnetRemote.Result.Fail -> {
+                LogBus.w("MagnetPlayer", "自建引擎：${r.message}")
+                when (val legacy = ensureLegacyBase(context)) {
+                    is Ready.Ok -> return@withContext Ready.Ok(streamUrl(magnet, legacy.playUrl))
+                    is Ready.Fail -> return@withContext Ready.Fail(r.message)
                 }
             }
         }
@@ -129,8 +128,8 @@ object MagnetPlayer {
         }
     }
 
-    fun cancelPrepare() {
-        XiaYingMagnetEngine.cancelPrepare()
+    fun cancelPrepare(context: Context) {
+        MagnetRemote.cancelAsync(context)
     }
 
     fun openExternally(context: Context, magnet: String): Boolean = runCatching {

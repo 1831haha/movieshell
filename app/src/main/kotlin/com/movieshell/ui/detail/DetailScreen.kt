@@ -465,8 +465,6 @@ fun DetailScreen(
             if (prev.isActive) {
                 LogBus.i("Detail", "新一集开始解析，取消上一集未完成的解析")
                 prev.cancel()
-                // v0.294.27：同步打断自建磁力元数据等待（否则旧 fetch 占会话）
-                runCatching { com.movieshell.player.MagnetPlayer.cancelPrepare() }
             }
         }
         resolveJobRef[0] = PlayResolveScope.launch {

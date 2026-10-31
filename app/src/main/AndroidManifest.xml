@@ -57,6 +57,11 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+        <!-- v0.294.29：磁力引擎独立进程，libtorrent 原生崩溃不影响主程序 -->
+        <service
+            android:name=".player.MagnetService"
+            android:process=":magnet"
+            android:exported="false" />
         <!-- v0.85.0：音乐后台播放——ExoPlayer 归 service 持有，通知栏/锁屏走 media3 标准媒体通知 -->
         <service
             android:name=".player.MusicService"

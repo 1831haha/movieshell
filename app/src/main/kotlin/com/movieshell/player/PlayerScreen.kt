@@ -365,7 +365,7 @@ fun PlayerScreen(
         PlaySession.playerVisible = true
         onDispose {
             // v0.294.26：离开播放页后磁力种子不再后台下载（宽限期内重新读流则保留）
-            XiaYingMagnetEngine.releaseWhenIdle()
+            MagnetRemote.releaseAsync(context)
             restorePlayerWindow()
             savePlayerProgress(
                 context, currentTitle, currentPlayUrl, isLive,

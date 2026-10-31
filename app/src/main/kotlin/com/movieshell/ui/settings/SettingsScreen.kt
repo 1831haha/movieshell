@@ -928,7 +928,7 @@ fun SettingsScreen(
                 showClearMagnetDialog = false
                 scope.launch(Dispatchers.IO) {
                     val keep = runCatching {
-                        com.movieshell.player.XiaYingMagnetEngine.activeEntries()
+                        com.movieshell.player.MagnetRemote.activeEntries(context)
                     }.getOrDefault(emptySet())
                     com.movieshell.player.MagnetCache.dir(context).listFiles()
                         ?.filter { it.name !in keep }
