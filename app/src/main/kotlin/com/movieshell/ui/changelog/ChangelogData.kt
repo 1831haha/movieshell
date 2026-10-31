@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.27",
+        date = "2026-11-01",
+        title = "磁力元数据：补公共 tracker、可取消、60 秒硬超时。",
+        details = listOf(
+            "无 tracker 的磁力会自动补一批公开 tracker，并显式开启 DHT/LSD、等待 DHT 暖机。",
+            "再点一次播放会真正取消上一次元数据等待，不再卡在全局锁上。",
+            "60 秒仍无元数据则中文报错并提示换网络或用其他应用打开；进度里显示 DHT 节点数。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.26",
         date = "2026-11-01",
         title = "磁力缓存自动清理，退出播放后不再后台下载。",

@@ -129,6 +129,10 @@ object MagnetPlayer {
         }
     }
 
+    fun cancelPrepare() {
+        XiaYingMagnetEngine.cancelPrepare()
+    }
+
     fun openExternally(context: Context, magnet: String): Boolean = runCatching {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(magnet)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(

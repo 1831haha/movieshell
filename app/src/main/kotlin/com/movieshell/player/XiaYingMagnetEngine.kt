@@ -6,6 +6,7 @@ import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeoutOrNull
 import org.libtorrent4j.AlertListener
 import org.libtorrent4j.Priority
@@ -36,8 +37,13 @@ import java.util.concurrent.atomic.AtomicReference
 object XiaYingMagnetEngine {
 
     private const val TAG = "XiaYingMagnet"
-    private const val META_TIMEOUT_SEC = 90
+    private const val META_TIMEOUT_SEC = 60
+    private const val DHT_WARMUP_SEC = 8
     private const val PIECE_WAIT_MS = 60_000L
+    private const val DHT_BOOTSTRAP =
+        "dht.libtorrent.org:25401,router.bittorrent.com:6881," +
+            "router.utorrent.com:6881,dht.transmissionbt.com:6881," +
+            "router.bt.ouinet.work:6881"
 
     data class Ready(val streamUrl: String)
     data class Fail(val message: String)
@@ -59,8 +65,10 @@ object XiaYingMagnetEngine {
 
     @Volatile private var appContext: Context? = null
     @Volatile private var releaseGen = 0
+    @Volatile private var prepareGen = 0
     @Volatile private var lastServeMs = 0L
     private val openStreams = java.util.concurrent.atomic.AtomicInteger(0)
+    private val metaHandles = ConcurrentHashMap<String, TorrentHandle>()
 
     /** 正在用的缓存顶层条目（清理时保留） */
     fun activeEntries(): Set<String> = torrents.values.map { it.topEntry }.toSet()
@@ -118,10 +126,18 @@ object XiaYingMagnetEngine {
             runCatching { MagnetCache.prune(context, emptySet()) }
             val sm = SessionManager()
             val sp = SettingsPack().apply {
-                // 移动网络友好：限制连接数
-                connectionsLimit(100)
+                connectionsLimit(200)
+                setEnableDht(true)
+                setEnableLsd(true)
+                setDhtBootstrapNodes(DHT_BOOTSTRAP)
+                // 随机端口，避开运营商常见屏蔽；双栈都听
+                listenInterfaces("0.0.0.0:0,[::]:0")
+                anonymousMode(false)
+                seedingOutgoingConnections(true)
             }
             sm.start(SessionParams(sp))
+            // 显式再开一次 DHT（部分机型 start 后状态不准）
+            runCatching { sm.startDht() }
             session = sm
             val srv = Loopback()
             srv.start()
@@ -141,40 +157,47 @@ object XiaYingMagnetEngine {
             LogBus.e(TAG, "启动失败：${t.message}")
             return@withContext Fail("磁力引擎启动失败：${t.message}")
         }
+        ensureActive()
         val sm = session ?: return@withContext Fail("磁力引擎未就绪")
         val srv = http ?: return@withContext Fail("本地转播端口未就绪")
         val root = saveRoot ?: return@withContext Fail("缓存目录不可用")
 
-        status(MagnetStreamLogic.statusFetching(0))
-        // 先拉元数据（最多 90s）
-        val data = withTimeoutOrNull((META_TIMEOUT_SEC + 5) * 1000L) {
-            var elapsed = 0
-            val holder = AtomicReference<ByteArray?>(null)
-            val th = Thread({
-                holder.set(
-                    runCatching { sm.fetchMagnet(magnet, META_TIMEOUT_SEC, root) }.getOrNull(),
-                )
-            }, "magnet-meta").also { it.isDaemon = true; it.start() }
-            while (th.isAlive) {
-                delay(1000)
-                elapsed++
-                status(MagnetStreamLogic.statusFetching(elapsed))
+        val myGen = ++prepareGen
+        releaseGen++ // 新起播：作废待执行的释放
+        // 取消上一次未完成的元数据拉取（fetchMagnet 会占全局锁，改用可取消的 download）
+        abortPendingMetadata()
+
+        val enriched = MagnetStreamLogic.enrichMagnet(magnet)
+        val hintHash = MagnetStreamLogic.infoHashHex(magnet)?.lowercase()
+        // 同一时间只播一个磁力：其余种子停掉并删缓存
+        if (hintHash != null) {
+            torrents.keys.filter { it != hintHash }.forEach { cancel(it, deleteFiles = true) }
+            torrents[hintHash]?.let {
+                status("已在缓冲：${it.name}")
+                return@withContext Ready("http://127.0.0.1:${srv.listeningPort}/stream/$hintHash")
             }
-            holder.get()
+        } else {
+            torrents.keys.toList().forEach { cancel(it, deleteFiles = true) }
         }
-        if (data == null) {
-            return@withContext Fail(
-                "获取磁力元数据超时（${META_TIMEOUT_SEC}s）。资源可能无人做种，或当前网络访问 DHT 受限。可换网络重试，或用其他应用打开。",
-            )
+
+        status(MagnetStreamLogic.statusFetching(0, sm.dhtNodes()))
+        // 等 DHT 暖机一小会儿（有 tracker 也能走，暖机失败不阻塞）
+        withTimeoutOrNull(DHT_WARMUP_SEC * 1000L) {
+            var e = 0
+            while (sm.dhtNodes() < 10 && e < DHT_WARMUP_SEC) {
+                if (myGen != prepareGen) return@withTimeoutOrNull
+                delay(1000); e++
+                status(MagnetStreamLogic.statusFetching(e, sm.dhtNodes()))
+            }
         }
-        val ti = try {
-            TorrentInfo(data)
-        } catch (t: Throwable) {
-            return@withContext Fail("磁力元数据解析失败：${t.message}")
+        if (myGen != prepareGen) return@withContext Fail("已取消")
+
+        val ti = fetchMetadataCancelable(sm, enriched, root, myGen)
+        if (myGen != prepareGen) return@withContext Fail("已取消")
+        if (ti == null) {
+            return@withContext Fail(MagnetStreamLogic.statusTimeout(META_TIMEOUT_SEC))
         }
         val hash = ti.infoHash().toHex().lowercase()
-        releaseGen++ // 新起播：作废待执行的释放
-        // 同一时间只播一个磁力：其余种子停掉并删缓存，避免后台继续下载
         torrents.keys.filter { it != hash }.forEach { cancel(it, deleteFiles = true) }
         torrents[hash]?.let {
             status("已在缓冲：${it.name}")
@@ -260,6 +283,121 @@ object XiaYingMagnetEngine {
             status("仍在找源，先尝试起播…")
         }
         Ready("http://127.0.0.1:${srv.listeningPort}/stream/$hash")
+    }
+
+    /** 外部/再点一次播放：作废当前元数据等待并摘掉尚未入 Active 的种子。 */
+    fun cancelPrepare() {
+        prepareGen++
+        abortPendingMetadata()
+        status("已取消磁力准备")
+    }
+
+    private fun abortPendingMetadata() {
+        val sm = session ?: return
+        metaHandles.keys.toList().forEach { h ->
+            val th = metaHandles.remove(h) ?: return@forEach
+            runCatching { sm.remove(th) }
+        }
+    }
+
+    /**
+     * 可取消的元数据拉取：用 download(magnet) + METADATA_RECEIVED，避免 SessionManager.fetchMagnet
+     * 的全局 syncMagnet 锁导致「再点一次卡死上一次」。
+     */
+    private suspend fun fetchMetadataCancelable(
+        sm: SessionManager,
+        magnet: String,
+        root: File,
+        myGen: Int,
+    ): TorrentInfo? = withContext(Dispatchers.IO) {
+        val holder = AtomicReference<TorrentInfo?>(null)
+        val done = CountDownLatch(1)
+        val handleRef = AtomicReference<TorrentHandle?>(null)
+        val listener = object : AlertListener {
+            override fun types(): IntArray = intArrayOf(
+                AlertType.ADD_TORRENT.swig(),
+                AlertType.METADATA_RECEIVED.swig(),
+                AlertType.METADATA_FAILED.swig(),
+            )
+            override fun alert(alert: Alert<*>) {
+                when (alert.type()) {
+                    AlertType.ADD_TORRENT -> {
+                        val h = (alert as AddTorrentAlert).handle()
+                        handleRef.compareAndSet(null, h)
+                        // magnet 阶段可能还没有 infohash 字符串，用 infoHashes
+                        val key = runCatching {
+                            h.infoHash().toHex().lowercase()
+                        }.getOrNull()
+                        if (!key.isNullOrBlank() && key != "0000000000000000000000000000000000000000") {
+                            metaHandles[key] = h
+                        } else {
+                            metaHandles["pending-$myGen"] = h
+                        }
+                        runCatching {
+                            // torrentFile 已在则直接成功（缓存命中）
+                            val existing = h.torrentFile()
+                            if (existing != null && existing.isValid) {
+                                holder.set(existing)
+                                done.countDown()
+                            } else {
+                                h.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
+                                h.resume()
+                            }
+                        }
+                    }
+                    AlertType.METADATA_RECEIVED -> {
+                        val h = (alert as MetadataReceivedAlert).handle()
+                        handleRef.compareAndSet(null, h)
+                        val ti = runCatching { h.torrentFile() }.getOrNull()
+                        if (ti != null && ti.isValid) {
+                            holder.set(ti)
+                            done.countDown()
+                        }
+                    }
+                    AlertType.METADATA_FAILED -> {
+                        LogBus.w(TAG, "METADATA_FAILED")
+                        done.countDown()
+                    }
+                    else -> {}
+                }
+            }
+        }
+        sm.addListener(listener)
+        try {
+            runCatching {
+                sm.download(magnet, root, TorrentFlags.SEQUENTIAL_DOWNLOAD)
+            }.onFailure {
+                LogBus.e(TAG, "download(magnet) 失败：${it.message}")
+                return@withContext null
+            }
+            val deadline = System.currentTimeMillis() + META_TIMEOUT_SEC * 1000L
+            var elapsed = DHT_WARMUP_SEC.coerceAtMost(META_TIMEOUT_SEC)
+            while (done.count > 0) {
+                if (myGen != prepareGen) break
+                if (System.currentTimeMillis() >= deadline) break
+                done.await(1, TimeUnit.SECONDS)
+                elapsed++
+                // 若 handle 上已有元数据但漏了 alert，主动查一次
+                if (holder.get() == null) {
+                    val h = handleRef.get()
+                    val ti = runCatching { h?.torrentFile() }.getOrNull()
+                    if (ti != null && ti.isValid) {
+                        holder.set(ti)
+                        break
+                    }
+                }
+                status(MagnetStreamLogic.statusFetching(elapsed.coerceAtMost(META_TIMEOUT_SEC), sm.dhtNodes()))
+            }
+            holder.get()
+        } finally {
+            sm.removeListener(listener)
+            metaHandles.remove("pending-$myGen")
+            val h = handleRef.get()
+            val key = runCatching { h?.infoHash()?.toHex()?.lowercase() }.getOrNull()
+            if (key != null) metaHandles.remove(key)
+            // 无论成败都先移除 magnet 临时项；成功时后面用 TorrentInfo 正式 download
+            if (h != null) runCatching { sm.remove(h) }
+        }
     }
 
     fun cancel(hashHex: String, deleteFiles: Boolean = true) {
