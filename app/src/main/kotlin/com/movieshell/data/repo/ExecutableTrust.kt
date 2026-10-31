@@ -109,15 +109,33 @@ object ExecutableTrust {
      * 多个规则共用一个副本、Python 桥按路径缓存 Spider → 换源后仍跑旧规则。
      * 现在走 SafeFileName：纯 ASCII 名结果不变，其余追加 key 摘要保证唯一，保留扩展名。
      */
-    fun trustedPath(filesDir: File, key: String): File =
-        File(File(filesDir, TRUSTED_DIR_NAME), trustedName(key))
+    fun trustedPath(filesDir: File, key: String, sourceExt: String? = null): File =
+        File(File(filesDir, TRUSTED_DIR_NAME), trustedName(key, sourceExt))
 
     /** 纯函数（可单测）：可信副本文件名。 */
-    fun trustedName(key: String): String =
-        SafeFileName.encode(key, Regex("[^A-Za-z0-9._-]+"), maxLen = 200, fallback = "_", keepExt = true)
+    fun trustedName(key: String, sourceExt: String? = null): String {
+        val base = SafeFileName.encode(
+            key, Regex("[^A-Za-z0-9._-]+"), maxLen = 200, fallback = "_", keepExt = true,
+        )
+        // v0.294.22：订阅站信任 key 是 site:sub_xxx（没有 .py），按 key 算出来的副本也就没后缀；
+        // Chaquopy 的 importlib.spec_from_file_location 对无后缀文件返回 None →
+        // ImportError「无法加载规则文件」。公开源文件带 .py/.js 时强制保留。
+        return forceScriptExt(base, sourceExt)
+    }
 
     private fun legacyTrustedName(key: String): String =
         SafeFileName.legacyEncode(key, Regex("[^A-Za-z0-9._-]+"), maxLen = 200, fallback = "_", keepExt = true)
+
+    /** 脚本后缀白名单：只有这些 loader 严格看后缀；其它扩展名不硬加，避免改名。 */
+    private val SCRIPT_EXTS = setOf("py", "js")
+
+    /** 纯函数（可单测）：名字尚无脚本后缀时补上。 */
+    fun forceScriptExt(name: String, sourceExt: String?): String {
+        val ext = sourceExt?.trim()?.trimStart('.')?.lowercase().orEmpty()
+        if (ext.isEmpty() || ext !in SCRIPT_EXTS) return name
+        if (name.endsWith(".$ext", ignoreCase = true)) return name
+        return "$name.$ext"
+    }
 
     /**
      * 取可信副本。返回 null 表示拒绝执行（公开文件已变且旧副本也
@@ -133,16 +151,25 @@ object ExecutableTrust {
         if (!publicFile.isFile) return null
         val publicSha = sha256(publicFile) ?: return null
         val registered = registeredSha(filesDir, key)
-        val trusted = trustedPath(filesDir, key)
+        val sourceExt = publicFile.extension
+        val trusted = trustedPath(filesDir, key, sourceExt)
         // v0.294.5：文件名算法收紧后，老版本的可信副本在旧名下——新名还没有时搬过来，
         // 避免“公开文件已变 + 不允许重新信任”时因找不到旧副本而拒绝执行。
+        // v0.294.22：再认「无脚本后缀」的旧副本（订阅 PY 曾被拷成无 .py 名）。
         if (!trusted.isFile) {
-            val legacy = File(File(filesDir, TRUSTED_DIR_NAME), legacyTrustedName(key))
-            if (legacy != trusted && legacy.isFile) {
-                runCatching {
-                    trusted.parentFile?.mkdirs()
-                    legacy.copyTo(trusted, overwrite = false)
-                    trusted.setReadOnly()
+            val dir = File(filesDir, TRUSTED_DIR_NAME)
+            val candidates = listOf(
+                File(dir, legacyTrustedName(key)),
+                File(dir, SafeFileName.encode(key, Regex("[^A-Za-z0-9._-]+"), 200, "_", keepExt = true)),
+            )
+            for (legacy in candidates) {
+                if (legacy != trusted && legacy.isFile) {
+                    runCatching {
+                        trusted.parentFile?.mkdirs()
+                        legacy.copyTo(trusted, overwrite = false)
+                        trusted.setReadOnly()
+                    }
+                    if (trusted.isFile) break
                 }
             }
         }

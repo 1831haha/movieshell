@@ -80,4 +80,18 @@ class SafeFileNameTest {
         assertNotEquals(a, b)
         assertTrue(a.length <= 60)
     }
+
+    @Test
+    fun subscriptionPyKeyKeepsPyWhenSourceExtGiven() {
+        // 订阅站信任 key 无后缀；公开文件是 .py → 副本必须带 .py，否则 Chaquopy 拒载
+        val key = "site:sub_f3ep6w_xy_nasa"
+        val without = ExecutableTrust.trustedName(key)
+        val with = ExecutableTrust.trustedName(key, "py")
+        assertTrue(without, !without.endsWith(".py"))
+        assertTrue(with, with.endsWith(".py"))
+        assertEquals(with, ExecutableTrust.forceScriptExt(without, "py"))
+        assertEquals("a.py", ExecutableTrust.forceScriptExt("a.py", "py"))
+        assertEquals("a", ExecutableTrust.forceScriptExt("a", "txt")) // 非脚本后缀不硬加
+    }
+
 }

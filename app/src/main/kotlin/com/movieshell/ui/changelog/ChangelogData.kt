@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.22",
+        date = "2026-10-31",
+        title = "修复订阅 PY 源无法加载（可信副本丢 .py）。",
+        details = listOf(
+            "订阅接口展开的 PY 规则拷进私有可信目录时，以前文件名没有 .py 后缀，Chaquopy 直接报「无法加载规则文件」。",
+            "现在按源文件后缀强制保留 .py/.js；已装的无后缀副本会自动迁到带后缀名；桥接层对无后缀路径也做了兜底加载。",
+            "这与「PY 引擎依赖包」无关——依赖包里有没有库都过不了文件后缀这一关。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.21",
         date = "2026-10-31",
         title = "播放器手势与切换内核优化。",

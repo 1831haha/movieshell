@@ -139,7 +139,16 @@ def _load_spider(rule_path):
     if rule_path in _spiders:
         return _spiders[rule_path]
     mod_name = "ms_rule_%d" % (abs(hash(rule_path)) % (10 ** 8))
+    # v0.294.22：可信副本偶发无 .py 后缀时，spec_from_file_location 在 Chaquopy 上返回 None；
+    # 改用 SourceFileLoader 按路径硬加载，不依赖后缀。
     spec = importlib.util.spec_from_file_location(mod_name, rule_path)
+    if spec is None or spec.loader is None:
+        try:
+            from importlib.machinery import SourceFileLoader
+            loader = SourceFileLoader(mod_name, rule_path)
+            spec = importlib.util.spec_from_loader(mod_name, loader)
+        except Exception:
+            spec = None
     if spec is None or spec.loader is None:
         raise ImportError("无法加载规则文件: %s" % rule_path)
     module = importlib.util.module_from_spec(spec)
