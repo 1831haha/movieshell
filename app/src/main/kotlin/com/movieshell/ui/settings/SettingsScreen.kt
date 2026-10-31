@@ -214,8 +214,7 @@ fun SettingsScreen(
     // v0.20.0：播放器内核（Media3 默认，libmpv 可选，记忆选择）
     val engine by PlayerSettings.engine.collectAsState()
     var showEngineDialog by remember { mutableStateOf(false) }
-    var showThemeModeDialog by remember { mutableStateOf(false) }
-    var showThemeColorDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
     var cacheSize by remember { mutableStateOf("计算中…") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     // v0.188.0：旧字幕记忆清理入口用——只在用户点清理行时统计条数、点确认时删除，
@@ -450,35 +449,28 @@ fun SettingsScreen(
         // 3. 外观
         item { SettingsCaption("外观") }
         item {
-            // v0.294.10：主题模式改为「点开选择」——v0.294.4 给 SegItem 末尾加了 leading 参数后，
-            // 这里的尾随 lambda 被当成 leading 画进 40dp 图标位（看着像半黑半棕的圆），选项丢失、点击无反应。
+            // v0.294.11：主题模式与主题色合并为一个「主题」入口（用户要求），点开一个面板里同时选
+            val colorSource by ThemeStore.source.collectAsState()
             val modeLabel = when (themeMode) {
                 ThemeStore.MODE_LIGHT -> "浅色"
                 ThemeStore.MODE_DARK -> "深色"
                 else -> "跟随系统"
             }
+            val colorLabel = when {
+                colorSource == ThemeStore.SOURCE_POSTER -> "海报取色"
+                colorSource == ThemeStore.SOURCE_DYNAMIC -> "系统取色"
+                themeKey.startsWith("g:") ->
+                    "炫彩 " + (ThemeStore.GRADIENT_OPTIONS.firstOrNull { "g:${it.id}" == themeKey }?.name ?: "渐变")
+                themeKey.startsWith("c:") ->
+                    "预设色 " + (themeKey.removePrefix("c:").toIntOrNull()?.let { ThemeStore.colorName(it) } ?: "自定义")
+                else -> "预设色"
+            }
             SegItem(
                 position = SegPos.First,
-                icon = Icons.Outlined.Contrast,
-                title = "主题模式",
-                subtitle = modeLabel,
-                onClick = { showThemeModeDialog = true },
-            )
-        }
-        item {
-            val colorSource by ThemeStore.source.collectAsState()
-            SegItem(
-                position = SegPos.Middle,
                 icon = Icons.Outlined.Palette,
-                title = "主题色",
-                subtitle = when (colorSource) {
-                    ThemeStore.SOURCE_POSTER -> "海报取色 · 跟随首页当前海报"
-                    ThemeStore.SOURCE_DYNAMIC -> "系统取色 · 跟随壁纸"
-                    else -> if (themeKey.startsWith("g:")) {
-                        "炫彩预设 · " + (ThemeStore.GRADIENT_OPTIONS.firstOrNull { "g:${it.id}" == themeKey }?.name ?: "锚点色作种子")
-                    } else "预设色 · 按 M3 色调生成整套配色"
-                },
-                onClick = { showThemeColorDialog = true },
+                title = "主题",
+                subtitle = "$modeLabel · $colorLabel",
+                onClick = { showThemeDialog = true },
             )
         }
         item {
@@ -798,39 +790,32 @@ fun SettingsScreen(
 
     // v0.20.0：播放器内核选择（持久化，播放器内一键切换走同一偏好）
     // v0.29.0：libmpv 插件化——未安装时选 libmpv 提示去插件市场，不切换
-    // v0.294.10：主题模式 / 主题色选择弹窗
-    if (showThemeModeDialog) {
-        TechDialog(
-            onDismissRequest = { showThemeModeDialog = false },
-            title = "主题模式",
-            dismissText = "关闭",
-        ) {
-            val modes = listOf(
-                "跟随系统" to ThemeStore.MODE_SYSTEM,
-                "浅色" to ThemeStore.MODE_LIGHT,
-                "深色" to ThemeStore.MODE_DARK,
-            )
-            V5Segmented(
-                options = modes.map { it.first },
-                selected = modes.indexOfFirst { it.second == themeMode },
-                onSelect = {
-                    ThemeStore.setMode(context, modes[it].second)
-                    showThemeModeDialog = false
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
-    if (showThemeColorDialog) {
+    // v0.294.11：「主题」面板——上「模式」分段、下「配色」色圈；点选即生效，面板保持打开
+    if (showThemeDialog) {
         val cs = MaterialTheme.colorScheme
         val dark = cs.isDark
         TechDialog(
-            onDismissRequest = { showThemeColorDialog = false },
-            title = "主题色",
-            subtitle = "点选即生效",
-            dismissText = "关闭",
+            onDismissRequest = { showThemeDialog = false },
+            title = "主题",
+            dismissText = "完成",
         ) {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("模式", style = MaterialTheme.typography.labelLarge, color = cs.primary)
+                Spacer(Modifier.height(8.dp))
+                val modes = listOf(
+                    "跟随系统" to ThemeStore.MODE_SYSTEM,
+                    "浅色" to ThemeStore.MODE_LIGHT,
+                    "深色" to ThemeStore.MODE_DARK,
+                )
+                V5Segmented(
+                    options = modes.map { it.first },
+                    selected = modes.indexOfFirst { it.second == themeMode },
+                    onSelect = { ThemeStore.setMode(context, modes[it].second) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("配色", style = MaterialTheme.typography.labelLarge, color = cs.primary)
+                Spacer(Modifier.height(8.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -866,7 +851,7 @@ fun SettingsScreen(
                     ThemeStore.COLOR_OPTIONS.forEach { argb ->
                         ThemeSwatch(
                             selected = themeKey == "c:$argb",
-                            label = "主题色",
+                            label = ThemeStore.colorName(argb) ?: "主题色",
                             onClick = { ThemeStore.setColor(context, argb) },
                         ) {
                             SeedSwatchArt(seedColorScheme(argb, dark))

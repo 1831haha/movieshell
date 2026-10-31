@@ -65,6 +65,31 @@ object ThemeStore {
         0xFFFF6E40.toInt(), // 珊瑚橙红
     )
 
+    /** v0.294.11：预设色中文名（设置「主题」行副标题用）；未知返回 null。 */
+    fun colorName(argb: Int): String? = when (argb) {
+        DEFAULT_COLOR -> "琥珀"
+        CLASSIC_BLUE -> "经典蓝"
+        0xFF2B7DE9.toInt() -> "蓝"
+        0xFF3D5AFE.toInt() -> "靛蓝"
+        0xFF03A9F4.toInt() -> "天蓝"
+        0xFF00BFA5.toInt() -> "青"
+        0xFF00C853.toInt() -> "绿"
+        0xFFFFD600.toInt() -> "黄"
+        0xFFFF6D00.toInt() -> "橙"
+        0xFFFF3D00.toInt() -> "红"
+        0xFFFF4081.toInt() -> "粉"
+        0xFFAA00FF.toInt() -> "紫"
+        0xFF8D6E63.toInt() -> "棕"
+        0xFF9E9E9E.toInt() -> "灰"
+        0xFFFF2E9F.toInt() -> "炫彩玫红"
+        0xFF00E5FF.toInt() -> "电光青"
+        0xFF76FF03.toInt() -> "荧光绿"
+        0xFFD500F9.toInt() -> "霓虹紫"
+        0xFFFF9100.toInt() -> "炫彩橙"
+        0xFFFF6E40.toInt() -> "珊瑚橙红"
+        else -> null
+    }
+
     private val _mode = MutableStateFlow(MODE_DARK)
     val mode: StateFlow<String> = _mode
 
