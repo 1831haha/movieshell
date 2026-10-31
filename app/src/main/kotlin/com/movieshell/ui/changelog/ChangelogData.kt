@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.20",
+        date = "2026-10-31",
+        title = "新增「订阅包」插件类型：市场里一键订阅公开发布的直播源与点播接口。",
+        details = listOf(
+            "插件市场新类型「订阅」：安装即把包里的直播 M3U 订阅、TVBox 点播接口、书源加进对应管理页，已存在的不重复加。",
+            "卸载只撤掉该插件自己加的订阅，你自己先加过的同地址订阅不动；升级时自动去掉新版不再包含的地址。",
+            "新加的点播接口会在后台自动解析站点，直播订阅装完自动刷新频道。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.19",
         date = "2026-10-31",
         title = "插件列表改紧凑卡片，市场上新 5 个好玩的直播/电台插件。",

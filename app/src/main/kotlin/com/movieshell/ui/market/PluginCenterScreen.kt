@@ -203,6 +203,7 @@ private fun InstalledPluginsBody(onDetail: (String, String) -> Unit) {
 
 /** 已装插件没有市场条目时的一句话作用兜底（按类型/引擎给，不编造具体功能）。 */
 private fun installedFallbackDesc(p: PluginStore.InstalledPlugin): String = when {
+    p.type.equals("subscribe", true) -> "订阅包（已加入点播/直播/书源订阅）"
     p.type.equals("server", true) -> "本地服务插件（在「服务」页签管理启停）"
     p.engine.equals("py", true) || p.type.equals("py", true) -> "Python 规则插件"
     p.type.contains("jar", true) -> "JAR 蜘蛛插件"
@@ -212,6 +213,7 @@ private fun installedFallbackDesc(p: PluginStore.InstalledPlugin): String = when
 
 /** 已装插件的类型标签（市场条目在手时用市场口径，否则按本地记录）。 */
 private fun installedTypeLabel(p: PluginStore.InstalledPlugin): String = when {
+    p.type.equals("subscribe", true) -> "订阅"
     p.type.equals("server", true) -> "服务"
     p.engine.equals("py", true) || p.type.equals("py", true) -> "Python"
     p.type.contains("jar", true) -> "JAR"

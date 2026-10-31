@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Terminal
@@ -65,6 +66,7 @@ fun pluginTypeStyle(type: String, engine: String = "", tags: List<String> = empt
         t == "env" -> PluginTypeStyle(Icons.Filled.Inventory2, "依赖", Color(0xFFFFDBC8), Color(0xFF8B4A00))
         t == "player" -> PluginTypeStyle(Icons.Filled.PlayCircle, "播放器", Color(0xFFCCE8EA), Color(0xFF00696F))
         t == "subtitle" -> PluginTypeStyle(Icons.Filled.Subtitles, "字幕", Color(0xFFE0E3E8), Color(0xFF3F4850))
+        t == "subscribe" -> PluginTypeStyle(Icons.Filled.RssFeed, "订阅", Color(0xFFFFD8E4), Color(0xFF9C2A5A))
         t == "setup" -> PluginTypeStyle(Icons.Filled.Build, "配置", Color(0xFFF2DAFF), Color(0xFF7B2C9C))
         else -> PluginTypeStyle(Icons.Filled.Extension, type.ifBlank { "插件" }, Color(0xFFE0E3E8), Color(0xFF3F4850))
     }

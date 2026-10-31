@@ -42,7 +42,7 @@ object PluginMarket {
     // v0.29.0：player=播放器引擎插件（libmpv 的 .so ZIP 包）
     // v0.30.0：subtitle=字幕搜索插件（DEX，经 DexClassLoader 动态加载）
     // v0.185.0：setup=一键配置插件（建目录 + 写说明文档，文档来自插件包、不进安装包）
-    private val INSTALLABLE_TYPES = setOf("source", "server", "live", "env", "player", "subtitle", "runtime", "setup")
+    private val INSTALLABLE_TYPES = setOf("source", "server", "live", "env", "player", "subtitle", "runtime", "setup", "subscribe")
 
     /** v0.27.2：一键安装三段进度（下载→校验→安装），供安装进度条 UI 用。 */
     enum class InstallStage { Downloading, Verifying, Installing }
@@ -463,6 +463,16 @@ object PluginMarket {
                     runCatching { LiveStore.refresh(context) }
                         .onFailure { LogBus.w(TAG, "安装后刷新直播聚合失败：${it.message}") }
                 }
+            } else if (plugin.type == "subscribe") {
+                // v0.294.20：订阅包插件——把包里的点播/直播/书源订阅加进对应管理页
+                val spec = SubscribePlugin.parse(tmp.readText())
+                val old = PluginStore.installedOf(plugin.id)?.takeIf { it.type == "subscribe" }?.files.orEmpty()
+                val (files, summary) = SubscribePlugin.apply(context, plugin.name, spec, old)
+                PluginStore.recordInstalled(
+                    context,
+                    InstalledPlugin(plugin.id, plugin.name, plugin.version, "subscribe", "", files),
+                )
+                summary
             } else {
                 installZip(context, plugin, tmp)
             }
@@ -873,6 +883,8 @@ object PluginMarket {
             // ServicePluginManager 下次解析 php 占位时按来源存亡自行清理）
             "runtime" -> File(StoragePaths.runtimeDir(context), id).deleteRecursively()
             "live" -> rec.files.forEach { File(StoragePaths.liveDir(context), it).delete() }
+            // v0.294.20：订阅包只撤掉本插件新增的订阅，用户自己加的同地址不动
+            "subscribe" -> SubscribePlugin.remove(context, rec.files)
             "env" -> {
                 val dir = StoragePaths.pyLibsDir(context)
                 rec.files.forEach { File(dir, it).delete() }
