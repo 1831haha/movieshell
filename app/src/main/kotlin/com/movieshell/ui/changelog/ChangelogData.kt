@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.24",
+        date = "2026-10-31",
+        title = "自建磁力转播：不依赖 DsPlayer/Node，点播即播。",
+        details = listOf(
+            "内置 libtorrent4j + 本地回环 HTTP：点磁力后自动取元数据、顺序缓冲最大视频文件，交给 Media3/mpv 播放。",
+            "不再需要去服务页启动 magnet-stream，也不依赖 Node/WebTorrent；旧服务仅作回退。",
+            "取元数据/找节点时有中文进度说明；失败可「用其他应用打开」。APK 约增加数 MB（arm64 native）。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.23",
         date = "2026-10-31",
         title = "磁力播放：自动拉起转播服务，去掉 DsPlayer 提示。",

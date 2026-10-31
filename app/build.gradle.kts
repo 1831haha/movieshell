@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 385
-        versionName = "0.294.23"
+        versionCode = 386
+        versionName = "0.294.24"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {
@@ -165,6 +165,11 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
+    // v0.294.24：侠影自建磁力转播（libtorrent4j + NanoHTTPD），不依赖 DsPlayer/Node
+    implementation("org.libtorrent4j:libtorrent4j:2.1.0-35")
+    // native .so 已解到 src/main/jniLibs/arm64-v8a（避免 jar 内 so 不被 AGP 打包）
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
+
     testImplementation("org.json:json:20240303")
 
     // v0.113.0：V8 引擎真机冒烟测试（instrumentation 直跑引擎，绕开 UI）
@@ -182,3 +187,23 @@ dependencies {
     // javascriptengine 的异步 API 全部返回 ListenableFuture，显式声明确保编译期可见。
     implementation("com.google.guava:guava:33.2.1-android")
 }
+
+// v0.294.24：从 Maven jar 抽出 libtorrent4j.so 到生成目录（AGP 不打包 jar 内 lib/）
+val libtorrentJniConfig by configurations.creating
+dependencies {
+    libtorrentJniConfig("org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-35")
+}
+val extractLibtorrentJni by tasks.registering(Copy::class) {
+    from({ libtorrentJniConfig.map { zipTree(it) } })
+    include("lib/**/*.so")
+    into(layout.buildDirectory.dir("generated/libtorrentJni"))
+    includeEmptyDirs = false
+}
+android.sourceSets.getByName("main").jniLibs.srcDir(
+    layout.buildDirectory.dir("generated/libtorrentJni/lib"),
+)
+tasks.named("preBuild").configure { dependsOn(extractLibtorrentJni) }
+tasks.matching { it.name.startsWith("merge") && it.name.contains("JniLib") }.configureEach {
+    dependsOn(extractLibtorrentJni)
+}
+

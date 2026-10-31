@@ -59,3 +59,10 @@
 # minifyReleaseWithR8 报错致 #393 失败；slf4j-api 无绑定时自动回退 NOP
 # 日志，不影响正文提取，故只 dontwarn、不另引绑定包。
 -dontwarn org.slf4j.**
+
+# v0.294.24 libtorrent4j JNI
+-keep class org.libtorrent4j.** { *; }
+-keep class org.libtorrent4j.swig.** { *; }
+-keep class org.libtorrent4j.swig.libtorrent_jni { *; }
+-keepclassmembers class org.libtorrent4j.swig.libtorrent_jni { *; }
+-dontwarn org.libtorrent4j.**

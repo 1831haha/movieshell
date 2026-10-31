@@ -2465,7 +2465,7 @@ fun PlayerScreen(
             ) {
                 Text(
                     MagnetPlayer.lastFailMessage
-                        ?: "本机磁力转播服务未就绪。磁力链接需要本地转成 HTTP 才能播，请到「插件中心 → 服务」安装并启动「磁力转播服务」。",
+                        ?: "磁力起播失败。侠影会尝试自建转播；若仍失败请换网络重试，或用其他应用打开。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
