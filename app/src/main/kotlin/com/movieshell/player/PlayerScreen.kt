@@ -997,6 +997,24 @@ fun PlayerScreen(
      * v0.21.0：手动切换先清掉自动换内核覆盖；字幕走 SubtitleKit。
      * v0.25.0：try/catch 兜底 + 防抖，切换失败 Toast 不崩。
      */
+    // v0.294.25：竖屏全屏上下滑切集——先定格当前帧再切，新集出画后撤掉，不黑屏
+    fun swipeToEpisode(epIdx: Int) {
+        val line = PlaySession.lineIndex
+        if (PlaySession.lines.getOrNull(line)?.episodes?.getOrNull(epIdx) == null) return
+        scope.launch {
+            frozenFrame = runCatching { FrameGrab.capture(videoView) }.getOrNull()
+            try {
+                val oldUrl = playUrl
+                switchEpisode(line, epIdx)
+                withTimeoutOrNull(10000) {
+                    while (playUrl == oldUrl) delay(100)
+                    while (!(EngineHost.isPlayingNow() && EngineHost.currentPosition() > 0)) delay(100)
+                    delay(150)
+                }
+            } finally { frozenFrame = null }
+        }
+    }
+
     fun switchToEngine(target: PlayerEngine) {
         if (switchingEngine) return
         switchingEngine = true
@@ -1197,7 +1215,7 @@ fun PlayerScreen(
     // 改为挂在播放器外层 Box 上、走 PointerEventPass.Initial 先看事件：只在越过
     // touch slop 且竖向时才认领并消费，轻点/横滑/长按一律不碰，按钮与进度条照常收到。
     val swipeNextEnabled by rememberUpdatedState(
-        playUrl.isNotBlank() && !embedded && !isLive &&
+        playUrl.isNotBlank() && !isLive &&
             cfgOrientation == Configuration.ORIENTATION_PORTRAIT
     )
     Box(
@@ -1209,9 +1227,9 @@ fun PlayerScreen(
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     val candidate = swipeNextEnabled && uiVm.controlsVisible && !uiVm.locked &&
                         !uiVm.showLines && !uiVm.showGearSheet &&
-                        PlaySession.currentLine()?.episodes
-                            ?.getOrNull(PlaySession.episodeIndex + 1) != null &&
-                        down.position.y > size.height - 140.dp.toPx()
+                        (PlaySession.currentLine()?.episodes?.size ?: 0) > 1 &&
+                        EpisodeSwipe.isPortraitFullscreen(true, size.width, size.height) &&
+                        EpisodeSwipe.inZone(down.position.y, size.height)
                     if (!candidate) return@awaitEachGesture
                     val slop = viewConfiguration.touchSlop
                     // 在 Initial 阶段自己判 slop：未越过 slop 前不消费任何事件。
@@ -1226,7 +1244,7 @@ fun PlayerScreen(
                             if (abs(dx) > slop || abs(dy) > slop) {
                                 // v0.294.5：只认领“上滑”；底部 140dp 内的下滑原来也被认领吃掉，
                                 // 下滑亮度/音量等手势失灵。下滑一律放行给手势层。
-                                if (abs(dy) >= abs(dx) && dy < 0) hit = ch else break
+                                if (EpisodeSwipe.isVerticalStart(dx, dy)) hit = ch else break
                             }
                         }
                         hit
@@ -1236,24 +1254,25 @@ fun PlayerScreen(
                     slopChange.consume()
                     swipeNextOverlayClaimed = true
                     try {
-                        var swipeUpPx = down.position.y - slopChange.position.y
-                        val swipeThresholdPx = 100.dp.toPx()
+                        val intent0 = if (slopChange.position.y < down.position.y) 1 else -1
+                        var dyAll = slopChange.position.y - down.position.y
+                        val swipeThresholdPx = 80.dp.toPx()
+                        val count = PlaySession.currentLine()?.episodes?.size ?: 0
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            swipeUpPx = down.position.y - change.position.y
-                            uiVm.gestureHint = if (swipeUpPx >= swipeThresholdPx)
-                                "松手切下一集" else "继续上滑切下一集"
+                            dyAll = change.position.y - down.position.y
+                            val d = EpisodeSwipe.direction(dyAll, swipeThresholdPx)
+                            uiVm.gestureHint = EpisodeSwipe.hint(if (d != 0) d else intent0,
+                                PlaySession.episodeIndex, count, d != 0)
                             change.consume()
                             if (!change.pressed) break
                         }
                         uiVm.gestureHint = null
-                        if (swipeUpPx >= swipeThresholdPx) {
-                            switchEpisode(
-                                PlaySession.lineIndex,
-                                PlaySession.episodeIndex + 1,
-                            )
-                        }
+                        val d = EpisodeSwipe.direction(dyAll, swipeThresholdPx)
+                        val t = EpisodeSwipe.target(d, PlaySession.episodeIndex, count)
+                        if (t != null) swipeToEpisode(t)
+                        else if (d != 0) AppToast.show(context, EpisodeSwipe.hint(d, PlaySession.episodeIndex, count, false), long = false)
                     } finally {
                         uiVm.gestureHint = null
                         swipeNextOverlayClaimed = false
@@ -1407,15 +1426,16 @@ fun PlayerScreen(
                         // 走亮度/音量分支，起点区域本身就是区分依据，不再另设
                         // 速度阈值（慢拖 100dp 松手也是明确意图，速度门槛只会
                         // 让慢拖用户觉得“滑了没反应”）。
-                        val swipeNextCandidate = !embedded && !isLive && !uiVm.locked &&
+                        // v0.294.25：竖屏全屏（含详情页全屏）下方 40% 上滑下一集/下滑上一集；
+                        // 上方区域左亮度右音量不变
+                        val epCount = PlaySession.currentLine()?.episodes?.size ?: 0
+                        val swipeNextCandidate = !isLive && !uiVm.locked && epCount > 1 &&
                             cfgOrientation == Configuration.ORIENTATION_PORTRAIT &&
-                            PlaySession.currentLine()?.episodes
-                                ?.getOrNull(PlaySession.episodeIndex + 1) != null &&
-                            down.position.y > size.height - 140.dp.toPx() &&
-                            // v0.294.5：起手是上滑才算切集；下滑照常走亮度/音量
-                            slopChange.position.y < down.position.y
+                            EpisodeSwipe.isPortraitFullscreen(true, size.width, size.height) &&
+                            EpisodeSwipe.inZone(down.position.y, size.height)
+                        val intent0 = if (slopChange.position.y < down.position.y) 1 else -1
                         var swipeUpPx = 0f
-                        val swipeThresholdPx = 100.dp.toPx()
+                        val swipeThresholdPx = 80.dp.toPx()
                         do {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id }
@@ -1445,8 +1465,9 @@ fun PlayerScreen(
                                         // 抵消，不到阈值松手回弹，提示只说意图，
                                         // 不在拖动中切集。
                                         swipeUpPx = down.position.y - last.y
-                                        uiVm.gestureHint = if (swipeUpPx >= swipeThresholdPx)
-                                            "松手切下一集" else "继续上滑切下一集"
+                                        val dd = EpisodeSwipe.direction(-swipeUpPx, swipeThresholdPx)
+                                        uiVm.gestureHint = EpisodeSwipe.hint(if (dd != 0) dd else intent0,
+                                            PlaySession.episodeIndex, epCount, dd != 0)
                                     } else {
                                         accY += dy
                                         if (abs(accY) >= ADJUST_STEP_PX) {
@@ -1471,12 +1492,10 @@ fun PlayerScreen(
                         // 回弹，不切集；同一次拖动绝不触发两次。
                         if (mode == 2 && swipeNextCandidate) {
                             uiVm.gestureHint = null
-                            if (swipeUpPx >= swipeThresholdPx) {
-                                switchEpisode(
-                                    PlaySession.lineIndex,
-                                    PlaySession.episodeIndex + 1,
-                                )
-                            }
+                            val dd = EpisodeSwipe.direction(-swipeUpPx, swipeThresholdPx)
+                            val t = EpisodeSwipe.target(dd, PlaySession.episodeIndex, epCount)
+                            if (t != null) swipeToEpisode(t)
+                            else if (dd != 0) AppToast.show(context, EpisodeSwipe.hint(dd, PlaySession.episodeIndex, epCount, false), long = false)
                         }
                     }
                 },

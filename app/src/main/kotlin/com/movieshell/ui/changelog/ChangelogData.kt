@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.25",
+        date = "2026-11-01",
+        title = "短剧竖屏全屏：下方上滑下一集、下滑上一集。",
+        details = listOf(
+            "竖屏全屏（独立播放页或详情页全屏）屏幕下方 40% 区域：上滑切下一集，下滑回上一集，提示「下一集 · 第N集」「已是最后一集」。",
+            "上方区域左侧亮度、右侧音量照旧；长按 3 倍速与左右拖动调进度不受影响。",
+            "切集时先定格当前画面，新集出画后再撤，不黑屏；Media3 与 mpv 均可用。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.24",
         date = "2026-10-31",
         title = "自建磁力转播：不依赖 DsPlayer/Node，点播即播。",
