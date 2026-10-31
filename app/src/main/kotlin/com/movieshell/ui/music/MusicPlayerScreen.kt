@@ -259,6 +259,7 @@ fun MusicPlayerScreen(
             artUrl = shownArt,
             reducedMotion = reducedMotion,
             immersive = playerLayout == MusicPlayerLayout.IMMERSIVE,
+            playing = playState.playing,
         )
         Scaffold(
             containerColor = Color.Transparent,
@@ -344,7 +345,8 @@ fun MusicPlayerScreen(
                         ) {
                             val fullSide = minOf(maxWidth, maxHeight)
                             val side = when (playerLayout) {
-                                MusicPlayerLayout.CARD -> fullSide * 0.62f
+                                // v0.294.14：炫彩布局需要轨道粒子空间，外框接近满幅
+                                MusicPlayerLayout.CARD -> fullSide * 0.92f
                                 MusicPlayerLayout.IMMERSIVE -> fullSide
                                 else -> fullSide
                             }
@@ -367,32 +369,51 @@ fun MusicPlayerScreen(
                                             artUrl = shownArt,
                                             coverScale = coverScale,
                                             coverAlpha = coverAlpha.value,
-                                            side = side * 0.82f,
+                                            side = side * 0.72f,
                                             corner = 24.dp,
                                         )
-                                        Spacer(Modifier.height(12.dp))
+                                        Spacer(Modifier.height(10.dp))
                                         SpectrumVisualizerBars(
                                             playing = playState.playing,
                                             reducedMotion = reducedMotion,
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 8.dp),
-                                            maxHeight = 48.dp,
+                                                .padding(horizontal = 4.dp),
+                                            maxHeight = 64.dp,
                                         )
                                     }
                                 }
+                                MusicPlayerLayout.CARD -> {
+                                    // v0.294.14：炫彩——旋转封面 + 轨道粒子 / 光环
+                                    XuanCaiOrbitCover(
+                                        artUrl = shownArt,
+                                        playing = playState.playing,
+                                        reducedMotion = reducedMotion,
+                                        coverScale = coverScale,
+                                        coverAlpha = coverAlpha.value,
+                                        side = side,
+                                        corner = 20.dp,
+                                    )
+                                }
+                                MusicPlayerLayout.CLASSIC -> {
+                                    ClassicCoverWithGlow(
+                                        artUrl = shownArt,
+                                        playing = playState.playing,
+                                        reducedMotion = reducedMotion,
+                                        coverScale = coverScale,
+                                        coverAlpha = coverAlpha.value,
+                                        side = side,
+                                        corner = 28.dp,
+                                    )
+                                }
                                 else -> {
-                                    // CLASSIC / IMMERSIVE / CARD：圆角方封面，卡片更小圆角
+                                    // IMMERSIVE：满幅圆角方封面（极光在氛围层）
                                     SquaredCoverArt(
                                         artUrl = shownArt,
                                         coverScale = coverScale,
                                         coverAlpha = coverAlpha.value,
                                         side = side,
-                                        corner = when (playerLayout) {
-                                            MusicPlayerLayout.CARD -> 20.dp
-                                            MusicPlayerLayout.IMMERSIVE -> 16.dp
-                                            else -> 28.dp
-                                        },
+                                        corner = 16.dp,
                                     )
                                 }
                             }
@@ -770,7 +791,7 @@ fun MusicPlayerScreen(
                         else -> 24.dp
                     }
                     val artWeight = when (playerLayout) {
-                        MusicPlayerLayout.CARD -> 0.72f
+                        MusicPlayerLayout.CARD -> 0.95f
                         MusicPlayerLayout.IMMERSIVE -> 1.15f
                         else -> 1f
                     }
@@ -945,6 +966,8 @@ private fun PlayerAtmosphere(
     reducedMotion: Boolean,
     // v0.294.12：沉浸布局放大模糊封面、蒙版更淡，前景内容叠在氛围上
     immersive: Boolean = false,
+    // v0.294.14：播放时加强流动炫彩极光
+    playing: Boolean = false,
 ) {
     Box(
         modifier = Modifier
@@ -1034,6 +1057,14 @@ private fun PlayerAtmosphere(
                     ),
             )
         }
+        // v0.294.14：沉浸布局叠加流动炫彩极光（非静态模糊）
+        if (immersive) {
+            ImmersiveAuroraOverlay(
+                playing = playing,
+                reducedMotion = reducedMotion,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1041,9 +1072,9 @@ private fun PlayerAtmosphere(
                     Brush.verticalGradient(
                         if (immersive) {
                             listOf(
-                                Color.Black.copy(alpha = 0.22f),
-                                Color.Black.copy(alpha = 0.48f),
-                                Color.Black.copy(alpha = 0.78f),
+                                Color.Black.copy(alpha = 0.18f),
+                                Color.Black.copy(alpha = 0.42f),
+                                Color.Black.copy(alpha = 0.72f),
                             )
                         } else {
                             listOf(

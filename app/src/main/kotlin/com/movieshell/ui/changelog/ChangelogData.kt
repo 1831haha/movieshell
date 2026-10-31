@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.14",
+        date = "2026-10-31",
+        title = "播放界面改为真正的动态炫彩动效（旋转 / 极光 / 频谱 / 轨道粒子）。",
+        details = listOf(
+            "用户反馈「要动态的、炫彩的、旋转的，不是静态的」：五种播放界面全部加强动效，播放时动、暂停停角或回落。",
+            "经典：封面边缘炫彩柔光脉冲 + 慢速扫光弧。唱片：黑胶继续旋转，外加炫彩反光环与独立扫光。沉浸：流动炫彩极光光斑叠加在氛围层（不再只是静态模糊）。频谱：更高更活的多色渐变律动条。炫彩（原卡片）：旋转封面 + 轨道粒子与光环环绕。",
+            "选择仍写入 music_settings / player_layout，切布局不打断播放。进度条滑块垂直居中（v0.294.13）保留。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.13",
         date = "2026-10-31",
         title = "音乐播放进度条：滑块垂直居中到轨道中间。",

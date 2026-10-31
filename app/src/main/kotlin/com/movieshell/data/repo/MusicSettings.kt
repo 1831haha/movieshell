@@ -23,11 +23,11 @@ enum class MusicPlayerLayout(
     val label: String,
     val description: String,
 ) {
-    CLASSIC("经典", "封面 + 信息 + 控制（默认）"),
-    VINYL("唱片", "圆形黑胶封面，播放时旋转"),
-    IMMERSIVE("沉浸", "大模糊封面氛围，内容轻叠"),
-    SPECTRUM("频谱", "播放时显示律动频谱条"),
-    CARD("卡片", "小封面紧凑排版，适合小屏"),
+    CLASSIC("经典", "封面边缘炫彩柔光脉冲"),
+    VINYL("唱片", "黑胶旋转 + 炫彩反光扫光"),
+    IMMERSIVE("沉浸", "流动炫彩极光氛围"),
+    SPECTRUM("频谱", "炫彩多色律动频谱条"),
+    CARD("炫彩", "旋转封面 + 轨道粒子光环"),
 }
 
 object MusicSettings {
