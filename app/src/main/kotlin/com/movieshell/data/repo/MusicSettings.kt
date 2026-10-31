@@ -13,18 +13,39 @@ import kotlinx.coroutines.flow.StateFlow
  * 迁移：首次 init 时若新文件里没有该 key、旧文件里有，就把旧值拷
  * 过来再读；旧 key 留在原文件不动（降级回旧版也不丢设置）。
  */
+
+/**
+ * v0.294.12：正在播放页布局 / 动态效果。
+ * 经典=当前默认；唱片=圆形黑胶旋转；沉浸=大模糊封面氛围；
+ * 频谱=封面下方律动条；卡片=紧凑小封面。
+ */
+enum class MusicPlayerLayout(
+    val label: String,
+    val description: String,
+) {
+    CLASSIC("经典", "封面 + 信息 + 控制（默认）"),
+    VINYL("唱片", "圆形黑胶封面，播放时旋转"),
+    IMMERSIVE("沉浸", "大模糊封面氛围，内容轻叠"),
+    SPECTRUM("频谱", "播放时显示律动频谱条"),
+    CARD("卡片", "小封面紧凑排版，适合小屏"),
+}
+
 object MusicSettings {
 
     private const val PREFS = "music_settings"
     private const val OLD_PREFS = "movieshell_prefs"
     private const val KEY_LYRIC_COLOR = "lyric_color"
     private const val KEY_MUSIC_PLATFORM = "music_search_platform"
+    private const val KEY_PLAYER_LAYOUT = "player_layout"
 
     private val _lyricColor = MutableStateFlow(0)
     val lyricColor: StateFlow<Int> = _lyricColor
 
     private val _musicPlatform = MutableStateFlow("wy")
     val musicPlatform: StateFlow<String> = _musicPlatform
+
+    private val _playerLayout = MutableStateFlow(MusicPlayerLayout.CLASSIC)
+    val playerLayout: StateFlow<MusicPlayerLayout> = _playerLayout
 
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -49,6 +70,10 @@ object MusicSettings {
         _musicPlatform.value = MusicApi.normalizeSource(savedPlatform)
             .ifBlank { savedPlatform.trim().lowercase() }
             .ifBlank { "wy" }
+        // v0.294.12：播放界面布局
+        val savedLayout = prefs.getString(KEY_PLAYER_LAYOUT, null)
+        _playerLayout.value = runCatching { MusicPlayerLayout.valueOf(savedLayout!!) }
+            .getOrDefault(MusicPlayerLayout.CLASSIC)
     }
 
     /** v0.126.0：记忆音乐搜索平台（LX code，归一后落盘）。
@@ -67,5 +92,12 @@ object MusicSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putInt(KEY_LYRIC_COLOR, color).apply()
         _lyricColor.value = color
+    }
+
+    /** v0.294.12：记忆正在播放页布局 / 动态效果。 */
+    fun setPlayerLayout(context: Context, layout: MusicPlayerLayout) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_PLAYER_LAYOUT, layout.name).apply()
+        _playerLayout.value = layout
     }
 }

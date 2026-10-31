@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.12",
+        date = "2026-10-31",
+        title = "音乐播放页：可切换多种播放界面与动态效果。",
+        details = listOf(
+            "正在播放顶栏右侧新增「播放界面」按钮（仪表盘图标），点开紧凑面板可选：经典、唱片、沉浸、频谱、卡片。",
+            "经典：当前默认布局（圆角方封面 + 信息 + 控制）。唱片：圆形黑胶封面，播放时匀速旋转，暂停停在当前角度。沉浸：更大模糊封面氛围、蒙版更淡、封面更满。频谱：封面下方显示主题色律动条，随播放起伏、暂停回落。卡片：小封面紧凑排版，适合小屏。",
+            "点选立即切换并记住选择（music_settings / player_layout）；切换布局不打断播放进度与队列。日志悬浮按钮与原有功能行保持可用。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.11",
         date = "2026-10-31",
         title = "设置：主题模式和主题色合并为一个「主题」入口。",

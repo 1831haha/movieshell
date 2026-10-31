@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
@@ -107,6 +108,7 @@ import com.movieshell.data.repo.MusicSource
 import com.movieshell.data.repo.MusicSourceStore
 import com.movieshell.data.repo.MusicStore
 import com.movieshell.data.repo.MusicSettings
+import com.movieshell.data.repo.MusicPlayerLayout
 import com.movieshell.player.MusicDownloader
 import com.movieshell.player.MusicPlayer
 import com.movieshell.player.MusicSleepTimer
@@ -134,6 +136,8 @@ import kotlinx.coroutines.launch
  * 深色氛围底，文字一律固定浅色，不随主题明暗翻转。
  * v0.130.0：恢复 v0.89.0 的封面旋转（9 秒一圈匀速、暂停停在当前角度），
  * 只作用于大封面与无封面占位，氛围背景不转。
+ * v0.294.12：顶栏「播放界面」入口，可切换经典 / 唱片 / 沉浸 / 频谱 / 卡片五种
+ * 布局与动态效果；选择写入 MusicSettings.player_layout，切布局不打断播放。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -150,6 +154,8 @@ fun MusicPlayerScreen(
     val matchedArtMap by MusicPlayer.matchedArt.collectAsState()
     // v0.125.0：歌词颜色（0=跟随主题，MusicSettings 持久化）
     val lyricColorInt by MusicSettings.lyricColor.collectAsState()
+    // v0.294.12：播放界面布局（经典/唱片/沉浸/频谱/卡片），持久化在 MusicSettings
+    val playerLayout by MusicSettings.playerLayout.collectAsState()
     val track = playState.track
 
     // v0.129.0：封面地址提到组合顶层——氛围背景与大封面共用一份结果
@@ -176,6 +182,8 @@ fun MusicPlayerScreen(
     var showSourceDialog by remember { mutableStateOf(false) }
     // v0.129.0：播放列表弹窗
     var showQueueDialog by remember { mutableStateOf(false) }
+    // v0.294.12：播放界面选择面板
+    var showLayoutPicker by remember { mutableStateOf(false) }
     val sleepRemaining by MusicSleepTimer.remainingMs.collectAsState()
     val sleepArmed by MusicSleepTimer.afterEpisodeArmed.collectAsState()
     // v0.278.0：下载状态
@@ -247,7 +255,11 @@ fun MusicPlayerScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PlayerAtmosphere(artUrl = shownArt, reducedMotion = reducedMotion)
+        PlayerAtmosphere(
+            artUrl = shownArt,
+            reducedMotion = reducedMotion,
+            immersive = playerLayout == MusicPlayerLayout.IMMERSIVE,
+        )
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
@@ -269,6 +281,10 @@ fun MusicPlayerScreen(
                                     color = MaterialTheme.colorScheme.primary,
                                 )
                             }
+                        }
+                        // v0.294.12：播放界面布局选择
+                        IconButton(onClick = { showLayoutPicker = true }) {
+                            Icon(Icons.Filled.Dashboard, contentDescription = "播放界面")
                         }
                         // v0.108.0 B1：手动切换音源（已启用音乐源列表，点选重解析当前歌曲）
                         IconButton(onClick = { showSourceDialog = true }) {
@@ -320,50 +336,63 @@ fun MusicPlayerScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     if (!showLyrics) {
-                        // v0.294.5：封面改大圆角方图（M3 Expressive 口径，28dp 圆角），不再整盘旋转；
-                        // 暂停时轻微缩小、播放时回到满尺寸（减动效时恒满尺寸）。
+                        // v0.294.12：按播放界面布局切换封面表现（经典方图 / 黑胶旋转 / 沉浸 / 频谱 / 卡片）。
+                        // 暂停轻缩与淡入仍复用 coverScale / coverAlpha；唱片布局用旋转替代缩放。
                         BoxWithConstraints(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
                         ) {
-                            val side = minOf(maxWidth, maxHeight)
-                            if (shownArt.isNotBlank()) {
-                                AsyncImage(
-                                    model = shownArt,
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(side)
-                                        .graphicsLayer {
-                                            scaleX = coverScale
-                                            scaleY = coverScale
-                                            alpha = coverAlpha.value
-                                        }
-                                        .clip(RoundedCornerShape(28.dp)),
-                                    contentScale = ContentScale.Crop,
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .size(side)
-                                        .graphicsLayer {
-                                            scaleX = coverScale
-                                            scaleY = coverScale
-                                            alpha = coverAlpha.value
-                                        }
-                                        .clip(RoundedCornerShape(28.dp))
-                                        .background(Color.White.copy(alpha = 0.06f))
-                                        .border(
-                                            1.dp,
-                                            Color.White.copy(alpha = 0.10f),
-                                            RoundedCornerShape(28.dp),
-                                        ),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        Icons.Filled.MusicNote,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(96.dp),
-                                        tint = Color.White.copy(alpha = 0.45f),
+                            val fullSide = minOf(maxWidth, maxHeight)
+                            val side = when (playerLayout) {
+                                MusicPlayerLayout.CARD -> fullSide * 0.62f
+                                MusicPlayerLayout.IMMERSIVE -> fullSide
+                                else -> fullSide
+                            }
+                            when (playerLayout) {
+                                MusicPlayerLayout.VINYL -> {
+                                    VinylDiscCover(
+                                        artUrl = shownArt,
+                                        playing = playState.playing,
+                                        reducedMotion = reducedMotion,
+                                        coverAlpha = coverAlpha.value,
+                                        side = side,
+                                    )
+                                }
+                                MusicPlayerLayout.SPECTRUM -> {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        SquaredCoverArt(
+                                            artUrl = shownArt,
+                                            coverScale = coverScale,
+                                            coverAlpha = coverAlpha.value,
+                                            side = side * 0.82f,
+                                            corner = 24.dp,
+                                        )
+                                        Spacer(Modifier.height(12.dp))
+                                        SpectrumVisualizerBars(
+                                            playing = playState.playing,
+                                            reducedMotion = reducedMotion,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 8.dp),
+                                            maxHeight = 48.dp,
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    // CLASSIC / IMMERSIVE / CARD：圆角方封面，卡片更小圆角
+                                    SquaredCoverArt(
+                                        artUrl = shownArt,
+                                        coverScale = coverScale,
+                                        coverAlpha = coverAlpha.value,
+                                        side = side,
+                                        corner = when (playerLayout) {
+                                            MusicPlayerLayout.CARD -> 20.dp
+                                            MusicPlayerLayout.IMMERSIVE -> 16.dp
+                                            else -> 28.dp
+                                        },
                                     )
                                 }
                             }
@@ -734,16 +763,32 @@ fun MusicPlayerScreen(
                         }
                     }
                 } else {
+                    // v0.294.12：卡片布局更紧凑；沉浸布局封面更大、间距更小
+                    val hPad = when (playerLayout) {
+                        MusicPlayerLayout.CARD -> 20.dp
+                        MusicPlayerLayout.IMMERSIVE -> 16.dp
+                        else -> 24.dp
+                    }
+                    val artWeight = when (playerLayout) {
+                        MusicPlayerLayout.CARD -> 0.72f
+                        MusicPlayerLayout.IMMERSIVE -> 1.15f
+                        else -> 1f
+                    }
+                    val gapAfterArt = when (playerLayout) {
+                        MusicPlayerLayout.CARD -> 12.dp
+                        MusicPlayerLayout.IMMERSIVE -> 12.dp
+                        else -> 20.dp
+                    }
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 24.dp),
+                            .padding(horizontal = hPad),
                     ) {
-                        Spacer(Modifier.height(8.dp))
-                        artOrLyrics(Modifier.weight(1f).fillMaxWidth())
-                        Spacer(Modifier.height(20.dp))
+                        Spacer(Modifier.height(if (playerLayout == MusicPlayerLayout.CARD) 4.dp else 8.dp))
+                        artOrLyrics(Modifier.weight(artWeight).fillMaxWidth())
+                        Spacer(Modifier.height(gapAfterArt))
                         infoAndControls()
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(if (playerLayout == MusicPlayerLayout.CARD) 10.dp else 16.dp))
                     }
                 }
             }
@@ -810,6 +855,17 @@ fun MusicPlayerScreen(
             onPick = { i ->
                 showQueueDialog = false
                 MusicPlayer.playQueueItem(context, i)
+            },
+        )
+    }
+
+    // v0.294.12：播放界面布局选择——点选即生效并持久化
+    if (showLayoutPicker) {
+        MusicPlayerLayoutPickerDialog(
+            current = playerLayout,
+            onDismiss = { showLayoutPicker = false },
+            onPick = { layout ->
+                MusicSettings.setPlayerLayout(context, layout)
             },
         )
     }
@@ -884,7 +940,12 @@ private fun PlayingBars(playing: Boolean, reducedMotion: Boolean) {
 }
 
 @Composable
-private fun PlayerAtmosphere(artUrl: String, reducedMotion: Boolean) {
+private fun PlayerAtmosphere(
+    artUrl: String,
+    reducedMotion: Boolean,
+    // v0.294.12：沉浸布局放大模糊封面、蒙版更淡，前景内容叠在氛围上
+    immersive: Boolean = false,
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -897,10 +958,11 @@ private fun PlayerAtmosphere(artUrl: String, reducedMotion: Boolean) {
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        scaleX = 1.25f
-                        scaleY = 1.25f
+                        val s = if (immersive) 1.45f else 1.25f
+                        scaleX = s
+                        scaleY = s
                     }
-                    .blur(48.dp),
+                    .blur(if (immersive) 64.dp else 48.dp),
                 contentScale = ContentScale.Crop,
             )
         } else {
@@ -977,11 +1039,19 @@ private fun PlayerAtmosphere(artUrl: String, reducedMotion: Boolean) {
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = 0.38f),
-                            Color.Black.copy(alpha = 0.68f),
-                            Color.Black.copy(alpha = 0.88f),
-                        ),
+                        if (immersive) {
+                            listOf(
+                                Color.Black.copy(alpha = 0.22f),
+                                Color.Black.copy(alpha = 0.48f),
+                                Color.Black.copy(alpha = 0.78f),
+                            )
+                        } else {
+                            listOf(
+                                Color.Black.copy(alpha = 0.38f),
+                                Color.Black.copy(alpha = 0.68f),
+                                Color.Black.copy(alpha = 0.88f),
+                            )
+                        },
                     ),
                 ),
         )
