@@ -26,10 +26,11 @@ class M3u8AdFilterTest {
     }
 
     @Test fun `same directory short group is kept (only one signal)`() {
-        val g = listOf(6.0 to "https://cdn.main.com/v/1000k/hls/x1.ts")
-        val src = playlist(main(6, 0), g, main(6, 6))
+        // v0.294.9：文件名与正片同模式、序号连续（否则会命中第 5 信号）
+        val g = listOf(6.0 to "https://cdn.main.com/v/1000k/hls/seg6.ts")
+        val src = playlist(main(6, 0), g, main(6, 7))
         val out = M3u8AdFilter.filter(src)
-        assertTrue(out.contains("x1.ts"))
+        assertTrue(out.contains("hls/seg6.ts"))
     }
 
     @Test fun `directory signal catches mildly short ad from other host`() {

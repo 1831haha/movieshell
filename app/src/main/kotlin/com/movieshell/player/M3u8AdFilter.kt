@@ -236,13 +236,13 @@ object M3u8AdFilter {
     internal fun nameShape(uri: String): String {
         val name = uri.trim().substringBefore('?').substringBefore('#').substringAfterLast('/')
             .substringBeforeLast('.')
-        if (name.isEmpty()) return "0:E"
-        val cls = when {
-            name.all { it.isDigit() } -> "D"
-            name.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' } -> "H"
-            else -> "A"
+        if (name.isEmpty()) return "E"
+        val lower = name.lowercase()
+        // 哈希名（≥16 位十六进制且含字母）按长度区分；其余把数字串折叠成 #（seg9 与 seg10 同模式）
+        if (lower.length >= 16 && lower.all { it.isDigit() || it in 'a'..'f' } && lower.any { it in 'a'..'f' }) {
+            return "H:${lower.length}"
         }
-        return "${name.length}:$cls"
+        return lower.replace(Regex("\\d+"), "#")
     }
 
     /** 纯函数：文件名末尾的数字序号（无则 null；超长截掉防溢出） */

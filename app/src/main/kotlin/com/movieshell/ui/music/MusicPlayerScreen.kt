@@ -532,13 +532,6 @@ fun MusicPlayerScreen(
                         reducedMotion = reducedMotion,
                     )
                     Spacer(Modifier.weight(1f))
-                    if (!track.isLocal) {
-                        MusicApi.platformLabel(
-                            MusicApi.normalizeSource(track.source),
-                        )?.let { label ->
-                            ResolvedBadge(text = label, tint = PlayerChipTint)
-                        }
-                    }
                     if (playState.resolvedQuality.isNotBlank()) {
                         ResolvedBadge(
                             text = qualityLabel(playState.resolvedQuality),
@@ -546,12 +539,16 @@ fun MusicPlayerScreen(
                         )
                     }
                 }
-                if (playState.resolvedSource.isNotBlank()) {
+                // v0.294.9：平台徽标与「来源：接口」合成一行「<平台> · 经 <接口>」
+                val platformName = if (track.isLocal) null
+                else MusicApi.platformLabel(MusicApi.normalizeSource(track.source))
+                val sourceLine = sourceInfoLine(platformName, playState.resolvedSource)
+                if (sourceLine.isNotBlank()) {
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "来源：${playState.resolvedSource}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.5f),
+                        text = sourceLine,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.55f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -586,67 +583,8 @@ fun MusicPlayerScreen(
                         color = Color.White.copy(alpha = 0.6f),
                     )
                 }
-                Spacer(Modifier.height(8.dp))
-                // 主控制：上一首 / 主题色播放键 / 下一首（居中，图标无底圈）
-                // v0.294.8：播放键 72→62dp、图标 40→32dp，上/下一首 56→48dp（用户嫌播放键太大）
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
-                ) {
-                    IconButton(
-                        onClick = { MusicPlayer.prev(context) },
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.SkipPrevious,
-                            contentDescription = "上一首",
-                            modifier = Modifier.size(32.dp),
-                            tint = Color.White,
-                        )
-                    }
-                    FilledIconButton(
-                        onClick = { MusicPlayer.toggle() },
-                        modifier = Modifier.size(62.dp),
-                        shape = CircleShape,
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
-                    ) {
-                        if (playState.loading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 2.5.dp,
-                            )
-                        } else {
-                            Icon(
-                                if (playState.playing) Icons.Filled.Pause
-                                else Icons.Filled.PlayArrow,
-                                contentDescription = if (playState.playing) "暂停" else "播放",
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .graphicsLayer {
-                                        scaleX = playIconScale.value
-                                        scaleY = playIconScale.value
-                                    },
-                            )
-                        }
-                    }
-                    IconButton(
-                        onClick = { MusicPlayer.next(context) },
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.SkipNext,
-                            contentDescription = "下一首",
-                            modifier = Modifier.size(32.dp),
-                            tint = Color.White,
-                        )
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(6.dp))
+                // v0.294.9：次级功能行移到进度条与播放键之间（用户要求放在播放键前面）。
                 // 次级功能行：播放模式 / 收藏 / 歌词 / 下载 / 换源 / 播放列表（纯图标，无底圈）
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -711,6 +649,66 @@ fun MusicPlayerScreen(
                         tint = PlayerIconTint,
                         onClick = { showQueueDialog = true },
                     )
+                }
+                Spacer(Modifier.height(6.dp))
+                // 主控制：上一首 / 主题色播放键 / 下一首（居中，图标无底圈）
+                // v0.294.8：播放键 72→62dp、图标 40→32dp，上/下一首 56→48dp（用户嫌播放键太大）
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
+                ) {
+                    IconButton(
+                        onClick = { MusicPlayer.prev(context) },
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.SkipPrevious,
+                            contentDescription = "上一首",
+                            modifier = Modifier.size(32.dp),
+                            tint = Color.White,
+                        )
+                    }
+                    FilledIconButton(
+                        onClick = { MusicPlayer.toggle() },
+                        modifier = Modifier.size(62.dp),
+                        shape = CircleShape,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        if (playState.loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.5.dp,
+                            )
+                        } else {
+                            Icon(
+                                if (playState.playing) Icons.Filled.Pause
+                                else Icons.Filled.PlayArrow,
+                                contentDescription = if (playState.playing) "暂停" else "播放",
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .graphicsLayer {
+                                        scaleX = playIconScale.value
+                                        scaleY = playIconScale.value
+                                    },
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = { MusicPlayer.next(context) },
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.SkipNext,
+                            contentDescription = "下一首",
+                            modifier = Modifier.size(32.dp),
+                            tint = Color.White,
+                        )
+                    }
                 }
             }
             BoxWithConstraints(
@@ -1498,4 +1496,16 @@ private val LYRIC_COLOR_PRESETS = listOf(
 private fun fmtMs(ms: Long): String {
     val s = (ms / 1000).toInt().coerceAtLeast(0)
     return "%d:%02d".format(s / 60, s % 60)
+}
+
+/** v0.294.9：正在播放副行——「<平台> · 经 <接口>」；两者相同或缺一只显示一个。 */
+internal fun sourceInfoLine(platform: String?, provider: String?): String {
+    val p = platform?.trim().orEmpty()
+    val v = provider?.trim().orEmpty()
+    return when {
+        p.isEmpty() && v.isEmpty() -> ""
+        v.isEmpty() || v.equals(p, ignoreCase = true) -> p
+        p.isEmpty() -> "经 $v"
+        else -> "$p · 经 $v"
+    }
 }
