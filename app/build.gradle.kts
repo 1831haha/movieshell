@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 379
-        versionName = "0.294.17"
+        versionCode = 380
+        versionName = "0.294.18"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {
@@ -165,6 +165,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
+    testImplementation("org.json:json:20240303")
 
     // v0.113.0：V8 引擎真机冒烟测试（instrumentation 直跑引擎，绕开 UI）
     androidTestImplementation("junit:junit:4.13.2")

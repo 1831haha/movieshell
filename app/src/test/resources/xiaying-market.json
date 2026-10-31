@@ -1,0 +1,297 @@
+{
+  "logo": "icons/market.png",
+  "name": "侠影官方插件市场",
+  "desc": "侠影 App 内置「插件市场」的数据源（兼容 DsPlayer 市场协议）",
+  "updatedAt": "2026-10-24T13:35:12Z",
+  "plugins": [
+    {
+      "id": "btsow-source",
+      "name": "BTSOW 磁力搜索",
+      "author": "侠影",
+      "desc": "BTSOW 磁力搜索 PY 爬虫源：站内 JSON 接口搜片，拿磁链",
+      "version": "1.0.2",
+      "type": "source",
+      "engine": "py",
+      "size": 7473,
+      "url": "https://raw.githubusercontent.com/1831haha/xiaying-plugins/main/packages/btsow-source-1.0.2.zip",
+      "icon": "icons/btsow-source.png",
+      "tags": [
+        "搜索",
+        "磁力"
+      ],
+      "changelog": "v1.0.2：补 plugin.json manifest（id/version/type/platforms），供安装时一致性校验；图标上架。",
+      "md5": "2dceee75f2d471257fabbd252c1038ae",
+      "platforms": [
+        "android",
+        "win32"
+      ],
+      "category": "app",
+      "minApp": "0.22.0",
+      "abis": [
+        "arm64-v8a"
+      ]
+    },
+    {
+      "id": "magnet-stream",
+      "name": "磁力转播服务",
+      "author": "侠影",
+      "desc": "把磁力链接转成 HTTP 视频流，供播放器直接播放",
+      "version": "1.0.6",
+      "type": "server",
+      "engine": "nodejs",
+      "size": 9316226,
+      "url": "https://raw.githubusercontent.com/1831haha/xiaying-plugins/main/packages/magnet-stream-1.0.6.zip",
+      "icon": "icons/magnet-stream.png",
+      "tags": [
+        "服务",
+        "磁力"
+      ],
+      "changelog": "v1.0.6：去掉 node_modules 里全部 98 个 .ts 文件（96 个 .d.ts 类型定义 + 2 个源码 .ts，相册误认成 0 秒视频的根因；运行时只用 .js）；包内补 .nomedia；server.json 版本号同步到 1.0.6；包改用压缩，体积从 33MB 降到 9.3MB。",
+      "md5": "83f659f36b0e78d63ec0247eeeed53df",
+      "platforms": [
+        "android",
+        "win32"
+      ],
+      "category": "env",
+      "minApp": "0.22.0",
+      "abis": [
+        "arm64-v8a"
+      ]
+    },
+    {
+      "id": "hello-service",
+      "name": "示例服务",
+      "author": "侠影",
+      "desc": "侠影官方示例服务：验证服务插件安装/启动/探活全链路，根路径回文本状态页、/healthz 探活；无实际业务功能，是编写服务型插件的参考模板",
+      "version": "1.1.0",
+      "type": "server",
+      "engine": "sh",
+      "size": 2067,
+      "url": "https://raw.githubusercontent.com/1831haha/xiaying-plugins/main/packages/hello-service-1.1.0.zip",
+      "icon": "icons/market.png",
+      "tags": [
+        "服务",
+        "示例"
+      ],
+      "changelog": "v1.1.0：升正式版上架市场。server.json 配置写全（固定端口 29578、HTTP 探活 /healthz、env/healthMode/autoStart 声明）；根路径 / 改回文本状态页（服务名/运行状态/时间/监听端口）；FIFO 固定建在 App 注入的 TMPDIR（共享存储 FUSE 建不了 FIFO）。v1.0.0 为 App 内置演示包、未上架。",
+      "md5": "443646989bcebb18731cd24e9e006c99",
+      "platforms": [
+        "android"
+      ],
+      "category": "env",
+      "minApp": "0.120.0",
+      "abis": [
+        "arm64-v8a"
+      ]
+    },
+    {
+      "id": "py-deps",
+      "name": "PY 引擎依赖包",
+      "author": "侠影",
+      "desc": "PY 规则运行依赖：brotli（br 解压）+ charset-normalizer（编码识别）。规则报缺库失败时装这个。",
+      "version": "1.0.0",
+      "type": "env",
+      "size": 408020,
+      "url": "https://raw.githubusercontent.com/1831haha/xiaying-plugins/main/packages/py-deps-1.0.0.zip",
+      "icon": "icons/py-deps.png",
+      "tags": [
+        "依赖",
+        "PY"
+      ],
+      "changelog": "v1.0.0：首版。brotli 1.0.7（Chaquopy arm64 轮子，br 解压）+ charset-normalizer 3.5.2（纯 Python，编码识别优于 chardet）。",
+      "md5": "2da67e38661dbedb0890f3693a33eeca",
+      "platforms": [
+        "android"
+      ],
+      "category": "env",
+      "minApp": "0.27.2",
+      "abis": [
+        "arm64-v8a"
+      ],
+      "engine": "py"
+    },
+    {
+      "id": "mpv-player",
+      "name": "libmpv 播放器引擎",
+      "author": "侠影",
+      "desc": "libmpv 播放器引擎 native 库（mpv v0.40.0 + FFmpeg，arm64-v8a，约23MB）。安装后可在 设置-播放器内核 里选用 libmpv，硬解能力更强。",
+      "version": "1.0.0",
+      "type": "player",
+      "engine": "",
+      "size": 22974104,
+      "url": "https://raw.githubusercontent.com/1831haha/xiaying-plugins/main/packages/mpv-player-1.0.0.zip",
+      "icon": "icons/mpv-player.png",
+      "tags": [
+        "播放器",
+        "引擎"
+      ],
+      "changelog": "v1.0.0：首版。含 libmpv.so + FFmpeg 全套 .so（arm64-v8a），装到私有目录，MpvPluginLoader 按序加载。",
+      "md5": "a48eb7503a6bc0453306d7c808c7280b",
+      "platforms": [
+        "android"
+      ],
+      "category": "app",
+      "minApp": "0.29.0",
+      "abis": [
+        "arm64-v8a"
+      ]
+    },
+    {
+      "id": "btsow-source-poster",
+      "name": "BTSOW 磁力搜索（海报版）",
+      "author": "侠影",
+      "desc": "BTSOW 磁力搜索 PY 爬虫源，海报版：列表带豆瓣配图。站内 JSON 接口搜片，拿磁链。",
+      "version": "1.0.0",
+      "type": "source",
+      "engine": "py",
+      "size": 11593,
+      "url": "https://raw.githubusercontent.com/1831haha/xiaying-plugins/main/packages/btsow-source-poster-1.0.0.zip",
+      "icon": "icons/btsow-source-poster.png",
+      "tags": [
+        "搜索",
+        "磁力"
+      ],
+      "changelog": "v1.0.0：首版上架市场。豆瓣配图版，搜片即看海报。",
+      "md5": "c088712d1a292ef81dd1ada617177f65",
+      "platforms": [
+        "android"
+      ],
+      "category": "app",
+      "minApp": "0.22.0",
+      "abis": [
+        "arm64-v8a"
+      ]
+    },
+    {
+      "id": "cctv-live",
+      "name": "央视卫视直播",
+      "author": "侠影",
+      "desc": "CCTV 17 路 + 地方卫视 25 路，新增 63 路备用线，CCTV17/东方卫视恢复可播",
+      "version": "1.0.7",
+      "type": "live",
+      "size": 24590,
+      "url": "https://raw.githubusercontent.com/1831haha/xiaying-plugins/main/packages/cctv-live-1.0.7.json",
+      "icon": "icons/market.png",
+      "tags": [
+        "直播",
+        "央视",
+        "卫视"
+      ],
+      "changelog": "v1.0.7：新增 50 路实测可播的备用线（63 主机覆盖 18 台、bfgd 直出 5 台等），28 个频道恢复多线兜底；CCTV17、东方卫视恢复可播；有新线的地方去掉已死的 183（东南/江西/海南暂留 183 作末线）。另并入 CCSH 订阅实测可播的 13 路（其移动主线在我这边探不通，未并入）。",
+      "md5": "595ee2fe064eae0eec7176cd0b986407",
+      "platforms": [
+        "android",
+        "win32"
+      ],
+      "category": "app",
+      "minApp": "0.79.0",
+      "abis": [
+        "arm64-v8a"
+      ],
+      "updatedAt": "2026-10-24T22:52:53+08:00"
+    },
+    {
+      "id": "php",
+      "name": "PHP 运行时",
+      "author": "侠影",
+      "desc": "PHP 运行时（自编动态单文件，仅动态链系统库），供 T4-PHP 等服务调用",
+      "version": "8.3.36",
+      "type": "runtime",
+      "engine": "php",
+      "size": 6866092,
+      "url": "https://raw.githubusercontent.com/1831haha/xiaying-plugins/main/packages/php-8.3.36-dynamic.zip",
+      "icon": "icons/php.png",
+      "tags": [
+        "运行",
+        "PHP"
+      ],
+      "changelog": "v8.3.36-dynamic：跟进 PHP 官方 2026-10-21 安全更新，修 CVE-2026-109618 与 CVE-2026-109619（CVSS 9.2，未登录远程代码执行，影响 FPM/mod_php/php-cgi 等网页请求 SAPI）；本地只跑 CLI、不接外部请求，风险本来就低，升版是正解。动态 PIE 路线不变（linker64 加载、仅动态链系统 libc/libm/libdl）。待真机验证（版本号显示 8.3.36、demo_spider 首页/详情/播放正常）。",
+      "md5": "dde074cc348ef0a9081627090a26fdd8",
+      "platforms": [
+        "android"
+      ],
+      "category": "env",
+      "minApp": "0.140.0",
+      "abis": [
+        "arm64-v8a"
+      ],
+      "updatedAt": "2026-10-22T21:17:37Z"
+    },
+    {
+      "id": "danmu-service",
+      "name": "弹幕服务",
+      "author": "侠影",
+      "desc": "弹幕服务：按标题聚合拉取弹幕（LogVar 弹幕源聚合），供播放器合并显示；只看不发，无发送接口。",
+      "version": "1.0.0",
+      "type": "server",
+      "engine": "sh",
+      "size": 5817,
+      "url": "https://raw.githubusercontent.com/1831haha/xiaying-plugins/main/packages/danmu-service-1.0.0.zip",
+      "icon": "icons/market.png",
+      "tags": [
+        "服务",
+        "弹幕"
+      ],
+      "changelog": "v1.0.0：首版。按标题聚合 14 家 LogVar 弹幕源（单家 5 秒超时、失败跳过），合并去重（同文本 3 秒内只留一条）后按 timeMs 排序回 JSON 列表，上限 1000 条；只看不发，无发送接口；弹弹play 官方源需凭证时作补充（默认关闭）。",
+      "md5": "ab8f8056f6391e7af63400c26b1f3f52",
+      "platforms": [
+        "android"
+      ],
+      "category": "env",
+      "minApp": "0.120.0",
+      "abis": [
+        "arm64-v8a"
+      ]
+    },
+    {
+      "id": "setup-dirs",
+      "name": "一键配置：建好目录和说明",
+      "author": "侠影",
+      "desc": "装完即在文件管理器建好全部目录并写入说明文档，已有文件不覆盖；卸载不删已建好的目录和说明",
+      "version": "1.0.0",
+      "type": "setup",
+      "size": 6617,
+      "url": "https://raw.githubusercontent.com/1831haha/xiaying-plugins/main/packages/setup-dirs-1.0.0.zip",
+      "icon": "icons/market.png",
+      "tags": [
+        "配置",
+        "目录"
+      ],
+      "changelog": "v1.0.0：首版。建 16 个目录（js/py/py/book/php/php/t4_demo/php/t4_demo/lib/web/jar/live/plugins/service/backup/log/crash/Download/Screenshots），根目录和每个目录各一份说明文档，文档只在插件包里、不进安装包；已有文件不覆盖，卸载不删目录和说明。",
+      "md5": "6568a630b9415bffaad1c13bf0a4888f",
+      "platforms": [
+        "android"
+      ],
+      "category": "app",
+      "minApp": "0.185.0",
+      "abis": [
+        "arm64-v8a"
+      ]
+    },
+    {
+      "id": "yt-dlp-generic",
+      "name": "yt-dlp 通用解析包",
+      "author": "侠影",
+      "desc": "无规则视频页的通用解析兜底：yt-dlp 通用提取器。需在解析设置里添加 yt-dlp 通用线路后才生效；油管/推特/IG/Twitch 等站点地址会被 wrapper 拦截，不交给 yt-dlp。",
+      "version": "1.0.0",
+      "type": "env",
+      "size": 3204380,
+      "url": "https://raw.githubusercontent.com/1831haha/xiaying-plugins/main/packages/yt-dlp-generic-1.0.0.zip",
+      "tags": [
+        "依赖",
+        "解析"
+      ],
+      "changelog": "v1.0.0：首版。yt-dlp 2026.10.21 全量包 + 通用解析 wrapper（域名黑名单拦截油管/推特/IG/Twitch 等站点）。",
+      "md5": "5a669112381d06f8906892aff8374249",
+      "platforms": [
+        "android"
+      ],
+      "category": "env",
+      "minApp": "0.203.0",
+      "abis": [
+        "arm64-v8a"
+      ],
+      "engine": "py"
+    }
+  ]
+}

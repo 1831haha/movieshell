@@ -250,13 +250,16 @@ object PluginMarket {
     }
 
     /** market.json 的 JSON 解析（纯函数，缓存/远端共用）。 */
-    private fun parseMarket(effectiveUrl: String, body: String): MarketInfo {
+    @androidx.annotation.VisibleForTesting
+    internal fun parseMarket(effectiveUrl: String, body: String): MarketInfo {
         val root = runCatching { JSONObject(body) }
             .getOrElse { throw IllegalStateException("market.json 不是合法 JSON") }
         val arr = runCatching { root.getJSONArray("plugins") }
             .getOrElse { throw IllegalStateException("market.json 格式错误：缺 plugins 数组") }
         // v0.25.0：相对 URL 按实际成功的地址拼（主备域名整套切换）
-        val base = effectiveUrl.substringBeforeLast("/") + "/"
+        // v0.294.18：兼容 DsPlayer 市场——url 多为相对路径（packages/xx.zip），
+        // 按 market.json 所在目录（或顶层 baseUrl/base 字段）解析成绝对地址。
+        val base = marketBase(effectiveUrl, root.optString("baseUrl", root.optString("base", "")))
         val plugins = (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             MarketPlugin(
@@ -270,7 +273,7 @@ object PluginMarket {
                 signature = o.optString("signature"),
                 url = o.optString("url").also {
                     if (it.isBlank()) throw IllegalStateException("插件 ${o.optString("id")} 缺 url")
-                },
+                }.let { resolveUrl(it, base) },
                 desc = o.optString("desc", ""),
                 author = o.optString("author", ""),
                 size = o.optLong("size", 0),
@@ -361,10 +364,42 @@ object PluginMarket {
         return File(context.filesDir, "market_cache/$name.json")
     }
 
-    private fun resolveIcon(icon: String, base: String): String = when {
-        icon.isBlank() -> ""
-        icon.startsWith("http://") || icon.startsWith("https://") -> icon
-        else -> base + icon.removePrefix("/")
+    private fun resolveIcon(icon: String, base: String): String =
+        if (icon.isBlank()) "" else resolveUrl(icon, base)
+
+    /** 市场基址：顶层 baseUrl（绝对或相对 market.json）优先，否则 market.json 所在目录，以 / 结尾。 */
+    @androidx.annotation.VisibleForTesting
+    internal fun marketBase(effectiveUrl: String, baseField: String = ""): String {
+        val dir = effectiveUrl.substringBefore('?').substringBefore('#').substringBeforeLast("/") + "/"
+        if (baseField.isBlank()) return dir
+        val b = resolveUrl(baseField.trim(), dir)
+        return if (b.endsWith("/")) b else "$b/"
+    }
+
+    /**
+     * 相对地址按 base 解析（RFC 3986 子集）：http(s) 绝对地址原样；"//host" 补协议；
+     * "/path" 视为相对仓库根（raw/jsdelivr 镜像下站点根不是仓库根，按 base 拼更稳）；
+     * "./"、"../" 逐段归并。
+     */
+    @androidx.annotation.VisibleForTesting
+    internal fun resolveUrl(url: String, base: String): String {
+        val u = url.trim()
+        if (u.startsWith("http://", true) || u.startsWith("https://", true)) return u
+        if (u.startsWith("//")) return base.substringBefore("//") + u
+        val rel = u.removePrefix("/")
+        val segs = rel.split("/")
+        // 无 ./ ../ 段直接拼接（保留 gh 代理前缀里的 https:// 双斜杠）
+        if (segs.none { it == "." || it == ".." }) return base + rel
+        val stack = ArrayDeque(base.substringBeforeLast("/").split("/"))
+        val minSize = 3 // "https:", "", "host" 不可被 .. 弹出
+        segs.forEach { seg ->
+            when (seg) {
+                "." -> Unit
+                ".." -> if (stack.size > minSize) stack.removeLast()
+                else -> stack.addLast(seg)
+            }
+        }
+        return stack.joinToString("/")
     }
 
     /**
@@ -385,8 +420,8 @@ object PluginMarket {
         var warn: String? = null
         try {
             progress?.onStage(InstallStage.Downloading, 0, plugin.size)
-            val effectiveUrl = PluginStore.applyGithubProxy(plugin.url)
-            download(effectiveUrl, tmp, progress, plugin.size)
+            // v0.294.18：包下载与索引同口径——gh 代理优先，再按镜像串行回退
+            val effectiveUrl = downloadWithFallback(plugin.url, tmp, progress, plugin.size)
             progress?.onStage(InstallStage.Verifying, 0, 0)
             // S1 过渡态：md5 只作辅助校验，信任锚是包签名；签名无效
             // 拒绝安装，未签名或公钥未配置只警告（warn 返回给调用方弹提示）。
@@ -504,6 +539,11 @@ object PluginMarket {
             checkManifest(zf, plugin)
             when (plugin.type) {
                 "source" -> {
+                    // DsPlayer 的 catLib 等「源依赖库」包（payload/ + source.json）不是站源，
+                    // 按规则装入会把库文件当成源，故明确拒绝
+                    if (entries.all { it.name.startsWith("payload/") || it.name == "source.json" || it.name == "plugin.json" }) {
+                        throw IllegalStateException("该插件是 DsPlayer 源依赖库（${plugin.id}），侠影内置运行环境，无需安装")
+                    }
                     engine = detectEngine(plugin, entries.map { it.name })
                     val dir = ruleDir(context, engine)
                     val ext = when (engine) {
@@ -952,6 +992,24 @@ object PluginMarket {
     }
 
     // ---------------- 内部 ----------------
+
+    /** 依次尝试 gh 代理地址与镜像，首个成功即返回其地址；全部失败抛最后一个错误。 */
+    private fun downloadWithFallback(url: String, dst: File, progress: InstallProgress?, size: Long): String {
+        val proxied = PluginStore.applyGithubProxy(url)
+        val urls = ((if (proxied != url) listOf(proxied) else emptyList()) + mirrorUrls(url)).distinct()
+        var lastErr: Exception? = null
+        for (u in urls) {
+            try {
+                download(u, dst, progress, size)
+                if (u != urls[0]) LogBus.i(TAG, "插件包经镜像下载成功：$u")
+                return u
+            } catch (e: Exception) {
+                lastErr = e
+                LogBus.w(TAG, "插件包下载失败（$u）：${e.message}")
+            }
+        }
+        throw lastErr ?: IllegalStateException("插件包下载失败")
+    }
 
     private fun download(
         url: String,
