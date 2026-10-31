@@ -266,21 +266,77 @@ object MusicApi {
     /** v0.83.0：单行歌词 */
     data class LyricLine(val timeMs: Long, val text: String)
 
-    /** v0.83.0：拉歌词（LRC）并解析；无歌词返回空列表。
-     *  v0.126.0：按曲目自身平台取词（GD 不支持的平台直接空表，不发注定失败的请求）。 */
+    /**
+     * v0.83.0：拉歌词（LRC）并解析；无歌词返回空列表。
+     * v0.126.0：按曲目自身平台取词（GD 不支持的平台不发注定失败的请求）。
+     * v0.294.16：根因——GD 歌词只支持 wy，tx/kw/kg/mg 以前直接空表，QQ/墨澜等
+     * 源播放时歌词区恒「暂无歌词」。现路径：
+     * ① wy → GD types=lyric；tx → QQ 公开歌词接口（songmid）；
+     * ② 仍空则按歌名+歌手在网易云搜同曲（[pickSameSong]），再走 GD 取词。
+     * 本地曲 / 无歌名时不搜索。
+     */
     suspend fun lyric(track: Track): List<LyricLine> {
+        if (track.isLocal) return emptyList()
+        val direct = lyricDirect(track)
+        if (direct.isNotEmpty()) return direct
+        return lyricByTitleArtistFallback(track)
+    }
+
+    /** v0.294.16：按曲目自身平台 id 取词（失败空表，不抛）。 */
+    private suspend fun lyricDirect(track: Track): List<LyricLine> {
         val lid = track.urlId.ifBlank { return emptyList() }
         val lx = normalizeSource(track.source).ifBlank { "wy" }
-        if (lx !in GD_SUPPORTED_PLATFORMS) return emptyList()
+        val raw = when (lx) {
+            "wy" -> lyricRawFromGd(lid)
+            "tx" -> PlatformMusicApi.lyricRawTx(lid)
+            else -> ""
+        }
+        return parseLrc(raw)
+    }
+
+    /**
+     * v0.294.16：歌名+歌手跨源兜底——在 GD 可出词的网易云上搜同曲再取 LRC。
+     * 与换平台播放共用 [pickSameSong]，避免误配成别的歌。
+     */
+    private suspend fun lyricByTitleArtistFallback(track: Track): List<LyricLine> {
+        val name = track.name.trim()
+        if (name.isBlank()) return emptyList()
+        val q = listOf(name, track.artist.trim()).filter { it.isNotBlank() }.joinToString(" ")
+        val candidates = runCatching {
+            search(q, count = 10, platform = "wy")
+        }.onFailure {
+            LogBus.w(TAG, "歌词兜底搜索失败：${it.message}")
+        }.getOrDefault(emptyList())
+        val hit = pickSameSong(track, candidates)
+        if (hit == null) {
+            LogBus.i(TAG, "歌词兜底未匹配：${track.name} / ${track.artist}")
+            return emptyList()
+        }
+        val lines = parseLrc(lyricRawFromGd(hit.urlId))
+        if (lines.isNotEmpty()) {
+            LogBus.i(TAG, "歌词兜底命中网易云 id=${hit.urlId}（${lines.size} 行）")
+        }
+        return lines
+    }
+
+    /** v0.294.16：GD types=lyric 原始 LRC 文本；失败空串。 */
+    private suspend fun lyricRawFromGd(id: String): String {
+        if (id.isBlank()) return ""
         val body = runCatching {
-            get("$BASE?types=lyric&source=${gdSourceOf(lx)}&id=$lid")
-        }.getOrNull() ?: return emptyList()
-        val raw = runCatching { JSONObject(body).optString("lyric") }.getOrDefault("")
+            get("$BASE?types=lyric&source=${gdSourceOf("wy")}&id=$id")
+        }.getOrNull() ?: return ""
+        return runCatching { JSONObject(body).optString("lyric") }.getOrDefault("")
+    }
+
+    /**
+     * v0.83.0 / v0.99.0 P1-10 / v0.294.16：LRC 文本 → 行列表。
+     * 一行多个时间戳都保留；无时间戳或空正文跳过。公开给单测。
+     */
+    fun parseLrc(raw: String): List<LyricLine> {
         if (raw.isBlank()) return emptyList()
         val pat = Regex("""\[(\d+):(\d+)(?:\.(\d+))?\]""")
         val lines = mutableListOf<LyricLine>()
         for (ln in raw.lineSequence()) {
-            // v0.99.0 P1-10：一行多个时间戳（如 [00:12.00][00:25.00]歌词）都要保留
             val matches = pat.findAll(ln).toList()
             if (matches.isEmpty()) continue
             val text = ln.substring(matches.last().range.last + 1).trim()

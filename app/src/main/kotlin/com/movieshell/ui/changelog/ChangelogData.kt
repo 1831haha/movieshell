@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.16",
+        date = "2026-10-31",
+        title = "修复音乐播放「暂无歌词」（QQ / 墨澜等非网易云源）。",
+        details = listOf(
+            "根因：歌词只走 GD Studio，而 GD 仅支持网易云；QQ/酷我/酷狗/咪咕曲目以前直接空表。",
+            "QQ 曲按 songmid 拉公开歌词；仍无词时按歌名+歌手在网易云匹配同曲再取词。",
+            "空态仍显示「暂无歌词」，并注明跨平台也未匹配到。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.14",
         date = "2026-10-31",
         title = "播放界面改为真正的动态炫彩动效（旋转 / 极光 / 频谱 / 轨道粒子）。",

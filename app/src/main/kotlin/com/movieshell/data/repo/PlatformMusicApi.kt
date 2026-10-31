@@ -159,6 +159,53 @@ object PlatformMusicApi {
         }.take(100)
     }
 
+    /**
+     * v0.294.16：QQ 音乐公开歌词（songmid → LRC 原文）。
+     * c.y.qq.com/lyric/…/fcg_query_lyric_new.fcg，Referer=y.qq.com，nobase64=1；
+     * 失败或无词返回空串。HTML 实体做轻量解码（部分曲目 lyric 字段带 &#xx;）。
+     */
+    suspend fun lyricRawTx(songmid: String): String {
+        if (songmid.isBlank()) return ""
+        val body = runCatching {
+            get(
+                "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg" +
+                    "?songmid=${enc(songmid)}&g_tk=5381&format=json" +
+                    "&inCharset=utf8&outCharset=utf-8&nobase64=1",
+                UA_MOBILE,
+                referer = "https://y.qq.com/",
+            )
+        }.getOrNull() ?: return ""
+        // 偶发 JSONP 包裹 MusicJsonCallback({...})，剥一层再解析
+        val jsonText = body.trim().let { s ->
+            val start = s.indexOf('{')
+            val end = s.lastIndexOf('}')
+            if (start >= 0 && end > start) s.substring(start, end + 1) else s
+        }
+        val raw = runCatching { JSONObject(jsonText).optString("lyric") }.getOrDefault("")
+        if (raw.isBlank()) return ""
+        return decodeLyricEntities(raw)
+    }
+
+    /** QQ 歌词字段里常见数字实体（&#58; 等）与命名实体。 */
+    private fun decodeLyricEntities(s: String): String {
+        var out = s
+            .replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+        // &#NNN; / &#xHH; 数字实体
+        out = Regex("""&#(\d+);""").replace(out) { m ->
+            m.groupValues[1].toIntOrNull()?.toChar()?.toString() ?: m.value
+        }
+        out = Regex("""&#x([0-9a-fA-F]+);""").replace(out) { m ->
+            m.groupValues[1].toIntOrNull(16)?.toChar()?.toString() ?: m.value
+        }
+        return out
+    }
+
     // ---------------- kw（酷我） ----------------
 
     /**

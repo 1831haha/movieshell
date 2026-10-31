@@ -438,11 +438,19 @@ fun MusicPlayerScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    Text(
-                                        "暂无歌词",
-                                        color = Color.White.copy(alpha = 0.6f),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
+                                    // v0.294.16：拉取与跨源兜底都结束后仍空时，给一句轻量原因
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            "暂无歌词",
+                                            color = Color.White.copy(alpha = 0.6f),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                        )
+                                        Text(
+                                            "当前源未返回，跨平台也未匹配到",
+                                            color = Color.White.copy(alpha = 0.35f),
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
                                 }
                                 else -> LazyColumn(
                                     state = listState,
