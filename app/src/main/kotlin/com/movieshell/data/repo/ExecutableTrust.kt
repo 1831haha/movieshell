@@ -2,7 +2,12 @@ package com.movieshell.data.repo
 
 import java.io.File
 import java.security.MessageDigest
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * 可执行内容信任注册表（S2 修复的单一入口）。
@@ -47,41 +52,53 @@ object ExecutableTrust {
 
     private fun registryFile(filesDir: File): File = File(filesDir, REGISTRY_NAME)
 
-    private fun loadRegistry(filesDir: File): JSONObject = synchronized(lock) {
+    // JVM 单测里 android.jar 的 org.json.JSONObject 是未 mock 的 stub（optString/put
+    // 直接抛），改用 kotlinx.serialization，真机与单测同一套实现；落盘仍是扁平
+    // {"key":"sha"} JSON，与旧 org.json 写出的格式兼容。
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    private fun loadRegistry(filesDir: File): MutableMap<String, String> = synchronized(lock) {
         runCatching {
             val f = registryFile(filesDir)
-            if (f.isFile) JSONObject(f.readText()) else JSONObject()
-        }.getOrDefault(JSONObject())
+            if (!f.isFile) return@runCatching mutableMapOf()
+            val obj = json.parseToJsonElement(f.readText()).jsonObject
+            obj.mapNotNull { (k, v) ->
+                val s = v.jsonPrimitive.contentOrNull
+                if (s.isNullOrBlank()) null else k to s
+            }.toMap(mutableMapOf())
+        }.getOrDefault(mutableMapOf())
     }
 
-    private fun saveRegistry(filesDir: File, reg: JSONObject) {
+    private fun saveRegistry(filesDir: File, reg: Map<String, String>) {
         synchronized(lock) {
             runCatching {
                 val f = registryFile(filesDir)
                 f.parentFile?.mkdirs()
-                f.writeText(reg.toString())
+                val body = buildJsonObject {
+                    reg.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
+                }.toString()
+                f.writeText(body)
             }.onFailure { LogBus.w(TAG, "信任注册表写盘失败：${it.message}") }
         }
     }
 
     fun registeredSha(filesDir: File, key: String): String? {
         val reg = loadRegistry(filesDir)
-        return reg.optString(key).takeIf { it.isNotBlank() }
+        return reg[key]?.takeIf { it.isNotBlank() }
     }
 
     /** 安装、切源、保存服务定义时调用：把当前文件记为可信。 */
     fun record(filesDir: File, key: String, file: File): Boolean {
         val sha = sha256(file) ?: return false
         val reg = loadRegistry(filesDir)
-        reg.put(key, sha)
+        reg[key] = sha
         saveRegistry(filesDir, reg)
         return true
     }
 
     fun clear(filesDir: File, key: String) {
         val reg = loadRegistry(filesDir)
-        if (reg.has(key)) {
-            reg.remove(key)
+        if (reg.remove(key) != null) {
             saveRegistry(filesDir, reg)
         }
     }

@@ -20,8 +20,9 @@ package com.movieshell.data.source
  *   日志里点名缺的文件。
  *
  * 启发式边界（与 warnIfLegacySyncRule 同类）：动态 import() 不动。
- * v0.247.0（F33）：注释/字符串里的 import/export 不再误展开——展开前
- * 先按词法切段（行注释、块注释、单/双引号串、模板串含 ${} 嵌套），
+ * v0.247.0（F33）：注释/模板串里的 import/export 不再误展开——展开前
+ * 先按词法切段（行注释、块注释、模板串含 ${} 嵌套；单/双引号串留在
+ * 代码段以便匹配路径引号，靠行首锚定挡串内伪语句），
  * 正则只跑在代码段上；行首锚定保留作第二层。第 2 轮补正则字面量：
  * 合法脚本里正则内容中的 // 与块注释开头只可能出现在字符类里（类外的 /
  * 会先闭合正则），代码态遇 / 时按前一有效字符/关键词判是否起正则，
@@ -143,9 +144,10 @@ object RuleImportExpander {
 
     /**
      * v0.247.0（F33）：词法切段——把文本切成（内容，是否代码）段。
-     * 跟踪行注释、块注释、单/双引号串、模板串；模板串里的 ${} 回到代码
-     * 态，用栈记花括号深度，} 回到对应层模板串（嵌套模板串同样处理）。
-     * 转义符跳下一个字符；正则字面量不特殊处理（见文件头残留边界）。
+     * 跟踪行注释、块注释、模板串（非代码）；单/双引号串留在代码段但
+     * 仍跳过其内容以免误触注释。模板串里的 ${} 回到代码态，用栈记花括号
+     * 深度，} 回到对应层模板串（嵌套模板串同样处理）。
+     * 转义符跳下一个字符；正则字面量见下方 looksLikeRegexStart。
      */
     private fun splitCodeSegments(text: String): List<Pair<String, Boolean>> {
         val out = ArrayList<Pair<String, Boolean>>()
@@ -321,8 +323,12 @@ object RuleImportExpander {
                             cur.append(c); i++
                         }
                     }
-                    c == '\'' -> { switch(false); cur.append(c); i++; mode = 3 }
-                    c == '"' -> { switch(false); cur.append(c); i++; mode = 4 }
+                    // 单/双引号串留在代码段：import/export 路径本身就在引号里，
+                    // 切成非代码段会导致 from './a.js' 对不齐正则。行首锚定已挡住
+                    // 串内容里的伪 import（合法 JS 单/双引号不能跨行）。仍跟踪
+                    // 串态，避免串内 // /* ` 误切注释/模板。
+                    c == '\'' -> { cur.append(c); i++; mode = 3 }
+                    c == '"' -> { cur.append(c); i++; mode = 4 }
                     c == '`' -> { switch(false); cur.append(c); i++; mode = 5 }
                     c == '{' -> {
                         if (interpStack.isNotEmpty()) braceDepth++
@@ -348,10 +354,11 @@ object RuleImportExpander {
                     if (c == '*' && next == '/') { cur.append(next); i++; switch(true); mode = 0 }
                 }
                 3, 4 -> {
+                    // 串内容仍属代码段（进入时未 switch(false)），只维护串态。
                     val quote = if (mode == 3) '\'' else '"'
                     cur.append(c); i++
                     if (c == '\\' && i < text.length) { cur.append(text[i]); i++ }
-                    else if (c == quote) { switch(true); mode = 0 }
+                    else if (c == quote) { mode = 0 }
                 }
                 else -> { // 模板串
                     cur.append(c); i++
