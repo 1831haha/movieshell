@@ -134,7 +134,7 @@ private fun InstalledPluginsBody(onDetail: (String, String) -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (plugins.isEmpty()) {
             item {
@@ -150,58 +150,16 @@ private fun InstalledPluginsBody(onDetail: (String, String) -> Unit) {
             val hasUpdate = mp != null && PluginMarket.isUpdatable(mp, p.version)
             val desc = mp?.desc?.lineSequence()?.firstOrNull()?.trim()
                 ?.ifBlank { null } ?: installedFallbackDesc(p)
-            AppCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (!mp?.iconUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = mp?.iconUrl,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(12.dp)),
-                            )
-                            Spacer(Modifier.size(12.dp))
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                p.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                desc,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.padding(top = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        TagChip("v${p.version}")
-                        TagChip(installedTypeLabel(p))
-                        if (hasUpdate && mp != null) TagChip("可更新 v${mp.version}")
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        if (mp != null) {
-                            TextButton(onClick = { onDetail(p.id, mp.sourceMarket) }) { Text("详情") }
-                        }
-                        if (hasUpdate && mp != null) {
-                            TextButton(onClick = { doUpdate(mp) }) { Text("更新") }
-                        }
-                        TextButton(onClick = { uninstallFor = p }) { Text("卸载") }
-                    }
-                }
+            CompactPluginRow(
+                name = p.name,
+                version = p.version,
+                desc = desc,
+                style = pluginTypeStyle(p.type, p.engine, mp?.tags.orEmpty()),
+                status = if (hasUpdate) PluginStatus.Updatable else PluginStatus.Installed,
+                onClick = mp?.let { m -> { onDetail(p.id, m.sourceMarket) } },
+            ) {
+                if (hasUpdate && mp != null) PluginCompactAction("更新", { doUpdate(mp) })
+                else PluginCompactAction("卸载", { uninstallFor = p })
             }
         }
     }

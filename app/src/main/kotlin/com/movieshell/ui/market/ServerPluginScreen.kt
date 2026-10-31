@@ -433,11 +433,20 @@ fun ServerPluginScreen(
                     ServicePluginManager.Status.STOPPED -> "已停止"
                     ServicePluginManager.Status.STARTING -> "启动中"
                 }
-                AppCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                        // v0.127.0：第一行——状态点 + 名 + 端口 chip + 版本（仿 DS 服务卡结构）
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // v0.139.0：状态点升级为统一 StatusRing（跑马灯圆环 + 中央状态点）
+                val expanded = expandedId == p.id
+                val svcStyle = pluginTypeStyle("server")
+                AppCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { expandedId = if (expanded) null else p.id },
+                ) {
+                    // v0.294.19：紧凑服务行——40dp 图标 + 名/版本同行 + 彩色徽标 + 尾随启停；
+                    // 点卡片展开命令行/配置/全部操作
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(contentAlignment = Alignment.BottomEnd) {
+                            PluginTypeIcon(svcStyle)
                             StatusRing(
                                 state = when (p.status) {
                                     ServicePluginManager.Status.RUNNING -> StatusRingState.Ready
@@ -445,73 +454,62 @@ fun ServerPluginScreen(
                                     ServicePluginManager.Status.ERROR -> StatusRingState.Failed
                                     ServicePluginManager.Status.STOPPED -> StatusRingState.Idle
                                 },
-                                diameter = 22.dp,
+                                diameter = 14.dp,
                             )
-                            Spacer(Modifier.size(10.dp))
-                            Text(
-                                p.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(
-                                        MaterialTheme.colorScheme.surfaceVariant,
-                                    )
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
-                            ) {
+                        }
+                        Spacer(Modifier.size(12.dp))
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    ":${p.port}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Default,
+                                    p.name,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                Spacer(Modifier.size(6.dp))
+                                Text(
+                                    "v${p.version}",
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            Spacer(Modifier.size(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                PluginBadge(statusText.substringBefore("（"),
+                                    when (p.status) {
+                                        ServicePluginManager.Status.RUNNING -> androidx.compose.ui.graphics.Color(0xFFC4EED0)
+                                        ServicePluginManager.Status.ERROR -> androidx.compose.ui.graphics.Color(0xFFFFDAD6)
+                                        ServicePluginManager.Status.STARTING -> androidx.compose.ui.graphics.Color(0xFFD3E3FD)
+                                        ServicePluginManager.Status.STOPPED -> androidx.compose.ui.graphics.Color(0xFFE0E3E8)
+                                    },
+                                    when (p.status) {
+                                        ServicePluginManager.Status.RUNNING -> androidx.compose.ui.graphics.Color(0xFF146C2E)
+                                        ServicePluginManager.Status.ERROR -> androidx.compose.ui.graphics.Color(0xFFB3261E)
+                                        ServicePluginManager.Status.STARTING -> androidx.compose.ui.graphics.Color(0xFF0B57D0)
+                                        ServicePluginManager.Status.STOPPED -> androidx.compose.ui.graphics.Color(0xFF5F6368)
+                                    },
+                                )
+                                PluginBadge(":${p.port}", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (p.autoStart) PluginBadge("自启动", svcStyle.container, svcStyle.content)
+                            }
                             Text(
-                                "v${p.version}",
+                                info?.desc?.ifBlank { null } ?: "本地 HTTP 服务",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
                             )
-                            // v0.132.0：自启动小标记
-                            if (p.autoStart) {
-                                Spacer(Modifier.size(6.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(
-                                            MaterialTheme.colorScheme.surfaceVariant,
-                                        )
-                                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                                ) {
-                                    Text(
-                                        "自启动",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            }
                         }
-                        // 第二行：一句话作用（server.json 的 desc，缺失用兜底文案）
-                        Text(
-                            info?.desc?.ifBlank { null } ?: "本地 HTTP 服务",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 6.dp),
+                        Spacer(Modifier.size(8.dp))
+                        PluginCompactAction(
+                            if (p.status == ServicePluginManager.Status.RUNNING || p.status == ServicePluginManager.Status.STARTING) "停止" else "启动",
+                            { toggle(p) },
+                            enabled = busyId == null,
                         )
-                        // 第三行：状态行
-                        Text(
-                            "状态：$statusText · 127.0.0.1:${p.port}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
+                    }
+                    if (expanded) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                         // 命令行行 + 工作目录行（真实绝对路径，端口已替换为实际分配值）
                         if (info != null) {
                             Text(
@@ -533,7 +531,7 @@ fun ServerPluginScreen(
                         }
                         // v0.127.0：启动配置只读展开区（server.json 关键项，路径为安装后真实路径）
                         // v0.132.0：补探活方式/自启动/常驻前台/运行 PID 四行
-                        if (expandedId == p.id && info != null) {
+                        if (info != null) {
                             Spacer(Modifier.height(8.dp))
                             ConfigRow("启动命令", info.command)
                             ConfigRow(
@@ -562,22 +560,11 @@ fun ServerPluginScreen(
                             }
                         }
                     }
-                    // v0.132.0：按钮行改 FlowRow 右对齐（加「编辑」后窄屏自动换行不溢出）
                     FlowRow(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                         horizontalArrangement = Arrangement.End,
                         verticalArrangement = Arrangement.spacedBy(0.dp),
                     ) {
-                        TextButton(
-                            onClick = { toggle(p) },
-                            enabled = busyId == null,
-                        ) {
-                            Text(
-                                if (p.status == ServicePluginManager.Status.RUNNING ||
-                                    p.status == ServicePluginManager.Status.STARTING
-                                ) "停止" else "启动",
-                            )
-                        }
                         TextButton(onClick = {
                             logFor = p
                             scope.launch {
@@ -616,8 +603,9 @@ fun ServerPluginScreen(
                         TextButton(onClick = { openEdit(p) }) { Text("编辑") }
                         TextButton(onClick = {
                             expandedId = if (expandedId == p.id) null else p.id
-                        }) { Text(if (expandedId == p.id) "收起" else "配置") }
+                        }) { Text("收起") }
                         TextButton(onClick = { uninstallFor = p }) { Text("卸载") }
+                    }
                     }
                 }
             }

@@ -317,18 +317,23 @@ fun PluginMarketScreen(
             }
             // v0.134.0：状态筛选 chips（数字随 merged/安装态实时派生）
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                V5Chip(text = "全部", selected = statusFilter == 0, onClick = { statusFilter = 0 })
                 V5Chip(
+                    small = true,
+                    text = "全部", selected = statusFilter == 0, onClick = { statusFilter = 0 })
+                V5Chip(
+                    small = true,
                     text = "可更新 $updatableCount",
                     selected = statusFilter == 1,
                     onClick = { statusFilter = 1 },
                 )
                 V5Chip(
+                    small = true,
                     text = "已安装 $installedCount",
                     selected = statusFilter == 2,
                     onClick = { statusFilter = 2 },
                 )
                 V5Chip(
+                    small = true,
                     text = "未安装 ${merged.size - installedCount}",
                     selected = statusFilter == 3,
                     onClick = { statusFilter = 3 },
@@ -336,21 +341,29 @@ fun PluginMarketScreen(
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                V5Chip(text = "全部", selected = category.isEmpty(), onClick = { category = "" })
-                V5Chip(text = "环境", selected = category == "env", onClick = { category = "env" })
-                V5Chip(text = "应用", selected = category == "app", onClick = { category = "app" })
+                V5Chip(
+small = true,
+text = "全部", selected = category.isEmpty(), onClick = { category = "" })
+                V5Chip(
+small = true,
+text = "环境", selected = category == "env", onClick = { category = "env" })
+                V5Chip(
+small = true,
+text = "应用", selected = category == "app", onClick = { category = "app" })
             }
             // v0.134.0：架构筛选——仅当归并结果含 2 种以上架构时才渲染这一行
             if (archOptions.size >= 2) {
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     V5Chip(
+                        small = true,
                         text = "全部架构",
                         selected = archFilter.isEmpty(),
                         onClick = { archFilter = "" },
                     )
                     archOptions.forEach { abi ->
                         V5Chip(
+                            small = true,
                             text = abi,
                             selected = archFilter == abi,
                             onClick = { archFilter = abi },
@@ -393,7 +406,7 @@ fun PluginMarketScreen(
                             LoadingSkeleton(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(148.dp),
+                                    .height(72.dp),
                                 shape = RoundedCornerShape(V5.CornerMd),
                             )
                         }
@@ -505,73 +518,30 @@ private fun PluginCard(
     onUninstall: () -> Unit,
 ) {
     val hasUpdate = PluginMarket.isUpdatable(plugin, installedVersion)
-    AppCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .alpha(if (plugin.isSupported()) 1f else 0.55f),
+    val status = when {
+        !plugin.isSupported() -> PluginStatus.Unsupported
+        hasUpdate -> PluginStatus.Updatable
+        installedVersion != null -> PluginStatus.Installed
+        else -> PluginStatus.None
+    }
+    CompactPluginRow(
+        name = plugin.name,
+        version = plugin.version,
+        desc = plugin.desc,
+        style = pluginTypeStyle(plugin.type, plugin.engine, plugin.tags),
+        status = status,
         onClick = onDetail,
+        dimmed = !plugin.isSupported(),
+        busy = busy,
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (plugin.iconUrl.isNotBlank()) {
-                    AsyncImage(
-                        model = plugin.iconUrl,
-                        contentDescription = plugin.name,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentScale = ContentScale.Crop,
-                    )
-                    Spacer(Modifier.size(10.dp))
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(text = plugin.name, style = MaterialTheme.typography.bodyLarge)
-                    if (plugin.author.isNotBlank()) {
-                        Text(
-                            text = plugin.author,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                if (busy) CircularProgressIndicator(modifier = Modifier.size(24.dp))
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(onClick = {}, label = { Text(plugin.type) })
-                if (plugin.category.isNotBlank()) {
-                    AssistChip(onClick = {}, label = { Text(PluginUi.categoryLabel(plugin.category)) })
-                }
-                AssistChip(onClick = {}, label = { Text("v${plugin.version}") })
-                if (installedVersion != null) {
-                    AssistChip(
-                        onClick = {},
-                        label = { Text(if (hasUpdate) "有新版" else "已安装") },
-                    )
-                }
-                if (!plugin.isSupported()) {
-                    AssistChip(onClick = {}, label = { Text("不支持") })
-                }
-            }
-            if (plugin.desc.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = plugin.desc,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            PluginActionButtons(
-                plugin = plugin,
-                installedVersion = installedVersion,
-                busy = busy,
-                onInstall = onInstall,
-                onUninstall = onUninstall,
-            )
-        }
+        MarketCompactAction(
+            supported = plugin.isSupported(),
+            needApp = plugin.needsNewerApp(),
+            installed = installedVersion != null,
+            hasUpdate = hasUpdate,
+            onInstall = onInstall,
+            onUninstall = onUninstall,
+        )
     }
 }
 
