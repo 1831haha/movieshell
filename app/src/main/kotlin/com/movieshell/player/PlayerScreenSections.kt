@@ -218,10 +218,11 @@ internal fun PlayerSeekBar(
                 }
                 // Canvas 的 onDraw 不是 @Composable 上下文，主题色必须在外层先取出来。
                 val trackPrimary = MaterialTheme.colorScheme.primary
+                // v0.294.13：轨道容器与 Slider 同高，与 thumb 共用垂直中线
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(16.dp),
+                        .height(28.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Canvas(
@@ -249,13 +250,21 @@ internal fun PlayerSeekBar(
                 }
             },
             // v0.108.0 B2：thumb 小圆球跟随主题色（之前硬编码白色）
+            // v0.294.13：thumb 与轨道同高盒子垂直居中
             thumb = {
                 Box(
                     modifier = Modifier
-                        .size(12.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                )
+                        .height(28.dp)
+                        .width(12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
             },
         )
     }

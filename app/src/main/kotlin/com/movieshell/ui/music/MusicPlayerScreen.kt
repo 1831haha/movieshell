@@ -1063,6 +1063,7 @@ private fun PlayerAtmosphere(
  * （关掉 Material3 的 48dp 最小交互高度、3dp 圆头细线、12dp 小圆点 thumb），
  * 已播段改走品牌炫彩渐变。视频侧那份是 private 且色板为视频定制，故此处
  * 按同规格独立实现，不互相牵连。
+ * v0.294.13：thumb 与 3dp 轨道垂直居中（拖动滑块不再偏上）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1089,10 +1090,11 @@ private fun MusicSeekBar(
                     if (span <= 0f) 0f
                     else ((sliderState.value - r.start) / span).coerceIn(0f, 1f)
                 }
+                // v0.294.13：轨道容器与 Slider 同高，保证与 thumb 共用垂直中线
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(16.dp),
+                        .height(28.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Canvas(
@@ -1121,13 +1123,21 @@ private fun MusicSeekBar(
                     }
                 }
             },
+            // v0.294.13：thumb 与轨道同高盒子垂直居中，进度滑块不再偏上（用户：小数到进度条中间）
             thumb = {
                 Box(
                     modifier = Modifier
-                        .size(12.dp)
-                        .clip(CircleShape)
-                        .background(Color.White),
-                )
+                        .height(28.dp)
+                        .width(12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .clip(CircleShape)
+                            .background(Color.White),
+                    )
+                }
             },
         )
     }

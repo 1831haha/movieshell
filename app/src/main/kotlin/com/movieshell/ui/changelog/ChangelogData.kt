@@ -19,6 +19,15 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.13",
+        date = "2026-10-31",
+        title = "音乐播放进度条：滑块垂直居中到轨道中间。",
+        details = listOf(
+            "正在播放页进度条上跟随拇指的小圆点（用户反馈的「小数」）原先略偏在轨道上方，现已与 3dp 细轨道上下居中对齐。",
+            "水平仍跟随拖动位置， scrubbing 行为不变；视频播放页同款进度条一并垂直居中。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.12",
         date = "2026-10-31",
         title = "音乐播放页：可切换多种播放界面与动态效果。",
