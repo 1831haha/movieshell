@@ -182,6 +182,11 @@ class LxMusicSourceEngine(context: Context) {
             if (url == null) lastFailureReason = "脚本返回空结果"
             url
         } catch (e: CancellationException) {
+            // v0.294.17：调用方取消（切歌）时 Kotlin 侧不再等，但 JS 里的 Promise 链照跑——
+            // 日志实锤连点后十来条解析链在同一 isolate 里并发（各自把 26 个后端轮一遍），
+            // 抢网络、拖慢真正要播的那首。取消即终止该实例，下次调用按脚本自动重建（约百毫秒）。
+            LogBus.d(TAG, "resolveMusicUrl 已取消，终止在途脚本：$source/$songId")
+            evict(scriptUrl, inst)
             throw e
         } catch (e: JsSessionTimeoutException) {
             lastFailureReason = "解析超时"

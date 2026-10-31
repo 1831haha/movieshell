@@ -162,7 +162,8 @@ fun MusicScreen(
     val scope = rememberCoroutineScope()
     var showPlaylistDialog by remember { mutableStateOf(false) }
     var playlistInput by remember { mutableStateOf("") }
-    var playlistName by remember { mutableStateOf<String?>(null) }
+    // v0.294.17：进播放页再返回不丢歌单标题（与页签同用 rememberSaveable）
+    var playlistName by rememberSaveable { mutableStateOf<String?>(null) }
     var importingPlaylist by remember { mutableStateOf(false) }
     // v0.180.0：音源条显示当前音源名（首选源名，无首选=自动），
     // 切换音源弹窗关上后重新读一次，名字跟着新选择走。

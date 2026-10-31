@@ -12,6 +12,7 @@ package com.movieshell
  */
 
 import kotlinx.coroutines.CoroutineScope
+import com.movieshell.ui.music.closeMusicPlayer
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.outlined.Settings
@@ -427,9 +428,10 @@ fun NavGraphBuilder.appDestinations(
                             )
                         }
                         // v0.83.0：音乐全屏播放页
-                        composable("music_player") {
+                        composable(com.movieshell.ui.music.MUSIC_PLAYER_ROUTE) {
                             MusicPlayerScreen(
-                                onBack = { navController.popBackStack() },
+                                // v0.294.17：只在当前确是播放页时弹一次（防连点双弹）
+                                onBack = { navController.closeMusicPlayer() },
                                 // v0.121.0：切换音源弹窗底部「管理音源与 Cookie →」
                                 onOpenMusicSource = {
                                     navController.navigate("music_source")

@@ -3,6 +3,7 @@ package com.movieshell.player
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.PowerManager
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -415,15 +416,16 @@ object MusicPlayer {
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            _state.value = _state.value.copy(playing = isPlaying, loading = false)
+            // v0.294.17：切歌时先停旧曲，旧曲的 isPlaying=false 回调会异步到达；
+            // 新曲还在解析时不能把 loading 清掉（否则转圈消失、用户以为没反应又连点）。
+            _state.value = _state.value.copy(playing = isPlaying, loading = isResolving())
         }
 
         // v0.89.0：之前缺这块——流加载失败（CDN 抽风/网络抖动）时 UI 会永远卡在 loading，
         // 这里落 loading 并给用户一句可读的反馈
         override fun onPlayerError(error: PlaybackException) {
             LogBus.e("MusicPlayer", "播放器错误：${error.errorCodeName} ${error.message}")
-            _state.value = _state.value.copy(playing = false, loading = false)
-            toast("播放失败，请重试")
+            onStreamError()
         }
 
         override fun onPlaybackStateChanged(state: Int) {
@@ -435,8 +437,8 @@ object MusicPlayer {
                     durationMs = controller?.duration?.coerceAtLeast(0L) ?: 0L,
                 )
             }
-            // v0.83.0：播完按模式切歌
-            if (state == Player.STATE_ENDED) {
+            // v0.83.0：播完按模式切歌（新曲解析中到达的旧曲 ENDED 不再抢切）
+            if (state == Player.STATE_ENDED && !isResolving()) {
                 onTrackEnded()
             }
         }
@@ -513,10 +515,46 @@ object MusicPlayer {
     fun playList(context: Context, tracks: List<MusicApi.Track>, startIndex: Int) {
         if (tracks.isEmpty()) return
         appCtx = context.applicationContext
+        val start = startIndex.coerceIn(tracks.indices)
+        val target = tracks[start]
+        // v0.294.17：点的正是当前这首（解析中或在播）——只换队列、不重解析重播。
+        // 日志实锤：连点同一行，每点一次都 cancel 上一轮解析从头再来，
+        // 5 秒能出的地址拖到 8 秒；在播时双击行直接把歌从头重放。
+        val same = index in queue.indices && sameTrack(queue[index], target) &&
+            sameTrack(_state.value.track, target)
         queue = tracks
-        playAt(context, startIndex.coerceIn(tracks.indices))
-        persistQueue(context)
+        shuffleHistory.clear()
+        if (same && (isResolving() || _state.value.playing)) {
+            index = start
+            _queueState.value = QueueState(queue, index)
+            persistQueue(context)
+            return
+        }
+        if (same && controllerHolds(target)) {
+            index = start
+            _queueState.value = QueueState(queue, index)
+            persistQueue(context)
+            controller?.play()
+            return
+        }
+        playAt(context, start)
     }
+
+    private fun sameTrack(a: MusicApi.Track?, b: MusicApi.Track?): Boolean =
+        a != null && b != null && a.id == b.id && a.source == b.source && a.urlId == b.urlId &&
+            a.localUri == b.localUri
+
+    /** 控制器里装着这首且处于可播状态（不是 IDLE/ENDED、不是空）。 */
+    private fun controllerHolds(track: MusicApi.Track?): Boolean {
+        val c = controller ?: return false
+        if (track == null) return false
+        val st = c.playbackState
+        return c.mediaItemCount > 0 && c.currentMediaItem?.mediaId == track.id &&
+            (st == Player.STATE_READY || st == Player.STATE_BUFFERING)
+    }
+
+    /** 当前是否有一轮解析在途（防抖等待也算）。 */
+    private fun isResolving(): Boolean = playJob?.isActive == true
 
     /**
      * v0.108.0 B1：手动切换音源——仅用指定源重新解析当前歌曲并播放。
@@ -605,120 +643,219 @@ object MusicPlayer {
         }
     }
 
-    private fun playAt(context: Context, i: Int) {
+    /**
+     * v0.294.17：起播来源——决定解析失败/播放出错时往哪个方向自动跳过。
+     * PICK=用户点了某首（失败就停在这首提示，不擅自换歌）；NEXT/AUTO 往后找；PREV 往前找。
+     */
+    internal enum class Origin(val direction: Int) { PICK(0), NEXT(1), PREV(-1), AUTO(1) }
+
+    /** 切歌防抖：连点下一首时只解析最后停下的那首，中间的不起 V8 解析。 */
+    private const val SKIP_DEBOUNCE_MS = 250L
+
+    /** 解析期间的 CPU 唤醒锁上限（息屏自动下一首时设备休眠会把解析冻住几分钟）。 */
+    private const val RESOLVE_WAKE_MS = 45_000L
+
+    private var currentOrigin = Origin.PICK
+    private var currentAttemptsLeft = 0
+    /** 播放出错已为哪一代重解析过一次（同一代第二次出错才跳过/停）。 */
+    private var streamRetriedGen = -1
+    /** 随机模式的播放历史（上一首用），playList 换队列时清空。 */
+    private val shuffleHistory = ArrayList<Int>()
+
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private fun holdWake() {
+        val ctx = appCtx ?: return
+        runCatching {
+            val wl = wakeLock ?: (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "movieshell:music-resolve")
+                .apply { setReferenceCounted(false) }
+                .also { wakeLock = it }
+            wl.acquire(RESOLVE_WAKE_MS)
+        }
+    }
+
+    private fun releaseWake() {
+        runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
+    }
+
+    private fun queueMode(): MusicQueueLogic.Mode = when (_state.value.repeatMode) {
+        RepeatMode.ALL -> MusicQueueLogic.Mode.ALL
+        RepeatMode.ONE -> MusicQueueLogic.Mode.ONE
+        RepeatMode.SHUFFLE -> MusicQueueLogic.Mode.SHUFFLE
+    }
+
+    private fun pushShuffleHistory() {
+        if (queueMode() != MusicQueueLogic.Mode.SHUFFLE || index !in queue.indices) return
+        shuffleHistory += index
+        if (shuffleHistory.size > 100) shuffleHistory.removeAt(0)
+    }
+
+    private fun playAt(
+        context: Context,
+        i: Int,
+        origin: Origin = Origin.PICK,
+        attemptsLeft: Int = MusicQueueLogic.maxSkipAttempts(queue.size),
+        debounce: Boolean = false,
+    ) {
         if (i !in queue.indices) return
+        appCtx = context.applicationContext
         // v0.131.0：切歌即取消上一首未完成的解析（见 playJob 声明处）
         playJob?.cancel()
         // v0.213.0：新起播先取消在途渐弱，尾巴不再暂停新歌。
         fadeJob?.cancel()
-        // v0.213.0 播错修复：forced 原来是全局裸变量，本地歌不走
-        // resolve、解析协程被取消时都没消费，下一首错用它解析；
-        // 改在 playAt 入口捕获即清零，随本次解析参数传入，过期不泄漏。
+        // v0.213.0 播错修复：forced 在 playAt 入口捕获即清零，随本次解析参数传入，过期不泄漏。
         val forcedForThisPlay = forcedSourceId.also { forcedSourceId = null }
-        // v0.213.0 播错修复：解析失败回滚用——失败前先记住旧下标，
-        // 失败时把 index/queueState 恢复，队列弹窗不再高亮一首没在播的歌。
-        val prevIndex = index
         index = i
         _queueState.value = QueueState(queue, i)
         persistQueue(context)
         val track = queue[i]
         val gen = ++playGen
-        // v0.146.0：新地址没拿到手之前不切显示态——播放页仍以控制器实际在播的
-        // 旧曲为准（旧曲在播显示暂停键），地址到手真切过去时再换显示；解析失败只提示。
-        // （此前这里立刻把 state 切到新曲 loading，旧曲还在响，标题/进度/按钮三者错位。）
-        // v0.125.0 补充A：无自带封面的歌在播放器 scope 里做海报匹配（切歌即触发，
-        // 与页面组合无关，匹配结果进 matchedArt 供播放页读）
+        currentOrigin = origin
+        currentAttemptsLeft = attemptsLeft
+        // v0.294.17：显示态立即切到新曲 + 转圈，旧曲立即停。
+        // 原 v0.146.0 做法是“地址到手才切显示、旧曲照放”——日志实锤用户点下一首后
+        // 8 秒界面毫无变化，于是连点 4 次，最后落到第 5 首；点歌行也连点十来次。
+        // 现在点下去立刻看到要播的歌名，进度归零，旧曲不再响。
+        progressJob?.cancel()
+        controller?.let { c -> runCatching { c.stop() } }
+        val badge = _badges.value[durationKey(track)]
+        _state.value = State(
+            track = track, playing = false, loading = true,
+            durationMs = _durations.value[durationKey(track)] ?: 0L,
+            repeatMode = _state.value.repeatMode,
+            resolvedSource = badge?.first.orEmpty(),
+            resolvedQuality = badge?.second.orEmpty(),
+        )
+        // v0.125.0 补充A：无自带封面的歌在播放器 scope 里做海报匹配
         ensureMatchedArt(track)
+        holdWake()
         playJob = scope.launch {
-            // v0.81.0：本地音频直接播 content URI；在线歌曲实时取直链（不缓存）
-            // v0.89.0：直链接口偶发 503，失败 1.5 秒后重试一次；封面与直链并发解析，不拖慢起播
-            // v0.100.0：在线歌曲先走启用的 LX 音乐源解析（内置 huibq 纯 HTTP / 用户脚本），
-            // 全部失败再回退 MusicApi.playUrl（GD Studio）
-            // v0.126.0：整条解析链按曲目自身平台走（LX 取档/解析/huibq/GD 兜底同口径）
-            val platform = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
-            val mediaDeferred = async {
-                resolveOnlineUrl(context.applicationContext, track, forcedForThisPlay)
-            }
-            val artDeferred = async {
-                if (track.picId.isBlank()) "" else {
-                    runCatching { MusicApi.picImageUrl(track.picId, platform) }.getOrDefault("")
-                }
-            }
-            val resolved = mediaDeferred.await()
-            if (resolved == null || resolved.url.isBlank()) {
-                artDeferred.cancel()
-                // v0.131.0：失败只报一次——已切歌的旧代静默退出，不记日志不 toast 不动 state
-                if (gen != playGen) return@launch
-                // v0.213.0 播错修复：解析失败把下标滚回旧值——否则队列
-                // 弹窗高亮失败歌、下一首/播完自动切歌都从错位置算、队列里
-                // 点高亮的失败歌还因 i==index 直接 no-op 点不动。
-                // 注意：playList 换过队列时旧下标可能越界，越界则归 -1。
-                val rollbackIndex = prevIndex.takeIf { it in queue.indices } ?: -1
-                index = rollbackIndex
-                _queueState.value = QueueState(queue, rollbackIndex)
-                persistQueue(context)
-                LogBus.e("MusicPlayer", "取播放地址失败：${track.name}")
-                // v0.146.0：显示态没切过新曲，这里只提示，不动 state（旧曲该播还播）。
-                // LX 链撞上试听且备用线路也没拿到时，说准"只有试听片段"而不是泛泛的失败。
-                // v0.215.0：失败原因里带登录／过期／Cookie／验证字样时，指路到音源管理补 Cookie，
-                // 不再静默降级成一句"请重试"。
-                val cookieExpired = lastLxFailures.any { f ->
-                    f.contains("登录") || f.contains("过期") || f.contains("验证") ||
-                        f.contains("授权") || f.contains("cookie", ignoreCase = true) ||
-                        f.contains("login", ignoreCase = true)
-                }
-                toast(
-                    when {
-                        lastTrialOnly -> "该歌曲只有试听片段"
-                        cookieExpired -> "取不到播放地址，可能是音源 Cookie 过期，去音源管理里更新 Cookie 再试"
-                        else -> "取不到播放地址，请重试"
-                    },
-                )
-                return@launch
-            }
-            // v0.117.0：记下本曲的真实来源与音质（列表徽标 + 播放页展示用）；
-            // gen 已过期（用户已切歌）时别把旧歌的来源盖到新歌上
-            if (gen == playGen) {
-                // v0.146.0：地址到手才切显示态（见 playAt 开头）。
-                // v0.89.0：保留播放模式（之前每次切歌都重置回 ALL）
-                _state.value = State(
-                    track = track, playing = false, loading = true,
-                    repeatMode = _state.value.repeatMode,
-                )
-                _badges.value = _badges.value + (durationKey(track) to (resolved.source to resolved.quality))
-                _state.value = _state.value.copy(
-                    resolvedSource = resolved.source,
-                    resolvedQuality = resolved.quality,
-                )
-            }
-            val mediaUri = resolved.url
-            // v0.217.0（F34）：封面是装饰、直链是主链路——封面解析单独给 1.5 秒
-            // 短超时，超时先播无封面版，不再让封面接口拖住起播；超时后取消
-            // 封面任务，不留后台空转。直链与封面本就并发解析，多数情况下
-            // 封面早已到手，超时只在封面异常慢时生效。
-            val artworkUrl = try {
-                kotlinx.coroutines.withTimeout(1500) { artDeferred.await() }
-            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                artDeferred.cancel()
-                ""
-            }
-            withController(context) { c ->
-                if (gen != playGen) return@withController
-                runCatching {
-                    c.setMediaItem(track.toMediaItem(mediaUri, artworkUrl))
-                    c.prepare()
-                    c.play()
-                    startProgressPoll()
-                    // v0.84.0：记一条播放历史
-                    launch { MusicHistoryStore.recordPlay(context.applicationContext, track) }
-                    LogBus.i("MusicPlayer", "播放：${track.name} - ${track.artist}")
-                }.onFailure {
-                    LogBus.e("MusicPlayer", "播放失败：${it.message}")
-                    _state.value = _state.value.copy(loading = false)
-                    toast("播放失败，请重试")
-                }
+            try {
+                if (debounce) delay(SKIP_DEBOUNCE_MS)
+                runResolveAndPlay(context, track, gen, origin, attemptsLeft, forcedForThisPlay)
+            } finally {
+                if (gen == playGen) releaseWake()
             }
         }
+    }
+
+    private suspend fun CoroutineScope.runResolveAndPlay(
+        context: Context,
+        track: MusicApi.Track,
+        gen: Int,
+        origin: Origin,
+        attemptsLeft: Int,
+        forcedForThisPlay: String?,
+    ) {
+        // v0.126.0：整条解析链按曲目自身平台走（LX 取档/解析/huibq/GD 兜底同口径）
+        val platform = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
+        val mediaDeferred = async {
+            resolveOnlineUrl(context.applicationContext, track, forcedForThisPlay)
+        }
+        val artDeferred = async {
+            if (track.picId.isBlank()) "" else {
+                runCatching { MusicApi.picImageUrl(track.picId, platform) }.getOrDefault("")
+            }
+        }
+        val resolved = mediaDeferred.await()
+        if (resolved == null || resolved.url.isBlank()) {
+            artDeferred.cancel()
+            // v0.131.0：已切歌的旧代静默退出
+            if (gen != playGen) return
+            LogBus.e("MusicPlayer", "取播放地址失败：${track.name}")
+            if (skipAfterFailure(context, track, origin, attemptsLeft)) return
+            _state.value = _state.value.copy(playing = false, loading = false)
+            // LX 链撞上试听时说准"只有试听片段"；失败原因带登录/过期/Cookie 字样时指路补 Cookie。
+            val cookieExpired = lastLxFailures.any { f ->
+                f.contains("登录") || f.contains("过期") || f.contains("验证") ||
+                    f.contains("授权") || f.contains("cookie", ignoreCase = true) ||
+                    f.contains("login", ignoreCase = true)
+            }
+            toast(
+                when {
+                    origin.direction != 0 && queue.size > 1 -> "队列里没有能播放的歌曲"
+                    lastTrialOnly -> "该歌曲只有试听片段"
+                    cookieExpired -> "取不到播放地址，可能是音源 Cookie 过期，去音源管理里更新 Cookie 再试"
+                    else -> "取不到播放地址，请重试"
+                },
+            )
+            return
+        }
+        if (gen != playGen) return
+        _badges.value = _badges.value + (durationKey(track) to (resolved.source to resolved.quality))
+        _state.value = _state.value.copy(
+            resolvedSource = resolved.source,
+            resolvedQuality = resolved.quality,
+        )
+        val mediaUri = resolved.url
+        // v0.217.0（F34）：封面单独给 1.5 秒短超时，不拖住起播。
+        val artworkUrl = try {
+            kotlinx.coroutines.withTimeout(1500) { artDeferred.await() }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            artDeferred.cancel()
+            ""
+        }
+        if (gen != playGen) return
+        withController(context) { c ->
+            if (gen != playGen) return@withController
+            runCatching {
+                c.setMediaItem(track.toMediaItem(mediaUri, artworkUrl))
+                c.prepare()
+                c.play()
+                startProgressPoll()
+                // v0.84.0：记一条播放历史
+                scope.launch { MusicHistoryStore.recordPlay(context.applicationContext, track) }
+                LogBus.i("MusicPlayer", "播放：${track.name} - ${track.artist}")
+            }.onFailure {
+                LogBus.e("MusicPlayer", "播放失败：${it.message}")
+                _state.value = _state.value.copy(loading = false)
+                toast("播放失败，请重试")
+            }
+        }
+    }
+
+    /**
+     * v0.294.17：解析失败/播放出错后的自动跳过——下一首/上一首/自然播完时同方向继续找能播的，
+     * 最多把队列其余各首试一圈；用户点名的歌（PICK）不擅自换歌。跳了返回 true。
+     */
+    private fun skipAfterFailure(
+        context: Context,
+        failed: MusicApi.Track,
+        origin: Origin,
+        attemptsLeft: Int,
+    ): Boolean {
+        if (origin.direction == 0 || attemptsLeft <= 0 || queue.size <= 1) return false
+        val target = MusicQueueLogic.skipIndex(queue.size, index, origin.direction)
+        if (target !in queue.indices) return false
+        LogBus.w("MusicPlayer", "《${failed.name}》无法播放，自动跳到${if (origin.direction < 0) "上" else "下"}一首")
+        toast("《${failed.name}》无法播放，已跳过")
+        playAt(context, target, origin, attemptsLeft - 1)
+        return true
+    }
+
+    /**
+     * v0.294.17：流加载出错（日志：ERROR_CODE_IO_BAD_HTTP_STATUS，直链签名过期/后端给了坏地址）。
+     * 原来只弹“播放失败，请重试”然后停住，点播放键也没反应（控制器已 IDLE）。
+     * 现在同一首先重解析一次；再错则按起播方向自动跳过，用户点名的歌停下提示。
+     */
+    private fun onStreamError() {
+        _state.value = _state.value.copy(playing = false, loading = false)
+        // 新曲解析中到达的旧曲错误不处理
+        if (isResolving()) return
+        val ctx = appCtx
+        if (ctx == null || index !in queue.indices) {
+            toast("播放失败，请重试")
+            return
+        }
+        if (streamRetriedGen != playGen) {
+            toast("播放地址失效，正在重新解析")
+            playAt(ctx, index, currentOrigin, currentAttemptsLeft)
+            streamRetriedGen = playGen
+            return
+        }
+        if (skipAfterFailure(ctx, queue[index], currentOrigin, currentAttemptsLeft)) return
+        toast("播放失败，请重试")
     }
 
     /**
@@ -873,11 +1010,22 @@ object MusicPlayer {
     fun toggle() {
         val c = controller
         if (c != null) {
-            if (c.isPlaying) c.pause() else c.play()
+            // v0.294.17：解析中点播放键不做事（转圈即反馈）；控制器已 IDLE/ENDED/空
+            // （出错停住、进程重建后恢复的队列）时原来 play() 静默无效，现在按当前曲重解析起播。
+            if (isResolving()) return
+            if (!controllerHolds(queue.getOrNull(index)) && _state.value.track != null) {
+                appCtx?.let { if (index in queue.indices) { playAt(it, index); return } }
+            }
+            if (c.playWhenReady && c.playbackState != Player.STATE_ENDED) c.pause() else c.play()
             return
         }
         val ctx = appCtx ?: return
         if (_state.value.track == null) return
+        if (index in queue.indices && !isResolving()) {
+            // 控制器都没连上，必然没有可续播的媒体项：直接按当前曲起播（playAt 内部会连服务）
+            playAt(ctx, index)
+            return
+        }
         toast("正在重连…")
         // v0.268.0（T13）：重连分支原来只播/停，不重启轮询；
         // 轮询在 controller 为空时已 break 退出，重连后控制器回来了、
@@ -943,6 +1091,15 @@ object MusicPlayer {
             RepeatMode.SHUFFLE -> RepeatMode.ALL
         }
         _state.value = _state.value.copy(repeatMode = next)
+        // v0.294.17：功能行紧凑、模式键挨着上一首，误触切到单曲循环后“播完老是同一首”
+        // 用户察觉不到；切换时给一句提示。
+        toast(
+            when (next) {
+                RepeatMode.ALL -> "列表循环"
+                RepeatMode.ONE -> "单曲循环"
+                RepeatMode.SHUFFLE -> "随机播放"
+            },
+        )
     }
 
     private fun onTrackEnded() {
@@ -953,17 +1110,18 @@ object MusicPlayer {
             return
         }
         val ctx = appCtx ?: return
-        when (_state.value.repeatMode) {
-            RepeatMode.ONE -> playAt(ctx, index)
-            RepeatMode.SHUFFLE -> {
-                if (queue.size > 1) {
-                    var n = index
-                    while (n == index) n = (0 until queue.size).random()
-                    playAt(ctx, n)
-                } else playAt(ctx, index)
-            }
-            RepeatMode.ALL -> next(ctx)
+        if (queue.isEmpty()) return
+        val target = MusicQueueLogic.autoNextIndex(queue.size, index, queueMode()) { (0 until it).random() }
+        // 单曲循环/单首列表：地址还在手，原地从头放，不再整条链重解析
+        val c = controller
+        if (target == index && c != null && c.mediaItemCount > 0) {
+            c.seekTo(0)
+            c.play()
+            startProgressPoll()
+            return
         }
+        pushShuffleHistory()
+        playAt(ctx, target, Origin.AUTO)
     }
 
     // v0.294.5（lint StaticFieldLeak）：只存 applicationContext（所有赋值点都是 context.applicationContext），
@@ -973,12 +1131,27 @@ object MusicPlayer {
 
     fun next(context: Context) {
         if (queue.isEmpty()) return
-        playAt(context, (index + 1) % queue.size)
+        val target = MusicQueueLogic.nextIndex(queue.size, index, queueMode()) { (0 until it).random() }
+        pushShuffleHistory()
+        playAt(context, target, Origin.NEXT, debounce = true)
     }
 
+    /**
+     * v0.294.17：上一首——已播超过 3 秒先回到本首开头（通用约定，再点才是上一首）；
+     * 随机模式回到随机历史里的上一首。
+     */
     fun prev(context: Context) {
         if (queue.isEmpty()) return
-        playAt(context, (index - 1 + queue.size) % queue.size)
+        val c = controller
+        val loaded = !isResolving() && controllerHolds(queue.getOrNull(index))
+        if (c != null && MusicQueueLogic.shouldRestartOnPrev(c.currentPosition, loaded)) {
+            c.seekTo(0)
+            _state.value = _state.value.copy(positionMs = 0L)
+            return
+        }
+        val target = MusicQueueLogic.prevIndex(queue.size, index, queueMode(), shuffleHistory)
+        if (shuffleHistory.lastOrNull() == target) shuffleHistory.removeAt(shuffleHistory.size - 1)
+        playAt(context, target, Origin.PREV, debounce = true)
     }
 
     /** v0.85.0：供 MusicService 通知栏上下首——队列多于一首才露出按钮 */
@@ -991,7 +1164,10 @@ object MusicPlayer {
      * v0.217.0（F26）：当前曲目正在播时仍不重播；其他情况（恢复后未起播、
      * 已暂停等）点按即重播——恢复的队列不再是“看得见、播不了”的孤儿。 */
     fun playQueueItem(context: Context, i: Int) {
-        if (i in queue.indices && (i != index || _state.value.playing != true)) playAt(context, i)
+        if (i !in queue.indices) return
+        // v0.294.17：点的是正在解析/在播的当前项不重来
+        if (i == index && (isResolving() || _state.value.playing)) return
+        playAt(context, i)
     }
 
     fun stop() {
@@ -1000,6 +1176,8 @@ object MusicPlayer {
         playJob?.cancel()
         fadeJob?.cancel()
         playGen += 1
+        releaseWake()
+        shuffleHistory.clear()
         progressJob?.cancel()
         controller?.stop()
         _state.value = State(repeatMode = _state.value.repeatMode)
@@ -1030,6 +1208,7 @@ object MusicPlayer {
         playJob?.cancel()
         fadeJob?.cancel()
         playGen += 1
+        releaseWake()
         progressJob?.cancel()
         controller?.release()
         controller = null

@@ -23,19 +23,47 @@ class MusicService : MediaSessionService() {
 
     private var session: MediaSession? = null
 
+    /**
+     * v0.294.17：通知栏/锁屏/蓝牙耳机的上下首。原来只覆写 seekToNext/seekToPrevious，
+     * 却只公布 COMMAND_SEEK_TO_*_MEDIA_ITEM——media3 的旧版会话桥（系统媒体控件、蓝牙）
+     * 在 COMMAND_SEEK_TO_NEXT 不可用时改调 seekToNextMediaItem()，它没被覆写、直接转给
+     * 只装着一首的 ExoPlayer，按了没反应。现在四个入口全接到 MusicPlayer 的逻辑队列，
+     * 两类命令都公布，isCommandAvailable/hasNext 与 getAvailableCommands 口径一致。
+     */
     private inner class QueueForwardingPlayer(player: Player) : ForwardingPlayer(player) {
         override fun getAvailableCommands(): Player.Commands {
             val builder = super.getAvailableCommands().buildUpon()
-            if (MusicPlayer.hasPrev()) builder.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-            if (MusicPlayer.hasNext()) builder.add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+            if (MusicPlayer.hasPrev()) {
+                builder.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                builder.add(Player.COMMAND_SEEK_TO_PREVIOUS)
+            }
+            if (MusicPlayer.hasNext()) {
+                builder.add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                builder.add(Player.COMMAND_SEEK_TO_NEXT)
+            }
             return builder.build()
         }
+
+        override fun isCommandAvailable(command: Int): Boolean =
+            availableCommands.contains(command)
+
+        override fun hasNextMediaItem(): Boolean = MusicPlayer.hasNext()
+
+        override fun hasPreviousMediaItem(): Boolean = MusicPlayer.hasPrev()
 
         override fun seekToPrevious() {
             MusicPlayer.prev(this@MusicService)
         }
 
+        override fun seekToPreviousMediaItem() {
+            MusicPlayer.prev(this@MusicService)
+        }
+
         override fun seekToNext() {
+            MusicPlayer.next(this@MusicService)
+        }
+
+        override fun seekToNextMediaItem() {
             MusicPlayer.next(this@MusicService)
         }
     }
@@ -53,6 +81,8 @@ class MusicService : MediaSessionService() {
                 /* handleAudioFocus= */ true,
             )
             .setHandleAudioBecomingNoisy(true)
+            // v0.294.17：在线流播放期间保持 CPU+Wi-Fi 唤醒，息屏缓冲不被休眠打断
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         val sessionActivity = Notify.routeIntent(this, "music_player", id = 9001)
         session = MediaSession.Builder(this, QueueForwardingPlayer(exo))

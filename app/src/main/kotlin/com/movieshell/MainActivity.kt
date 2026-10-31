@@ -98,6 +98,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.onSizeChanged
 import com.movieshell.ui.home.HomeRefreshRequest
 import com.movieshell.ui.music.MiniPlayer
+import com.movieshell.ui.music.openMusicPlayer
 import com.movieshell.ui.log.LogBubbleOverlay
 import com.movieshell.ui.market.PyDepGuideOverlay
 import com.movieshell.ui.theme.MovieShellTheme
@@ -303,7 +304,12 @@ class MainActivity : ComponentActivity() {
                     } else {
                         route
                     }
-                    runCatching { navController.navigate(finalRoute) }
+                    // v0.294.17：通知点进播放页走统一入口——已在播放页/栈里已有时不再叠一层
+                    if (finalRoute == com.movieshell.ui.music.MUSIC_PLAYER_ROUTE) {
+                        runCatching { navController.openMusicPlayer() }
+                    } else {
+                        runCatching { navController.navigate(finalRoute) }
+                    }
                 }
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val current = backStackEntry?.destination
@@ -390,7 +396,7 @@ class MainActivity : ComponentActivity() {
                         if (showMiniPlayer && !showBottomBar) {
                             MiniPlayer(
                                 playState = musicState,
-                                onOpenPlayer = { navController.navigate("music_player") },
+                                onOpenPlayer = { navController.openMusicPlayer() },
                             )
                         }
                     }
@@ -447,7 +453,7 @@ class MainActivity : ComponentActivity() {
                                 Box(Modifier.onSizeChanged { miniPlayerHeightPx = it.height }) {
                                     MiniPlayer(
                                         playState = musicState,
-                                        onOpenPlayer = { navController.navigate("music_player") },
+                                        onOpenPlayer = { navController.openMusicPlayer() },
                                     )
                                 }
                             }
