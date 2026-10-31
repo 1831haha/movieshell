@@ -927,7 +927,9 @@ fun SettingsScreen(
             onConfirm = {
                 showClearMagnetDialog = false
                 scope.launch(Dispatchers.IO) {
-                    val keep = com.movieshell.player.XiaYingMagnetEngine.activeEntries()
+                    val keep = runCatching {
+                        com.movieshell.player.XiaYingMagnetEngine.activeEntries()
+                    }.getOrDefault(emptySet())
                     com.movieshell.player.MagnetCache.dir(context).listFiles()
                         ?.filter { it.name !in keep }
                         ?.forEach { runCatching { it.deleteRecursively() } }

@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.28",
+        date = "2026-11-01",
+        title = "修复启动闪退：磁力引擎改为真正按需加载。",
+        details = listOf(
+            "启动不再加载 libtorrent；磁力缓存清理只动文件目录。",
+            "会话设置去掉 IPv6 监听，启动失败会回退默认配置；DHT 暖机异常不影响起播流程。",
+            "只有点磁力播放时才加载原生库。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.27",
         date = "2026-11-01",
         title = "磁力元数据：补公共 tracker、可取消、60 秒硬超时。",

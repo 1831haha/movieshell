@@ -101,11 +101,22 @@ object XiaYingMagnetEngine {
         status("已停止磁力下载")
     }
 
-    fun isNativeAvailable(): Boolean = try {
-        Class.forName("org.libtorrent4j.SessionManager")
-        true
-    } catch (_: Throwable) {
-        false
+    @Volatile private var nativeChecked = false
+    @Volatile private var nativeOk = false
+
+    fun isNativeAvailable(): Boolean {
+        if (nativeChecked) return nativeOk
+        nativeOk = try {
+            // 仅在真正要播磁力时加载 JNI；LinkageError/UnsatisfiedLinkError → 不可用
+            Class.forName("org.libtorrent4j.swig.libtorrent_jni")
+            Class.forName("org.libtorrent4j.SessionManager")
+            true
+        } catch (t: Throwable) {
+            LogBus.e(TAG, "libtorrent 不可用：${t::class.java.simpleName}: ${t.message}")
+            false
+        }
+        nativeChecked = true
+        return nativeOk
     }
 
     @Volatile
@@ -124,19 +135,31 @@ object XiaYingMagnetEngine {
             saveRoot = root
             appContext = context.applicationContext
             runCatching { MagnetCache.prune(context, emptySet()) }
+            // v0.294.28：会话配置尽量保守——部分机型 [::] 监听会原生崩溃
             val sm = SessionManager()
             val sp = SettingsPack().apply {
-                connectionsLimit(200)
+                connectionsLimit(100)
                 setEnableDht(true)
                 setEnableLsd(true)
                 setDhtBootstrapNodes(DHT_BOOTSTRAP)
-                // 随机端口，避开运营商常见屏蔽；双栈都听
-                listenInterfaces("0.0.0.0:0,[::]:0")
+                listenInterfaces("0.0.0.0:0")
                 anonymousMode(false)
-                seedingOutgoingConnections(true)
             }
-            sm.start(SessionParams(sp))
-            // 显式再开一次 DHT（部分机型 start 后状态不准）
+            try {
+                sm.start(SessionParams(sp))
+            } catch (t: Throwable) {
+                LogBus.e(TAG, "Session.start 失败，回退默认设置：${t.message}")
+                runCatching { sm.stop() }
+                val sm2 = SessionManager()
+                sm2.start() // 库默认设置
+                session = sm2
+                runCatching { sm2.startDht() }
+                val srv = Loopback()
+                srv.start()
+                http = srv
+                status("磁力引擎已启动（默认设置，端口 ${srv.listeningPort}）")
+                return
+            }
             runCatching { sm.startDht() }
             session = sm
             val srv = Loopback()
@@ -180,16 +203,19 @@ object XiaYingMagnetEngine {
             torrents.keys.toList().forEach { cancel(it, deleteFiles = true) }
         }
 
-        status(MagnetStreamLogic.statusFetching(0, sm.dhtNodes()))
-        // 等 DHT 暖机一小会儿（有 tracker 也能走，暖机失败不阻塞）
-        withTimeoutOrNull(DHT_WARMUP_SEC * 1000L) {
-            var e = 0
-            while (sm.dhtNodes() < 10 && e < DHT_WARMUP_SEC) {
-                if (myGen != prepareGen) return@withTimeoutOrNull
-                delay(1000); e++
-                status(MagnetStreamLogic.statusFetching(e, sm.dhtNodes()))
+        val dht0 = runCatching { sm.dhtNodes() }.getOrDefault(-1L)
+        status(MagnetStreamLogic.statusFetching(0, dht0))
+        // DHT 暖机失败/原生异常一律吞掉，有 tracker 仍可继续
+        runCatching {
+            withTimeoutOrNull(DHT_WARMUP_SEC * 1000L) {
+                var e = 0
+                while (runCatching { sm.dhtNodes() }.getOrDefault(0L) < 10 && e < DHT_WARMUP_SEC) {
+                    if (myGen != prepareGen) return@withTimeoutOrNull
+                    delay(1000); e++
+                    status(MagnetStreamLogic.statusFetching(e, runCatching { sm.dhtNodes() }.getOrDefault(-1L)))
+                }
             }
-        }
+        }.onFailure { LogBus.w(TAG, "DHT 暖机异常：${it.message}") }
         if (myGen != prepareGen) return@withContext Fail("已取消")
 
         val ti = fetchMetadataCancelable(sm, enriched, root, myGen)

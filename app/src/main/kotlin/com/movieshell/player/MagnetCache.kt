@@ -53,6 +53,13 @@ object MagnetCache {
         return del.size
     }
 
+    /** 启动用：不依赖 libtorrent / XiaYingMagnetEngine。 */
+    fun pruneAsync(context: Context, keep: Set<String> = emptySet()) {
+        val c = context.applicationContext
+        Thread({ runCatching { prune(c, keep) } }, "magnet-cache-prune")
+            .also { it.isDaemon = true; it.start() }
+    }
+
     fun format(bytes: Long): String = when {
         bytes >= 1L shl 30 -> String.format("%.1f GB", bytes / (1L shl 30).toDouble())
         bytes >= 1L shl 20 -> String.format("%.0f MB", bytes / (1L shl 20).toDouble())

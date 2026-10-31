@@ -30,8 +30,8 @@ class XiaYingApp : Application() {
         super.onCreate()
         CrashHandler.install(this)
         LogBus.readLastCrash(this)
-        // v0.294.26：磁力缓存按上限/3 天过期自动清理（后台线程）
-        runCatching { com.movieshell.player.XiaYingMagnetEngine.pruneAsync(this) }
+        // v0.294.28：启动只清磁力缓存目录，绝不加载 libtorrent（避免 JNI 启动闪退）
+        runCatching { com.movieshell.player.MagnetCache.pruneAsync(this) }
         // v0.291.0：proxy:// 封面取图器——只接管 proxy:// 地址，其余走 Coil 默认，
         // 须在任何图片加载前注册，故放在 Application.onCreate。
         Coil.setImageLoader(

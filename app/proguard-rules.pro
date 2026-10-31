@@ -66,3 +66,6 @@
 -keep class org.libtorrent4j.swig.libtorrent_jni { *; }
 -keepclassmembers class org.libtorrent4j.swig.libtorrent_jni { *; }
 -dontwarn org.libtorrent4j.**
+
+# NanoHTTPD (magnet loopback)
+-keep class fi.iki.elonen.** { *; }
