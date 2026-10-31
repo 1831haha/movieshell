@@ -217,6 +217,9 @@ fun SettingsScreen(
     var showThemeDialog by remember { mutableStateOf(false) }
     var cacheSize by remember { mutableStateOf("计算中…") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
+    var magnetSize by remember { mutableStateOf("计算中…") }
+    var magnetCap by remember { mutableStateOf(com.movieshell.player.MagnetCache.DEFAULT_CAP_GB) }
+    var showClearMagnetDialog by remember { mutableStateOf(false) }
     // v0.188.0：旧字幕记忆清理入口用——只在用户点清理行时统计条数、点确认时删除，
     // 进设置页不自动删任何用户设置。
     var showClearLegacySubtitleDialog by remember { mutableStateOf(false) }
@@ -330,6 +333,10 @@ fun SettingsScreen(
         runCatching { BackgroundStore.load(context) }
         // v0.101.0：缓存占用（视频 m3u8 分片 + Coil 图片磁盘缓存）
         cacheSize = runCatching { refreshCacheSize(context) }.getOrDefault(cacheSize)
+        magnetCap = com.movieshell.player.MagnetCache.capGb(context)
+        magnetSize = withContext(Dispatchers.IO) {
+            runCatching { com.movieshell.player.MagnetCache.format(com.movieshell.player.MagnetCache.totalBytes(context)) }.getOrDefault("—")
+        }
         // v0.147.0：统计失败不再静默回 0（之前 0 和“真没有”分不出来），记日志方便定位
         // v0.171.0：失败汇总到 statsFailed，界面上显示"—"与"统计失败"而不是 0
         var failed = false
@@ -714,6 +721,25 @@ fun SettingsScreen(
             )
         }
         item {
+            // v0.294.26：磁力缓存占用 + 清理；尾部点按循环切换上限
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.CleaningServices,
+                title = "磁力缓存",
+                subtitle = "$magnetSize · 超过上限或 3 天未用自动清理",
+                onClick = { showClearMagnetDialog = true },
+                trailing = {
+                    TextButton(onClick = {
+                        val ch = com.movieshell.player.MagnetCache.CAP_CHOICES_GB
+                        val next = ch[(ch.indexOf(magnetCap) + 1).mod(ch.size)]
+                        magnetCap = next
+                        com.movieshell.player.MagnetCache.setCapGb(context, next)
+                        AppToast.show(context, "磁力缓存上限：${next}GB", long = false)
+                    }) { Text("上限 ${magnetCap}GB", style = MaterialTheme.typography.labelLarge) }
+                },
+            )
+        }
+        item {
             // v0.188.0：旧字幕 key 清理入口——点开先说明条数，确认后才删
             SegItem(
                 position = SegPos.Last,
@@ -892,6 +918,31 @@ fun SettingsScreen(
                 }
             },
         )
+    }
+    if (showClearMagnetDialog) {
+        TechDialog(
+            onDismissRequest = { showClearMagnetDialog = false },
+            title = "清理磁力缓存",
+            confirmText = "清理",
+            onConfirm = {
+                showClearMagnetDialog = false
+                scope.launch(Dispatchers.IO) {
+                    val keep = com.movieshell.player.XiaYingMagnetEngine.activeEntries()
+                    com.movieshell.player.MagnetCache.dir(context).listFiles()
+                        ?.filter { it.name !in keep }
+                        ?.forEach { runCatching { it.deleteRecursively() } }
+                    magnetSize = com.movieshell.player.MagnetCache.format(com.movieshell.player.MagnetCache.totalBytes(context))
+                    withContext(Dispatchers.Main) {
+                        AppToast.show(context, if (keep.isEmpty()) "磁力缓存已清理" else "已清理（正在播放的保留）", long = false)
+                    }
+                }
+            },
+        ) {
+            Text(
+                "删除磁力边下边播留下的视频文件，共 $magnetSize。正在播放的不会删除。",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
     if (showClearCacheDialog) {
         TechDialog(

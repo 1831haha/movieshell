@@ -54,7 +54,44 @@ object XiaYingMagnetEngine {
         val filePath: File,
         val fileSize: Long,
         val name: String,
+        val topEntry: String,
     )
+
+    @Volatile private var appContext: Context? = null
+    @Volatile private var releaseGen = 0
+    @Volatile private var lastServeMs = 0L
+    private val openStreams = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** 正在用的缓存顶层条目（清理时保留） */
+    fun activeEntries(): Set<String> = torrents.values.map { it.topEntry }.toSet()
+
+    /** 启动/初始化时调用：按上限与过期时间清理旧缓存（后台线程） */
+    fun pruneAsync(context: Context) {
+        val c = context.applicationContext
+        Thread({ runCatching { MagnetCache.prune(c, activeEntries()) } }, "magnet-prune")
+            .also { it.isDaemon = true; it.start() }
+    }
+
+    /**
+     * 播放页关闭时调用：宽限 [graceMs] 后若没有新的起播/读流（换内核、进出全屏、
+     * 同一磁力切集都会重新读流），就停掉全部种子并删掉其缓存文件。
+     */
+    fun releaseWhenIdle(graceMs: Long = 8000L) {
+        if (torrents.isEmpty()) return
+        val gen = ++releaseGen
+        val since = System.currentTimeMillis()
+        Thread({
+            try { Thread.sleep(graceMs) } catch (_: InterruptedException) { return@Thread }
+            if (gen != releaseGen) return@Thread
+            if (openStreams.get() > 0 || lastServeMs > since) return@Thread
+            stopAll(deleteFiles = true)
+        }, "magnet-release").also { it.isDaemon = true; it.start() }
+    }
+
+    fun stopAll(deleteFiles: Boolean) {
+        torrents.keys.toList().forEach { cancel(it, deleteFiles) }
+        status("已停止磁力下载")
+    }
 
     fun isNativeAvailable(): Boolean = try {
         Class.forName("org.libtorrent4j.SessionManager")
@@ -77,6 +114,8 @@ object XiaYingMagnetEngine {
             if (session?.isRunning == true && http != null) return
             val root = File(context.filesDir, "magnet_cache").also { it.mkdirs() }
             saveRoot = root
+            appContext = context.applicationContext
+            runCatching { MagnetCache.prune(context, emptySet()) }
             val sm = SessionManager()
             val sp = SettingsPack().apply {
                 // 移动网络友好：限制连接数
@@ -134,6 +173,9 @@ object XiaYingMagnetEngine {
             return@withContext Fail("磁力元数据解析失败：${t.message}")
         }
         val hash = ti.infoHash().toHex().lowercase()
+        releaseGen++ // 新起播：作废待执行的释放
+        // 同一时间只播一个磁力：其余种子停掉并删缓存，避免后台继续下载
+        torrents.keys.filter { it != hash }.forEach { cancel(it, deleteFiles = true) }
         torrents[hash]?.let {
             status("已在缓冲：${it.name}")
             return@withContext Ready("http://127.0.0.1:${srv.listeningPort}/stream/$hash")
@@ -195,7 +237,8 @@ object XiaYingMagnetEngine {
             ?: return@withContext Fail("无法取得下载句柄")
         val rel = ti.files().filePath(pick.index)
         val path = File(root, rel)
-        torrents[hash] = Active(handle, pick.index, path, pick.size, pick.name)
+        torrents[hash] = Active(handle, pick.index, path, pick.size, pick.name,
+            rel.replace('\\', '/').substringBefore('/'))
 
         // 等到文件头有数据再交播放器（最多再等 60s）
         val headReady = withTimeoutOrNull(60_000L) {
@@ -219,9 +262,19 @@ object XiaYingMagnetEngine {
         Ready("http://127.0.0.1:${srv.listeningPort}/stream/$hash")
     }
 
-    fun cancel(hashHex: String) {
+    fun cancel(hashHex: String, deleteFiles: Boolean = true) {
         val a = torrents.remove(hashHex) ?: return
         runCatching { session?.remove(a.handle) }
+        if (deleteFiles) {
+            val root = saveRoot ?: return
+            val top = a.topEntry
+            if (top.isBlank() || top == "." || top == "..") return
+            // 稍等 libtorrent 关闭文件句柄再删；若期间又被重新起播则保留
+            Thread({
+                try { Thread.sleep(1500) } catch (_: InterruptedException) {}
+                if (top !in activeEntries()) runCatching { File(root, top).deleteRecursively() }
+            }, "magnet-del").also { it.isDaemon = true; it.start() }
+        }
     }
 
     /** 供 HTTP 服务读文件：等到 [offset, offset+len) 覆盖的 piece 就绪。 */
@@ -262,6 +315,7 @@ object XiaYingMagnetEngine {
             val m = Regex("""^/stream/([a-fA-F0-9]+)""").find(uri)
                 ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
             val hash = m.groupValues[1].lowercase()
+            lastServeMs = System.currentTimeMillis()
             val active = torrents[hash]
                 ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "torrent gone")
             val total = active.fileSize
@@ -287,8 +341,14 @@ object XiaYingMagnetEngine {
             }
             val fis = FileInputStream(active.filePath)
             fis.skip(start)
+            openStreams.incrementAndGet()
             val body: InputStream = object : FilterInputStream(fis) {
                 var left = len
+                private var closed = false
+                override fun close() {
+                    if (!closed) { closed = true; openStreams.decrementAndGet(); lastServeMs = System.currentTimeMillis() }
+                    super.close()
+                }
                 override fun read(b: ByteArray, off: Int, l: Int): Int {
                     if (left <= 0) return -1
                     val n = super.read(b, off, minOf(l.toLong(), left).toInt())

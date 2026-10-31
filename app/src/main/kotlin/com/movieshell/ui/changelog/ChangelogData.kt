@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.26",
+        date = "2026-11-01",
+        title = "磁力缓存自动清理，退出播放后不再后台下载。",
+        details = listOf(
+            "关闭播放页后磁力种子自动停止并删除其缓存；换内核、进出全屏、切集不受影响。",
+            "启动时按上限（默认 2GB）和 3 天未用自动清理旧磁力缓存，最旧的先删。",
+            "设置 → 存储新增「磁力缓存」：显示占用、一键清理，可切换上限 1/2/5/10GB。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.25",
         date = "2026-11-01",
         title = "短剧竖屏全屏：下方上滑下一集、下滑上一集。",
