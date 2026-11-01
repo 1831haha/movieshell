@@ -204,10 +204,11 @@ object EngineHost {
      * v0.294.40：这个地址是否正被当前内核播放（在播或暂停、已加载）——
      * 全屏跳页 / 返回小窗时据此直接接续同一个播放器，不重新打开地址。
      */
-    fun isActiveFor(url: String): Boolean = url.isNotBlank() && url == currentUrl && route(
-        { PlayerManager.player?.let { it.mediaItemCount > 0 && it.playbackState != androidx.media3.common.Player.STATE_IDLE && it.playbackState != androidx.media3.common.Player.STATE_ENDED } == true },
-        { MpvPlayerManager.hasFile },
-    )
+    fun isActiveFor(url: String): Boolean = url.isNotBlank() && url == currentUrl && (
+        // v0.294.41：两个内核都看——偏好 libmpv 但实际回退在 Media3 播时，原来只查 libmpv，判成「没在播」
+        PlayerManager.player?.let { it.mediaItemCount > 0 && it.playbackState != androidx.media3.common.Player.STATE_IDLE && it.playbackState != androidx.media3.common.Player.STATE_ENDED } == true ||
+            MpvPlayerManager.hasFile
+        )
     @Volatile private var beating = false
 
     /**

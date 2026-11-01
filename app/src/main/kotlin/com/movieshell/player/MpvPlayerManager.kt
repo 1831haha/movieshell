@@ -136,6 +136,15 @@ object MpvPlayerManager {
         }
     }
 
+    /**
+     * v0.294.41：libmpv 还没初始化（插件未加载）时不碰 MPVLib——否则类初始化里 loadLibrary 失败，
+     * 这个类会永久处于错误状态，之后真正初始化也报 NoClassDefFoundError（日志里的「初始化失败：dev.jdtech.mpv.MPVLib」）。
+     */
+    private fun execIfReady(block: () -> Unit) {
+        if (!initialized.get() || destroyed.get()) return
+        executor.execute { if (initialized.get() && !destroyed.get()) block() }
+    }
+
     /** MpvVideoView surface 就绪/销毁时调用 */
     fun onSurfaceReady(surface: Surface) {
         attachedSurface = surface
@@ -234,7 +243,7 @@ object MpvPlayerManager {
     fun pause() {
         // v0.154.0：与 play() 同理，本地状态同步置，不只等回调
         paused = true
-        executor.execute {
+        execIfReady {
             runCatching { MPVLib.setPropertyBoolean("pause", true) }
                 .onFailure { LogBus.w("MpvPlayer", "pause 失败：${it.message}") }
         }
@@ -242,14 +251,14 @@ object MpvPlayerManager {
 
     fun resume() {
         paused = false
-        executor.execute {
+        execIfReady {
             runCatching { MPVLib.setPropertyBoolean("pause", false) }
                 .onFailure { LogBus.w("MpvPlayer", "resume 失败：${it.message}") }
         }
     }
 
     fun seekTo(ms: Long) {
-        executor.execute {
+        execIfReady {
             runCatching {
                 MPVLib.command(arrayOf("seek", (ms / 1000.0).toString(), "absolute"))
             }.onFailure { LogBus.w("MpvPlayer", "seek 失败：${it.message}") }
@@ -260,7 +269,7 @@ object MpvPlayerManager {
         val hadFile = hasFile
         hasFile = false
         paused = true
-        executor.execute {
+        execIfReady {
             runCatching { MPVLib.command(arrayOf("stop")) }
                 // v0.107.0 P0-3：命令发出后才计数；命令本身失败则不会有 END_FILE，不计数
                 .onSuccess { if (hadFile) expectEndFileCount.incrementAndGet() }
@@ -269,7 +278,7 @@ object MpvPlayerManager {
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        executor.execute {
+        execIfReady {
             runCatching { MPVLib.setPropertyDouble("speed", speed.toDouble()) }
                 .onFailure { LogBus.w("MpvPlayer", "倍速设置失败：${it.message}") }
         }
@@ -285,8 +294,8 @@ object MpvPlayerManager {
      */
     fun setAspectMode(mode: Int) {
         currentAspectMode = mode
-        executor.execute {
-            if (!initialized.get() || destroyed.get()) return@execute
+        execIfReady {
+            if (!initialized.get() || destroyed.get()) return@execIfReady
             runCatching {
                 when (mode) {
                     1 -> {
@@ -333,8 +342,8 @@ object MpvPlayerManager {
      * 默认跟字幕脚本自带排版（srt/vtt 转 ASS 的则全量生效）。
      */
     fun applySubtitleStyle(style: SubtitleStyle) {
-        executor.execute {
-            if (!initialized.get() || destroyed.get()) return@execute
+        execIfReady {
+            if (!initialized.get() || destroyed.get()) return@execIfReady
             runCatching {
                 MPVLib.setPropertyDouble("sub-font-size", style.sizeSp * 3.0)
                 MPVLib.setPropertyString("sub-color", mpvColor(style.color))
@@ -397,6 +406,7 @@ object MpvPlayerManager {
     /** 释放；只执行一次，应用真正退出时调用 */
     @Synchronized
     fun release() {
+        if (!initialized.get()) return
         if (!destroyed.compareAndSet(false, true)) return
         executor.execute {
             runCatching {

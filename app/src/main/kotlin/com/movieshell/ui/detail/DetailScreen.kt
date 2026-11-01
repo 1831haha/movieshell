@@ -225,8 +225,11 @@ fun DetailScreen(
     // detail==null 先落入失败分支，LaunchedEffect 调 reloadDetail
     // 置 true 后才变骨架，首帧先闪一下失败；进页即加载，初始
     // 直接置 true，失败只在请求回来后才出现。
-    var detailLoading by remember { mutableStateOf(true) }
-    var detail by remember { mutableStateOf<VodDetail?>(null) }
+    // v0.294.41：全屏页返回时详情页会重建——先用进程内缓存秒开，不再出骨架、不重查、不重新起播
+    val cacheKey = remember(vodId, siteKey) { "${siteKey.orEmpty()}|$vodId" }
+    val cached = remember(cacheKey) { DetailCache.get(cacheKey) }
+    var detailLoading by remember { mutableStateOf(cached == null) }
+    var detail by remember { mutableStateOf<VodDetail?>(cached?.detail) }
     // v0.27.6：抽成函数，失败态的"重试"按钮可复用
     // v0.47.0：20 秒超时——规则 hang 住时不再无限骨架屏，转失败态可重试
     // v0.171.0：世代号 + 取消旧任务——刷新按钮、失败重试、LaunchedEffect 可并发
@@ -289,6 +292,7 @@ fun DetailScreen(
                 // 刷新失败保留旧内容、只提示，首次加载失败仍走失败态。
                 if (result != null) {
                     detail = result
+                    DetailCache.putDetail(cacheKey, result)
                     // v0.259.0：封面回填——全屏下首次追剧的记录没有封面，
                     // 详情加载时若库内该条目封面为空则补写，不改其他字段。
                     if (result.vodPic.isNotBlank()) {
@@ -302,6 +306,8 @@ fun DetailScreen(
         }
     }
     LaunchedEffect(vodId) {
+        // v0.294.41：有缓存（从全屏页返回）就直接用，不清空、不重查
+        if (cached?.detail != null) return@LaunchedEffect
         // v0.217.0（F12）：换片（组合复用时）先清旧详情，不闪旧片；重查走世代号。
         detail = null
         reloadDetail()
@@ -574,7 +580,23 @@ fun DetailScreen(
     // v0.62：进详情页自动播放（用户要求，不需要点播放键）
     // v0.73.0：断点续播——追剧的剧从"看到第几集"继续播，而不是永远第1集
     // v0.75.0：继续观看带集数进来时优先用它
-    var autoPlayed by remember(vodId) { mutableStateOf(false) }
+    var autoPlayed by remember(vodId) { mutableStateOf(cached != null && EngineHost.isActiveFor(cached.playUrl)) }
+    // v0.294.41：返回时同一地址仍在播 → 恢复嵌入播放（接续同一播放器），不再自动重新点播
+    LaunchedEffect(cacheKey) {
+        val c = cached ?: return@LaunchedEffect
+        if (c.playUrl.isNotBlank() && EngineHost.isActiveFor(c.playUrl)) {
+            autoPlayed = true
+            playingLine = c.line
+            playingEp = c.ep
+            selectedEpisode = c.ep
+            embeddedTitle = c.title
+            embeddedUrl = c.playUrl
+            LogBus.i("Detail", "从全屏返回：恢复详情与正在播放的画面（第 ${c.ep + 1} 集）")
+        }
+    }
+    LaunchedEffect(embeddedUrl, playingLine, playingEp, embeddedTitle) {
+        DetailCache.putPlay(cacheKey, embeddedUrl, playingLine, playingEp, embeddedTitle)
+    }
     LaunchedEffect(detail, lineEpisodes, resumeReady) {
         if (!autoPlayed && detail != null && lineEpisodes.isNotEmpty() && resumeReady) {
             autoPlayed = true

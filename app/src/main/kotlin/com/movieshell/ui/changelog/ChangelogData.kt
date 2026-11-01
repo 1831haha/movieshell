@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.41",
+        date = "2026-11-01",
+        title = "全屏返回小窗秒开详情、接着播；修复 libmpv 被误判初始化失败。",
+        details = listOf(
+            "从全屏页返回时详情页用缓存秒开，不再出现灰色骨架、不重新加载、不重新起播，小窗接续同一个播放器。",
+            "「是否正在播同一地址」同时检查两个内核（偏好 libmpv 但实际回退在 Media3 播时原来判断错误，导致全屏又重新打开地址）。",
+            "libmpv 插件还没加载时不再提前调用它——原来会让 libmpv 永久处于初始化失败状态，整次运行都只能用 Media3。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.40",
         date = "2026-11-01",
         title = "全屏 / 返回小窗接续同一个播放器；修复 libmpv 全屏黑屏；修复一处闪退。",
