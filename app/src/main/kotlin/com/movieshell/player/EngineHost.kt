@@ -200,6 +200,13 @@ object EngineHost {
         }, "magnet-release-delay").also { it.isDaemon = true }.start()
     }
 
+    @Volatile private var handoffUrl = ""
+    @Volatile private var handoffAt = 0L
+    /** v0.294.43：详情小窗要接手正在全屏播放的同一地址 */
+    fun markHandoff(url: String) { handoffUrl = url; handoffAt = System.currentTimeMillis() }
+    fun hasHandoff(url: String) = url.isNotBlank() && url == handoffUrl && System.currentTimeMillis() - handoffAt < 5000
+    fun takeHandoff(url: String): Boolean = hasHandoff(url).also { if (it) handoffUrl = "" }
+
     @Volatile private var appCtx: Context? = null
     @Volatile private var stopGen = 0
     @Volatile private var currentUrl = ""

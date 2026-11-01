@@ -159,6 +159,25 @@ object MpvPlayerManager {
         }.onFailure { LogBus.w("MpvPlayer", "attachSurface 失败：${it.message}") }
     }
 
+    /** v0.294.43：返回小窗后每秒记录一次播放状态，共 5 次 */
+    fun diagnose(tag: String) {
+        if (!initialized.get() || !hasFile) return
+        Thread({
+            repeat(5) { i ->
+                Thread.sleep(1000)
+                if (!initialized.get() || destroyed.get()) return@Thread
+                executor.execute {
+                    val info = runCatching {
+                        "pause=${MPVLib.getPropertyBoolean("pause")} time=${MPVLib.getPropertyDouble("time-pos")} " +
+                            "vo=${MPVLib.getPropertyString("vo-configured")} idle=${MPVLib.getPropertyBoolean("core-idle")} " +
+                            "surface=${attachedSurface?.isValid} hasFile=$hasFile"
+                    }.getOrElse { "读取失败：${it.message}" }
+                    LogBus.i("MpvPlayer", "$tag 诊断 ${i + 1}/5：$info")
+                }
+            }
+        }, "mpv-diag").also { it.isDaemon = true }.start()
+    }
+
     /** MpvVideoView surface 就绪/销毁时调用 */
     fun onSurfaceReady(surface: Surface) {
         attachedSurface = surface
@@ -183,8 +202,9 @@ object MpvPlayerManager {
             LogBus.i("MpvPlayer", "旧视图销毁，当前画面已在新视图上，不摘")
             executor.execute {
                 if (!initialized.get() || destroyed.get()) return@execute
-                if (keep == null || attachedSurface !== keep) return@execute
+                if (keep == null || attachedSurface !== keep || !keep.isValid) return@execute
                 bindSurface(keep)
+                runCatching { MPVLib.setPropertyBoolean("pause", paused) }
                 LogBus.i("MpvPlayer", "旧视图已销毁，已重新接到当前画面")
             }
             return
@@ -286,6 +306,7 @@ object MpvPlayerManager {
 
     fun stop() {
         val hadFile = hasFile
+        if (hadFile) LogBus.i("MpvPlayer", "停止播放（stop）")
         hasFile = false
         paused = true
         execIfReady {

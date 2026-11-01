@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.43",
+        date = "2026-11-01",
+        title = "修复全屏返回小窗黑屏且不播放。",
+        details = listOf(
+            "全屏页退出时原来会无条件停掉播放器，小窗刚接上就被停；现在小窗接手时不再停播、不再释放磁力。",
+            "旧画面销毁后重绑时检查画面有效并恢复原暂停状态。",
+            "返回小窗后 5 秒内每秒记录 libmpv 状态；磁力就绪后是否交给播放器也写入日志。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.42",
         date = "2026-11-01",
         title = "回小屏不再黑屏；列表连点磁力不再误杀引擎。",

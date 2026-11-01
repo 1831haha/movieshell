@@ -483,7 +483,11 @@ fun DetailScreen(
                 // 只听到声音（Media3 / libmpv 都一样）。改为拿到本机播放地址后照普通直链交给嵌入播放器。
                 val r = runCatching { MagnetPlayer.ensureReady(context, ep.url) }
                     .getOrElse { MagnetPlayer.Ready.Fail(it.message ?: "磁力起播失败") }
-                if (myGen != playGen) return@launch
+                if (myGen != playGen) {
+                    LogBus.i("Detail", "磁力已就绪，但已点了别的条目，本次不起播")
+                    return@launch
+                }
+                LogBus.i("Detail", "磁力结果：${if (r is MagnetPlayer.Ready.Ok) "就绪，交给小窗播放器" else "失败"}")
                 when (r) {
                     is MagnetPlayer.Ready.Ok -> {
                         playingLine = lineIndex
@@ -590,6 +594,8 @@ fun DetailScreen(
             playingEp = c.ep
             selectedEpisode = c.ep
             embeddedTitle = c.title
+            EngineHost.markHandoff(c.playUrl)
+            com.movieshell.player.MpvPlayerManager.diagnose("返回小窗")
             embeddedUrl = c.playUrl
             LogBus.i("Detail", "从全屏返回：恢复详情与正在播放的画面（第 ${c.ep + 1} 集）")
         }

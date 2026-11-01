@@ -368,7 +368,7 @@ fun PlayerScreen(
             // v0.294.42：嵌入小窗 dispose（跳全屏 / 列表复用）不算离开——详情页自己的
             // dispose 才会 EngineHost.stop → 延迟 release。这里再 release 会在缓冲/切集
             // 时误杀 :magnet（心跳还没挂上就进 8s 倒计时）。
-            if (!embedded) MagnetRemote.releaseAsync(context)
+            if (!embedded && !EngineHost.hasHandoff(currentPlayUrl)) MagnetRemote.releaseAsync(context)
             restorePlayerWindow()
             savePlayerProgress(
                 context, currentTitle, currentPlayUrl, isLive,
@@ -378,10 +378,19 @@ fun PlayerScreen(
             // v0.63.0：看完自动删——本地下载文件播到 95% 以上且开关开着，删文件+清任务
             maybeAutoDeleteWatched(context, currentPlayUrl, isLive)
             if (!embedded) {
-                PlaySession.playerVisible = false
-                PlaySession.clear()
-                // v0.78.1：退出播放页必须停播放器，否则退到后台还在响
-                EngineHost.stop()
+                // v0.294.43：全屏页返回详情小窗是接续同一播放器——原来这里无条件 stop，
+                // 小窗刚接上就被停掉（黑屏、进度不走）。稍等一下看详情页是否已接手。
+                val u = currentPlayUrl
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    if (EngineHost.takeHandoff(u)) {
+                        LogBus.i("Player", "全屏页退出：小窗已接手，不停播放器")
+                    } else {
+                        PlaySession.playerVisible = false
+                        PlaySession.clear()
+                        // v0.78.1：退出播放页必须停播放器，否则退到后台还在响
+                        EngineHost.stop()
+                    }
+                }, 400)
             }
             // v0.27.7：退出播放器恢复系统默认方向 + 停重力感应（仅全屏页；嵌入不碰）
             if (!embedded) {
