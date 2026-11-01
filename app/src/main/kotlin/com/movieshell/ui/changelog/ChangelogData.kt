@@ -19,6 +19,18 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.33",
+        date = "2026-11-01",
+        title = "磁力 BT 崩溃排查与迅雷日志可见。",
+        details = listOf(
+            "BT 引擎停用「种子缓存」加入路径（两次崩溃都在它之后），统一在同一个磁力任务上取元数据再播放。",
+            "磁力进程的日志（含迅雷初始化、添加任务、解析状态、失败原因、换用 BT 的原因）实时转回主日志。",
+            "磁力进程意外退出时，日志里列出崩溃前最后几步，并记录系统给出的退出原因。",
+            "「上次崩溃」只显示当前版本产生的记录，重装后不再冒出旧版本崩溃。",
+            "移除旧版 magnet-stream 磁力服务回退，插件市场同步下架。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.32",
         date = "2026-11-01",
         title = "安装包瘦身到 30MB 内；新增迅雷引擎插件。",

@@ -65,6 +65,11 @@ object LogBus {
             val stamp = f.lastModified()
             if (stamp <= prefs.getLong("crash_shown_mtime", 0L) || f.name == prefs.getString("crash_shown_name", null)) return
             prefs.edit().putLong("crash_shown_mtime", stamp).putString("crash_shown_name", f.name).apply()
+            // v0.294.33：崩溃文件在外部存储，重装后偏好被清会把旧版本崩溃再显示一次；
+            // 只回显当前版本产生的崩溃。
+            val head = runCatching { f.bufferedReader().use { r -> (1..6).mapNotNull { r.readLine() } } }.getOrDefault(emptyList())
+            val verLine = head.firstOrNull { it.startsWith("app:") }
+            if (verLine == null || !verLine.contains(" v${com.movieshell.BuildConfig.VERSION_NAME} ")) return
             // v0.246.0：原来全文件 readText() 后才 take(200) 行，异常大日志白占内存。
             // 改流式读前 200 行，读到就停。
             // v0.246.0 补（GPT 审）：按原始行数限 200 行、再滤空行——

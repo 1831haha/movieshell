@@ -88,25 +88,13 @@ object MagnetPlayer {
 
     suspend fun ensureReady(context: Context, magnet: String): Ready = withContext(Dispatchers.IO) {
         // v0.294.29：自建引擎跑在独立 :magnet 进程（原生崩溃不再带走主程序）
+        // v0.294.33：旧版 magnet-stream 服务已下架，不再回退
         when (val r = MagnetRemote.prepare(context, magnet)) {
-            is MagnetRemote.Result.Ok -> return@withContext Ready.Ok(r.url)
+            is MagnetRemote.Result.Ok -> Ready.Ok(r.url)
             is MagnetRemote.Result.Fail -> {
                 LogBus.w("MagnetPlayer", "自建引擎：${r.message}")
-                when (val legacy = ensureLegacyBase(context)) {
-                    is Ready.Ok -> return@withContext Ready.Ok(streamUrl(magnet, legacy.playUrl))
-                    is Ready.Fail -> return@withContext Ready.Fail(r.message)
-                }
+                Ready.Fail(r.message)
             }
-        }
-        when (val legacy = ensureLegacyBase(context)) {
-            is Ready.Ok -> Ready.Ok(streamUrl(magnet, legacy.playUrl))
-            is Ready.Fail -> Ready.Fail(
-                if (legacy.message == "legacy-not-installed") {
-                    "磁力链接需要本地转成 HTTP 才能播。请重试，或用其他应用打开。"
-                } else {
-                    legacy.message
-                },
-            )
         }
     }
 

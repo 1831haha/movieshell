@@ -60,20 +60,28 @@ object MagnetRemote {
                     return@withContext Result.Fail(EnginePlugins.NEED_ANY)
                 }
                 val first = get(port, "/ctl/prepare?prefer=" + EnginePlugins.prefer(ctx) + "&m=" + URLEncoder.encode(magnet, "UTF-8"))
-                    ?: return@withContext Result.Fail(crashMsg())
+                    ?: return@withContext Result.Fail(crashMsg(ctx))
                 if (retry && first.contains("\"restart\"")) {
                     // 旧进程正在退出：等端口失效后重新拉起
                     repeat(20) { if (get(port, "/healthz", 500) == null) return@repeat; delay(200) }
                     delay(300)
                     return@withContext prepare(ctx, magnet, retry = false)
                 }
-                var last = ""
+                var cursor = 0
                 while (true) {
-                    delay(1000)
-                    val body = get(port, "/ctl/state") ?: return@withContext Result.Fail(crashMsg())
+                    delay(700)
+                    val body = get(port, "/ctl/state?since=$cursor") ?: return@withContext Result.Fail(crashMsg(ctx))
                     val o = runCatching { JSONObject(body) }.getOrNull() ?: continue
                     val m = o.optString("msg")
-                    if (m.isNotBlank() && m != last) { LogBus.i(TAG, m); last = m }
+                    // v0.294.33：:magnet 进程日志逐条转回主日志（含迅雷每一步）
+                    o.optJSONArray("logs")?.let { a ->
+                        for (i in 0 until a.length()) {
+                            val line = a.getString(i)
+                            val tag = line.substringBefore('\t', TAG)
+                            LogBus.i(tag, line.substringAfter('\t'))
+                        }
+                    }
+                    cursor = o.optInt("next", cursor)
                     when (o.optString("state")) {
                         "ready" -> return@withContext Result.Ok(o.optString("url"))
                         "fail" -> return@withContext Result.Fail(m.ifBlank { "磁力起播失败" })
@@ -83,8 +91,17 @@ object MagnetRemote {
         }
     }
 
-    private fun crashMsg(): String {
+    private fun crashMsg(ctx: Context): String {
         LogBus.e(TAG, "磁力进程意外退出（疑似原生崩溃），主程序未受影响")
+        // 崩溃前最后几步 + 系统记录的退出原因
+        runCatching {
+            MagnetTrace.file(ctx).readLines().takeLast(8).forEach { LogBus.w("MagnetTrace", it) }
+        }
+        val c = ctx.applicationContext
+        Thread({
+            Thread.sleep(1500)
+            com.movieshell.data.repo.ProcessExitLog.logAsync(c)
+        }, "magnet-exitinfo").start()
         return "磁力引擎意外退出（已隔离，主程序未受影响）。可换网络重试，或用其他应用打开。下次启动会在日志里记录退出原因。"
     }
 

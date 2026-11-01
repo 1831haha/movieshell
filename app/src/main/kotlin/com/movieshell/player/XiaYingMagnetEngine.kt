@@ -130,6 +130,7 @@ object XiaYingMagnetEngine {
             appContext = context.applicationContext
             MagnetControl.appContext = context.applicationContext
             if (http != null) return
+            MagnetTrace.init(context)
             val srv = Loopback()
             srv.start()
             http = srv
@@ -145,8 +146,12 @@ object XiaYingMagnetEngine {
 
     internal fun status(msg: String) {
         lastStatus = msg
-        LogBus.i(TAG, msg)
+        MagnetTrace.log(TAG, msg)
     }
+
+    private const val USE_TORRENT_CACHE = false
+
+    internal fun trace(msg: String) = MagnetTrace.log(TAG, msg)
 
     internal fun ensureSession(context: Context) {
         synchronized(lock) {
@@ -229,7 +234,9 @@ object XiaYingMagnetEngine {
         status(MagnetStreamLogic.statusFetching(0, dht()))
         // v0.294.30：先用 8 秒并行尝试公共种子缓存（按 infohash 取 .torrent），
         // 同时让 DHT 暖机；缓存没命中再走 DHT/tracker 取元数据。
-        val cached: ByteArray? = if (hintHash != null && hintHash.length == 40) {
+        // v0.294.33：两次原生崩溃都发生在「种子缓存命中 → 用缓存的种子加入」之后，
+        // 先停用缓存路径，统一走「加入磁力 → 同一任务上取元数据」单一路径。
+        val cached: ByteArray? = if (hintHash != null && hintHash.length == 40 && USE_TORRENT_CACHE) {
             withTimeoutOrNull(8_000L) {
                 val job = async(Dispatchers.IO) { TorrentCache.fetch(hintHash) }
                 var e = 0
@@ -252,6 +259,7 @@ object XiaYingMagnetEngine {
             // infohash 竞争，句柄失效后原生崩溃）。改为只加入一次磁力，拿到元数据后在同一句柄上设优先级。
             val hex = hintHash ?: MagnetStreamLogic.base32ToHex(enriched)
                 ?: return@withContext Fail("无法识别磁力链接里的 infohash")
+            trace("步骤：加入磁力任务 $hex")
             runCatching { sm.download(enriched, root, TorrentFlags.SEQUENTIAL_DOWNLOAD) }
                 .onFailure { return@withContext Fail("加入磁力失败：${it.message}") }
             val sha = org.libtorrent4j.Sha1Hash.parseHex(hex)
@@ -329,8 +337,10 @@ object XiaYingMagnetEngine {
                 }
             }
         }
+        trace("步骤：已取得元数据，文件 ${ti.numFiles()} 个，分片 ${ti.numPieces()}×${ti.pieceLength()}")
         val existing = magnetHandle?.takeIf { it.isValid }
         if (existing != null) {
+            trace("步骤：在同一任务上设置文件优先级（第 ${pick.index} 个）")
             handleRef.set(existing)
             runCatching {
                 existing.prioritizeFiles(prios)
@@ -361,6 +371,7 @@ object XiaYingMagnetEngine {
         torrents[hash] = Active(handle, pick.index, path, pick.size, pick.name,
             rel.replace('\\', '/').substringBefore('/'))
 
+        trace("步骤：开始缓冲，保存到 ${path.name}")
         // 等到文件头有数据再交播放器（最多再等 60s）
         val headReady = withTimeoutOrNull(60_000L) {
             var n = 0

@@ -39,6 +39,7 @@ internal object MagnetControl {
                 job = scope.launch {
                     val prefer = parms["prefer"] ?: "xunlei"
                     val order = EnginePlugins.order(prefer, EnginePlugins.btInstalled(ctx), EnginePlugins.xlInstalled(ctx))
+                    MagnetTrace.log("MagnetEngine", "引擎顺序：${order.joinToString(" → ") { if (it == "xunlei") "迅雷" else "BT" }}（优先：${if (prefer == "bt") "BT" else "迅雷"}）")
                     var r: Any = XiaYingMagnetEngine.Fail(EnginePlugins.NEED_ANY)
                     val errs = mutableListOf<String>()
                     for (eng in order) {
@@ -47,7 +48,10 @@ internal object MagnetControl {
                             else XiaYingMagnetEngine.prepare(ctx, m)
                         }.getOrElse { XiaYingMagnetEngine.Fail("磁力引擎异常：${it.message}") }
                         if (r is XiaYingMagnetEngine.Ready || magnet != m) break
-                        (r as? XiaYingMagnetEngine.Fail)?.let { errs += it.message }
+                        (r as? XiaYingMagnetEngine.Fail)?.let {
+                            errs += it.message
+                            MagnetTrace.log("MagnetEngine", "${if (eng == "xunlei") "迅雷" else "BT"} 引擎失败：${it.message}")
+                        }
                         if (order.size > 1) XiaYingMagnetEngine.status("换用另一个引擎重试…")
                     }
                     if (r is XiaYingMagnetEngine.Fail && errs.size > 1) r = XiaYingMagnetEngine.Fail(errs.joinToString("\n"))
@@ -60,7 +64,7 @@ internal object MagnetControl {
                 }
                 return stateJson()
             }
-            "/ctl/state" -> return stateJson()
+            "/ctl/state" -> return stateJson(parms["since"]?.toIntOrNull() ?: -1)
             "/ctl/cancel" -> {
                 // fetchMagnet 不可中断：直接结束整个磁力进程，下次点播重新拉起
                 killSoon()
@@ -79,9 +83,15 @@ internal object MagnetControl {
         Thread({ Thread.sleep(200); android.os.Process.killProcess(android.os.Process.myPid()) }).start()
     }
 
-    private fun stateJson(): Response {
+    private fun stateJson(since: Int = -1): Response {
         val live = XiaYingMagnetEngine.lastStatus
         return json(JSONObject().put("state", state).put("url", url)
-            .put("msg", if (state == "working" && live.isNotBlank()) live else msg).put("magnet", magnet))
+            .put("msg", if (state == "working" && live.isNotBlank()) live else msg).put("magnet", magnet)
+            .also { o ->
+                if (since >= 0) {
+                    val (ls, next) = MagnetTrace.since(since)
+                    o.put("logs", org.json.JSONArray(ls)).put("next", next)
+                }
+            })
     }
 }
