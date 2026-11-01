@@ -109,7 +109,7 @@ object XunleiEngine {
                 t("本地播放地址：${url ?: "（空）"}（${f.absolutePath.substringAfter("magnet_cache/")}）")
                 if (!url.isNullOrBlank()) {
                     onStatus("迅雷：已开始边下边播")
-                    return@withContext XiaYingMagnetEngine.Ready(url)
+                    return@withContext XiaYingMagnetEngine.Ready(pickWorkingUrl(url))
                 }
             }
             if (i % 3 == 0) {
@@ -119,6 +119,31 @@ object XunleiEngine {
         }
         stopCurrent()
         XiaYingMagnetEngine.Fail("迅雷：30 秒内没有拿到播放地址")
+    }
+
+    /**
+     * v0.294.37：迅雷本地地址实测是「路径整体编码两次」（%252F）。先按原样探一下，
+     * 不通再试解码一次的版本；把状态码 / 类型 / 长度写进日志，用能读到数据的那个。
+     */
+    private fun pickWorkingUrl(raw: String): String {
+        val once = runCatching { java.net.URLDecoder.decode(raw.replace("+", "%2B"), "UTF-8") }.getOrNull()
+        val cands = listOfNotNull(raw, once?.takeIf { it != raw })
+        for (u in cands) {
+            val r = runCatching {
+                val c = java.net.URL(u).openConnection() as java.net.HttpURLConnection
+                c.connectTimeout = 3000; c.readTimeout = 8000
+                c.setRequestProperty("Range", "bytes=0-65535")
+                val code = c.responseCode
+                val type = c.contentType
+                val len = c.getHeaderField("Content-Range") ?: c.contentLengthLong.toString()
+                val got = runCatching { c.inputStream.use { it.read(ByteArray(4096)) } }.getOrDefault(-1)
+                c.disconnect()
+                t("探测本地地址（${if (u == raw) "原样" else "解码一次"}）：HTTP $code 类型=$type 范围=$len 首块=$got 字节")
+                code in 200..299 && got > 0
+            }.onFailure { t("探测本地地址失败：${it.message}") }.getOrDefault(false)
+            if (r) return u
+        }
+        return raw
     }
 
     /** 海阔视界 ThunderManager.errorCode 同款释义；114xxx 是迅雷服务端拒绝（版权限制），换路径无用 */

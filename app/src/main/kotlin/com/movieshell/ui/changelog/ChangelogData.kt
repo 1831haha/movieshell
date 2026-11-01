@@ -19,6 +19,17 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.37",
+        date = "2026-11-01",
+        title = "迅雷本地播放地址探测；主动停止磁力不再报崩溃。",
+        details = listOf(
+            "迅雷给出的本地地址先实际请求一次，不通就换成解码一次的地址；状态码、类型、首块大小写进日志。",
+            "本机磁力流记录播放器状态、首帧和画面尺寸，方便排查黑屏。",
+            "开新磁力、播非磁力内容时主动结束旧磁力进程，日志显示「已停止旧磁力任务」，不再提示疑似崩溃。",
+            "3 分钟内找到节点但一点数据都没下到，也提示资源可能已无人做种。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.36",
         date = "2026-11-01",
         title = "修复 BT 连上节点仍 0%；离开播放即停止磁力；网络过程写进日志。",

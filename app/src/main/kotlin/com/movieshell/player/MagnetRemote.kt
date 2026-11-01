@@ -69,6 +69,7 @@ object MagnetRemote {
                 val first = get(port, "/ctl/prepare?prefer=" + EnginePlugins.prefer(ctx) + "&m=" + URLEncoder.encode(magnet, "UTF-8"))
                     ?: return@withContext Result.Fail(crashMsg(ctx))
                 if (retry && first.contains("\"restart\"")) {
+                    expectStop()
                     // 旧进程正在退出：等端口失效后重新拉起
                     repeat(20) { if (get(port, "/healthz", 500) == null) return@repeat; delay(200) }
                     delay(300)
@@ -99,7 +100,15 @@ object MagnetRemote {
         }
     }
 
+    /** v0.294.37：我们主动结束磁力进程时标记，之后几秒内的断连不算崩溃 */
+    @Volatile private var expectedStopUntil = 0L
+    fun expectStop() { expectedStopUntil = System.currentTimeMillis() + 6000 }
+
     private fun crashMsg(ctx: Context): String {
+        if (System.currentTimeMillis() < expectedStopUntil) {
+            LogBus.i(TAG, "已停止旧磁力任务")
+            return "已停止旧磁力任务"
+        }
         LogBus.e(TAG, "磁力进程意外退出（疑似原生崩溃），主程序未受影响")
         // 崩溃前最后几步 + 系统记录的退出原因
         runCatching {
@@ -128,12 +137,14 @@ object MagnetRemote {
     /** 结束磁力进程并等它退出（最多约 3 秒），供清理缓存前调用 */
     fun stopBlocking(ctx: Context) {
         val p = currentPort(ctx) ?: return
+        expectStop()
         get(p, "/ctl/cancel", 1000)
         repeat(15) { if (get(p, "/healthz", 300) == null) return; Thread.sleep(200) }
     }
 
     fun cancelAsync(ctx: Context) {
         val c = ctx.applicationContext
+        expectStop()
         Thread({ currentPort(c)?.let { get(it, "/ctl/cancel", 1000) } }, "magnet-cancel").start()
     }
 

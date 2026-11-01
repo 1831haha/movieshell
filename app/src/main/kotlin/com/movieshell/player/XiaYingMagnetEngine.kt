@@ -461,6 +461,8 @@ object XiaYingMagnetEngine {
         trace("步骤：开始缓冲，保存到 ${path.name}")
         // v0.294.36：等文件头有数据再交播放器，最多 3 分钟；一直 0 节点就不开播放器
         var maxPeers = 0
+        var maxKnown = 0
+        var gotBytes = 0L
         val fileRange = filePieces(ti, pick.index)
         val headReady = withTimeoutOrNull(180_000L) {
             var n = 0
@@ -470,6 +472,8 @@ object XiaYingMagnetEngine {
                 val st = handle.status()
                 val peers = st.numPeers()
                 maxPeers = maxOf(maxPeers, peers)
+                maxKnown = maxOf(maxKnown, st.listPeers())
+                gotBytes = maxOf(gotBytes, st.totalDone())
                 val pct = (st.progress() * 100).toInt().coerceIn(0, 100)
                 status(MagnetStreamLogic.statusPeers(peers, pct) + "（DHT ${dht()}，${st.downloadRate() / 1024}KB/s）")
                 if (handle.havePiece(fileRange.first)) return@withTimeoutOrNull true
@@ -484,9 +488,12 @@ object XiaYingMagnetEngine {
         } == true
         if (myGen != prepareGen) return@withContext Fail("已取消")
         if (!headReady) {
-            if (maxPeers == 0) {
+            if (maxPeers == 0 || gotBytes == 0L) {
                 cancel(hash, deleteFiles = true)
-                return@withContext Fail("3 分钟内没有找到任何节点，这个资源可能已无人做种")
+                return@withContext Fail(
+                    if (maxKnown > 0) "3 分钟内找到 $maxKnown 个节点但没有下到任何数据，这个资源可能已无人做种"
+                    else "3 分钟内没有找到任何节点，这个资源可能已无人做种",
+                )
             }
             status("有节点但还没下到开头数据，先尝试起播…")
         }

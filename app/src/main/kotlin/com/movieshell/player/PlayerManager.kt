@@ -79,6 +79,18 @@ object PlayerManager {
     private var videoCache: SimpleCache? = null
 
     private val listener = object : Player.Listener {
+        // v0.294.37：本机磁力 / 迅雷地址记首帧与画面尺寸，便于排查黑屏
+        override fun onRenderedFirstFrame() {
+            if (decoderFallbackUrl.startsWith("http://127.0.0.1")) LogBus.i("Player", "本机磁力流：首帧已渲染")
+        }
+        override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+            if (decoderFallbackUrl.startsWith("http://127.0.0.1") && videoSize.width > 0)
+                LogBus.i("Player", "本机磁力流：画面 ${videoSize.width}×${videoSize.height}")
+        }
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (decoderFallbackUrl.startsWith("http://127.0.0.1"))
+                LogBus.i("Player", "本机磁力流：状态 " + when (playbackState) { 1 -> "空闲"; 2 -> "缓冲中"; 3 -> "就绪"; 4 -> "结束"; else -> "$playbackState" })
+        }
         // v0.294.35：只有音轨没有视频轨（听书等）→ 通知详情页改用音乐播放器
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
             if (tracks.groups.isEmpty()) return
