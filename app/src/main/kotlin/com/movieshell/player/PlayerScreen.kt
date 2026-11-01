@@ -115,6 +115,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -1350,6 +1351,29 @@ fun PlayerScreen(
                 strokeWidth = 3.dp,
                 modifier = Modifier.align(Alignment.Center).size(36.dp),
             )
+        }
+        // v0.294.34：磁力播放时显示引擎实时缓冲信息（节点 / 百分比 / 速度）
+        if (MagnetPlayer.isMagnet(playUrl)) {
+            var magnetLive by remember { mutableStateOf("") }
+            LaunchedEffect(playUrl, isPlaying) {
+                if (isPlaying) { magnetLive = ""; return@LaunchedEffect }
+                while (true) {
+                    magnetLive = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        MagnetRemote.liveInfo(context)
+                    }
+                    kotlinx.coroutines.delay(1000)
+                }
+            }
+            if (magnetLive.isNotBlank() && !isPlaying) {
+                Text(
+                    magnetLive,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    modifier = Modifier.align(Alignment.Center).padding(top = 72.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+            }
         }
         // v0.19.0：画中画时只留播放画面，全部自绘 UI 隐藏
         if (!uiVm.pipMode) {

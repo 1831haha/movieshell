@@ -47,6 +47,7 @@ object XunleiEngine {
         val name = runCatching { h.getFileName(magnet) }.getOrNull()?.ifBlank { null } ?: "meta.torrent"
         val torrent = File(root, name)
         torrent.delete()
+        lastTorrent = null
         onStatus("迅雷：正在解析磁力…")
         t("添加磁力任务：$name")
         val metaId = runCatching { h.addMagentTask(magnet, root.absolutePath, name) }
@@ -72,41 +73,62 @@ object XunleiEngine {
             ?: return@withContext XiaYingMagnetEngine.Fail("迅雷：种子里没有可播放的文件")
         val sub = subs.first { it.mFileIndex == pick.index }
         onStatus("迅雷：选定「${pick.name}」（${pick.size / 1024 / 1024}MB），开始缓冲…")
-        val save = File(root, "dl_" + (info?.mInfoHash ?: "x")).also { it.mkdirs() }
+        lastTorrent = torrent
+        // v0.294.34：按海阔视界 ThunderManager.download：保存目录 = 根目录/文件名去扩展名，
+        // addTorrentTask（内部 createBtTask + 取消其余文件 + startTask），
+        // 子任务进入 1/4（下载中）或 2（完成）后立即 getLoclUrl(保存目录/文件名)，不等文件落盘。
+        val base = pick.name.substringAfterLast('/').let { if (it.contains('.')) it.substringBeforeLast('.') else it }
+        val save = File(root, "dl_" + base.take(80)).also { it.mkdirs() }
         val tid = runCatching { h.addTorrentTask(torrent.absolutePath, save.absolutePath, pick.index) }
-            .onFailure { t("创建下载任务异常：${it.message}") }.getOrDefault(-1L)
-        t("下载任务 id=$tid")
-        if (tid < 0) return@withContext XiaYingMagnetEngine.Fail("迅雷：创建下载任务失败")
+            .onFailure { t("创建下载任务异常：${it::class.java.simpleName}: ${it.message}") }.getOrDefault(-1L)
+        t("下载任务 id=$tid，保存到 ${save.name}")
+        if (tid < 0) return@withContext XiaYingMagnetEngine.Fail("迅雷：创建下载任务失败（addTorrentTask 返回 $tid）")
         taskId = tid
-        // 等子任务不再是失败态，并且本地文件出现
-        val target = listOfNotNull(
-            sub.mSubPath?.takeIf { it.isNotBlank() }?.let { File(File(save, it), pick.name) },
-            File(save, pick.name),
-        )
-        for (i in 0 until 60) {
-            delay(500)
-            val ti = runCatching { h.getBtSubTaskInfo(tid, pick.index).mTaskInfo }.getOrNull()
-            if (ti != null && ti.mTaskStatus == 3) {
+        val subPath = sub.mSubPath?.takeIf { it.isNotBlank() }
+        val target = if (subPath != null) File(File(save, subPath), pick.name) else File(save, pick.name)
+        var lastSt = -1
+        for (i in 0 until 100) { // 300ms × 100 = 30s
+            delay(300)
+            val ti = runCatching { h.getBtSubTaskInfo(tid, pick.index).mTaskInfo }
+                .onFailure { if (i == 0) t("读取子任务状态异常：${it.message}") }.getOrNull()
+            val st = ti?.mTaskStatus ?: -1
+            if (st != lastSt) { t("子任务状态=$st（0等待 1/4下载中 2完成 3失败）错误码=${ti?.mErrorCode}"); lastSt = st }
+            if (st == 3 && i > 3) {
                 stopCurrent()
-                return@withContext XiaYingMagnetEngine.Fail("迅雷：下载失败（错误码 ${ti.mErrorCode}）")
+                return@withContext XiaYingMagnetEngine.Fail("迅雷：下载失败（错误码 ${ti?.mErrorCode}）")
             }
-            val f = target.firstOrNull { it.exists() } ?: save.walkTopDown().firstOrNull { it.isFile && it.name == pick.name }
-            if (f != null) {
-                val url = runCatching { h.getLoclUrl(f.absolutePath) }.getOrNull()
-                t("本地播放地址：${url ?: "（空）"}")
+            if (st == 1 || st == 4 || st == 2) {
+                val f = target.takeIf { it.exists() }
+                    ?: save.walkTopDown().firstOrNull { it.isFile && it.name == pick.name } ?: target
+                val url = runCatching { h.getLoclUrl(f.absolutePath) }
+                    .onFailure { t("getLoclUrl 异常：${it.message}") }.getOrNull()
+                t("本地播放地址：${url ?: "（空）"}（${f.absolutePath.substringAfter("magnet_cache/")}）")
                 if (!url.isNullOrBlank()) {
                     onStatus("迅雷：已开始边下边播")
                     return@withContext XiaYingMagnetEngine.Ready(url)
                 }
             }
-            if (i % 2 == 0) {
+            if (i % 3 == 0) {
                 val spd = (ti?.mDownloadSpeed ?: 0) / 1024
-                onStatus("迅雷：缓冲中（${spd}KB/s）…")
+                onStatus("迅雷：连接中（状态 $st，${spd}KB/s）…")
             }
         }
         stopCurrent()
         XiaYingMagnetEngine.Fail("迅雷：30 秒内没有拿到播放地址")
     }
+
+    fun liveInfo(): String {
+        val t = taskId
+        if (t < 0) return ""
+        return runCatching {
+            val i = XLTaskHelper.instance().getTaskInfo(t)
+            val pct = if (i.mFileSize > 0) i.mDownloadSize * 100 / i.mFileSize else 0
+            "迅雷：已缓冲 $pct% · ${i.mDownloadSpeed / 1024}KB/s"
+        }.getOrDefault("")
+    }
+
+    /** 最近一次迅雷下好的 .torrent，供 BT 引擎回退时直接使用 */
+    @Volatile var lastTorrent: File? = null
 
     fun stop() = stopCurrent()
 }

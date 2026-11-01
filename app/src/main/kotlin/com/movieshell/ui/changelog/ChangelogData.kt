@@ -19,6 +19,18 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.34",
+        date = "2026-11-01",
+        title = "迅雷边下边播按海阔流程重做；磁力播放不再中途超时。",
+        details = listOf(
+            "迅雷：建好下载任务、进入下载状态后立即取本地播放地址交给播放器，不再等文件落盘（原来会因此回退到 BT）。",
+            "迅雷失败转 BT 时，直接用迅雷下好的种子文件，跳过取元数据。",
+            "本机磁力流读超时放宽到 3 分钟；缓冲时播放器中间显示节点数、缓冲百分比和速度。",
+            "连点播放只保留最后一次，不再同时开两个播放会话。",
+            "启动日志带版本号，方便确认装的是哪一版。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.33",
         date = "2026-11-01",
         title = "磁力 BT 崩溃排查与迅雷日志可见。",

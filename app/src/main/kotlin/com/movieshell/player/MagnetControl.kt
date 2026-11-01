@@ -40,12 +40,13 @@ internal object MagnetControl {
                     val prefer = parms["prefer"] ?: "xunlei"
                     val order = EnginePlugins.order(prefer, EnginePlugins.btInstalled(ctx), EnginePlugins.xlInstalled(ctx))
                     MagnetTrace.log("MagnetEngine", "引擎顺序：${order.joinToString(" → ") { if (it == "xunlei") "迅雷" else "BT" }}（优先：${if (prefer == "bt") "BT" else "迅雷"}）")
+                    XunleiEngine.lastTorrent = null
                     var r: Any = XiaYingMagnetEngine.Fail(EnginePlugins.NEED_ANY)
                     val errs = mutableListOf<String>()
                     for (eng in order) {
                         r = runCatching {
                             if (eng == "xunlei") XunleiEngine.prepare(ctx, m) { XiaYingMagnetEngine.status(it) }
-                            else XiaYingMagnetEngine.prepare(ctx, m)
+                            else XiaYingMagnetEngine.prepare(ctx, m, XunleiEngine.lastTorrent?.takeIf { it.isFile })
                         }.getOrElse { XiaYingMagnetEngine.Fail("磁力引擎异常：${it.message}") }
                         if (r is XiaYingMagnetEngine.Ready || magnet != m) break
                         (r as? XiaYingMagnetEngine.Fail)?.let {
@@ -87,6 +88,7 @@ internal object MagnetControl {
         val live = XiaYingMagnetEngine.lastStatus
         return json(JSONObject().put("state", state).put("url", url)
             .put("msg", if (state == "working" && live.isNotBlank()) live else msg).put("magnet", magnet)
+            .put("live", if (state == "ready") XunleiEngine.liveInfo().ifBlank { XiaYingMagnetEngine.liveInfo() } else live)
             .also { o ->
                 if (since >= 0) {
                     val (ls, next) = MagnetTrace.since(since)

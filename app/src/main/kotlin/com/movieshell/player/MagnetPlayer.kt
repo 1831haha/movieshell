@@ -98,6 +98,8 @@ object MagnetPlayer {
         }
     }
 
+    @Volatile private var playToken = 0L
+
     suspend fun playIfReady(
         context: Context,
         magnet: String,
@@ -105,7 +107,14 @@ object MagnetPlayer {
         startPositionMs: Long = 0L,
     ): Boolean {
         lastFailMessage = null
-        return when (val r = ensureReady(context, magnet)) {
+        // v0.294.34：连点 / 详情页与播放页同时发起时只让最后一次起播，避免两个播放会话
+        val tok = synchronized(this) { ++playToken }
+        val r = ensureReady(context, magnet)
+        if (tok != playToken) {
+            LogBus.i("MagnetPlayer", "已有更新的起播请求，本次不再起播")
+            return true
+        }
+        return when (r) {
             is Ready.Fail -> {
                 lastFailMessage = r.message
                 false

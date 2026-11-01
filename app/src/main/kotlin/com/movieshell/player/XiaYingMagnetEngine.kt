@@ -153,6 +153,17 @@ object XiaYingMagnetEngine {
 
     internal fun trace(msg: String) = MagnetTrace.log(TAG, msg)
 
+    /** v0.294.34：播放中给播放器显示的实时缓冲信息 */
+    fun liveInfo(): String {
+        val a = torrents.values.firstOrNull() ?: return ""
+        return runCatching {
+            if (!a.handle.isValid) return ""
+            val st = a.handle.status()
+            val pct = if (a.fileSize > 0) (a.handle.fileProgress()[a.fileIndex] * 100 / a.fileSize) else 0
+            "BT：${st.numPeers()} 个节点 · 已缓冲 $pct% · ${st.downloadRate() / 1024}KB/s"
+        }.getOrDefault("")
+    }
+
     internal fun ensureSession(context: Context) {
         synchronized(lock) {
             ensureHttp(context)
@@ -193,7 +204,7 @@ object XiaYingMagnetEngine {
     /**
      * 准备可播的 HTTP 地址。失败返回中文说明。
      */
-    suspend fun prepare(context: Context, magnet: String): Any = withContext(Dispatchers.IO) {
+    suspend fun prepare(context: Context, magnet: String, torrentFile: java.io.File? = null): Any = withContext(Dispatchers.IO) {
         if (!isNativeAvailable(context)) return@withContext Fail(EnginePlugins.NEED_BT)
         try {
             ensureSession(context)
@@ -236,7 +247,12 @@ object XiaYingMagnetEngine {
         // 同时让 DHT 暖机；缓存没命中再走 DHT/tracker 取元数据。
         // v0.294.33：两次原生崩溃都发生在「种子缓存命中 → 用缓存的种子加入」之后，
         // 先停用缓存路径，统一走「加入磁力 → 同一任务上取元数据」单一路径。
-        val cached: ByteArray? = if (hintHash != null && hintHash.length == 40 && USE_TORRENT_CACHE) {
+        // v0.294.34：迅雷已下到 .torrent（海阔 TSEngine 的做法）→ 直接用文件喂 libtorrent，跳过取元数据
+        val fromFile: TorrentInfo? = torrentFile?.takeIf { it.isFile && it.length() > 0 }?.let { f ->
+            runCatching { TorrentInfo(f) }.onFailure { trace("迅雷种子文件解析失败：${it.message}") }.getOrNull()
+        }
+        if (fromFile != null) trace("步骤：使用迅雷下好的种子文件 ${torrentFile?.name}，跳过取元数据")
+        val cached: ByteArray? = if (fromFile == null && hintHash != null && hintHash.length == 40 && USE_TORRENT_CACHE) {
             withTimeoutOrNull(8_000L) {
                 val job = async(Dispatchers.IO) { TorrentCache.fetch(hintHash) }
                 var e = 0
@@ -250,7 +266,7 @@ object XiaYingMagnetEngine {
         } else null
         if (cached != null) status("已从种子缓存取得元数据")
         var magnetHandle: TorrentHandle? = null
-        val ti: TorrentInfo = if (cached != null) {
+        val ti: TorrentInfo = if (fromFile != null) fromFile else if (cached != null) {
             try { TorrentInfo(cached) } catch (t: Throwable) {
                 return@withContext Fail("种子缓存解析失败：${t.message}")
             }

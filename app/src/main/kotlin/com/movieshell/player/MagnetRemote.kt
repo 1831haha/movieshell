@@ -105,6 +105,13 @@ object MagnetRemote {
         return "磁力引擎意外退出（已隔离，主程序未受影响）。可换网络重试，或用其他应用打开。下次启动会在日志里记录退出原因。"
     }
 
+    /** v0.294.34：播放器轮询的实时缓冲信息（不在主线程调用） */
+    fun liveInfo(ctx: Context): String {
+        val p = currentPort(ctx) ?: return ""
+        val body = get(p, "/ctl/state", 800) ?: return ""
+        return runCatching { JSONObject(body).optString("live") }.getOrDefault("")
+    }
+
     fun isRunning(ctx: Context): Boolean = currentPort(ctx) != null
 
     /** 结束磁力进程并等它退出（最多约 3 秒），供清理缓存前调用 */

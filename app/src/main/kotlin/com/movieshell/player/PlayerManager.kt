@@ -190,7 +190,10 @@ object PlayerManager {
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(ua)
             .setConnectTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
-            .setReadTimeoutMs(DefaultHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS)
+            // v0.294.34：本机磁力边下边播（127.0.0.1）读数据要等下载，放宽到 3 分钟，别在缓冲中途超时
+            .setReadTimeoutMs(
+                if (url.startsWith("http://127.0.0.1")) 180_000 else DefaultHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS,
+            )
             .setAllowCrossProtocolRedirects(true)
         if (rest.isNotEmpty()) {
             httpFactory.setDefaultRequestProperties(rest)
