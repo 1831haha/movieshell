@@ -56,7 +56,11 @@ object MagnetCache {
     /** 启动用：不依赖 libtorrent / XiaYingMagnetEngine。 */
     fun pruneAsync(context: Context, keep: Set<String> = emptySet()) {
         val c = context.applicationContext
-        Thread({ runCatching { prune(c, keep) } }, "magnet-cache-prune")
+        Thread({
+            // v0.294.31：磁力进程在跑时不碰缓存目录（删正在读写的文件会让它 SIGBUS）
+            if (MagnetRemote.isRunning(c)) return@Thread
+            runCatching { prune(c, keep) }
+        }, "magnet-cache-prune")
             .also { it.isDaemon = true; it.start() }
     }
 

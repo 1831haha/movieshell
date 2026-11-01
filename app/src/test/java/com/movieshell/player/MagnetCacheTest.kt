@@ -37,3 +37,13 @@ class TorrentLogicTest {
         org.junit.Assert.assertEquals("正在获取磁力元数据（9s）…", MagnetStreamLogic.statusFetchingPeers(9, -1, -1))
     }
 }
+
+class Base32HashTest {
+    @org.junit.Test fun base32() {
+        // hex cd307216ed044bc956ad4a6c054b102401191086 的 base32
+        val b32 = "ZUYHEFXNARF4SVVNJJWAKSYQEQARSEEG"
+        org.junit.Assert.assertEquals("cd307216ed044bc956ad4a6c054b102401191086",
+            MagnetStreamLogic.base32ToHex("magnet:?xt=urn:btih:$b32&dn=x"))
+        org.junit.Assert.assertNull(MagnetStreamLogic.base32ToHex("magnet:?xt=urn:btih:CD307216ED044BC956AD4A6C054B102401191086"))
+    }
+}

@@ -84,6 +84,15 @@ object MagnetRemote {
         return "磁力引擎意外退出（已隔离，主程序未受影响）。可换网络重试，或用其他应用打开。下次启动会在日志里记录退出原因。"
     }
 
+    fun isRunning(ctx: Context): Boolean = currentPort(ctx) != null
+
+    /** 结束磁力进程并等它退出（最多约 3 秒），供清理缓存前调用 */
+    fun stopBlocking(ctx: Context) {
+        val p = currentPort(ctx) ?: return
+        get(p, "/ctl/cancel", 1000)
+        repeat(15) { if (get(p, "/healthz", 300) == null) return; Thread.sleep(200) }
+    }
+
     fun cancelAsync(ctx: Context) {
         val c = ctx.applicationContext
         Thread({ currentPort(c)?.let { get(it, "/ctl/cancel", 1000) } }, "magnet-cancel").start()

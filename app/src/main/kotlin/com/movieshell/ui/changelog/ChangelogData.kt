@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.31",
+        date = "2026-11-01",
+        title = "修复拿到磁力元数据后引擎崩溃（SIGBUS）。",
+        details = listOf(
+            "磁力读写改用普通文件读写（posix），不再用内存映射，避免小米等机型上 SIGBUS 崩溃。",
+            "磁力只加入一次：拿到元数据后在同一个任务上选文件，不再「删掉再重新加入」。",
+            "磁力进程运行时不再清理缓存目录；设置里清理磁力缓存会先停掉磁力播放。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.30",
         date = "2026-11-01",
         title = "磁力取元数据：先查公共种子缓存，进度显示 DHT 与节点数。",

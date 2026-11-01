@@ -927,21 +927,21 @@ fun SettingsScreen(
             onConfirm = {
                 showClearMagnetDialog = false
                 scope.launch(Dispatchers.IO) {
-                    val keep = runCatching {
-                        com.movieshell.player.MagnetRemote.activeEntries(context)
-                    }.getOrDefault(emptySet())
+                    // v0.294.31：先结束磁力进程再删，避免删到正在读写的文件
+                    runCatching { com.movieshell.player.MagnetRemote.stopBlocking(context) }
+                    val keep = emptySet<String>()
                     com.movieshell.player.MagnetCache.dir(context).listFiles()
                         ?.filter { it.name !in keep }
                         ?.forEach { runCatching { it.deleteRecursively() } }
                     magnetSize = com.movieshell.player.MagnetCache.format(com.movieshell.player.MagnetCache.totalBytes(context))
                     withContext(Dispatchers.Main) {
-                        AppToast.show(context, if (keep.isEmpty()) "磁力缓存已清理" else "已清理（正在播放的保留）", long = false)
+                        AppToast.show(context, "磁力缓存已清理", long = false)
                     }
                 }
             },
         ) {
             Text(
-                "删除磁力边下边播留下的视频文件，共 $magnetSize。正在播放的不会删除。",
+                "删除磁力边下边播留下的视频文件，共 $magnetSize。正在进行的磁力播放会被停止。",
                 style = MaterialTheme.typography.bodyMedium,
             )
         }

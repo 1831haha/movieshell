@@ -82,6 +82,19 @@ object MagnetStreamLogic {
         }
     }
 
+    /** magnet 里 32 位 base32 infohash 转 40 位 hex；不是则 null */
+    fun base32ToHex(magnet: String): String? {
+        val m = Regex("""xt=urn:btih:([A-Za-z2-7]{32})(?![A-Za-z0-9])""").find(magnet) ?: return null
+        val alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        var bits = 0; var value = 0
+        val out = StringBuilder()
+        for (c in m.groupValues[1].uppercase()) {
+            value = (value shl 5) or alpha.indexOf(c); bits += 5
+            if (bits >= 8) { bits -= 8; out.append("%02x".format((value shr bits) and 0xff)) }
+        }
+        return out.toString().takeIf { it.length == 40 }
+    }
+
     fun statusFetching(elapsedSec: Int, dhtNodes: Long = -1): String {
         val dht = if (dhtNodes >= 0) "，DHT $dhtNodes" else ""
         return if (elapsedSec < 5) "正在连接磁力网络$dht…"

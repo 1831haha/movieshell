@@ -139,7 +139,6 @@ object XiaYingMagnetEngine {
             saveRoot = root
             appContext = context.applicationContext
             MagnetControl.appContext = context.applicationContext
-            runCatching { MagnetCache.prune(context, emptySet()) }
             // v0.294.28：会话配置尽量保守——部分机型 [::] 监听会原生崩溃
             val sm = SessionManager()
             val sp = SettingsPack().apply {
@@ -151,12 +150,13 @@ object XiaYingMagnetEngine {
                 anonymousMode(false)
             }
             try {
-                sm.start(SessionParams(sp))
+                // v0.294.31：用 posix 读写代替 mmap——小米 f2fs 上 mmap 文件被截断/删除会 SIGBUS
+                sm.start(SessionParams(sp).apply { setPosixDiskIO() })
             } catch (t: Throwable) {
                 LogBus.e(TAG, "Session.start 失败，回退默认设置：${t.message}")
                 runCatching { sm.stop() }
                 val sm2 = SessionManager()
-                sm2.start() // 库默认设置
+                sm2.start(SessionParams(SettingsPack()).apply { setPosixDiskIO() })
                 session = sm2
                 runCatching { sm2.startDht() }
                 val srv = Loopback()
@@ -194,7 +194,8 @@ object XiaYingMagnetEngine {
         releaseGen++ // 新起播：作废待执行的释放
         // 取消上一次未完成的元数据拉取（fetchMagnet 会占全局锁，改用可取消的 download）
         val enriched = MagnetStreamLogic.enrichMagnet(magnet)
-        val hintHash = MagnetStreamLogic.infoHashHex(magnet)?.lowercase()
+        val hintHash = MagnetStreamLogic.infoHashHex(magnet)?.lowercase()?.takeIf { it.length == 40 }
+            ?: MagnetStreamLogic.base32ToHex(magnet)
         // 同一时间只播一个磁力：其余种子停掉并删缓存
         if (hintHash != null) {
             torrents.keys.filter { it != hintHash }.forEach { cancel(it, deleteFiles = true) }
@@ -230,24 +231,42 @@ object XiaYingMagnetEngine {
             }
         } else null
         if (cached != null) status("已从种子缓存取得元数据")
-        val data = cached ?: withTimeoutOrNull((META_TIMEOUT_SEC + 5) * 1000L) {
-            var elapsed = 8
-            val holder = AtomicReference<ByteArray?>(null)
-            val th = Thread({
-                holder.set(runCatching { sm.fetchMagnet(enriched, META_TIMEOUT_SEC, root) }.getOrNull())
-            }, "magnet-meta").also { it.isDaemon = true; it.start() }
-            while (th.isAlive) {
-                if (myGen != prepareGen) return@withTimeoutOrNull null
-                delay(1000)
-                elapsed++
-                status(MagnetStreamLogic.statusFetchingPeers(elapsed, dht(), metaPeers()))
+        var magnetHandle: TorrentHandle? = null
+        val ti: TorrentInfo = if (cached != null) {
+            try { TorrentInfo(cached) } catch (t: Throwable) {
+                return@withContext Fail("种子缓存解析失败：${t.message}")
             }
-            holder.get()
-        }
-        if (myGen != prepareGen) return@withContext Fail("已取消")
-        if (data == null) return@withContext Fail(MagnetStreamLogic.statusTimeout(META_TIMEOUT_SEC))
-        val ti = try { TorrentInfo(data) } catch (t: Throwable) {
-            return@withContext Fail("磁力元数据解析失败：${t.message}")
+        } else {
+            // v0.294.31：不再用 fetchMagnet（它结束时会删掉自己加的种子，和随后重新加入同一
+            // infohash 竞争，句柄失效后原生崩溃）。改为只加入一次磁力，拿到元数据后在同一句柄上设优先级。
+            val hex = hintHash ?: MagnetStreamLogic.base32ToHex(enriched)
+                ?: return@withContext Fail("无法识别磁力链接里的 infohash")
+            runCatching { sm.download(enriched, root, TorrentFlags.SEQUENTIAL_DOWNLOAD) }
+                .onFailure { return@withContext Fail("加入磁力失败：${it.message}") }
+            val sha = org.libtorrent4j.Sha1Hash.parseHex(hex)
+            var got: TorrentInfo? = null
+            var elapsed = 8
+            val deadline = System.currentTimeMillis() + META_TIMEOUT_SEC * 1000L
+            while (System.currentTimeMillis() < deadline) {
+                if (myGen != prepareGen) return@withContext Fail("已取消")
+                delay(1000); elapsed++
+                val h = runCatching { sm.find(sha) }.getOrNull()
+                var peers = -1
+                if (h != null && h.isValid) {
+                    magnetHandle = h
+                    val st = runCatching { h.status() }.getOrNull()
+                    peers = st?.numPeers() ?: -1
+                    if (st != null && st.hasMetadata()) {
+                        got = runCatching { h.torrentFile() }.getOrNull()
+                        if (got != null) break
+                    }
+                }
+                status(MagnetStreamLogic.statusFetchingPeers(elapsed, dht(), peers))
+            }
+            got ?: run {
+                magnetHandle?.let { h -> runCatching { if (h.isValid) sm.remove(h) } }
+                return@withContext Fail(MagnetStreamLogic.statusTimeout(META_TIMEOUT_SEC))
+            }
         }
         val hash = ti.infoHash().toHex().lowercase()
         torrents.keys.filter { it != hash }.forEach { cancel(it, deleteFiles = true) }
@@ -299,14 +318,30 @@ object XiaYingMagnetEngine {
                 }
             }
         }
-        sm.addListener(listener)
-        try {
-            sm.download(ti, root, null, prios, null, TorrentFlags.SEQUENTIAL_DOWNLOAD)
-            if (!added.await(30, TimeUnit.SECONDS)) {
-                return@withContext Fail("加入下载队列超时")
+        val existing = magnetHandle?.takeIf { it.isValid }
+        if (existing != null) {
+            handleRef.set(existing)
+            runCatching {
+                existing.prioritizeFiles(prios)
+                existing.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
+                existing.resume()
+                val pieceLen = ti.pieceLength().toLong().coerceAtLeast(1)
+                val firstPieces = ((8L * 1024 * 1024) / pieceLen).toInt().coerceAtLeast(4)
+                for (p in 0 until firstPieces.coerceAtMost(ti.numPieces())) {
+                    existing.piecePriority(p, Priority.TOP_PRIORITY)
+                    existing.setPieceDeadline(p, p * 50)
+                }
             }
-        } finally {
-            sm.removeListener(listener)
+        } else {
+            sm.addListener(listener)
+            try {
+                sm.download(ti, root, null, prios, null, TorrentFlags.SEQUENTIAL_DOWNLOAD)
+                if (!added.await(30, TimeUnit.SECONDS)) {
+                    return@withContext Fail("加入下载队列超时")
+                }
+            } finally {
+                sm.removeListener(listener)
+            }
         }
         val handle = handleRef.get() ?: sm.find(ti.infoHash())
             ?: return@withContext Fail("无法取得下载句柄")
@@ -319,6 +354,7 @@ object XiaYingMagnetEngine {
         val headReady = withTimeoutOrNull(60_000L) {
             var n = 0
             while (true) {
+                if (!handle.isValid) return@withTimeoutOrNull false
                 val st = handle.status()
                 val peers = st.numPeers()
                 val pct = (st.progress() * 100).toInt().coerceIn(0, 100)
