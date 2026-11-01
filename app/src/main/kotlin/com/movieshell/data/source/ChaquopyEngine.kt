@@ -36,8 +36,12 @@ object ChaquopyEngine : PyEngine {
      * v0.187.0 H03：PY 桥调用超时，与 V8DrpyEngine 的 JS_TIMEOUT_MS 同档 15 秒。
      * 常量写法照抄 V8DrpyEngine.kt 的 private const val JS_TIMEOUT_MS = 15_000L
      * （该常量是 private，跨文件无法直接引用，故在此复写同值并注明来源）。
+     * v0.294.46：PY 超时放宽到 25 秒，与首页 25 秒熔断对齐——首页推荐与分类共用一次
+     * homeContent 调用，15 秒一到两者一起死、首页整页红圈连分类都进不去；
+     * 15–25 秒这个区间的慢源（如手机网络下的福利天堂、xl01）原来是被桥先掐死的，
+     * 不是源本身没数据。代价不变：后台 Python 仍停不掉，见下方注释。
      */
-    private const val PY_TIMEOUT_MS = 15_000L
+    private const val PY_TIMEOUT_MS = 25_000L
 
     /** v0.203.0：yt-dlp 通用解析超时（首次 import 全量提取器约 1–2 秒 + 取页，15 秒偏紧）。 */
     private const val YT_TIMEOUT_MS = 30_000L
@@ -47,7 +51,7 @@ object ChaquopyEngine : PyEngine {
      * 写法照抄 PySourceManager.kt 的 readScope（CoroutineScope + SupervisorJob + IO）。
      * 脱钩是必须的：桥调用是同步阻塞接口，不响应协程取消，直接在调用上套
      * withTimeout 等不到超时；只有把调用放进独立 scope 的 async、调用方只带超时等 await，
-     * 调用方才能在 15 秒时真正放行。代价见 callBridge 注释：后台 Python 停不掉。
+     * 调用方才能在 25 秒时真正放行。代价见 callBridge 注释：后台 Python 停不掉。
      */
     /**
      * v0.294.5：PY 调用并发封顶——原来挂 Dispatchers.IO（最多 64 线程），慢源/死循环的
@@ -107,6 +111,18 @@ object ChaquopyEngine : PyEngine {
      * v0.27.7：取 PY 包版本号（拿不到就 "unknown"，不抛）。
      * importlib.metadata 在 Chaquopy 下可能取不到子模块，包一层 runCatching。
      */
+    /**
+     * v0.294.46：PY 解释器预热（后台调用，不抛）。Application 启动时在 IO 线程跑一次，
+     * 把 Python.start() 约 1–2 秒的启动费从首个 PY 源的首屏里挪到启动后台；
+     * 之后第一次 homeContent 不用再等解释器启动，只剩站点网络时间。
+     * 已启动时 python() 直接返回，不重复启动。
+     */
+    fun warmup() {
+        runCatching { python() }
+            .onSuccess { Log.i(TAG, "PY 解释器预热完成") }
+            .onFailure { Log.w(TAG, "PY 解释器预热失败（首个 PY 源调用时再启动）", it) }
+    }
+
     private fun pyPkgVersion(py: Python, name: String): String = runCatching {
         py.getModule("importlib.metadata")?.callAttr("version", name)?.toString()
             ?: "unknown"
@@ -185,13 +201,13 @@ object ChaquopyEngine : PyEngine {
             withTimeoutOrNull(PY_TIMEOUT_MS) { deferred.await() } ?: run {
                 // v0.294.5：还在排队没开跑的直接作废；已在跑的停不掉，但占的是封顶池里的线程
                 deferred.cancel()
-                Log.w(TAG, "PY 调用超时（15 秒）: 规则=$rulePath 方法=$method 在跑=${pyRunning.get()}")
+                Log.w(TAG, "PY 调用超时（25 秒）: 规则=$rulePath 方法=$method 在跑=${pyRunning.get()}")
                 LogBus.w(
                     TAG,
-                    "PY 调用超时（15 秒）: 规则=$rulePath 方法=$method，" +
+                    "PY 调用超时（25 秒）: 规则=$rulePath 方法=$method，" +
                         "后台 Python 无法中断仍会跑到结束，结果丢弃",
                 )
-                "{\"ok\":false,\"error\":\"PY 调用超时（15 秒）:$method\"}"
+                "{\"ok\":false,\"error\":\"PY 调用超时（25 秒）:$method\"}"
             }
         } catch (e: CancellationException) {
             // v0.294.5：调用方取消时把排队中的调用一并作废，不白占 PY 池

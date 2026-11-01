@@ -14,6 +14,7 @@ import com.movieshell.data.repo.ServicePluginManager
 import com.movieshell.data.repo.SpiderEngine
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubSiteEngines
+import com.movieshell.data.source.ChaquopyEngine
 import com.movieshell.data.source.JsRuntime
 import com.movieshell.data.source.ProxyImageFetcher
 import kotlinx.coroutines.CoroutineScope
@@ -54,6 +55,21 @@ class XiaYingApp : Application() {
         SubSiteEngines.init(this)
         SpiderEngine.init(this)
         PhpSourceManager.init(this)
+        // v0.294.46：PY 解释器后台预热——原来第一次点 PY 源时才 Python.start()，
+        // 1–2 秒启动费全算在首屏里；启动时后台预热，首屏只剩站点网络时间。
+        // 不阻塞启动：失败只记日志，首个 PY 源调用时再按老路启动。
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                ChaquopyEngine.init(this@XiaYingApp)
+                ChaquopyEngine.warmup()
+            }
+        }
+        // v0.294.46：V8 sandbox 同理后台预热——原来第一次用 JS 源时才连 sandbox，
+        // 连接费算在首屏里；启动时后台先连好，JS 源首屏同样只剩站点网络时间。
+        // sandbox() 自带能力门禁与失败日志，不阻塞启动，失败不影响后续正常调用。
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching { JsRuntime.sandbox() }
+        }
         // v0.200.0：小说 JS 源变量落盘读回（重定向域名记忆跨重启生效）
         LegadoJsEngine.SourceVariableStore.init(filesDir)
         // v0.85.0：小说自动追更（每天一次，KEEP 防重复入队）
