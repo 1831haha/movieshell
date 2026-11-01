@@ -73,7 +73,8 @@ object EngineHost {
         val t0 = SystemClock.elapsedRealtime()
         appCtx = context.applicationContext
         stopGen++
-        if (url.isNotBlank() && url == MagnetRemote.lastUrl) MagnetRemote.keepAsync(context)
+        currentUrl = url
+        if (url.isNotBlank() && url == MagnetRemote.lastUrl) { MagnetRemote.keepAsync(context); ensureHeartbeat() }
         // v0.294.36：开始播非磁力内容 → 立刻结束磁力进程（种子、迅雷任务、通知一起停）
         if (url != MagnetRemote.lastUrl && MagnetRemote.isRunning(context)) {
             LogBus.i("Play", "播放非磁力内容，停止后台磁力任务")
@@ -187,6 +188,7 @@ object EngineHost {
         // v0.294.36：停播后 8 秒内没有重新读流就结束磁力进程
         // v0.294.38：换内核 / 重试是「停 → 马上再播同一地址」，不算离开：2 秒内又播了就不释放
         val gen = ++stopGen
+        currentUrl = ""
         val c = appCtx ?: return
         Thread({
             Thread.sleep(2000)
@@ -196,6 +198,29 @@ object EngineHost {
 
     @Volatile private var appCtx: Context? = null
     @Volatile private var stopGen = 0
+    @Volatile private var currentUrl = ""
+    @Volatile private var beating = false
+
+    /**
+     * v0.294.39：播放器会话（在播或暂停）期间每 3 秒给磁力进程发心跳。
+     * 全屏跳页 / 旋转 / 换内核是「停 → 再播同一地址」，心跳不断，磁力不会被当成离开而停掉。
+     */
+    private fun ensureHeartbeat() {
+        if (beating) return
+        beating = true
+        Thread({
+            try {
+                var idle = 0
+                while (true) {
+                    Thread.sleep(3000)
+                    val c = appCtx ?: break
+                    val u = currentUrl
+                    if (u.isNotBlank() && u == MagnetRemote.lastUrl) { idle = 0; MagnetRemote.keepAsync(c) }
+                    else if (++idle >= 5) break
+                }
+            } finally { beating = false }
+        }, "magnet-heartbeat").also { it.isDaemon = true }.start()
+    }
 
     fun setPlaybackSpeed(speed: Float) = route(
         { PlayerManager.player?.setPlaybackSpeed(speed) },

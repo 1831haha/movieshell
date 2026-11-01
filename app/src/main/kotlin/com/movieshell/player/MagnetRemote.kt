@@ -52,6 +52,8 @@ object MagnetRemote {
     }
 
     @Volatile var preparing = false
+    @Volatile private var logPort = -1
+    @Volatile private var logCursor = 0
 
     suspend fun prepare(ctx: Context, magnet: String, retry: Boolean = true): Result {
         preparing = true
@@ -75,7 +77,9 @@ object MagnetRemote {
                     delay(300)
                     return@withContext prepare(ctx, magnet, retry = false)
                 }
-                var cursor = 0
+                // v0.294.39：日志游标跨次保留（同一磁力进程），不再把旧日志整段重放
+                if (logPort != port) { logPort = port; logCursor = 0 }
+                var cursor = logCursor
                 while (true) {
                     delay(700)
                     val body = get(port, "/ctl/state?since=$cursor") ?: return@withContext Result.Fail(crashMsg(ctx))
@@ -91,6 +95,7 @@ object MagnetRemote {
                         }
                     }
                     cursor = o.optInt("next", cursor)
+                    logCursor = cursor
                     when (o.optString("state")) {
                         "ready" -> return@withContext Result.Ok(o.optString("url").also { lastUrl = it })
                         "fail" -> return@withContext Result.Fail(m.ifBlank { "磁力起播失败" })

@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.39",
+        date = "2026-11-01",
+        title = "修复磁力全屏 / 横屏后丢画面、几秒后中断。",
+        details = listOf(
+            "原因：跳全屏页时小窗播放器被销毁，触发「离开播放 8 秒后停止磁力」，迅雷本地服务随磁力进程一起结束，画面先断、随后播放异常结束。",
+            "改为播放器心跳：播放或暂停期间每 3 秒通知磁力进程，全屏、旋转、换内核都不会再停掉磁力；真正退出播放 8 秒后才停止。",
+            "重试同一磁力时复用正在运行的引擎；磁力日志不再整段重复显示。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.38",
         date = "2026-11-01",
         title = "修复磁力有声音没画面；切后台不再被回收；换内核不再停掉磁力。",

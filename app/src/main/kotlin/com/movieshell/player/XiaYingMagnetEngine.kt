@@ -85,7 +85,9 @@ object XiaYingMagnetEngine {
      * 播放页关闭时调用：宽限 [graceMs] 后若没有新的起播/读流（换内核、进出全屏、
      * 同一磁力切集都会重新读流），就停掉全部种子并删掉其缓存文件。
      */
-    fun keepAlive() { releaseGen++; lastServeMs = System.currentTimeMillis() }
+    /** v0.294.39：主进程播放器心跳（在播 / 暂停都发），有心跳就不停 */
+    @Volatile var lastBeatMs = 0L
+    fun keepAlive() { lastBeatMs = System.currentTimeMillis() }
 
     fun releaseWhenIdle(graceMs: Long = 8000L) {
         val gen = ++releaseGen
@@ -95,11 +97,11 @@ object XiaYingMagnetEngine {
             if (gen != releaseGen) return@Thread
             // v0.294.36：离开播放页后只看宽限期内有没有新的读流请求（挂着的旧连接不算），
             // 到点停种子并结束磁力进程（前台服务 / 通知随之消失，迅雷任务一并结束）
-            if (lastServeMs > since) return@Thread
+            if (lastServeMs > since || lastBeatMs > since) return@Thread
             stopAll(deleteFiles = true)
             trace("离开播放 ${graceMs / 1000}s 无新请求：已停止磁力下载并退出磁力进程")
             try { Thread.sleep(2000) } catch (_: InterruptedException) {}
-            if (gen == releaseGen) android.os.Process.killProcess(android.os.Process.myPid())
+            if (gen == releaseGen && lastBeatMs <= since) android.os.Process.killProcess(android.os.Process.myPid())
         }, "magnet-release").also { it.isDaemon = true; it.start() }
     }
 
