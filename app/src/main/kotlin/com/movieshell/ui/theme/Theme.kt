@@ -42,7 +42,7 @@ val LocalBrandGradient = compositionLocalOf { BrandGradientColors }
 
 /**
  * v0.292.0 V5：M3 字阶（design-tokens.md 第 2 节）。
- * 页面顶栏统一 titleLarge 22/28、500、−0.2 字距；内容标题（详情片名）headlineMedium 28/34 粗体。
+ * 页面顶栏统一 titleLarge 22/28、500、−0.2 字距；内容标题（详情片名）2026-11-01 起改用 titleLarge 22/28（用户要求片名改小，防长片名显示不全）；headlineMedium 定义保留未用。
  */
 val XiaYingType: Typography = Typography().run {
     copy(

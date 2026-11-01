@@ -333,6 +333,7 @@ fun DetailScreen(
     var jumpText by remember { mutableStateOf("") }
     // v0.47.0：简介默认折叠
     var showDetailInfo by remember { mutableStateOf(false) } // v0.259.0：详情简介入口，点开简介弹窗
+    var showTitleDialog by remember { mutableStateOf(false) } // 2026-11-01：点片名弹完整片名（片名改小 + 弹窗，两件一起做）
     var showMagnetDialog by remember { mutableStateOf(false) }
     var lastMagnetUrl by remember { mutableStateOf("") }
     // v0.21.0：封面点开放大
@@ -723,7 +724,7 @@ fun DetailScreen(
                     }
     
                     // v0.292.0 V5（design-tokens 5.2 / 02-detail）：信息区——不再套卡片，背景走 surface。
-                    // 海报 16dp 圆角 + 更新标签（labelLarge primary）+ headlineMedium 片名 + 元信息 chip + 线路 chip；
+                    // 海报 16dp 圆角 + 更新标签（labelLarge primary）+ titleLarge 片名（2026-11-01 用户要求片名改小：28sp→22sp）+ 元信息 chip + 线路 chip；
                     // 主操作：继续播放（56dp 28 圆角 filled）+ 追剧（tonal，接 FollowStore 原有追/取消逻辑，
                     // 与播放器顶栏追剧开关读写同一条记录）；简介卡（点开原简介弹窗）；主演 chip（点按仍走演员搜索）。
                     item {
@@ -759,10 +760,11 @@ fun DetailScreen(
                                     }
                                     Text(
                                         text = detailTitle(detail, vodId),
-                                        style = MaterialTheme.typography.headlineMedium,
+                                        style = MaterialTheme.typography.titleLarge,
                                         color = v.onSurface,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.clickable { showTitleDialog = true },
                                     )
                                     Spacer(Modifier.height(8.dp))
                                     // v0.121.0：空字段不渲染 chip
@@ -1419,6 +1421,19 @@ fun DetailScreen(
         }
 
     
+        // 2026-11-01：点片名弹完整片名（TechDialog，片名不截断、不顶布局）
+        if (showTitleDialog) {
+            TechDialog(
+                onDismissRequest = { showTitleDialog = false },
+                title = "片名",
+                confirmText = "知道了",
+                onConfirm = { showTitleDialog = false },
+                dismissText = null,
+            ) {
+                Text(text = detailTitle(detail, vodId))
+            }
+        }
+
         // v0.259.0：详情简介弹窗，与播放器信息图标共用同一套五字段规则
         if (showDetailInfo) {
             InfoPopupDialog(
