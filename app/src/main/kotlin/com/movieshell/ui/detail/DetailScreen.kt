@@ -180,32 +180,30 @@ fun DetailScreen(
     // v0.75.0：继续观看带过来的起播集（-1=不指定，走断点续播/默认逻辑）
     initialEpisode: Int = -1,
     onBack: () -> Unit,
-    onPlay: (playUrl: String, title: String) -> Unit = { _, _ -> },
     // v0.87.0：点演员名搜其作品
     onActorClick: (actorName: String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // v0.217.0（F16）：详情页真离开时停播的开关——点全屏跳独立播放页时
-    // 先置 true，dispose 时跳过停播（独立页接管同一会话）；其他离开路径
-    // （返回、进演员页等）为 false，dispose 时停引擎、清会话、关可见标记。
-    var goingFullscreen by remember { mutableStateOf(false) }
+    // v0.294.45：详情页原地全屏状态——小窗 ↔ 全屏只是同一个 PlayerScreen
+    // 换容器，不跳独立页、不重建画面。真离开详情页（返回、进演员页等）
+    // 时 dispose 一律停播、清会话、复位方向，不再用 goingFullscreen 开关
+    // 猜“是不是去全屏”——那个开关点一次全屏就再也不复位，之后真离开
+    // 也跳过停播，正是“退出了还在响”的根源之一。
+    var playerFullscreen by remember(vodId) { mutableStateOf(false) }
     DisposableEffect(Unit) {
         onDispose {
-            if (!goingFullscreen) {
-                EngineHost.stop()
-                PlaySession.clear()
-                PlaySession.playerVisible = false
-                // v0.266.0：真离开详情页时复位方向——嵌入播放退出原来
-                // 不碰方向（见 PlayerScreen 注释），手动切屏锁/重力锁会
-                // 残留到首页，导致“横屏回不到竖屏”；跳全屏时不复位，
-                // 独立页接管同一会话、由它自己退出时复位。
-                OrientationSensor.stop()
-                (context as? Activity)?.let {
-                    if (it.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-                        it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                    }
+            EngineHost.stop()
+            PlaySession.clear()
+            PlaySession.playerVisible = false
+            // v0.266.0：真离开详情页时复位方向——嵌入播放退出原来
+            // 不碰方向（见 PlayerScreen 注释），手动切屏锁/重力锁会
+            // 残留到首页，导致“横屏回不到竖屏”。
+            OrientationSensor.stop()
+            (context as? Activity)?.let {
+                if (it.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                    it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 }
             }
         }
@@ -585,7 +583,9 @@ fun DetailScreen(
     // v0.73.0：断点续播——追剧的剧从"看到第几集"继续播，而不是永远第1集
     // v0.75.0：继续观看带集数进来时优先用它
     var autoPlayed by remember(vodId) { mutableStateOf(cached != null && EngineHost.isActiveFor(cached.playUrl)) }
-    // v0.294.41：返回时同一地址仍在播 → 恢复嵌入播放（接续同一播放器），不再自动重新点播
+    // v0.294.41：重进详情时同一地址仍在播 → 恢复嵌入播放（接续同一播放器），不再自动重新点播
+    // v0.294.45：不再 markHandoff——全屏已是原地放大，没有独立页需要接力，
+    // 接力标记只会让别的退出路径误判“有人接手”而不停播。
     LaunchedEffect(cacheKey) {
         val c = cached ?: return@LaunchedEffect
         if (c.playUrl.isNotBlank() && EngineHost.isActiveFor(c.playUrl)) {
@@ -594,10 +594,9 @@ fun DetailScreen(
             playingEp = c.ep
             selectedEpisode = c.ep
             embeddedTitle = c.title
-            EngineHost.markHandoff(c.playUrl)
             com.movieshell.player.MpvPlayerManager.diagnose("返回小窗")
             embeddedUrl = c.playUrl
-            LogBus.i("Detail", "从全屏返回：恢复详情与正在播放的画面（第 ${c.ep + 1} 集）")
+            LogBus.i("Detail", "重进详情：恢复正在播放的画面（第 ${c.ep + 1} 集）")
         }
     }
     LaunchedEffect(embeddedUrl, playingLine, playingEp, embeddedTitle) {
@@ -670,14 +669,19 @@ fun DetailScreen(
                 val playerOffScreen by remember {
                     derivedStateOf { listState.firstVisibleItemIndex > 0 }
                 }
-                val showMiniPlayer = playerOffScreen && embeddedUrl.isNotBlank()
+                val showMiniPlayer = !playerFullscreen && playerOffScreen && embeddedUrl.isNotBlank()
                 Box(
                     // v0.261.0：播放器贴边——只取上下内边距，左右内边距忽略，
                     // 否则 Detail Scaffold 的左右 inset + MainActivity 的左右 inset
                     // 叠加后播放器左侧留白（实测约 107/1000 宽），详情卡本身有 PagePadding，不受影响。
+                    // v0.294.45：原地全屏时不套任何内边距，播放器真正占满屏；
+                    // 同一个 PlayerScreen 只换了外层修饰，画面本体不重建。
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = inner.calculateTopPadding(), bottom = inner.calculateBottomPadding()),
+                        .then(
+                            if (playerFullscreen) Modifier
+                            else Modifier.padding(top = inner.calculateTopPadding(), bottom = inner.calculateBottomPadding())
+                        ),
                 ) {
                 LazyColumn(
                     state = listState,
@@ -1180,7 +1184,13 @@ fun DetailScreen(
                     Box(
                         modifier = Modifier
                             .then(
-                                if (mini) {
+                                if (playerFullscreen) {
+                                    // v0.294.45：原地全屏——同一个 PlayerScreen 换到满屏容器，
+                                    // 画面本体、引擎、进度全都不动；退出全屏只是换回下面的分支。
+                                    Modifier
+                                        .align(Alignment.TopStart)
+                                        .fillMaxSize()
+                                } else if (mini) {
                                     Modifier
                                         .align(Alignment.BottomEnd)
                                         .padding(16.dp)
@@ -1206,7 +1216,9 @@ fun DetailScreen(
                                 },
                             )
                             .then(
-                                if (!mini && LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                                if (playerFullscreen) {
+                                    Modifier
+                                } else if (!mini && LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
                                     Modifier
                                 } else {
                                     Modifier.aspectRatio(16f / 9f)
@@ -1223,12 +1235,12 @@ fun DetailScreen(
                             infoRemarks = detail?.vodRemarks.orEmpty(),
                             infoYear = detail?.vodYear.orEmpty(),
                             infoDesc = detail?.vodDesc.orEmpty(),
-                            onBack = onBack,
+                            // v0.294.45：原地全屏时返回键先收回容器，不退出详情页。
+                            onBack = { if (playerFullscreen) playerFullscreen = false else onBack() },
                             embedded = true,
-                            onFullscreen = {
-                                goingFullscreen = true
-                                onPlay(embeddedUrl, embeddedTitle)
-                            },
+                            isFullscreen = playerFullscreen,
+                            onFullscreen = { playerFullscreen = true },
+                            onExitFullscreen = { playerFullscreen = false },
                             onEpisodeChange = { lineIdx, epIdx ->
                                 playingLine = lineIdx
                                 playingEp = epIdx

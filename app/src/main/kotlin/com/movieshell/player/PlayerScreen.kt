@@ -185,9 +185,15 @@ fun PlayerScreen(
     siteKey: String? = null,
     isLive: Boolean = false,
     onBack: () -> Unit,
-    // v0.65：嵌入模式——详情页顶部 16:9 直接播；onFullscreen 供嵌入时点全屏跳独立播放页
+    // v0.65：嵌入模式——详情页顶部 16:9 直接播；onFullscreen 是嵌入时点全屏的回调
+    // （详情页原地放大、直播页跳独立播放页，各入口自己定）
     embedded: Boolean = false,
     onFullscreen: () -> Unit = {},
+    // v0.294.45：详情页原地全屏——同一个 PlayerScreen 只换容器（16:9 ↔ 满屏），
+    // 不跳独立播放页、不重建画面、不走接力计时。isFullscreen 由详情页持有，
+    // onExitFullscreen 只收回容器；直播页等其他嵌入入口不传这两个参数，行为不变。
+    isFullscreen: Boolean = false,
+    onExitFullscreen: () -> Unit = {},
     // v0.65：集数变化回调（嵌入时详情页高亮跟随）
     onEpisodeChange: (lineIndex: Int, episodeIndex: Int) -> Unit = { _, _ -> },
     // v0.259.0：简介弹窗字段（详情页嵌入时传真实值；独立全屏页传空，
@@ -300,7 +306,8 @@ fun PlayerScreen(
     val sleepRemaining by VideoSleepTimer.remainingMs.collectAsState()
     val sleepArmed by VideoSleepTimer.afterEpisodeArmed.collectAsState()
 
-    BackHandler(onBack = onBack)
+    // v0.294.45：原地全屏时返回键先收回容器，不退出详情页；其他情况走原来的 onBack。
+    BackHandler(onBack = { if (embedded && isFullscreen) onExitFullscreen() else onBack() })
 
     // DisposableEffect 的 onDispose 闭包捕获的是首次组合的值，
     // 用 rememberUpdatedState 保证退出时存的是最新的 url/title。
@@ -361,14 +368,15 @@ fun PlayerScreen(
     // 「切 tab 把手机底部导航栏弹出来」的问题）
     // v0.217.0（F16）：嵌入模式的退出不做会话／引擎清理——跳全屏时独立播放页
     // 正是同一会话的延续，清掉会导致切集／换线路失效、甚至新页黑屏；
-    // 真离开详情页的停播由详情页自己的 dispose 负责（见 DetailScreen goingFullscreen）。
+    // 真离开详情页的停播由详情页自己的 dispose 负责。
+    // v0.294.45：详情全屏已改为原地放大，不再跳独立页，上面这条只适用于
+    // 嵌入播放器本身被详情页一起 dispose 的情况；独立播放页退出即真离开，
+    // 立刻停播、清会话，不再用 400ms 延迟猜详情页有没有接手——猜错就是
+    // 「退出了还在响」或「小窗刚接上又被停掉」。
     DisposableEffect(Unit) {
         PlaySession.playerVisible = true
         onDispose {
-            // v0.294.42：嵌入小窗 dispose（跳全屏 / 列表复用）不算离开——详情页自己的
-            // dispose 才会 EngineHost.stop → 延迟 release。这里再 release 会在缓冲/切集
-            // 时误杀 :magnet（心跳还没挂上就进 8s 倒计时）。
-            if (!embedded && !EngineHost.hasHandoff(currentPlayUrl)) MagnetRemote.releaseAsync(context)
+            if (!embedded) MagnetRemote.releaseAsync(context)
             restorePlayerWindow()
             savePlayerProgress(
                 context, currentTitle, currentPlayUrl, isLive,
@@ -378,19 +386,11 @@ fun PlayerScreen(
             // v0.63.0：看完自动删——本地下载文件播到 95% 以上且开关开着，删文件+清任务
             maybeAutoDeleteWatched(context, currentPlayUrl, isLive)
             if (!embedded) {
-                // v0.294.43：全屏页返回详情小窗是接续同一播放器——原来这里无条件 stop，
-                // 小窗刚接上就被停掉（黑屏、进度不走）。稍等一下看详情页是否已接手。
-                val u = currentPlayUrl
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    if (EngineHost.takeHandoff(u)) {
-                        LogBus.i("Player", "全屏页退出：小窗已接手，不停播放器")
-                    } else {
-                        PlaySession.playerVisible = false
-                        PlaySession.clear()
-                        // v0.78.1：退出播放页必须停播放器，否则退到后台还在响
-                        EngineHost.stop()
-                    }
-                }, 400)
+                // v0.294.45：真离开，立刻停，不等、不猜。
+                PlaySession.playerVisible = false
+                PlaySession.clear()
+                // v0.78.1：退出播放页必须停播放器，否则退到后台还在响
+                EngineHost.stop()
             }
             // v0.27.7：退出播放器恢复系统默认方向 + 停重力感应（仅全屏页；嵌入不碰）
             if (!embedded) {
@@ -591,7 +591,9 @@ fun PlayerScreen(
     // v0.123/124 无条件 ZOOM 裁掉上下约两成被反馈"卡边"，所以裁剪只留给用户
     // 手动选，不做默认），非全屏（竖屏小窗）恒适应 FIT。resizeIndex 只由
     // 「画面比例」菜单修改并落盘，本效应只负责应用，不再覆盖用户选择。
-    val fullscreenNow = !embedded || cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
+    // v0.294.45：原地全屏也算全屏——沉浸式窗口和画面档位都按全屏走，
+    // 方向、沉浸式、档位仍只有这一处说了算，不再另起一套控制器。
+    val fullscreenNow = !embedded || isFullscreen || cfgOrientation == Configuration.ORIENTATION_LANDSCAPE
     // v0.124.0：全屏状态驱动窗口沉浸式（全出血），与上面的方向/恢复逻辑互不干涉
     LaunchedEffect(fullscreenNow) {
         if (fullscreenNow) applyImmersiveFullscreen() else restorePlayerWindow()
@@ -1242,7 +1244,7 @@ fun PlayerScreen(
             cfgOrientation == Configuration.ORIENTATION_PORTRAIT
     )
     Box(
-        modifier = (if (embedded && cfgOrientation != Configuration.ORIENTATION_LANDSCAPE)
+        modifier = (if (embedded && !isFullscreen && cfgOrientation != Configuration.ORIENTATION_LANDSCAPE)
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
         else Modifier.fillMaxSize()).background(Color.Black)
             .pointerInput(Unit) {
@@ -2119,15 +2121,18 @@ fun PlayerScreen(
                         }
                     }
                 }
-                // v0.264.0：底栏是全屏，不是切屏——嵌入时恒为“全屏”（Fullscreen 图标，
-                // 只跳独立页、不改方向、不锁方向）；独立时恒为“退出全屏”
+                // v0.264.0：底栏是全屏，不是切屏——嵌入时恒为“全屏”
+                // （Fullscreen 图标，只跳独立页、不改方向、不锁方向）；独立时恒为“退出全屏”
                 // （FullscreenExit 图标，只调 onBack 回详情页、不改方向）。
                 // 切屏只在顶栏（ScreenRotation 图标），两者图标、文案、onClick 全部分开。
+                // v0.294.45：详情页嵌入的全屏改为原地放大——同一个画面只换容器，
+                // 全屏态下底栏按钮变回“退出全屏”，点它只收回容器，不 dispose、不停播；
+                // 直播页等其他嵌入入口不传 isFullscreen，仍走原来的 onFullscreen 回调。
                 if (embedded) {
                     RoundControlButton(
-                        icon = Icons.Filled.Fullscreen,
-                        desc = "全屏",
-                        onClick = { goFullscreenOnly() },
+                        icon = if (isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                        desc = if (isFullscreen) "退出全屏" else "全屏",
+                        onClick = { if (isFullscreen) onExitFullscreen() else goFullscreenOnly() },
                         size = 36.dp,
                     )
                 } else {

@@ -649,18 +649,8 @@ fun NavGraphBuilder.appDestinations(
                                 onActorClick = { actorName ->
                                     navController.navigate("actor_works/${Uri.encode(actorName)}")
                                 },
-                                onPlay = { playUrl, title ->
-                                    // DetailScreen 已做完播放决策（磁力/直链解析）：
-                                    // playUrl 为空 -> 播放页显示"暂无可播放地址"
-                                    // v0.16.2：带 vodId，按剧取片头片尾
-                                    // Q3：带详情站 key，独立播放页按它记字幕/片头片尾/进度的源
-                                    navController.navigateToPlayer(
-                                        url = playUrl,
-                                        title = title,
-                                        vodId = detailVodId,
-                                        siteKey = detailSiteKey,
-                                    )
-                                },
+                                // v0.294.45：详情全屏已改为原地放大，不再经 onPlay 跳独立播放页，
+                                // 故这里不再传 onPlay；独立播放页仍供历史、搜索、直播等其他入口用。
                             )
                         }
                         playerDestination(onBack = { navController.popBackStack() })
