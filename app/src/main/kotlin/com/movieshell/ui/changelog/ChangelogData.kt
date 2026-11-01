@@ -19,6 +19,15 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.44",
+        date = "2026-11-01",
+        title = "修复 libmpv 小窗切横屏花屏。",
+        details = listOf(
+            "画面尺寸变化（旋转、全屏/小窗切换）时把新尺寸告诉 libmpv，不再顶部花屏、画面缩在角落。",
+            "停止播放日志记录调用来源，方便排查。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.43",
         date = "2026-11-01",
         title = "修复全屏返回小窗黑屏且不播放。",

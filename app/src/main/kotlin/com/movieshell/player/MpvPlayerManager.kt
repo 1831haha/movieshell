@@ -156,6 +156,7 @@ object MpvPlayerManager {
             MPVLib.attachSurface(surface)
             MPVLib.setOptionString("force-window", "yes")
             MPVLib.setPropertyString("vo", "gpu")
+            if (surfaceW > 0 && surfaceH > 0) MPVLib.setPropertyString("android-surface-size", "${surfaceW}x$surfaceH")
         }.onFailure { LogBus.w("MpvPlayer", "attachSurface 失败：${it.message}") }
     }
 
@@ -225,6 +226,12 @@ object MpvPlayerManager {
     fun onSurfaceSize(width: Int, height: Int) {
         surfaceW = width
         surfaceH = height
+        // v0.294.44：旋转/切小窗后告诉 mpv 新画面尺寸，否则按旧尺寸渲染（顶部花屏、画面缩在角落）
+        execIfReady {
+            runCatching { MPVLib.setPropertyString("android-surface-size", "${width}x$height") }
+                .onFailure { LogBus.w("MpvPlayer", "设置画面尺寸失败：${it.message}") }
+            LogBus.i("MpvPlayer", "画面尺寸：${width}x$height")
+        }
         // v0.208.0：拉伸档的比例取自容器尺寸——横竖屏切换时档位效应先跑、surface 后改尺寸，
         // 之前只在档位切换时算一次，横屏后仍用竖屏 16:9 盒子比例，拉伸也铺不满；
         // 尺寸变化时把当前拉伸档重算一遍（适应/裁剪不依赖尺寸，无需重算）。
@@ -306,7 +313,12 @@ object MpvPlayerManager {
 
     fun stop() {
         val hadFile = hasFile
-        if (hadFile) LogBus.i("MpvPlayer", "停止播放（stop）")
+        if (hadFile) {
+            val who = Throwable().stackTrace.drop(1)
+                .filter { it.className.startsWith("com.movieshell") && !it.className.contains("MpvPlayerManager") && !it.className.contains("EngineHost") }
+                .take(3).joinToString(" ← ") { it.className.substringAfterLast('.').substringBefore('$') + "." + it.methodName + ":" + it.lineNumber }
+            LogBus.i("MpvPlayer", "停止播放（stop），调用方：$who")
+        }
         hasFile = false
         paused = true
         execIfReady {
