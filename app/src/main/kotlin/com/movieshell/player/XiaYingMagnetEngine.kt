@@ -86,14 +86,18 @@ object XiaYingMagnetEngine {
      * 同一磁力切集都会重新读流），就停掉全部种子并删掉其缓存文件。
      */
     fun releaseWhenIdle(graceMs: Long = 8000L) {
-        if (torrents.isEmpty()) return
         val gen = ++releaseGen
         val since = System.currentTimeMillis()
         Thread({
             try { Thread.sleep(graceMs) } catch (_: InterruptedException) { return@Thread }
             if (gen != releaseGen) return@Thread
-            if (openStreams.get() > 0 || lastServeMs > since) return@Thread
+            // v0.294.36：离开播放页后只看宽限期内有没有新的读流请求（挂着的旧连接不算），
+            // 到点停种子并结束磁力进程（前台服务 / 通知随之消失，迅雷任务一并结束）
+            if (lastServeMs > since) return@Thread
             stopAll(deleteFiles = true)
+            trace("离开播放 ${graceMs / 1000}s 无新请求：已停止磁力下载并退出磁力进程")
+            try { Thread.sleep(2000) } catch (_: InterruptedException) {}
+            if (gen == releaseGen) android.os.Process.killProcess(android.os.Process.myPid())
         }, "magnet-release").also { it.isDaemon = true; it.start() }
     }
 
@@ -153,6 +157,33 @@ object XiaYingMagnetEngine {
 
     internal fun trace(msg: String) = MagnetTrace.log(TAG, msg)
 
+    /** 选中文件自己的分片范围（多文件种子里文件不一定从第 0 片开始） */
+    private fun filePieces(ti: TorrentInfo, idx: Int): IntRange {
+        val pl = ti.pieceLength().toLong().coerceAtLeast(1)
+        val off = ti.files().fileOffset(idx)
+        val size = ti.files().fileSize(idx).coerceAtLeast(1)
+        val a = (off / pl).toInt()
+        val b = ((off + size - 1) / pl).toInt().coerceAtMost(ti.numPieces() - 1)
+        return a..b
+    }
+
+    /**
+     * v0.294.36：原来催的是整个种子的第 0～7 片——这个资源选中文件不在开头，
+     * 催的根本不是视频的片，节点连上了也一直 0%。改为催选中文件开头 8MB + 末尾 2 片（mp4 索引常在尾部）。
+     */
+    private fun boostFileEnds(h: TorrentHandle, ti: TorrentInfo, idx: Int) {
+        val r = filePieces(ti, idx)
+        val pl = ti.pieceLength().toLong().coerceAtLeast(1)
+        val head = ((8L * 1024 * 1024) / pl).toInt().coerceAtLeast(4)
+        val heads = (r.first..minOf(r.last, r.first + head - 1)).toList()
+        val tails = listOf(r.last - 1, r.last).filter { it in r && it !in heads }
+        (heads + tails).forEachIndexed { i, p ->
+            h.piecePriority(p, Priority.TOP_PRIORITY)
+            h.setPieceDeadline(p, i * 50)
+        }
+        trace("步骤：选中文件分片 ${r.first}～${r.last}，优先下载开头 ${heads.size} 片 + 末尾 ${tails.size} 片")
+    }
+
     /** v0.294.34：播放中给播放器显示的实时缓冲信息 */
     fun liveInfo(): String {
         val a = torrents.values.firstOrNull() ?: return ""
@@ -162,6 +193,36 @@ object XiaYingMagnetEngine {
             val pct = if (a.fileSize > 0) (a.handle.fileProgress()[a.fileIndex] * 100 / a.fileSize) else 0
             "BT：${st.numPeers()} 个节点 · 已缓冲 $pct% · ${st.downloadRate() / 1024}KB/s"
         }.getOrDefault("")
+    }
+
+    private val netLogCounts = ConcurrentHashMap<String, Int>()
+
+    /** v0.294.36：把监听 / DHT 引导 / tracker 回应等网络告警写进日志（每类前几条 + 每 20 条一次） */
+    private fun installNetLog(sm: SessionManager) {
+        sm.addListener(object : AlertListener {
+            override fun types(): IntArray = intArrayOf(
+                AlertType.LISTEN_SUCCEEDED.swig(), AlertType.LISTEN_FAILED.swig(),
+                AlertType.DHT_BOOTSTRAP.swig(), AlertType.TRACKER_REPLY.swig(),
+                AlertType.TRACKER_ERROR.swig(), AlertType.TORRENT_ERROR.swig(),
+                AlertType.FILE_ERROR.swig(), AlertType.PEER_CONNECT.swig(),
+            )
+            override fun alert(alert: Alert<*>) {
+                runCatching {
+                    val k = alert.type().name
+                    val n = netLogCounts.merge(k, 1, Int::plus) ?: 1
+                    if (n <= 6 || n % 20 == 0) {
+                        val label = when (alert.type()) {
+                            AlertType.LISTEN_SUCCEEDED -> "监听成功"; AlertType.LISTEN_FAILED -> "监听失败"
+                            AlertType.DHT_BOOTSTRAP -> "DHT 引导完成"; AlertType.TRACKER_REPLY -> "tracker 回应"
+                            AlertType.TRACKER_ERROR -> "tracker 出错"; AlertType.TORRENT_ERROR -> "任务出错"
+                            AlertType.FILE_ERROR -> "文件出错"; AlertType.PEER_CONNECT -> "连上节点"
+                            else -> k
+                        }
+                        trace("网络：$label（第 $n 次）${alert.message().take(160)}")
+                    }
+                }
+            }
+        })
     }
 
     internal fun ensureSession(context: Context) {
@@ -197,6 +258,7 @@ object XiaYingMagnetEngine {
             }
             runCatching { sm.startDht() }
             session = sm
+            installNetLog(sm)
             status("磁力引擎已启动（端口 ${http?.listeningPort}）")
         }
     }
@@ -218,6 +280,8 @@ object XiaYingMagnetEngine {
         val root = saveRoot ?: return@withContext Fail("缓存目录不可用")
 
         val myGen = ++prepareGen
+        releaseGen++ // 新的起播作废待执行的「离开后停止」
+        netLogCounts.clear()
         releaseGen++ // 新起播：作废待执行的释放
         // 取消上一次未完成的元数据拉取（fetchMagnet 会占全局锁，改用可取消的 download）
         val enriched = MagnetStreamLogic.enrichMagnet(magnet)
@@ -336,12 +400,7 @@ object XiaYingMagnetEngine {
                             h.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
                             h.resume()
                             // 先催前几片，方便起播
-                            val pieceLen = ti.pieceLength().toLong().coerceAtLeast(1)
-                            val firstPieces = ((8L * 1024 * 1024) / pieceLen).toInt().coerceAtLeast(4)
-                            for (p in 0 until firstPieces.coerceAtMost(ti.numPieces())) {
-                                h.piecePriority(p, Priority.TOP_PRIORITY)
-                                h.setPieceDeadline(p, p * 50)
-                            }
+                            boostFileEnds(h, ti, pick.index)
                         }
                         added.countDown()
                     }
@@ -362,12 +421,7 @@ object XiaYingMagnetEngine {
                 existing.prioritizeFiles(prios)
                 existing.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
                 existing.resume()
-                val pieceLen = ti.pieceLength().toLong().coerceAtLeast(1)
-                val firstPieces = ((8L * 1024 * 1024) / pieceLen).toInt().coerceAtLeast(4)
-                for (p in 0 until firstPieces.coerceAtMost(ti.numPieces())) {
-                    existing.piecePriority(p, Priority.TOP_PRIORITY)
-                    existing.setPieceDeadline(p, p * 50)
-                }
+                boostFileEnds(existing, ti, pick.index)
             }
         } else {
             sm.addListener(listener)
@@ -391,26 +445,50 @@ object XiaYingMagnetEngine {
         torrents[hash] = Active(handle, pick.index, path, pick.size, pick.name,
             rel.replace('\\', '/').substringBefore('/'))
 
+        // v0.294.36：用种子文件加入时，种子里可能没有 tracker——补上磁力自带 + 公共 tracker，
+        // 并立刻向 tracker / DHT 宣告（原来走种子文件这条路 DHT 也没暖机，一直 0 节点）
+        runCatching {
+            val have = handle.trackers().map { it.url() }.toSet()
+            val own = Regex("""[?&]tr=([^&]+)""").findAll(magnet).map { java.net.URLDecoder.decode(it.groupValues[1], "UTF-8") }.toList()
+            var added = 0
+            (own + MagnetStreamLogic.PUBLIC_TRACKERS).distinct().filter { it !in have }.forEach {
+                handle.addTracker(org.libtorrent4j.AnnounceEntry(it)); added++
+            }
+            trace("步骤：tracker 原有 ${have.size} 个，补 $added 个；DHT 节点 ${dht()}")
+            handle.forceReannounce()
+            handle.forceDHTAnnounce()
+        }.onFailure { trace("补 tracker 失败：${it.message}") }
         trace("步骤：开始缓冲，保存到 ${path.name}")
-        // 等到文件头有数据再交播放器（最多再等 60s）
-        val headReady = withTimeoutOrNull(60_000L) {
+        // v0.294.36：等文件头有数据再交播放器，最多 3 分钟；一直 0 节点就不开播放器
+        var maxPeers = 0
+        val fileRange = filePieces(ti, pick.index)
+        val headReady = withTimeoutOrNull(180_000L) {
             var n = 0
             while (true) {
+                if (myGen != prepareGen) return@withTimeoutOrNull false
                 if (!handle.isValid) return@withTimeoutOrNull false
                 val st = handle.status()
                 val peers = st.numPeers()
+                maxPeers = maxOf(maxPeers, peers)
                 val pct = (st.progress() * 100).toInt().coerceIn(0, 100)
-                status(MagnetStreamLogic.statusPeers(peers, pct))
-                if (path.exists() && path.length() > 256 * 1024) return@withTimeoutOrNull true
-                if (handle.havePiece(0)) return@withTimeoutOrNull true
+                status(MagnetStreamLogic.statusPeers(peers, pct) + "（DHT ${dht()}，${st.downloadRate() / 1024}KB/s）")
+                if (handle.havePiece(fileRange.first)) return@withTimeoutOrNull true
+                if (n % 20 == 0) runCatching {
+                    trace("诊断：连接 ${st.numPeers()}（做种 ${st.numSeeds()}），已知节点 ${st.listPeers()}/做种 ${st.listSeeds()}，候选 ${st.connectCandidates()}，已有分片 ${st.numPieces()}，速度 ${st.downloadRate() / 1024}KB/s，开头片 ${fileRange.first} 未到")
+                }
+                if (n % 40 == 20) runCatching { handle.forceReannounce(); handle.forceDHTAnnounce() }
                 delay(500)
                 n++
-                if (n > 120) return@withTimeoutOrNull false
             }
             @Suppress("UNREACHABLE_CODE") false
         } == true
+        if (myGen != prepareGen) return@withContext Fail("已取消")
         if (!headReady) {
-            status("仍在找源，先尝试起播…")
+            if (maxPeers == 0) {
+                cancel(hash, deleteFiles = true)
+                return@withContext Fail("3 分钟内没有找到任何节点，这个资源可能已无人做种")
+            }
+            status("有节点但还没下到开头数据，先尝试起播…")
         }
         Ready("http://127.0.0.1:${srv.listeningPort}/stream/$hash")
     }
@@ -506,7 +584,7 @@ object XiaYingMagnetEngine {
                 var left = len
                 private var closed = false
                 override fun close() {
-                    if (!closed) { closed = true; openStreams.decrementAndGet(); lastServeMs = System.currentTimeMillis() }
+                    if (!closed) { closed = true; openStreams.decrementAndGet() }
                     super.close()
                 }
                 override fun read(b: ByteArray, off: Int, l: Int): Int {

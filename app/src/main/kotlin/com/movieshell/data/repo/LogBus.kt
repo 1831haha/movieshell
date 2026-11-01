@@ -96,8 +96,11 @@ object LogBus {
         }
     }
 
-    fun add(level: Char, tag: String, msg: String) {
-        val entry = Entry(System.currentTimeMillis(), level, tag, msg)
+    fun add(level: Char, tag: String, msg: String) = addAt(System.currentTimeMillis(), level, tag, msg)
+
+    /** v0.294.36：带原始时间戳写入（磁力进程转回的日志保留真实时间） */
+    fun addAt(time: Long, level: Char, tag: String, msg: String) {
+        val entry = Entry(time, level, tag, msg)
         synchronized(lock) {
             deque.addLast(entry)
             while (deque.size > MAX) deque.removeFirst()

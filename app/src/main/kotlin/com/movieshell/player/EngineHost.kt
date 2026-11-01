@@ -71,6 +71,13 @@ object EngineHost {
         live: Boolean = false,
     ): Boolean {
         val t0 = SystemClock.elapsedRealtime()
+        appCtx = context.applicationContext
+        // v0.294.36：开始播非磁力内容 → 立刻结束磁力进程（种子、迅雷任务、通知一起停）
+        if (url != MagnetRemote.lastUrl && MagnetRemote.isRunning(context)) {
+            LogBus.i("Play", "播放非磁力内容，停止后台磁力任务")
+            MagnetRemote.lastUrl = ""
+            MagnetRemote.cancelAsync(context)
+        }
         if (!isPlayableUrl(url)) {
             LogBus.w("Play", "播放地址非法，已拒绝：${url.take(80)}")
             // v0.106.0：NBY-XMYAES 这类源返回的加密/自定义 scheme 串解不了也播不了，
@@ -173,7 +180,13 @@ object EngineHost {
 
     fun seekTo(ms: Long) = route({ PlayerManager.seekTo(ms) }, { MpvPlayerManager.seekTo(ms) })
 
-    fun stop() = route({ PlayerManager.stop() }, { MpvPlayerManager.stop() })
+    fun stop() {
+        route({ PlayerManager.stop() }, { MpvPlayerManager.stop() })
+        // v0.294.36：停播后 8 秒内没有重新读流就结束磁力进程
+        appCtx?.let { if (!MagnetRemote.preparing) MagnetRemote.releaseAsync(it) }
+    }
+
+    @Volatile private var appCtx: Context? = null
 
     fun setPlaybackSpeed(speed: Float) = route(
         { PlayerManager.player?.setPlaybackSpeed(speed) },

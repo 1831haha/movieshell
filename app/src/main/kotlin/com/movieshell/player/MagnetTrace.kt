@@ -17,8 +17,9 @@ object MagnetTrace {
     }
 
     fun log(tag: String, msg: String) {
+        // 格式：毫秒时间戳 \t tag \t 内容
         LogBus.i(tag, msg)
-        val line = "$tag\t$msg"
+        val line = "${System.currentTimeMillis()}\t$tag\t$msg"
         synchronized(lines) { lines += line; if (lines.size > 400) lines.subList(0, 200).clear() }
         file?.let { f -> runCatching { f.appendText(java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date()) + " " + line + "\n") } }
     }

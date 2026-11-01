@@ -51,7 +51,14 @@ object MagnetRemote {
         "磁力引擎启动超时（独立进程可能在启动时崩溃）"
     }
 
+    @Volatile var preparing = false
+
     suspend fun prepare(ctx: Context, magnet: String, retry: Boolean = true): Result {
+        preparing = true
+        try { return prepare0(ctx, magnet, retry) } finally { preparing = false }
+    }
+
+    private suspend fun prepare0(ctx: Context, magnet: String, retry: Boolean): Result {
         if (!EnginePlugins.btInstalled(ctx) && !EnginePlugins.xlInstalled(ctx)) return Result.Fail(EnginePlugins.NEED_ANY)
         val e = ensure(ctx)
         val port = e as? Int ?: return Result.Fail(e.toString())
@@ -76,14 +83,15 @@ object MagnetRemote {
                     // v0.294.33：:magnet 进程日志逐条转回主日志（含迅雷每一步）
                     o.optJSONArray("logs")?.let { a ->
                         for (i in 0 until a.length()) {
-                            val line = a.getString(i)
-                            val tag = line.substringBefore('\t', TAG)
-                            LogBus.i(tag, line.substringAfter('\t'))
+                            val parts = a.getString(i).split('\t', limit = 3)
+                            if (parts.size == 3) {
+                                LogBus.addAt(parts[0].toLongOrNull() ?: System.currentTimeMillis(), 'I', parts[1], parts[2])
+                            } else LogBus.i(TAG, parts.last())
                         }
                     }
                     cursor = o.optInt("next", cursor)
                     when (o.optString("state")) {
-                        "ready" -> return@withContext Result.Ok(o.optString("url"))
+                        "ready" -> return@withContext Result.Ok(o.optString("url").also { lastUrl = it })
                         "fail" -> return@withContext Result.Fail(m.ifBlank { "磁力起播失败" })
                     }
                 }
@@ -111,6 +119,9 @@ object MagnetRemote {
         val body = get(p, "/ctl/state", 800) ?: return ""
         return runCatching { JSONObject(body).optString("live") }.getOrDefault("")
     }
+
+    /** 最近一次交给播放器的磁力播放地址 */
+    @Volatile var lastUrl: String = ""
 
     fun isRunning(ctx: Context): Boolean = currentPort(ctx) != null
 
