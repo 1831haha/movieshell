@@ -1,5 +1,7 @@
 package com.movieshell.player
 
+import com.movieshell.util.safeIndex
+
 import android.content.Context
 import com.movieshell.data.model.Episode
 import com.movieshell.data.model.Site
@@ -51,7 +53,7 @@ object AudioRoute {
         resolvedStartUrl: String?,
     ) {
         if (episodes.isEmpty()) return
-        val start = startIndex.coerceIn(episodes.indices)
+        val start = startIndex.safeIndex(episodes.size)
         session = Session(
             site,
             episodes.associateBy { it.url },

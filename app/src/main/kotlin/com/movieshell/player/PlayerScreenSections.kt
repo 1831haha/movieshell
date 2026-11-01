@@ -1,5 +1,7 @@
 package com.movieshell.player
 
+import com.movieshell.util.safeIndex
+
 /**
  * Q1 播放器拆分（由 q1q3-muse 移植到 ui-v5，纯搬移、行为不变）：
  * 原来 PlayerScreen.kt 底部的全部独立组件与工具函数（小圆控制钮、
@@ -440,7 +442,7 @@ internal fun LineSheet(
     onDismiss: () -> Unit,
     onPick: (lineIdx: Int, epIdx: Int) -> Unit,
 ) {
-    var tab by remember { mutableIntStateOf(lineIndex.coerceIn(lines.indices)) }
+    var tab by remember { mutableIntStateOf(lineIndex.safeIndex(lines.size)) }
     val tabEpisodes = lines.getOrNull(tab)?.episodes.orEmpty()
     val labels = remember(tabEpisodes) {
         tabEpisodes.mapIndexed { i, ep -> ep.name.ifBlank { "第${i + 1}集" } }

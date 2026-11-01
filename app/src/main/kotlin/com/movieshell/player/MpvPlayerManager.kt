@@ -70,7 +70,8 @@ object MpvPlayerManager {
      */
     private val expectEndFileCount = AtomicInteger(0)
     /** 是否有已加载的文件（首播前不计忽略，避免把真正的失败吞掉） */
-    @Volatile private var hasFile = false
+    @Volatile var hasFile = false
+        private set
     @Volatile
     private var errorListener: ((String) -> Unit)? = null
 
@@ -140,17 +141,34 @@ object MpvPlayerManager {
         attachedSurface = surface
         executor.execute {
             if (initialized.get() && !destroyed.get()) {
-                runCatching { MPVLib.attachSurface(surface) }
-                    .onFailure { LogBus.w("MpvPlayer", "attachSurface 失败：${it.message}") }
+                runCatching {
+                    MPVLib.attachSurface(surface)
+                    // v0.294.40：同 mpv-android——换到新画面时重新打开视频输出，否则只剩声音
+                    MPVLib.setOptionString("force-window", "yes")
+                    MPVLib.setPropertyString("vo", "gpu")
+                }.onFailure { LogBus.w("MpvPlayer", "attachSurface 失败：${it.message}") }
+                LogBus.i("MpvPlayer", "画面已接到新的视图")
             }
         }
     }
 
-    fun onSurfaceLost() {
+    /**
+     * v0.294.40：跳全屏页时新页面的画面先建好、旧小窗的画面后销毁——原来旧画面销毁时无条件 detach，
+     * 把刚接到全屏页的画面也摘掉了（全屏黑屏只有声音）。只有销毁的正是当前接着的那块画面才摘。
+     */
+    fun onSurfaceLost(surface: Surface? = null) {
+        if (surface != null && attachedSurface != null && surface !== attachedSurface) {
+            LogBus.i("MpvPlayer", "旧视图销毁，当前画面已在新视图上，不摘")
+            return
+        }
         attachedSurface = null
         executor.execute {
             if (initialized.get() && !destroyed.get()) {
-                runCatching { MPVLib.detachSurface() }
+                runCatching {
+                    MPVLib.setPropertyString("vo", "null")
+                    MPVLib.setOptionString("force-window", "no")
+                    MPVLib.detachSurface()
+                }
                     .onFailure { LogBus.w("MpvPlayer", "detachSurface 失败：${it.message}") }
             }
         }

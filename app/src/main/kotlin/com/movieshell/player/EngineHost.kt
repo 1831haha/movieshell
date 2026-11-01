@@ -199,6 +199,15 @@ object EngineHost {
     @Volatile private var appCtx: Context? = null
     @Volatile private var stopGen = 0
     @Volatile private var currentUrl = ""
+
+    /**
+     * v0.294.40：这个地址是否正被当前内核播放（在播或暂停、已加载）——
+     * 全屏跳页 / 返回小窗时据此直接接续同一个播放器，不重新打开地址。
+     */
+    fun isActiveFor(url: String): Boolean = url.isNotBlank() && url == currentUrl && route(
+        { PlayerManager.player?.let { it.mediaItemCount > 0 && it.playbackState != androidx.media3.common.Player.STATE_IDLE && it.playbackState != androidx.media3.common.Player.STATE_ENDED } == true },
+        { MpvPlayerManager.hasFile },
+    )
     @Volatile private var beating = false
 
     /**

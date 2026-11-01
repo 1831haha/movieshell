@@ -538,6 +538,11 @@ fun PlayerScreen(
                 LogBus.i("Player", "横屏后 resume 恢复成功")
                 return@launch
             }
+            // v0.294.40：内核仍加载着同一地址（只是暂时在缓冲 / 换画面）→ 不重开、不回退进度
+            if (EngineHost.isActiveFor(playUrl)) {
+                LogBus.i("Player", "横屏后仍是同一播放器，只恢复播放，不重新打开")
+                return@launch
+            }
             // 真停了（IDLE）→ 按原地址/原进度无缝重播；磁力链路不走 EngineHost，只到 resume 为止
             if (MagnetPlayer.isMagnet(playUrl)) {
                 LogBus.w("Player", "横屏后磁力链路未恢复，请手动点播")
@@ -825,7 +830,11 @@ fun PlayerScreen(
             if (playUrl.isNotBlank()) {
                 val resumeAt = HistoryStore.getProgress(context, playUrl)
                     .takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
-                if (MagnetPlayer.isMagnet(playUrl)) {
+                if (EngineHost.isActiveFor(playUrl)) {
+                    // v0.294.40：同一地址已在播（全屏跳页 / 返回小窗）：接续同一个播放器，不重新打开。
+                    // 重新打开会从 0 秒起播（进度还没写进历史），迅雷本地服务也受不了旧连接未断就再连。
+                    LogBus.i("Player", "接续正在播放的同一播放器（${if (embedded) "小窗" else "全屏"}），不重新打开地址")
+                } else if (MagnetPlayer.isMagnet(playUrl)) {
                     // v0.25.0：服务缺失对话框只属于磁力分支，不与普通起播失败混用
                     uiVm.showServiceMissingDialog = !MagnetPlayer.playIfReady(
                         context = context,

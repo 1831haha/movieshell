@@ -1,5 +1,7 @@
 package com.movieshell.ui.detail
 
+import com.movieshell.util.safeIndex
+
 import androidx.compose.ui.draw.alpha
 import com.movieshell.ui.theme.ok
 
@@ -314,7 +316,7 @@ fun DetailScreen(
             .map { (name, eps) -> PlayLine(name, eps) }
     }
     var selectedLine by rememberSaveable(vodId) { mutableIntStateOf(0) }
-    val safeLine = if (playLines.isNotEmpty()) selectedLine.coerceIn(playLines.indices) else 0
+    val safeLine = if (playLines.isNotEmpty()) selectedLine.safeIndex(playLines.size) else 0
     val lineEpisodes: List<Episode> = playLines.getOrNull(safeLine)?.episodes.orEmpty()
 
     // v0.218.0（S27）：界面 Vod 已删，详情页直接读 VodDetail——标题／评分／
@@ -565,7 +567,7 @@ fun DetailScreen(
         }
     }
     val safeSelected = if (lineEpisodes.isNotEmpty()) {
-        selectedEpisode.coerceIn(0, lineEpisodes.size - 1)
+        selectedEpisode.safeIndex(lineEpisodes.size)
     } else selectedEpisode
     // v0.65：剧集高亮跟随实际播放（嵌入播放器内切集时同步）
     val highlightEp = if (embeddedUrl.isNotBlank()) playingEp else selectedEpisode
@@ -577,8 +579,8 @@ fun DetailScreen(
         if (!autoPlayed && detail != null && lineEpisodes.isNotEmpty() && resumeReady) {
             autoPlayed = true
             val startEp = when {
-                initialEpisode >= 0 -> initialEpisode.coerceIn(lineEpisodes.indices)
-                following && watchedEp >= 0 -> watchedEp.coerceIn(lineEpisodes.indices)
+                initialEpisode >= 0 -> initialEpisode.safeIndex(lineEpisodes.size)
+                following && watchedEp >= 0 -> watchedEp.safeIndex(lineEpisodes.size)
                 else -> safeSelected
             }
             selectedEpisode = startEp
@@ -1033,7 +1035,7 @@ fun DetailScreen(
                                 LaunchedEffect(highlightEp, lineEpisodes.size) {
                                     if (lineEpisodes.isNotEmpty()) {
                                         runCatching {
-                                            epGridState.scrollToItem(highlightEp.coerceIn(0, lineEpisodes.size - 1))
+                                            epGridState.scrollToItem(highlightEp.safeIndex(lineEpisodes.size))
                                         }
                                     }
                                 }

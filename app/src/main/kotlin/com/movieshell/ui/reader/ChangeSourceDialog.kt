@@ -1,5 +1,7 @@
 package com.movieshell.ui.reader
 
+import com.movieshell.util.safeIndex
+
 import com.movieshell.ui.components.AppSearchBar
 import androidx.compose.foundation.clickable
 import com.movieshell.ui.components.AppToast
@@ -147,7 +149,7 @@ fun ChangeSourceDialog(
                     ?: titles.indexOfFirst {
                         it.contains(currentChapterTitle) || currentChapterTitle.contains(it)
                     }.takeIf { it >= 0 }
-                    ?: currentChapterIndex.coerceIn(chapters.indices)
+                    ?: currentChapterIndex.safeIndex(chapters.size)
                 byName
             }.getOrDefault(-1)
             switching = null

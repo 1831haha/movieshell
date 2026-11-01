@@ -28,7 +28,7 @@ class MpvVideoView(context: Context) : SurfaceView(context) {
             }
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
-                MpvPlayerManager.onSurfaceLost()
+                MpvPlayerManager.onSurfaceLost(holder.surface)
             }
         })
     }

@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.40",
+        date = "2026-11-01",
+        title = "全屏 / 返回小窗接续同一个播放器；修复 libmpv 全屏黑屏；修复一处闪退。",
+        details = listOf(
+            "跳全屏页、返回小窗时，同一地址正在播放就直接接续，不再重新打开（原来会从 0 秒重播，迅雷本地地址再连还会中断）。",
+            "libmpv：新画面先建好、旧小窗画面后销毁时，不再把新画面一起摘掉；接到新画面时重新打开视频输出。",
+            "修复线路列表为空时打开选集面板闪退（Cannot coerce value to an empty range），并把同类下标收敛统一改为安全写法。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.39",
         date = "2026-11-01",
         title = "修复磁力全屏 / 横屏后丢画面、几秒后中断。",

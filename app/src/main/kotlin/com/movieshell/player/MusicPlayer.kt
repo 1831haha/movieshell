@@ -1,5 +1,7 @@
 package com.movieshell.player
 
+import com.movieshell.util.safeIndex
+
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
@@ -229,7 +231,7 @@ object MusicPlayer {
             }
             if (list.isNotEmpty()) {
                 queue = list
-                index = prefs.getInt(KEY_QUEUE_INDEX, -1).coerceIn(list.indices)
+                index = prefs.getInt(KEY_QUEUE_INDEX, -1).safeIndex(list.size)
                 _queueState.value = QueueState(queue, index)
                 // v0.217.0（F26）：同时恢复当前曲目显示态（不起播）——原来只恢复
                 // 队列／下标，迷你条不显示、播放页说“还没有播放歌曲”，恢复的队列
@@ -515,7 +517,7 @@ object MusicPlayer {
     fun playList(context: Context, tracks: List<MusicApi.Track>, startIndex: Int) {
         if (tracks.isEmpty()) return
         appCtx = context.applicationContext
-        val start = startIndex.coerceIn(tracks.indices)
+        val start = startIndex.safeIndex(tracks.size)
         val target = tracks[start]
         // v0.294.17：点的正是当前这首（解析中或在播）——只换队列、不重解析重播。
         // 日志实锤：连点同一行，每点一次都 cancel 上一轮解析从头再来，
