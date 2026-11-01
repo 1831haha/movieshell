@@ -21,6 +21,22 @@ object ProcessExitLog {
         return name.endsWith(":magnet")
     }
 
+    /** v0.294.38：系统回收 / 主动结束 说人话，别都像崩溃 */
+    fun label(r: Int, desc: String?): String = when {
+        desc?.contains("clean_up_mem") == true || desc?.contains("lmk", true) == true || r == 3 -> "系统回收内存（切到后台时）"
+        r == 2 -> "被结束（多为侠影主动停止旧磁力任务）"
+        else -> reasonName(r)
+    }
+
+    /** 最近一次 :magnet 退出（[sinceMs] 之后）的说明；没有返回 null */
+    fun lastMagnetExit(ctx: android.content.Context, sinceMs: Long): Pair<Int, String>? {
+        if (Build.VERSION.SDK_INT < 30) return null
+        val am = ctx.getSystemService(android.app.ActivityManager::class.java) ?: return null
+        val e = runCatching { am.getHistoricalProcessExitReasons(null, 0, 10) }.getOrNull()
+            ?.firstOrNull { it.processName.endsWith(":magnet") && it.timestamp >= sinceMs } ?: return null
+        return e.reason to label(e.reason, e.description)
+    }
+
     fun reasonName(r: Int): String = when (r) {
         1 -> "主动退出"; 2 -> "信号终止"; 3 -> "内存不足被杀"; 4 -> "Java 崩溃"; 5 -> "原生崩溃"
         6 -> "无响应(ANR)"; 7 -> "初始化失败"; 8 -> "权限变化"; 9 -> "资源超限"; 10 -> "用户请求"
@@ -62,7 +78,7 @@ object ProcessExitLog {
             val r = e.reason
             if (r == ApplicationExitInfo.REASON_EXIT_SELF || r == ApplicationExitInfo.REASON_USER_REQUESTED) continue
             val time = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date(e.timestamp))
-            LogBus.w("ExitInfo", "上次退出 $time 进程 ${e.processName}：${reasonName(r)} ${e.description.orEmpty()}")
+            LogBus.w("ExitInfo", "上次退出 $time 进程 ${e.processName}：${label(r, e.description)} ${e.description.orEmpty()}")
             if (r == ApplicationExitInfo.REASON_CRASH_NATIVE || r == ApplicationExitInfo.REASON_ANR) {
                 val bytes = runCatching { e.traceInputStream?.use { it.readBytes() } }.getOrNull() ?: continue
                 val lines = printable(bytes)

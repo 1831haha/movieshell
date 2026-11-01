@@ -72,6 +72,8 @@ object EngineHost {
     ): Boolean {
         val t0 = SystemClock.elapsedRealtime()
         appCtx = context.applicationContext
+        stopGen++
+        if (url.isNotBlank() && url == MagnetRemote.lastUrl) MagnetRemote.keepAsync(context)
         // v0.294.36：开始播非磁力内容 → 立刻结束磁力进程（种子、迅雷任务、通知一起停）
         if (url != MagnetRemote.lastUrl && MagnetRemote.isRunning(context)) {
             LogBus.i("Play", "播放非磁力内容，停止后台磁力任务")
@@ -183,10 +185,17 @@ object EngineHost {
     fun stop() {
         route({ PlayerManager.stop() }, { MpvPlayerManager.stop() })
         // v0.294.36：停播后 8 秒内没有重新读流就结束磁力进程
-        appCtx?.let { if (!MagnetRemote.preparing) MagnetRemote.releaseAsync(it) }
+        // v0.294.38：换内核 / 重试是「停 → 马上再播同一地址」，不算离开：2 秒内又播了就不释放
+        val gen = ++stopGen
+        val c = appCtx ?: return
+        Thread({
+            Thread.sleep(2000)
+            if (gen == stopGen && !MagnetRemote.preparing) MagnetRemote.releaseAsync(c)
+        }, "magnet-release-delay").also { it.isDaemon = true }.start()
     }
 
     @Volatile private var appCtx: Context? = null
+    @Volatile private var stopGen = 0
 
     fun setPlaybackSpeed(speed: Float) = route(
         { PlayerManager.player?.setPlaybackSpeed(speed) },

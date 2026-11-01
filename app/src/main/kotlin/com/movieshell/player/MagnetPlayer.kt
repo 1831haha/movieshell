@@ -43,7 +43,6 @@ object MagnetPlayer {
 
     @Volatile
     var lastFailMessage: String? = null
-        private set
 
     fun resolveLegacyBase(context: Context): String {
         val live = runCatching { ServicePluginManager.portOf(PLUGIN_ID) }.getOrNull()

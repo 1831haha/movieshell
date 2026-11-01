@@ -109,6 +109,20 @@ object MagnetRemote {
             LogBus.i(TAG, "已停止旧磁力任务")
             return "已停止旧磁力任务"
         }
+        // v0.294.38：先问系统退出原因——切到后台被回收内存不算崩溃
+        val since = System.currentTimeMillis() - 60_000
+        var ex: Pair<Int, String>? = null
+        for (i in 0 until 6) {
+            ex = com.movieshell.data.repo.ProcessExitLog.lastMagnetExit(ctx, since)
+            if (ex != null) break
+            Thread.sleep(300)
+        }
+        if (ex != null && ex.first != android.app.ApplicationExitInfo.REASON_CRASH_NATIVE &&
+            ex.first != android.app.ApplicationExitInfo.REASON_CRASH
+        ) {
+            LogBus.w(TAG, "磁力进程退出：${ex.second}")
+            return "磁力引擎被${ex.second}，请回到侠影后重试"
+        }
         LogBus.e(TAG, "磁力进程意外退出（疑似原生崩溃），主程序未受影响")
         // 崩溃前最后几步 + 系统记录的退出原因
         runCatching {
@@ -146,6 +160,12 @@ object MagnetRemote {
         val c = ctx.applicationContext
         expectStop()
         Thread({ currentPort(c)?.let { get(it, "/ctl/cancel", 1000) } }, "magnet-cancel").start()
+    }
+
+    /** 同一磁力地址重新起播（换内核等）：作废磁力进程里待执行的「离开后停止」 */
+    fun keepAsync(ctx: Context) {
+        val c = ctx.applicationContext
+        Thread({ currentPort(c)?.let { get(it, "/ctl/keep", 1000) } }, "magnet-keep").start()
     }
 
     fun releaseAsync(ctx: Context) {

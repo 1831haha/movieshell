@@ -78,9 +78,43 @@ object PlayerManager {
     @Volatile
     private var videoCache: SimpleCache? = null
 
+    @Volatile private var firstFrameAt = 0L
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var noFrameGen = 0
+
+    /** v0.294.38：解码器名 / 初始化失败写进日志 */
+    private val analytics = object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+        override fun onVideoDecoderInitialized(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long,
+        ) { LogBus.i("Player", "视频解码器：$decoderName") }
+        override fun onAudioDecoderInitialized(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long,
+        ) { LogBus.i("Player", "音频解码器：$decoderName") }
+        override fun onVideoCodecError(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, videoCodecError: Exception,
+        ) { LogBus.e("Player", "视频解码出错：${videoCodecError.message}") }
+    }
+
+    /** 就绪且在播、选中了视频轨，6 秒仍没首帧 → 认定解不了画面，换 libmpv */
+    private fun scheduleNoFrameCheck() {
+        val gen = ++noFrameGen
+        val started = android.os.SystemClock.elapsedRealtime()
+        mainHandler.postDelayed({
+            if (gen != noFrameGen) return@postDelayed
+            val p = exoPlayer ?: return@postDelayed
+            if (firstFrameAt >= started || !p.isPlaying) return@postDelayed
+            val hasVideo = p.currentTracks.groups.any { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
+            if (hasVideo && p.videoSize.width == 0) listenerSwitch("就绪 6 秒仍没有画面（有声音）")
+        }, 6000)
+    }
+    private fun listenerSwitch(reason: String) = switchToMpvImpl(reason)
+
     private val listener = object : Player.Listener {
         // v0.294.37：本机磁力 / 迅雷地址记首帧与画面尺寸，便于排查黑屏
         override fun onRenderedFirstFrame() {
+            firstFrameAt = android.os.SystemClock.elapsedRealtime()
             if (decoderFallbackUrl.startsWith("http://127.0.0.1")) LogBus.i("Player", "本机磁力流：首帧已渲染")
         }
         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
@@ -88,12 +122,29 @@ object PlayerManager {
                 LogBus.i("Player", "本机磁力流：画面 ${videoSize.width}×${videoSize.height}")
         }
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY) scheduleNoFrameCheck()
             if (decoderFallbackUrl.startsWith("http://127.0.0.1"))
                 LogBus.i("Player", "本机磁力流：状态 " + when (playbackState) { 1 -> "空闲"; 2 -> "缓冲中"; 3 -> "就绪"; 4 -> "结束"; else -> "$playbackState" })
         }
         // v0.294.35：只有音轨没有视频轨（听书等）→ 通知详情页改用音乐播放器
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
             if (tracks.groups.isEmpty()) return
+            // v0.294.38：记录每条轨道（类型 / 编码 / 分辨率 / 设备是否支持 / 是否选中）
+            tracks.groups.forEach { g ->
+                for (i in 0 until g.length) {
+                    val f = g.getTrackFormat(i)
+                    val type = when (g.type) { C.TRACK_TYPE_VIDEO -> "视频"; C.TRACK_TYPE_AUDIO -> "音频"; C.TRACK_TYPE_TEXT -> "字幕"; else -> "其他" }
+                    LogBus.i("Player", "轨道 $type ${f.sampleMimeType} ${f.codecs ?: ""} ${if (f.width > 0) "${f.width}×${f.height}" else ""} " +
+                        "支持=${g.isTrackSupported(i)} 选中=${g.isTrackSelected(i)}")
+                }
+            }
+            // 有视频轨但设备解不了（如 HEVC 10bit / 高规格）→ 自动换 libmpv 软解
+            val videoGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
+            if (videoGroups.isNotEmpty() && videoGroups.none { g -> (0 until g.length).any { g.isTrackSupported(it) } }) {
+                val f = videoGroups.first().getTrackFormat(0)
+                switchToMpv("视频编码 ${f.sampleMimeType} ${f.codecs ?: ""} 本机硬解不支持")
+                return
+            }
             val hasVideo = tracks.groups.any { it.type == C.TRACK_TYPE_VIDEO }
             val hasAudio = tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO }
             if (hasAudio && !hasVideo && decoderFallbackUrl.isNotBlank() && noVideoReported != decoderFallbackUrl) {
@@ -103,6 +154,30 @@ object PlayerManager {
             }
         }
 
+        private fun switchToMpv(reason: String) = switchToMpvImpl(reason)
+    }
+
+    private fun switchToMpvImpl(reason: String) {
+        run {
+            if (decoderFallbackDone) return
+            decoderFallbackDone = true
+            val app = appContext ?: return
+            if (!MpvPluginLoader.isInstalled(app)) {
+                LogBus.w("Player", "$reason；未装 libmpv 插件，无法软解")
+                AppToast.show(app, "该视频编码本机解不了（只有声音），请在插件市场安装 libmpv 播放器后重试", long = true)
+                return
+            }
+            LogBus.i("Player", "$reason，自动切 libmpv 重播")
+            AppToast.show(app, "视频编码本机不支持，已自动切换 libmpv 播放", long = false)
+            val pos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L
+            exoPlayer?.stop()
+            EngineHost.markEngineTriedByFallback(PlayerEngine.MEDIA3)
+            EngineHost.setEngineOverride(PlayerEngine.LIBMPV)
+            EngineHost.play(app, lastUrl, lastHeaders, pos, lastSubtitleUrl)
+        }
+    }
+
+    private val listener2 = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
             LogBus.e("Player", "播放器错误：${error.errorCodeName} ${error.message}")
             // v0.100.0：硬解初始化失败 → 自动切 libmpv 重播（每次播放只做一次）。
@@ -159,6 +234,8 @@ object PlayerManager {
             .build()
             .also {
                 it.addListener(listener)
+                it.addListener(listener2)
+                it.addAnalyticsListener(analytics)
             }
     }
 

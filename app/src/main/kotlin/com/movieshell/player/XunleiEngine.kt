@@ -56,7 +56,7 @@ object XunleiEngine {
         if (metaId < 0) return@withContext XiaYingMagnetEngine.Fail("迅雷：创建磁力任务失败")
         taskId = metaId
         var ok = false
-        for (i in 0 until 120) { // 最多 60s
+        for (i in 0 until 50) { // v0.294.38：最多 25s，再交给 BT
             delay(500)
             val info0 = runCatching { h.getTaskInfo(metaId) }.getOrNull()
             val st = info0?.mTaskStatus ?: 3
@@ -66,7 +66,7 @@ object XunleiEngine {
             if (i % 2 == 0) onStatus("迅雷：正在解析磁力（${i / 2}s）…")
         }
         stopCurrent()
-        if (!ok || !torrent.isFile) return@withContext XiaYingMagnetEngine.Fail("迅雷：磁力解析失败或超时")
+        if (!ok || !torrent.isFile) return@withContext XiaYingMagnetEngine.Fail("迅雷：25 秒内没解析出种子，资源可能已失效")
         val info = runCatching { h.getTorrentInfo(torrent.absolutePath) }.getOrNull()
         val subs = info?.mSubFileInfo?.toList().orEmpty()
         val pick = MagnetStreamLogic.pickPlayFile(subs.map { MagnetStreamLogic.FileCand(it.mFileIndex, it.mFileName ?: "", it.mFileSize) })
@@ -128,7 +128,8 @@ object XunleiEngine {
     private fun pickWorkingUrl(raw: String): String {
         val once = runCatching { java.net.URLDecoder.decode(raw.replace("+", "%2B"), "UTF-8") }.getOrNull()
         val cands = listOfNotNull(raw, once?.takeIf { it != raw })
-        for (u in cands) {
+        // v0.294.38：迅雷刚开始下时 206 但读不到数据（首块 -1）——等它下到开头，最多重试 6 次
+        for (attempt in 0 until 6) for (u in cands) {
             val r = runCatching {
                 val c = java.net.URL(u).openConnection() as java.net.HttpURLConnection
                 c.connectTimeout = 3000; c.readTimeout = 8000
@@ -142,13 +143,15 @@ object XunleiEngine {
                 code in 200..299 && got > 0
             }.onFailure { t("探测本地地址失败：${it.message}") }.getOrDefault(false)
             if (r) return u
+            if (attempt < 5) Thread.sleep(1500)
         }
         return raw
     }
 
     /** 海阔视界 ThunderManager.errorCode 同款释义；114xxx 是迅雷服务端拒绝（版权限制），换路径无用 */
     private fun errMsg(code: Int): String = when (code) {
-        114001, 114004, 114005, 114006, 114007, 114011, 9304, 111154 -> "版权限制：该资源被迅雷屏蔽，无权下载"
+        114006 -> "取不到种子，资源可能已失效"
+        114001, 114004, 114005, 114007, 114011, 9304, 111154 -> "版权限制：该资源被迅雷屏蔽，无权下载"
         114101 -> "无效链接"
         9125 -> "文件名太长"; 111120, 111129 -> "文件路径太长"
         111085 -> "磁盘空间不足"; 111171 -> "网络连接被拒绝"

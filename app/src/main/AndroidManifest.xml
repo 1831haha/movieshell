@@ -61,6 +61,7 @@
         <service
             android:name=".player.MagnetService"
             android:process=":magnet"
+            android:foregroundServiceType="dataSync"
             android:exported="false" />
         <!-- v0.85.0：音乐后台播放——ExoPlayer 归 service 持有，通知栏/锁屏走 media3 标准媒体通知 -->
         <service

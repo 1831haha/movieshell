@@ -15,6 +15,20 @@ class MagnetService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // v0.294.38：前台服务 + 通知，切到后台 / 画中画时系统不回收磁力进程
+        runCatching {
+            com.movieshell.data.download.Notify.ensureChannels(this)
+            val n = androidx.core.app.NotificationCompat.Builder(this, com.movieshell.data.download.Notify.CH_DOWNLOAD)
+                .setSmallIcon(com.movieshell.R.drawable.ic_stat)
+                .setContentTitle("侠影磁力引擎运行中")
+                .setContentText("边下边播中，离开播放后自动停止")
+                .setOngoing(true).setSilent(true)
+                .setContentIntent(com.movieshell.data.download.Notify.routeIntent(this, "home", id = 9101))
+                .build()
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                startForeground(9101, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else startForeground(9101, n)
+        }.onFailure { LogBus.w("XiaYingMagnet", "磁力前台服务启动失败：${it.message}") }
         Thread({
             try {
                 XiaYingMagnetEngine.ensureHttp(applicationContext)

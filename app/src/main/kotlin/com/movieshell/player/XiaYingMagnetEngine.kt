@@ -85,6 +85,8 @@ object XiaYingMagnetEngine {
      * 播放页关闭时调用：宽限 [graceMs] 后若没有新的起播/读流（换内核、进出全屏、
      * 同一磁力切集都会重新读流），就停掉全部种子并删掉其缓存文件。
      */
+    fun keepAlive() { releaseGen++; lastServeMs = System.currentTimeMillis() }
+
     fun releaseWhenIdle(graceMs: Long = 8000L) {
         val gen = ++releaseGen
         val since = System.currentTimeMillis()
@@ -210,6 +212,12 @@ object XiaYingMagnetEngine {
                 runCatching {
                     val k = alert.type().name
                     val n = netLogCounts.merge(k, 1, Int::plus) ?: 1
+                    // v0.294.38：连到自己（同端口回环）不算节点
+                    val selfPorts: List<Int> = runCatching { sm.listenEndpoints().mapNotNull { e -> e.substringAfterLast(':').trimEnd(']').toIntOrNull() } }.getOrDefault(emptyList())
+                    val msg0 = alert.message()
+                    if (alert.type() == AlertType.PEER_CONNECT && selfPorts.any { p -> msg0.contains(":$p ") }) {
+                        netLogCounts.merge(k, -1, Int::plus); return@runCatching
+                    }
                     if (n <= 6 || n % 20 == 0) {
                         val label = when (alert.type()) {
                             AlertType.LISTEN_SUCCEEDED -> "监听成功"; AlertType.LISTEN_FAILED -> "监听失败"

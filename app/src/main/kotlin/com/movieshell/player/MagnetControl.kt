@@ -71,6 +71,10 @@ internal object MagnetControl {
                 killSoon()
                 return json(JSONObject().put("ok", true))
             }
+            "/ctl/keep" -> {
+                XiaYingMagnetEngine.keepAlive()
+                return json(JSONObject().put("ok", true))
+            }
             "/ctl/release" -> {
                 if (state == "working") killSoon() else XiaYingMagnetEngine.releaseWhenIdle()
                 return json(JSONObject().put("ok", true))

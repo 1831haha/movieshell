@@ -471,13 +471,23 @@ fun DetailScreen(
             embeddedResolving = true
             embeddedError = null
             if (MagnetPlayer.isMagnet(ep.url)) {
-                val ok = runCatching {
-                    MagnetPlayer.playIfReady(context, ep.url, detailTitle(detail, vodId))
-                }.getOrDefault(false)
-                // 世代已过：新一集已在解析，本单不再动任何状态
+                // v0.294.38：原来直接让引擎起播，却没把地址交给嵌入播放器——播放区不显示画面，
+                // 只听到声音（Media3 / libmpv 都一样）。改为拿到本机播放地址后照普通直链交给嵌入播放器。
+                val r = runCatching { MagnetPlayer.ensureReady(context, ep.url) }
+                    .getOrElse { MagnetPlayer.Ready.Fail(it.message ?: "磁力起播失败") }
                 if (myGen != playGen) return@launch
-                // 服务通则已直接起播；不通则弹窗提示
-                if (!ok) { lastMagnetUrl = ep.url; showMagnetDialog = true }
+                when (r) {
+                    is MagnetPlayer.Ready.Ok -> {
+                        playingLine = lineIndex
+                        playingEp = episodeIndex
+                        embeddedTitle = "${detailTitle(detail, vodId)} ${ep.name.ifBlank { "第${episodeIndex + 1}集" }}"
+                        embeddedUrl = r.playUrl
+                    }
+                    is MagnetPlayer.Ready.Fail -> {
+                        MagnetPlayer.lastFailMessage = r.message
+                        lastMagnetUrl = ep.url; showMagnetDialog = true
+                    }
+                }
                 embeddedResolving = false
             } else {
                 val link = try {
