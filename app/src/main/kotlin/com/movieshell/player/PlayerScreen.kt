@@ -365,8 +365,10 @@ fun PlayerScreen(
     DisposableEffect(Unit) {
         PlaySession.playerVisible = true
         onDispose {
-            // v0.294.26：离开播放页后磁力种子不再后台下载（宽限期内重新读流则保留）
-            MagnetRemote.releaseAsync(context)
+            // v0.294.42：嵌入小窗 dispose（跳全屏 / 列表复用）不算离开——详情页自己的
+            // dispose 才会 EngineHost.stop → 延迟 release。这里再 release 会在缓冲/切集
+            // 时误杀 :magnet（心跳还没挂上就进 8s 倒计时）。
+            if (!embedded) MagnetRemote.releaseAsync(context)
             restorePlayerWindow()
             savePlayerProgress(
                 context, currentTitle, currentPlayUrl, isLive,
@@ -1320,11 +1322,30 @@ fun PlayerScreen(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                 )
-                            }.also {
-                                it.player = PlayerManager.player
-                                playerView = it
-                                videoView = it
+                            }.also { neu ->
+                                // v0.294.42：全屏↔小窗跨页时用进程级 currentPlayerView + switchTargetView，
+                                // 避免旧页 onRelease setPlayer(null) 清掉新页刚接上的画面
+                                val pl = PlayerManager.player
+                                val prev = PlayerManager.currentPlayerView
+                                if (pl != null && prev != null && prev !== neu) {
+                                    PlayerView.switchTargetView(pl, prev, neu)
+                                } else {
+                                    neu.player = pl
+                                }
+                                PlayerManager.currentPlayerView = neu
+                                playerView = neu
+                                videoView = neu
                             }
+                        }
+                    },
+                    onRelease = { v ->
+                        // v0.294.42：只有仍是「当前画面」时才摘；已被 switchTargetView 交给新视图则不动
+                        if (v is PlayerView) {
+                            if (PlayerManager.currentPlayerView === v) {
+                                v.player = null
+                                PlayerManager.currentPlayerView = null
+                            }
+                            if (playerView === v) playerView = null
                         }
                     },
                     modifier = Modifier.fillMaxSize(),

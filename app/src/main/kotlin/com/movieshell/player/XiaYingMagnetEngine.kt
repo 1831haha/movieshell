@@ -88,6 +88,8 @@ object XiaYingMagnetEngine {
     /** v0.294.39：主进程播放器心跳（在播 / 暂停都发），有心跳就不停 */
     @Volatile var lastBeatMs = 0L
     fun keepAlive() { lastBeatMs = System.currentTimeMillis() }
+    /** v0.294.42：作废待执行的 releaseWhenIdle（新 prepare / 明确续命） */
+    fun bumpReleaseGen() { releaseGen++ }
 
     fun releaseWhenIdle(graceMs: Long = 8000L) {
         val gen = ++releaseGen

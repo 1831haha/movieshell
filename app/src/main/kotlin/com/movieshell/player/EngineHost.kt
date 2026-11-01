@@ -187,12 +187,16 @@ object EngineHost {
         route({ PlayerManager.stop() }, { MpvPlayerManager.stop() })
         // v0.294.36：停播后 8 秒内没有重新读流就结束磁力进程
         // v0.294.38：换内核 / 重试是「停 → 马上再播同一地址」，不算离开：2 秒内又播了就不释放
+        // v0.294.42：列表连点下一磁力时 prepare 可能略晚于 stop——多等几秒，preparing/keep 会作废释放
         val gen = ++stopGen
         currentUrl = ""
         val c = appCtx ?: return
         Thread({
-            Thread.sleep(2000)
-            if (gen == stopGen && !MagnetRemote.preparing) MagnetRemote.releaseAsync(c)
+            Thread.sleep(4000)
+            if (gen != stopGen || MagnetRemote.preparing) return@Thread
+            // 真正离开：清 lastUrl，避免心跳线程继续 keep 把 releaseWhenIdle 顶掉后无人再释放
+            if (currentUrl.isBlank()) MagnetRemote.lastUrl = ""
+            MagnetRemote.releaseAsync(c)
         }, "magnet-release-delay").also { it.isDaemon = true }.start()
     }
 
@@ -215,6 +219,12 @@ object EngineHost {
      * v0.294.39：播放器会话（在播或暂停）期间每 3 秒给磁力进程发心跳。
      * 全屏跳页 / 旋转 / 换内核是「停 → 再播同一地址」，心跳不断，磁力不会被当成离开而停掉。
      */
+    /** v0.294.42：磁力 prepare 一开始就挂心跳，不必等 play() */
+    fun noteMagnetInterest(context: Context) {
+        appCtx = context.applicationContext
+        ensureHeartbeat()
+    }
+
     private fun ensureHeartbeat() {
         if (beating) return
         beating = true
@@ -225,7 +235,11 @@ object EngineHost {
                     Thread.sleep(3000)
                     val c = appCtx ?: break
                     val u = currentUrl
-                    if (u.isNotBlank() && u == MagnetRemote.lastUrl) { idle = 0; MagnetRemote.keepAsync(c) }
+                    // v0.294.42：preparing 时也续命（列表连点尚未 play）；停播后 currentUrl 已空则不再 keep
+                    val keep = MagnetRemote.preparing ||
+                        System.currentTimeMillis() < MagnetRemote.pendingKeepUntil ||
+                        (u.isNotBlank() && u == MagnetRemote.lastUrl)
+                    if (keep) { idle = 0; MagnetRemote.keepAsync(c) }
                     else if (++idle >= 5) break
                 }
             } finally { beating = false }

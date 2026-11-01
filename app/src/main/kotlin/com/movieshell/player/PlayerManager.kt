@@ -46,6 +46,10 @@ import java.io.FileOutputStream
  */
 object PlayerManager {
 
+    /** v0.294.42：当前接着画面的 PlayerView（全屏/小窗切换时 switchTargetView 用） */
+    @Volatile var currentPlayerView: PlayerView? = null
+
+
     // v0.99.0 P0-5：用浏览器 UA，自定义 App UA 会被影视 CDN/WAF 直接 403
 
     @Volatile

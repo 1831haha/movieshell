@@ -52,11 +52,16 @@ object MagnetRemote {
     }
 
     @Volatile var preparing = false
+    /** v0.294.42：prepare 刚成功到 play() 接上之前仍续命（约 15s） */
+    @Volatile var pendingKeepUntil = 0L
     @Volatile private var logPort = -1
     @Volatile private var logCursor = 0
 
     suspend fun prepare(ctx: Context, magnet: String, retry: Boolean = true): Result {
         preparing = true
+        // v0.294.42：一点播就续命，不等播放器真正起播（列表连点时还没 currentUrl）
+        keepAsync(ctx)
+        EngineHost.noteMagnetInterest(ctx)
         try { return prepare0(ctx, magnet, retry) } finally { preparing = false }
     }
 
@@ -69,7 +74,17 @@ object MagnetRemote {
                     return@withContext Result.Fail(EnginePlugins.NEED_ANY)
                 }
                 val first = get(port, "/ctl/prepare?prefer=" + EnginePlugins.prefer(ctx) + "&m=" + URLEncoder.encode(magnet, "UTF-8"))
-                    ?: return@withContext Result.Fail(crashMsg(ctx))
+                if (first == null) {
+                    val why = crashMsg(ctx)
+                    // v0.294.42：旧进程正在退出时不要立刻「请回到侠影后重试」——等它死透再拉起重试
+                    if (retry && (why.contains("已停止") || why.contains("被结束") || why.contains("请回到侠影"))) {
+                        LogBus.i(TAG, "磁力进程正在退出，等待后重试：$why")
+                        repeat(25) { if (get(port, "/healthz", 400) == null) return@repeat; delay(200) }
+                        delay(400)
+                        return@withContext prepare(ctx, magnet, retry = false)
+                    }
+                    return@withContext Result.Fail(why)
+                }
                 if (retry && first.contains("\"restart\"")) {
                     expectStop()
                     // 旧进程正在退出：等端口失效后重新拉起
@@ -82,7 +97,17 @@ object MagnetRemote {
                 var cursor = logCursor
                 while (true) {
                     delay(700)
-                    val body = get(port, "/ctl/state?since=$cursor") ?: return@withContext Result.Fail(crashMsg(ctx))
+                    val body = get(port, "/ctl/state?since=$cursor")
+                    if (body == null) {
+                        val why = crashMsg(ctx)
+                        if (retry && (why.contains("已停止") || why.contains("被结束") || why.contains("请回到侠影"))) {
+                            LogBus.i(TAG, "轮询时磁力进程退出，等待后重试：$why")
+                            repeat(25) { if (get(port, "/healthz", 400) == null) return@repeat; delay(200) }
+                            delay(400)
+                            return@withContext prepare(ctx, magnet, retry = false)
+                        }
+                        return@withContext Result.Fail(why)
+                    }
                     val o = runCatching { JSONObject(body) }.getOrNull() ?: continue
                     val m = o.optString("msg")
                     // v0.294.33：:magnet 进程日志逐条转回主日志（含迅雷每一步）
@@ -97,7 +122,11 @@ object MagnetRemote {
                     cursor = o.optInt("next", cursor)
                     logCursor = cursor
                     when (o.optString("state")) {
-                        "ready" -> return@withContext Result.Ok(o.optString("url").also { lastUrl = it })
+                        "ready" -> {
+                            lastUrl = o.optString("url")
+                            pendingKeepUntil = System.currentTimeMillis() + 15_000
+                            return@withContext Result.Ok(lastUrl)
+                        }
                         "fail" -> return@withContext Result.Fail(m.ifBlank { "磁力起播失败" })
                     }
                 }

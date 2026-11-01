@@ -145,29 +145,48 @@ object MpvPlayerManager {
         executor.execute { if (initialized.get() && !destroyed.get()) block() }
     }
 
+    /** 把画面绑到指定 Surface（先卸旧再挂新，避免全屏/小窗切换后 vo 仍指着已销毁的旧面） */
+    private fun bindSurface(surface: Surface) {
+        runCatching {
+            MPVLib.setPropertyString("vo", "null")
+            MPVLib.setOptionString("force-window", "no")
+            MPVLib.detachSurface()
+        }
+        runCatching {
+            MPVLib.attachSurface(surface)
+            MPVLib.setOptionString("force-window", "yes")
+            MPVLib.setPropertyString("vo", "gpu")
+        }.onFailure { LogBus.w("MpvPlayer", "attachSurface 失败：${it.message}") }
+    }
+
     /** MpvVideoView surface 就绪/销毁时调用 */
     fun onSurfaceReady(surface: Surface) {
         attachedSurface = surface
         executor.execute {
-            if (initialized.get() && !destroyed.get()) {
-                runCatching {
-                    MPVLib.attachSurface(surface)
-                    // v0.294.40：同 mpv-android——换到新画面时重新打开视频输出，否则只剩声音
-                    MPVLib.setOptionString("force-window", "yes")
-                    MPVLib.setPropertyString("vo", "gpu")
-                }.onFailure { LogBus.w("MpvPlayer", "attachSurface 失败：${it.message}") }
-                LogBus.i("MpvPlayer", "画面已接到新的视图")
-            }
+            if (!initialized.get() || destroyed.get()) return@execute
+            // 可能在排队期间又换了更新的画面——只绑当前这一块
+            if (attachedSurface !== surface) return@execute
+            bindSurface(surface)
+            LogBus.i("MpvPlayer", "画面已接到新的视图")
         }
     }
 
     /**
      * v0.294.40：跳全屏页时新页面的画面先建好、旧小窗的画面后销毁——原来旧画面销毁时无条件 detach，
      * 把刚接到全屏页的画面也摘掉了（全屏黑屏只有声音）。只有销毁的正是当前接着的那块画面才摘。
+     * v0.294.42：旧面销毁时即便「不摘」，也强制把 vo 重新绑到幸存画面——否则 EGL/原生窗
+     * 随旧 SurfaceView 一起没了，日志写着接到了新视图，小窗却是黑的。
      */
     fun onSurfaceLost(surface: Surface? = null) {
         if (surface != null && attachedSurface != null && surface !== attachedSurface) {
+            val keep = attachedSurface
             LogBus.i("MpvPlayer", "旧视图销毁，当前画面已在新视图上，不摘")
+            executor.execute {
+                if (!initialized.get() || destroyed.get()) return@execute
+                if (keep == null || attachedSurface !== keep) return@execute
+                bindSurface(keep)
+                LogBus.i("MpvPlayer", "旧视图已销毁，已重新接到当前画面")
+            }
             return
         }
         attachedSurface = null

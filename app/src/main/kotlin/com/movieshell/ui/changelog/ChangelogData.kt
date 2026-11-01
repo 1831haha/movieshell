@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.42",
+        date = "2026-11-01",
+        title = "回小屏不再黑屏；列表连点磁力不再误杀引擎。",
+        details = listOf(
+            "全屏返回小窗：旧画面销毁后强制把视频输出重新绑到新视图（libmpv）；Media3 用 switchTargetView，避免旧 PlayerView 清掉新画面。",
+            "嵌入播放页销毁（跳全屏）不再触发磁力 8 秒停止；真正离开详情才停。",
+            "磁力 prepare / 缓冲尚未起播时也发心跳续命；旧进程正在退出时自动等待重试，不再提示「请回到侠影后重试」。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.41",
         date = "2026-11-01",
         title = "全屏返回小窗秒开详情、接着播；修复 libmpv 被误判初始化失败。",

@@ -28,13 +28,21 @@ internal object MagnetControl {
                 val m = parms["m"].orEmpty()
                 val ctx = appContext
                 if (m.isBlank() || ctx == null) return json(JSONObject().put("state", "fail").put("msg", "参数错误"))
-                if (m == magnet && (state == "working" || state == "ready")) return stateJson()
+                if (m == magnet && (state == "working" || state == "ready")) {
+                    // v0.294.42：同一磁力再点也续命，避免列表连点时 8s 倒计时已在跑
+                    XiaYingMagnetEngine.keepAlive()
+                    XiaYingMagnetEngine.bumpReleaseGen()
+                    return stateJson()
+                }
                 if (state == "working") {
                     // 上一条还在取元数据（fetchMagnet 不可中断）：结束进程，让主进程重新拉起
                     killSoon()
                     return json(JSONObject().put("state", "restart"))
                 }
                 job?.cancel()
+                // v0.294.42：迅雷路径不会走 XiaYingMagnetEngine.prepare，这里也要作废「离开后停止」
+                XiaYingMagnetEngine.keepAlive()
+                XiaYingMagnetEngine.bumpReleaseGen()
                 magnet = m; state = "working"; msg = "正在连接磁力网络…"; url = ""
                 job = scope.launch {
                     val prefer = parms["prefer"] ?: "xunlei"
