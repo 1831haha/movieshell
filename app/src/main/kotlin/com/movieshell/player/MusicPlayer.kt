@@ -147,7 +147,7 @@ object MusicPlayer {
                 // v0.126.0：封面/匹配搜索都按曲目自身平台走（GD 不支持的平台自然空）
                 val plat = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
                 // 有自带封面且能解析出图就不必匹配（顺手把结果记下防重复进）
-                val own = if (track.picId.isBlank()) "" else {
+                val own = if (track.picId.isBlank()) "" else if (track.source == AudioRoute.VOD_SOURCE) track.picId else {
                     runCatching { MusicApi.picImageUrl(track.picId, plat) }.getOrDefault("")
                 }
                 if (own.isNotBlank()) {
@@ -754,7 +754,7 @@ object MusicPlayer {
             resolveOnlineUrl(context.applicationContext, track, forcedForThisPlay)
         }
         val artDeferred = async {
-            if (track.picId.isBlank()) "" else {
+            if (track.picId.isBlank()) "" else if (track.source == AudioRoute.VOD_SOURCE) track.picId else {
                 runCatching { MusicApi.picImageUrl(track.picId, platform) }.getOrDefault("")
             }
         }
@@ -877,6 +877,11 @@ object MusicPlayer {
         silent: Boolean = false,
     ): Resolved? = resolveMutex.withLock {
         if (track.isLocal) return@withLock Resolved(track.localUri, "本地文件", "")
+        // v0.294.35：听书 / 纯音频影视源——按集用影视源解析器取地址
+        if (track.source == AudioRoute.VOD_SOURCE) {
+            val u = AudioRoute.resolve(appContext, track)
+            return@withLock u?.takeIf { it.isNotBlank() }?.let { Resolved(it, "影视源", "") }
+        }
         val platform = MusicApi.normalizeSource(track.source).ifBlank { "wy" }
         resolveLxUrl(appContext, track, forced, silent)
             ?: try {

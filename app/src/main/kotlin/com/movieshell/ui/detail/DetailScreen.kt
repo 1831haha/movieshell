@@ -508,6 +508,20 @@ fun DetailScreen(
                     embeddedResolving = false
                     return@launch
                 }
+                // v0.294.35：听书 / 纯音频 → 音乐播放器（各集成播放队列）
+                if (com.movieshell.player.AudioRoute.isAudioUrl(link) ||
+                    com.movieshell.player.AudioRoute.isAudioCategory(detail?.typeName, subSite?.name)
+                ) {
+                    com.movieshell.player.AudioRoute.play(
+                        context, subSite, detailTitle(detail, vodId), detail?.vodPic.orEmpty(),
+                        playLines.getOrNull(lineIndex)?.episodes.orEmpty(), episodeIndex, link,
+                    )
+                    playingLine = lineIndex
+                    playingEp = episodeIndex
+                    embeddedUrl = ""
+                    embeddedResolving = false
+                    return@launch
+                }
                 // v0.26.0：追剧看到第几集联动（有地址才记）
                 if (following) {
                     FollowStore.markWatched(context, followId, episodeIndex)
@@ -528,6 +542,18 @@ fun DetailScreen(
         }
     }
 
+    // v0.294.35：识别不准时先用视频播放器；Media3 报告没有视频轨就切到音乐播放器
+    LaunchedEffect(embeddedUrl, playLines, detail) {
+        com.movieshell.player.AudioRoute.noVideo.collect { url ->
+            if (embeddedUrl.isNotBlank() && url == embeddedUrl) {
+                com.movieshell.player.AudioRoute.play(
+                    context, subSite, detailTitle(detail, vodId), detail?.vodPic.orEmpty(),
+                    playLines.getOrNull(playingLine)?.episodes.orEmpty(), playingEp, url,
+                )
+                embeddedUrl = ""
+            }
+        }
+    }
     val safeSelected = if (lineEpisodes.isNotEmpty()) {
         selectedEpisode.coerceIn(0, lineEpisodes.size - 1)
     } else selectedEpisode

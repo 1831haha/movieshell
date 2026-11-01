@@ -290,6 +290,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 // v0.26.0：通知点进来的深度跳转（消费一次）
+                // v0.294.35：听书 / 纯音频内容交给音乐播放页
+                LaunchedEffect(Unit) {
+                    com.movieshell.player.AudioRoute.openRequests.collect {
+                        runCatching { com.movieshell.ui.music.openMusicPlayerHook(navController) }
+                    }
+                }
                 LaunchedEffect(pendingRoute.value) {
                     val (route, subKey) = pendingRoute.value ?: return@LaunchedEffect
                     pendingRoute.value = null

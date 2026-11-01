@@ -72,12 +72,25 @@ object PlayerManager {
      * 来回循环；换地址时重新给一次 fallback 机会。
      */
     private var decoderFallbackUrl: String = ""
+    private var noVideoReported: String = ""
 
     /** v0.100.0：m3u8/ts 磁盘缓存（App 级单例；同目录建多个 SimpleCache 会抛异常） */
     @Volatile
     private var videoCache: SimpleCache? = null
 
     private val listener = object : Player.Listener {
+        // v0.294.35：只有音轨没有视频轨（听书等）→ 通知详情页改用音乐播放器
+        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            if (tracks.groups.isEmpty()) return
+            val hasVideo = tracks.groups.any { it.type == C.TRACK_TYPE_VIDEO }
+            val hasAudio = tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO }
+            if (hasAudio && !hasVideo && decoderFallbackUrl.isNotBlank() && noVideoReported != decoderFallbackUrl) {
+                noVideoReported = decoderFallbackUrl
+                LogBus.i("Player", "没有视频轨，只有音频")
+                AudioRoute.reportNoVideo(decoderFallbackUrl)
+            }
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             LogBus.e("Player", "播放器错误：${error.errorCodeName} ${error.message}")
             // v0.100.0：硬解初始化失败 → 自动切 libmpv 重播（每次播放只做一次）。

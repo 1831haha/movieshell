@@ -380,8 +380,12 @@ object XiaYingMagnetEngine {
                 sm.removeListener(listener)
             }
         }
-        val handle = handleRef.get() ?: sm.find(ti.infoHash())
+        // v0.294.35：告警里的 handle 是「不拥有内存」的指针，告警回收后再用就是野指针
+        // （SIGSEGV 在 torrent_handle.is_valid）。告警回调之外一律用 session.find 取得自有副本。
+        val handle = (if (existing != null) runCatching { sm.find(ti.infoHash()) }.getOrNull() ?: existing
+            else runCatching { sm.find(ti.infoHash()) }.getOrNull())
             ?: return@withContext Fail("无法取得下载句柄")
+        handleRef.set(null)
         val rel = ti.files().filePath(pick.index)
         val path = File(root, rel)
         torrents[hash] = Active(handle, pick.index, path, pick.size, pick.name,

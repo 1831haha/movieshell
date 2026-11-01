@@ -40,3 +40,6 @@ internal fun NavHostController.openMusicPlayer() {
 internal fun NavHostController.closeMusicPlayer() {
     if (shouldPopPlayer(currentBackStackEntry?.destination?.route)) popBackStack()
 }
+
+/** v0.294.35：给 MainActivity 用的入口（openMusicPlayer 是扩展函数，包外引用不便） */
+internal val openMusicPlayerHook: NavHostController.() -> Unit = { openMusicPlayer() }

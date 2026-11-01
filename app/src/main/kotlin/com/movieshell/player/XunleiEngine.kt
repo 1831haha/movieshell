@@ -44,7 +44,7 @@ object XunleiEngine {
         val h = XLTaskHelper.instance()
         stopCurrent()
         val root = File(context.filesDir, "magnet_cache/xl").also { it.mkdirs() }
-        val name = runCatching { h.getFileName(magnet) }.getOrNull()?.ifBlank { null } ?: "meta.torrent"
+        val name = (MagnetStreamLogic.infoHashHex(magnet)?.lowercase() ?: "meta") + ".torrent"
         val torrent = File(root, name)
         torrent.delete()
         lastTorrent = null
@@ -78,7 +78,9 @@ object XunleiEngine {
         // addTorrentTask（内部 createBtTask + 取消其余文件 + startTask），
         // 子任务进入 1/4（下载中）或 2（完成）后立即 getLoclUrl(保存目录/文件名)，不等文件落盘。
         val base = pick.name.substringAfterLast('/').let { if (it.contains('.')) it.substringBeforeLast('.') else it }
-        val save = File(root, "dl_" + base.take(80)).also { it.mkdirs() }
+        // v0.294.35：保存目录用 infohash 短 ASCII 名，避开中文/空格/超长路径
+        val ih = (info?.mInfoHash ?: MagnetStreamLogic.infoHashHex(magnet) ?: base.hashCode().toString(16)).lowercase().take(40)
+        val save = File(root, "dl_$ih").also { it.mkdirs() }
         val tid = runCatching { h.addTorrentTask(torrent.absolutePath, save.absolutePath, pick.index) }
             .onFailure { t("创建下载任务异常：${it::class.java.simpleName}: ${it.message}") }.getOrDefault(-1L)
         t("下载任务 id=$tid，保存到 ${save.name}")
@@ -94,8 +96,10 @@ object XunleiEngine {
             val st = ti?.mTaskStatus ?: -1
             if (st != lastSt) { t("子任务状态=$st（0等待 1/4下载中 2完成 3失败）错误码=${ti?.mErrorCode}"); lastSt = st }
             if (st == 3 && i > 3) {
+                val code = ti?.mErrorCode ?: 0
+                t("失败详情：$code ${errName(code)} 已下=${ti?.mDownloadSize} 文件大小=${ti?.mFileSize} 速度=${ti?.mDownloadSpeed}")
                 stopCurrent()
-                return@withContext XiaYingMagnetEngine.Fail("迅雷：下载失败（错误码 ${ti?.mErrorCode}）")
+                return@withContext XiaYingMagnetEngine.Fail("迅雷：${errMsg(code)}（错误码 $code）")
             }
             if (st == 1 || st == 4 || st == 2) {
                 val f = target.takeIf { it.exists() }
@@ -115,6 +119,20 @@ object XunleiEngine {
         }
         stopCurrent()
         XiaYingMagnetEngine.Fail("迅雷：30 秒内没有拿到播放地址")
+    }
+
+    /** 海阔视界 ThunderManager.errorCode 同款释义；114xxx 是迅雷服务端拒绝（版权限制），换路径无用 */
+    private fun errMsg(code: Int): String = when (code) {
+        114001, 114004, 114005, 114006, 114007, 114011, 9304, 111154 -> "版权限制：该资源被迅雷屏蔽，无权下载"
+        114101 -> "无效链接"
+        9125 -> "文件名太长"; 111120, 111129 -> "文件路径太长"
+        111085 -> "磁盘空间不足"; 111171 -> "网络连接被拒绝"
+        else -> "下载失败"
+    }
+
+    private fun errName(code: Int): String = when (code) {
+        114004 -> "TASK_FAILURE_QUERY_BT_HUB_FAILED"; 114005 -> "PARSE_TORRENT_FAILED"
+        114006 -> "GET_TORRENT_FAILED"; 114007 -> "SAVE_TORRENT_FAILED"; else -> ""
     }
 
     fun liveInfo(): String {
