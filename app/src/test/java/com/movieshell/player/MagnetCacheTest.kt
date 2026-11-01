@@ -47,3 +47,12 @@ class Base32HashTest {
         org.junit.Assert.assertNull(MagnetStreamLogic.base32ToHex("magnet:?xt=urn:btih:CD307216ED044BC956AD4A6C054B102401191086"))
     }
 }
+
+class EngineOrderTest {
+    @org.junit.Test fun order() {
+        org.junit.Assert.assertEquals(listOf("xunlei", "bt"), EnginePlugins.order("xunlei", true, true))
+        org.junit.Assert.assertEquals(listOf("bt", "xunlei"), EnginePlugins.order("bt", true, true))
+        org.junit.Assert.assertEquals(listOf("bt"), EnginePlugins.order("xunlei", true, false))
+        org.junit.Assert.assertEquals(emptyList<String>(), EnginePlugins.order("bt", false, false))
+    }
+}

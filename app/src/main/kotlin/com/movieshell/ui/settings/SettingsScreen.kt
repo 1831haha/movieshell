@@ -740,6 +740,26 @@ fun SettingsScreen(
             )
         }
         item {
+            // v0.294.32：磁力引擎优先级（迅雷优先 / BT 优先），失败自动换另一个
+            var prefer by remember { mutableStateOf(com.movieshell.player.EnginePlugins.prefer(context)) }
+            val bt = com.movieshell.player.EnginePlugins.btInstalled(context)
+            val xl = com.movieshell.player.EnginePlugins.xlInstalled(context)
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.CleaningServices,
+                title = "磁力引擎",
+                subtitle = "迅雷${if (xl) "已装" else "未装"} · BT${if (bt) "已装" else "未装"} · 失败自动换另一个",
+                onClick = {
+                    prefer = if (prefer == "bt") "xunlei" else "bt"
+                    com.movieshell.player.EnginePlugins.setPrefer(context, prefer)
+                },
+                trailing = {
+                    Text(if (prefer == "bt") "BT 优先" else "迅雷优先",
+                        style = MaterialTheme.typography.labelLarge, color = cs.primary)
+                },
+            )
+        }
+        item {
             // v0.188.0：旧字幕 key 清理入口——点开先说明条数，确认后才删
             SegItem(
                 position = SegPos.Last,

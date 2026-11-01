@@ -14,8 +14,8 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 393
-        versionName = "0.294.31"
+        versionCode = 394
+        versionName = "0.294.32"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {
@@ -70,6 +70,10 @@ android {
             excludes += "lib/arm64-v8a/libavdevice.so"
             excludes += "lib/arm64-v8a/libpostproc.so"
             excludes += "lib/arm64-v8a/libplayer.so"
+            // v0.294.32：libtorrent4j.so 改为「磁力引擎」插件下载（-16.6MB）
+            excludes += "lib/arm64-v8a/libtorrent4j.so"
+            // v0.294.32：原生库在 APK 里压缩存放（安装时解出），再省约 5MB
+            useLegacyPackaging = true
         }
     }
 }

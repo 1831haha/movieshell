@@ -17,7 +17,7 @@ class MagnetService : Service() {
         super.onCreate()
         Thread({
             try {
-                XiaYingMagnetEngine.ensureSession(applicationContext)
+                XiaYingMagnetEngine.ensureHttp(applicationContext)
                 val port = XiaYingMagnetEngine.port()
                 val f = MagnetRemote.portFile(applicationContext)
                 val tmp = File(f.parentFile, f.name + ".tmp")

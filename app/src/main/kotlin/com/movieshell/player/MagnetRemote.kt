@@ -52,10 +52,14 @@ object MagnetRemote {
     }
 
     suspend fun prepare(ctx: Context, magnet: String, retry: Boolean = true): Result {
+        if (!EnginePlugins.btInstalled(ctx) && !EnginePlugins.xlInstalled(ctx)) return Result.Fail(EnginePlugins.NEED_ANY)
         val e = ensure(ctx)
         val port = e as? Int ?: return Result.Fail(e.toString())
         return withContext(Dispatchers.IO) {
-                val first = get(port, "/ctl/prepare?m=" + URLEncoder.encode(magnet, "UTF-8"))
+                if (!EnginePlugins.btInstalled(ctx) && !EnginePlugins.xlInstalled(ctx)) {
+                    return@withContext Result.Fail(EnginePlugins.NEED_ANY)
+                }
+                val first = get(port, "/ctl/prepare?prefer=" + EnginePlugins.prefer(ctx) + "&m=" + URLEncoder.encode(magnet, "UTF-8"))
                     ?: return@withContext Result.Fail(crashMsg())
                 if (retry && first.contains("\"restart\"")) {
                     // 旧进程正在退出：等端口失效后重新拉起

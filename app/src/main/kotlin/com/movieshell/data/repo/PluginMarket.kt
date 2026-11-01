@@ -670,7 +670,8 @@ object PluginMarket {
                  * MpvPluginLoader.ensureLoaded 按序 System.load。
                  */
                 "player" -> {
-                    val dir = File(context.filesDir, "mpv-libs").also { it.mkdirs() }
+                    // v0.294.32：磁力/迅雷引擎也走 player 类型，按插件 id 分目录
+                    val dir = com.movieshell.player.EnginePlugins.dirFor(context, plugin.id).also { it.mkdirs() }
                     // v0.186.0：与 source 分支同口径，先解暂存再按本插件文件集合换入。
                     val soEntries = entries.filter { it.name.startsWith("libs/") && it.name.endsWith(".so") }
                     if (soEntries.isEmpty()) throw IllegalStateException("播放器插件包里没有 libs 目录的 so 文件：${plugin.id}")
@@ -895,7 +896,7 @@ object PluginMarket {
             }
             // v0.29.0：player 插件卸载删 .so（native 库进程内无法卸载，重启生效）
             "player" -> {
-                val dir = File(context.filesDir, "mpv-libs")
+                val dir = com.movieshell.player.EnginePlugins.dirFor(context, id)
                 rec.files.forEach { File(dir, it).delete() }
             }
             // v0.30.0：subtitle 插件卸载删 DEX

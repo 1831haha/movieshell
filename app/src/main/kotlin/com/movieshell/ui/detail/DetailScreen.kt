@@ -1288,19 +1288,54 @@ fun DetailScreen(
 
         // v0.294.23：磁力转播不可用（自动拉起失败）
         if (showMagnetDialog) {
+            // v0.294.32：没装磁力引擎插件 → 一键从官方市场装（迅雷 + BT 两个，互为兜底）
+            val needEngine = MagnetPlayer.lastFailMessage?.contains("插件") == true &&
+                !com.movieshell.player.EnginePlugins.btInstalled(context) &&
+                !com.movieshell.player.EnginePlugins.xlInstalled(context)
+            var engineBusy by remember { mutableStateOf<String?>(null) }
             TechDialog(
-                onDismissRequest = { showMagnetDialog = false },
-                title = "磁力还不能播",
-                confirmText = "用其他应用打开",
+                onDismissRequest = { if (engineBusy == null) showMagnetDialog = false },
+                title = if (needEngine) "需要磁力引擎" else "磁力还不能播",
+                confirmText = if (needEngine) (if (engineBusy != null) "安装中…" else "一键安装") else "用其他应用打开",
+                confirmEnabled = engineBusy == null,
                 onConfirm = {
-                    if (lastMagnetUrl.isNotBlank()) MagnetPlayer.openExternally(context, lastMagnetUrl)
-                    showMagnetDialog = false
+                    if (!needEngine) {
+                        if (lastMagnetUrl.isNotBlank()) MagnetPlayer.openExternally(context, lastMagnetUrl)
+                        showMagnetDialog = false
+                        return@TechDialog
+                    }
+                    engineBusy = "正在获取插件市场…"
+                    scope.launch {
+                        try {
+                            val info = com.movieshell.data.repo.PluginMarket.fetch(com.movieshell.data.repo.PluginStore.DEFAULT_MARKET_URL)
+                            val ids = listOf(com.movieshell.player.EnginePlugins.XL_ID, com.movieshell.player.EnginePlugins.BT_ID)
+                            val msgs = mutableListOf<String>()
+                            for (id in ids) {
+                                val pl = info.plugins.firstOrNull { it.id == id } ?: continue
+                                val (_, m) = com.movieshell.ui.market.PluginUi.installWithProgress(context, pl) { st ->
+                                    engineBusy = st?.let { "${it.pluginName}：${it.stage}" }
+                                }
+                                msgs += m
+                            }
+                            com.movieshell.ui.market.PluginUi.toast(context,
+                                if (msgs.isEmpty()) "市场里没找到磁力引擎插件" else msgs.joinToString("；") + "。请再点一次播放",
+                                android.widget.Toast.LENGTH_LONG)
+                            showMagnetDialog = false
+                        } catch (e: Exception) {
+                            com.movieshell.ui.market.PluginUi.toast(context, "安装失败：${e.message}", android.widget.Toast.LENGTH_LONG)
+                        } finally {
+                            engineBusy = null
+                        }
+                    }
                 },
-                dismissText = "知道了",
+                dismissText = if (needEngine) "取消" else "知道了",
             ) {
                 Text(
-                    MagnetPlayer.lastFailMessage
-                        ?: "磁力起播失败。请换网络重试，或用其他应用打开。",
+                    engineBusy ?: if (needEngine) {
+                        "侠影把磁力播放引擎做成了插件（安装包更小）。一键安装「迅雷引擎」和「磁力引擎（BT）」，约 9MB，装完再点播放即可。也可在 设置-插件中心-市场 单独安装。"
+                    } else {
+                        MagnetPlayer.lastFailMessage ?: "磁力起播失败。请换网络重试，或用其他应用打开。"
+                    },
                 )
             }
         }

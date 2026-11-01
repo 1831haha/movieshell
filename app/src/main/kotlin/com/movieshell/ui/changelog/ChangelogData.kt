@@ -19,6 +19,16 @@ data class ChangelogEntry(
 
 val CHANGELOG: List<ChangelogEntry> = listOf(
     ChangelogEntry(
+        version = "v0.294.32",
+        date = "2026-11-01",
+        title = "安装包瘦身到 30MB 内；新增迅雷引擎插件。",
+        details = listOf(
+            "磁力 BT 引擎（libtorrent）改为插件下载，原生库压缩存放，安装包从约 46MB 降到 30MB 以内。",
+            "新增「迅雷引擎」插件：磁力先用迅雷解析和边下边播，失败自动换 BT 引擎；设置里可切换迅雷优先 / BT 优先。",
+            "第一次播磁力时没装引擎会弹出提示，一键从插件市场安装。",
+        ),
+    ),
+    ChangelogEntry(
         version = "v0.294.31",
         date = "2026-11-01",
         title = "修复拿到磁力元数据后引擎崩溃（SIGBUS）。",

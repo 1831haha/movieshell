@@ -37,9 +37,20 @@ internal object MagnetControl {
                 job?.cancel()
                 magnet = m; state = "working"; msg = "正在连接磁力网络…"; url = ""
                 job = scope.launch {
-                    val r = runCatching { XiaYingMagnetEngine.prepare(ctx, m) }.getOrElse {
-                        XiaYingMagnetEngine.Fail("磁力引擎异常：${it.message}")
+                    val prefer = parms["prefer"] ?: "xunlei"
+                    val order = EnginePlugins.order(prefer, EnginePlugins.btInstalled(ctx), EnginePlugins.xlInstalled(ctx))
+                    var r: Any = XiaYingMagnetEngine.Fail(EnginePlugins.NEED_ANY)
+                    val errs = mutableListOf<String>()
+                    for (eng in order) {
+                        r = runCatching {
+                            if (eng == "xunlei") XunleiEngine.prepare(ctx, m) { XiaYingMagnetEngine.status(it) }
+                            else XiaYingMagnetEngine.prepare(ctx, m)
+                        }.getOrElse { XiaYingMagnetEngine.Fail("磁力引擎异常：${it.message}") }
+                        if (r is XiaYingMagnetEngine.Ready || magnet != m) break
+                        (r as? XiaYingMagnetEngine.Fail)?.let { errs += it.message }
+                        if (order.size > 1) XiaYingMagnetEngine.status("换用另一个引擎重试…")
                     }
+                    if (r is XiaYingMagnetEngine.Fail && errs.size > 1) r = XiaYingMagnetEngine.Fail(errs.joinToString("\n"))
                     if (magnet != m) return@launch
                     when (r) {
                         is XiaYingMagnetEngine.Ready -> { url = r.streamUrl; state = "ready" }

@@ -102,22 +102,38 @@ object XiaYingMagnetEngine {
         status("已停止磁力下载")
     }
 
-    @Volatile private var nativeChecked = false
     @Volatile private var nativeOk = false
 
-    fun isNativeAvailable(): Boolean {
-        if (nativeChecked) return nativeOk
+    /**
+     * v0.294.32：libtorrent4j.so 不再打进 APK，由「磁力引擎」插件下载到私有目录；
+     * 加载前把 libtorrent4j.jni.path 指过去（libtorrent_jni 静态块会读这个属性）。
+     */
+    fun isNativeAvailable(context: Context): Boolean {
+        if (nativeOk) return true
+        val so = EnginePlugins.libtorrentSo(context)
+        if (!so.isFile) return false
         nativeOk = try {
-            // 仅在真正要播磁力时加载 JNI；LinkageError/UnsatisfiedLinkError → 不可用
+            System.setProperty("libtorrent4j.jni.path", so.absolutePath)
             Class.forName("org.libtorrent4j.swig.libtorrent_jni")
             Class.forName("org.libtorrent4j.SessionManager")
             true
         } catch (t: Throwable) {
-            LogBus.e(TAG, "libtorrent 不可用：${t::class.java.simpleName}: ${t.message}")
+            LogBus.e(TAG, "libtorrent 加载失败：${t::class.java.simpleName}: ${t.message}")
             false
         }
-        nativeChecked = true
         return nativeOk
+    }
+
+    /** 只起回环 HTTP（控制接口 + 迅雷不需要它播放），不碰 libtorrent */
+    internal fun ensureHttp(context: Context) {
+        synchronized(lock) {
+            appContext = context.applicationContext
+            MagnetControl.appContext = context.applicationContext
+            if (http != null) return
+            val srv = Loopback()
+            srv.start()
+            http = srv
+        }
     }
 
     /** 当前回环端口（未启动为 -1） */
@@ -127,14 +143,15 @@ object XiaYingMagnetEngine {
     var lastStatus: String = ""
         private set
 
-    private fun status(msg: String) {
+    internal fun status(msg: String) {
         lastStatus = msg
         LogBus.i(TAG, msg)
     }
 
     internal fun ensureSession(context: Context) {
         synchronized(lock) {
-            if (session?.isRunning == true && http != null) return
+            ensureHttp(context)
+            if (session?.isRunning == true) return
             val root = File(context.filesDir, "magnet_cache").also { it.mkdirs() }
             saveRoot = root
             appContext = context.applicationContext
@@ -159,18 +176,12 @@ object XiaYingMagnetEngine {
                 sm2.start(SessionParams(SettingsPack()).apply { setPosixDiskIO() })
                 session = sm2
                 runCatching { sm2.startDht() }
-                val srv = Loopback()
-                srv.start()
-                http = srv
-                status("磁力引擎已启动（默认设置，端口 ${srv.listeningPort}）")
+                status("磁力引擎已启动（默认设置）")
                 return
             }
             runCatching { sm.startDht() }
             session = sm
-            val srv = Loopback()
-            srv.start()
-            http = srv
-            status("磁力引擎已启动（端口 ${srv.listeningPort}）")
+            status("磁力引擎已启动（端口 ${http?.listeningPort}）")
         }
     }
 
@@ -178,7 +189,7 @@ object XiaYingMagnetEngine {
      * 准备可播的 HTTP 地址。失败返回中文说明。
      */
     suspend fun prepare(context: Context, magnet: String): Any = withContext(Dispatchers.IO) {
-        if (!isNativeAvailable()) return@withContext Fail("本机构建未包含磁力引擎")
+        if (!isNativeAvailable(context)) return@withContext Fail(EnginePlugins.NEED_BT)
         try {
             ensureSession(context)
         } catch (t: Throwable) {

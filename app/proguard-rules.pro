@@ -69,3 +69,6 @@
 
 # NanoHTTPD (magnet loopback)
 -keep class fi.iki.elonen.** { *; }
+
+# 迅雷引擎 Java 胶水（JNI 回调字段/方法名不能混淆）
+-keep class com.xunlei.downloadlib.** { *; }
