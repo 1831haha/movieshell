@@ -131,11 +131,11 @@ object Notify {
         runCatching { nm.notify(9002, n) }
     }
 
-    /** v0.90.0：批量检测完成通知（点通知回站源页检测 tab）。 */
+    /** v0.90.0：批量检测完成通知（点通知回站源页检测 tab；网页源 tab 插入后检测 tab 改为 3）。 */
     fun probeDone(context: Context, total: Int, ok: Int, slow: Int, fail: Int) {
         ensureChannels(context)
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val pi = routeIntent(context, "sources?tab=2", id = 9003)
+        val pi = routeIntent(context, "sources?tab=3", id = 9003)
         val n = NotificationCompat.Builder(context, CH_PROBE)
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle("源检测完成")

@@ -53,12 +53,31 @@ object WebParseSourceManager {
         }
     }
 
-    /** 新增解析站：网址必须 http(s) 开头，名称空则取域名。 */
+    /**
+     * 网址归一化：直接输 www 开头、域名开头、// 开头都行，缺协议默认补 https://；
+     * 已带 http:// 的原样保留（不强制升 https，个别只支持 http 的站还能用）；
+     * 其他协议、带空格、无域名点的一律判非法，由调用方提示。
+     */
+    fun normalizeUrl(raw: String): String? {
+        val t = raw.trim()
+        if (t.isBlank() || t.contains(" ")) return null
+        val noSlashes = t.removePrefix("//")
+        if (noSlashes.contains("://") &&
+            !(noSlashes.startsWith("http://", true) || noSlashes.startsWith("https://", true))
+        ) return null
+        val withScheme = if (noSlashes.startsWith("http://", true) ||
+            noSlashes.startsWith("https://", true)
+        ) noSlashes else "https://$noSlashes"
+        val host = withScheme.substringAfter("://").substringBefore("/").substringBefore("?").substringBefore("#")
+        if (host.isBlank() || !host.contains(".") || host.split(".").any { it.isBlank() }) return null
+        return withScheme
+    }
+
+    /** 新增解析站：网址可直接输 www 开头，内部自动补 https://，名称空则取域名。 */
     fun addSite(name: String, url: String): WebParseSite? {
         val dir = sitesDirOrNull() ?: return null
-        val cleanUrl = url.trim()
-        if (!(cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://"))) {
-            LogBus.w(TAG, "非法 URL：$cleanUrl")
+        val cleanUrl = normalizeUrl(url) ?: run {
+            LogBus.w(TAG, "非法 URL：${url.trim()}")
             return null
         }
         val cleanName = name.trim().ifBlank { GenericWebParser.domainName(cleanUrl) }

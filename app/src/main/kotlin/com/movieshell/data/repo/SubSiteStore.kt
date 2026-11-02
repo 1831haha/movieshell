@@ -118,6 +118,8 @@ object SubSiteStore {
     const val KIND_TYPE4 = "type4"
     /** Java spider 站（api 以 csp_ 开头）：v0.8.0 起由 SpiderEngine 动态加载 jar 执行 */
     const val KIND_SPIDER = "spider"
+    /** 通用网页源（v0.294.49 起）：源管理页“网页解析”页签添加的站，与 drpy/py/php 平齐进换源弹窗 */
+    const val KIND_WEBPARSE = "webparse"
     const val KIND_UNSUPPORTED = "unsupported"
 
     const val REASON_JAVA_SPIDER =

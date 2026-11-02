@@ -78,6 +78,7 @@ import com.movieshell.data.repo.HomeSettings
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.WebParseSourceManager
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubCurrent
@@ -136,6 +137,8 @@ fun SourcePickerSheet(
     var drpyActiveName by remember { mutableStateOf<String?>(null) }
     var pyActiveName by remember { mutableStateOf<String?>(null) }
     var phpActiveName by remember { mutableStateOf<String?>(null) }
+    var webParseSites by remember { mutableStateOf<List<WebParseSourceManager.WebParseSite>>(emptyList()) }
+    var webParseActiveName by remember { mutableStateOf<String?>(null) }
     var subSites by remember { mutableStateOf<List<Pair<ApiSource, SubSiteRecord>>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var refreshing by remember { mutableStateOf(false) }
@@ -158,6 +161,8 @@ fun SourcePickerSheet(
         drpyActiveName = DrpySourceManager.activeRuleName()
         pyActiveName = PySourceManager.activeRuleName()
         phpActiveName = PhpSourceManager.activeRuleName()
+        webParseSites = WebParseSourceManager.listSites()
+        webParseActiveName = WebParseSourceManager.activeSite()?.fileName
         val newSubSites = ApiSourceStore.load(context).filter { it.enabled }.flatMap { sub ->
             val sites = SubSiteStore.getCached(context, sub.url)?.sites.orEmpty()
             sites.map { sub to it }
@@ -171,6 +176,7 @@ fun SourcePickerSheet(
         newDrpy.forEach { ids += "local-drpy:${it.name}" }
         newPy.forEach { ids += "local-py:${it.name}" }
         newPhp.forEach { ids += "local-php:${it.name}" }
+        webParseSites.forEach { ids += "local-webparse:${it.fileName}" }
         newSubSites.forEach { (sub, rec) -> ids += "sub:${sub.url}:${rec.key}" }
         ids.size
     }
@@ -221,7 +227,9 @@ fun SourcePickerSheet(
         val prevDrpy = DrpySourceManager.activeRuleName()
         val prevPy = PySourceManager.activeRuleName()
         val prevPhp = PhpSourceManager.activeRuleName()
+        val prevWebParse = WebParseSourceManager.activeSite()?.fileName
         SubSiteStore.clearCurrent(context)
+        WebParseSourceManager.setActiveSite(null)
         if (isDrpy) {
             PySourceManager.setActiveRule(null)
             PhpSourceManager.setActiveRule(null)
@@ -229,6 +237,7 @@ fun SourcePickerSheet(
                 if (prevPy != null) PySourceManager.setActiveRule(prevPy)
                 else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
                 else if (prevDrpy != null && prevDrpy != name) DrpySourceManager.setActiveRuleAsync(prevDrpy)
+                else if (prevWebParse != null) WebParseSourceManager.setActiveByFileName(prevWebParse)
                 AppToast.show(context, "切换失败：规则文件不存在或加载失败", long = false)
                 return@launch
             }
@@ -241,6 +250,7 @@ fun SourcePickerSheet(
                 if (prevDrpy != null) DrpySourceManager.setActiveRuleAsync(prevDrpy)
                 else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
                 else if (prevPy != null && prevPy != name) PySourceManager.setActiveRule(prevPy)
+                else if (prevWebParse != null) WebParseSourceManager.setActiveByFileName(prevWebParse)
                 AppToast.show(context, "切换失败：规则文件不存在或加载失败", long = false)
                 return@launch
             }
@@ -260,14 +270,17 @@ fun SourcePickerSheet(
         val prev = PhpSourceManager.activeRuleName()
         val prevDrpy = DrpySourceManager.activeRuleName()
         val prevPy = PySourceManager.activeRuleName()
+        val prevWebParse = WebParseSourceManager.activeSite()?.fileName
         SubSiteStore.clearCurrent(context)
         DrpySourceManager.setActiveRule(null)
         PySourceManager.setActiveRule(null)
+        WebParseSourceManager.setActiveSite(null)
         if (!PhpSourceManager.setActiveRule(name)) {
-            // 先恢复切换前正在用的引擎（drpy／py／php 同一时间只一个在用）。
+            // 先恢复切换前正在用的引擎（drpy／py／php／网页解析同一时间只一个在用）。
             if (prevDrpy != null) DrpySourceManager.setActiveRuleAsync(prevDrpy)
             else if (prevPy != null) PySourceManager.setActiveRule(prevPy)
             else if (prev != null && prev != name) PhpSourceManager.setActiveRule(prev)
+            else if (prevWebParse != null) WebParseSourceManager.setActiveByFileName(prevWebParse)
             AppToast.show(context, "选中失败：规则文件不存在或加载失败", long = false)
             return@launch
         }
@@ -283,14 +296,44 @@ fun SourcePickerSheet(
         DrpySourceManager.setActiveRule(null)
         PySourceManager.setActiveRule(null)
         PhpSourceManager.setActiveRule(null)
+        WebParseSourceManager.setActiveSite(null)
         SourceStateStore.clearActiveRule(context)
         SubSiteStore.setCurrent(context, sub.url, rec.key)
         onChanged()
         onDismiss()
     }
 
-    // 统一条目：本地 drpy 规则 / 本地 py 规则 / 本地 php 规则 / 订阅站点
-    val items: List<PickerItem> = remember(cur, drpyRules, pyRules, phpRules, drpyHosts, pyHosts, phpHosts, drpyActiveName, pyActiveName, phpActiveName, subSites) {
+    /** 通用网页源选中：与源管理页 activateWebParse 同款切换，失败回滚到切换前的源。 */
+    fun pickWebParse(site: WebParseSourceManager.WebParseSite) {
+        switchJob?.cancel()
+        switchJob = scope.launch {
+            val prevDrpy = DrpySourceManager.activeRuleName()
+            val prevPy = PySourceManager.activeRuleName()
+            val prevPhp = PhpSourceManager.activeRuleName()
+            val prevWebParse = WebParseSourceManager.activeSite()?.fileName
+            SubSiteStore.clearCurrent(context)
+            DrpySourceManager.setActiveRule(null)
+            PySourceManager.setActiveRule(null)
+            PhpSourceManager.setActiveRule(null)
+            if (!WebParseSourceManager.setActiveSite(site)) {
+                if (prevDrpy != null) DrpySourceManager.setActiveRuleAsync(prevDrpy)
+                else if (prevPy != null) PySourceManager.setActiveRule(prevPy)
+                else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
+                else if (prevWebParse != null && prevWebParse != site.fileName) {
+                    WebParseSourceManager.setActiveByFileName(prevWebParse)
+                }
+                AppToast.show(context, "切换失败：通用网页源不存在", long = false)
+                return@launch
+            }
+            SourceStateStore.setRuleEnabled(context, "webparse", site.fileName, true)
+            SourceStateStore.saveActiveRule(context, "webparse", site.fileName)
+            onChanged()
+            onDismiss()
+        }
+    }
+
+    // 统一条目：本地 drpy 规则 / 本地 py 规则 / 本地 php 规则 / 通用网页源 / 订阅站点
+    val items: List<PickerItem> = remember(cur, drpyRules, pyRules, phpRules, webParseSites, drpyHosts, pyHosts, phpHosts, drpyActiveName, pyActiveName, phpActiveName, webParseActiveName, subSites) {
         val list = mutableListOf<PickerItem>()
         drpyRules.forEach { rule ->
             val name = rule.title.ifBlank { rule.name }
@@ -338,6 +381,18 @@ fun SourcePickerSheet(
                 ),
             )
         }
+        webParseSites.forEach { site ->
+            list.add(
+                PickerItem(
+                    id = "local-webparse:${site.fileName}",
+                    name = site.name,
+                    kind = SubSiteStore.KIND_WEBPARSE,
+                    logoUrl = hostFromUrl(site.url)?.let { faviconUrlForHost(it) },
+                    isCurrent = cur == null && site.fileName == webParseActiveName,
+                    onPick = { pickWebParse(site) },
+                ),
+            )
+        }
         subSites.forEach { (sub, rec) ->
             val name = rec.name.ifBlank { rec.key }
             val unsupported = rec.kind == SubSiteStore.KIND_UNSUPPORTED
@@ -369,7 +424,7 @@ fun SourcePickerSheet(
     // 类型筛选 chips：只出现实际存在的类型，顺序固定
     val kindOrder = listOf(
         SubSiteStore.KIND_CMS, SubSiteStore.KIND_DRPY, SubSiteStore.KIND_PY,
-        SubSiteStore.KIND_TYPE4, SubSiteStore.KIND_SPIDER,
+        SubSiteStore.KIND_TYPE4, SubSiteStore.KIND_SPIDER, SubSiteStore.KIND_WEBPARSE,
     )
     val kindsPresent = remember(items) { kindOrder.filter { k -> items.any { it.kind == k } } }
     var query by remember { mutableStateOf("") }
@@ -684,6 +739,7 @@ private fun kindLabel(kind: String): String = when (kind) {
     SubSiteStore.KIND_PY -> "PY"
     SubSiteStore.KIND_TYPE4 -> "PHP"
     SubSiteStore.KIND_SPIDER -> "spider"
+    SubSiteStore.KIND_WEBPARSE -> "网页源"
     else -> "不支持"
 }
 

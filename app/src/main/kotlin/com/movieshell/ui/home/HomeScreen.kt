@@ -1079,7 +1079,7 @@ fun HomeScreen(
         lastSubKey = curKey
         val active = cur != null ||
             SourceStateStore.activeDrpyRule() != null || SourceStateStore.activePyRule() != null ||
-            SourceStateStore.activePhpRule() != null
+            SourceStateStore.activePhpRule() != null || SourceStateStore.activeWebParseRule() != null
         val changed = active != drpyActive
         drpyActive = active
         val curCacheKey = homeCacheKey()

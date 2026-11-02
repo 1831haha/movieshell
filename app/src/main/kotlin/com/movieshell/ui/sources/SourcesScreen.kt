@@ -659,13 +659,16 @@ fun SourcesScreen(
         val prevDrpy = DrpySourceManager.activeRuleName()
         val prevPy = PySourceManager.activeRuleName()
         val prevPhp = PhpSourceManager.activeRuleName()
+        val prevWebParse = WebParseSourceManager.activeSite()?.fileName
         SubSiteStore.clearCurrent(context)
         PySourceManager.setActiveRule(null)
         PhpSourceManager.setActiveRule(null)
+        WebParseSourceManager.setActiveSite(null)
         if (!DrpySourceManager.setActiveRuleAsync(name)) {
             if (prevPy != null) PySourceManager.setActiveRule(prevPy)
             else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
             else if (prevDrpy != null && prevDrpy != name) DrpySourceManager.setActiveRuleAsync(prevDrpy)
+            else if (prevWebParse != null) WebParseSourceManager.setActiveByFileName(prevWebParse)
             AppToast.show(context, "切换失败：规则文件不存在或加载失败", long = false)
             return@launch
         }
@@ -683,13 +686,16 @@ fun SourcesScreen(
         val prevPy = PySourceManager.activeRuleName()
         val prevDrpy = DrpySourceManager.activeRuleName()
         val prevPhp = PhpSourceManager.activeRuleName()
+        val prevWebParse = WebParseSourceManager.activeSite()?.fileName
         SubSiteStore.clearCurrent(context)
         DrpySourceManager.setActiveRule(null)
         PhpSourceManager.setActiveRule(null)
+        WebParseSourceManager.setActiveSite(null)
         if (!PySourceManager.setActiveRule(name)) {
             if (prevDrpy != null) DrpySourceManager.setActiveRuleAsync(prevDrpy)
             else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
             else if (prevPy != null && prevPy != name) PySourceManager.setActiveRule(prevPy)
+            else if (prevWebParse != null) WebParseSourceManager.setActiveByFileName(prevWebParse)
             AppToast.show(context, "切换失败：规则文件不存在或加载失败", long = false)
             return@launch
         }
@@ -711,13 +717,16 @@ fun SourcesScreen(
         val prev = PhpSourceManager.activeRuleName()
         val prevDrpy = DrpySourceManager.activeRuleName()
         val prevPy = PySourceManager.activeRuleName()
+        val prevWebParse = WebParseSourceManager.activeSite()?.fileName
         SubSiteStore.clearCurrent(context)
         DrpySourceManager.setActiveRule(null)
         PySourceManager.setActiveRule(null)
+        WebParseSourceManager.setActiveSite(null)
         if (!PhpSourceManager.setActiveRule(name)) {
             if (prevDrpy != null) DrpySourceManager.setActiveRuleAsync(prevDrpy)
             else if (prevPy != null) PySourceManager.setActiveRule(prevPy)
             else if (prev != null && prev != name) PhpSourceManager.setActiveRule(prev)
+            else if (prevWebParse != null) WebParseSourceManager.setActiveByFileName(prevWebParse)
             AppToast.show(context, "选中失败：规则文件不存在或加载失败", long = false)
             return@launch
         }
@@ -1002,12 +1011,12 @@ fun SourcesScreen(
     }
 
     fun addWebParseSite() {
-        val url = webParseUrlInput.trim()
-        if (!(url.startsWith("http://") || url.startsWith("https://"))) {
+        if (webParseUrlInput.trim().isBlank()) {
             webParseUrlError = true
             return
         }
-        val site = WebParseSourceManager.addSite(webParseNameInput, url)
+        // 网址归一化在 WebParseSourceManager.addSite 里做：直接输 www 开头即可，自动补 https://
+        val site = WebParseSourceManager.addSite(webParseNameInput, webParseUrlInput)
         if (site == null) {
             webParseUrlError = true
             return
@@ -1070,10 +1079,11 @@ fun SourcesScreen(
     }
 
     // v0.86.0：四 tab——订阅源 / 本地源 / 批量检测 / 回收站（检测与回收站收进页内）
+    // 网页源 tab 插入后为五 tab：订阅源 / 本地源 / 网页源 / 批量检测 / 回收站，检测通知 tab 同步改为 3
     // v0.90.0：通知可带 tab 参数直达（如检测 tab）
     var subTab by rememberSaveable { mutableIntStateOf(initialTab) }
 
-    // v0.188.0：站源管理页搜索（订阅源与本地源两个列表共用一处），
+    // v0.188.0：站源管理页搜索（订阅源、本地源与网页源三个列表共用一处），
     // 样式复用换源器搜索框：浅灰 pill 加单行提示，不另起一套搜索 UI。
     // 批量检测与回收站不走源列表，搜不到东西时不显示该框。
     var sourceQuery by remember { mutableStateOf("") }
@@ -1083,7 +1093,7 @@ fun SourcesScreen(
         return texts.any { it.contains(q, ignoreCase = true) }
     }
 
-    /** 订阅源 tab：v0.104.0 订阅 2 列卡片（对标 DsPlayer 资源页）+ 网页源 */
+    /** 订阅源 tab：v0.104.0 订阅 2 列卡片（对标 DsPlayer 资源页）；网页源另有独立 tab */
     @Composable
     fun SubscriptionTab() {
         // v0.112.0：订阅分组筛选（分组改名/删光后过滤自动回退到全部）
@@ -1099,8 +1109,6 @@ fun SourcesScreen(
         else apiGroup.entries.filter { it.group.trim() == effectiveFilter })
             .distinctBy { it.detail }
             .filter { matchesSourceQuery(it.name, it.detail, it.note, it.group) }
-        val visibleWeb = webItems.filter { matchesSourceQuery(it.displayName, it.fileName, it.detail) }
-        val visibleWebParse = webParseItems.filter { matchesSourceQuery(it.displayName, it.fileName, it.detail) }
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),
@@ -1237,97 +1245,125 @@ fun SourcesScreen(
                 }
             }
         }
-        // ===== 网页源（外观不变，整行占位） =====
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "网页源 · ${visibleWeb.size} 个",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                AppButton(
-                    text = "添加",
-                    onClick = { showWebAddDialog = true },
-                    variant = AppButtonVariant.Ghost,
-                )
-                AppButton(
-                    text = "导入",
-                    onClick = { requestImport(IMPORT_WEB) },
-                    variant = AppButtonVariant.Ghost,
-                )
-            }
         }
-        if (visibleWeb.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                EmptyState(
-                    kind = EmptyKind.Empty,
-                    icon = Icons.Filled.Public,
-                    title = if (sourceQuery.isBlank()) "暂无网页源" else "没有匹配的源",
-                    hint = if (sourceQuery.isBlank()) "点「添加」手动新增" else "换个关键词试试",
-                )
-            }
-        } else {
-            visibleWeb.forEach { item ->
-                item(span = { GridItemSpan(maxLineSpan) }, key = "web:${item.fileName}") {
-                    FileCard(
-                        item = item,
-                        badgeLabel = "网页",
-                        onClick = {
-                            webSites.firstOrNull { it.fileName == item.fileName }
-                                ?.let(::activateWeb)
-                        },
-                        onLongClick = { menuItem = item },
-                        onToggleEnabled = ::toggleRuleEnabled,
+    }
+
+    /** 网页源 tab：通用网页源在前、网页书签在后，不再藏在订阅源页底下。 */
+    @Composable
+    fun WebTab() {
+        val visibleWeb = webItems.filter { matchesSourceQuery(it.displayName, it.fileName, it.detail) }
+        val visibleWebParse = webParseItems.filter { matchesSourceQuery(it.displayName, it.fileName, it.detail) }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // ===== 通用网页源：输网址自动解析，点卡片即切为首页源 =====
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "通用网页源 · ${visibleWebParse.size} 个",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    AppButton(
+                        text = "添加",
+                        onClick = { showWebParseAddDialog = true },
+                        variant = AppButtonVariant.Ghost,
                     )
                 }
             }
-        }
-        // ===== 通用网页源（v0.294.49：输网址自动解析，点卡片即切首页源） =====
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            item {
                 Text(
-                    text = "通用网页源 · ${visibleWebParse.size} 个",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                AppButton(
-                    text = "添加",
-                    onClick = { showWebParseAddDialog = true },
-                    variant = AppButtonVariant.Ghost,
+                    text = "填一个影视站网址就能当首页源用，点卡片即切换，名称可空自动取域名",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-        if (visibleWebParse.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                EmptyState(
-                    kind = EmptyKind.Empty,
-                    icon = Icons.Filled.Public,
-                    title = if (sourceQuery.isBlank()) "暂无通用网页源" else "没有匹配的源",
-                    hint = if (sourceQuery.isBlank()) "点「添加」填一个影视站网址，名称可空自动取域名" else "换个关键词试试",
-                )
+            if (visibleWebParse.isEmpty()) {
+                item {
+                    Text(
+                        text = if (sourceQuery.isBlank()) "暂无通用网页源，点右上「添加」新增" else "没有匹配的源，换个关键词试试",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                visibleWebParse.forEach { item ->
+                    item(key = "webparse:${item.fileName}") {
+                        FileCard(
+                            item = item,
+                            badgeLabel = "网页解析",
+                            onClick = {
+                                webParseSites.firstOrNull { it.fileName == item.fileName }
+                                    ?.let(::activateWebParse)
+                            },
+                            onLongClick = { menuItem = item },
+                            onToggleEnabled = ::toggleRuleEnabled,
+                        )
+                    }
+                }
             }
-        } else {
-            visibleWebParse.forEach { item ->
-                item(span = { GridItemSpan(maxLineSpan) }, key = "webparse:${item.fileName}") {
-                    FileCard(
-                        item = item,
-                        badgeLabel = "网页解析",
-                        onClick = {
-                            webParseSites.firstOrNull { it.fileName == item.fileName }
-                                ?.let(::activateWebParse)
-                        },
-                        onLongClick = { menuItem = item },
-                        onToggleEnabled = ::toggleRuleEnabled,
+            // ===== 网页源：旧版网页书签，不当首页源，长按可打开嗅探浏览器 =====
+            item {
+                Spacer(Modifier.height(8.dp))
+            }
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "网页源 · ${visibleWeb.size} 个",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    AppButton(
+                        text = "添加",
+                        onClick = { showWebAddDialog = true },
+                        variant = AppButtonVariant.Ghost,
+                    )
+                    AppButton(
+                        text = "导入",
+                        onClick = { requestImport(IMPORT_WEB) },
+                        variant = AppButtonVariant.Ghost,
                     )
                 }
             }
-        }
+            item {
+                Text(
+                    text = "网页书签，不走首页解析；长按卡片可打开嗅探浏览器",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (visibleWeb.isEmpty()) {
+                item {
+                    Text(
+                        text = if (sourceQuery.isBlank()) "暂无网页源，点右上「添加」手动新增" else "没有匹配的源，换个关键词试试",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                visibleWeb.forEach { item ->
+                    item(key = "web:${item.fileName}") {
+                        FileCard(
+                            item = item,
+                            badgeLabel = "网页",
+                            onClick = {
+                                webSites.firstOrNull { it.fileName == item.fileName }
+                                    ?.let(::activateWeb)
+                            },
+                            onLongClick = { menuItem = item },
+                            onToggleEnabled = ::toggleRuleEnabled,
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -1519,7 +1555,7 @@ fun SourcesScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        if (subTab == 0 || subTab == 1) {
+        if (subTab == 0 || subTab == 1 || subTab == 2) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1536,15 +1572,16 @@ fun SourcesScreen(
             }
         }
         CapsuleTabBar(
-            titles = listOf("订阅源", "本地源", "批量检测", "回收站"),
+            titles = listOf("订阅源", "本地源", "网页源", "批量检测", "回收站"),
             selected = subTab,
             onSelect = { subTab = it },
         )
         when (subTab) {
             0 -> SubscriptionTab()
             1 -> LocalTab()
-            2 -> ProbeTab()
-            3 -> TrashScreen(embedded = true)
+            2 -> WebTab()
+            3 -> ProbeTab()
+            4 -> TrashScreen(embedded = true)
         }
     }
     // ---- 长按操作菜单（ModalBottomSheet） ----
@@ -1876,20 +1913,21 @@ fun SourcesScreen(
                     Spacer(Modifier.height(12.dp))
                     Text(
                         text = "网址",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(4.dp))
                     AppTextField(
                         value = webParseUrlInput,
                         onValueChange = { webParseUrlInput = it; webParseUrlError = false },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = "https://…",
+                        placeholder = "如：www.4kcz.com",
+                        bordered = true,
                     )
                     if (webParseUrlError) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "请输入以 http:// 或 https:// 开头的有效地址",
+                            text = "请输入有效地址，如 www.xxx.com，不用加 http://",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
@@ -1897,8 +1935,8 @@ fun SourcesScreen(
                     Spacer(Modifier.height(12.dp))
                     Text(
                         text = "名称（可空，自动取域名）",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(4.dp))
                     AppTextField(
@@ -1906,6 +1944,7 @@ fun SourcesScreen(
                         onValueChange = { webParseNameInput = it },
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = "如：示例影视站",
+                        bordered = true,
                     )
                 }
         }

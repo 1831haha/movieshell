@@ -961,6 +961,12 @@ fun AppTextField(
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     /** v0.294.3：输入框右侧单位（如“秒”），空则不显示。 */
     suffix: String? = null,
+    /**
+     * 带边框模式：弹窗里输入框底色与弹窗底色是同一个 surfaceContainerHigh，
+     * 不带边框会融进背景看不见框。带边框时改用一档浅的底色 + outline 描边，
+     * 只在明确传 bordered=true 的地方用，其他调用处原样不动。
+     */
+    bordered: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(V5.CornerMd)
@@ -977,7 +983,8 @@ fun AppTextField(
         keyboardActions = keyboardActions,
         modifier = modifier
             .clip(shape)
-            .background(cs.surfaceContainerHigh)
+            .background(if (bordered) cs.surfaceContainer else cs.surfaceContainerHigh)
+            .then(if (bordered) Modifier.border(1.dp, cs.outline, shape) else Modifier)
             .padding(horizontal = 16.dp, vertical = if (floatLabel) 6.dp else 12.dp),
         decorationBox = { inner ->
             Row(verticalAlignment = Alignment.CenterVertically) {

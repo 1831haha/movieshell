@@ -215,11 +215,10 @@ object GenericWebParser {
 
     private fun parseCategories(doc: Document, base: String): List<CategoryType> {
         val seen = LinkedHashMap<String, String>()
-        fun collect(el: Element, allowCrossHost: Boolean = false) {
+        fun collect(el: Element) {
             val href = el.attr("abs:href").trim()
             if (href.isBlank()) return
-            if (!allowCrossHost && !isSameHost(href, base)) return
-            if (allowCrossHost && !href.startsWith("http://", true) && !href.startsWith("https://", true)) return
+            if (!isSameHost(href, base)) return
             if (isDetailOrPlayOrSearch(href)) return
             val text = cleanText(el.text())
             if (text.length !in 2..8) return
@@ -244,7 +243,7 @@ object GenericWebParser {
             }
             for ((_, members) in groups) {
                 if (members.size >= 5) {
-                    members.forEach { collect(it, allowCrossHost = true) }
+                    members.forEach { collect(it) }
                     break
                 }
             }
@@ -452,7 +451,28 @@ object GenericWebParser {
         val a = runCatching { java.net.URL(url).host.lowercase() }.getOrDefault("")
         val b = runCatching { java.net.URL(base).host.lowercase() }.getOrDefault("")
         if (a.isBlank() || b.isBlank()) return false
-        return a == b || a.endsWith(".$b") || b.endsWith(".$a")
+        if (a == b || a.endsWith(".$b") || b.endsWith(".$a")) return true
+        // 兄弟子域名也算本站：m.youku.com 与 www.youku.com 同属一个站，
+        // 旧的精确比对会把移动端、新闻子域名下的卡片全挡掉。
+        return registrableDomain(a) == registrableDomain(b)
+    }
+
+    // 注册域近似取法：二段式国家后缀取后三段，其余取后两段；
+    // 两段以下的主机名本身就是注册域，不再截断。
+    private fun registrableDomain(host: String): String {
+        val twoLevelSuffixes = listOf(
+            "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "com.hk",
+            "co.uk", "org.uk", "ac.uk", "com.au", "net.au", "co.jp",
+            "com.br", "co.kr",
+        )
+        for (suffix in twoLevelSuffixes) {
+            if (host.endsWith(".$suffix")) {
+                val parts = host.split(".")
+                return if (parts.size >= 3) parts.takeLast(3).joinToString(".") else host
+            }
+        }
+        val parts = host.split(".")
+        return if (parts.size >= 3) parts.takeLast(2).joinToString(".") else host
     }
 
     private fun isDetailOrPlayOrSearch(href: String): Boolean {
