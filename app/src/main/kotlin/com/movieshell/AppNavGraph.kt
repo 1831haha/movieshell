@@ -38,6 +38,7 @@ import com.movieshell.data.novel.NovelSearchResult
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.PhpSourceManager
+import com.movieshell.data.repo.WebParseSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.player.navigateToPlayer
@@ -168,6 +169,13 @@ fun NavGraphBuilder.appDestinations(
                                         } else true
                                         "php" -> if (sourceKey.isNotBlank()) {
                                             PhpSourceManager.setActiveRule(sourceKey)
+                                        } else true
+                                        "webparse" -> if (sourceKey.isNotBlank()) {
+                                            SubSiteStore.clearCurrent(context)
+                                            DrpySourceManager.setActiveRule(null)
+                                            PySourceManager.setActiveRule(null)
+                                            PhpSourceManager.setActiveRule(null)
+                                            WebParseSourceManager.setActiveByFileName(sourceKey)
                                         } else true
                                         "sub" -> if (sourceKey.isNotBlank()) {
                                             SubSiteStore.findSite(
@@ -312,6 +320,13 @@ fun NavGraphBuilder.appDestinations(
                                         }
                                         "py" -> {
                                             PySourceManager.setActiveRule(item.sourceKey)
+                                        }
+                                        "webparse" -> {
+                                            SubSiteStore.clearCurrent(context)
+                                            DrpySourceManager.setActiveRule(null)
+                                            PySourceManager.setActiveRule(null)
+                                            PhpSourceManager.setActiveRule(null)
+                                            WebParseSourceManager.setActiveByFileName(item.sourceKey)
                                         }
                                         else -> {
                                             if (item.sourceKey.isBlank()) {

@@ -69,6 +69,7 @@ import com.movieshell.data.repo.NovelDirectoryFill
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.WebParseSourceManager
 import com.movieshell.data.repo.SpiderEngine
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubSiteEngines
@@ -188,6 +189,7 @@ class MainActivity : ComponentActivity() {
         DrpySourceManager.init(this)
         PySourceManager.init(this)
         PhpSourceManager.init(this)
+        WebParseSourceManager.init(this)
         // v0.22.0：插件市场本地状态
         PluginStore.init(this)
         // v0.24.0：直播源 + 源启停状态

@@ -66,6 +66,7 @@ fun previewKindDir(context: Context, kind: String): File? = when (kind) {
     "py" -> StoragePaths.pyDir(context)
     "php" -> PhpSourceManager.rulesDir(context)
     "web" -> StoragePaths.webDir(context)
+    "webparse" -> StoragePaths.webParseDir(context)
     else -> null
 }
 

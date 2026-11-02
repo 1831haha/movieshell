@@ -16,6 +16,7 @@ import com.movieshell.data.repo.PhpCliEngine
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.ParseStore
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.WebParseSourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SubSiteEngines
 import com.movieshell.data.repo.SubSiteStore
@@ -79,6 +80,16 @@ private suspend fun resolvePlayUrlRaw(
                 if (result.isBlank() && PhpSourceManager.activeRuleName() != null) {
                     val raw = retryOnce { PhpCliEngine.playRaw(context, flag, epUrl) }
                     if (raw.url.isNotBlank()) result = finishRaw(ctx, raw)
+                }
+                if (result.isBlank() && WebParseSourceManager.hasActiveSite()) {
+                    val raw = retryOnce { WebParseSourceManager.playRaw(flag, epUrl) }
+                    if (raw.url.isNotBlank()) result = finishRaw(ctx, raw)
+                    if (result.isBlank() && !ctx.cancelled &&
+                        (epUrl.startsWith("http://", true) || epUrl.startsWith("https://", true))
+                    ) {
+                        val sniffed = sniffPage(ctx, epUrl, raw)
+                        if (!sniffed.isNullOrBlank()) result = sniffed
+                    }
                 }
                 if (result.isBlank() && !ctx.cancelled && !ctx.failureReported) {
                     AppToast.show(context, "该规则未返回播放地址", long = true)

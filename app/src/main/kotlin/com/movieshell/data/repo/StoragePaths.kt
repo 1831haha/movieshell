@@ -81,6 +81,7 @@ object StoragePaths {
     fun pyDir(context: Context): File = File(baseDir(context), "py").also { it.mkdirs() }
     fun phpDir(context: Context): File = File(baseDir(context), "php").also { it.mkdirs() }
     fun webDir(context: Context): File = File(baseDir(context), "web").also { it.mkdirs() }
+    fun webParseDir(context: Context): File = File(baseDir(context), "webparse").also { it.mkdirs() }
 
     /** v0.8.0 预留：订阅 spider jar 缓存 */
     fun jarDir(context: Context): File = File(baseDir(context), "jar").also { it.mkdirs() }
@@ -200,6 +201,7 @@ object StoragePaths {
         File(phpDir(context), "t4_demo").also { it.mkdirs() },
         File(File(phpDir(context), "t4_demo"), "lib").also { it.mkdirs() },
         webDir(context),
+        webParseDir(context),
         jarDir(context),
         liveDir(context),
         pluginsDir(context),

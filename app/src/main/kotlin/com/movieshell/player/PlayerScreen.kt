@@ -17,6 +17,7 @@ import com.movieshell.data.repo.FollowItem
 import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.PhpSourceManager
+import com.movieshell.data.repo.WebParseSourceManager
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.PySourceManager
@@ -224,6 +225,7 @@ fun PlayerScreen(
             ?: DrpySourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
             ?: PySourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
             ?: PhpSourceManager.activeRuleName()?.takeIf { it.isNotBlank() }
+            ?: WebParseSourceManager.activeSite()?.fileName?.takeIf { it.isNotBlank() }
     }
     // v0.189.0：与 playSourceKey 同一次快照的源类型（sub/drpy/py/php），
     // 口径与详情页追剧的 followSourceType 一致；无源时为 ""，不冒充 sub。
@@ -234,6 +236,7 @@ fun PlayerScreen(
             DrpySourceManager.hasActiveRule() -> "drpy"
             PySourceManager.hasActiveRule() -> "py"
             PhpSourceManager.activeRuleName() != null -> "php"
+            WebParseSourceManager.hasActiveSite() -> "webparse"
             else -> ""
         }
     }

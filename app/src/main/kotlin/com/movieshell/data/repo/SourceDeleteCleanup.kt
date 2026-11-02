@@ -32,6 +32,10 @@ object SourceDeleteCleanup {
             "web" -> if (WebSourceManager.activeSiteName() == fileName) {
                 WebSourceManager.setActiveSite(null)
             }
+            "webparse" -> if (WebParseSourceManager.activeSite()?.fileName == fileName) {
+                WebParseSourceManager.setActiveSite(null)
+                SourceStateStore.clearActiveRule(context)
+            }
         }
         // v0.186.0 M20：删源清理之禁用态与探活；同名文件日后重新导入，
         // 旧禁用态与旧探活徽标不再复活。
@@ -52,6 +56,10 @@ object SourceDeleteCleanup {
             "php" -> {
                 HomeCache.clear(context, "php_$fileName")
                 HomeLoadGate.clearStreak("php_$fileName")
+            }
+            "webparse" -> {
+                HomeCache.clear(context, "webparse_$fileName")
+                HomeLoadGate.clearStreak("webparse_$fileName")
             }
         }
         // 置顶记录同步清理（持久化；站源页内存 map 由刷新时重读）。

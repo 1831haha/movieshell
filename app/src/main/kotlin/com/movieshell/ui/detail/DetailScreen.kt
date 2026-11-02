@@ -144,6 +144,7 @@ import com.movieshell.data.repo.PhpCliEngine
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.WebParseSourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.StoragePaths
 import android.app.Activity
@@ -217,7 +218,7 @@ fun DetailScreen(
     }
     val drpyActive = remember(vodId) {
         DrpySourceManager.hasActiveRule() || PySourceManager.hasActiveRule() ||
-            PhpSourceManager.activeRuleName() != null
+            PhpSourceManager.activeRuleName() != null || WebParseSourceManager.hasActiveSite()
     }
     // v0.267.0（T7）：原来 detailLoading 初始 false，首帧
     // detail==null 先落入失败分支，LaunchedEffect 调 reloadDetail
@@ -252,6 +253,8 @@ fun DetailScreen(
             PhpSourceManager.activeRuleName() != null ->
                 PhpSourceManager.activeRuleName()?.removeSuffix(".php")
                     ?.ifBlank { "PHP规则" } ?: "PHP规则"
+            WebParseSourceManager.hasActiveSite() ->
+                WebParseSourceManager.activeSiteName() ?: "网页解析源"
             else -> "站源"
         }
     }
@@ -260,6 +263,7 @@ fun DetailScreen(
             DrpySourceManager.activeRuleName().orEmpty()
                 .ifBlank { PySourceManager.activeRuleName().orEmpty() }
                 .ifBlank { PhpSourceManager.activeRuleName().orEmpty() }
+                .ifBlank { WebParseSourceManager.activeSite()?.fileName.orEmpty() }
         }.ifBlank { sourceName }
     }
     val followId = remember(vodId, followSourceKey) { FollowStore.idOf(followSourceKey, vodId) }
@@ -277,6 +281,7 @@ fun DetailScreen(
                         if (DrpySourceManager.hasActiveRule()) DrpySourceManager.detail(vodId)
                         else if (PySourceManager.hasActiveRule()) PySourceManager.detail(vodId)
                         else if (PhpSourceManager.activeRuleName() != null) PhpCliEngine.detail(context, vodId)
+                        else if (WebParseSourceManager.hasActiveSite()) WebParseSourceManager.detail(vodId)
                         else VodDetail(vodId = vodId)
                     } else {
                         null
@@ -348,6 +353,7 @@ fun DetailScreen(
             DrpySourceManager.hasActiveRule() -> "drpy"
             PySourceManager.hasActiveRule() -> "py"
             PhpSourceManager.activeRuleName() != null -> "php"
+            WebParseSourceManager.hasActiveSite() -> "webparse"
             else -> "sub"
         }
     }
@@ -442,6 +448,7 @@ fun DetailScreen(
             DrpySourceManager.hasActiveRule() -> "js" to DrpySourceManager.activeRuleName()
             PySourceManager.hasActiveRule() -> "py" to PySourceManager.activeRuleName()
             PhpSourceManager.activeRuleName() != null -> "php" to PhpSourceManager.activeRuleName()
+            WebParseSourceManager.hasActiveSite() -> "webparse" to WebParseSourceManager.activeSite()?.fileName
             else -> "" to null
         }
         val ruleName = rule.second ?: return true

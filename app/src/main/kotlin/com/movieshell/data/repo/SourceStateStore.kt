@@ -84,6 +84,10 @@ object SourceStateStore {
     fun activePhpRule(): String? =
         PhpSourceManager.activeRuleName()?.takeIf { isRuleEnabled("php", it) }
 
+    /** 有激活且未被禁用的通用网页源文件名，无则 null（v0.294.49：通用网页源） */
+    fun activeWebParseRule(): String? =
+        WebParseSourceManager.activeSite()?.fileName?.takeIf { isRuleEnabled("webparse", it) }
+
     /**
      * v0.147.0：选中态持久化——此前 activeName 只在内存里，App 一重启就丢，
      * 首页回空态、设置页变“未设置”。换源时记一对 (kind, name)，启动时恢复。
@@ -118,6 +122,7 @@ object SourceStateStore {
             "js" -> DrpySourceManager.listRules().any { it.name == name }
             "py" -> PySourceManager.listRules().any { it.name == name }
             "php" -> PhpSourceManager.listRules().any { it.name == name }
+            "webparse" -> WebParseSourceManager.listSites().any { it.fileName == name }
             else -> false
         }
         if (!exists || !isRuleEnabled(kind, name)) {
@@ -128,6 +133,7 @@ object SourceStateStore {
             "js" -> DrpySourceManager.setActiveRule(name)
             "py" -> PySourceManager.setActiveRule(name)
             "php" -> PhpSourceManager.setActiveRule(name)
+            "webparse" -> WebParseSourceManager.setActiveByFileName(name)
         }
     }
 }

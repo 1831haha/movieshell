@@ -127,6 +127,7 @@ import com.movieshell.data.repo.HomeLoadGate
 import com.movieshell.data.repo.HomeSettings
 import com.movieshell.data.repo.PhpCliEngine
 import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.repo.WebParseSourceManager
 import com.movieshell.data.repo.SiteRepository
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.SubSiteEngines
@@ -228,7 +229,7 @@ fun HomeScreen(
         return SubSiteStore.toSite(cur.subUrl, rec)
     }
 
-    /** 当前数据源的首页：订阅当前源 > 本地 drpy > 本地 PY > 本地 PHP（CLI） */
+    /** 当前数据源的首页：订阅当前源 > 本地 drpy > 本地 PY > 本地 PHP（CLI） > 通用网页源 */
     suspend fun engineHome(): List<ModelVod> {
         val s = subSite
         if (s != null) return runCatching { subRepo.home(s) }.getOrDefault(emptyList())
@@ -236,6 +237,7 @@ fun HomeScreen(
             if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.home()
             else if (SourceStateStore.activePyRule() != null) PySourceManager.home()
             else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.home(context)
+            else if (SourceStateStore.activeWebParseRule() != null) WebParseSourceManager.home()
             else emptyList()
         }.getOrDefault(emptyList())
     }
@@ -261,6 +263,7 @@ fun HomeScreen(
             if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.categories()
             else if (SourceStateStore.activePyRule() != null) PySourceManager.categories()
             else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.categories(context)
+            else if (SourceStateStore.activeWebParseRule() != null) WebParseSourceManager.categories()
             else emptyList()
         }.getOrNull()
     }
@@ -285,6 +288,7 @@ fun HomeScreen(
             if (SourceStateStore.activeDrpyRule() != null) DrpySourceManager.category(tid, pg, filter)
             else if (SourceStateStore.activePyRule() != null) PySourceManager.category(tid, pg, filter)
             else if (SourceStateStore.activePhpRule() != null) PhpCliEngine.category(context, tid, pg)
+            else if (SourceStateStore.activeWebParseRule() != null) WebParseSourceManager.category(tid, pg)
             else emptyList()
         }.getOrNull()
     }
@@ -414,6 +418,7 @@ fun HomeScreen(
         SourceStateStore.activeDrpyRule() != null -> "drpy_${DrpySourceManager.activeRuleName()}"
         SourceStateStore.activePyRule() != null -> "py_${PySourceManager.activeRuleName()}"
         SourceStateStore.activePhpRule() != null -> "php_${SourceStateStore.activePhpRule()}"
+        SourceStateStore.activeWebParseRule() != null -> "webparse_${SourceStateStore.activeWebParseRule()}"
         else -> null
     }
 
@@ -1252,6 +1257,7 @@ fun HomeScreen(
         SourceStateStore.activeDrpyRule() != null -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
         SourceStateStore.activePyRule() != null -> "本地·${PySourceManager.activeRuleName().orEmpty()}"
         SourceStateStore.activePhpRule() != null -> "本地·${SourceStateStore.activePhpRule().orEmpty()}"
+        SourceStateStore.activeWebParseRule() != null -> "网页解析·${WebParseSourceManager.activeSiteName().orEmpty()}"
         else -> "选择站源"
     }
 

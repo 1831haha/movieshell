@@ -116,6 +116,7 @@ import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.data.repo.TrashStore
 import com.movieshell.data.repo.WarehouseSync
 import com.movieshell.data.repo.WebSourceManager
+import com.movieshell.data.repo.WebParseSourceManager
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
@@ -251,6 +252,7 @@ private const val TAB_JS = "js"
 private const val TAB_PY = "py"
 private const val TAB_PHP = "php"
 private const val TAB_WEB = "web"
+private const val TAB_WEBPARSE = "webparse"
 
 private fun loadPins(context: Context, tab: String): MutableList<String> {
     val raw = context.getSharedPreferences(SourceDeleteCleanup.PIN_PREFS, Context.MODE_PRIVATE)
@@ -402,6 +404,7 @@ fun SourcesScreen(
     val pyRules = remember { mutableStateListOf<RuleInfo>() }
     val phpEntries = remember { mutableStateListOf<SourceEntry>() }
     val webSites = remember { mutableStateListOf<WebSourceManager.WebSite>() }
+    val webParseSites = remember { mutableStateListOf<WebParseSourceManager.WebParseSite>() }
     // 各 tab 置顶列表
     val pins = remember { mutableStateMapOf<String, MutableList<String>>() }
 
@@ -573,12 +576,21 @@ fun SourcesScreen(
         }
     }
 
+    fun refreshWebParseSites() {
+        refreshScope.launch {
+            val sites = withContext(Dispatchers.IO) { WebParseSourceManager.listSites() }
+            webParseSites.clear()
+            webParseSites.addAll(sites)
+        }
+    }
+
     fun refreshTab(tab: String) {
         when (tab) {
             TAB_JS -> refreshDrpyRules()
             TAB_PY -> refreshPyRules()
             TAB_PHP -> refreshPhpEntries()
             TAB_WEB -> refreshWebSites()
+            TAB_WEBPARSE -> refreshWebParseSites()
         }
     }
 
@@ -722,6 +734,34 @@ fun SourcesScreen(
         AppToast.show(context, "已切换为 ${site.name}", long = false)
     }
 
+    fun activateWebParse(site: WebParseSourceManager.WebParseSite) {
+        switchJob?.cancel()
+        switchJob = refreshScope.launch {
+            val prevDrpy = DrpySourceManager.activeRuleName()
+            val prevPy = PySourceManager.activeRuleName()
+            val prevPhp = PhpSourceManager.activeRuleName()
+            val prevWebParse = WebParseSourceManager.activeSite()?.fileName
+            SubSiteStore.clearCurrent(context)
+            DrpySourceManager.setActiveRule(null)
+            PySourceManager.setActiveRule(null)
+            PhpSourceManager.setActiveRule(null)
+            if (!WebParseSourceManager.setActiveSite(site)) {
+                if (prevDrpy != null) DrpySourceManager.setActiveRuleAsync(prevDrpy)
+                else if (prevPy != null) PySourceManager.setActiveRule(prevPy)
+                else if (prevPhp != null) PhpSourceManager.setActiveRule(prevPhp)
+                else if (prevWebParse != null && prevWebParse != site.fileName) {
+                    WebParseSourceManager.setActiveByFileName(prevWebParse)
+                }
+                AppToast.show(context, "切换失败：通用网页源不存在", long = false)
+                return@launch
+            }
+            SourceStateStore.setRuleEnabled(context, TAB_WEBPARSE, site.fileName, true)
+            SourceStateStore.saveActiveRule(context, TAB_WEBPARSE, site.fileName)
+            refreshWebParseSites()
+            AppToast.show(context, "已切换为 ${site.name}", long = false)
+        }
+    }
+
     fun openWebSniff(site: WebSourceManager.WebSite) {
         WebSourceManager.setActiveSite(site.fileName)
         refreshWebSites()
@@ -774,6 +814,16 @@ fun SourcesScreen(
                     )
                 }
             }
+            TAB_WEBPARSE -> {
+                val active = WebParseSourceManager.activeSite()?.fileName
+                webParseSites.map {
+                    GridFileItem(
+                        TAB_WEBPARSE, it.fileName, it.name, it.url, it.fileName == active, false,
+                        enabled = itemEnabled(TAB_WEBPARSE, it.fileName),
+                        probe = probeOf(TAB_WEBPARSE, it.fileName),
+                    )
+                }
+            }
             else -> emptyList()
         }
         return sortWithPins(raw, tabPins).map { it.copy(isPinned = tabPins.contains(it.fileName)) }
@@ -785,6 +835,7 @@ fun SourcesScreen(
             TAB_JS -> StoragePaths.jsDir(context)
             TAB_PY -> StoragePaths.pyDir(context)
             TAB_PHP -> PhpSourceManager.rulesDir(context)
+            TAB_WEBPARSE -> StoragePaths.webParseDir(context)
             else -> StoragePaths.webDir(context)
         }
         // v0.217.0（F55）：回收站返回值原来被丢弃，文件因被占用／权限
@@ -898,7 +949,8 @@ fun SourcesScreen(
         refreshPyRules()
         refreshPhpEntries()
         refreshWebSites()
-        listOf(TAB_JS, TAB_PY, TAB_PHP, TAB_WEB).forEach { pins[it] = loadPins(context, it) }
+        refreshWebParseSites()
+        listOf(TAB_JS, TAB_PY, TAB_PHP, TAB_WEB, TAB_WEBPARSE).forEach { pins[it] = loadPins(context, it) }
         // v0.5.1：读订阅展开缓存 + 点播页当前源
         // v0.246.0：缓存读盘放 IO——原来主线程逐条 getCached（loadAll 读 JSON 文件），
         // currentSiteKey 也读缓存文件；IO 读完回主线程更新状态。
@@ -924,6 +976,11 @@ fun SourcesScreen(
     var webNameInput by remember { mutableStateOf("") }
     var webUrlInput by remember { mutableStateOf("") }
     var webUrlError by remember { mutableStateOf(false) }
+    // 通用网页源添加对话框：网址必填，名称空则自动取域名
+    var showWebParseAddDialog by remember { mutableStateOf(false) }
+    var webParseNameInput by remember { mutableStateOf("") }
+    var webParseUrlInput by remember { mutableStateOf("") }
+    var webParseUrlError by remember { mutableStateOf(false) }
 
     fun addWebSite() {
         val url = webUrlInput.trim()
@@ -942,6 +999,26 @@ fun SourcesScreen(
         webUrlError = false
         showWebAddDialog = false
         AppToast.show(context, "已添加 ${site.name}", long = false)
+    }
+
+    fun addWebParseSite() {
+        val url = webParseUrlInput.trim()
+        if (!(url.startsWith("http://") || url.startsWith("https://"))) {
+            webParseUrlError = true
+            return
+        }
+        val site = WebParseSourceManager.addSite(webParseNameInput, url)
+        if (site == null) {
+            webParseUrlError = true
+            return
+        }
+        refreshWebParseSites()
+        webParseNameInput = ""
+        webParseUrlInput = ""
+        webParseUrlError = false
+        showWebParseAddDialog = false
+        AppToast.show(context, "已添加 ${site.name}", long = false)
+        activateWebParse(site)
     }
 
     fun addSubscription() {
@@ -971,6 +1048,7 @@ fun SourcesScreen(
     var localEngine by remember { mutableStateOf("all") }
 
     val webItems = tabItems(TAB_WEB)
+    val webParseItems = tabItems(TAB_WEBPARSE)
     val localItems = when (localEngine) {
         TAB_JS -> tabItems(TAB_JS)
         TAB_PY -> tabItems(TAB_PY)
@@ -1022,6 +1100,7 @@ fun SourcesScreen(
             .distinctBy { it.detail }
             .filter { matchesSourceQuery(it.name, it.detail, it.note, it.group) }
         val visibleWeb = webItems.filter { matchesSourceQuery(it.displayName, it.fileName, it.detail) }
+        val visibleWebParse = webParseItems.filter { matchesSourceQuery(it.displayName, it.fileName, it.detail) }
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),
@@ -1199,6 +1278,49 @@ fun SourcesScreen(
                         onClick = {
                             webSites.firstOrNull { it.fileName == item.fileName }
                                 ?.let(::activateWeb)
+                        },
+                        onLongClick = { menuItem = item },
+                        onToggleEnabled = ::toggleRuleEnabled,
+                    )
+                }
+            }
+        }
+        // ===== 通用网页源（v0.294.49：输网址自动解析，点卡片即切首页源） =====
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "通用网页源 · ${visibleWebParse.size} 个",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                AppButton(
+                    text = "添加",
+                    onClick = { showWebParseAddDialog = true },
+                    variant = AppButtonVariant.Ghost,
+                )
+            }
+        }
+        if (visibleWebParse.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                EmptyState(
+                    kind = EmptyKind.Empty,
+                    icon = Icons.Filled.Public,
+                    title = if (sourceQuery.isBlank()) "暂无通用网页源" else "没有匹配的源",
+                    hint = if (sourceQuery.isBlank()) "点「添加」填一个影视站网址，名称可空自动取域名" else "换个关键词试试",
+                )
+            }
+        } else {
+            visibleWebParse.forEach { item ->
+                item(span = { GridItemSpan(maxLineSpan) }, key = "webparse:${item.fileName}") {
+                    FileCard(
+                        item = item,
+                        badgeLabel = "网页解析",
+                        onClick = {
+                            webParseSites.firstOrNull { it.fileName == item.fileName }
+                                ?.let(::activateWebParse)
                         },
                         onLongClick = { menuItem = item },
                         onToggleEnabled = ::toggleRuleEnabled,
@@ -1734,6 +1856,57 @@ fun SourcesScreen(
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
+                }
+        }
+    }
+
+    if (showWebParseAddDialog) {
+        TechDialog(
+            onDismissRequest = { showWebParseAddDialog = false },
+            title = "添加通用网页源",
+            confirmText = "添加并启用",
+            onConfirm = { addWebParseSite() },
+        ) {
+                Column {
+                    Text(
+                        text = "填写一个影视站网址即可，它会自动解析分类、列表、详情和播放地址，不需要脚本；名称空则自动取域名",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "网址",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppTextField(
+                        value = webParseUrlInput,
+                        onValueChange = { webParseUrlInput = it; webParseUrlError = false },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "https://…",
+                    )
+                    if (webParseUrlError) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "请输入以 http:// 或 https:// 开头的有效地址",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "名称（可空，自动取域名）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AppTextField(
+                        value = webParseNameInput,
+                        onValueChange = { webParseNameInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "如：示例影视站",
+                    )
                 }
         }
     }
