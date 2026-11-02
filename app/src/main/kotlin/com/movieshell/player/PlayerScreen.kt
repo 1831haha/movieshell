@@ -389,11 +389,19 @@ fun PlayerScreen(
             // v0.63.0：看完自动删——本地下载文件播到 95% 以上且开关开着，删文件+清任务
             maybeAutoDeleteWatched(context, currentPlayUrl, isLive)
             if (!embedded) {
-                // v0.294.45：真离开，立刻停，不等、不猜。
-                PlaySession.playerVisible = false
-                PlaySession.clear()
-                // v0.78.1：退出播放页必须停播放器，否则退到后台还在响
-                EngineHost.stop()
+                // v0.294.51：直播全屏回小窗时跳过停播——直播页已置
+                // returnToEmbedded，下面就是等着接续的嵌入播放器，停掉
+                // 就是 294.50 用户报的“回小窗暂停、播放键没反应”；
+                // 标记消费一次后清掉，其他入口退出照旧停播。
+                if (PlaySession.returnToEmbedded) {
+                    PlaySession.returnToEmbedded = false
+                } else {
+                    // v0.294.45：真离开，立刻停，不等、不猜。
+                    PlaySession.playerVisible = false
+                    PlaySession.clear()
+                    // v0.78.1：退出播放页必须停播放器，否则退到后台还在响
+                    EngineHost.stop()
+                }
             }
             // v0.27.7：退出播放器恢复系统默认方向 + 停重力感应（仅全屏页；嵌入不碰）
             if (!embedded) {

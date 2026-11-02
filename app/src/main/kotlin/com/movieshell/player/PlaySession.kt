@@ -45,6 +45,16 @@ object PlaySession {
      */
     var playerVisible: Boolean = false
 
+    /**
+     * 直播全屏回小窗标记（v0.294.51）：直播页嵌入播放器跳独立全屏页前置 true，
+     * 独立页退出时若此标记仍在，说明下面就是等着接续同一播放器的直播页，
+     * 此时独立页 dispose 不得停引擎、不清会话——否则小窗 effect 已先判
+     * “接续同一播放器”不重拉，随后又被停掉，播放键 resume 对已 stop 的
+     * Media3 无效，表现为“回小窗暂停、点播放没反应”。独立页 dispose
+     * 消费一次后清掉；非直播入口（历史/下载/嗅探）从不置此标记，退出照旧停播。
+     */
+    var returnToEmbedded: Boolean = false
+
     fun moveTo(lineIndex: Int, episodeIndex: Int) {
         this.lineIndex = lineIndex.coerceIn(0, (lines.size - 1).coerceAtLeast(0))
         this.episodeIndex = episodeIndex.coerceAtLeast(0)

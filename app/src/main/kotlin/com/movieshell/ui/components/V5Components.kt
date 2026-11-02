@@ -213,6 +213,11 @@ fun V5Segmented(
 ) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(50)
+    // v0.294.51：5 项及以上等分时每格只剩约 65dp，“订阅源”带勾（16dp+6dp）
+    // 加 4 字文案必超宽被截成“订…/批量…”——紧凑模式下：内边距 8dp→4dp、
+    // 字号 labelLarge→labelMedium、不画勾（选中底色已足够区分），
+    // 4 字文案刚好完整显示；4 项及以下保持原样，不动其他屏。
+    val compact = options.size >= 5
     Row(
         modifier = modifier
             .height(height)
@@ -234,17 +239,17 @@ fun V5Segmented(
                     .background(bg)
                     .clickable(role = Role.RadioButton) { onSelect(i) }
                     .semantics { this.selected = on }
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = if (compact) 4.dp else 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
             ) {
-                if (on && showCheck) {
+                if (on && showCheck && !compact) {
                     Icon(Icons.Filled.Check, null, tint = cs.onSecondaryContainer, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                 }
                 Text(
                     label,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
                     color = if (on) cs.onSecondaryContainer else cs.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

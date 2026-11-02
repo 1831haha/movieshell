@@ -384,7 +384,17 @@ object PlayerManager {
     }
 
     fun resume() {
-        exoPlayer?.play()
+        // v0.294.51：stop() 后的 Media3 处于 IDLE、ENDED 后 play() 单独
+        // 调用不起播——这正是“回小窗暂停后点播放没反应”的第二道保险：
+        // IDLE/ENDED 时先 prepare() 再 play()，READY 暂停时只 play()，
+        // 不动用户有意暂停的状态判断（isPlaying 仍由调用方看）。
+        val p = exoPlayer ?: return
+        if (p.playbackState == Player.STATE_IDLE || p.playbackState == Player.STATE_ENDED) {
+            // prepare() 回到默认起播位置（点播为开头、直播为直播沿），
+            // 不额外 seekTo(0)，避免直播窗口起点不是直播沿。
+            p.prepare()
+        }
+        p.play()
     }
 
     fun seekTo(ms: Long) {

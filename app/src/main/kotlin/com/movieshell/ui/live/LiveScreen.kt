@@ -429,6 +429,7 @@ fun LiveScreen(
                         embedded = true,
                         onFullscreen = {
                             goingToLivePage = true
+                            PlaySession.returnToEmbedded = true
                             onFullscreenChannel(playing)
                         },
                         // v0.158.0：最终失败自动切同名源（同内核重拉+换内核已在播放器内走完）；
