@@ -70,7 +70,12 @@ object PySourceManager {
 
     /** 适配器透传：最近一次失败原因；无激活规则时明确报无规则。 */
     fun adapterLastError(): String? =
-        managerLastError ?: if (activeName == null) "无激活规则" else null
+        // v0.294.48：池毒化优先于单次失败原因——结果为空时 SiteRepository
+        // 读这里记按站失败原因，毒化时必须让它拿到“池已卡死”而不是旧的
+        // 单源超时，否则用户看到的永远是“源慢”，分不清池子已毒化。
+        // 未毒化时 poolStuckMessage() 为 null，原路不受影响。
+        ChaquopyEngine.poolStuckMessage()
+            ?: managerLastError ?: if (activeName == null) "无激活规则" else null
 
     /** v0.22.0：读请求共享域；SupervisorJob 保证单个请求失败不牵连其他。 */
     private val readScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

@@ -87,6 +87,13 @@ object PluginMarket {
         val minApp: String,
         val abis: List<String>,
         val sourceMarket: String = "",
+        /**
+         * v0.294.48：插件来源市场的原始请求地址（stamp() 填写，copy 时保留）。
+         * 只认它判定“是不是官方市场”——不用 sourceMarket 名称判定，名称是
+         * 用户可改的注册表名字，第三方市场改个同名就能冒充官方。parseMarket
+         * 直接构造的插件（单测等）没有来源地址，默认空串，按非官方处理。
+         */
+        val sourceUrl: String = "",
     ) {
         /** 是否可在本机安装：type 支持且 platforms 含 android（缺省视为支持）。 */
         fun isSupported(): Boolean =
@@ -146,7 +153,23 @@ object PluginMarket {
 
     /** 给插件打来源市场名：优先注册表里的名称，未注册则用市场自报名称。 */
     private fun stamp(url: String, info: MarketInfo): MarketInfo =
-        info.copy(plugins = info.plugins.map { it.copy(sourceMarket = PluginStore.nameOfSource(url) ?: info.name) })
+        info.copy(
+            plugins = info.plugins.map {
+                it.copy(
+                    sourceMarket = PluginStore.nameOfSource(url) ?: info.name,
+                    // v0.294.48：同时打原始请求地址，供官方市场判定用（见 sourceUrl 注释）。
+                    // 用请求地址不用生效地址：镜像/代理只是传输，来源身份以请求为准。
+                    sourceUrl = url,
+                )
+            },
+        )
+
+    /** 是不是官方市场：只认原始请求地址与官方地址逐字相等。 */
+    private fun isOfficialMarket(url: String): Boolean = url == PluginStore.DEFAULT_MARKET_URL
+
+    /** 是不是官方市场插件：只认 stamp 打上的来源地址，不认名称。 */
+    private fun isOfficialPlugin(plugin: MarketPlugin): Boolean =
+        plugin.sourceUrl == PluginStore.DEFAULT_MARKET_URL
 
     /** 详情页用：先查当前显示的市场列表（用户刚从这个列表点进来，最贴合），
      * 再查按（市场，id）累积的记录（多市场同 id 时取最近见过的）。
@@ -188,7 +211,7 @@ object PluginMarket {
     suspend fun fetch(url: String): MarketInfo = withContext(Dispatchers.IO) {
         val (body, effectiveUrl) = fetchBodySequential(url)
         val info = stamp(url, parseMarket(effectiveUrl, body))
-        marketSignatureWarning(info)?.let { LogBus.w(TAG, it) }
+        marketSignatureWarning(info, isOfficialMarket(url))?.let { LogBus.w(TAG, it) }
         info.also {
             lastList = it.plugins
             rememberPlugins(it.plugins)
@@ -206,13 +229,16 @@ object PluginMarket {
         val nl = text.indexOf('\n')
         if (nl < 0) return null
         val info = stamp(url, parseMarket(text.substring(0, nl), text.substring(nl + 1)))
-        // 缓存里的旧索引：签名无效按无缓存处理，未签名或公钥未配置只警告不拦截。
-        if (PluginSignature.checkMarketSignature(info.plugins, info.signature) ==
+        // 缓存里的旧索引：官方签名无效按无缓存处理（随后 fetchRemote 重拉）；
+        // 第三方签名用官方公钥验不过是预期内，不按无缓存处理。
+        // 缓存文件在私有目录，不像网络索引那样可被镜像篡改，未签名只警告不拦截。
+        if (isOfficialMarket(url) &&
+            PluginSignature.checkMarketSignature(info.plugins, info.signature) ==
             PluginSignature.SignatureCheck.INVALID
         ) {
             return null
         }
-        marketSignatureWarning(info)?.let { LogBus.w(TAG, it) }
+        marketSignatureWarning(info, isOfficialMarket(url))?.let { LogBus.w(TAG, it) }
         info
             .also { lastList = it.plugins }
             .also { rememberPlugins(it.plugins) }
@@ -228,16 +254,23 @@ object PluginMarket {
             f.writeText("$effectiveUrl\n$body")
         }.onFailure { LogBus.w(TAG, "市场缓存写入失败：${it.message}") }
         val info = stamp(url, parseMarket(effectiveUrl, body))
-        marketSignatureWarning(info)?.let { LogBus.w(TAG, it) }
+        marketSignatureWarning(info, isOfficialMarket(url))?.let { LogBus.w(TAG, it) }
         info
             .also { lastList = it.plugins }
             .also { rememberPlugins(it.plugins) }
             .also { rememberInfo(url, it) }
     }
 
-    /** S1 过渡态：索引签名检查的唯一入口。签名无效抛错拦截；
-     * 未签名或公钥未配置返回警告文案，调用方记日志后继续展示。 */
-    private fun marketSignatureWarning(info: MarketInfo): String? {
+    /**
+     * S1 过渡态：索引签名检查的唯一入口。签名无效抛错拦截；
+     * 未签名或公钥未配置返回警告文案，调用方记日志后继续展示。
+     * v0.294.48：INVALID 只对官方市场抛错——第三方市场的签名本来就
+     * 不是用官方私钥签的，用官方公钥验不过是预期内，不能当成篡改
+     * 证据去拒绝展示；第三方 INVALID 只警告。官方 UNSIGNED 在展示
+     * 层仍只警告（镜像缓存滞后时直接拒展会误伤），真正的收紧在安装
+     * 层（见 install），官方插件未验过签名一律拒绝安装。
+     */
+    private fun marketSignatureWarning(info: MarketInfo, isOfficial: Boolean): String? {
         return when (PluginSignature.checkMarketSignature(info.plugins, info.signature)) {
             PluginSignature.SignatureCheck.VERIFIED -> null
             PluginSignature.SignatureCheck.UNSIGNED ->
@@ -245,7 +278,11 @@ object PluginMarket {
             PluginSignature.SignatureCheck.UNCONFIGURED ->
                 "插件市场签名公钥未配置，展示内容未经签名校验"
             PluginSignature.SignatureCheck.INVALID ->
-                throw IllegalStateException("市场索引签名校验失败，索引可能被篡改，已拒绝展示")
+                if (isOfficial) {
+                    throw IllegalStateException("市场索引签名校验失败，索引可能被篡改，已拒绝展示")
+                } else {
+                    "该市场索引签名无法用官方公钥校验，展示内容未经签名校验"
+                }
         }
     }
 
@@ -432,24 +469,43 @@ object PluginMarket {
                     throw IllegalStateException("SHA-256 校验失败（插件 ${plugin.id}），文件可能被篡改，已拒绝安装")
                 }
             }
-            val signatureWarn = when (PluginSignature.checkPackageSignature(tmp, plugin.signature)) {
+            // v0.294.48：包签名只验一次（原来 warn 与明文检查各验一次，白读
+            // 两遍包文件）。INVALID 的处理按来源分流：官方市场的签名验不过
+            // 就是篡改证据，拒绝；第三方市场的签名本来就不是官方私钥签的，
+            // 验不过是预期内，只警告，不当成篡改去拒绝。
+            val packageCheck = PluginSignature.checkPackageSignature(tmp, plugin.signature)
+            val signatureWarn = when (packageCheck) {
                 PluginSignature.SignatureCheck.VERIFIED -> null
                 PluginSignature.SignatureCheck.UNSIGNED ->
                     "插件 ${plugin.id} 未提供签名，安装内容未经签名校验"
                 PluginSignature.SignatureCheck.UNCONFIGURED ->
                     "插件市场签名公钥未配置，插件 ${plugin.id} 未经签名校验"
                 PluginSignature.SignatureCheck.INVALID ->
-                    throw IllegalStateException("插件 ${plugin.id} 签名校验失败，文件可能被篡改，已拒绝安装")
+                    if (isOfficialPlugin(plugin)) {
+                        throw IllegalStateException("插件 ${plugin.id} 签名校验失败，文件可能被篡改，已拒绝安装")
+                    } else {
+                        "插件 ${plugin.id} 签名无法用官方公钥校验，安装内容未经签名校验"
+                    }
             }
             // S3：插件包是 native/DEX/可执行代码，明文下载时过渡态的警告不够——
             // 中间人能同时换包和 md5，只有验过签名（签名防篡改，与传输无关）才放行；
             // 未签名或公钥未配置的明文包一律拒绝，https 包才走上面的警告口径。
             if (effectiveUrl.startsWith("http://", ignoreCase = true) &&
-                PluginSignature.checkPackageSignature(tmp, plugin.signature) !=
-                PluginSignature.SignatureCheck.VERIFIED
+                packageCheck != PluginSignature.SignatureCheck.VERIFIED
             ) {
                 throw IllegalStateException(
                     "插件 ${plugin.id} 明文下载且未验过签名，已拒绝安装：请改用 https 市场地址或等市场签名发布",
+                )
+            }
+            // v0.294.48 官方收紧：官方插件未验过签名（未签名或公钥未配置）
+            // 一律拒绝安装，不再只警告。官方市场已签名上线，https 官方包
+            // 走到这里还没验过，说明索引或包被降级/替换了。第三方仍走警告
+            // 口径，不在这里拦截。
+            if (isOfficialPlugin(plugin) &&
+                packageCheck != PluginSignature.SignatureCheck.VERIFIED
+            ) {
+                throw IllegalStateException(
+                    "官方市场插件 ${plugin.id} 未验过签名，已拒绝安装：请更新官方市场索引后重试",
                 )
             }
             if (signatureWarn != null) {

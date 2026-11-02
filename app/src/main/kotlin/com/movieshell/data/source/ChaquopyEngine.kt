@@ -1,14 +1,19 @@
 package com.movieshell.data.source
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import com.movieshell.data.repo.LogBus
+import com.movieshell.ui.components.AppToast
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -64,6 +69,80 @@ object ChaquopyEngine : PyEngine {
         Thread(r, "py-bridge").apply { isDaemon = true }
     }.asCoroutineDispatcher()
     private val pyRunning = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /**
+     * v0.294.48 PY 池防毒化：只检测、不假装能杀线程。
+     * - Chaquopy 桥是同步阻塞接口，Thread.interrupt / deferred.cancel 都停不掉
+     *   正在跑的 Python，所谓“杀掉卡死调用”在进程内做不到，硬做只会把
+     *   解释器状态搞坏。唯一可靠的恢复是：卡死的调用自己结束（池自动恢复），
+     *   或永远不结束时用户重启 App（进程重建）。
+     * - 所以本版只做三件真实的事：①给每个在跑调用记开始时间，算出池子
+     *   是否已毒化；②毒化后新调用不再排队等 25 秒，直接失败返回，让界面
+     *   立刻知道不是源的问题；③毒化首次出现时给一次可见提示，恢复后清掉
+     *   标记，下一次毒化再提示一次，不刷屏。
+     * - 毒化定义要严：4 个槽全满、且每条都已跑超 60 秒。60 秒 = 25 秒调用
+     *   超时 + 35 秒宽限，调用方早已不要结果了，还占着槽才是毒；单条慢、
+     *   或槽没满，都不算毒化，不误伤正常慢源。
+     */
+    private const val PY_STUCK_AFTER_MS = 60_000L
+    private data class RunningPyCall(val rulePath: String, val method: String, val startedAtMs: Long)
+    private val runningCalls = ConcurrentHashMap<Long, RunningPyCall>()
+    private val callSeq = AtomicLong(0)
+    @Volatile
+    private var poolStuckNotified = false
+
+    /** 池子是否已毒化：4 槽全满且每条在跑调用都超 60 秒。未毒化时返回 false，不误判。 */
+    fun poolPoisoned(): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        val calls = runningCalls.values
+        return calls.size >= PY_MAX_CONCURRENCY &&
+            calls.all { now - it.startedAtMs > PY_STUCK_AFTER_MS }
+    }
+
+    /** 毒化时返回给用户看的一句话，未毒化返回 null（调用方按 null 走正常失败路）。 */
+    fun poolStuckMessage(): String? {
+        if (!poolPoisoned()) return null
+        val oldest = runningCalls.values.minByOrNull { it.startedAtMs } ?: return null
+        val ageSec = (SystemClock.elapsedRealtime() - oldest.startedAtMs) / 1000
+        return "PY 调用池已卡死：4 条调用均已运行超 60 秒未回（最早：${oldest.method}，已跑 ${ageSec} 秒），后续 PY 调用不再排队等待，重启 App 可恢复"
+    }
+
+    /**
+     * v0.294.48 补：毒化快拒的 10 秒宽限。毒化时新调用不是立刻拒：先挂起
+     * 等最多 10 秒，看有没有在跑调用恰好结束空出槽——空出来就正常提交，
+     * 照常走 25 秒超时；10 秒还卡死才直接失败。宽限里只 delay，不占池
+     * 线程；delay 可被取消，调用方取消时直接透出，不吞取消语义。
+     * 10 秒不是给慢网页留的，慢网页本身仍受 25 秒上限；它只保“马上就
+     * 回来的那条线程”不被一刀切掉。
+     */
+    private suspend fun waitForPoolRecovery(): Boolean {
+        if (!poolPoisoned()) return true
+        val deadline = SystemClock.elapsedRealtime() + 10_000L
+        while (poolPoisoned()) {
+            if (SystemClock.elapsedRealtime() >= deadline) return false
+            delay(500L)
+        }
+        return true
+    }
+
+    /** 毒化首次出现时记日志 + 弹一次提示；未毒化时清标记，供下一次毒化再提示。 */
+    private fun notifyPoolStuckIfNeeded() {
+        val msg = poolStuckMessage()
+        if (msg == null) {
+            poolStuckNotified = false
+            return
+        }
+        if (poolStuckNotified) return
+        poolStuckNotified = true
+        Log.w(TAG, msg)
+        LogBus.w(TAG, msg)
+        val ctx = appContext
+        // 只在应用内提示层已挂载时弹：后台线程调系统 Toast 可能因无 Looper 崩，
+        // 未挂载时只记日志，不丢提示也不冒险。
+        if (ctx != null && AppToast.mounted.get()) {
+            AppToast.show(ctx, msg, long = true)
+        }
+    }
 
     private val pyCallScope = CoroutineScope(SupervisorJob() + pyDispatcher)
 
@@ -188,26 +267,50 @@ object ChaquopyEngine : PyEngine {
         argsJson: String,
         bridgeMethod: String,
     ): String {
+        // v0.294.48：池已毒化时先等 10 秒宽限（见 waitForPoolRecovery），宽限
+        // 内空出槽就正常提交；宽限后还卡死才直接失败，不提交排队——排队只
+        // 会再等 25 秒超时，既浪费用户等待，又让“所有 PY 源全挂”看起来像
+        // 源的问题。卡死的调用自己结束时池自动恢复（finally 里清标记），
+        // 不需要重启也能回来。
+        if (poolPoisoned() && !waitForPoolRecovery()) {
+            notifyPoolStuckIfNeeded()
+            val stuck = poolStuckMessage() ?: "PY 调用池已卡死"
+            Log.w(TAG, "PY 调用被拒（池已卡死，不排队）: 规则=$rulePath 方法=$method")
+            return "{\"ok\":false,\"error\":\"$stuck\"}"
+        }
+        val callId = callSeq.incrementAndGet()
         val deferred = pyCallScope.async {
+            // 只在真正开跑时登记：排队中被取消的调用根本不进本块，不会误记为在跑。
+            runningCalls[callId] = RunningPyCall(rulePath, method, SystemClock.elapsedRealtime())
             pyRunning.incrementAndGet()
             try {
                 val mod = python().getModule("pyspider_bridge")
                 mod.callAttr(bridgeMethod, rulePath, method, argsJson).toString()
             } finally {
+                runningCalls.remove(callId)
                 pyRunning.decrementAndGet()
+                if (runningCalls.size < PY_MAX_CONCURRENCY) poolStuckNotified = false
             }
         }
         return try {
             withTimeoutOrNull(PY_TIMEOUT_MS) { deferred.await() } ?: run {
                 // v0.294.5：还在排队没开跑的直接作废；已在跑的停不掉，但占的是封顶池里的线程
                 deferred.cancel()
-                Log.w(TAG, "PY 调用超时（25 秒）: 规则=$rulePath 方法=$method 在跑=${pyRunning.get()}")
-                LogBus.w(
-                    TAG,
-                    "PY 调用超时（25 秒）: 规则=$rulePath 方法=$method，" +
-                        "后台 Python 无法中断仍会跑到结束，结果丢弃",
-                )
-                "{\"ok\":false,\"error\":\"PY 调用超时（25 秒）:$method\"}"
+                // v0.294.48：本次超时若正好撞上池毒化，交毒化原因而不是普通超时，
+                // 调用方（适配器 lastError、日志）才能分清“源慢”与“池已卡死”。
+                val stuck = poolStuckMessage()
+                if (stuck != null) {
+                    notifyPoolStuckIfNeeded()
+                    "{\"ok\":false,\"error\":\"$stuck\"}"
+                } else {
+                    Log.w(TAG, "PY 调用超时（25 秒）: 规则=$rulePath 方法=$method 在跑=${pyRunning.get()}")
+                    LogBus.w(
+                        TAG,
+                        "PY 调用超时（25 秒）: 规则=$rulePath 方法=$method，" +
+                            "后台 Python 无法中断仍会跑到结束，结果丢弃",
+                    )
+                    "{\"ok\":false,\"error\":\"PY 调用超时（25 秒）:$method\"}"
+                }
             }
         } catch (e: CancellationException) {
             // v0.294.5：调用方取消时把排队中的调用一并作废，不白占 PY 池
@@ -268,11 +371,34 @@ object ChaquopyEngine : PyEngine {
      * 超时只放行调用方（桥是同步阻塞接口，后台 Python 停不掉，同 callBridge）。
      */
     suspend fun resolveYtGeneric(url: String): String = withContext(Dispatchers.IO) {
-        val deferred = pyCallScope.async {
-            runCatching {
-                python().getModule("yt_generic")?.callAttr("resolve", url)?.toString().orEmpty()
-            }.getOrDefault("")
+        // v0.294.48：同池共用，同款防毒化——原来这里既不登记在跑调用（毒化
+        // 检测会漏算它），超时也不 cancel（排队中的调用白占位置）。现在与
+        // callBridge 对齐：毒化直接回空、开跑登记、超时作废排队项。
+        if (poolPoisoned() && !waitForPoolRecovery()) {
+            notifyPoolStuckIfNeeded()
+            Log.w(TAG, "yt-dlp 解析被拒（PY 池已卡死，不排队）")
+            return@withContext ""
         }
-        withTimeoutOrNull(YT_TIMEOUT_MS) { deferred.await() }.orEmpty()
+        val callId = callSeq.incrementAndGet()
+        val deferred = pyCallScope.async {
+            runningCalls[callId] =
+                RunningPyCall("yt-dlp-generic", "resolve", SystemClock.elapsedRealtime())
+            pyRunning.incrementAndGet()
+            try {
+                runCatching {
+                    python().getModule("yt_generic")?.callAttr("resolve", url)?.toString().orEmpty()
+                }.getOrDefault("")
+            } finally {
+                runningCalls.remove(callId)
+                pyRunning.decrementAndGet()
+                if (runningCalls.size < PY_MAX_CONCURRENCY) poolStuckNotified = false
+            }
+        }
+        val result = withTimeoutOrNull(YT_TIMEOUT_MS) { deferred.await() }
+        if (result == null) {
+            deferred.cancel()
+            notifyPoolStuckIfNeeded()
+        }
+        result.orEmpty()
     }
 }

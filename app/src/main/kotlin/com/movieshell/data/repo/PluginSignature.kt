@@ -30,11 +30,16 @@ import java.security.spec.X509EncodedKeySpec
  * 说明内容可能被篡改，仍一律拒绝。等市场发布方按上面的签法
  * 重新签名、公钥填好后，再收紧为未签名也拒绝。
  *
- * 公钥配置：PUBLIC_KEY_BASE64 现在是空占位，表示尚未配置。
- * 市场所有者离线生成一对 P-256 密钥，把公钥的 DER 编码做
- * Base64 后填到这里，私钥离线保管，绝不进仓库、不进聊天。
- * 填好公钥前，未签名内容只警告不拦截（见上），这是过渡态，
- * 不是 fail-closed，也不是放行已签名但验不过的内容。
+ * v0.294.48 落地：公钥已填好（侠影官方市场专用），官方市场已用
+ * xiaying-plugins/sign_market.py 重新签名。收紧口径只针对官方市场，
+ * 见 PluginMarket.install——官方插件未验过签名一律拒绝安装；第三
+ * 方市场没有本公钥对应的私钥，本公钥验不过它的签名是预期内的，
+ * 不能当成篡改证据，所以第三方仍走警告口径，不因“验不过官方公钥”
+ * 就拒绝。不要把本公钥当成“所有市场的信任锚”，它只锚官方市场。
+ *
+ * 公钥配置：PUBLIC_KEY_BASE64 是官方市场 P-256 公钥的 Base64 DER
+ * 编码。私钥离线保管，绝不进仓库、不进聊天、不进 App；私钥丢了
+ * 只能换一对新密钥并随 App 更新公钥，旧签名随即失效。
  */
 object PluginSignature {
     private const val TAG = "PluginSignature"
@@ -42,8 +47,9 @@ object PluginSignature {
     /** 签名检查结果：已验过 / 未提供签名 / 公钥未配置 / 签名无效。 */
     enum class SignatureCheck { VERIFIED, UNSIGNED, UNCONFIGURED, INVALID }
 
-    /** 尚未配置的公钥占位：填入市场所有者公钥的 Base64 DER 编码后才生效。 */
-    private const val PUBLIC_KEY_BASE64 = ""
+    /** v0.294.48：侠影官方市场 P-256 公钥（Base64 DER 编码）。 */
+    private const val PUBLIC_KEY_BASE64 =
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEMDGSfELkiEZqpTVQdSjh2LbBl4pcVfYBuxGrzziQcZm5YP2xNzrrxKOAHOO9EgXzSXLlKnY0QzaTeWmVwwbvbw=="
 
     fun isConfigured(): Boolean = PUBLIC_KEY_BASE64.isNotBlank()
 
