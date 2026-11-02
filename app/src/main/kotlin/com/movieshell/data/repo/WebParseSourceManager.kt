@@ -72,7 +72,7 @@ object WebParseSourceManager {
                 WebParseSite(fileName, cleanName, cleanUrl)
             }
         } catch (e: Exception) {
-            LogBus.w(TAG, "保存通用网页源失败", e)
+            LogBus.e(TAG, "保存通用网页源失败", e)
             null
         }
     }

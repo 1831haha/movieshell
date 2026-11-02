@@ -5,6 +5,7 @@ import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
