@@ -237,7 +237,7 @@ object NovelSourceEngine {
                 if (name.isBlank() || bookUrl.isBlank()) return@mapNotNull null
                 NovelSearchResult(
                     sourceKey = source.key,
-                    remoteId = bookUrl,
+                    remoteId = absUrl(page.url, bookUrl),
                     title = name,
                     author = LegadoJsEngine.evalTextRule(el, page.url, source.ruleSearchAuthor, pageCtx, state).ifBlank { null },
                     cover = LegadoJsEngine.evalTextRule(el, page.url, source.ruleSearchCover, pageCtx, state).ifBlank { null },
@@ -667,7 +667,7 @@ object NovelSourceEngine {
                 if (name.isBlank() || bookUrl.isBlank()) return@mapNotNull null
                 NovelSearchResult(
                     sourceKey = source.key,
-                    remoteId = bookUrl,
+                    remoteId = absUrl(checked.url, bookUrl),
                     title = name,
                     author = LegadoJsEngine.evalTextRule(el, checked.url, authorRule, ctx, state).ifBlank { null },
                     cover = LegadoJsEngine.evalTextRule(el, checked.url, coverRule, ctx, state).ifBlank { null },
@@ -796,5 +796,12 @@ object NovelSourceEngine {
                 LogBus.w(TAG, "PY 书源正文失败 $sourceKey: ${it.message}")
             }
             .getOrDefault("")
+    }
+
+    /** v0.294.55：JS/链规则算出的相对 bookUrl（如 /b/123.html）按页面地址补全，
+     * 否则 fetchPage 拿相对地址请求必失败，详情/目录打不开。 */
+    private fun absUrl(pageUrl: String, href: String): String {
+        if (href.startsWith("http://") || href.startsWith("https://")) return href
+        return runCatching { java.net.URL(java.net.URL(pageUrl), href).toString() }.getOrDefault(href)
     }
 }
