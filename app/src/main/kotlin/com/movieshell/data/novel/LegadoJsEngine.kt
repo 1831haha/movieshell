@@ -502,6 +502,8 @@ object LegadoJsEngine {
         }.getOrDefault(text)
     }
 
+    private val ATTR_NAME_RE = Regex("^[A-Za-z_][A-Za-z0-9_:-]*$")
+
     private fun evalChainBase(
         root: Element,
         pageUrl: String,
@@ -510,9 +512,18 @@ object LegadoJsEngine {
     ): ChainResult {
         if (part.isBlank()) return Texts(listOf(root.outerHtml()))
         var current: ChainResult = Elems(listOf(root))
-        for (segRaw in part.split("@")) {
-            val seg = segRaw.trim()
+        val segs = part.split("@")
+        var si = 0
+        while (si < segs.size) {
+            val segRaw = segs[si]
+            si++
+            var seg = segRaw.trim()
             if (seg.isEmpty()) continue
+            // v0.294.55：js: 段吃掉余下全部文本（Legado 语义）——脚本里自带 @ 时不再被切碎。
+            if (seg.startsWith("js:") && si < segs.size) {
+                seg = (listOf(segRaw) + segs.subList(si, segs.size)).joinToString("@").trim()
+                si = segs.size
+            }
             current = when {
                 seg == "text" -> when (current) {
                     is Elems -> Texts(current.list.map { it.text() })
@@ -578,6 +589,15 @@ object LegadoJsEngine {
                         is Texts -> Texts(listOfNotNull(selected.list.getOrNull(idx)))
                     }
                 }
+                // v0.294.55：元素上真实存在的属性一律按属性取（onclick、data_id、aria 等），
+                // 如阅友小说 bookUrl「@onclick@js:…」——原来 onclick 被当 CSS 选 <onclick> 标签，取空后整条结果被丢弃。
+                current is Elems && ATTR_NAME_RE.matches(seg) &&
+                    current.list.any { it.hasAttr(seg) } -> Texts(
+                    current.list.map {
+                        val v = it.attr(seg).trim()
+                        if (seg == "href" || seg == "src") absolutize(pageUrl, v) else v
+                    },
+                )
                 else -> selectSegment(current, seg, pageUrl)
             }
         }
