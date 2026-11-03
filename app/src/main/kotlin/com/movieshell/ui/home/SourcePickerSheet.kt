@@ -445,7 +445,9 @@ fun SourcePickerSheet(
     // cur 还是 null 会误定成“本地源”，之后 cur 变了也覆盖不回去。
     LaunchedEffect(loading, cur) {
         if (!loading && originFilter == null) {
-            originFilter = if (cur != null) "sub:${cur.subUrl}" else "local"
+            // cur 是 by 委托属性，判空后不能直接智能转换：先快照到局部变量再用。
+            val c = cur
+            originFilter = if (c != null) "sub:${c.subUrl}" else "local"
         }
     }
     val originFiltered: List<PickerItem> = remember(items, originFilter) {
