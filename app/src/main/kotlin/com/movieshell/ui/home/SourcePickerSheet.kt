@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -421,12 +422,46 @@ fun SourcePickerSheet(
         list.distinctBy { it.id }
     }
 
-    // 类型筛选 chips：只出现实际存在的类型，顺序固定
+    // v0.294.52：来源胶囊——原来 228 个源本地/订阅混排在一张表里翻找。
+    // 从本版起不再混排：顶部一排来源胶囊（本地源 + 每个订阅名），点哪个下面
+    // 只出哪个来源的站；没有“全部”入口，混排不再出现。来源取 subSites 里
+    // 实际有缓存站点的订阅，名字取订阅名（空则取域名），括号里是该订阅站数。
+    // originFilter 取值：null=未初始化（加载中临时看全部）、"local"=本地源、
+    // "sub:<订阅 url>"=该订阅。PickerItem 的 id 本身带前缀（local- / sub:<url>:<key>），
+    // 过滤直接按 id 前缀，不用给条目加新字段。
+    val origins: List<Triple<String, String, Int>> = remember(subSites) {
+        subSites.map { it.first }.distinctBy { it.url }.map { sub ->
+            Triple(
+                "sub:${sub.url}",
+                sub.name.ifBlank { hostFromUrl(sub.url) ?: "订阅" },
+                subSites.count { it.first.url == sub.url },
+            )
+        }
+    }
+    var originFilter by remember { mutableStateOf<String?>(null) }
+    // 默认来源跟当前源走：正在用订阅站就默认该订阅，正在用本地规则就默认本地源；
+    // 用户一旦手动点过胶囊就不再覆盖（originFilter 已非空）。
+    // 注意：必须等 loading=false（reload 已把 cur 读回来）再定默认，否则首帧
+    // cur 还是 null 会误定成“本地源”，之后 cur 变了也覆盖不回去。
+    LaunchedEffect(loading, cur) {
+        if (!loading && originFilter == null) {
+            originFilter = if (cur != null) "sub:${cur.subUrl}" else "local"
+        }
+    }
+    val originFiltered: List<PickerItem> = remember(items, originFilter) {
+        when (val origin = originFilter) {
+            null -> items
+            "local" -> items.filter { it.id.startsWith("local-") }
+            else -> items.filter { it.id.startsWith("$origin:") }
+        }
+    }
+    // 类型筛选 chips：只出现实际存在的类型，顺序固定；口径改成当前来源内，
+    // 否则本地源下还会冒出只有订阅才有的 CMS 筛选，点了就是空表。
     val kindOrder = listOf(
         SubSiteStore.KIND_CMS, SubSiteStore.KIND_DRPY, SubSiteStore.KIND_PY,
         SubSiteStore.KIND_TYPE4, SubSiteStore.KIND_SPIDER, SubSiteStore.KIND_WEBPARSE,
     )
-    val kindsPresent = remember(items) { kindOrder.filter { k -> items.any { it.kind == k } } }
+    val kindsPresent = remember(originFiltered) { kindOrder.filter { k -> originFiltered.any { it.kind == k } } }
     var query by remember { mutableStateOf("") }
     var kindFilter by remember { mutableStateOf<String?>(null) }
     // v0.182.0：三种排列类型，搜索框右边的小宫格按钮点一下换一种：
@@ -442,9 +477,9 @@ fun SourcePickerSheet(
         Icons.Filled.GridView, Icons.Filled.GridView, Icons.Filled.List,
         Icons.Filled.List, Icons.Filled.GridView, Icons.Filled.List,
     )
-    // 搜索文本 × 类型筛选联动
-    val visible = remember(items, query, kindFilter) {
-        items.filter { item ->
+    // 搜索文本 × 类型筛选联动（先按来源过滤，再按类型/搜索过滤）
+    val visible = remember(originFiltered, query, kindFilter) {
+        originFiltered.filter { item ->
             (kindFilter == null || item.kind == kindFilter) &&
                 (query.isBlank() || item.name.contains(query.trim(), ignoreCase = true))
         }
@@ -464,6 +499,18 @@ fun SourcePickerSheet(
         if (index < 0) return@LaunchedEffect
         gridState.scrollToItem(index)
         scrolledToCurrent = true
+    }
+    // v0.294.52：回本地源就是点一下来源胶囊——切来源时必须清类型筛选，
+    // 否则订阅的 CMS 筛选会带到本地源上直接出空表；同时回顶，避免停在
+    // 旧来源的滚动位置上。本地源胶囊常驻在列表上方，订阅状态下也一样，
+    // 不用先关弹窗、不用翻 228 个源找本地规则。
+    val selectOrigin: (String) -> Unit = { origin ->
+        originFilter = origin
+        kindFilter = null
+        scope.launch {
+            gridState.scrollToItem(0)
+            listState.scrollToItem(0)
+        }
     }
 
     Column(
@@ -489,7 +536,9 @@ fun SourcePickerSheet(
                 // v0.267.0（T5）：原来标题用过滤后的 visible.size，搜
                 // 索/筛选后总数就变了；标题一律显示总数 items.size，
                 // 筛选后另注已筛选数，不再拿筛选数冒充总数。
-                text = if (loading) "加载中…" else if (visible.size == items.size) "共 ${items.size} 个源" else "共 ${items.size} 个源，已筛选 ${visible.size} 个",
+                // v0.294.52：总数按当前来源算（不是全量 228），否则标题与下面
+                // 只出一个来源的列表对不上。
+                text = if (loading) "加载中…" else if (visible.size == originFiltered.size) "共 ${originFiltered.size} 个源" else "共 ${originFiltered.size} 个源，已筛选 ${visible.size} 个",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -595,6 +644,33 @@ fun SourcePickerSheet(
             }
         }
         Spacer(Modifier.height(8.dp))
+        // v0.294.52：来源胶囊行（横向可滑，订阅多也不挤）——第一颗永远是
+        // “本地源”，正在用订阅时点它即回本地源列表，不用关弹窗翻找；
+        // 每颗订阅胶囊点下去，下面只出该订阅的站。
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = V5.Gutter),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            item {
+                V5Chip(
+                    text = "本地源",
+                    selected = originFilter == "local",
+                    onClick = { selectOrigin("local") },
+                    small = true,
+                )
+            }
+            items(origins, key = { it.first }) { (origin, label, count) ->
+                V5Chip(
+                    text = "$label（$count）",
+                    selected = originFilter == origin,
+                    onClick = { selectOrigin(origin) },
+                    small = true,
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         // 小字类型筛选 chips
         if (kindsPresent.isNotEmpty()) {
             Row(
@@ -626,7 +702,7 @@ fun SourcePickerSheet(
         } else if (visible.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = if (items.isEmpty()) "暂无可用站源" else "没有匹配的源，换个关键词试试",
+                    text = if (items.isEmpty()) "暂无可用站源" else if (originFiltered.isEmpty()) "该来源下暂无源，点上方胶囊换个来源" else "没有匹配的源，换个关键词试试",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

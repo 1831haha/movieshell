@@ -217,15 +217,21 @@ fun HomeScreen(
     var subSite by remember { mutableStateOf<Site?>(null) }
     var lastSubKey by rememberSaveable { mutableStateOf<String?>(null) }
 
+    // v0.294.52：订阅当前源连同订阅名一起带回——首页胶囊要显示
+    // “订阅名 · 站点名”，只给站点名看不出是哪个订阅的站；订阅名取
+    // ApiSourceStore 里与 subUrl 对应的订阅名（添加订阅时已保证非空，
+    // 兜底取域名）。第二项空串 = 本地源，无订阅名。
+    var subSourceName by remember { mutableStateOf("") }
     /** 读持久化的订阅当前源；记录被删/被标不支持/订阅被关时返回 null */
     fun currentSubSite(): Site? {
+        subSourceName = ""
         val cur = SubSiteStore.getCurrent(context) ?: return null
-        val subEnabled =
-            ApiSourceStore.load(context).find { it.url == cur.subUrl }?.enabled ?: false
-        if (!subEnabled) return null
+        val sub = ApiSourceStore.load(context).find { it.url == cur.subUrl }
+        if (sub?.enabled != true) return null
         val cache = SubSiteStore.getCached(context, cur.subUrl) ?: return null
         val rec = cache.sites.firstOrNull { it.key == cur.siteKey } ?: return null
         if (!rec.enabled || rec.kind == SubSiteStore.KIND_UNSUPPORTED) return null
+        subSourceName = sub.name
         return SubSiteStore.toSite(cur.subUrl, rec)
     }
 
@@ -1252,8 +1258,13 @@ fun HomeScreen(
     }
 
     // 站源入口行文案：订阅当前源 > 本地 drpy > 本地 PY > 本地 PHP；都没有 -> 演示数据
+    // v0.294.52：订阅时胶囊显示“订阅名 · 站点名”（如 东篱 · 量子），
+    // 订阅名与站点名相同或订阅名空时只显示站点名，避免重复。
     val sourceLabel: String = when {
-        subSite != null -> subSite?.name?.ifBlank { "订阅源" } ?: "订阅源"
+        subSite != null -> {
+            val siteName = subSite?.name?.ifBlank { "订阅源" } ?: "订阅源"
+            if (subSourceName.isNotBlank() && subSourceName != siteName) "$subSourceName · $siteName" else siteName
+        }
         SourceStateStore.activeDrpyRule() != null -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
         SourceStateStore.activePyRule() != null -> "本地·${PySourceManager.activeRuleName().orEmpty()}"
         SourceStateStore.activePhpRule() != null -> "本地·${SourceStateStore.activePhpRule().orEmpty()}"

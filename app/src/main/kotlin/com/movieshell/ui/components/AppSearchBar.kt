@@ -1,6 +1,7 @@
 package com.movieshell.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -84,6 +85,9 @@ fun AppSearchBar(
             .height(height)
             .clip(RoundedCornerShape(50))
             .background(containerColor)
+            // v0.294.52：搜索框也一律描边——原来无描边，底色与所在页/弹窗底
+            // 接近时框体看不清；outlineVariant 细描边不改胶囊造型。
+            .border(1.dp, cs.outlineVariant, RoundedCornerShape(50))
             .padding(start = 4.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

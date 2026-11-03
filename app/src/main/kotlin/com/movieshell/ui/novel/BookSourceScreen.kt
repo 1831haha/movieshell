@@ -4,6 +4,7 @@ import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
+import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -1203,6 +1204,8 @@ private fun SourceTextEditorDialog(
                         modifier = Modifier.fillMaxSize(),
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceContainer,
+                        // v0.294.52：多行编辑区也描边，与其他输入框同口径。
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     ) {
                         BasicTextField(
                             value = text,
