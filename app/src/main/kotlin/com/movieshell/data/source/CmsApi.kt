@@ -9,6 +9,7 @@ import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
