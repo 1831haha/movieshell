@@ -143,6 +143,13 @@ fun SourcePickerSheet(
     var subSites by remember { mutableStateOf<List<Pair<ApiSource, SubSiteRecord>>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var refreshing by remember { mutableStateOf(false) }
+    // v0.294.54：无缓存的已启用订阅（源管理页显示“未解析”的那批）。
+    // 旧版弹窗只读一次缓存：订阅正在后台解析时打开弹窗，来源胶囊里
+    // 永远没有它，解析跑完了也不出现，必须关掉重开才看得到。
+    var unparsedSubs by remember { mutableStateOf<List<ApiSource>>(emptyList()) }
+    var parsingSubNames by remember { mutableStateOf<List<String>>(emptyList()) }
+    var failedSubNames by remember { mutableStateOf<List<String>>(emptyList()) }
+    var autoParseStarted by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     // v0.271.0（T25）：切源单飞——快速连点两个源时，旧一单取消，不留假失败提示。
     var switchJob by remember { mutableStateOf<Job?>(null) }
@@ -164,11 +171,18 @@ fun SourcePickerSheet(
         phpActiveName = PhpSourceManager.activeRuleName()
         webParseSites = WebParseSourceManager.listSites()
         webParseActiveName = WebParseSourceManager.activeSite()?.fileName
-        val newSubSites = ApiSourceStore.load(context).filter { it.enabled }.flatMap { sub ->
+        val enabledSubs = ApiSourceStore.load(context).filter { it.enabled }
+        val newSubSites = enabledSubs.flatMap { sub ->
             val sites = SubSiteStore.getCached(context, sub.url)?.sites.orEmpty()
             sites.map { sub to it }
         }
         subSites = newSubSites
+        // 多仓订阅 sites 为空但 warehouses 非空，已算解析过，不列入待补解析；
+        // 只有缓存全空（或两边都空）才算未解析，避免对多仓反复自动下载。
+        unparsedSubs = enabledSubs.filter { sub ->
+            val cache = SubSiteStore.getCached(context, sub.url)
+            cache == null || (cache.sites.isEmpty() && cache.warehouses.isEmpty())
+        }
         // v0.140.0：本地规则的站点 host（文件头取，IO 线程做，不阻塞主线程）
         drpyHosts = newDrpy.associate { it.name to ruleFileHost(StoragePaths.jsDir(context), it.name) }
         pyHosts = newPy.associate { it.name to ruleFileHost(StoragePaths.pyDir(context), it.name) }
@@ -185,6 +199,31 @@ fun SourcePickerSheet(
     LaunchedEffect(Unit) {
         reloadFromCache()
         loading = false
+    }
+
+    // v0.294.54：缺缓存订阅自动补解析——只补“还没有缓存”的订阅，已有
+    // 缓存的订阅不动，不重复刷新整批。跑在 SubSiteStore.appScope（进程级），
+    // 关弹窗也不取消，跑完重读缓存，来源胶囊自己多出来，不用重开弹窗。
+    // 同地址在途时 refresh() 内部去重，源管理页正在解析同一订阅也不会
+    // 被重复下一遍。每个弹窗只自动补一次，失败不循环重试，失败名
+    // 留在下方提示里，用户点右上角刷新可手动再试。
+    LaunchedEffect(loading, unparsedSubs) {
+        if (loading || autoParseStarted || unparsedSubs.isEmpty()) return@LaunchedEffect
+        autoParseStarted = true
+        val missing = unparsedSubs
+        parsingSubNames = missing.map { it.name.ifBlank { hostFromUrl(it.url) ?: "订阅" } }
+        failedSubNames = emptyList()
+        SubSiteStore.appScope.launch {
+            val failed = mutableListOf<String>()
+            missing.forEach { sub ->
+                val ok = runCatching { SubSiteStore.refresh(context, sub.url) }
+                    .getOrNull()?.isSuccess == true
+                if (!ok) failed.add(sub.name.ifBlank { hostFromUrl(sub.url) ?: "订阅" })
+            }
+            reloadFromCache()
+            parsingSubNames = emptyList()
+            failedSubNames = failed
+        }
     }
 
     /**
@@ -671,6 +710,43 @@ fun SourcePickerSheet(
                     small = true,
                 )
             }
+        }
+        // v0.294.54：缺缓存订阅的可见状态——旧版这里悄悄只有本地源，
+        // 用户以为订阅丢了，其实只是缓存还没解析完。解析中给一行提示，
+        // 解析完胶囊自己出现；失败也明说，不留“订阅不见了”的悬念。
+        if (parsingSubNames.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = V5.Gutter),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.padding(4.dp))
+                Text(
+                    text = "正在解析订阅：${parsingSubNames.joinToString("、")}，解析完这里会多出对应胶囊，不用重开",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        } else if (failedSubNames.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "以下订阅解析失败，点右上角刷新再试一次：${failedSubNames.joinToString("、")}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = V5.Gutter),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         Spacer(Modifier.height(8.dp))
         // 小字类型筛选 chips

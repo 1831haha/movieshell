@@ -10,6 +10,7 @@ import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DEFAULT_UA
 import com.movieshell.data.source.TvBoxConfigParser
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -403,8 +404,30 @@ object SubSiteStore {
         return withTimeoutOrNull(60_000) { refresh(context, subUrl).getOrNull() }
     }
 
-    /** 下载订阅 JSON 并展开全部站点，落盘；sites 为空视为失败。 */
+    /**
+     * v0.294.54：同地址刷新去重——换源弹窗自动补解析、源管理页手动解析、
+     * 后台每日刷新可能同时盯上同一个订阅，并发各下一遍会重复下载、轮流
+     * 读旧缓存再写盘互相覆盖。同一地址在途时后来者直接等同一份结果，
+     * 不另起下载；任务结束（无论成败）才清掉在途记录，下一个显式刷新
+     * 仍会重新下载，不影响手动刷新语义。
+     */
+    private val refreshInFlight = ConcurrentHashMap<String, Deferred<Result<SubCache>>>()
+
     suspend fun refresh(context: Context, subUrl: String): Result<SubCache> {
+        val key = subUrl.trim()
+        refreshInFlight[key]?.let { return it.await() }
+        val deferred = appScope.async { refreshInternal(context, key) }
+        val existing = refreshInFlight.putIfAbsent(key, deferred)
+        if (existing != null) {
+            deferred.cancel()
+            return existing.await()
+        }
+        deferred.invokeOnCompletion { refreshInFlight.remove(key, deferred) }
+        return deferred.await()
+    }
+
+    /** 下载订阅 JSON 并展开全部站点，落盘；sites 为空视为失败。 */
+    private suspend fun refreshInternal(context: Context, subUrl: String): Result<SubCache> {
         LogBus.i(TAG, "刷新订阅：$subUrl")
         return withContext(Dispatchers.IO) {
             runCatching {
