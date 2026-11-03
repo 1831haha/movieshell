@@ -859,6 +859,9 @@ fun BookshelfScreen(
             val searchVm: NovelSearchViewModel = viewModel(searchActivity)
             val searchKeyword by searchVm.keyword.collectAsState()
             val searchFocus = remember { FocusRequester() }
+            // v0.294.55：退出找书态（取消/返回）即复位搜索 VM——活动级 VM 原来只清框词，
+            // 结果留着，下次进找书先看到上一次的结果。
+            LaunchedEffect(searching) { if (!searching) searchVm.resetSearch() }
             if (searching) {
                 LaunchedEffect(Unit) { searchFocus.requestFocus() }
                 Column(modifier = Modifier.fillMaxSize()) {

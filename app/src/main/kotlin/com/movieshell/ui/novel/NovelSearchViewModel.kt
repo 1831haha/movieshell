@@ -110,6 +110,13 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         _searched.value = false
     }
 
+    /** v0.294.55：离开找书（取消/返回/切走 tab）时整体复位——词、结果、已搜标记一起清，
+     * 重进找书不会再看到上一次（甚至更早一次）的结果。 */
+    fun resetSearch() {
+        clearResults()
+        _keyword.value = ""
+    }
+
     fun refreshHistory() {
         // v0.270.0（T27）：同影视搜索，历史读盘走 IO。
         viewModelScope.launch {
@@ -170,7 +177,11 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         // v0.109.0 A4：连续搜索取消前一次——旧慢请求后返回覆盖新结果；try/finally
         // 保证被取消时 loading 也能落下
         searchJob?.cancel()
+        // v0.294.55：新搜索开始先清旧结果——原来要等新结果回来才覆盖，期间（以及被取消时）
+        // 一直显示上一次的结果，换源后搜不到也像是“还在显示全本小说网 95 本”。
+        _results.value = emptyList()
         searchJob = viewModelScope.launch {
+            val myJob = coroutineContext[Job]
             try {
                 _loading.value = true
                 _searched.value = true
@@ -209,6 +220,10 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                     jsonJob.await() + pyJob.await()
                 }
             }
+            } catch (e: CancellationException) {
+                // 被取消（离页复位/新搜索顶掉）不留半截或旧结果；只清自己这一轮，不误清新一轮。
+                if (searchJob === myJob) _results.value = emptyList()
+                throw e
             } finally {
                 _loading.value = false
             }
