@@ -161,6 +161,11 @@ data class PlayLine(
 data class CategoryType(
     val typeId: String = "",
     val typeName: String = "",
+    // v0.294.53：CMS 分类接口的 type_pid（父分类编号；0/空=顶级）。
+    // 通用树口径：影片挂在叶子分类下，父分类编号直接问 videolist
+    // 回 0 条时，父分类空页的展开补片就靠这个字段认子分类。
+    // 其他来源不填，默认空串，行为不变。
+    val typePid: String = "",
     /** v0.30.1：PY 规则 homeContent 的 filters 字典按 tid 切出来的二级筛选组。 */
     val filters: List<FilterGroup> = emptyList()
 )

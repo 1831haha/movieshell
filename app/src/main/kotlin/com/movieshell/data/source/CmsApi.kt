@@ -8,6 +8,8 @@ import com.movieshell.data.model.Vod
 import com.movieshell.data.model.VodDetail
 import com.movieshell.data.repo.LogBus
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -282,6 +284,64 @@ class CmsApi(
                 val pageUrl = buildUrl(site, "ac" to "videolist", "t" to tid, "pg" to pg.toString())
                     ?: return@ioSafe (types to emptyList())
                 list = parseList(site, client.getTextCancellable(pageUrl))
+                // v0.294.53：父分类空页展开补片——通用树口径，不按站打补丁。
+                // 规则：CMS 分类是一棵树，影片挂在叶子分类下；父编号直接问
+                // videolist 时，影片不在父编号下，服务器天然回 0 条，不是站挂了。
+                // 只在父编号本页为空且确有子分类时才补片：先按原口径问一次，
+                // 有片的站完全不受影响；子分类各问同页并行取、按分类顺序拼、
+                // 按 vodId 去重，翻页时同理（子分类同页号再拼一次）。
+                // 子分类认法分两路，缺一不可：①分类表自带的父编号；
+                // ②分类表不给父编号时，从影片自带的父编号字段反推（见下）。
+                if (list.isEmpty()) {
+                    var children = types.filter { it.typePid == tid }
+                    if (children.isEmpty() && site.type == 1) {
+                        // 分类表没给父编号的站：首页一页影片里，子编号与父编号
+                        // 是成对出现的（影片字段），用它反推该父编号的子分类。
+                        // 首页一页未必覆盖全部子分类，能推多少补多少，推不出
+                        // 的子分类仍为空——这是本口径的已知盲区，不谎称全覆盖。
+                        val homeUrl = buildUrl(site, "ac" to "videolist", "pg" to "1")
+                        if (homeUrl != null) {
+                            val derived = runCatching {
+                                parseParentChildMapJson(client.getTextCancellable(homeUrl))[tid]
+                                    .orEmpty()
+                            }.getOrDefault(emptyList())
+                            children = derived.map { childId ->
+                                CategoryType(
+                                    typeId = childId,
+                                    typeName = types.firstOrNull { it.typeId == childId }?.typeName.orEmpty(),
+                                )
+                            }
+                        }
+                    }
+                    if (children.isNotEmpty()) {
+                        val merged = coroutineScope {
+                            children.map { child ->
+                                async {
+                                    // 单个子分类失败只空着它一个，不拖垮整页；取消必须透传，
+                                    // 不能包成空列表吞掉（切分类取消后请求照跑的旧教训）。
+                                    try {
+                                        val childUrl = buildUrl(
+                                            site, "ac" to "videolist",
+                                            "t" to child.typeId, "pg" to pg.toString(),
+                                        ) ?: return@async emptyList<Vod>()
+                                        parseList(site, client.getTextCancellable(childUrl))
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (_: Exception) {
+                                        emptyList()
+                                    }
+                                }
+                            }.awaitAll()
+                        }.flatten()
+                        val seen = HashSet<String>()
+                        list = merged.filter { vod ->
+                            vod.vodId.isBlank() || seen.add(vod.vodId)
+                        }
+                        if (list.isNotEmpty()) {
+                            LogBus.i(TAG, "CMS 父分类 $tid 本页空，展开 ${children.size} 个子分类补片 ${list.size} 条")
+                        }
+                    }
+                }
             }
             types to list
         }
@@ -384,10 +444,32 @@ class CmsApi(
             val o = it.jsonObject
             CategoryType(
                 typeId = o.optString("type_id"),
-                typeName = o.optString("type_name")
+                typeName = o.optString("type_name"),
+                // type_pid 可能是数字，optString 已兼容数字写法；
+                // 顶级分类为 0，补片时只认 typePid == tid 的子分类，0 不会误配。
+                typePid = o.optString("type_pid")
             )
         }.filter { it.typeId.isNotBlank() }
     }.getOrDefault(emptyList())
+
+    /**
+     * 从一页影片 JSON 反推父子关系：父编号 -> 子编号（去重、保序）。
+     * 影片字段约定：type_id 是影片所在叶子分类，type_id_1 是其父分类；
+     * 两字段缺一即跳过该条，不影响其他条。
+     */
+    internal fun parseParentChildMapJson(text: String): Map<String, List<String>> = runCatching {
+        val root = jsonLenient.parseToJsonElement(text).jsonObject
+        val out = LinkedHashMap<String, LinkedHashSet<String>>()
+        root.listArray().forEach {
+            val o = it.jsonObject
+            val child = o.optString("type_id")
+            val parent = o.optString("type_id_1")
+            if (child.isNotBlank() && parent.isNotBlank() && parent != "0") {
+                out.getOrPut(parent) { LinkedHashSet() } += child
+            }
+        }
+        out.mapValues { it.value.toList() }
+    }.getOrDefault(emptyMap())
 
     internal fun parseDetailJson(text: String, vodId: String): VodDetail = runCatching {
         val first = jsonLenient.parseToJsonElement(text).jsonObject.listArray().firstOrNull()
@@ -427,8 +509,11 @@ class CmsApi(
                         "class" -> inClass = true
                         "ty" -> if (inClass) {
                             val id = p.getAttributeValue(null, "id").orEmpty()
+                            // 属性必须在 nextText() 之前读：nextText 会把解析器推到结束标签。
+                            val pid = p.getAttributeValue(null, "pid").orEmpty()
                             val name = p.nextText().trim()
-                            if (id.isNotBlank()) out += CategoryType(id, name)
+                            // XML 老接口一般无 pid 属性，缺失即空串，补片逻辑自动不触发。
+                            if (id.isNotBlank()) out += CategoryType(id, name, pid)
                         }
                     }
                     XmlPullParser.END_TAG -> if (p.name == "class") inClass = false
