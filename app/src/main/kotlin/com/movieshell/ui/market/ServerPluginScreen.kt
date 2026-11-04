@@ -1140,7 +1140,7 @@ private fun ServiceEditor(
                         onValueChange = { v ->
                             envList[idx] = v to envList[idx].second
                         },
-                        placeholder = "KEY",
+                        placeholder = "变量名，如 OPENLIST_ADMIN_PASSWORD",
                         modifier = Modifier.weight(1f),
                     )
                     AppTextField(
@@ -1148,7 +1148,7 @@ private fun ServiceEditor(
                         onValueChange = { v ->
                             envList[idx] = envList[idx].first to v
                         },
-                        placeholder = "VALUE",
+                        placeholder = "变量值",
                         modifier = Modifier.weight(1f)
                             .onFocusChanged {
                                 if (it.isFocused) insertTarget = "env:$idx"
@@ -1162,11 +1162,30 @@ private fun ServiceEditor(
                     }
                 }
             }
-            TextButton(
-                onClick = { envList.add("" to "") },
-                contentPadding = PaddingValues(horizontal = 4.dp),
+            // v1.0.1：常用变量快捷添加——点“管理员密码”直接加一行已填好
+            // 变量名的空行，用户只填密码值；已有同名行时不重复加。
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("添加变量")
+                TextButton(
+                    onClick = { envList.add("" to "") },
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                ) {
+                    Text("添加变量")
+                }
+                TextButton(
+                    onClick = {
+                        if (envList.any { it.first == "OPENLIST_ADMIN_PASSWORD" }) {
+                            AppToast.show(context, "已添加", long = false)
+                        } else {
+                            envList.add("OPENLIST_ADMIN_PASSWORD" to "")
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                ) {
+                    Text("管理员密码")
+                }
             }
             FieldLabel("探活方式")
             FlowRow(
