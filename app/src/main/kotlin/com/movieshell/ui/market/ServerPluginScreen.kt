@@ -104,6 +104,8 @@ fun ServerPluginScreen(
     onBack: () -> Unit = {},
     // v0.127.0：插件中心页签嵌入模式——不渲染自己的顶栏，自检/上传降为内容区首行
     embedded: Boolean = false,
+    // v0.294.55：OpenList 卡片上的“网盘”入口（仅运行中才给，跳本机网盘浏览页）
+    onOpenOpenList: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -599,6 +601,14 @@ fun ServerPluginScreen(
                                     )
                                 }
                             }) { Text("打开") }
+                        }
+                        // v0.294.55：OpenList 运行中时给 App 内网盘浏览入口（不走浏览器）
+                        if (p.id == "openlist" &&
+                            p.status == ServicePluginManager.Status.RUNNING &&
+                            onOpenOpenList != null
+                        ) {
+                            val openOpenListFn = onOpenOpenList
+                            TextButton(onClick = { openOpenListFn() }) { Text("网盘") }
                         }
                         TextButton(onClick = { openEdit(p) }) { Text("编辑") }
                         TextButton(onClick = {

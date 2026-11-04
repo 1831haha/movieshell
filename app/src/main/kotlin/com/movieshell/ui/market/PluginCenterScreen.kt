@@ -68,6 +68,8 @@ fun PluginCenterScreen(
     // v0.246.0：详情带市场——原来只传 id，多市场同 id 时详情可能显示另一家；
     // 改传 (id, sourceMarket)，详情按市场 + id 精确查。
     onDetail: (String, String) -> Unit = { _, _ -> },
+    // v0.294.55：服务页签里 OpenList 卡片的“网盘”入口回调
+    onOpenOpenList: (() -> Unit)? = null,
 ) {
     var tab by rememberSaveable(initialTab) {
         mutableIntStateOf(initialTab.coerceIn(0, 2))
@@ -88,7 +90,7 @@ fun PluginCenterScreen(
         Box(modifier = Modifier.fillMaxSize().padding(inner)) {
             when (tab) {
                 0 -> InstalledPluginsBody(onDetail = onDetail)
-                1 -> ServerPluginScreen(embedded = true)
+                1 -> ServerPluginScreen(embedded = true, onOpenOpenList = onOpenOpenList)
                 else -> PluginMarketScreen(embedded = true, onDetail = onDetail)
             }
         }

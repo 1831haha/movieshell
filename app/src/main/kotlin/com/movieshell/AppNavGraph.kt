@@ -68,6 +68,7 @@ import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.novel.PurifyRulesScreen
 import com.movieshell.ui.novel.SearchBookDetailScreen
 import com.movieshell.ui.novel.SourceGroup
+import com.movieshell.ui.openlist.OpenListBrowseScreen
 import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.reader.ReaderScreen
 import com.movieshell.ui.search.SearchScreen
@@ -539,6 +540,7 @@ fun NavGraphBuilder.appDestinations(
                                         "market_detail/${android.net.Uri.encode(market)}/${android.net.Uri.encode(id)}",
                                     )
                                 },
+                                onOpenOpenList = { navController.navigate("openlist") },
                             )
                         }
                         composable("market_detail/{market}/{id}") { entry ->
@@ -681,6 +683,18 @@ fun NavGraphBuilder.appDestinations(
                             WebSniffScreen(
                                 name = siteName,
                                 url = siteUrl,
+                                onBack = { navController.popBackStack() },
+                                onPlay = { playUrl, title ->
+                                    navController.navigateToPlayer(
+                                        url = playUrl,
+                                        title = title,
+                                    )
+                                },
+                            )
+                        }
+                        // v0.294.55：本机 OpenList 网盘浏览（服务插件配套，地址固定本机 5244）
+                        composable("openlist") {
+                            OpenListBrowseScreen(
                                 onBack = { navController.popBackStack() },
                                 onPlay = { playUrl, title ->
                                     navController.navigateToPlayer(
