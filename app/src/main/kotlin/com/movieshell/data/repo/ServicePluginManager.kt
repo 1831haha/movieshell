@@ -835,6 +835,8 @@ object ServicePluginManager {
             }
             stopLocked(context, id)
             File(installRoot(context), id).deleteRecursively()
+            // v0.294.56：连同删掉该服务的私有执行暂存，不留 100MB 级孤儿文件。
+            File(context.filesDir, "server_plugins_exec/$id").deleteRecursively()
             ExecutableTrust.clear(context.filesDir, "service:$id:exe")
             ExecutableTrust.clear(context.filesDir, "service:$id:manifest")
             reg.remove(id)
@@ -1005,6 +1007,51 @@ object ServicePluginManager {
             listOf(exe.absolutePath) + args
         }
 
+    /**
+     * v0.294.56：判断是否为 ELF 原生二进制（只读前 4 字节魔数，不读整文件）。
+     */
+    private fun isElfBinary(file: File): Boolean {
+        if (!file.isFile) return false
+        return runCatching {
+            file.inputStream().use { input ->
+                val magic = ByteArray(4)
+                var read = 0
+                while (read < 4) {
+                    val n = input.read(magic, read, 4 - read)
+                    if (n < 0) break
+                    read += n
+                }
+                read == 4 && magic[0] == 0x7F.toByte() &&
+                    magic[1] == 'E'.code.toByte() && magic[2] == 'L'.code.toByte() &&
+                    magic[3] == 'F'.code.toByte()
+            }
+        }.getOrDefault(false)
+    }
+
+    /**
+     * v0.294.56：把共享存储上的原生程序复制到私有目录执行（与 PHP
+     * 私有目录 + linker64 同一路）。摘要不一致时重拷，拷完再验一次，
+     * 验不过删掉暂存并拒绝启动；下次启动摘要对得上就不再重拷。
+     */
+    private fun stageNativeExe(context: Context, id: String, exe: File): File {
+        val stagedDir = File(context.filesDir, "server_plugins_exec/$id").also { it.mkdirs() }
+        val staged = File(stagedDir, exe.name)
+        val sourceSha = ExecutableTrust.sha256(exe)
+            ?: throw IllegalStateException("服务 $id 的可执行文件摘要计算失败，已拒绝启动")
+        val stagedSha = if (staged.isFile) ExecutableTrust.sha256(staged) else null
+        if (stagedSha == null || !stagedSha.equals(sourceSha, ignoreCase = true)) {
+            runCatching { staged.delete() }
+            exe.copyTo(staged, overwrite = true)
+            runCatching { staged.setExecutable(true) }
+            val copiedSha = ExecutableTrust.sha256(staged)
+            if (copiedSha == null || !copiedSha.equals(sourceSha, ignoreCase = true)) {
+                runCatching { staged.delete() }
+                throw IllegalStateException("服务 $id 的可执行文件复制到私有目录后摘要不符，已拒绝启动")
+            }
+        }
+        return staged
+    }
+
     fun start(context: Context, id: String) {
         synchronized(lock) { startLocked(context, id) }
     }
@@ -1022,7 +1069,7 @@ object ServicePluginManager {
         if (!workDir.isDirectory) {
             throw IllegalStateException("workDir 不存在：${workDir.absolutePath}")
         }
-        val exe = launch.exe
+        var exe = launch.exe
         if (!exe.isFile) {
             throw IllegalStateException("command 可执行文件不存在：${exe.absolutePath}")
         }
@@ -1031,6 +1078,18 @@ object ServicePluginManager {
         // 首次启动无锚定时：先按公开 server.json 的摘要验一次，通过后
         // 锚定，之后改写即拒绝；安装/保存后已有锚定的直接按锚定验。
         verifyServiceAtStart(context, id, launch)
+        // v0.294.56：原生二进制在共享存储上无法加载——直执报 error=13，
+        // linker64 也会在映射程序段时报 Permission denied（OpenList 真机实测）。
+        // 脚本不受影响（经 sh 解释执行，不映射自身）；已在私有目录内的不折腾。
+        // 只把可执行文件本身复制到私有目录执行，工作目录不动，数据与配置
+        // 仍留在公开服务目录；复制后按验过的摘要再验一次才拉起。
+        var stagingNote: String? = null
+        if (!exe.name.endsWith(".sh", ignoreCase = true) && isElfBinary(exe) &&
+            !exe.absolutePath.startsWith(context.filesDir.absolutePath + "/")
+        ) {
+            exe = stageNativeExe(context, id, exe)
+            stagingNote = "原生程序在共享存储上无法加载，已复制到私有目录执行"
+        }
         runCatching { exe.setExecutable(true) }
 
         val port = entry.port
@@ -1069,6 +1128,7 @@ object ServicePluginManager {
             null
         }
         val notes = mutableListOf<String>()
+        stagingNote?.let { notes.add(it) }
         val proc = startProcess(
             launchCommand(exe, resolvedArgs), altCmd, workDir, env, notes,
         )
