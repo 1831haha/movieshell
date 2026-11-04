@@ -88,7 +88,7 @@ import java.io.File
 /**
  * 服务插件页（v0.120.0 C3）：已装服务插件的启动/停止/日志/卸载 + 文件安装 + 环境自检。
  * 包规范见 xiaying-plugins/SERVER_PLUGIN_SPEC.md；卡片与弹窗走 AppCard / TechDialog，
- * 文字颜色走 MaterialTheme（弹窗体内容区由 TechDialog 固定浅色）。
+ * 颜色与圆角一律取当前 MaterialTheme，与 App 主题同步。
  * v0.126.0：顶部加「示例插件」卡——内置 demo-service-plugin.zip 一键安装
  * （走 install 全套校验），装好后用列表行既有「启动」一键启动。
  * v0.132.0：补成真管理器——列表头统计 + 新建/编辑全屏编辑器（运行时/探活/
@@ -314,6 +314,35 @@ fun ServerPluginScreen(
         }
     }
 
+    // v1.0.0：卡片展开区直接拨动自启动/常驻——走编辑页同一保存口径
+    // （读 serviceDef 改一字段后 saveService，不重启正在跑的进程）；
+    // 保存成功才 reload，开关显示永远以落盘值为准，失败则保持原态。
+    fun toggleCardFlag(p: ServicePluginManager.PluginInfo, autoStart: Boolean?, resident: Boolean?) {
+        if (saving) return
+        saving = true
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val def = ServicePluginManager.serviceDef(context, p.id)
+                        ?: throw IllegalStateException("读取服务配置失败")
+                    ServicePluginManager.saveService(
+                        context,
+                        def.copy(
+                            autoStart = autoStart ?: def.autoStart,
+                            resident = resident ?: def.resident,
+                        ),
+                    )
+                }.isSuccess
+            }
+            saving = false
+            if (ok) {
+                reload()
+            } else {
+                AppToast.show(context, "保存失败", long = false)
+            }
+        }
+    }
+
     fun runSelfCheck() {
         if (checking) return
         checking = true
@@ -511,49 +540,60 @@ fun ServerPluginScreen(
                         )
                     }
                     if (expanded) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                        // 命令行行 + 工作目录行（真实绝对路径，端口已替换为实际分配值）
-                        if (info != null) {
-                            Text(
-                                info.commandLine,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Default,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                            Text(
-                                info.workDirPath,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                    // v1.0.0：展开区紧凑化——删两行原始路径（与工作目录行重复），
+                    // 同类行合并，目标一屏看全；按钮行为一律不动。
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                    ) {
                         // v0.127.0：启动配置只读展开区（server.json 关键项，路径为安装后真实路径）
-                        // v0.132.0：补探活方式/自启动/常驻前台/运行 PID 四行
                         if (info != null) {
-                            Spacer(Modifier.height(8.dp))
-                            ConfigRow("启动命令", info.command)
-                            ConfigRow(
-                                "参数",
-                                info.args.joinToString(" ").ifBlank { "（无）" },
-                            )
+                            val cmdLine = if (info.args.isEmpty()) info.command
+                            else "${info.command} ${info.args.joinToString(" ")}"
+                            ConfigRow("启动命令", cmdLine)
                             ConfigRow("端口策略", info.portSpec)
-                            ConfigRow("健康检查", info.healthPath)
-                            ConfigRow("工作目录", info.workDirPath)
+                            val healthModeText = when (info.healthMode) {
+                                "PROCESS" -> "仅进程"
+                                "TCP" -> "TCP"
+                                "HTTP" -> "HTTP"
+                                else -> info.healthMode
+                            }
                             ConfigRow(
-                                "探活方式",
-                                when (info.healthMode) {
-                                    "PROCESS" -> "仅进程"
-                                    "TCP" -> "TCP"
-                                    "HTTP" -> "HTTP"
-                                    else -> info.healthMode
-                                },
+                                "探活",
+                                if (info.healthPath.isBlank()) healthModeText
+                                else "$healthModeText ${info.healthPath}",
                             )
-                            ConfigRow("自启动", if (info.autoStart) "开" else "关")
-                            ConfigRow("常驻前台", if (info.resident) "开" else "关")
+                            ConfigRow("工作目录", info.workDirPath, singleLine = true)
+                            // v1.0.0：自启动/常驻不再是文字行，改成两个开关；
+                            // 拨动直接走 toggleCardFlag 落盘，不用再进编辑页。
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "自启动",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.width(84.dp),
+                                )
+                                AppSwitch(
+                                    checked = info.autoStart,
+                                    onCheckedChange = { toggleCardFlag(p, autoStart = it, resident = null) },
+                                    enabled = !saving,
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    "常驻前台",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                AppSwitch(
+                                    checked = info.resident,
+                                    onCheckedChange = { toggleCardFlag(p, autoStart = null, resident = it) },
+                                    enabled = !saving,
+                                )
+                            }
                             if (info.pid != null) {
                                 ConfigRow("进程 PID", info.pid.toString())
                             }
@@ -562,45 +602,55 @@ fun ServerPluginScreen(
                             }
                         }
                     }
+                    // v1.0.0：按钮内边距收紧，7 个按钮尽量一行排下、最多两行；行为一律不动。
                     FlowRow(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                         horizontalArrangement = Arrangement.End,
                         verticalArrangement = Arrangement.spacedBy(0.dp),
                     ) {
-                        TextButton(onClick = {
-                            logFor = p
-                            scope.launch {
-                                logLines = withContext(Dispatchers.IO) {
-                                    ServicePluginManager.logs(p.id).takeLast(50)
+                        TextButton(
+                            onClick = {
+                                logFor = p
+                                scope.launch {
+                                    logLines = withContext(Dispatchers.IO) {
+                                        ServicePluginManager.logs(p.id).takeLast(50)
+                                    }
                                 }
-                            }
-                        }) { Text("日志") }
-                        TextButton(onClick = {
-                            scope.launch {
-                                val ok = ServicePluginManager.healthCheck(context, p.id)
-                                if (ok) {
-                                    webReady = webReady + p.id
-                                    AppToast.show(context, "探活通过：服务可达", long = false)
-                                } else {
-                                    webReady = webReady - p.id
-                                    AppToast.show(context, "探活失败：服务未响应", long = false)
+                            },
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) { Text("日志") }
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    val ok = ServicePluginManager.healthCheck(context, p.id)
+                                    if (ok) {
+                                        webReady = webReady + p.id
+                                        AppToast.show(context, "探活通过：服务可达", long = false)
+                                    } else {
+                                        webReady = webReady - p.id
+                                        AppToast.show(context, "探活失败：服务未响应", long = false)
+                                    }
                                 }
-                            }
-                        }) { Text("探活") }
+                            },
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) { Text("探活") }
                         // 打开 Web 首页：只在探活通过且运行中时给（与 healthCheck 同口径地址）
                         if (p.id in webReady &&
                             p.status == ServicePluginManager.Status.RUNNING
                         ) {
-                            TextButton(onClick = {
-                                runCatching {
-                                    context.startActivity(
-                                        Intent(
-                                            Intent.ACTION_VIEW,
-                                            Uri.parse("http://127.0.0.1:${p.port}/"),
-                                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                                    )
-                                }
-                            }) { Text("打开") }
+                            TextButton(
+                                onClick = {
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(
+                                                Intent.ACTION_VIEW,
+                                                Uri.parse("http://127.0.0.1:${p.port}/"),
+                                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                        )
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 6.dp),
+                            ) { Text("打开") }
                         }
                         // v0.294.55：OpenList 运行中时给 App 内网盘浏览入口（不走浏览器）
                         if (p.id == "openlist" &&
@@ -608,13 +658,25 @@ fun ServerPluginScreen(
                             onOpenOpenList != null
                         ) {
                             val openOpenListFn = onOpenOpenList
-                            TextButton(onClick = { openOpenListFn() }) { Text("网盘") }
+                            TextButton(
+                                onClick = { openOpenListFn() },
+                                contentPadding = PaddingValues(horizontal = 6.dp),
+                            ) { Text("网盘") }
                         }
-                        TextButton(onClick = { openEdit(p) }) { Text("编辑") }
-                        TextButton(onClick = {
-                            expandedId = if (expandedId == p.id) null else p.id
-                        }) { Text("收起") }
-                        TextButton(onClick = { uninstallFor = p }) { Text("卸载") }
+                        TextButton(
+                            onClick = { openEdit(p) },
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) { Text("编辑") }
+                        TextButton(
+                            onClick = {
+                                expandedId = if (expandedId == p.id) null else p.id
+                            },
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) { Text("收起") }
+                        TextButton(
+                            onClick = { uninstallFor = p },
+                            contentPadding = PaddingValues(horizontal = 6.dp),
+                        ) { Text("卸载") }
                     }
                     }
                 }
@@ -768,23 +830,27 @@ fun ServerPluginScreen(
     }
 }
 
-/** v0.127.0：服务卡「配置」展开区的一行（标签固定宽 + 等宽值），全卡各行同口径对齐。 */
+/** v0.127.0：服务卡「配置」展开区的一行（标签固定宽 + 等宽值），全卡各行同口径对齐。
+ * v1.0.0：标签宽 72dp 放宽到 84dp（开关行首列与各行标签对齐），行距收紧；
+ * singleLine 为真时值单行省略（工作目录行用）。 */
 @Composable
-private fun ConfigRow(label: String, value: String) {
+private fun ConfigRow(label: String, value: String, singleLine: Boolean = false) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Text(
             label,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(72.dp),
+            modifier = Modifier.width(84.dp),
         )
         Text(
             value,
             style = MaterialTheme.typography.bodySmall,
             fontFamily = FontFamily.Default,
+            maxLines = if (singleLine) 1 else Int.MAX_VALUE,
+            overflow = if (singleLine) TextOverflow.Ellipsis else TextOverflow.Clip,
             modifier = Modifier.weight(1f),
         )
     }
@@ -803,6 +869,7 @@ private fun FieldLabel(text: String) {
 /**
  * v0.134.0：编辑器分段卡——AppCard 包一段字段，卡内 14dp 内边距、段内 8dp 间距；
  * title 非空时段首一行 CardTitle。仅布局收敛，字段逻辑不经此组件。
+ * v1.0.0：卡内边距收紧到 10dp、段内间距收紧到 6dp，目标一屏尽量看全。
  */
 @Composable
 private fun EditorSection(
@@ -811,8 +878,8 @@ private fun EditorSection(
 ) {
     AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (title != null) {
                 Text(
@@ -915,8 +982,8 @@ private fun ServiceEditor(
         Column(
             modifier = Modifier.fillMaxSize().padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             EditorSection(title = "基本配置") {
             FieldLabel("名称（必填）")
@@ -1087,12 +1154,18 @@ private fun ServiceEditor(
                                 if (it.isFocused) insertTarget = "env:$idx"
                             },
                     )
-                    TextButton(onClick = { envList.removeAt(idx) }) {
+                    TextButton(
+                        onClick = { envList.removeAt(idx) },
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) {
                         Text("删除")
                     }
                 }
             }
-            TextButton(onClick = { envList.add("" to "") }) {
+            TextButton(
+                onClick = { envList.add("" to "") },
+                contentPadding = PaddingValues(horizontal = 4.dp),
+            ) {
                 Text("添加变量")
             }
             FieldLabel("探活方式")
