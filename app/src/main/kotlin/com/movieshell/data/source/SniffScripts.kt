@@ -152,6 +152,12 @@ internal const val JS_BLOB_DIG = """
  * v1.0.2：补两类通用广告标记（非站名）：.adspop 全屏弹窗（只删该 class，不碰
  * 通用 .popup-container，免误伤站内正常弹窗）与 rel 含 sponsored 的推广链接
  * （标准推广标记）及 literal 叫 card-ads 的广告卡片。
+ * v1.0.3：横幅广告补强——1.0.2 的 a[rel*=sponsored] 只删首屏 HTML 里的锚点，
+ * 广告位是 JS 懒加载/滚动重渲染的，800ms 轮询删完又长回来，故加 MutationObserver
+ * （300ms 节流、节点一加上就删）；另补三类通用广告标记（非站名/非站内 class）：
+ * data-ad_slot_key、data-ad_type（广告平台通用的槽位属性）与
+ * data-event="ad_click"（广告点击埋点）。搜索框收窄是误指目标已撤掉——用户要收的
+ * 是 App 顶栏，见 WebSniffScreen 顶栏收起。
  */
 internal const val JS_RM_AD = """
 (function(){
@@ -161,6 +167,7 @@ internal const val JS_RM_AD = """
       document.querySelectorAll('.ads,.advert,.ad-popup,.ad-banner,.popup,.tip,.adspop,.post-card-ads').forEach(function(e){e.remove();});
       document.querySelectorAll('[class*="adspop"]').forEach(function(e){e.remove();});
       document.querySelectorAll('a[rel*="sponsored"]').forEach(function(e){e.remove();});
+      document.querySelectorAll('a[data-ad_slot_key],a[data-event="ad_click"],[data-ad_type]').forEach(function(e){e.remove();});
       document.querySelectorAll('div[id^="ad-"],div[id$="-ad"],div[id="ad"]').forEach(function(e){e.remove();});
       document.querySelectorAll('iframe').forEach(function(f){
         try{ if(f.src && AD_RE.test(f.src)) f.remove(); }catch(e){}
@@ -175,8 +182,19 @@ internal const val JS_RM_AD = """
   try{ window.onbeforeunload=null; }catch(e){}
   try{
     var sty=document.createElement('style');
-    sty.textContent='.ad,.ads,.advert,.ad-popup,.ad-banner,.adspop,.post-card-ads{display:none!important}a[rel*="sponsored"]{display:none!important}';
+    sty.textContent='.ad,.ads,.advert,.ad-popup,.ad-banner,.adspop,.post-card-ads{display:none!important}a[rel*="sponsored"]{display:none!important}a[data-ad_slot_key],a[data-event="ad_click"],[data-ad_type]{display:none!important}';
     document.head.appendChild(sty);
+  }catch(e){}
+  try{
+    if(!window.__xhAdObs){
+      window.__xhAdObs=true;
+      var __xhAdLast=0;
+      var obs=new MutationObserver(function(){
+        var n=Date.now();
+        if(n-__xhAdLast>300){ __xhAdLast=n; rmAd(); }
+      });
+      obs.observe(document.documentElement,{childList:true,subtree:true});
+    }
   }catch(e){}
   try{ setInterval(rmAd,800); }catch(e){}
   return 'ok';

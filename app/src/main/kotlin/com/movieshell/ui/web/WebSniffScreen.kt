@@ -36,9 +36,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -196,6 +198,8 @@ fun WebSniffScreen(
     // v0.94：广告过滤总开关（候选排除 + 去广告 JS 注入 + 广告域名拦截）
     var adFilter by remember { mutableStateOf(SniffConfig.adFilterEnabled) }
     var menuOpen by remember { mutableStateOf(false) }
+    // v1.0.3：顶部两栏（标题栏 + 浏览器工具栏）可收起，收起后页面右上角浮展开按钮点出来；转屏不丢
+    var topBarsHidden by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var cfgDialog by remember { mutableStateOf<String?>(null) } // "concurrency" / "retry" / "timeout" / null
     // v0.294.7（M8）：UA 切换（手机/电脑）与嗅探超时可调
     var uaMode by remember { mutableIntStateOf(SniffConfig.uaMode) }
@@ -655,8 +659,9 @@ fun WebSniffScreen(
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
         topBar = {
-            Column {
-                TabTopBar(
+            if (!topBarsHidden) {
+                Column {
+                    TabTopBar(
                     title = pageTitle,
                     onBack = onBack,
                     actions = {
@@ -765,7 +770,12 @@ fun WebSniffScreen(
                         Spacer(Modifier.width(4.dp))
                         Text(if (deepSniffing) "深挖中…" else "深度嗅探")
                     }
+                    // v1.0.3：收起顶部两栏（标题栏 + 本行），收起后页面右上角浮展开按钮点出来
+                    IconButton(onClick = { topBarsHidden = true }) {
+                        Icon(Icons.Filled.ExpandLess, contentDescription = "收起顶栏")
+                    }
                 }
+            }
             }
         },
     ) { inner ->
@@ -969,6 +979,24 @@ fun WebSniffScreen(
                         .align(Alignment.BottomCenter)
                         .padding(12.dp),
                 )
+            }
+            // v1.0.3：顶栏收起后浮在页面右上角的展开按钮，点一下顶栏回来
+            if (topBarsHidden) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(8.dp)
+                        .background(
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                            CircleShape,
+                        )
+                        .clip(CircleShape),
+                ) {
+                    IconButton(onClick = { topBarsHidden = false }) {
+                        Icon(Icons.Filled.ExpandMore, contentDescription = "展开顶栏")
+                    }
+                }
             }
         }
     }
