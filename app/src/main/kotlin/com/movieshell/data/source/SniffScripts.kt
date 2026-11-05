@@ -149,13 +149,18 @@ internal const val JS_BLOB_DIG = """
  * 每 800ms 跑一次 rmAd 兜底后加载的广告。
  * 保守处理：不 blanket 删 iframe（会破坏第 3 层 iframe 嗅探，只清广告 src 的）、
  * 不用 div[class*="ad"]（会误删 header/badge 等正常元素）。
+ * v1.0.2：补两类通用广告标记（非站名）：.adspop 全屏弹窗（只删该 class，不碰
+ * 通用 .popup-container，免误伤站内正常弹窗）与 rel 含 sponsored 的推广链接
+ * （标准推广标记）及 literal 叫 card-ads 的广告卡片。
  */
 internal const val JS_RM_AD = """
 (function(){
   var AD_RE=/advert|doubleclick|googlesyndication|adsrv|popad|adservice/i;
   function rmAd(){
     try{
-      document.querySelectorAll('.ads,.advert,.ad-popup,.ad-banner,.popup,.tip').forEach(function(e){e.remove();});
+      document.querySelectorAll('.ads,.advert,.ad-popup,.ad-banner,.popup,.tip,.adspop,.post-card-ads').forEach(function(e){e.remove();});
+      document.querySelectorAll('[class*="adspop"]').forEach(function(e){e.remove();});
+      document.querySelectorAll('a[rel*="sponsored"]').forEach(function(e){e.remove();});
       document.querySelectorAll('div[id^="ad-"],div[id$="-ad"],div[id="ad"]').forEach(function(e){e.remove();});
       document.querySelectorAll('iframe').forEach(function(f){
         try{ if(f.src && AD_RE.test(f.src)) f.remove(); }catch(e){}
@@ -170,7 +175,7 @@ internal const val JS_RM_AD = """
   try{ window.onbeforeunload=null; }catch(e){}
   try{
     var sty=document.createElement('style');
-    sty.textContent='.ad,.ads,.advert,.ad-popup,.ad-banner{display:none!important}';
+    sty.textContent='.ad,.ads,.advert,.ad-popup,.ad-banner,.adspop,.post-card-ads{display:none!important}a[rel*="sponsored"]{display:none!important}';
     document.head.appendChild(sty);
   }catch(e){}
   try{ setInterval(rmAd,800); }catch(e){}

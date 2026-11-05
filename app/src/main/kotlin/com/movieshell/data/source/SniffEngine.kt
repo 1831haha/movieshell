@@ -150,6 +150,9 @@ object SniffEngine {
     private val AD_URL_KEYWORDS = listOf(
         "advert", "doubleclick", "googlesyndication", "googleadservices",
         "adsrv", "popad", "adserver", "/ads/", ".ads.", "/ad/",
+        // v1.0.2：ads. 子域名打头的地址（如 ads.xxx.com）——"://ads." 带协议边界，
+        // 不会误伤 downloads 这类含 ads 字母的正常域名
+        "://ads.",
         // v0.294.7（L3）：原来的裸 "preview" 会误杀正常地址（如 /video/preview_hd/），收窄为路径段/文件名形态
         "/preview/", "preview.m3u8", "preview.mp4", "_preview.", "-preview.",
         "/adjump/", "/guanggao/",
@@ -176,6 +179,9 @@ object SniffEngine {
     fun isAdHost(host: String): Boolean {
         if (host.isBlank()) return false
         val lower = host.lowercase()
+        // v1.0.2：子域名就叫 ads 的 host（如 ads.xxx.com）——开头就是 ads. 才算，
+        // 不用裸 "ads." 子串，免误伤 downloads 这类正常域名
+        if (lower.startsWith("ads.")) return true
         return AD_HOST_KEYWORDS.any { it in lower } || runCatching { SniffRules.isAdHost(lower) }.getOrDefault(false)
     }
 

@@ -43,6 +43,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -1150,6 +1152,9 @@ private fun SniffCandidatePanel(
     val ordered = candidates.withIndex()
         .sortedWith(compareBy({ SniffEngine.rankIndex(it.value.url) }, { it.index }))
         .map { it.value }
+    // v1.0.2：面板可收起——底部悬浮列表会挡住网页，点标题栏的箭头收成一行细条，
+    // 再点展开；转屏不丢收起状态
+    var collapsed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     AppCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1177,7 +1182,15 @@ private fun SniffCandidatePanel(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { collapsed = !collapsed }) {
+                    Icon(
+                        imageVector = if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                        contentDescription = if (collapsed) "展开" else "收起",
+                    )
+                }
             }
+            if (!collapsed) {
             Text(
                 text = "已拦截 $seenCount 个请求 · iframe $iframeCount 个",
                 style = MaterialTheme.typography.bodySmall,
@@ -1227,6 +1240,7 @@ private fun SniffCandidatePanel(
                         }
                     }
                 }
+            }
             }
         }
     }
