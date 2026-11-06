@@ -199,6 +199,8 @@ object AutoSniffer {
                             super.onPageStarted(view, url, favicon)
                             if (!url.isNullOrBlank()) pageRef.set(url)
                             view?.evaluateJavascript(JS_HOOK_INSTALL, null)
+                            // v1.0.4：去广告提前到这里注，与前台嗅探页同口径
+                            if (SniffConfig.adFilterEnabled) view?.evaluateJavascript(JS_RM_AD, null)
                         }
 
                         override fun onPageFinished(view: WebView?, url: String?) {

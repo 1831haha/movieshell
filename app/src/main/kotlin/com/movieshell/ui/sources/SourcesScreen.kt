@@ -1113,29 +1113,23 @@ fun SourcesScreen(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
         // ===== 订阅源 =====
         item(span = { GridItemSpan(maxLineSpan) }) {
-            V5SectionTitle(title = "订阅源")
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppButton(
-                    text = "添加订阅",
-                    onClick = { showAddDialog = true },
-                    modifier = Modifier.weight(1f),
-                    variant = AppButtonVariant.Primary,
-                )
-                AppButton(
-                    text = if (probeRunning) "检测中 $probeDone/$probeTotal…" else "批量检测",
-                    onClick = { startProbe() },
-                    enabled = !probeRunning,
-                    modifier = Modifier.weight(1f),
-                    variant = AppButtonVariant.Ghost,
-                )
-            }
+            // v1.0.4：五页统一页头——V5SectionTitle + 个数，操作放右侧；
+            // 添加订阅仍是 Primary 自然宽度不拉满（与批量检测页签重复的快捷按钮已删，检测只走页签）
+            V5SectionTitle(
+                title = "订阅源 · ${visibleSubs.size} 个",
+                action = {
+                    AppButton(
+                        text = "添加订阅",
+                        onClick = { showAddDialog = true },
+                        variant = AppButtonVariant.Primary,
+                    )
+                },
+            )
         }
         // v0.112.0：订阅分组 chips 筛选（只有订阅被标过分组才出现）
         if (subGroups.isNotEmpty()) {
@@ -1245,6 +1239,7 @@ fun SourcesScreen(
                 }
             }
         }
+        item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(8.dp)) }
         }
     }
 
@@ -1260,21 +1255,17 @@ fun SourcesScreen(
         ) {
             // ===== 通用网页源：输网址自动解析，点卡片即切为首页源 =====
             item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "通用网页源 · ${visibleWebParse.size} 个",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
-                    AppButton(
-                        text = "添加",
-                        onClick = { showWebParseAddDialog = true },
-                        variant = AppButtonVariant.Ghost,
-                    )
-                }
+                // v1.0.4：五页统一页头——V5SectionTitle + 个数，操作放右侧
+                V5SectionTitle(
+                    title = "通用网页源 · ${visibleWebParse.size} 个",
+                    action = {
+                        AppButton(
+                            text = "添加",
+                            onClick = { showWebParseAddDialog = true },
+                            variant = AppButtonVariant.Ghost,
+                        )
+                    },
+                )
             }
             item {
                 Text(
@@ -1285,10 +1276,12 @@ fun SourcesScreen(
             }
             if (visibleWebParse.isEmpty()) {
                 item {
-                    Text(
-                        text = if (sourceQuery.isBlank()) "暂无通用网页源，点右上「添加」新增" else "没有匹配的源，换个关键词试试",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // v1.0.4：五页统一空态——EmptyState（图标 + 标题 + 提示），不再用裸文字
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.Language,
+                        title = if (sourceQuery.isBlank()) "暂无通用网页源" else "没有匹配的源",
+                        hint = if (sourceQuery.isBlank()) "点右上「添加」新增" else "换个关键词试试",
                     )
                 }
             } else {
@@ -1312,26 +1305,24 @@ fun SourcesScreen(
                 Spacer(Modifier.height(8.dp))
             }
             item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "网页源 · ${visibleWeb.size} 个",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
-                    AppButton(
-                        text = "添加",
-                        onClick = { showWebAddDialog = true },
-                        variant = AppButtonVariant.Ghost,
-                    )
-                    AppButton(
-                        text = "导入",
-                        onClick = { requestImport(IMPORT_WEB) },
-                        variant = AppButtonVariant.Ghost,
-                    )
-                }
+                // v1.0.4：五页统一页头——V5SectionTitle + 个数，操作放右侧
+                V5SectionTitle(
+                    title = "网页源 · ${visibleWeb.size} 个",
+                    action = {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AppButton(
+                                text = "添加",
+                                onClick = { showWebAddDialog = true },
+                                variant = AppButtonVariant.Ghost,
+                            )
+                            AppButton(
+                                text = "导入",
+                                onClick = { requestImport(IMPORT_WEB) },
+                                variant = AppButtonVariant.Ghost,
+                            )
+                        }
+                    },
+                )
             }
             item {
                 Text(
@@ -1342,10 +1333,12 @@ fun SourcesScreen(
             }
             if (visibleWeb.isEmpty()) {
                 item {
-                    Text(
-                        text = if (sourceQuery.isBlank()) "暂无网页源，点右上「添加」手动新增" else "没有匹配的源，换个关键词试试",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // v1.0.4：五页统一空态——EmptyState（图标 + 标题 + 提示），不再用裸文字
+                    EmptyState(
+                        kind = EmptyKind.Empty,
+                        icon = Icons.Filled.Language,
+                        title = if (sourceQuery.isBlank()) "暂无网页源" else "没有匹配的源",
+                        hint = if (sourceQuery.isBlank()) "点右上「添加」手动新增" else "换个关键词试试",
                     )
                 }
             } else {
@@ -1364,6 +1357,7 @@ fun SourcesScreen(
                     }
                 }
             }
+            item { Spacer(Modifier.height(8.dp)) }
         }
     }
 
@@ -1381,7 +1375,8 @@ fun SourcesScreen(
         ) {
         // ===== 本地源 =====
         item {
-            V5SectionTitle(title = "本地源")
+            // v1.0.4：五页统一页头——V5SectionTitle + 个数
+            V5SectionTitle(title = "本地源 · ${visibleLocal.size} 个")
         }
         item {
             Text(
@@ -1395,10 +1390,10 @@ fun SourcesScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                V5Chip(text = "全部", selected = localEngine == "all", onClick = { localEngine = "all" })
-                V5Chip(text = "JS", selected = localEngine == TAB_JS, onClick = { localEngine = TAB_JS })
-                V5Chip(text = "PY", selected = localEngine == TAB_PY, onClick = { localEngine = TAB_PY })
-                V5Chip(text = "PHP", selected = localEngine == TAB_PHP, onClick = { localEngine = TAB_PHP })
+                V5Chip(text = "全部", small = true, selected = localEngine == "all", onClick = { localEngine = "all" })
+                V5Chip(text = "JS", small = true, selected = localEngine == TAB_JS, onClick = { localEngine = TAB_JS })
+                V5Chip(text = "PY", small = true, selected = localEngine == TAB_PY, onClick = { localEngine = TAB_PY })
+                V5Chip(text = "PHP", small = true, selected = localEngine == TAB_PHP, onClick = { localEngine = TAB_PHP })
             }
         }
         item {
@@ -1407,7 +1402,7 @@ fun SourcesScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "共 ${visibleLocal.size} 个规则 · 单击激活，长按更多操作",
+                    text = "单击激活，长按更多操作",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
@@ -1478,6 +1473,10 @@ fun SourcesScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            item {
+                // v1.0.4：五页统一页头——V5SectionTitle + 个数（原来这页没有标题）
+                V5SectionTitle(title = "批量检测 · ${records.size} 个")
+            }
             item {
                 Text(
                     text = "对已启用源调 home() 探活，8 秒超时；绿=正常(≤3s) 黄=缓慢(>3s) 红=失败；" +

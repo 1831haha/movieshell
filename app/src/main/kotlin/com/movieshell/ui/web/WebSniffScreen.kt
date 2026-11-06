@@ -820,6 +820,12 @@ fun WebSniffScreen(
                                     // 视频钩子与 iframe 追踪装上（注入幂等，onPageFinished 再兜底一次）
                                     view.evaluateJavascript(JS_HOOK_INSTALL, null)
                                     view.evaluateJavascript(JS_IFRAME_OBSERVER, null)
+                                    // v1.0.4：去广告也提前到这里注，加载一开始就删，
+                                    // 不等加载完才动手，加载途中不再露脸（脚本幂等，
+                                    // onPageFinished 那次注入保留作兜底）
+                                    if (SniffConfig.adFilterEnabled) {
+                                        view.evaluateJavascript(JS_RM_AD, null)
+                                    }
                                     LogBus.i("WebSniff", "导航 init $url")
                                 }
                             }
