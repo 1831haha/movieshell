@@ -81,6 +81,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -1896,8 +1897,13 @@ fun HomeScreen(
         // v0.109.0 B7：换源器改 DsPlayer 式小图标模式——居中 Dialog 换成底部弹窗，
         // 内含标题/搜索/类型筛选/4 列图标网格（ui/home/SourcePickerSheet.kt）。
         if (showSourceSheet) {
+            // v1.0.5：弹窗默认全开（skipPartiallyExpanded）——半开档位会让弹窗停在离全开
+            // 差一线的位置（内容高度开着弹窗时会变：订阅解析行、类型筛选行），此时快速上滑
+            // 会被弹窗拿去补完最后那一线，列表分不到手势、看着就是"偶尔拉不动"。去掉半开档位
+            // 后上滑手势永远进列表。只改换源弹窗这一处。
             ModalBottomSheet(
                 onDismissRequest = { showSourceSheet = false },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
                 shape = RoundedCornerShape(
                     topStart = V5.CornerMd,
                     topEnd = V5.CornerMd,
