@@ -1,6 +1,6 @@
 package com.movieshell.data.repo
 
-import android.util.Base64
+import java.util.Base64
 import java.io.File
 import java.security.KeyFactory
 import java.security.Signature
@@ -120,13 +120,17 @@ object PluginSignature {
             return false
         }
         return runCatching {
-            val keyBytes = Base64.decode(PUBLIC_KEY_BASE64, Base64.DEFAULT)
+            // v1.0.7：改用 java.util.Base64 的 Mime 解码器——android.util.Base64
+            // 在纯 JVM 单测环境是空桩，一调就抛异常，verify() 吞掉后恒返回
+            // false，两个验签单测永远红；Mime 解码器与原 DEFAULT 口径一致
+            //（容忍换行/空白），签名逻辑与公钥均不动，minSdk 26 可用。
+            val keyBytes = Base64.getMimeDecoder().decode(PUBLIC_KEY_BASE64)
             val key = KeyFactory.getInstance("EC")
                 .generatePublic(X509EncodedKeySpec(keyBytes))
             val sig = Signature.getInstance("SHA256withECDSA")
             sig.initVerify(key)
             sig.update(data)
-            sig.verify(Base64.decode(signatureBase64, Base64.DEFAULT))
+            sig.verify(Base64.getMimeDecoder().decode(signatureBase64))
         }.onFailure { LogBus.e(TAG, "签名校验异常：${it.message}") }
             .getOrDefault(false)
     }
