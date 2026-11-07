@@ -95,6 +95,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.movieshell.data.repo.AiRepairEngine
+import com.movieshell.data.repo.AiRepairSettings
 import com.movieshell.data.repo.ApiSource
 import com.movieshell.data.repo.RuleInfo
 import com.movieshell.data.repo.ApiSourceStore
@@ -311,7 +313,12 @@ private fun ProbeResultRow(target: ProbeTarget, result: SourceProbe.Result?) {
         val (label, color) = when (result) {
         is SourceProbe.Result.Ok -> "${result.ms}ms" to MaterialTheme.colorScheme.ok
         is SourceProbe.Result.Slow -> "${result.ms}ms" to MaterialTheme.colorScheme.tertiary
-        is SourceProbe.Result.Fail -> result.reason to MaterialTheme.colorScheme.error
+        is SourceProbe.Result.Fail -> {
+            // v1.0.9：失效分类打头（未知分类只显示原因，不加“未知 · ”噪音）。
+            val text = if (result.category == SourceProbe.FailCategory.UNKNOWN) result.reason
+            else "${result.category.label} · ${result.reason}"
+            text to MaterialTheme.colorScheme.error
+        }
         is SourceProbe.Result.Unsupported -> "不支持" to
             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
         null -> "待检测" to MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -323,41 +330,99 @@ private fun ProbeResultRow(target: ProbeTarget, result: SourceProbe.Result?) {
         is SourceProbe.Result.Unsupported -> "不支持"
         null -> "待检测"
     }
+    // v1.0.9：一键 AI 修源——只给“结构变了”的本地规则文件（js / py / php）显示按钮；
+    // 站挂了、超时、被拦了、本地问题的 AI 修不了，不给按钮。
+    val fail = result as? SourceProbe.Result.Fail
+    val repairable = fail != null &&
+        fail.category == SourceProbe.FailCategory.STRUCTURE_CHANGED &&
+        AiRepairEngine.canRepair(target.kind)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var repairing by remember { mutableStateOf(false) }
+    var repairText by remember { mutableStateOf<String?>(null) }
     AppCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .background(color, CircleShape),
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = target.label,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.bodySmall,
-                color = color,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(color, CircleShape),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = target.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = color,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (repairable) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val text = repairText
+                    if (text != null) {
+                        Text(
+                            text = text,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
+                    AppButton(
+                        text = if (repairing) "修复中…" else "AI 修复",
+                        variant = AppButtonVariant.Ghost,
+                        enabled = !repairing,
+                        onClick = {
+                            if (AiRepairSettings.apiKey(context).isBlank()) {
+                                AppToast.show(context, "先去设置 - AI 修复里填 API Key", long = true)
+                                return@AppButton
+                            }
+                            repairing = true
+                            repairText = null
+                            scope.launch {
+                                val r = AiRepairEngine.repair(
+                                    context, target.kind, target.name, fail?.reason.orEmpty(),
+                                )
+                                repairing = false
+                                repairText = when (r) {
+                                    is AiRepairEngine.RepairResult.Ok ->
+                                        "修复成功（${r.ms}ms），已替换规则，重新检测验证"
+                                    is AiRepairEngine.RepairResult.Fail ->
+                                        "修复失败：${r.reason}"
+                                }
+                            }
+                        },
+                    )
+                }
+            }
         }
     }
 }

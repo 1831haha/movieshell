@@ -13,6 +13,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import java.io.File
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -42,12 +44,48 @@ object SourceProbe {
     /** v0.86.0：探活并发上限（Python 解释器 GIL 下别一起上） */
     private const val MAX_CONCURRENCY = 6
 
+    /** v1.0.9：失效分类——批量检测不再只写一句原因，先分清坏在哪类。 */
+    enum class FailCategory(val label: String) {
+        TIMEOUT("超时"),
+        SITE_DOWN("站挂了"),
+        STRUCTURE_CHANGED("结构变了"),
+        BLOCKED("被拦了"),
+        LOCAL("本地问题"),
+        UNKNOWN("未知"),
+    }
+
     sealed interface Result {
         data class Ok(val ms: Long) : Result
         data class Slow(val ms: Long) : Result
-        data class Fail(val reason: String) : Result
+        data class Fail(
+            val reason: String,
+            val category: FailCategory = FailCategory.UNKNOWN,
+        ) : Result
         /** PHP 本地规则：服务未运行时不探（不计失败）；服务运行时走 probePhp */
         object Unsupported : Result
+    }
+
+    /**
+     * v1.0.9：按原因文本与异常类型归类失效。reason 是自由文本，分类只看可识别的
+     * 信号，认不出的归 UNKNOWN（不硬猜）。带 cause 的调用点（如 hardTimeout）
+     * 传 cause 可多认一层（DNS 失败、连接超时等）。
+     */
+    fun classifyFail(reason: String, cause: Throwable?): FailCategory {
+        if (reason == "8秒超时无响应" || reason.contains("超时") ||
+            cause is SocketTimeoutException || cause is TimeoutException
+        ) return FailCategory.TIMEOUT
+        if (reason.contains("规则文件丢失") || reason.contains("PHP 插件未安装") ||
+            reason.contains("PHP 脚本不存在") || reason.contains("未记录 spider jar") ||
+            reason.contains("jar 下载失败") || reason.contains("该源暂不支持")
+        ) return FailCategory.LOCAL
+        if (reason.contains("Cloudflare") || reason == "HTTP 403") return FailCategory.BLOCKED
+        if (reason.startsWith("HTTP ") || reason == "空响应" ||
+            cause is UnknownHostException ||
+            reason.contains("Connection refused") || reason.contains("Failed to connect") ||
+            reason.contains("Unable to resolve host")
+        ) return FailCategory.SITE_DOWN
+        if (reason.contains("首页无数据")) return FailCategory.STRUCTURE_CHANGED
+        return FailCategory.UNKNOWN
     }
 
     /** v0.86.0：daemon 线程池，卡死的探活线程不阻止进程退出 */
@@ -80,7 +118,11 @@ object SourceProbe {
         return try {
             guarded(label = file.name, onTimeout = { runCatching { engine.release() } }) {
                 engine.loadRule(file.readText())
-                runBlocking { engine.home() }
+                // v1.0.9：home() 自带两级兜底（重调 + 首分类顶页），兜底后仍空
+                // 才算失效——站还在、规则取不到数，多半是页面结构变了。
+                val list = runBlocking { engine.home() }
+                if (list.isEmpty()) throw IllegalStateException("首页无数据")
+                list
             }
         } finally {
             // v0.113.0：探活用完即释放（release 即时终止 isolate，任意线程可调）；
@@ -91,10 +133,13 @@ object SourceProbe {
 
     fun probePy(context: Context, file: File): Result {
         if (isPyProbeSkipped(file.name)) {
-            return Result.Fail("该源连续超时，已跳过本次探活")
+            return Result.Fail("该源连续超时，已跳过本次探活", FailCategory.TIMEOUT)
         }
         val res = guarded(label = file.name, pool = pyPool, semaphore = pySemaphore) {
-            runBlocking { PyApi().home(file.absolutePath) }
+            // v1.0.9：同 probeJs，home() 自带 homeVideoContent 兜底，兜底后仍空才算失效。
+            val list = runBlocking { PyApi().home(file.absolutePath) }
+            if (list.isEmpty()) throw IllegalStateException("首页无数据")
+            list
         }
         recordPyProbeResult(file.name, res)
         return res
@@ -148,7 +193,7 @@ object SourceProbe {
         }
         val list = runBlocking { PhpCliEngine.home(context, name) }
         if (list.isEmpty()) {
-            throw IllegalStateException("PHP 首页无数据（见日志）")
+            throw IllegalStateException("首页无数据")
         }
         list
     }
@@ -205,12 +250,13 @@ object SourceProbe {
             onTimeout()
             future.cancel(true)
             LogBus.e("Probe", "探活超时" + if (label.isNotBlank()) "：${label.take(80)}" else "")
-            Result.Fail("8秒超时无响应")
+            Result.Fail("8秒超时无响应", FailCategory.TIMEOUT)
         } catch (e: Exception) {
             // ExecutionException 包一层，cause 才是真实原因
-            val reason = (e.cause ?: e).message?.take(60) ?: "未知错误"
+            val cause = e.cause ?: e
+            val reason = cause.message?.take(60) ?: "未知错误"
             LogBus.e("Probe", "探活失败：$reason")
-            Result.Fail(reason)
+            Result.Fail(reason, classifyFail(reason, cause))
         }
     }
 
@@ -276,14 +322,14 @@ object SourceProbe {
                         val f = File(rec.api)
                         if (f.isFile) probedRuleFiles += f.canonicalPath
                         ProbeTask("sub", siteKey, rec.name) {
-                            if (!f.isFile) Result.Fail("规则文件丢失") else probeJs(context, f)
+                            if (!f.isFile) Result.Fail("规则文件丢失", FailCategory.LOCAL) else probeJs(context, f)
                         }
                     }
                     SubSiteStore.KIND_PY -> {
                         val f = File(rec.api)
                         if (f.isFile) probedRuleFiles += f.canonicalPath
                         ProbeTask("sub", siteKey, rec.name) {
-                            if (!f.isFile) Result.Fail("规则文件丢失") else probePy(context, f)
+                            if (!f.isFile) Result.Fail("规则文件丢失", FailCategory.LOCAL) else probePy(context, f)
                         }
                     }
                     SubSiteStore.KIND_CMS, SubSiteStore.KIND_TYPE4 -> {
@@ -291,7 +337,7 @@ object SourceProbe {
                     }
                     SubSiteStore.KIND_SPIDER -> {
                         ProbeTask("sub", siteKey, rec.name) {
-                            if (spiderJar.isBlank()) Result.Fail("未记录 spider jar")
+                            if (spiderJar.isBlank()) Result.Fail("未记录 spider jar", FailCategory.LOCAL)
                             else guarded(label = siteKey) {
                                 JarSpiderStore.ensureJar(context, e.url.trim(), spiderJar)
                                     ?: throw IllegalStateException("jar 下载失败")
@@ -300,7 +346,8 @@ object SourceProbe {
                     }
                     else -> {
                         ProbeTask("sub", siteKey, rec.name) {
-                            Result.Fail(rec.reason.ifBlank { "该站源暂不支持" })
+                            val reason = rec.reason.ifBlank { "该站源暂不支持" }
+                            Result.Fail(reason, classifyFail(reason, null))
                         }
                     }
                 }

@@ -27,6 +27,8 @@ data class ProbeRecord(
     val status: String = "",
     val ms: Long = 0L,
     val reason: String = "",
+    /** v1.0.9：失效分类（SourceProbe.FailCategory.name；老记录为空，按未知处理） */
+    val category: String = "",
 )
 
 @Serializable
@@ -40,14 +42,18 @@ fun SourceProbe.Result.toRecord(kind: String, name: String, label: String): Prob
     when (this) {
         is SourceProbe.Result.Ok -> ProbeRecord(kind, name, label, "OK", ms)
         is SourceProbe.Result.Slow -> ProbeRecord(kind, name, label, "SLOW", ms)
-        is SourceProbe.Result.Fail -> ProbeRecord(kind, name, label, "FAIL", 0L, reason)
+        is SourceProbe.Result.Fail -> ProbeRecord(kind, name, label, "FAIL", 0L, reason, category.name)
         is SourceProbe.Result.Unsupported -> ProbeRecord(kind, name, label, "UNSUPPORTED")
     }
 
 fun ProbeRecord.toResult(): SourceProbe.Result = when (status) {
     "OK" -> SourceProbe.Result.Ok(ms)
     "SLOW" -> SourceProbe.Result.Slow(ms)
-    "FAIL" -> SourceProbe.Result.Fail(reason.ifBlank { "失败" })
+    "FAIL" -> SourceProbe.Result.Fail(
+        reason.ifBlank { "失败" },
+        runCatching { SourceProbe.FailCategory.valueOf(category) }
+            .getOrDefault(SourceProbe.FailCategory.UNKNOWN),
+    )
     else -> SourceProbe.Result.Unsupported
 }
 

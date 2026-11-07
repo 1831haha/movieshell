@@ -122,6 +122,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.download.SubRefreshWorker
+import com.movieshell.data.repo.AiRepairSettings
 import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.repo.BackupManager
 import com.movieshell.data.repo.CloudSyncManager
@@ -131,6 +132,7 @@ import com.movieshell.data.repo.SubRefreshStore
 import com.movieshell.data.source.JsRuntime
 import com.movieshell.data.repo.CrashHandler
 import com.movieshell.data.repo.LogBus
+import com.movieshell.data.repo.LlmClient
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.PlayerEngine
@@ -208,6 +210,12 @@ fun SettingsScreen(
     var showCloudDialog by remember { mutableStateOf(false) }
     var cloudWorking by remember { mutableStateOf(false) }
     var lastSyncText by remember { mutableStateOf("") }
+    // v1.0.9：AI 修复（多 provider，不锁死任何一家；修复手动一键触发，不设总开关）
+    var showAiDialog by remember { mutableStateOf(false) }
+    var showAiProviderDialog by remember { mutableStateOf(false) }
+    var aiProviderId by remember { mutableStateOf(AiRepairSettings.provider(context).id) }
+    var aiWorking by remember { mutableStateOf(false) }
+    var aiTestText by remember { mutableStateOf("") }
     // v0.186.0：云端更新的冲突确认弹窗（已有 TechDialog 机制，不新开入口）
     var showCloudConflict by remember { mutableStateOf(false) }
     var cloudConflictText by remember { mutableStateOf("") }
@@ -629,6 +637,18 @@ fun SettingsScreen(
                     lastSyncText = CloudSyncManager.lastSyncText(context)
                     showCloudDialog = true
                 },
+            )
+        }
+        item {
+            // v1.0.9：AI 修复——源坏了检测完一键修；先在这里选 AI、填 Key
+            val aiProvider = AiRepairSettings.provider(context)
+            val aiConfigured = AiRepairSettings.apiKey(context).isNotBlank()
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.AutoFixHigh,
+                title = "AI 修复",
+                subtitle = if (aiConfigured) "${aiProvider.name} · 已填 Key" else "未配置 · DeepSeek / 豆包 / 千问…",
+                onClick = { showAiDialog = true },
             )
         }
         item {
@@ -1188,6 +1208,151 @@ fun SettingsScreen(
                     )
                 }
         }
+    }
+
+    // v1.0.9：AI 修复设置（多 provider；修复手动一键触发，不设总开关）
+    if (showAiDialog) {
+        val provider = AiRepairSettings.PRESETS.firstOrNull { it.id == aiProviderId }
+            ?: AiRepairSettings.PRESETS.first()
+        var keyInput by remember(aiProviderId) { mutableStateOf(AiRepairSettings.apiKey(context)) }
+        var modelInput by remember(aiProviderId) { mutableStateOf(AiRepairSettings.model(context)) }
+        var baseUrlInput by remember(aiProviderId) { mutableStateOf(AiRepairSettings.baseUrl(context)) }
+        var showKey by remember { mutableStateOf(false) }
+        TechDialog(
+            onDismissRequest = { if (!aiWorking) showAiDialog = false },
+            title = "AI 修复",
+            dismissText = "关闭",
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "源失效时先分清坏在哪：结构变了的才交给 AI 修，站挂了的 AI 也修不了。Key 只存本机，不上传。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "AI 服务商",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { showAiProviderDialog = true }) {
+                        Text(provider.name)
+                    }
+                }
+                if (!provider.domestic) {
+                    Text(
+                        "国外服务商在国内网络下可能调不通，需 VPN；Key 也要国外方式获取。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
+                TechTextField(
+                    value = keyInput,
+                    onValueChange = { keyInput = it },
+                    placeholder = "API Key",
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !aiWorking,
+                    visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = { showKey = !showKey }, enabled = !aiWorking) {
+                        Text(if (showKey) "隐藏" else "显示", fontSize = 12.sp)
+                    }
+                }
+                TechTextField(
+                    value = modelInput,
+                    onValueChange = { modelInput = it },
+                    placeholder = if (provider.id == "doubao") "模型：方舟接入点 ID，如 ep-…" else "模型（默认 ${provider.defaultModel}）",
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !aiWorking,
+                )
+                Spacer(Modifier.height(8.dp))
+                if (provider.id == "custom") {
+                    TechTextField(
+                        value = baseUrlInput,
+                        onValueChange = { baseUrlInput = it },
+                        placeholder = "请求地址，如 https://api.example.com/v1",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !aiWorking,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                if (aiTestText.isNotBlank()) {
+                    Text(
+                        aiTestText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    AppButton(
+                        text = "测试连接",
+                        variant = AppButtonVariant.Ghost,
+                        enabled = !aiWorking,
+                        onClick = {
+                            AiRepairSettings.setApiKey(context, keyInput)
+                            AiRepairSettings.setModel(context, modelInput)
+                            if (provider.id == "custom") AiRepairSettings.setBaseUrl(context, baseUrlInput)
+                            aiWorking = true
+                            aiTestText = "测试中…"
+                            scope.launch {
+                                val r = LlmClient.testConnection(context)
+                                aiWorking = false
+                                aiTestText = when (r) {
+                                    is LlmClient.ChatResult.Ok -> "连接成功（${r.ms}ms）：${r.text}"
+                                    is LlmClient.ChatResult.Fail -> "连接失败：${r.reason}"
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    AppButton(
+                        text = "保存",
+                        enabled = !aiWorking,
+                        onClick = {
+                            AiRepairSettings.setApiKey(context, keyInput)
+                            AiRepairSettings.setModel(context, modelInput)
+                            if (provider.id == "custom") AiRepairSettings.setBaseUrl(context, baseUrlInput)
+                            AppToast.show(context, "已保存", long = false)
+                            showAiDialog = false
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+    if (showAiProviderDialog) {
+        SingleChoiceDialog(
+            title = "AI 服务商",
+            options = AiRepairSettings.PRESETS.map { it.name },
+            selected = (AiRepairSettings.PRESETS.firstOrNull { it.id == aiProviderId }
+                ?: AiRepairSettings.PRESETS.first()).name,
+            onDismiss = { showAiProviderDialog = false },
+            onSelect = { name ->
+                val p = AiRepairSettings.PRESETS.firstOrNull { it.name == name }
+                if (p != null) {
+                    AiRepairSettings.setProvider(context, p.id)
+                    aiProviderId = p.id
+                }
+                showAiProviderDialog = false
+            },
+        )
     }
 
     // v0.186.0：云端更新冲突确认（已有 TechDialog 机制，不新开入口）
