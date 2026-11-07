@@ -83,7 +83,7 @@ object LlmClient {
             .header("Content-Type", "application/json")
             .post(body.toString().toRequestBody(JSON))
             .build()
-        client.newCall(req).execute().use { resp ->
+        return client.newCall(req).execute().use { resp ->
             val text = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}：${extractError(text)}")
             val content = JSONObject(text)
@@ -109,7 +109,7 @@ object LlmClient {
             .header("Content-Type", "application/json")
             .post(body.toString().toRequestBody(JSON))
             .build()
-        client.newCall(req).execute().use { resp ->
+        return client.newCall(req).execute().use { resp ->
             val text = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}：${extractError(text)}")
             val content = JSONObject(text)
@@ -134,7 +134,7 @@ object LlmClient {
             .header("Content-Type", "application/json")
             .post(body.toString().toRequestBody(JSON))
             .build()
-        client.newCall(req).execute().use { resp ->
+        return client.newCall(req).execute().use { resp ->
             val text = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}：${extractError(text)}")
             val content = JSONObject(text)
