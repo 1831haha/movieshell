@@ -170,8 +170,18 @@ object WebParseSourceManager {
         }.onFailure { if (it is CancellationException) throw it }.getOrDefault(VodDetail(vodId = vodId))
     }
 
+    /** 搜当前激活站（首页/详情链路用）。 */
     suspend fun search(keyword: String): List<Vod> {
         val site = activeSite ?: return emptyList()
+        return searchSite(site, keyword)
+    }
+
+    /**
+     * v1.1.0：搜指定站（聚合搜索用，不动激活站）。
+     * search() 只搜激活站；聚合搜索要覆盖用户加的全部网页源，
+     * 每站独立成组，点结果时再切激活（见 SearchShared.goDetail）。
+     */
+    suspend fun searchSite(site: WebParseSite, keyword: String): List<Vod> {
         val wd = keyword.trim()
         if (wd.isBlank()) return emptyList()
         return runCatching {

@@ -215,7 +215,7 @@ fun Site.isDrpySite(): Boolean =
  */
 fun Site.isUnsupportedSite(): Boolean =
     !isPhpSite() && !isJavaSpider() && !isNovelOrComic() && !isType4Site() &&
-        !isCmsSite() && !isPySite() && !isDrpySite()
+        !isCmsSite() && !isPySite() && !isDrpySite() && !isWebParseSite()
 
 /**
  * 小说/漫画站：订阅声明的扩展字段"类型"含"小说"/"漫画"。
@@ -228,3 +228,8 @@ fun Site.isNovelOrComic(): Boolean =
 fun Site.isSubSite(): Boolean = key.startsWith(SubSiteKeyPrefix)
 
 const val SubSiteKeyPrefix = "sub:"
+
+/** 通用网页源合成站：key 前缀 "webparse:"（见 SiteRepository.webParseTargets）。 */
+const val WebParseSiteKeyPrefix = "webparse:"
+
+fun Site.isWebParseSite(): Boolean = key.startsWith(WebParseSiteKeyPrefix)

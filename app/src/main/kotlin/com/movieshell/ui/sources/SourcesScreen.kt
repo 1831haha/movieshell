@@ -1295,6 +1295,7 @@ fun SourcesScreen(
                             probeTime = probeReport.time,
                             cache = subCaches[subUrl],
                             refreshStatus = refreshStatus,
+                            isParsing = subParsing[subUrl] == true,
                             onToggle = { entry.enabled = it; toggleSubscription() },
                             onRemove = { pendingDeleteSub = entry },
                             onExpand = { subExpanded[subUrl] = true },
@@ -2164,6 +2165,9 @@ private fun SubscriptionInfoLines(
     probeTime: Long,
     cache: SubCache?,
     refreshStatus: SubRefreshStore.SubStatus?,
+    // v1.1.0：收起卡解析中显示——缓存未落盘且正在解析时写“正在解析…”，
+    // 不再只写“未解析”让人以为订阅丢了。
+    isParsing: Boolean = false,
 ) {
     // v0.115.0 修：本函数是多子节点发射器，必须自带 Column——v0.108.0 起收起卡片
     // 把它套在 Box（裁剪）里，Box 会把 Row/Text 全部叠在同一位置，文字互相重叠
@@ -2182,6 +2186,7 @@ private fun SubscriptionInfoLines(
     }
     Spacer(Modifier.height(6.dp))
     val siteText = when {
+        cache == null && isParsing -> "正在解析…"
         cache == null -> "未解析"
         cache.warehouses.isNotEmpty() -> "子仓 ${cache.warehouses.size} 个"
         else -> "站点 ${cache.sites.size} 个"
@@ -2324,6 +2329,7 @@ private fun SubscriptionGridCard(
     probeTime: Long,
     cache: SubCache?,
     refreshStatus: SubRefreshStore.SubStatus?,
+    isParsing: Boolean,
     onToggle: (Boolean) -> Unit,
     onRemove: () -> Unit,
     onExpand: () -> Unit,
@@ -2344,6 +2350,7 @@ private fun SubscriptionGridCard(
                     probeTime = probeTime,
                     cache = cache,
                     refreshStatus = refreshStatus,
+                    isParsing = isParsing,
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -2391,6 +2398,7 @@ private fun SubscriptionExpandedCard(
                 probeTime = probeTime,
                 cache = cache,
                 refreshStatus = refreshStatus,
+                isParsing = parsingMap[subUrl] == true,
             )
             Spacer(Modifier.height(8.dp))
             SubscriptionActionRow(

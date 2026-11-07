@@ -41,6 +41,9 @@ object LlmClient {
 
     private val JSON = "application/json; charset=utf-8".toMediaType()
 
+    /** 修复返回的 token 上限（见 chatOpenAi 注释）。 */
+    private const val MAX_OUTPUT_TOKENS = 4096
+
     /** 测试连接：发一句最短的问候，验证 key、网络与模型是否通。 */
     suspend fun testConnection(context: Context): ChatResult =
         chat(context, "请只回一个字：好")
@@ -72,7 +75,9 @@ object LlmClient {
         val body = JSONObject().apply {
             put("model", model)
             put("temperature", 0.2)
-            put("max_tokens", 2000)
+            // v1.1.0 自查：规则原文上限 12000 字，修后全文约 3000 token；
+            // 2000 会把大规则的返回截断，验证不过、白白失败，提到 4096。
+            put("max_tokens", MAX_OUTPUT_TOKENS)
             put("messages", JSONArray().apply {
                 put(JSONObject().apply { put("role", "user"); put("content", prompt) })
             })
@@ -97,7 +102,7 @@ object LlmClient {
     private fun chatAnthropic(baseUrl: String, apiKey: String, model: String, prompt: String): String {
         val body = JSONObject().apply {
             put("model", model)
-            put("max_tokens", 2000)
+            put("max_tokens", MAX_OUTPUT_TOKENS)
             put("messages", JSONArray().apply {
                 put(JSONObject().apply { put("role", "user"); put("content", prompt) })
             })

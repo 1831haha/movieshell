@@ -2,8 +2,10 @@ package com.movieshell.ui.search
 
 import android.content.Context
 import com.movieshell.data.model.Site
+import com.movieshell.data.model.WebParseSiteKeyPrefix
 import com.movieshell.data.model.isPhpSite
 import com.movieshell.data.model.isSubSite
+import com.movieshell.data.model.isWebParseSite
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DetailSiteRoute
 import com.movieshell.data.repo.DrpySourceManager
@@ -13,6 +15,7 @@ import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubSiteStore
+import com.movieshell.data.repo.WebParseSourceManager
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
@@ -184,10 +187,10 @@ internal suspend fun buildSearchConfigJson(context: Context, onlyCurrent: Boolea
 
 /**
  * 进详情：订阅子站点 / CMS 订阅站把站点上下文带给详情页（详情/播放按站走引擎）；
- * 本地规则站（local:drpy: / local:py: / php:）先把该规则切成当前激活规则，
- * 再传 null——详情、播放、追剧、继续观看全部走现成的“当前激活规则”链路，
- * 不用为本地站另起一套详情/播放分发；不切的话，点非激活规则的结果会
- * 错走到当前激活规则上出详情、播错片。
+ * 本地规则站（local:drpy: / local:py: / php:）与通用网页源站（webparse:）
+ * 先把该规则切成当前激活规则，再传 null——详情、播放、追剧、继续观看
+ * 全部走现成的“当前激活规则”链路，不用为本地站另起一套详情/播放分发；
+ * 不切的话，点非激活规则的结果会错走到当前激活规则上出详情、播错片。
  * 只搜当前源的合成站（drpy:active / py:active）切到自身是 no-op，同样走这条路。
  */
 internal suspend fun goDetail(site: Site, vodId: String, onVodClick: (vodId: String, siteKey: String) -> Unit): Boolean {
@@ -207,10 +210,14 @@ internal suspend fun goDetail(site: Site, vodId: String, onVodClick: (vodId: Str
             PhpSourceManager.setActiveRule(
                 PhpCliEngine.scriptNameForSite(site.key, site.api),
             )
+        // v1.1.0：通用网页源——先把该站切成激活站，详情再走激活站链路；
+        // 站已被删时 setActiveByFileName 返回 false，不进详情。
+        site.isWebParseSite() ->
+            WebParseSourceManager.setActiveByFileName(site.key.removePrefix(WebParseSiteKeyPrefix))
         else -> true
     }
     if (!ok) return false
-    // B1：订阅子站点与 CMS 站把 key 带给详情页路由，本地规则站
+    // B1：订阅子站点与 CMS 站把 key 带给详情页路由，本地规则站与通用网页源站
     // 已在上面切成当前激活规则，带空串，详情走激活规则链路，
     // 不再写全局 holder。
     val siteKey = when {

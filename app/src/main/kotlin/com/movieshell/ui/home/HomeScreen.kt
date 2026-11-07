@@ -1398,9 +1398,12 @@ fun HomeScreen(
                         Spacer(Modifier.weight(1f))
                         // 换源胶囊（v0.7.1 入口）：点按打开换源表，长按刷新当前源（v0.174.0）；
                         // 状态点颜色按状态走——加载中琥珀（转圈）/ 有数据绿 / 失败红 / 未选源灰。
+                        // v1.1.0 修“已加载源变灰”：绿的条件不能只看推荐流（drpyList），
+                        // 分类已加载（drpyCats 非空）也是源已加载——推荐为空的源、
+                        // 或切回首页后 contentGen 已重置的源，不能再落到灰/红。
                         val sourceRingState = when {
                             drpyLoading || loadingCat != null -> StatusRingState.Loading
-                            drpyReady -> StatusRingState.Ready
+                            drpyReady || drpyCats.isNotEmpty() -> StatusRingState.Ready
                             sourceLabel == "选择站源" || contentGen == 0 -> StatusRingState.Idle
                             else -> StatusRingState.Failed
                         }

@@ -15,6 +15,8 @@ import com.movieshell.data.model.isPhpSite
 import com.movieshell.data.model.isPySite
 import com.movieshell.data.model.isType4Site
 import com.movieshell.data.model.isUnsupportedSite
+import com.movieshell.data.model.isWebParseSite
+import com.movieshell.data.model.WebParseSiteKeyPrefix
 import com.movieshell.data.model.toSite
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.DrpyEngine
@@ -371,7 +373,17 @@ class SiteRepository(
         lastFailureBySite.remove(site.key)
         if (!site.searchable || wd.isBlank()) return emptyList()
         LogBus.i(TAG, "search site=${site.name} wd=$wd")
-        val r = when (route(site)) {
+        // v1.1.0：通用网页源合成站（key=webparse:）不走 route() 五路分发——
+        // 网页源只进聚合搜索，不进首页/分类/详情的 SiteRepository 链路
+        // （详情走 WebParseSourceManager 的激活站链路，见 goDetail）。
+        val r = if (site.isWebParseSite()) {
+            logged(site, "webparse.search ${site.name}") {
+                val fileName = site.key.removePrefix(WebParseSiteKeyPrefix)
+                WebParseSourceManager.listSites().firstOrNull { it.fileName == fileName }
+                    ?.let { WebParseSourceManager.searchSite(it, wd) }
+                    .orEmpty()
+            }.orEmpty()
+        } else when (route(site)) {
             EngineRoute.Php -> logged(site, "php.search ${site.name}") { PhpCliEngine.search(wd = wd, scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }.orEmpty()
             EngineRoute.JavaSpider -> logged(site, "spider.search ${site.name}") { SpiderEngine.search(site, wd) }.orEmpty()
             EngineRoute.SkipNovel -> emptyList() // 小说/漫画站：只做视频点播，跳过
@@ -439,9 +451,32 @@ class SiteRepository(
     private fun searchTargets(): List<Site> {
         val all = getEnabledSites()
         val targets = all.filter { !SearchSlowSourceFilter.shouldSkip(it.key) }
-        SearchSlowSourceFilter.setLastSkipped(all.size - targets.size)
-        return targets
+        val webAll = WebParseSourceManager.listSites()
+        val webTargets = webParseTargets(webAll)
+        SearchSlowSourceFilter.setLastSkipped(
+            (all.size - targets.size) + (webAll.size - webTargets.size),
+        )
+        return targets + webTargets
     }
+
+    /**
+     * v1.1.0：通用网页源进聚合搜索——用户加的每个网页源各成一组，
+     * 与 CMS/drpy/PY 同走限流 + 单源 15 秒超时（见 searchOneSite）。
+     * 网页源无启用开关，全部参与；慢源过滤同样适用（key 带 webparse: 前缀）。
+     * 合成站 type=5，不撞 CMS（0/1）/ PY（3）/ Type4（4）；分发不靠 type，
+     * 靠 key 前缀（见 search() 的 isWebParseSite 分支）。
+     */
+    private fun webParseTargets(all: List<WebParseSourceManager.WebParseSite>): List<Site> =
+        all.filter { !SearchSlowSourceFilter.shouldSkip(WebParseSiteKeyPrefix + it.fileName) }
+            .map { web ->
+                Site(
+                    key = WebParseSiteKeyPrefix + web.fileName,
+                    name = web.name,
+                    type = 5,
+                    api = web.url,
+                    searchable = true,
+                )
+            }
 
     /**
      * 聚合搜索：对所有已启用站源并发搜索。
