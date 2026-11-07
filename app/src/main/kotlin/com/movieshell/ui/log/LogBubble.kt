@@ -54,6 +54,7 @@ import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.repo.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.StoragePaths
+import com.movieshell.player.PlayerManager
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.V5Chip
@@ -170,6 +171,9 @@ fun LogBubbleOverlay() {
     val context = LocalContext.current
     val enabled by LogStore.enabled.collectAsState()
     if (!enabled) return
+    // v1.0.6：播放器全屏时（横/竖屏都算）藏起日志气泡，退出全屏恢复。
+    val isPlayerFullscreen by PlayerManager.isPlayerFullscreen.collectAsState()
+    if (isPlayerFullscreen) return
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val density = LocalDensity.current

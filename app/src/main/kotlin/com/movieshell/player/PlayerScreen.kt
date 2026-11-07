@@ -608,6 +608,12 @@ fun PlayerScreen(
     // v0.124.0：全屏状态驱动窗口沉浸式（全出血），与上面的方向/恢复逻辑互不干涉
     LaunchedEffect(fullscreenNow) {
         if (fullscreenNow) applyImmersiveFullscreen() else restorePlayerWindow()
+        // v1.0.6：全屏状态发给全局，日志气泡全屏时隐藏（横/竖屏全屏都算）。
+        PlayerManager.setPlayerFullscreen(fullscreenNow)
+    }
+    // v1.0.6：退出播放页时把全屏状态清掉，日志气泡恢复显示。
+    DisposableEffect(Unit) {
+        onDispose { PlayerManager.setPlayerFullscreen(false) }
     }
     LaunchedEffect(fullscreenNow, playerView, engine, resizeIndex) {
         val idx = if (fullscreenNow) resizeIndex else 0
