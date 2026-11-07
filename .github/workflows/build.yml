@@ -68,6 +68,9 @@ jobs:
         with:
           name: movieshell-release-apk
           path: app/build/outputs/apk/release/*.apk
+          retention-days: 2
+          # v1.1.2：产物只留 2 天（默认 90 天攒满 7GB 致配额满、构建挂在上传步）；
+          # 包都在助手这边归档，GitHub 上只留最近两天的构建产物。
 
       # v0.30.0：构建字幕搜索插件 DEX（SubHdSource 实现，DEX 动态加载）
       - name: Build subtitle plugin DEX
@@ -86,3 +89,4 @@ jobs:
         with:
           name: subtitle-plugin-dex
           path: ${{ runner.temp }}/subtitle-dex/*.dex
+          retention-days: 2
