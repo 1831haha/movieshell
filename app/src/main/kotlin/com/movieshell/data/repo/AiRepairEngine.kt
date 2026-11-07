@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
+import java.net.URL
 
 /**
  * v1.0.9：一键 AI 修源。
@@ -44,7 +45,7 @@ object AiRepairEngine {
                 ?: return@withContext RepairResult.Fail("规则文件读不出来")
             if (original.isBlank()) return@withContext RepairResult.Fail("规则文件是空的")
             if (AiRepairSettings.apiKey(context).isBlank()) {
-                return@withContext RepairResult.Fail("先去设置 - AI 修复里填 API Key")
+                return@withContext RepairResult.Fail("先去设置 - AI 助手里填 API Key")
             }
             val start = System.currentTimeMillis()
             val siteUrl = extractSiteUrl(kind, original)
@@ -69,6 +70,141 @@ object AiRepairEngine {
                 is SourceProbe.Result.Unsupported -> RepairResult.Fail("验证没过：不支持")
             }
         }
+
+    sealed interface WriteResult {
+        data class Ok(val fileName: String, val ms: Long) : WriteResult
+        data class Fail(val reason: String) : WriteResult
+    }
+
+    /**
+     * v1.1.1：AI 写新源（JS / PY / PHP 三选，保存位置由类型定）。
+     * 流程：网址（没写 http 开头自动补 https）→ 取站点首页 HTML（取不到也继续，
+     * 只告诉 AI 没取到）→ AI 按首页结构写完整规则 → 先写临时文件跑一次
+     * 探活验证 → 首页能出数才保存，验证不过不保存、不留半成品。
+     * 保存位置：js → xiaying/js/，py → xiaying/py/，php → xiaying/php/t4_demo/。
+     * 源名：用户填了就用用户填的，没填就从 AI 返回的 title 里取，再不行用域名；
+     * 同名文件已存在时自动加 -2、-3，不覆盖已有源。
+     */
+    suspend fun writeSource(context: Context, rawUrl: String, nameHint: String, kind: String = "js"): WriteResult =
+        withContext(Dispatchers.IO) {
+            if (!canRepair(kind)) return@withContext WriteResult.Fail("不支持的类型")
+            val url = normalizeUrl(rawUrl)
+                ?: return@withContext WriteResult.Fail("网址不对，请填完整网址，如 https://www.xxx.com")
+            if (AiRepairSettings.apiKey(context).isBlank()) {
+                return@withContext WriteResult.Fail("先去设置 - AI 助手里填 API Key")
+            }
+            val start = System.currentTimeMillis()
+            val html = fetchHomeHtml(url)
+            val prompt = buildWritePrompt(url, html, kind)
+            val chat = LlmClient.chat(context, prompt)
+            val ruleText = when (chat) {
+                is LlmClient.ChatResult.Fail -> return@withContext WriteResult.Fail("AI 调用失败：${chat.reason}")
+                is LlmClient.ChatResult.Ok -> extractRule(chat.text)
+            }
+            if (ruleText.isBlank()) return@withContext WriteResult.Fail("AI 没返回可用规则")
+            val markerOk = when (kind) {
+                "js" -> ruleText.contains("var rule")
+                "py" -> ruleText.contains("class Spider")
+                else -> ruleText.contains("BaseSpider")
+            }
+            if (!markerOk) {
+                return@withContext WriteResult.Fail("AI 返回的不是 $kind 规则，没保存")
+            }
+            val probe = validateFixed(context, kind, ruleText)
+            when (probe) {
+                is SourceProbe.Result.Ok, is SourceProbe.Result.Slow -> {
+                    val fileName = uniqueFileName(context, nameHint, ruleText, url, kind)
+                    val target = File(targetDir(context, kind), fileName)
+                    runCatching { target.writeText(ruleText) }.onFailure {
+                        return@withContext WriteResult.Fail("保存规则文件失败")
+                    }
+                    WriteResult.Ok(fileName, System.currentTimeMillis() - start)
+                }
+                is SourceProbe.Result.Fail -> WriteResult.Fail("验证没过：${probe.reason}，没保存")
+                is SourceProbe.Result.Unsupported -> WriteResult.Fail("验证没过：不支持，没保存")
+            }
+        }
+
+    private fun targetDir(context: Context, kind: String): File = when (kind) {
+        "py" -> StoragePaths.pyDir(context)
+        "php" -> PhpSourceManager.rulesDir(context)
+        else -> StoragePaths.jsDir(context)
+    }
+
+    private fun normalizeUrl(raw: String): String? {
+        val t = raw.trim()
+        if (t.isBlank()) return null
+        val withScheme = if (t.startsWith("http://") || t.startsWith("https://")) t else "https://$t"
+        return runCatching {
+            val u = URL(withScheme)
+            if (u.host.isNullOrBlank()) null else withScheme.trimEnd('/')
+        }.getOrNull()
+    }
+
+    private fun buildWritePrompt(url: String, html: String, kind: String): String {
+        val htmlPart = if (html.isBlank()) {
+            "（首页 HTML 没取到：该站可能拦了直接请求，只按网址本身写，验证不过就直说。）"
+        } else {
+            "```html\n$html\n```"
+        }
+        val format = when (kind) {
+            "py" -> "只返回完整的 Python 规则文件内容，不要解释、不要加任何其他文字。\n" +
+                "格式：先写 import re、sys、json、urllib.parse 与 BeautifulSoup，再写 sys.path.append('..') 与 from base.spider import Spider，" +
+                "然后 class Spider(Spider):，方法签名必须一字不差：homeContent(self, filter)、homeVideoContent(self)、" +
+                "categoryContent(self, tid, pg=1, filter=None, extend=None)、detailContent(self, ids)、" +
+                "searchContent(self, key, quick=False, pg=1)、playerContent(self, flag, id, vipFlags=None)。\n" +
+                "homeContent 返回 {\"class\": [{\"type_id\", \"type_name\"}], \"list\": [...]}，分类用首页真实分类；" +
+                "detailContent 的 ids 是列表，逐个取详情，vod_play_from 与 vod_play_url 用 $$$ 分线路、用 # 分集、用 $ 分集名和地址；" +
+                "playerContent 里 id 是详情给的播放地址原值，找到 mp4 或 m3u8 直链返回 {\"parse\": 0, \"url\": 直链}，" +
+                "找不到就返回 {\"parse\": 1, \"url\": 播放页地址}，绝不编造不存在的地址或接口。\n"
+            "php" -> "只返回完整的 PHP 规则文件内容，不要解释、不要加任何其他文字。\n" +
+                "格式：开头 require_once __DIR__ . '/spider.php';，然后 class 某站 Spider extends BaseSpider，" +
+                "方法签名必须一字不差：homeContent(\$filter)、homeVideoContent()、categoryContent(\$tid, \$pg = 1, \$filter = [], \$extend = [])、" +
+                "detailContent(\$ids)、searchContent(\$key, \$quick = false, \$pg = 1)、playerContent(\$flag, \$id, \$vipFlags = [])，" +
+                "结尾写 \$spider = new 某站 Spider(); \$spider->run();。\n" +
+                "取数用 \$this->fetch(\$url)、\$this->pdfa(\$html, 规则)、\$this->pdfh(\$html, 规则)，分类分页用 \$this->pageResult(\$list, \$pg)；" +
+                "detailContent 的 \$ids 是列表，vod_play_from 与 vod_play_url 用 $$$ 分线路、用 # 分集、用 \$ 分集名和地址；" +
+                "playerContent 里 \$id 是详情给的播放地址原值，直链返回 ['parse' => 0, 'url' => 直链]，" +
+                "找不到直链返回 ['parse' => 1, 'url' => 播放页地址]，绝不编造不存在的地址或接口。\n"
+            else -> "只返回完整的 JS 规则文件内容，不要解释、不要加任何其他文字。\n" +
+                "格式必须是 var rule = { title, host, homeUrl, url, searchUrl, class_name, class_url, " +
+                "推荐, 一级, 二级, 搜索, 播放 }；title 用站名，host 必须是上面给的站点地址原样，homeUrl 是 /。\n" +
+                "所有章节函数都要是 async function，凡是 request、pdfh、pdfa、fetch、post 调用前面一律加 await，" +
+                "取到数据后用 setResult 交出去，不要用同步写法。\n" +
+                "推荐：请求 homeUrl，从首页链接里取片名、详情页地址、封面；一级：请求 this.input，按列表页结构取数；" +
+                "二级：请求详情页，取片名、封面、简介与选集，vod_play_from 与 vod_play_url 用 $$$ 分线路、用 # 分集、用 $ 分集名和地址；" +
+                "搜索：searchUrl 里用 ** 代关键词，按列表结构取数；播放：播放页里找到 mp4 或 m3u8 直链就返回 { url, parse: 0 }，" +
+                "找不到直链就返回播放页地址 { url, parse: 1 }，绝不编造不存在的地址或接口。\n"
+        }
+        return buildString {
+            append("你是侠影 App 的写源助手，要给一个视频站写一条全新的规则。\n")
+            append("站点地址：$url\n")
+            append("该站首页当前 HTML（节选，已去掉脚本与样式）：\n$htmlPart\n")
+            append(format)
+            append("只按首页 HTML 里真实出现的链接与结构写；看不清分类就用首页已有的分类，分类写不全也不要编。")
+        }
+    }
+
+    /** 写源用的文件名：用户填的名优先，其次 AI 规则里的 title，再次域名；同名自动加 -2、-3。 */
+    private fun uniqueFileName(context: Context, nameHint: String, ruleText: String, url: String, kind: String): String {
+        val fromRule = Regex("title\\s*:\\s*['\"]([^'\"]+)['\"]").find(ruleText)?.groupValues?.getOrNull(1).orEmpty()
+        val host = runCatching { URL(url).host.removePrefix("www.") }.getOrNull().orEmpty()
+        val baseRaw = nameHint.trim().ifBlank { fromRule.trim() }.ifBlank { host.substringBefore('.') }.ifBlank { "ai-source" }
+        val base = baseRaw.replace(Regex("[^A-Za-z0-9\\u4e00-\\u9fa5_-]"), "").take(30).ifBlank { "ai-source" }
+        val dir = targetDir(context, kind)
+        val ext = when (kind) {
+            "py" -> "py"
+            "php" -> "php"
+            else -> "js"
+        }
+        var candidate = "$base.$ext"
+        var n = 2
+        while (File(dir, candidate).isFile) {
+            candidate = "$base-$n.$ext"
+            n++
+        }
+        return candidate
+    }
 
     private fun ruleFile(context: Context, kind: String, name: String): File? = when (kind) {
         "js" -> File(StoragePaths.jsDir(context), name)

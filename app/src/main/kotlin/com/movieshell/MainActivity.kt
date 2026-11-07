@@ -9,6 +9,10 @@ import androidx.compose.runtime.SideEffect
 import com.movieshell.ui.theme.V5
 
 import android.net.Uri
+import android.provider.OpenableColumns
+import com.movieshell.ui.sources.ImportResult
+import com.movieshell.ui.sources.importRuleFile
+import com.movieshell.ui.sources.importTargetForFileName
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.AppToastOverlay
 import android.os.Bundle
@@ -114,6 +118,9 @@ class MainActivity : ComponentActivity() {
     /** 通知点进来的待跳转路由（route to subKey），消费一次。 */
     private val pendingRoute = mutableStateOf<Pair<String, String>?>(null)
 
+    /** v1.1.1：分享导入待处理的源文件 Uri（点文件打开 / 分享给 App），消费一次。 */
+    private val pendingSharedImport = mutableStateOf<Uri?>(null)
+
     /**
      * v0.217.0（F69）：已接受的通知路由——重建去重用。原来 onCreate 无条件
      * 从 Intent 读路由，进程被杀恢复后同一条路由又被消费一次，返回栈里
@@ -126,11 +133,47 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleRouteIntent(intent, consumed = null)
+        handleSharedIntent(intent)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         consumedRoute?.let { outState.putString(KEY_CONSUMED_ROUTE, it) }
+    }
+
+    /**
+     * v1.1.1：分享导入——点源文件打开（ACTION_VIEW，intent.data）或从别的 App
+     * 分享文件进来（ACTION_SEND，EXTRA_STREAM），只取 Uri 存待处理，真正拷贝
+     * 在 setContent 里的 LaunchedEffect 做（那时导航已建好，能跳源管理页）。
+     * 消费后清掉 action，Activity 重建时同一 Intent 不再重放。
+     */
+    private fun handleSharedIntent(intent: Intent?) {
+        val uri: Uri? = when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> sendStreamUri(intent)
+            else -> null
+        }
+        if (uri != null) {
+            pendingSharedImport.value = uri
+            intent.action = null
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun sendStreamUri(intent: Intent): Uri? =
+        intent.getParcelableExtra(Intent.EXTRA_STREAM)
+
+    /** 分享进来的文件取原名：先问 ContentResolver，问不到用 Uri 末段。 */
+    private fun sharedFileName(uri: Uri): String {
+        val fromResolver = runCatching {
+            contentResolver.query(uri, null, null, null, null)?.use { c ->
+                val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
+            }
+        }.getOrNull()
+        return fromResolver?.takeIf { it.isNotBlank() }
+            ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+            ?: "unknown"
     }
 
     private fun handleRouteIntent(intent: Intent?, consumed: String?) {
@@ -147,6 +190,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleRouteIntent(intent, savedInstanceState?.getString(KEY_CONSUMED_ROUTE))
+        // v1.1.1：分享导入只在全新启动时接一次——转屏重建时 Intent 的 action
+        // 已在首次处理时清掉，再接也是空操作；这里加 guard 防重复导入。
+        if (savedInstanceState == null) handleSharedIntent(intent)
         // v0.7.2：日志总线最先初始化（接住之后所有初始化的异常）
         LogBus.init(this)
         // v0.210.0：后台验证用的应用上下文（搜书验证先在后台 WebView 里过，不过才弹页）
@@ -317,6 +363,29 @@ class MainActivity : ComponentActivity() {
                         runCatching { navController.openMusicPlayer() }
                     } else {
                         runCatching { navController.navigate(finalRoute) }
+                    }
+                }
+                // v1.1.1：分享导入（消费一次）——按后缀认文件夹，复用源管理页的
+                // importRuleFile 拷贝（重名加时间戳、不覆盖），成功跳源管理本地源页。
+                LaunchedEffect(pendingSharedImport.value) {
+                    val uri = pendingSharedImport.value ?: return@LaunchedEffect
+                    pendingSharedImport.value = null
+                    val appCtx = applicationContext
+                    val fileName = sharedFileName(uri)
+                    val target = importTargetForFileName(fileName)
+                    if (target == null) {
+                        AppToast.show(appCtx, "不支持的文件，只认 .js / .py / .php / .html", long = true)
+                        return@LaunchedEffect
+                    }
+                    when (val r = withContext(Dispatchers.IO) { importRuleFile(appCtx, uri, target) }) {
+                        is ImportResult.Ok -> {
+                            AppToast.show(appCtx, "已保存到${target.label}：${r.fileName}", long = false)
+                            runCatching { navController.navigate("sources?tab=1") }
+                        }
+                        is ImportResult.WrongExt ->
+                            AppToast.show(appCtx, "请选择 ${target.extensions.joinToString(" / ")} 文件", long = true)
+                        is ImportResult.Failed ->
+                            AppToast.show(appCtx, "导入失败：${r.reason}", long = true)
                     }
                 }
                 val backStackEntry by navController.currentBackStackEntryAsState()

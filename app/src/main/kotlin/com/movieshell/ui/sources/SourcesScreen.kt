@@ -232,6 +232,14 @@ internal fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): I
     }
 }
 
+/** v1.1.1：分享导入——按文件名后缀认目标文件夹（.js→JS、.py→PY、.php→PHP、.html/.htm→网页源）；认不出返回 null。 */
+internal fun importTargetForFileName(fileName: String): ImportTarget? {
+    val ext = "." + fileName.substringAfterLast('.', "").lowercase()
+    if (ext == ".") return null
+    return listOf(IMPORT_DPRY, IMPORT_PY, IMPORT_PHP, IMPORT_WEB)
+        .firstOrNull { target -> target.extensions.any { it.equals(ext, ignoreCase = true) } }
+}
+
 /** 扫描规则目录下的文件，转成 SourceEntry 列表（给 PHP 分组用）；activeName 命中的条目 enabled=true（高亮为当前激活） */
 private fun listLocalFolderEntries(
     context: Context,
@@ -397,12 +405,12 @@ private fun ProbeResultRow(target: ProbeTarget, result: SourceProbe.Result?) {
                         Spacer(Modifier.weight(1f))
                     }
                     AppButton(
-                        text = if (repairing) "修复中…" else "AI 修复",
+                        text = if (repairing) "修复中…" else "AI 助手",
                         variant = AppButtonVariant.Ghost,
                         enabled = !repairing,
                         onClick = {
                             if (AiRepairSettings.apiKey(context).isBlank()) {
-                                AppToast.show(context, "先去设置 - AI 修复里填 API Key", long = true)
+                                AppToast.show(context, "先去设置 - AI 助手里填 API Key", long = true)
                                 return@AppButton
                             }
                             repairing = true

@@ -122,6 +122,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.download.SubRefreshWorker
+import com.movieshell.data.repo.AiRepairEngine
 import com.movieshell.data.repo.AiRepairSettings
 import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.repo.BackupManager
@@ -210,7 +211,7 @@ fun SettingsScreen(
     var showCloudDialog by remember { mutableStateOf(false) }
     var cloudWorking by remember { mutableStateOf(false) }
     var lastSyncText by remember { mutableStateOf("") }
-    // v1.0.9：AI 修复（多 provider，不锁死任何一家；修复手动一键触发，不设总开关）
+    // v1.0.9：AI 助手（多 provider，不锁死任何一家；修复手动一键触发，不设总开关）
     var showAiDialog by remember { mutableStateOf(false) }
     var showAiProviderDialog by remember { mutableStateOf(false) }
     var aiProviderId by remember { mutableStateOf(AiRepairSettings.provider(context).id) }
@@ -640,13 +641,13 @@ fun SettingsScreen(
             )
         }
         item {
-            // v1.0.9：AI 修复——源坏了检测完一键修；先在这里选 AI、填 Key
+            // v1.0.9：AI 助手——源坏了检测完一键修；先在这里选 AI、填 Key
             val aiProvider = AiRepairSettings.provider(context)
             val aiConfigured = AiRepairSettings.apiKey(context).isNotBlank()
             SegItem(
                 position = SegPos.Middle,
                 icon = Icons.Outlined.AutoFixHigh,
-                title = "AI 修复",
+                title = "AI 助手",
                 subtitle = if (aiConfigured) "${aiProvider.name} · 已填 Key" else "未配置 · DeepSeek / 豆包 / 千问…",
                 onClick = { showAiDialog = true },
             )
@@ -1210,7 +1211,7 @@ fun SettingsScreen(
         }
     }
 
-    // v1.0.9：AI 修复设置（多 provider；修复手动一键触发，不设总开关）
+    // v1.0.9：AI 助手设置（多 provider；修复手动一键触发，不设总开关）
     if (showAiDialog) {
         val provider = AiRepairSettings.PRESETS.firstOrNull { it.id == aiProviderId }
             ?: AiRepairSettings.PRESETS.first()
@@ -1218,9 +1219,17 @@ fun SettingsScreen(
         var modelInput by remember(aiProviderId) { mutableStateOf(AiRepairSettings.model(context)) }
         var baseUrlInput by remember(aiProviderId) { mutableStateOf(AiRepairSettings.baseUrl(context)) }
         var showKey by remember { mutableStateOf(false) }
+        // v1.1.1：模型点选弹窗（内置模型列表，不用手打记名字）
+        var showAiModelDialog by remember { mutableStateOf(false) }
+        // v1.1.1：AI 写新源——网址 + 源名（可空），复用上面配好的服务商、Key 与模型
+        var writeUrl by remember { mutableStateOf("") }
+        var writeName by remember { mutableStateOf("") }
+        var writeText by remember { mutableStateOf("") }
+        // v1.1.1：写源类型三选，默认 drpy JS；保存位置由类型定
+        var writeKind by remember { mutableStateOf("js") }
         TechDialog(
             onDismissRequest = { if (!aiWorking) showAiDialog = false },
-            title = "AI 修复",
+            title = "AI 助手",
             dismissText = "关闭",
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -1270,14 +1279,31 @@ fun SettingsScreen(
                         Text(if (showKey) "隐藏" else "显示", fontSize = 12.sp)
                     }
                 }
-                TechTextField(
-                    value = modelInput,
-                    onValueChange = { modelInput = it },
-                    placeholder = if (provider.id == "doubao") "模型：方舟接入点 ID，如 ep-…" else "模型（默认 ${provider.defaultModel}）",
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !aiWorking,
-                )
+                if (provider.models.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "模型",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { showAiModelDialog = true }, enabled = !aiWorking) {
+                            Text(modelInput.ifBlank { provider.defaultModel })
+                        }
+                    }
+                } else {
+                    TechTextField(
+                        value = modelInput,
+                        onValueChange = { modelInput = it },
+                        placeholder = if (provider.id == "doubao") "模型：方舟接入点 ID，如 ep-…" else "模型",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !aiWorking,
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 if (provider.id == "custom") {
                     TechTextField(
@@ -1334,7 +1360,113 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f),
                     )
                 }
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "写新源",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    "填一个视频站网址，选一种源类型，AI 照着站结构写一条新源；先跑探活验证，首页能出数才保存，验证不过不保存。写不了小说与直播源。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    AppButton(
+                        text = "drpy JS",
+                        variant = if (writeKind == "js") AppButtonVariant.Primary else AppButtonVariant.Ghost,
+                        enabled = !aiWorking,
+                        onClick = { writeKind = "js" },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    AppButton(
+                        text = "Python",
+                        variant = if (writeKind == "py") AppButtonVariant.Primary else AppButtonVariant.Ghost,
+                        enabled = !aiWorking,
+                        onClick = { writeKind = "py" },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    AppButton(
+                        text = "PHP",
+                        variant = if (writeKind == "php") AppButtonVariant.Primary else AppButtonVariant.Ghost,
+                        enabled = !aiWorking,
+                        onClick = { writeKind = "php" },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Text(
+                    when (writeKind) {
+                        "py" -> "保存到 xiaying/py/"
+                        "php" -> "保存到 xiaying/php/t4_demo/"
+                        else -> "保存到 xiaying/js/"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                TechTextField(
+                    value = writeUrl,
+                    onValueChange = { writeUrl = it },
+                    placeholder = "网址，如 https://www.xxx.com",
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !aiWorking,
+                )
+                Spacer(Modifier.height(8.dp))
+                TechTextField(
+                    value = writeName,
+                    onValueChange = { writeName = it },
+                    placeholder = "源名（可空，不填用站名）",
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !aiWorking,
+                )
+                Spacer(Modifier.height(8.dp))
+                if (writeText.isNotBlank()) {
+                    Text(
+                        writeText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
+                AppButton(
+                    text = if (aiWorking) "写源中…" else "让 AI 写源",
+                    enabled = !aiWorking,
+                    onClick = {
+                        AiRepairSettings.setApiKey(context, keyInput)
+                        AiRepairSettings.setModel(context, modelInput)
+                        if (provider.id == "custom") AiRepairSettings.setBaseUrl(context, baseUrlInput)
+                        aiWorking = true
+                        writeText = "写源中…先取首页，再让 AI 写，写完跑验证"
+                        scope.launch {
+                            val r = AiRepairEngine.writeSource(context, writeUrl, writeName, writeKind)
+                            aiWorking = false
+                            writeText = when (r) {
+                                is AiRepairEngine.WriteResult.Ok -> "写好了，已保存：${r.fileName}（${r.ms}ms），去源管理里就能看到"
+                                is AiRepairEngine.WriteResult.Fail -> "没写成：${r.reason}"
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
+        }
+        if (showAiModelDialog) {
+            val modelOptions = (provider.models + listOf(modelInput)).distinct().filter { it.isNotBlank() }
+            SingleChoiceDialog(
+                title = "模型",
+                options = modelOptions,
+                selected = modelInput.ifBlank { provider.defaultModel },
+                onDismiss = { showAiModelDialog = false },
+                onSelect = { name ->
+                    modelInput = name
+                    showAiModelDialog = false
+                },
+            )
         }
     }
     if (showAiProviderDialog) {
