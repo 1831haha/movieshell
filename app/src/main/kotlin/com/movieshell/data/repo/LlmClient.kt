@@ -54,6 +54,11 @@ object LlmClient {
         if (apiKey.isBlank()) return@withContext ChatResult.Fail("未填 API Key")
         val model = AiRepairSettings.model(context)
         if (model.isBlank()) return@withContext ChatResult.Fail("未填模型")
+        // v1.1.2：豆包只认方舟接入点 ID（ep- 开头），填模型名方舟直接报 404；
+        // 在这里先拦住，不发请求，省一次失败来回（测试连接、修源、写源都走这里）。
+        if (provider.id == "doubao" && !model.startsWith("ep-")) {
+            return@withContext ChatResult.Fail("豆包模型要填方舟接入点 ID（ep- 开头），填模型名会报 404；去方舟控制台在线推理里建接入点，复制 ep-… 填进来")
+        }
         val baseUrl = AiRepairSettings.baseUrl(context).trimEnd('/')
         if (baseUrl.isBlank()) return@withContext ChatResult.Fail("未填请求地址")
         val start = System.currentTimeMillis()

@@ -1226,7 +1226,8 @@ fun SettingsScreen(
         var writeName by remember { mutableStateOf("") }
         var writeText by remember { mutableStateOf("") }
         // v1.1.1：写源类型三选，默认 drpy JS；保存位置由类型定
-        var writeKind by remember { mutableStateOf("js") }
+        // v1.1.2：默认改成自动选——不知道选哪个就让 AI 按站结构定类型
+        var writeKind by remember { mutableStateOf("auto") }
         TechDialog(
             onDismissRequest = { if (!aiWorking) showAiDialog = false },
             title = "AI 助手",
@@ -1303,6 +1304,14 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !aiWorking,
                     )
+                    // v1.1.2：豆包填模型名会报 404，常驻提示一次，省得再踩
+                    if (provider.id == "doubao") {
+                        Text(
+                            "豆包这里填方舟接入点 ID（ep- 开头），填模型名会报 404。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
                 if (provider.id == "custom") {
@@ -1367,14 +1376,22 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    "填一个视频站网址，选一种源类型，AI 照着站结构写一条新源；先跑探活验证，首页能出数才保存，验证不过不保存。写不了小说与直播源。",
+                    "填一个视频站网址，AI 照着站结构写一条新源；类型不知道就选自动，AI 自己定；先跑探活验证，首页能出数才保存，验证不过不保存。写不了小说与直播源。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth()) {
                     AppButton(
-                        text = "drpy JS",
+                        text = "自动",
+                        variant = if (writeKind == "auto") AppButtonVariant.Primary else AppButtonVariant.Ghost,
+                        enabled = !aiWorking,
+                        onClick = { writeKind = "auto" },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    AppButton(
+                        text = "drpy",
                         variant = if (writeKind == "js") AppButtonVariant.Primary else AppButtonVariant.Ghost,
                         enabled = !aiWorking,
                         onClick = { writeKind = "js" },
@@ -1401,6 +1418,7 @@ fun SettingsScreen(
                     when (writeKind) {
                         "py" -> "保存到 xiaying/py/"
                         "php" -> "保存到 xiaying/php/t4_demo/"
+                        "auto" -> "AI 先定类型，验证过按类型保存"
                         else -> "保存到 xiaying/js/"
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -1446,7 +1464,14 @@ fun SettingsScreen(
                             val r = AiRepairEngine.writeSource(context, writeUrl, writeName, writeKind)
                             aiWorking = false
                             writeText = when (r) {
-                                is AiRepairEngine.WriteResult.Ok -> "写好了，已保存：${r.fileName}（${r.ms}ms），去源管理里就能看到"
+                                is AiRepairEngine.WriteResult.Ok -> {
+                                    val kindName = when (r.kind) {
+                                        "py" -> "Python"
+                                        "php" -> "PHP"
+                                        else -> "drpy JS"
+                                    }
+                                    "写好了（$kindName），已保存：${r.fileName}（${r.ms}ms），去源管理里就能看到"
+                                }
                                 is AiRepairEngine.WriteResult.Fail -> "没写成：${r.reason}"
                             }
                         }

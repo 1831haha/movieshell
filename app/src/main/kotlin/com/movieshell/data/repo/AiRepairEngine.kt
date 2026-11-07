@@ -72,22 +72,22 @@ object AiRepairEngine {
         }
 
     sealed interface WriteResult {
-        data class Ok(val fileName: String, val ms: Long) : WriteResult
+        data class Ok(val fileName: String, val ms: Long, val kind: String = "js") : WriteResult
         data class Fail(val reason: String) : WriteResult
     }
 
     /**
      * v1.1.1：AI 写新源（JS / PY / PHP 三选，保存位置由类型定）。
-     * 流程：网址（没写 http 开头自动补 https）→ 取站点首页 HTML（取不到也继续，
-     * 只告诉 AI 没取到）→ AI 按首页结构写完整规则 → 先写临时文件跑一次
-     * 探活验证 → 首页能出数才保存，验证不过不保存、不留半成品。
-     * 保存位置：js → xiaying/js/，py → xiaying/py/，php → xiaying/php/t4_demo/。
-     * 源名：用户填了就用用户填的，没填就从 AI 返回的 title 里取，再不行用域名；
-     * 同名文件已存在时自动加 -2、-3，不覆盖已有源。
+     * v1.1.2：kind = "auto" 时先让 AI 按首页结构定类型（默认 drpy JS），再按定下的
+     * 类型走原流程；定类型失败就默认 drpy JS。流程：网址（没写 http 开头自动补
+     * https）→ 取站点首页 HTML（取不到也继续，只告诉 AI 没取到）→ AI 按首页结构
+     * 写完整规则 → 先写临时文件跑一次探活验证 → 首页能出数才保存，验证不过不
+     * 保存、不留半成品。保存位置：js → xiaying/js/，py → xiaying/py/，
+     * php → xiaying/php/t4_demo/。源名：用户填了就用用户填的，没填就从 AI 返回
+     * 的 title 里取，再不行用域名；同名文件已存在时自动加 -2、-3，不覆盖已有源。
      */
     suspend fun writeSource(context: Context, rawUrl: String, nameHint: String, kind: String = "js"): WriteResult =
         withContext(Dispatchers.IO) {
-            if (!canRepair(kind)) return@withContext WriteResult.Fail("不支持的类型")
             val url = normalizeUrl(rawUrl)
                 ?: return@withContext WriteResult.Fail("网址不对，请填完整网址，如 https://www.xxx.com")
             if (AiRepairSettings.apiKey(context).isBlank()) {
@@ -95,35 +95,63 @@ object AiRepairEngine {
             }
             val start = System.currentTimeMillis()
             val html = fetchHomeHtml(url)
-            val prompt = buildWritePrompt(url, html, kind)
+            val realKind = if (kind == "auto") classifyKind(context, url, html) else kind
+            if (!canRepair(realKind)) return@withContext WriteResult.Fail("不支持的类型")
+            val prompt = buildWritePrompt(url, html, realKind)
             val chat = LlmClient.chat(context, prompt)
             val ruleText = when (chat) {
                 is LlmClient.ChatResult.Fail -> return@withContext WriteResult.Fail("AI 调用失败：${chat.reason}")
                 is LlmClient.ChatResult.Ok -> extractRule(chat.text)
             }
             if (ruleText.isBlank()) return@withContext WriteResult.Fail("AI 没返回可用规则")
-            val markerOk = when (kind) {
+            val markerOk = when (realKind) {
                 "js" -> ruleText.contains("var rule")
                 "py" -> ruleText.contains("class Spider")
                 else -> ruleText.contains("BaseSpider")
             }
             if (!markerOk) {
-                return@withContext WriteResult.Fail("AI 返回的不是 $kind 规则，没保存")
+                return@withContext WriteResult.Fail("AI 返回的不是 $realKind 规则，没保存")
             }
-            val probe = validateFixed(context, kind, ruleText)
+            val probe = validateFixed(context, realKind, ruleText)
             when (probe) {
                 is SourceProbe.Result.Ok, is SourceProbe.Result.Slow -> {
-                    val fileName = uniqueFileName(context, nameHint, ruleText, url, kind)
-                    val target = File(targetDir(context, kind), fileName)
+                    val fileName = uniqueFileName(context, nameHint, ruleText, url, realKind)
+                    val target = File(targetDir(context, realKind), fileName)
                     runCatching { target.writeText(ruleText) }.onFailure {
                         return@withContext WriteResult.Fail("保存规则文件失败")
                     }
-                    WriteResult.Ok(fileName, System.currentTimeMillis() - start)
+                    WriteResult.Ok(fileName, System.currentTimeMillis() - start, realKind)
                 }
                 is SourceProbe.Result.Fail -> WriteResult.Fail("验证没过：${probe.reason}，没保存")
                 is SourceProbe.Result.Unsupported -> WriteResult.Fail("验证没过：不支持，没保存")
             }
         }
+
+    /**
+     * v1.1.2：写源“自动选”——只看首页结构定类型。绝大多数站默认 drpy JS；
+     * 只有站明显需要登录会话、复杂交互、drpy 写不出来时选 py；只有站是 PHP
+     * 规则站时选 php。AI 没给准话或调用失败都默认 js，不拦写源。
+     */
+    private suspend fun classifyKind(context: Context, url: String, html: String): String {
+        val prompt = buildString {
+            append("只看下面这个视频站的首页结构，判断写它的规则最适合用哪种类型，只回 js、py、php 三个词中的一个，不要解释、不要加任何其他文字。\n")
+            append("站点地址：$url\n")
+            append("默认选 js；只有站明显需要登录会话、复杂交互、drpy JS 写不出来时选 py；只有站是 PHP 规则站时选 php。\n")
+            if (html.isBlank()) append("（首页 HTML 没取到，只按网址判断。）\n")
+            else append("首页 HTML（节选）：\n```html\n$html\n```\n")
+        }
+        return when (val chat = LlmClient.chat(context, prompt)) {
+            is LlmClient.ChatResult.Fail -> "js"
+            is LlmClient.ChatResult.Ok -> {
+                val t = chat.text.lowercase()
+                when {
+                    t.contains("php") -> "php"
+                    t.contains("py") -> "py"
+                    else -> "js"
+                }
+            }
+        }
+    }
 
     private fun targetDir(context: Context, kind: String): File = when (kind) {
         "py" -> StoragePaths.pyDir(context)
