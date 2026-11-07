@@ -146,6 +146,7 @@ import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.WebParseSourceManager
 import com.movieshell.data.repo.SiteRepository
+import com.movieshell.data.repo.SiteSearchResult
 import com.movieshell.data.repo.StoragePaths
 import android.app.Activity
 import android.content.pm.ActivityInfo
@@ -167,9 +168,15 @@ import com.movieshell.ui.components.EmptyState
 import com.movieshell.ui.components.PlainBlock
 import com.movieshell.ui.components.LoadingSkeleton
 import com.movieshell.ui.components.V5SectionTitle
+import com.movieshell.ui.search.LOCAL_DRPY_PREFIX
+import com.movieshell.ui.search.LOCAL_PY_PREFIX
+import com.movieshell.ui.search.buildSearchConfigJson
+import com.movieshell.ui.search.goDetail
 import com.movieshell.ui.theme.BrandGradientColors
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -183,6 +190,8 @@ fun DetailScreen(
     onBack: () -> Unit,
     // v0.87.0：点演员名搜其作品
     onActorClick: (actorName: String) -> Unit = {},
+    // v1.0.7：同名剧区点按进详情（与搜索页 onVodClick 同口径）
+    onVodClick: (vodId: String, siteKey: String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -229,6 +238,50 @@ fun DetailScreen(
     val cached = remember(cacheKey) { DetailCache.get(cacheKey) }
     var detailLoading by remember { mutableStateOf(cached == null) }
     var detail by remember { mutableStateOf<VodDetail?>(cached?.detail) }
+
+    // v1.0.7：同名剧——详情回来后在后台用精确片名在所有源里搜，
+    // 流式回填（搜到一个源就出现一个），不卡播放；只认片名一字不差的，
+    // 当前源本身不列；失败静默，只显示搜到的。
+    var sameTitleGroups by remember { mutableStateOf<List<SiteSearchResult>>(emptyList()) }
+    var sameTitleSearching by remember { mutableStateOf(false) }
+    var sameTitleDone by remember { mutableStateOf(false) }
+    val sameTitleRepo = remember {
+        SiteRepository(
+            drpyEngine = DrpySourceManager.drpyEngineAdapter,
+            pyEngine = PySourceManager.engineAdapter,
+        )
+    }
+    val sameTitleKey = detail?.vodName?.takeIf { it.isNotBlank() }.orEmpty()
+    LaunchedEffect(sameTitleKey) {
+        if (sameTitleKey.isBlank()) return@LaunchedEffect
+        sameTitleGroups = emptyList()
+        sameTitleDone = false
+        sameTitleSearching = true
+        try {
+            sameTitleRepo.loadFromConfig(
+                withContext(Dispatchers.IO) { buildSearchConfigJson(context) },
+            )
+            // 当前源的 key：订阅/CMS 站用 subSite.key，本地规则站用激活规则 key
+            val currentKeys = buildSet {
+                subSite?.key?.takeIf { it.isNotBlank() }?.let { add(it) }
+                DrpySourceManager.activeRuleName()?.let { add("$LOCAL_DRPY_PREFIX$it") }
+                PySourceManager.activeRuleName()?.let { add("$LOCAL_PY_PREFIX$it") }
+                PhpSourceManager.activeRuleName()?.let { add("php:$it") }
+            }
+            sameTitleRepo.searchAllFlow(sameTitleKey).collect { group ->
+                if (group.site.key in currentKeys) return@collect
+                val exact = group.vods.filter { it.vodName.trim() == sameTitleKey.trim() }
+                if (exact.isNotEmpty()) {
+                    sameTitleGroups = sameTitleGroups + SiteSearchResult(group.site, exact)
+                }
+            }
+        } catch (e: Exception) {
+            LogBus.w("DetailSameTitle", "同名剧后台搜索失败：${e.message}")
+        } finally {
+            sameTitleSearching = false
+            sameTitleDone = true
+        }
+    }
     // v0.27.6：抽成函数，失败态的"重试"按钮可复用
     // v0.47.0：20 秒超时——规则 hang 住时不再无限骨架屏，转失败态可重试
     // v0.171.0：世代号 + 取消旧任务——刷新按钮、失败重试、LaunchedEffect 可并发
@@ -816,8 +869,8 @@ fun DetailScreen(
                                     }
                                 }
                             }
-                            Spacer(Modifier.height(20.dp))
-                            // 主操作行
+                            Spacer(Modifier.height(12.dp))
+                            // 主操作行：v1.0.7 压紧——两按钮 56dp→48dp，追剧收紧，上下间距收窄
                             Row(
                                 modifier = Modifier.padding(horizontal = V5.Gutter),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -846,12 +899,12 @@ fun DetailScreen(
                                     },
                                     enabled = canPlay,
                                     shape = RoundedCornerShape(V5.CornerXl),
-                                    contentPadding = PaddingValues(horizontal = 20.dp),
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(V5.ButtonProminent),
+                                        .height(48.dp),
                                 ) {
-                                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(24.dp))
+                                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
                                     Spacer(Modifier.width(8.dp))
                                     Text(playLabel, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                                 }
@@ -886,19 +939,19 @@ fun DetailScreen(
                                         }
                                     },
                                     shape = RoundedCornerShape(V5.CornerXl),
-                                    contentPadding = PaddingValues(horizontal = 20.dp),
-                                    modifier = Modifier.height(V5.ButtonProminent),
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    modifier = Modifier.height(48.dp),
                                 ) {
                                     Icon(
                                         if (following) Icons.Filled.Check else Icons.Filled.Add,
                                         contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
+                                        modifier = Modifier.size(18.dp),
                                     )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(if (following) "已追剧" else "追剧", style = MaterialTheme.typography.titleMedium)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(if (following) "已追剧" else "追剧", style = MaterialTheme.typography.labelLarge)
                                 }
                             }
-                            Spacer(Modifier.height(16.dp))
+                            Spacer(Modifier.height(12.dp))
                             // 简介卡：点开原简介弹窗（v0.259.0 InfoPopupDialog）
                             Column(
                                 modifier = Modifier
@@ -1174,6 +1227,131 @@ fun DetailScreen(
                             }
                             item { Spacer(Modifier.height(16.dp)) }
                         }
+                    }
+
+                    // v1.0.7：同名剧——集数下方列出所有源的同名剧（精确片名），
+                    // 后台流式搜、搜到一个源就出现一个；点开进那个源的详情页。
+                    if (sameTitleGroups.isNotEmpty() || sameTitleSearching || sameTitleDone) {
+                        item {
+                            V5SectionTitle(
+                                title = if (sameTitleGroups.isNotEmpty()) {
+                                    "同名剧 · ${sameTitleGroups.size} 个源"
+                                } else {
+                                    "同名剧"
+                                },
+                                modifier = Modifier.padding(
+                                    horizontal = V5.Gutter,
+                                    vertical = 8.dp,
+                                ),
+                            )
+                        }
+                        if (sameTitleSearching && sameTitleGroups.isEmpty()) {
+                            item {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(
+                                        horizontal = V5.Gutter,
+                                        vertical = 8.dp,
+                                    ),
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = "正在其他源中查找同名剧…",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                        sameTitleGroups.forEach { group ->
+                            group.vods.forEach { vod ->
+                                item {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = V5.Gutter, vertical = 6.dp)
+                                            .clip(RoundedCornerShape(V5.CornerLg))
+                                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                                            .clickable {
+                                                scope.launch {
+                                                    val ok = goDetail(group.site, vod.vodId, onVodClick)
+                                                    if (!ok) {
+                                                        AppToast.show(context, "切源失败，请重试", long = false)
+                                                    }
+                                                }
+                                            }
+                                            .padding(8.dp),
+                                    ) {
+                                        if (vod.vodPic.isNotBlank()) {
+                                            AsyncImage(
+                                                model = vod.vodPic,
+                                                contentDescription = "海报",
+                                                modifier = Modifier
+                                                    .size(width = 48.dp, height = 68.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                                contentScale = ContentScale.Crop,
+                                            )
+                                            Spacer(Modifier.width(12.dp))
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = vod.vodName,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Spacer(Modifier.height(2.dp))
+                                            Text(
+                                                text = group.site.name,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            if (vod.vodRemarks.isNotBlank() || vod.vodYear.isNotBlank()) {
+                                                Spacer(Modifier.height(2.dp))
+                                                Text(
+                                                    text = listOf(vod.vodRemarks, vod.vodYear)
+                                                        .filter { it.isNotBlank() }
+                                                        .joinToString(" · "),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                        }
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                            contentDescription = "打开",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (sameTitleDone && sameTitleGroups.isEmpty() && !sameTitleSearching) {
+                            item {
+                                Text(
+                                    text = "其他源暂无同名剧",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(
+                                        horizontal = V5.Gutter,
+                                        vertical = 8.dp,
+                                    ),
+                                )
+                            }
+                        }
+                        item { Spacer(Modifier.height(16.dp)) }
                     }
 
                     // v0.58：简介已并入主演卡片，独立简介卡删除

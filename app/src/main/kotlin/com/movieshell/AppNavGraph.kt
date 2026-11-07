@@ -666,6 +666,15 @@ fun NavGraphBuilder.appDestinations(
                                 onActorClick = { actorName ->
                                     navController.navigate("actor_works/${Uri.encode(actorName)}")
                                 },
+                                // v1.0.7：同名剧区点按进详情（与搜索页 onVodClick 同口径）
+                                onVodClick = { vodId, siteKey ->
+                                    val siteParam = if (siteKey.isNotBlank()) {
+                                        "?siteKey=${Uri.encode(siteKey)}"
+                                    } else {
+                                        "?siteKey="
+                                    }
+                                    navController.navigate("detail/${Uri.encode(vodId)}$siteParam")
+                                },
                                 // v0.294.45：详情全屏已改为原地放大，不再经 onPlay 跳独立播放页，
                                 // 故这里不再传 onPlay；独立播放页仍供历史、搜索、直播等其他入口用。
                             )
