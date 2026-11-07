@@ -398,7 +398,7 @@ internal fun PlayerPanel(
                         Modifier
                             .fillMaxSize()
                             .then(if (landscape) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End + WindowInsetsSides.Vertical)) else Modifier)
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
                         content = content,
                     )
                 }
@@ -538,7 +538,9 @@ internal fun PlayerDialogCard(
     scrollable: Boolean = true,
     // v0.294.3：卡片最大宽度——原来 88% 屏宽封顶 480dp，横屏下两个输入框也撑成一大块；
     // 默认收到 420dp，跳过设置等小面板传 360dp，字幕两列面板传 560dp。
-    maxWidth: Dp = 420.dp,
+    // v1.0.8：再收一档——默认 360dp、卡片占屏宽 86%，小面板传 320dp；内边距与
+    // 标题/按钮间距同步压矮，简介/字幕/定时/跳过/磁力五个播放器小弹窗一次全收紧。
+    maxWidth: Dp = 360.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val cardShape = RoundedCornerShape(V5.CornerLgI)
@@ -561,14 +563,14 @@ internal fun PlayerDialogCard(
         Surface(
             modifier = Modifier
                 .align(Alignment.Center)
-                .fillMaxWidth(0.92f)
+                .fillMaxWidth(0.86f)
                 .widthIn(max = maxWidth)
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, cardShape),
             shape = cardShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 0.dp,
         ) {
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 // v0.155.0：标题行右上角常驻关闭键，不用再去底下找取消、也不用硬点遮罩
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -579,13 +581,13 @@ internal fun PlayerDialogCard(
                     )
                     IconButton(
                         onClick = onDismiss,
-                        modifier = Modifier.size(32.dp),
+                        modifier = Modifier.size(28.dp),
                     ) {
                         Icon(
                             Icons.Filled.Close,
                             contentDescription = "关闭",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
@@ -602,7 +604,7 @@ internal fun PlayerDialogCard(
                 ) {
                     content()
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
@@ -1015,10 +1017,11 @@ internal fun SkipSettingsDialog(
     val dur = remember { durationMs().coerceAtLeast(0L) }
 
     // v0.27.0：统一卡片容器；v0.294.3：收窄到 360dp、两个框带「片头」「片尾」标签与“秒”单位并排一行
+    // v1.0.8：再收窄到 320dp、间距与快捷按钮同步压矮（用户反馈“太大了”）
     PlayerDialogCard(
         title = "本剧跳过设置",
         onDismiss = onDismiss,
-        maxWidth = 360.dp,
+        maxWidth = 320.dp,
         buttons = {
             AppButton(text = "取消", onClick = onDismiss, variant = AppButtonVariant.Ghost)
             AppButton(
@@ -1043,7 +1046,7 @@ internal fun SkipSettingsDialog(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             SkipField(
                 label = "片头",
@@ -1080,7 +1083,7 @@ private fun SkipField(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(2.dp))
         AppTextField(
             value = value,
             onValueChange = onValueChange,
@@ -1093,7 +1096,7 @@ private fun SkipField(
             TextButton(
                 onClick = onQuick,
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                modifier = Modifier.height(32.dp),
+                modifier = Modifier.height(28.dp),
             ) {
                 Text(quickLabel, style = MaterialTheme.typography.labelMedium)
             }

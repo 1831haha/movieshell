@@ -286,6 +286,8 @@ fun PlayerScreen(
     val triedEngines = remember { mutableSetOf<PlayerEngine>() }
     // v0.123.0：同一内核重拉流重试计数（补充B：IO 错误先同内核自愈，≤2 次）
     val sameEngineRetries = remember { mutableIntStateOf(0) }
+    // v1.0.8：同一地址是否已试过“清 Referer 重试”（只试一次，换地址重置）
+    var triedNoReferer by remember { mutableStateOf(false) }
     var lastHeaders by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     // v0.96.1：横屏不断流——翻转前快照播放状态，方向变化后若停播则无缝恢复（双引擎通用）
     var rotateWasPlaying by remember { mutableStateOf(false) }
@@ -738,7 +740,8 @@ fun PlayerScreen(
 
     /**
      * v0.186.0 第 5 组：播放失败统一自动链，初始起播失败与播放中错误回调共用。
-     * 顺序固定：同内核重拉（≤2 次）→ 换内核 → 换线路，链耗尽才置 errorMsg
+     * 顺序固定：同内核重拉（≤2 次）→ 自动清 Referer 重试（1 次，仅带 Referer 时，
+     * v1.0.8）→ 换内核 → 换线路，链耗尽才置 errorMsg
      * （点播走错误对话框，直播经 errorMsg 效应走原 onLiveError 切源，语义不变）。
      * 起播提交失败（playCurrentUrl 返回 false）同样计一次同内核重试，
      * 不得直接跳步到换线路；换内核后新内核重新给同内核重试机会，
@@ -761,6 +764,34 @@ fun PlayerScreen(
                     if (isLive) 0L else EngineHost.currentPosition()
                 )
                 if (!ok) handlePlayFailure(msg)
+            }
+            return
+        }
+        // v1.0.8：Referer 导致播不了时自动清一次再试——原来只能在报错弹窗里手动点
+        // “清除 Referer 后重试”，每集都要点一次（2026-11-07 日志实证：douyinvod
+        // 直链带 Referer 回 403、清掉即播 1080p）。放在同内核重拉耗尽后、换内核前：
+        // 同内核重拉已证明“带 Referer 重试没用”，换内核前先试“去掉 Referer”这一招。
+        // 只试一次：起播成功则 lastHeaders 保持无 Referer（本次会话后续重试沿用，
+        // 与手动点那一下的行为一致），并把同内核重试计数清零——无 Referer 的流是新
+        // 的重试对象，播中再失败应重新给两次重拉机会；起播提交失败则恢复原请求头
+        // 再走换内核/换线路。
+        if (!triedNoReferer && !MagnetPlayer.isMagnet(playUrl) &&
+            lastHeaders.containsKey("Referer")
+        ) {
+            triedNoReferer = true
+            val savedHeaders = lastHeaders
+            lastHeaders = lastHeaders - "Referer"
+            LogBus.i("Player", "播放失败，自动清除 Referer 重试：$playUrl")
+            scope.launch {
+                val ok = playCurrentUrl(
+                    if (isLive) 0L else EngineHost.currentPosition()
+                )
+                if (ok) {
+                    sameEngineRetries.intValue = 0
+                } else {
+                    lastHeaders = savedHeaders
+                    handlePlayFailure(msg)
+                }
             }
             return
         }
@@ -857,6 +888,7 @@ fun PlayerScreen(
             triedEngines.clear()
             EngineHost.clearFallbackTriedEngines()
             sameEngineRetries.intValue = 0
+            triedNoReferer = false
             if (playUrl.isNotBlank()) {
                 val resumeAt = HistoryStore.getProgress(context, playUrl)
                     .takeIf { it > RESUME_THRESHOLD_MS } ?: 0L
@@ -2199,7 +2231,8 @@ fun PlayerScreen(
                 properties = DialogProperties(usePlatformDefaultWidth = false),
             ) {
             // v0.294.3：齿轮页改用 PlayerPanel——横屏是右侧抽屉（不再整宽底板盖住画面），竖屏仍是底部面板
-            PlayerPanel(onDismiss = { uiVm.showGearSheet = false }, portraitHeightFraction = 0.75f) {
+            // v1.0.8：竖屏高度 0.75→0.65，面板不再占满下半屏
+            PlayerPanel(onDismiss = { uiVm.showGearSheet = false }, portraitHeightFraction = 0.65f) {
                     PlayerPanelHeader(title = "设置", onDismiss = { uiVm.showGearSheet = false })
                     Column(
                         Modifier
