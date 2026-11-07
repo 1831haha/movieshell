@@ -155,7 +155,7 @@ class MainActivity : ComponentActivity() {
         }
         if (uri != null) {
             pendingSharedImport.value = uri
-            intent.action = null
+            intent?.action = null
         }
     }
 
