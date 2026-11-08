@@ -28,7 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.subtitle.OnlineSubtitle
 import com.movieshell.data.source.subtitle.OnlineSubtitleKit
 import com.movieshell.data.source.subtitle.SubtitleSources

@@ -3,9 +3,9 @@ package com.movieshell.player
 import com.movieshell.util.safeIndex
 
 import android.content.Context
-import com.movieshell.data.model.Episode
-import com.movieshell.data.model.Site
-import com.movieshell.data.repo.LogBus
+import com.movieshell.domain.model.Episode
+import com.movieshell.domain.model.Site
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.MusicApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow

@@ -27,11 +27,11 @@ import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.flv.FlvExtractor
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.repo.SubtitleStyle
-import com.movieshell.data.source.DEFAULT_UA
+import com.movieshell.core.net.DEFAULT_UA
 import com.movieshell.data.source.SniffConfig
 import java.io.File
 import java.io.FileOutputStream

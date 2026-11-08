@@ -1,9 +1,9 @@
 package com.movieshell.data.source
 
-import com.movieshell.data.model.ParseConfig
-import com.movieshell.data.model.SiteConfig
-import com.movieshell.data.model.TvBoxConfig
-import com.movieshell.data.model.WarehouseEntry
+import com.movieshell.domain.model.ParseConfig
+import com.movieshell.domain.model.SiteConfig
+import com.movieshell.domain.model.TvBoxConfig
+import com.movieshell.domain.model.WarehouseEntry
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement

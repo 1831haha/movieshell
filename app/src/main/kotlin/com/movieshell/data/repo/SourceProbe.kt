@@ -1,8 +1,9 @@
 package com.movieshell.data.repo
 
 import android.content.Context
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.CmsApi
-import com.movieshell.data.source.DEFAULT_UA
+import com.movieshell.core.net.DEFAULT_UA
 import com.movieshell.data.source.PyApi
 import com.movieshell.data.source.V8DrpyEngine
 import kotlinx.coroutines.Dispatchers

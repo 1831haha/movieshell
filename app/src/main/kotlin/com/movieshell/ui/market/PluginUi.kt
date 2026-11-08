@@ -19,7 +19,7 @@ import com.movieshell.ui.components.TechDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginMarket.MarketPlugin
 import com.movieshell.ui.components.AppButton

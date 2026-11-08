@@ -32,7 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.SniffPatternStore
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard

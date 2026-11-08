@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.source.CmsApi
-import com.movieshell.data.source.DEFAULT_UA
+import com.movieshell.core.net.DEFAULT_UA
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.CancellationException

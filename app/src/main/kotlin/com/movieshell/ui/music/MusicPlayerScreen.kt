@@ -102,7 +102,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicSource
 import com.movieshell.data.repo.MusicSourceStore

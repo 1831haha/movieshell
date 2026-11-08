@@ -1,7 +1,8 @@
 package com.movieshell.data.repo
 
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.CmsApi
-import com.movieshell.data.source.DEFAULT_UA_WEBKIT
+import com.movieshell.core.net.DEFAULT_UA_WEBKIT
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers

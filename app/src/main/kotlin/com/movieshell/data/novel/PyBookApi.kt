@@ -1,7 +1,7 @@
 package com.movieshell.data.novel
 
 import android.util.Log
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.ChaquopyEngine
 import com.movieshell.data.source.PyEngine
 import kotlinx.serialization.json.Json

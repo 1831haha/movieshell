@@ -1,7 +1,7 @@
 package com.movieshell.data.novel
 
 import android.content.Context
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.CancellationException

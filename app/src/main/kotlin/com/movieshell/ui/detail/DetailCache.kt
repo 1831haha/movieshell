@@ -1,6 +1,6 @@
 package com.movieshell.ui.detail
 
-import com.movieshell.data.model.VodDetail
+import com.movieshell.domain.model.VodDetail
 
 /** v0.294.41：详情页进程内缓存（全屏页返回 / 页面重建时秒开）。最多留 20 条。 */
 internal object DetailCache {

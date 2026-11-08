@@ -9,6 +9,10 @@
 -keep class com.movieshell.data.** { *; }
 -keepclassmembers class com.movieshell.data.** { *; }
 
+# ---------- domain 模型（v1.1.4 分层第 0 批：model 包移入 domain/model，仍需同款 keep） ----------
+-keep class com.movieshell.domain.** { *; }
+-keepclassmembers class com.movieshell.domain.** { *; }
+
 # ---------- kotlinx.serialization ----------
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.**

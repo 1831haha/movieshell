@@ -112,7 +112,7 @@ import com.movieshell.data.repo.EpgFetcher
 import com.movieshell.data.repo.LiveChannel
 import com.movieshell.data.repo.LiveSource
 import com.movieshell.data.repo.LiveStore
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.TrashStore
 import com.movieshell.player.EngineHost
 import com.movieshell.player.PlaySession

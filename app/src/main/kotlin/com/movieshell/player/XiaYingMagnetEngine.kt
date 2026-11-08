@@ -1,7 +1,7 @@
 package com.movieshell.player
 
 import android.content.Context
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async

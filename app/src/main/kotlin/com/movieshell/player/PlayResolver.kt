@@ -2,16 +2,16 @@ package com.movieshell.player
 
 import android.content.Context
 import com.movieshell.ui.components.AppToast
-import com.movieshell.data.model.Episode
-import com.movieshell.data.model.ParseConfig
-import com.movieshell.data.model.Site
-import com.movieshell.data.model.isCmsSite
-import com.movieshell.data.model.isJavaSpider
-import com.movieshell.data.model.isPhpSite
-import com.movieshell.data.model.isPySite
-import com.movieshell.data.model.isType4Site
+import com.movieshell.domain.model.Episode
+import com.movieshell.domain.model.ParseConfig
+import com.movieshell.domain.model.Site
+import com.movieshell.domain.model.isCmsSite
+import com.movieshell.domain.model.isJavaSpider
+import com.movieshell.domain.model.isPhpSite
+import com.movieshell.domain.model.isPySite
+import com.movieshell.domain.model.isType4Site
 import com.movieshell.data.repo.DrpySourceManager
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.PhpCliEngine
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.ParseStore

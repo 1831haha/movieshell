@@ -56,7 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.movieshell.data.model.Novel
+import com.movieshell.domain.model.Novel
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant

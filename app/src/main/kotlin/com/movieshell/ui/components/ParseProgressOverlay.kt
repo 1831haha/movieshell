@@ -36,7 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.model.ParseConfig
+import com.movieshell.domain.model.ParseConfig
 import com.movieshell.data.source.ParseProgressBus
 import kotlinx.coroutines.delay
 

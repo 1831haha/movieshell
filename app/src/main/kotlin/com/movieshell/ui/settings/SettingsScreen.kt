@@ -132,8 +132,8 @@ import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.SubRefreshStore
 import com.movieshell.data.source.JsRuntime
-import com.movieshell.data.repo.CrashHandler
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.CrashHandler
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.LlmClient
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.StoragePaths

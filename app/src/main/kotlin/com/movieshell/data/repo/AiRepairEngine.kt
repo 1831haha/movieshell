@@ -2,7 +2,7 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import com.movieshell.data.source.CmsApi
-import com.movieshell.data.source.DEFAULT_UA
+import com.movieshell.core.net.DEFAULT_UA
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request

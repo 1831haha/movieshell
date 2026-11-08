@@ -6,7 +6,7 @@ import android.util.Base64
 import android.util.Log
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.ui.components.AppToast
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong

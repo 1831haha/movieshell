@@ -2,7 +2,7 @@ package com.movieshell.player
 
 import android.content.Context
 import android.net.Uri
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicStore
 import com.movieshell.ui.components.AppToast

@@ -1,8 +1,8 @@
 package com.movieshell.player
 
 import android.content.Context
-import com.movieshell.data.model.Episode
-import com.movieshell.data.model.PlayLine
+import com.movieshell.domain.model.Episode
+import com.movieshell.domain.model.PlayLine
 
 /**
  * 播放会话（v0.19.0）：详情页进入播放器前写入，播放器内「切线路」/「失败自动重试」时读取。

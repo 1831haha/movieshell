@@ -1,6 +1,6 @@
 package com.movieshell.data.source
 
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull

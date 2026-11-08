@@ -24,7 +24,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.movieshell.data.model.Chapter
+import com.movieshell.domain.model.Chapter
 
 /**
  * v0.244.0：整本连续阅读——滚动模式连续流。

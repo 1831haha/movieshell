@@ -3,7 +3,7 @@ package com.movieshell.ui.search
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.movieshell.data.model.Site
+import com.movieshell.domain.model.Site
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SearchHistoryStore

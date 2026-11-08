@@ -3,7 +3,7 @@ package com.movieshell.player
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.ServicePluginManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay

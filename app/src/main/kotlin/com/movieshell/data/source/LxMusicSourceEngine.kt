@@ -1,7 +1,7 @@
 package com.movieshell.data.source
 
 import android.content.Context
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers

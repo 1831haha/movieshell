@@ -4,7 +4,7 @@ import android.app.Application
 import com.movieshell.ui.components.AppToast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.movieshell.data.model.Novel
+import com.movieshell.domain.model.Novel
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine

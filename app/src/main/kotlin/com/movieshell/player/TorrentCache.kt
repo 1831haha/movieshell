@@ -1,6 +1,6 @@
 package com.movieshell.player
 
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import java.net.HttpURLConnection
 import java.net.URL
 

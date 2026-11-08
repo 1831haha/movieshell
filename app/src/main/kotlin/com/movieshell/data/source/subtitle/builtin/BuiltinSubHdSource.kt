@@ -1,6 +1,6 @@
 package com.movieshell.data.source.subtitle.builtin
 
-import com.movieshell.data.source.DEFAULT_UA_ANDROID10
+import com.movieshell.core.net.DEFAULT_UA_ANDROID10
 import com.movieshell.data.source.subtitle.OnlineSubtitle
 import com.movieshell.data.source.subtitle.SubtitleSource
 import kotlinx.coroutines.Dispatchers

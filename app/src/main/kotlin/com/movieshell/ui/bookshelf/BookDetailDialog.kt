@@ -55,8 +55,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.movieshell.data.model.Chapter
-import com.movieshell.data.model.Novel
+import com.movieshell.domain.model.Chapter
+import com.movieshell.domain.model.Novel
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.BookGroup
@@ -367,7 +367,7 @@ fun BookDetailDialog(
                         .getOrNull()?.getOrNull(newIndex)?.title.orEmpty()
                     com.movieshell.data.repo.ReadingProgressStore.save(
                         context,
-                        com.movieshell.data.model.ReadingProgress(novel.id, newIndex, 0, chapterTitle = newTitle),
+                        com.movieshell.domain.model.ReadingProgress(novel.id, newIndex, 0, chapterTitle = newTitle),
                     )
                 }
                 showChangeSource = false

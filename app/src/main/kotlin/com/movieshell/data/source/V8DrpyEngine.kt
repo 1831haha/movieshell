@@ -2,12 +2,13 @@ package com.movieshell.data.source
 
 import android.content.Context
 import android.util.Base64
-import com.movieshell.data.model.CategoryType
-import com.movieshell.data.model.FilterGroup
-import com.movieshell.data.model.FilterOption
-import com.movieshell.data.model.Vod
-import com.movieshell.data.model.VodDetail
-import com.movieshell.data.repo.LogBus
+import com.movieshell.domain.model.CategoryType
+import com.movieshell.domain.model.FilterGroup
+import com.movieshell.domain.model.FilterOption
+import com.movieshell.domain.model.Vod
+import com.movieshell.domain.model.VodDetail
+import com.movieshell.core.log.LogBus
+import com.movieshell.core.net.HttpClient
 import com.movieshell.data.repo.StoragePaths
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -533,7 +534,7 @@ class V8DrpyEngine(
                 LogBus.w(TAG, "request 预算耗尽，不再发起: $url")
                 return ""
             }
-            if (remainingMs < CmsApi.DRPY_CALL_TIMEOUT_MS) {
+            if (remainingMs < HttpClient.DRPY_CALL_TIMEOUT_MS) {
                 http.newBuilder().callTimeout(remainingMs, TimeUnit.MILLISECONDS).build()
             } else {
                 http

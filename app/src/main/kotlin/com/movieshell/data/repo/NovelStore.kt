@@ -2,9 +2,9 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import android.util.Log
-import com.movieshell.data.model.Chapter
-import com.movieshell.data.model.Novel
-import com.movieshell.data.model.ReadingProgress
+import com.movieshell.domain.model.Chapter
+import com.movieshell.domain.model.Novel
+import com.movieshell.domain.model.ReadingProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock

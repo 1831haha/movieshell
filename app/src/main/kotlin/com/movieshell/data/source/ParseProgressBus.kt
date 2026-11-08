@@ -1,6 +1,6 @@
 package com.movieshell.data.source
 
-import com.movieshell.data.model.ParseConfig
+import com.movieshell.domain.model.ParseConfig
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

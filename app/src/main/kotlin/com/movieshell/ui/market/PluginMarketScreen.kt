@@ -65,7 +65,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginMarket.MarketInfo

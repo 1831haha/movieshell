@@ -83,7 +83,7 @@ import androidx.webkit.ServiceWorkerControllerCompat
 import androidx.webkit.WebViewFeature
 import com.movieshell.data.source.CmsApi
 import com.movieshell.ui.components.TabTopBar
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.SniffCandidate
 import com.movieshell.data.source.SniffConfig
 import com.movieshell.data.source.SniffEngine

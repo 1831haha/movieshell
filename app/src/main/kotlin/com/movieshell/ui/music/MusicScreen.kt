@@ -78,7 +78,7 @@ import coil.compose.AsyncImage
 import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.CapsuleTabBar
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicSettings
 import com.movieshell.player.MusicDownloader

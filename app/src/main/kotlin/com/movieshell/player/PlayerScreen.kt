@@ -15,7 +15,7 @@ import android.os.Build
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.FollowItem
 import com.movieshell.data.repo.FollowStore
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.WebParseSourceManager
 import com.movieshell.data.repo.PlayerEngine

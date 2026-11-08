@@ -1,6 +1,6 @@
 package com.github.catvod.crawler
 
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 
 /**
  * v0.8.0：jar 里 spider 调用的宿主静态日志（dex 实测为 invoke-static）。

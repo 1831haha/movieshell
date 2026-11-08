@@ -1,6 +1,6 @@
 package com.movieshell.player.danmaku
 
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.ServicePluginManager
 import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.CancellationException

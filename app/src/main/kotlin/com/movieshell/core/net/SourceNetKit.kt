@@ -1,4 +1,4 @@
-package com.movieshell.data.source
+package com.movieshell.core.net
 
 import android.util.Log
 import kotlinx.coroutines.CancellationException

@@ -1,9 +1,10 @@
 package com.movieshell.data.repo
 
 import android.content.Context
-import com.movieshell.data.model.CategoryType
-import com.movieshell.data.model.Vod
-import com.movieshell.data.model.VodDetail
+import com.movieshell.core.log.LogBus
+import com.movieshell.domain.model.CategoryType
+import com.movieshell.domain.model.Vod
+import com.movieshell.domain.model.VodDetail
 import com.movieshell.data.source.Type4Api
 import com.movieshell.data.source.Type4PlayResult
 import java.io.File

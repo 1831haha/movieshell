@@ -31,8 +31,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.model.Site
-import com.movieshell.data.model.Vod as ModelVod
+import com.movieshell.domain.model.Site
+import com.movieshell.domain.model.Vod as ModelVod
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.SiteRepository

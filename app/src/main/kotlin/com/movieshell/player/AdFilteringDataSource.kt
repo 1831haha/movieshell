@@ -4,7 +4,7 @@ import androidx.media3.common.C
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import java.io.ByteArrayInputStream
 
 /**

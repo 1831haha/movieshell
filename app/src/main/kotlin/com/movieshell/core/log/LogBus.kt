@@ -1,4 +1,4 @@
-package com.movieshell.data.repo
+package com.movieshell.core.log
 
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow

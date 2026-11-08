@@ -11,7 +11,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.movieshell.data.download.Notify
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.ProbeRecord
 import com.movieshell.data.repo.ProbeReport
 import com.movieshell.data.repo.SourceProbe

@@ -1,8 +1,8 @@
 package com.movieshell.data.repo
 
 import android.content.Context
-import com.movieshell.data.model.Site
-import com.movieshell.data.model.isSubSite
+import com.movieshell.domain.model.Site
+import com.movieshell.domain.model.isSubSite
 
 /**
  * 详情页站点路由参数（B1 修复的单一入口）。

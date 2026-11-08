@@ -2,12 +2,13 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import android.util.Log
-import com.movieshell.data.model.ParseConfig
-import com.movieshell.data.model.Site
-import com.movieshell.data.model.SubSiteKeyPrefix
-import com.movieshell.data.model.WarehouseEntry
+import com.movieshell.core.log.LogBus
+import com.movieshell.domain.model.ParseConfig
+import com.movieshell.domain.model.Site
+import com.movieshell.domain.model.SubSiteKeyPrefix
+import com.movieshell.domain.model.WarehouseEntry
 import com.movieshell.data.source.CmsApi
-import com.movieshell.data.source.DEFAULT_UA
+import com.movieshell.core.net.DEFAULT_UA
 import com.movieshell.data.source.TvBoxConfigParser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -92,7 +93,7 @@ data class SubCache(
     /** v0.294.7（M1）：订阅顶层 flags（VIP 线路标识，命中即走解析） */
     val flags: List<String> = emptyList(),
     /** v0.294.7（M6）：订阅顶层 rules / ads */
-    val sniffRules: List<com.movieshell.data.source.SniffHostRule> = emptyList(),
+    val sniffRules: List<com.movieshell.domain.model.SniffHostRule> = emptyList(),
     val ads: List<String> = emptyList(),
 )
 
@@ -248,7 +249,7 @@ object SubSiteStore {
         getCached(context, subUrl)?.flags.orEmpty()
 
     /** v0.294.7（M6）：全部订阅的嗅探规则与广告域名汇总。 */
-    fun allSniffRules(context: Context): Pair<List<com.movieshell.data.source.SniffHostRule>, List<String>> {
+    fun allSniffRules(context: Context): Pair<List<com.movieshell.domain.model.SniffHostRule>, List<String>> {
         val all = loadAll(context).values
         return all.flatMap { it.sniffRules } to all.flatMap { it.ads }.distinct()
     }
@@ -503,7 +504,7 @@ object SubSiteStore {
         context: Context,
         subUrl: String,
         baseUri: URI,
-        sc: com.movieshell.data.model.SiteConfig,
+        sc: com.movieshell.domain.model.SiteConfig,
     ): SubSiteRecord? {
         val api = sc.api.trim()
         val ext = sc.ext.trim()

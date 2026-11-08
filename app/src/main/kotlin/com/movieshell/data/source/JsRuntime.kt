@@ -5,7 +5,7 @@ import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.javascriptengine.JavaScriptSandbox
 import com.google.common.util.concurrent.ListenableFuture
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.TimeUnit

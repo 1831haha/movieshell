@@ -1,8 +1,8 @@
 package com.movieshell.data.repo
 
 import android.content.Context
-import com.movieshell.data.model.CategoryType
-import com.movieshell.data.model.Vod
+import com.movieshell.domain.model.CategoryType
+import com.movieshell.domain.model.Vod
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File

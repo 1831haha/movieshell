@@ -1,8 +1,8 @@
 package com.movieshell.data.repo
 
 import android.content.Context
-import com.movieshell.data.model.Chapter
-import com.movieshell.data.model.Novel
+import com.movieshell.domain.model.Chapter
+import com.movieshell.domain.model.Novel
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.ChapterMeta
 import com.movieshell.data.novel.NovelSearchResult

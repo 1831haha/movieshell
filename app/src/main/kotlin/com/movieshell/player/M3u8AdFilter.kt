@@ -1,6 +1,6 @@
 package com.movieshell.player
 
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 
 /**
  * v0.18.0：m3u8 去广告过滤器（URI 关键词版）。

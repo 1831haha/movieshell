@@ -103,10 +103,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.model.PlayLine
+import com.movieshell.domain.model.PlayLine
 import com.movieshell.data.repo.DownloadSettings
 import com.movieshell.data.repo.DownloadStore
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.SubtitleStyle
 import com.movieshell.ui.components.AppButton

@@ -11,7 +11,7 @@ import com.movieshell.data.repo.AtomicFile
 import com.movieshell.data.repo.DlStatus
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.data.repo.DownloadTask
-import com.movieshell.data.source.DEFAULT_UA
+import com.movieshell.core.net.DEFAULT_UA
 import com.movieshell.player.M3u8AdFilter
 import com.movieshell.player.SniffPlayHeaders
 import kotlinx.coroutines.Dispatchers

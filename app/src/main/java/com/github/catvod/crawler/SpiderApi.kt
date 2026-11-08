@@ -6,7 +6,7 @@ import android.os.Looper
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.google.gson.JsonArray
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.CmsApi
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType

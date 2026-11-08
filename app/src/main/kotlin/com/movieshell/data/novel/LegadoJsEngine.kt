@@ -1,9 +1,9 @@
 package com.movieshell.data.novel
 
 import android.util.Log
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.CmsApi
-import com.movieshell.data.source.DEFAULT_UA_CHROME120
+import com.movieshell.core.net.DEFAULT_UA_CHROME120
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType

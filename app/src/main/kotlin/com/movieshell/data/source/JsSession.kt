@@ -7,7 +7,7 @@ import androidx.javascriptengine.JavaScriptSandbox
 import androidx.javascriptengine.Message
 import androidx.javascriptengine.MessagePort
 import com.google.common.util.concurrent.ListenableFuture
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

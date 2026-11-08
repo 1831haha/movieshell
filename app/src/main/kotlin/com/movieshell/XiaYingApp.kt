@@ -7,8 +7,8 @@ import com.movieshell.data.maintain.CacheAutoClean
 import com.movieshell.data.novel.LegadoJsEngine
 import com.movieshell.data.novel.NovelMigration
 import com.movieshell.data.novel.NovelUpdateWorker
-import com.movieshell.data.repo.CrashHandler
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.CrashHandler
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.ServicePluginManager
 import com.movieshell.data.repo.SpiderEngine

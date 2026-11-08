@@ -1,6 +1,6 @@
 package com.movieshell.data.source
 
-import com.movieshell.data.model.ParseConfig
+import com.movieshell.domain.model.ParseConfig
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer

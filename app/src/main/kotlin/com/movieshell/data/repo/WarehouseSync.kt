@@ -1,7 +1,8 @@
 package com.movieshell.data.repo
 
 import android.content.Context
-import com.movieshell.data.model.WarehouseEntry
+import com.movieshell.core.log.LogBus
+import com.movieshell.domain.model.WarehouseEntry
 
 /**
  * v0.122.0：多仓子仓订阅记录同步（单一入口，站源页刷新与自动刷新 Worker 共用）。

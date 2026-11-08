@@ -12,7 +12,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicHistoryStore
 import com.movieshell.data.repo.MusicSourceStore

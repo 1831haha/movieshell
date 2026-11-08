@@ -1,8 +1,9 @@
 package com.movieshell.data.repo
 
 import android.content.Context
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.CmsApi
-import com.movieshell.data.source.DEFAULT_UA_BARE
+import com.movieshell.core.net.DEFAULT_UA_BARE
 import okhttp3.Request
 import java.io.File
 import java.net.URI

@@ -2,14 +2,15 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import android.util.Log
-import com.movieshell.data.model.CategoryType
-import com.movieshell.data.model.FilterGroup
-import com.movieshell.data.model.Site
-import com.movieshell.data.model.Vod
-import com.movieshell.data.model.VodDetail
-import com.movieshell.data.model.isDrpySite
-import com.movieshell.data.model.isPySite
-import com.movieshell.data.model.isSubSite
+import com.movieshell.core.log.LogBus
+import com.movieshell.domain.model.CategoryType
+import com.movieshell.domain.model.FilterGroup
+import com.movieshell.domain.model.Site
+import com.movieshell.domain.model.Vod
+import com.movieshell.domain.model.VodDetail
+import com.movieshell.domain.model.isDrpySite
+import com.movieshell.domain.model.isPySite
+import com.movieshell.domain.model.isSubSite
 import com.movieshell.data.source.ChaquopyEngine
 import com.movieshell.data.source.DrpyEngine
 import com.movieshell.data.source.PyApi

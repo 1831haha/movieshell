@@ -6,7 +6,7 @@ import android.net.Uri
 import android.os.SystemClock
 import androidx.media3.common.PlaybackException
 import androidx.media3.ui.PlayerView
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.PlayerEngine
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.repo.SubtitleStyle

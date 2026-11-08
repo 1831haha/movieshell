@@ -76,7 +76,7 @@ import com.movieshell.data.repo.RuleInfo
 import com.movieshell.data.repo.ApiSourceStore
 import com.movieshell.data.repo.DrpySourceManager
 import com.movieshell.data.repo.HomeSettings
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.PhpSourceManager
 import com.movieshell.data.repo.PySourceManager
 import com.movieshell.data.repo.WebParseSourceManager

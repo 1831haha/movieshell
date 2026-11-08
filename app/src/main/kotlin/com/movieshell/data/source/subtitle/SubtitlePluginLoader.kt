@@ -1,7 +1,7 @@
 package com.movieshell.data.source.subtitle
 
 import android.content.Context
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.subtitle.SubtitleSource
 import dalvik.system.DexClassLoader
 import java.io.File

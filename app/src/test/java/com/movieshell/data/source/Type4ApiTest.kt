@@ -1,6 +1,6 @@
 package com.movieshell.data.source
 
-import com.movieshell.data.model.Site
+import com.movieshell.domain.model.Site
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int

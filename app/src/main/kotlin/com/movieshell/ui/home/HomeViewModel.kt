@@ -3,8 +3,8 @@ package com.movieshell.ui.home
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.movieshell.data.model.CategoryType
-import com.movieshell.data.model.Vod as ModelVod
+import com.movieshell.domain.model.CategoryType
+import com.movieshell.domain.model.Vod as ModelVod
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch

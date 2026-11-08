@@ -8,7 +8,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import coil.imageLoader
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import java.io.File
 import java.util.concurrent.TimeUnit
 

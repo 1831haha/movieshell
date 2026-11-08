@@ -1,7 +1,7 @@
 package com.movieshell.player
 
 import android.content.Context
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import java.io.File
 
 /**

@@ -1,8 +1,8 @@
 package com.movieshell.data.source
 
 import android.content.Context
-import com.movieshell.data.model.ParseConfig
-import com.movieshell.data.repo.LogBus
+import com.movieshell.domain.model.ParseConfig
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.ParseStore
 import com.movieshell.player.SniffPlayHeaders
 import kotlinx.coroutines.CancellationException

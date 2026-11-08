@@ -1,8 +1,8 @@
 package com.movieshell.data.source
 
 import android.content.Context
-import com.movieshell.data.repo.LogBus
-import kotlinx.serialization.Serializable
+import com.movieshell.core.log.LogBus
+import com.movieshell.domain.model.SniffHostRule
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -23,15 +23,6 @@ import kotlinx.serialization.json.contentOrNull
  * - `script`（字符串或数组）：命中域名的页面在后台嗅探时轮询执行，返回 http 地址即为结果；
  * - host 支持 `*` 通配（如 `.cdnlz*`）。
  */
-@Serializable
-data class SniffHostRule(
-    val name: String = "",
-    val hosts: List<String> = emptyList(),
-    val regex: List<String> = emptyList(),
-    val exclude: List<String> = emptyList(),
-    val script: List<String> = emptyList(),
-)
-
 object SniffRules {
 
     private class Compiled(

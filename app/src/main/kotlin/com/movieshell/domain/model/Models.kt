@@ -1,4 +1,4 @@
-package com.movieshell.data.model
+package com.movieshell.domain.model
 
 import kotlinx.serialization.Serializable
 
@@ -24,7 +24,7 @@ data class TvBoxConfig(
     val flags: List<String> = emptyList(),
     val spider: String = "",
     /** v0.294.7（M6）：订阅顶层嗅探规则 / 广告域名 */
-    val rules: List<com.movieshell.data.source.SniffHostRule> = emptyList(),
+    val rules: List<SniffHostRule> = emptyList(),
     val ads: List<String> = emptyList(),
 )
 
@@ -233,3 +233,17 @@ const val SubSiteKeyPrefix = "sub:"
 const val WebParseSiteKeyPrefix = "webparse:"
 
 fun Site.isWebParseSite(): Boolean = key.startsWith(WebParseSiteKeyPrefix)
+
+/**
+ * v0.294.7（M6）：订阅顶层 `rules` 单条嗅探规则（FongMi 口径）。
+ * v1.1.4 分层第 0 批：从 data/source/SniffRules.kt 移入 domain/model（纯 @Serializable 模型，
+ * TvBoxConfig.rules 与 SubSiteStore 都依赖它，模型层自洽、不反向依赖 data 层）。
+ */
+@Serializable
+data class SniffHostRule(
+    val name: String = "",
+    val hosts: List<String> = emptyList(),
+    val regex: List<String> = emptyList(),
+    val exclude: List<String> = emptyList(),
+    val script: List<String> = emptyList(),
+)

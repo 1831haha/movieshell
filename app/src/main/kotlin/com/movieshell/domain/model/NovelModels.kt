@@ -1,4 +1,4 @@
-package com.movieshell.data.model
+package com.movieshell.domain.model
 
 import kotlinx.serialization.Serializable
 

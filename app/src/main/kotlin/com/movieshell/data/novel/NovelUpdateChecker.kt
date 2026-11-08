@@ -2,8 +2,8 @@ package com.movieshell.data.novel
 
 import android.content.Context
 import android.util.Log
-import com.movieshell.data.model.Chapter
-import com.movieshell.data.model.Novel
+import com.movieshell.domain.model.Chapter
+import com.movieshell.domain.model.Novel
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.ReadingProgressStore
 import kotlinx.coroutines.CancellationException

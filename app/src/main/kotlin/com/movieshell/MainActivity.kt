@@ -67,7 +67,7 @@ import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.repo.LiveStore
 import com.movieshell.data.repo.PluginStore
 import com.movieshell.data.repo.SourceStateStore
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.NovelDirectoryFill
 import com.movieshell.data.repo.NovelStore

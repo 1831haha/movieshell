@@ -1,6 +1,7 @@
 package com.movieshell.data.source
 
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
+import com.movieshell.core.net.DEFAULT_UA_CHROME120
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext

@@ -97,9 +97,9 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.movieshell.data.model.Chapter
-import com.movieshell.data.model.Novel
-import com.movieshell.data.model.ReadingProgress
+import com.movieshell.domain.model.Chapter
+import com.movieshell.domain.model.Novel
+import com.movieshell.domain.model.ReadingProgress
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.ChapterMeta
 import com.movieshell.data.novel.NovelPurifyEngine
@@ -108,7 +108,7 @@ import com.movieshell.data.novel.PurifyRuleStore
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.Bookmark
 import com.movieshell.data.repo.BookmarkStore
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.ReaderSettings
 import com.movieshell.data.repo.ReadingProgressStore

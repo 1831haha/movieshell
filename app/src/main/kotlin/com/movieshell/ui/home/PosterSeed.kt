@@ -8,7 +8,7 @@ import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.materialkolor.quantize.QuantizerCelebi
 import com.materialkolor.score.Score
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

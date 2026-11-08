@@ -1,9 +1,10 @@
-package com.movieshell.data.repo
+package com.movieshell.core.log
 
 import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.movieshell.BuildConfig
+import com.movieshell.data.repo.StoragePaths
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date

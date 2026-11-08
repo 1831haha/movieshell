@@ -1,7 +1,7 @@
 package com.movieshell.data.repo
 
 import com.movieshell.data.source.CmsApi
-import com.movieshell.data.source.DEFAULT_UA_SHORT
+import com.movieshell.core.net.DEFAULT_UA_SHORT
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive

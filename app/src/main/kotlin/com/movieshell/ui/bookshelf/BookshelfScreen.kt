@@ -96,8 +96,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.movieshell.data.model.Novel
-import com.movieshell.data.model.ReadingProgress
+import com.movieshell.domain.model.Novel
+import com.movieshell.domain.model.ReadingProgress
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.NovelUpdateChecker

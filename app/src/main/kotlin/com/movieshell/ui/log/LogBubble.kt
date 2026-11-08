@@ -51,7 +51,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.repo.AtomicFile
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.player.PlayerManager

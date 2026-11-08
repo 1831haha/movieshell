@@ -1,8 +1,8 @@
 package com.movieshell.data.source
 
-import com.movieshell.data.model.CategoryType
-import com.movieshell.data.model.Vod
-import com.movieshell.data.model.VodDetail
+import com.movieshell.domain.model.CategoryType
+import com.movieshell.domain.model.Vod
+import com.movieshell.domain.model.VodDetail
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive

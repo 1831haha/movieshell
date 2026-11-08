@@ -3,7 +3,7 @@ package com.movieshell.ui.reader
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Constraints
-import com.movieshell.data.model.Chapter
+import com.movieshell.domain.model.Chapter
 
 /**
  * v0.244.0：整本连续阅读——全局分页模型。

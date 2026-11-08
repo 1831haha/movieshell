@@ -3,7 +3,7 @@ package com.movieshell.ui.music
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.movieshell.data.repo.LogBus
+import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.MusicApi
 import com.movieshell.data.repo.MusicHistoryStore
 import com.movieshell.data.repo.MusicSettings
