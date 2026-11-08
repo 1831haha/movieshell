@@ -181,12 +181,26 @@ object HttpClient {
             }.onFailure { LogBus.w(TAG, "Cookie 读回失败: ${it.message}") }
         }
 
+        /**
+         * v1.1.8 修：按名合并，不再整 host 覆盖。
+         * 旧语义（v0.112.0 只修了"无 Set-Cookie 不覆盖"）是整 host 换成
+         * 本次回包的 cookie——Cloudflare 站每次回包都带 __cf_bm，
+         * 回一次就把验证通道桥接进来的 cf_clearance/登录 cookie 从内存
+         * 和盘上一起挤掉；盘上快照只剩最后一次回包的 cookie，重启读回
+         * 就是残的（v1.1.6 验收"Cookie 重启后还登着"挂的真因）。
+         * 新语义与 put() 同款：同名（name+domain+path）覆盖、过期项删除。
+         */
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-            if (cookies.isNotEmpty()) {
-                store[url.host] = CookieEntry(cookies, System.currentTimeMillis())
-                if (store.size > maxHosts) evictOldest()
-                persist()
-            }
+            if (cookies.isEmpty()) return
+            val host = url.host
+            val now = System.currentTimeMillis()
+            val old = store[host]?.cookies.orEmpty()
+            val merged = old.filter { o ->
+                cookies.none { it.name == o.name && it.domain == o.domain && it.path == o.path }
+            } + cookies.filter { it.expiresAt > now }
+            store[host] = CookieEntry(merged, now)
+            if (store.size > maxHosts) evictOldest()
+            persist()
         }
 
         override fun loadForRequest(url: HttpUrl): List<Cookie> {
