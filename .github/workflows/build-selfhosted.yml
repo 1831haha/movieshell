@@ -21,19 +21,29 @@ jobs:
       JAVA_HOME: C:\Users\Administrator\movieshell-build\jdk-17.0.2
       GRADLE_HOME: C:\Users\Administrator\movieshell-build\gradle-8.7
       CHAQUOPY_PYTHON: C:\Users\Administrator\movieshell-build\python310\python.exe
+      # JVM 不读 HTTP_PROXY 环境变量，Gradle 走代理必须显式传系统属性（依赖首次下载用）
+      GRADLE_OPTS: -Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=65532 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=65532
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 注意：Windows PowerShell 5.1 的 Out-File -Encoding utf8 会写 BOM，
+      # 让 GITHUB_PATH 首行路径失效；这里统一用 ascii（路径全英文）+ 显式换行。
       - name: Add toolchain to PATH
         run: |
-          "$env:JAVA_HOME\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "$env:GRADLE_HOME\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "$env:ANDROID_HOME\platform-tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          Split-Path $env:CHAQUOPY_PYTHON | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $lines = @(
+            "$env:JAVA_HOME\bin",
+            "$env:GRADLE_HOME\bin",
+            "$env:ANDROID_HOME\platform-tools",
+            (Split-Path $env:CHAQUOPY_PYTHON)
+          )
+          [IO.File]::AppendAllText($env:GITHUB_PATH, ($lines -join "`r`n") + "`r`n", (New-Object Text.UTF8Encoding $false))
 
+      # 诊断步骤：java -version 在 Windows PowerShell 里写 stderr 会被判 exit 1，
+      # 不能让诊断失败拦住构建，故 continue-on-error。
       - name: Check toolchain
+        continue-on-error: true
         run: |
           java -version 2>&1
           gradle --version
