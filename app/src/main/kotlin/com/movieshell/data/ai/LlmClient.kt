@@ -101,7 +101,9 @@ object LlmClient {
             return@withContext ChatResult.Fail(visionHint(model))
         } else {
             val bytes = runCatching { java.io.File(imagePath).readBytes() }.getOrNull()
-            if (bytes.isNullOrEmpty()) {
+            // ByteArray 没有 isNullOrEmpty()（stdlib 只给 Array/Collection/Map/CharSequence），
+            // v1.1.11 首轮云构建 #576 同款报错修法。
+            if (bytes == null || bytes.isEmpty()) {
                 return@withContext ChatResult.Fail("图片文件找不到了，请重新选图再发")
             }
             java.util.Base64.getEncoder().encodeToString(bytes)
