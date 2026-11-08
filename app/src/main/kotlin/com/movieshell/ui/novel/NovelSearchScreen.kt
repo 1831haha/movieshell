@@ -69,7 +69,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.novel.BookSourceManager
-import com.movieshell.data.novel.NovelSearchResult
+import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.NovelStore
 import kotlinx.coroutines.launch

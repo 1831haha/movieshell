@@ -4,6 +4,8 @@ import android.util.Log
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.ChaquopyEngine
 import com.movieshell.data.source.PyEngine
+import com.movieshell.domain.model.ChapterMeta
+import com.movieshell.domain.model.NovelSearchResult
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject

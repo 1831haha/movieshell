@@ -8,6 +8,9 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -106,10 +109,83 @@ object HttpClient {
         private val store = ConcurrentHashMap<String, CookieEntry>()
         private val maxHosts = 200
 
+        /**
+         * v1.1.6 反爬吸收项：Cookie 落盘文件（filesDir/http_cookies.json）。
+         * App 启动时调 initFile 读回；每次写入后落盘——登录一次，杀进程重启
+         * 后仍是登录态（含验证通道拿到的 cf_clearance）。
+         */
+        private var cookieFile: File? = null
+
+        fun initFile(f: File) {
+            cookieFile = f
+            restore()
+        }
+
+        /** 落盘：全量快照（host 上限 200，文件很小；写失败只记日志，不影响请求）。 */
+        private fun persist() {
+            val f = cookieFile ?: return
+            runCatching {
+                val root = JSONObject()
+                store.forEach { (host, e) ->
+                    val arr = JSONArray()
+                    e.cookies.forEach { c ->
+                        arr.put(
+                            JSONObject().apply {
+                                put("n", c.name)
+                                put("v", c.value)
+                                put("d", c.domain)
+                                put("p", c.path)
+                                put("e", c.expiresAt)
+                                put("s", c.secure)
+                                put("h", c.httpOnly)
+                                put("o", c.hostOnly)
+                            },
+                        )
+                    }
+                    root.put(host, arr)
+                }
+                f.writeText(root.toString())
+            }.onFailure { LogBus.w(TAG, "Cookie 落盘失败: ${it.message}") }
+        }
+
+        /** 读回：过期项丢弃；与启动后已写入的同名 Cookie 合并（不覆盖新值）。 */
+        private fun restore() {
+            val f = cookieFile ?: return
+            runCatching {
+                if (!f.exists()) return
+                val root = JSONObject(f.readText())
+                val now = System.currentTimeMillis()
+                root.keys().forEach { host ->
+                    val arr = root.optJSONArray(host) ?: return@forEach
+                    val cookies = (0 until arr.length()).mapNotNull { i ->
+                        val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                        runCatching {
+                            val b = Cookie.Builder()
+                                .name(o.optString("n"))
+                                .value(o.optString("v"))
+                                .path(o.optString("p", "/"))
+                                .expiresAt(o.optLong("e", 0L))
+                            if (o.optBoolean("s", false)) b.secure()
+                            if (o.optBoolean("h", false)) b.httpOnly()
+                            if (o.optBoolean("o", false)) b.hostOnlyDomain(o.optString("d"))
+                            else b.domain(o.optString("d"))
+                            b.build()
+                        }.getOrNull()
+                    }.filter { it.expiresAt > now }
+                    if (cookies.isNotEmpty()) {
+                        val old = store[host]?.cookies.orEmpty()
+                        val merged = old.filter { o -> cookies.none { it.name == o.name } } + cookies
+                        store[host] = CookieEntry(merged, now)
+                    }
+                }
+            }.onFailure { LogBus.w(TAG, "Cookie 读回失败: ${it.message}") }
+        }
+
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
             if (cookies.isNotEmpty()) {
                 store[url.host] = CookieEntry(cookies, System.currentTimeMillis())
                 if (store.size > maxHosts) evictOldest()
+                persist()
             }
         }
 
@@ -138,12 +214,22 @@ object HttpClient {
             val old = store[host]?.cookies.orEmpty()
             val merged = old.filter { o -> cookies.none { it.name == o.name } } + cookies
             store[host] = CookieEntry(merged, System.currentTimeMillis())
+            persist()
         }
 
         /** v0.201.0：清掉某 host 的全部 Cookie（验证重进时不带旧 Cookie）。 */
         fun clear(host: String) {
             store.remove(host)
+            persist()
         }
+    }
+
+    /**
+     * v1.1.6 反爬吸收项：Cookie 落盘初始化——App 启动时调一次（XiaYingApp，
+     * 与 SourceVariableStore.init 同处），读回上次的登录态。
+     */
+    fun initCookies(filesDir: File) {
+        memoryCookieJar.initFile(File(filesDir, "http_cookies.json"))
     }
 
     /**

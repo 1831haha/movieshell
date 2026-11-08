@@ -1,9 +1,12 @@
-package com.movieshell.data.novel
+package com.movieshell.core.js
 
 import android.util.Log
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.source.CmsApi
 import com.movieshell.core.net.DEFAULT_UA_CHROME120
+import com.movieshell.core.net.HttpClient
+import com.movieshell.core.net.PageResult
+import com.movieshell.core.net.buildSearchRequest
+import com.movieshell.core.net.decodeBytes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -43,7 +46,8 @@ import javax.crypto.spec.SecretKeySpec
  *
  * v1 范围：搜索/目录/正文三条链 + searchUrl JS + loginCheckJs + 源变量 + 正文/目录分页。
  * 不在 v1：发现页（书架无入口）、详情封面 JS（侠影不单独拉详情页）、jsLib、
- * WebView 验证（startBrowserAwait 走 VerifyGate 全屏 WebView 验证通道，见 VerifyGateDialog）。
+ * WebView 验证（startBrowserAwait 走注入的 onVerifyRequested，数据层接 VerifyGate
+ * 全屏 WebView 验证通道，见 VerifyGateDialog）。
  * 源变量落盘（filesDir/novel_source_vars.json），重启后重定向域名记忆仍在。
  *
  * 调用约束：Rhino 求值与 java.ajax 都是同步阻塞，调用方必须在 IO 线程
@@ -52,6 +56,15 @@ import javax.crypto.spec.SecretKeySpec
 object LegadoJsEngine {
 
     private const val TAG = "LegadoJs"
+
+    /**
+     * v1.1.6 分层第 2 批：验证通道注入——core/js 不能依赖 data 层的 VerifyGate
+     * （全屏 WebView 验证流程），由 App 启动时在数据层接上（XiaYingApp）。
+     * 未接上时 startBrowserAwait 直接回空响应，与原验证失败路径一致。
+     */
+    data class JsVerifyResult(val html: String, val url: String, val cookieHeader: String)
+
+    var onVerifyRequested: (suspend (url: String, title: String, ua: String?) -> JsVerifyResult?)? = null
 
     /** 单次求值指令上限（内容 JS 含上百条替换，放宽到 1000 万，死循环仍会被截停）。 */
     private const val INSTRUCTION_LIMIT = 10_000_000
@@ -97,14 +110,14 @@ object LegadoJsEngine {
     class JsState(val sourceKey: String) {
         /** java.getString / setContent 操作的当前页面源码。 */
         var currentSrc: String = ""
-        var lastPage: BookRuleEngine.PageResult? = null
+        var lastPage: PageResult? = null
         var baseUrl: String = ""
         var variableChanged: Boolean = false
     }
 
     /** 规则求值的上下文。 */
     data class JsCtx(
-        val source: BookSource,
+        val source: JsRuleSource,
         val baseUrl: String,
         val bookName: String = "",
         val bookUrl: String = "",
@@ -127,7 +140,7 @@ object LegadoJsEngine {
     /** cookie 桥：清掉该地址 host 在 OkHttp Jar 与 WebView 里的 Cookie（验证重进用）。 */
     class CookieBridge {
         fun removeCookie(url: String) {
-            CmsApi.clearCookies(url)
+            HttpClient.clearCookies(url)
         }
     }
 
@@ -160,7 +173,7 @@ object LegadoJsEngine {
     }
 
     class JavaBridge(private val state: JsState, private val ua: String?) {
-        private val client = CmsApi.defaultClient()
+        private val client = HttpClient.defaultClient()
 
         /** 同步抓取，返回正文；同时记 lastPage（供 getStrResponse）。 */
         fun ajax(url: String): String {
@@ -209,13 +222,19 @@ object LegadoJsEngine {
          * v0.201.0：Cloudflare/WebView 验证——在 IO 线程挂起等用户在全屏
          * WebView 里完成验证（最长 180 秒），拿到 HTML 后把 Cookie 回写共享 Jar，
          * 返回验证后的响应；超时/取消返回空响应，规则求值按空结果处理。
+         * v1.1.6：验证通道改走注入的 onVerifyRequested（core 不依赖 VerifyGate）。
          */
         fun startBrowserAwait(url: String, title: String): StrResponse {
-            val result = runCatching {
-                kotlinx.coroutines.runBlocking { VerifyGate.awaitVerify(url, title, ua) }
-            }.getOrNull() ?: return StrResponse("", url)
+            val verify = onVerifyRequested
+            val result = if (verify == null) {
+                null
+            } else {
+                runCatching {
+                    kotlinx.coroutines.runBlocking { verify(url, title, ua) }
+                }.getOrNull()
+            } ?: return StrResponse("", url)
             if (result.cookieHeader.isNotBlank()) {
-                CmsApi.putCookies(result.url, result.cookieHeader)
+                HttpClient.putCookies(result.url, result.cookieHeader)
             }
             return StrResponse(result.html, result.url)
         }
@@ -233,8 +252,8 @@ object LegadoJsEngine {
          * 原始请求：URL 可带 ,{...} 选项（方法/表单体/编码/附加头）。
          * 注意：表单体按原样发（JS 里已拼好 key/page，不做 {{}} 替换）。
          */
-        fun fetchRaw(urlWithOptions: String): BookRuleEngine.PageResult? {
-            val req = BookRuleEngine.buildSearchRequest(urlWithOptions, "")
+        fun fetchRaw(urlWithOptions: String): PageResult? {
+            val req = buildSearchRequest(urlWithOptions, "")
             return runCatching {
                 val builder = Request.Builder()
                     .url(req.url)
@@ -252,8 +271,8 @@ object LegadoJsEngine {
                 client.newCall(builder.build()).execute().use { resp ->
                     if (!resp.isSuccessful) return null
                     val bytes = resp.body?.bytes() ?: return null
-                    BookRuleEngine.PageResult(
-                        BookRuleEngine.decodeBytes(bytes),
+                    PageResult(
+                        decodeBytes(bytes),
                         resp.request.url.toString(),
                     )
                 }
@@ -278,7 +297,7 @@ object LegadoJsEngine {
             // 整段求值失败又只记系统 Log，搜书就静默空；改走 ES6 并记进悬浮窗。
             cx.setLanguageVersion(Context.VERSION_ES6)
             cx.setClassShutter(ClassShutter { name ->
-                name.startsWith("com.movieshell.data.novel.") ||
+                name.startsWith("com.movieshell.core.js.") ||
                     name == "java.lang.String" || name == "java.lang.Integer" ||
                     name == "java.lang.Double" || name == "java.lang.Long" ||
                     name == "java.lang.Boolean"
@@ -323,7 +342,7 @@ object LegadoJsEngine {
     }
 
     /** v0.200.0：jsLib 前置代码（内联形式；URL 形式暂不支持，返回空）。 */
-    fun jsLibPrelude(source: BookSource): String {
+    fun jsLibPrelude(source: JsRuleSource): String {
         val lib = source.jsLib
         return if (lib.startsWith("http")) "" else lib
     }
@@ -720,12 +739,12 @@ object LegadoJsEngine {
      * 对应原版注释“自动验证成功后重新获取 / 搜索时重定向新网址需要重新获取搜索内容”。
      */
     suspend fun runLoginCheck(
-        source: BookSource,
-        page: BookRuleEngine.PageResult,
+        source: JsRuleSource,
+        page: PageResult,
         ctx: JsCtx,
         state: JsState,
-        refetch: (suspend () -> BookRuleEngine.PageResult?)?,
-    ): BookRuleEngine.PageResult = withContext(Dispatchers.IO) {
+        refetch: (suspend () -> PageResult?)?,
+    ): PageResult = withContext(Dispatchers.IO) {
         // v0.217.0（F50）：Rhino 求值与 java.ajax 都是同步阻塞，调用约束原来
         // 只写在注释里（“调用方必须在 IO 线程”），UI 触发的新调用点一旦
         // 漏包 IO 就直接在主线程跑校验；入口自己包进 IO，已包过的调用点
@@ -742,10 +761,10 @@ object LegadoJsEngine {
         )
         var resultPage = page
         when (out) {
-            is StrResponse -> resultPage = BookRuleEngine.PageResult(out.body(), out.url())
+            is StrResponse -> resultPage = PageResult(out.body(), out.url())
             is NativeJavaObject -> {
                 (out.unwrap() as? StrResponse)?.let {
-                    resultPage = BookRuleEngine.PageResult(it.body(), it.url())
+                    resultPage = PageResult(it.body(), it.url())
                 }
             }
             is String -> if (out.isNotBlank()) resultPage = page.copy(body = out)
@@ -815,7 +834,7 @@ object LegadoJsEngine {
     }
 
     /** 该源是否用到 JS 能力（任一规则含 <js>/@js:，或带登录校验）。 */
-    fun isJsSource(source: BookSource): Boolean {
+    fun isJsSource(source: JsRuleSource): Boolean {
         if (source.loginCheckJs.isNotBlank()) return true
         if (source.searchUrl.trimStart().startsWith("<js>")) return true
         val rules = listOf(

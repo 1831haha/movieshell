@@ -55,7 +55,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.movieshell.data.novel.BookSourceManager
-import com.movieshell.data.novel.NovelSearchResult
+import com.movieshell.domain.model.BookDetailInfo
+import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.NovelDirectoryFill
@@ -90,7 +91,7 @@ fun SearchBookDetailScreen(
         if (isPy) null else jsonSources.firstOrNull { it.key == group.key }
     }
 
-    var detail by remember { mutableStateOf<NovelSourceEngine.BookDetailInfo?>(null) }
+    var detail by remember { mutableStateOf<BookDetailInfo?>(null) }
     var chapterTitles by remember { mutableStateOf<List<String>?>(null) }
     var loading by remember { mutableStateOf(true) }
     var tocExpanded by remember { mutableStateOf(false) }
@@ -120,14 +121,9 @@ fun SearchBookDetailScreen(
         // v0.232.0：拉目录失败只该显示“加载目录失败”，绝不能崩 App——
         // 09:46:10 的崩溃就是这条没兜：chapters() 一抛，LaunchedEffect 直接把 App 带走；入架链路有 runCatching 兜着才只变 toast。
         runCatching {
-            if (isPy) {
-                NovelSourceEngine.chaptersPy(context, item).map { it.title }
-                    .takeIf { it.isNotEmpty() }
-            } else {
-                val src = source ?: return@withContext null
-                NovelSourceEngine.chapters(src, item).map { it.title }
-                    .takeIf { it.isNotEmpty() }
-            }
+            val engine = NovelSourceEngine.novelEngineForKey(context, item.sourceKey)
+                ?: return@runCatching null
+            engine.chapters(item).map { it.title }.takeIf { it.isNotEmpty() }
         }.getOrNull()
     }
 
@@ -136,7 +132,7 @@ fun SearchBookDetailScreen(
         val sid = resolveShelfId()
         shelfId = sid
         if (!isPy && source != null) {
-            detail = NovelSourceEngine.bookDetail(source, item)
+            detail = NovelSourceEngine.novelEngineFor(source).bookDetail(item)
         }
         chapterTitles = if (sid != null) {
             withContext(Dispatchers.IO) {

@@ -6,7 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.movieshell.domain.model.Novel
 import com.movieshell.data.novel.BookSourceManager
-import com.movieshell.data.novel.NovelSearchResult
+import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.NovelDirectoryFill

@@ -46,6 +46,7 @@ import com.movieshell.domain.model.Chapter
 import com.movieshell.domain.model.Novel
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.NovelSourceEngine
+import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.ui.components.AppCard
@@ -124,18 +125,14 @@ fun ChangeSourceDialog(
         }
     }
 
-    fun switchTo(group: ChangeSourceGroup, item: com.movieshell.data.novel.NovelSearchResult) {
+    fun switchTo(group: ChangeSourceGroup, item: NovelSearchResult) {
         if (switching != null) return
         switching = group.key + item.remoteId
         scope.launch {
             val ok = runCatching {
-                val metas = if (group.key.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
-                    NovelSourceEngine.chaptersPy(context, item)
-                } else {
-                    val source = BookSourceManager.sources.value.firstOrNull { it.key == group.key }
-                        ?: return@runCatching -1
-                    NovelSourceEngine.chapters(source, item)
-                }
+                val engine = NovelSourceEngine.novelEngineForKey(context, group.key)
+                    ?: return@runCatching -1
+                val metas = engine.chapters(item)
                 if (metas.isEmpty()) return@runCatching -1
                 val chapters = metas.map {
                     Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url, commentUrl = it.commentUrl)
@@ -272,5 +269,5 @@ fun ChangeSourceDialog(
 private data class ChangeSourceGroup(
     val key: String,
     val name: String,
-    val books: List<com.movieshell.data.novel.NovelSearchResult>,
+    val books: List<NovelSearchResult>,
 )

@@ -46,9 +46,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.movieshell.ui.components.TechDialog
-import com.movieshell.data.novel.BookSource
+import com.movieshell.domain.model.BookSource
 import com.movieshell.data.novel.BookSourceManager
-import com.movieshell.data.novel.NovelSearchResult
+import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine
 import kotlinx.coroutines.launch
 
@@ -104,7 +104,7 @@ fun ExploreScreen(
         loading = true
         notice = null
         scope.launch {
-            val list = runCatching { NovelSourceEngine.explore(src, cat.url, p, allowGate = true) }.getOrDefault(emptyList())
+            val list = runCatching { NovelSourceEngine.novelEngineFor(src).explore(cat.url, p, allowGate = true) }.getOrDefault(emptyList())
             if (myGen != loadGen) return@launch
             results = if (append) (results + list).distinctBy { it.remoteId } else list
             if (list.isEmpty() && !append) notice = "这一页没有结果（可能撞上验证，稍后重试）"

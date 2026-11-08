@@ -10,6 +10,7 @@ import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail
 import com.movieshell.core.log.LogBus
 import com.movieshell.core.net.HttpClient
+import com.movieshell.core.net.SourceThrottle
 import com.movieshell.data.repo.StoragePaths
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -523,6 +524,10 @@ class V8DrpyEngine(
      * 不吞成空串，避免取消后还被当成普通失败重试。
      */
     private suspend fun doRequest(url: String, method: String, headers: JSONObject?, body: String): String {
+        // v1.1.6 反爬吸收项：同域限速/退避（只在配了间隔或 403/429 罚过后才延迟，
+        // 平时零开销）；放预算计算之前，睡完再算剩余预算，预算才准。
+        val host = runCatching { java.net.URI(url).host.orEmpty() }.getOrDefault("")
+        SourceThrottle.throttle(host)
         // v0.257.0：预算内发起。剩余预算小于等于 0 直接回空串，不发起请求；
         // 剩余不足单请求上限时派生一个整 call 上限等于剩余预算的 client
         // （newBuilder 共享连接池），预算由 OkHttp 层硬性执行——阻塞式
@@ -564,6 +569,8 @@ class V8DrpyEngine(
         job?.invokeOnCompletion { call.cancel() }
         return try {
             call.execute().use { resp ->
+                if (resp.code == 403 || resp.code == 429) SourceThrottle.penalize(host)
+                else if (resp.isSuccessful) SourceThrottle.clearPenalty(host)
                 if (!resp.isSuccessful) {
                     LogBus.w(TAG, "request 非 2xx 按失败处理: $url HTTP ${resp.code}")
                     return ""

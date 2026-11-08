@@ -1,7 +1,7 @@
 package com.movieshell.data.repo
 
 import android.content.Context
-import com.movieshell.data.novel.BookSource
+import com.movieshell.domain.model.BookSource
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.SubSiteStore

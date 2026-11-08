@@ -3,7 +3,9 @@ package com.movieshell.data.novel
 import android.content.Context
 import android.util.Log
 import com.movieshell.domain.model.Chapter
+import com.movieshell.domain.model.ChapterMeta
 import com.movieshell.domain.model.Novel
+import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.repo.NovelStore
 import com.movieshell.data.repo.ReadingProgressStore
 import kotlinx.coroutines.CancellationException
@@ -35,13 +37,8 @@ object NovelUpdateChecker {
     suspend fun check(context: Context, novel: Novel): Result = withContext(Dispatchers.IO) {
         if (novel.sourceKey == "local") return@withContext Result.Skipped
         runCatching {
-            val metas: List<ChapterMeta> = if (
-                novel.sourceKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)
-            ) {
-                checkPy(context, novel) ?: return@runCatching Result.Failed
-            } else {
-                checkJson(novel) ?: return@runCatching Result.Failed
-            }
+            val metas: List<ChapterMeta> =
+                fetchMetas(context, novel) ?: return@runCatching Result.Failed
             if (metas.isEmpty()) return@runCatching Result.Failed
             val newCount = metas.size - novel.totalChapters
             if (newCount <= 0) {
@@ -75,8 +72,8 @@ object NovelUpdateChecker {
             Result.Updated(newCount)
         }.onFailure {
             // v0.247.0 第 2 轮（取消语义，外层透传）：追更检查被取消时原样抛出，
-            // 不当成检查失败计入失败数、触发 Worker 重试；checkPy/checkJson 里
-            // 的 searchPy/chaptersPy 已透传取消，这里不能再吞掉。
+            // 不当成检查失败计入失败数、触发 Worker 重试；fetchMetas 里
+            // 的 search/chapters 已透传取消，这里不能再吞掉。
             if (it is CancellationException) throw it
             Log.w(TAG, "追更检查失败《${novel.title}》", it)
         }.getOrDefault(Result.Failed)
@@ -92,26 +89,12 @@ object NovelUpdateChecker {
         withContext(Dispatchers.IO) {
             if (targetKey == novel.sourceKey) return@withContext true
             runCatching {
-                val isPy = targetKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)
-                val hits = if (isPy) {
-                    val rule = PyBookSourceManager.rules.value.firstOrNull {
-                        PyBookSourceManager.SOURCE_KEY_PREFIX + it.name == targetKey
-                    } ?: return@runCatching false
-                    NovelSourceEngine.searchPy(context, rule, novel.title)
-                } else {
-                    val source = BookSourceManager.sources.value.firstOrNull { it.key == targetKey }
-                        ?: return@runCatching false
-                    NovelSourceEngine.search(source, novel.title, allowGate = true)
-                }
+                val engine = NovelSourceEngine.novelEngineForKey(context, targetKey)
+                    ?: return@runCatching false
+                val hits = engine.search(novel.title, allowGate = true)
                 val best = pickBest(hits, novel.title, novel.author.orEmpty())
                     ?: return@runCatching false
-                val metas = if (isPy) {
-                    NovelSourceEngine.chaptersPy(context, best)
-                } else {
-                    val source = BookSourceManager.sources.value.firstOrNull { it.key == targetKey }
-                        ?: return@runCatching false
-                    NovelSourceEngine.chapters(source, best)
-                }
+                val metas = engine.chapters(best)
                 if (metas.isEmpty()) return@runCatching false
                 val chapters = metas.map {
                     Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url, commentUrl = it.commentUrl)
@@ -174,20 +157,12 @@ object NovelUpdateChecker {
         )
     }
 
-    private suspend fun checkJson(novel: Novel): List<ChapterMeta>? {
-        val source = BookSourceManager.sources.value.firstOrNull { it.key == novel.sourceKey }
-            ?: return null
-        val hits = NovelSourceEngine.search(source, novel.title)
+    /** v1.1.6：搜书名、按追更同款 pickBest 匹配、拉目录（JSON/PY 走同一 NovelEngine）。 */
+    private suspend fun fetchMetas(context: Context, novel: Novel): List<ChapterMeta>? {
+        val engine = NovelSourceEngine.novelEngineForKey(context, novel.sourceKey) ?: return null
+        val hits = engine.search(novel.title)
         val best = pickBest(hits, novel.title, novel.author.orEmpty()) ?: return null
-        return NovelSourceEngine.chapters(source, best).ifEmpty { null }
-    }
-
-    private suspend fun checkPy(context: Context, novel: Novel): List<ChapterMeta>? {
-        val name = PyBookSourceManager.fileNameOf(novel.sourceKey) ?: return null
-        val rule = PyBookSourceManager.rules.value.firstOrNull { it.name == name } ?: return null
-        val hits = NovelSourceEngine.searchPy(context, rule, novel.title)
-        val best = pickBest(hits, novel.title, novel.author.orEmpty()) ?: return null
-        return NovelSourceEngine.chaptersPy(context, best).ifEmpty { null }
+        return engine.chapters(best).ifEmpty { null }
     }
 
     /** 选最像的一条：标题完全一致且作者对得上优先，其次标题完全一致，

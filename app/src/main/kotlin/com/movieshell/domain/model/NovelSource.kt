@@ -1,4 +1,4 @@
-package com.movieshell.data.novel
+package com.movieshell.domain.model
 
 // v0.109.0 B7：旧 NovelSource 接口已删（全仓零引用，DemoNovelSource 一并删除；
 // 真实链路走 BookRuleEngine/PyBookApi）。同文件的 NovelSearchResult/ChapterMeta

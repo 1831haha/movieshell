@@ -44,9 +44,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.movieshell.data.novel.BookSource
+import com.movieshell.domain.model.BookSource
 import com.movieshell.data.novel.BookSourceManager
-import com.movieshell.data.novel.NovelSearchResult
+import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.ui.components.TechTextField
 import kotlinx.coroutines.Dispatchers
@@ -96,7 +96,7 @@ fun ExploreAggregateScreen(
         failedCats = failedCats - key
         scope.launch {
             val list = runCatching {
-                NovelSourceEngine.explore(src, cat.url, 1, allowGate = true)
+                NovelSourceEngine.novelEngineFor(src).explore(cat.url, 1, allowGate = true)
             }.getOrDefault(emptyList())
             resultsByCat = resultsByCat + (key to list)
             if (list.isEmpty()) failedCats = failedCats + key

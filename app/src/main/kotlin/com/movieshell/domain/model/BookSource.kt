@@ -1,4 +1,4 @@
-package com.movieshell.data.novel
+package com.movieshell.domain.model
 
 import org.json.JSONObject
 
@@ -48,6 +48,18 @@ data class BookSource(
     val headerUa: String = "",
     /** v0.200.0：共享 JS 库（阅读式 jsLib，内联代码；URL 形式暂不支持）。 */
     val jsLib: String = "",
+    /** v1.1.6 反爬吸收项：书源自定义请求头（JSON 对象或 JSON 字符串，
+     * 如 {"Referer":"https://x/","X-Requested-With":"XMLHttpRequest"}；
+     * User-Agent 仍走 headerUa，见 parseHeaderUa）。 */
+    val header: String = "",
+    /** v1.1.6 反爬吸收项：手动注入 Cookie（"k=v; k2=v2"，首次使用时写进
+     * 共享 Jar，之后随 Jar 落盘持久化）。 */
+    val cookies: String = "",
+    /** v1.1.6 反爬吸收项：同域请求间隔——"1000" 或 "2/1000"（2 次/1000 毫秒）；
+     * 空表示不限速（默认行为不变，正文连续翻页不受影响）。 */
+    val concurrentRate: String = "",
+    /** v1.1.6 反爬吸收项：单请求超时（毫秒）；0 表示走默认 15 秒。 */
+    val timeout: Int = 0,
     /** v0.201.0：发现页分类（阅读式 exploreUrl：分类 JSON 数组或对象）与分类列表规则。 */
     val exploreUrl: String = "",
     val ruleExploreList: String = "",
@@ -59,6 +71,10 @@ data class BookSource(
 ) {
     /** 书源唯一标识：url 去协议去尾斜杠。 */
     val key: String get() = url.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
+
+    /** v1.1.6：header 字段解析成请求头表（对象或 JSON 字符串两种都认；解析失败回空表，不炸）。 */
+    val headerMap: Map<String, String>
+        get() = parseHeaderMap(header)
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("bookSourceName", name)
@@ -96,6 +112,18 @@ data class BookSource(
         put("loginCheckJs", loginCheckJs)
         put("loginUrl", loginUrl)
         put("jsLib", jsLib)
+        if (header.isNotBlank()) {
+            put("header", header)
+        }
+        if (cookies.isNotBlank()) {
+            put("cookies", cookies)
+        }
+        if (concurrentRate.isNotBlank()) {
+            put("concurrentRate", concurrentRate)
+        }
+        if (timeout > 0) {
+            put("timeout", timeout)
+        }
         put("exploreUrl", exploreUrl)
         put("ruleExplore", JSONObject().apply {
             put("bookList", ruleExploreList)
@@ -105,7 +133,7 @@ data class BookSource(
             put("coverUrl", ruleExploreCover)
             put("intro", ruleExploreIntro)
         })
-        if (headerUa.isNotBlank()) {
+        if (header.isBlank() && headerUa.isNotBlank()) {
             put("header", JSONObject().apply { put("User-Agent", headerUa) })
         }
     }
@@ -117,6 +145,17 @@ data class BookSource(
             val raw = o.optString("header")
             if (raw.isBlank()) return ""
             return runCatching { JSONObject(raw).optString("User-Agent") }.getOrDefault("")
+        }
+
+        /** v1.1.6：header 全表解析（对象或 JSON 字符串两种都认；解析失败回空表）。 */
+        private fun parseHeaderMap(raw: String): Map<String, String> {
+            if (raw.isBlank()) return emptyMap()
+            return runCatching {
+                val o = if (raw.trimStart().startsWith("{")) JSONObject(raw) else return emptyMap()
+                val m = mutableMapOf<String, String>()
+                o.keys().forEach { k -> m[k] = o.optString(k) }
+                m
+            }.getOrDefault(emptyMap())
         }
 
         /** 解析单条 bookSource.json（兼容阅读 App 导出的完整格式，只取用到的字段）。 */
@@ -156,6 +195,11 @@ data class BookSource(
                 loginUrl = o.optString("loginUrl").orEmpty(),
                 headerUa = parseHeaderUa(o),
                 jsLib = o.optString("jsLib").orEmpty(),
+                header = o.optJSONObject("header")?.toString().orEmpty()
+                    .ifBlank { o.optString("header").orEmpty() },
+                cookies = o.optString("cookies").orEmpty(),
+                concurrentRate = o.optString("concurrentRate").orEmpty(),
+                timeout = o.optInt("timeout", 0),
                 exploreUrl = o.optString("exploreUrl").orEmpty(),
                 ruleExploreList = re?.optString("bookList").orEmpty(),
                 ruleExploreName = re?.optString("name").orEmpty(),

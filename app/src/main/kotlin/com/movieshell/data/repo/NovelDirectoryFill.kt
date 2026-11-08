@@ -2,12 +2,10 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import com.movieshell.domain.model.Chapter
+import com.movieshell.domain.model.ChapterMeta
 import com.movieshell.domain.model.Novel
-import com.movieshell.data.novel.BookSourceManager
-import com.movieshell.data.novel.ChapterMeta
-import com.movieshell.data.novel.NovelSearchResult
+import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine
-import com.movieshell.data.novel.PyBookSourceManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -98,15 +96,8 @@ object NovelDirectoryFill {
             title = novel.title,
             author = novel.author,
         )
-        return if (novel.sourceKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
-            val name = PyBookSourceManager.fileNameOf(novel.sourceKey) ?: return null
-            val rule = PyBookSourceManager.rules.value.firstOrNull { it.name == name } ?: return null
-            NovelSourceEngine.chaptersPy(context, probe).ifEmpty { null }
-        } else {
-            val source = BookSourceManager.sources.value.firstOrNull { it.key == novel.sourceKey }
-                ?: return null
-            NovelSourceEngine.chapters(source, probe).ifEmpty { null }
-        }
+        val engine = NovelSourceEngine.novelEngineForKey(context, novel.sourceKey) ?: return null
+        return engine.chapters(probe).ifEmpty { null }
     }
 
     /** 兜底路径（仅老数据无 remoteId）：标题精确匹配，作者优先；
@@ -114,16 +105,8 @@ object NovelDirectoryFill {
     private suspend fun fetchMetasByUniqueTitle(context: Context, novel: Novel): List<ChapterMeta>? {
         val t = novel.title.trim()
         if (t.isEmpty()) return null
-        val isPy = novel.sourceKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)
-        val hits: List<NovelSearchResult> = if (isPy) {
-            val name = PyBookSourceManager.fileNameOf(novel.sourceKey) ?: return null
-            val rule = PyBookSourceManager.rules.value.firstOrNull { it.name == name } ?: return null
-            NovelSourceEngine.searchPy(context, rule, t)
-        } else {
-            val source = BookSourceManager.sources.value.firstOrNull { it.key == novel.sourceKey }
-                ?: return null
-            NovelSourceEngine.search(source, t)
-        }
+        val engine = NovelSourceEngine.novelEngineForKey(context, novel.sourceKey) ?: return null
+        val hits: List<NovelSearchResult> = engine.search(t)
         val exact = hits.filter { it.title.trim() == t }
         if (exact.isEmpty()) return null
         val a = novel.author?.trim().orEmpty()
@@ -136,13 +119,7 @@ object NovelDirectoryFill {
             preferred.isEmpty() && exact.size == 1 -> exact.first()
             else -> return null
         }
-        return if (isPy) {
-            NovelSourceEngine.chaptersPy(context, best).ifEmpty { null }
-        } else {
-            val source = BookSourceManager.sources.value.firstOrNull { it.key == novel.sourceKey }
-                ?: return null
-            NovelSourceEngine.chapters(source, best).ifEmpty { null }
-        }
+        return engine.chapters(best).ifEmpty { null }
     }
 
     /** 等目录就绪：READY 立刻 true；LOADING 轮询至终态；FAILED／超时／书不在架 false。 */
@@ -200,19 +177,16 @@ object NovelDirectoryFill {
         var lastCover = cover
         repeat(2) { attempt ->
             val (ms, cv) = NovelSourceEngine.withSearchThrottle {
-                if (sourceKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
-                    NovelSourceEngine.chaptersPy(context, item) to cover
-                } else {
-                    val source = BookSourceManager.sources.value.firstOrNull { it.key == sourceKey }
-                        ?: return@withSearchThrottle emptyList<ChapterMeta>() to cover
-                    val m = NovelSourceEngine.chapters(source, item)
-                    // v0.200.0：搜索没封面时，用详情封面 JS 补一张（只多一次详情页请求）
-                    var c = cover
-                    if (c.isNullOrBlank() && source.ruleBookCover.isNotBlank()) {
-                        c = NovelSourceEngine.detailCover(source, item) ?: c
-                    }
-                    m to c
+                val engine = NovelSourceEngine.novelEngineForKey(context, sourceKey)
+                    ?: return@withSearchThrottle emptyList<ChapterMeta>() to cover
+                val m = engine.chapters(item)
+                // v0.200.0：搜索没封面时，用详情封面 JS 补一张（只多一次详情页请求）；
+                // PY 源没有详情封面链，detailCover 回 null，原样保留旧封面。
+                var c = cover
+                if (c.isNullOrBlank()) {
+                    c = engine.detailCover(item) ?: c
                 }
+                m to c
             }
             lastMetas = ms
             lastCover = cv

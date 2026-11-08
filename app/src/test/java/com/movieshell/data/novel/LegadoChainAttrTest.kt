@@ -1,5 +1,7 @@
 package com.movieshell.data.novel
 
+import com.movieshell.core.js.LegadoJsEngine
+import com.movieshell.domain.model.BookSource
 import org.jsoup.Jsoup
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull

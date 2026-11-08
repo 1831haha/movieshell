@@ -36,7 +36,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
-import com.movieshell.data.novel.NovelSearchResult
+import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.repo.FollowStore
 import com.movieshell.data.source_mgr.PhpSourceManager

@@ -1,9 +1,20 @@
 package com.movieshell.data.novel
 
 import android.content.Context
+import com.movieshell.core.js.LegadoJsEngine
 import com.movieshell.core.log.LogBus
+import com.movieshell.core.net.HttpClient
+import com.movieshell.core.net.PageResult
+import com.movieshell.core.net.SourceThrottle
+import com.movieshell.core.net.buildSearchRequest
 import com.movieshell.data.repo.NovelStore
-import com.movieshell.data.source.CmsApi
+import com.movieshell.domain.model.BookDetailInfo
+import com.movieshell.domain.model.BookSource
+import com.movieshell.domain.model.ChapterMeta
+import com.movieshell.domain.model.ContentFail
+import com.movieshell.domain.model.ContentResult
+import com.movieshell.domain.model.NovelSearchResult
+import com.movieshell.domain.source.NovelEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -35,38 +46,8 @@ object NovelSourceEngine {
     private const val SEARCH_MAX_CONCURRENCY = 4
     private val searchSemaphore = Semaphore(SEARCH_MAX_CONCURRENCY)
 
-    /** v0.250.0：正文失败分类——UI 按它给短提示，细节进日志，不再一个通用 toast。 */
-    enum class ContentFail {
-        /** 403 或疑似验证页，验证通道可解（预加载静默时也用它，只是不提示）。 */
-        VERIFY,
-
-        /** 连接/读取超时（底层拦截器已退避重试过，这里不再叠加）。 */
-        TIMEOUT,
-
-        /** 域名解析失败。 */
-        DNS,
-
-        /** 其他 IO 异常。 */
-        NETWORK,
-
-        /** 验证已过、重抓仍 403：站方拒绝，非验证可解。 */
-        FORBIDDEN,
-
-        /** 200 且页面正常，但规则与兜底都提不出正文。 */
-        PARSE_EMPTY,
-
-        /** 正文抓到了，但净化后成空串（规则过宽）：不写盘、不覆盖旧正文。 */
-        PURIFY_EMPTY,
-
-        /** 无明确信号的失败。 */
-        UNKNOWN,
-    }
-
-    /** v0.250.0：正文拉取结果——空串分不清 403/超时/解析失败，调用方必须拿到原因。 */
-    sealed interface ContentResult {
-        data class Ok(val text: String) : ContentResult
-        data class Failed(val reason: ContentFail) : ContentResult
-    }
+    // v1.1.6：ContentFail / ContentResult 已移入 domain/model（NovelModels.kt），
+    // 供 NovelEngine 契约与 UI 共用。
 
     /**
      * v0.250.0：按最后一次抓取结果给正文失败定性。
@@ -91,9 +72,23 @@ object NovelSourceEngine {
     }
 
     /** v0.199.0：该源是否用到 JS 能力（是则走 LegadoJsEngine，否则走老 CSS 路径，原样不动）。 */
-    private fun isJsSource(source: BookSource): Boolean = LegadoJsEngine.isJsSource(source)
+    private fun isJsSource(source: BookSource): Boolean = LegadoJsEngine.isJsSource(source.toJsRuleSource())
 
     private fun uaOf(source: BookSource): String? = source.headerUa.ifBlank { null }
+
+    /** v1.1.6 反爬吸收项：源级出网配置——手动 Cookie 写进共享 Jar（之后随 Jar 落盘），
+     * concurrentRate 记到同域限速表。每个公开入口调一次。 */
+    private fun applySourceNetConfig(source: BookSource) {
+        if (source.cookies.isNotBlank()) {
+            HttpClient.putCookies(source.url, source.cookies)
+        }
+        val host = runCatching { java.net.URI(source.url).host.orEmpty() }.getOrDefault("")
+        SourceThrottle.setGap(host, SourceThrottle.parseConcurrentRate(source.concurrentRate))
+    }
+
+    /** v1.1.6：本书源的抓取选项（自定义头 + 单请求超时），供各链路的 fetch 调用。 */
+    private fun fetchOptions(source: BookSource): BookRuleEngine.FetchOptions =
+        BookRuleEngine.FetchOptions(headers = source.headerMap, timeoutMs = source.timeout)
 
     /** v0.199.0：searchUrl 求值：<js> 前缀跑 JS，否则原样（{{key}}/{{page}} 由 buildSearchRequest 处理）。 */
     private fun evalSearchUrl(
@@ -106,7 +101,7 @@ object NovelSourceEngine {
         val out = LegadoJsEngine.evalScript(
             js,
             LegadoJsEngine.bindings(ctx, state, result = "", src = ""),
-            LegadoJsEngine.jsLibPrelude(source),
+            LegadoJsEngine.jsLibPrelude(ctx.source),
         )
         val urlStr = LegadoJsEngine.toJsString(out)
         // v0.226.0：求值失败时旧逻辑回退原串，OkHttp 再以“无 scheme”炸掉，
@@ -133,7 +128,7 @@ object NovelSourceEngine {
         allowGate: Boolean,
         label: String = "搜书",
         fetch: suspend () -> BookRuleEngine.FetchOutcome,
-    ): BookRuleEngine.PageResult? {
+    ): PageResult? {
         val first = fetch()
         if (first.page != null) return first.page
         // v0.209.0：用户主动发起时，空页即弹验证——墙的拦法不止 403（沙箱测得 403，
@@ -159,7 +154,7 @@ object NovelSourceEngine {
         allowGate: Boolean,
         label: String = "搜书",
         fetch: suspend () -> BookRuleEngine.FetchOutcome,
-    ): BookRuleEngine.PageResult? {
+    ): PageResult? {
         if (!allowGate) return null
         val bg = runCatching { VerifyGate.awaitVerifyBackground(gateUrl, ua) }
             .onFailure { if (it is CancellationException) throw it }
@@ -172,18 +167,19 @@ object NovelSourceEngine {
             LogBus.w(TAG, "${label}验证 ${source.name} 可见验证未通过")
             return null
         }
-        if (result.cookieHeader.isNotBlank()) CmsApi.putCookies(result.url, result.cookieHeader)
+        if (result.cookieHeader.isNotBlank()) HttpClient.putCookies(result.url, result.cookieHeader)
         val again = fetch()
         if (again.page == null) LogBus.w(TAG, "${label}抓取 ${source.name} 重抓空 httpCode=${again.httpCode}")
         return again.page
     }
 
     suspend fun search(source: BookSource, keyword: String, allowGate: Boolean = false): List<NovelSearchResult> {
+        applySourceNetConfig(source)
         if (source.searchUrl.isBlank() || source.ruleSearchList.isBlank()) return emptyList()
         if (!isJsSource(source)) {
-            val req = BookRuleEngine.buildSearchRequest(source.searchUrl, keyword)
+            val req = buildSearchRequest(source.searchUrl, keyword)
             val html = gatedFetch(source, null, source.url, allowGate) {
-                BookRuleEngine.fetchSearchPageOutcome(req)
+                BookRuleEngine.fetchSearchPageOutcome(req, options = fetchOptions(source))
             }?.body ?: return emptyList()
             val url = req.url
             return BookRuleEngine.selectList(html, source.ruleSearchList).mapNotNull { el ->
@@ -202,11 +198,11 @@ object NovelSourceEngine {
         return withContext(Dispatchers.IO) {
             val ua = uaOf(source)
             val state = LegadoJsEngine.JsState(source.key)
-            val ctx = LegadoJsEngine.JsCtx(source = source, baseUrl = source.url, keyword = keyword, page = 1)
+            val ctx = LegadoJsEngine.JsCtx(source = source.toJsRuleSource(), baseUrl = source.url, keyword = keyword, page = 1)
             val urlStr = evalSearchUrl(source, ctx, state) ?: return@withContext emptyList()
-            val req = BookRuleEngine.buildSearchRequest(urlStr, keyword)
+            val req = buildSearchRequest(urlStr, keyword)
             var page = gatedFetch(source, ua, source.url, allowGate) {
-                BookRuleEngine.fetchSearchPageOutcome(req, ua)
+                BookRuleEngine.fetchSearchPageOutcome(req, ua, options = fetchOptions(source))
             }
             if (page == null) {
                 // v0.223.0：搜书诊断——未抓到页以前是静默空，记一行才能分清是请求问题还是解析问题。
@@ -216,14 +212,14 @@ object NovelSourceEngine {
             // v0.209.0：登录后重抓也过验证通道——999 这类源先握手再被墙时，
             // 原直接重抓拿不到页又不弹窗，搜索静默为空。
             val beforeLoginLen = page.body.length
-            page = LegadoJsEngine.runLoginCheck(source, page, ctx, state, refetch = {
+            page = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), page, ctx, state, refetch = {
                 val urlStr2 = evalSearchUrl(source, ctx, state)
                 if (urlStr2 == null) {
                     null
                 } else {
-                    val req2 = BookRuleEngine.buildSearchRequest(urlStr2, keyword)
+                    val req2 = buildSearchRequest(urlStr2, keyword)
                     gatedFetch(source, ua, source.url, allowGate) {
-                        BookRuleEngine.fetchSearchPageOutcome(req2, ua)
+                        BookRuleEngine.fetchSearchPageOutcome(req2, ua, options = fetchOptions(source))
                     }
                 }
             })
@@ -276,6 +272,7 @@ object NovelSourceEngine {
      * 目录，只有一个"章节列表"按钮（如全本小说网）；规则为空时保持旧行为。
      */
     suspend fun chapters(source: BookSource, book: NovelSearchResult): List<ChapterMeta> {
+        applySourceNetConfig(source)
         val detailUrl = book.remoteId.ifBlank { return emptyList() }
         if (!isJsSource(source)) {
             var tocUrl = detailUrl
@@ -283,7 +280,7 @@ object NovelSourceEngine {
                 // 288：详情页与目录页都走 fetchPageWithOptions——解析出的 tocUrl
                 // 本身可能就是 POST 式 URL，旧 getHtml 只发 GET 会直接失败。
                 // 落地 URL 用返回的 page.url（已剥掉选项后缀），相对链接才补得对。
-                val detailPage = BookRuleEngine.fetchPageWithOptions(detailUrl) ?: return emptyList()
+                val detailPage = BookRuleEngine.fetchPageWithOptions(detailUrl, options = fetchOptions(source)) ?: return emptyList()
                 val resolved = BookRuleEngine.extract(
                     BookRuleEngine.parseDoc(detailPage.body, detailPage.url),
                     detailPage.url,
@@ -291,7 +288,7 @@ object NovelSourceEngine {
                 )
                 if (resolved.isNotBlank()) tocUrl = resolved
             }
-            val tocPage = BookRuleEngine.fetchPageWithOptions(tocUrl) ?: return emptyList()
+            val tocPage = BookRuleEngine.fetchPageWithOptions(tocUrl, options = fetchOptions(source)) ?: return emptyList()
             // 目录页可能是详情页（规则里 toc 列表直接在详情页上）
             val doc = BookRuleEngine.parseDoc(tocPage.body, tocPage.url)
             val listRule = source.ruleTocList.ifBlank { return emptyList() }
@@ -314,7 +311,7 @@ object NovelSourceEngine {
             val ua = uaOf(source)
             val state = LegadoJsEngine.JsState(source.key)
             val ctx = LegadoJsEngine.JsCtx(
-                source = source,
+                source = source.toJsRuleSource(),
                 baseUrl = detailUrl,
                 bookName = book.title,
                 bookUrl = book.remoteId,
@@ -322,12 +319,12 @@ object NovelSourceEngine {
             )
             var tocUrl = detailUrl
             if (source.ruleBookTocUrl.isNotBlank()) {
-                val detailPage = BookRuleEngine.fetchPageWithOptions(detailUrl, ua) ?: return@withContext emptyList()
-                val checked = LegadoJsEngine.runLoginCheck(source, detailPage, ctx, state) {
+                val detailPage = BookRuleEngine.fetchPageWithOptions(detailUrl, ua, options = fetchOptions(source)) ?: return@withContext emptyList()
+                val checked = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), detailPage, ctx, state) {
                     // v0.227.0：握手后必须重抓——999 的 1234 握手把页换成
                     // “success”短串，refetch 为 null 时这页被当成详情页解析，
                     // 目录永远为空（搜书 136 行有 refetch 才正常，目录四处漏了）。
-                    BookRuleEngine.fetchPageWithOptions(detailUrl, ua)
+                    BookRuleEngine.fetchPageWithOptions(detailUrl, ua, options = fetchOptions(source))
                 }
                 val doc = BookRuleEngine.parseDoc(checked.body, checked.url)
                 val resolved = LegadoJsEngine.evalTextRule(doc, checked.url, source.ruleBookTocUrl, ctx, state)
@@ -336,12 +333,12 @@ object NovelSourceEngine {
             // 288：首抓、握手重抓、分页抓一律走 fetchPageWithOptions，
             // tocUrl / nextTocUrl 带 POST 后缀时才发得出表单；无后缀时与原 GET 等价。
             // v0.230.0：首抓失败不直接判空——站慢/抖动时给一次重试机会，仍失败记一行诊断（上次日志缺这行，分不清是没抓到还是规则没命中）。
-            val firstPage = BookRuleEngine.fetchPageWithOptions(tocUrl, ua)
-                ?: BookRuleEngine.fetchPageWithOptions(tocUrl, ua)
+            val firstPage = BookRuleEngine.fetchPageWithOptions(tocUrl, ua, options = fetchOptions(source))
+                ?: BookRuleEngine.fetchPageWithOptions(tocUrl, ua, options = fetchOptions(source))
                 ?: run { LogBus.d(TAG, "目录首抓失败 ${source.name} $tocUrl"); return@withContext emptyList() }
             val firstLen = firstPage.body.length
-            var curPage = LegadoJsEngine.runLoginCheck(source, firstPage, ctx, state) {
-                BookRuleEngine.fetchPageWithOptions(tocUrl, ua)
+            var curPage = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), firstPage, ctx, state) {
+                BookRuleEngine.fetchPageWithOptions(tocUrl, ua, options = fetchOptions(source))
             }
             val checkedLen = curPage.body.length
             val all = mutableListOf<ChapterMeta>()
@@ -365,16 +362,16 @@ object NovelSourceEngine {
                 val nexts = LegadoJsEngine.evalNextUrls(curPage.body, curPage.url, source.ruleTocNext, pageCtx, state)
                 if (nexts.isEmpty()) break
                 if (nexts.size == 1) {
-                    val next = BookRuleEngine.fetchPageWithOptions(nexts[0], ua) ?: break
-                    curPage = LegadoJsEngine.runLoginCheck(source, next, ctx, state) {
-                        BookRuleEngine.fetchPageWithOptions(nexts[0], ua)
+                    val next = BookRuleEngine.fetchPageWithOptions(nexts[0], ua, options = fetchOptions(source)) ?: break
+                    curPage = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), next, ctx, state) {
+                        BookRuleEngine.fetchPageWithOptions(nexts[0], ua, options = fetchOptions(source))
                     }
                     continue
                 }
                 for (u in nexts) {
-                    val p = BookRuleEngine.fetchPageWithOptions(u, ua) ?: continue
-                    val checked = LegadoJsEngine.runLoginCheck(source, p, ctx, state) {
-                        BookRuleEngine.fetchPageWithOptions(u, ua)
+                    val p = BookRuleEngine.fetchPageWithOptions(u, ua, options = fetchOptions(source)) ?: continue
+                    val checked = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), p, ctx, state) {
+                        BookRuleEngine.fetchPageWithOptions(u, ua, options = fetchOptions(source))
                     }
                     collect(checked.body, checked.url)
                 }
@@ -406,6 +403,7 @@ object NovelSourceEngine {
      * 拦截器退避重试，正文层不叠加。JS 链路只给首抓加限流与 Referer，登录校验语义不动。
      */
     suspend fun content(source: BookSource, chapter: ChapterMeta, allowGate: Boolean = false): ContentResult {
+        applySourceNetConfig(source)
         if (chapter.url.isBlank()) return ContentResult.Failed(ContentFail.UNKNOWN)
         if (!isJsSource(source)) {
             // v0.217.0（F43）：非 JS 链路也要传源自定义 UA——原来只 JS 链路传，
@@ -416,7 +414,7 @@ object NovelSourceEngine {
             var last: BookRuleEngine.FetchOutcome? = null
             val fetch: suspend () -> BookRuleEngine.FetchOutcome = {
                 fetchCount++
-                withSearchThrottle { BookRuleEngine.fetchPageOutcome(chapter.url, ua, referer) }.also {
+                withSearchThrottle { BookRuleEngine.fetchPageOutcome(chapter.url, ua, referer, options = fetchOptions(source)) }.also {
                     last = it
                     // v0.250.0：异常已包成数据返回，取消语义不能跟着丢——任务已取消时
                     // 直接抛，不让取消的请求被分类成超时、也不让它继续走验证。
@@ -447,16 +445,16 @@ object NovelSourceEngine {
             val referer = parentReferer(chapter.url)
             val state = LegadoJsEngine.JsState(source.key)
             val ctx = LegadoJsEngine.JsCtx(
-                source = source,
+                source = source.toJsRuleSource(),
                 baseUrl = chapter.url,
                 chapterTitle = chapter.title,
                 chapterUrl = chapter.url,
             )
-            val firstOutcome = withSearchThrottle { BookRuleEngine.fetchPageOutcome(chapter.url, ua, referer) }
+            val firstOutcome = withSearchThrottle { BookRuleEngine.fetchPageOutcome(chapter.url, ua, referer, options = fetchOptions(source)) }
             // v0.250.0：同非 JS 路径——取消的任务直接抛，不进失败分类。
             coroutineContext.ensureActive()
             val first = firstOutcome.page ?: return@withContext ContentResult.Failed(classifyContentFailure(firstOutcome, 1))
-            val checked = LegadoJsEngine.runLoginCheck(source, first, ctx, state) {
+            val checked = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), first, ctx, state) {
                 BookRuleEngine.fetchPage(chapter.url, ua, referer)
             }
             val sb = StringBuilder()
@@ -470,18 +468,18 @@ object NovelSourceEngine {
                 val nexts = LegadoJsEngine.evalNextUrls(curBody, curUrl, source.ruleContentNext, pageCtx, state)
                 if (nexts.isEmpty()) break
                 if (nexts.size == 1) {
-                    val p = BookRuleEngine.fetchPage(nexts[0], ua) ?: break
-                    val c = LegadoJsEngine.runLoginCheck(source, p, ctx, state) {
-                        BookRuleEngine.fetchPage(nexts[0], ua)
+                    val p = BookRuleEngine.fetchPage(nexts[0], ua, options = fetchOptions(source)) ?: break
+                    val c = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), p, ctx, state) {
+                        BookRuleEngine.fetchPage(nexts[0], ua, options = fetchOptions(source))
                     }
                     curBody = c.body
                     curUrl = c.url
                     continue
                 }
                 for (u in nexts) {
-                    val p = BookRuleEngine.fetchPage(u, ua) ?: continue
-                    val c = LegadoJsEngine.runLoginCheck(source, p, ctx, state) {
-                        BookRuleEngine.fetchPage(u, ua)
+                    val p = BookRuleEngine.fetchPage(u, ua, options = fetchOptions(source)) ?: continue
+                    val c = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), p, ctx, state) {
+                        BookRuleEngine.fetchPage(u, ua, options = fetchOptions(source))
                     }
                     sb.append(evalChapterText(source, c.body, c.url, ctx, state))
                 }
@@ -496,7 +494,7 @@ object NovelSourceEngine {
                             LegadoJsEngine.evalScript(
                                 LegadoJsEngine.substituteTemplates(js, ctx),
                                 LegadoJsEngine.bindings(ctx, state, result = outText, src = outText),
-                                LegadoJsEngine.jsLibPrelude(source),
+                                LegadoJsEngine.jsLibPrelude(ctx.source),
                             ),
                         )
                     } else {
@@ -538,7 +536,7 @@ object NovelSourceEngine {
             val out = LegadoJsEngine.evalScript(
                 LegadoJsEngine.substituteTemplates(js, ctx),
                 LegadoJsEngine.bindings(ctx.copy(baseUrl = pageUrl), state, result = "", src = html),
-                LegadoJsEngine.jsLibPrelude(source),
+                LegadoJsEngine.jsLibPrelude(ctx.source),
             )
             var s = LegadoJsEngine.toJsString(out)
             if (rest.isNotBlank()) {
@@ -558,19 +556,20 @@ object NovelSourceEngine {
      * 仅在搜索结果封面为空时由入架流程调用，不影响已有封面。
      */
     suspend fun detailCover(source: BookSource, book: NovelSearchResult): String? {
+        applySourceNetConfig(source)
         if (source.ruleBookCover.isBlank()) return null
         return withContext(Dispatchers.IO) {
-            val page = BookRuleEngine.fetchPage(book.remoteId, uaOf(source)) ?: return@withContext null
+            val page = BookRuleEngine.fetchPage(book.remoteId, uaOf(source), options = fetchOptions(source)) ?: return@withContext null
             val ctx = LegadoJsEngine.JsCtx(
-                source = source,
+                source = source.toJsRuleSource(),
                 baseUrl = page.url,
                 bookName = book.title,
                 bookUrl = book.remoteId,
                 bookAuthor = book.author.orEmpty(),
             )
             val state = LegadoJsEngine.JsState(source.key)
-            val checked = LegadoJsEngine.runLoginCheck(source, page, ctx, state) {
-                BookRuleEngine.fetchPage(book.remoteId, uaOf(source))
+            val checked = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), page, ctx, state) {
+                BookRuleEngine.fetchPage(book.remoteId, uaOf(source), options = fetchOptions(source))
             }
             val doc = BookRuleEngine.parseDoc(checked.body, checked.url)
             LegadoJsEngine.evalTextRule(doc, checked.url, source.ruleBookCover, ctx.copy(baseUrl = checked.url), state)
@@ -578,24 +577,15 @@ object NovelSourceEngine {
         }
     }
 
-    /** v0.229.0：搜书详情页用——详情页规则一次求全（书名/作者/简介/封面/类型），
-     * 空规则返回空串，调用方回落搜索结果字段。走 detailCover 同款抓取链：
-     * fetchPage + runLoginCheck（refetch 必传，227 的教训：999 握手后不重抓
-     * 拿到的是“success”短串）；非 JS 源走纯 CSS 提取。 */
-    data class BookDetailInfo(
-        val name: String = "",
-        val author: String = "",
-        val intro: String = "",
-        val cover: String = "",
-        val kind: String = "",
-    )
+    // v1.1.6：BookDetailInfo 已移入 domain/model（NovelModels.kt）。
 
     suspend fun bookDetail(source: BookSource, book: NovelSearchResult): BookDetailInfo {
+        applySourceNetConfig(source)
         if (book.remoteId.isBlank()) return BookDetailInfo()
         return withContext(Dispatchers.IO) {
             runCatching {
                 if (!isJsSource(source)) {
-                    val html = BookRuleEngine.getHtml(book.remoteId) ?: return@runCatching BookDetailInfo()
+                    val html = BookRuleEngine.getHtml(book.remoteId, options = fetchOptions(source)) ?: return@runCatching BookDetailInfo()
                     val doc = BookRuleEngine.parseDoc(html, book.remoteId)
                     fun ex(rule: String) =
                         if (rule.isBlank()) "" else BookRuleEngine.extract(doc, book.remoteId, rule)
@@ -607,18 +597,18 @@ object NovelSourceEngine {
                         kind = ex(source.ruleBookKind),
                     )
                 } else {
-                    val page = BookRuleEngine.fetchPage(book.remoteId, uaOf(source))
+                    val page = BookRuleEngine.fetchPage(book.remoteId, uaOf(source), options = fetchOptions(source))
                         ?: return@runCatching BookDetailInfo()
                     val ctx = LegadoJsEngine.JsCtx(
-                        source = source,
+                        source = source.toJsRuleSource(),
                         baseUrl = page.url,
                         bookName = book.title,
                         bookUrl = book.remoteId,
                         bookAuthor = book.author.orEmpty(),
                     )
                     val state = LegadoJsEngine.JsState(source.key)
-                    val checked = LegadoJsEngine.runLoginCheck(source, page, ctx, state) {
-                        BookRuleEngine.fetchPage(book.remoteId, uaOf(source))
+                    val checked = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), page, ctx, state) {
+                        BookRuleEngine.fetchPage(book.remoteId, uaOf(source), options = fetchOptions(source))
                     }
                     val doc = BookRuleEngine.parseDoc(checked.body, checked.url)
                     val c2 = ctx.copy(baseUrl = checked.url)
@@ -647,17 +637,18 @@ object NovelSourceEngine {
      * ruleExplore 时也能用）；分类 URL 支持 {{page}} 模板与相对地址（按源地址补全）。
      */
     suspend fun explore(source: BookSource, categoryUrl: String, page: Int, allowGate: Boolean = false): List<NovelSearchResult> {
+        applySourceNetConfig(source)
         if (source.exploreUrl.isBlank()) return emptyList()
         return withContext(Dispatchers.IO) {
             val url = resolveUrl(source.url, categoryUrl.replace("{{page}}", page.toString()))
             val ua = uaOf(source)
             val first = gatedFetch(source, ua, url, allowGate) {
-                BookRuleEngine.fetchPageOutcome(url, ua)
+                BookRuleEngine.fetchPageOutcome(url, ua, options = fetchOptions(source))
             } ?: return@withContext emptyList()
             val state = LegadoJsEngine.JsState(source.key)
-            val ctx = LegadoJsEngine.JsCtx(source = source, baseUrl = first.url, page = page)
-            val checked = LegadoJsEngine.runLoginCheck(source, first, ctx, state) {
-                BookRuleEngine.fetchPage(url, ua)
+            val ctx = LegadoJsEngine.JsCtx(source = source.toJsRuleSource(), baseUrl = first.url, page = page)
+            val checked = LegadoJsEngine.runLoginCheck(source.toJsRuleSource(), first, ctx, state) {
+                BookRuleEngine.fetchPage(url, ua, options = fetchOptions(source))
             }
             val listRule = source.ruleExploreList.ifBlank { source.ruleSearchList }
             if (listRule.isBlank()) return@withContext emptyList()
@@ -731,6 +722,49 @@ object NovelSourceEngine {
     // 凭此外缀找到规则文件，走 PyBookApi 调 bookSearch/bookDetail/bookChapter。
 
     private val pyBookApi = PyBookApi()
+
+    /** v1.1.6 分层第 2 批：JSON 书源的 NovelEngine（绑站适配器）。 */
+    fun novelEngineFor(source: BookSource): NovelEngine = JsonNovelEngine(source)
+
+    /** v1.1.6 分层第 2 批：PY 书源的 NovelEngine（绑规则适配器）。 */
+    fun novelEngineForPy(context: Context, rule: PyBookSourceManager.PyBookRule): NovelEngine =
+        PyNovelEngine(context, rule)
+
+    /**
+     * v1.1.6 分层第 2 批：凭 sourceKey 拿引擎（"pybook:" 前缀走 PY 规则，
+     * 否则走 JSON 书源）；两边注册表里都找不到回 null。
+     * 调用前确保 BookSourceManager / PyBookSourceManager 已 load。
+     */
+    fun novelEngineForKey(context: Context, sourceKey: String): NovelEngine? {
+        return if (sourceKey.startsWith(PyBookSourceManager.SOURCE_KEY_PREFIX)) {
+            val name = PyBookSourceManager.fileNameOf(sourceKey) ?: return null
+            val rule = PyBookSourceManager.rules.value.firstOrNull { it.name == name } ?: return null
+            PyNovelEngine(context, rule)
+        } else {
+            val source = BookSourceManager.sources.value.firstOrNull { it.key == sourceKey } ?: return null
+            JsonNovelEngine(source)
+        }
+    }
+
+    /** 拉 PY 书源的详情（名/作者/简介/封面），供 PyNovelEngine.bookDetail。 */
+    suspend fun bookDetailPy(context: Context, book: NovelSearchResult): BookDetailInfo {
+        val path = pyRulePath(context, book) ?: return BookDetailInfo()
+        return runCatching { pyBookApi.detail(path, book.remoteId) }
+            .onFailure {
+                if (it is CancellationException) throw it
+                LogBus.w(TAG, "PY 书源详情失败 ${book.sourceKey}: ${it.message}")
+            }
+            .getOrNull()
+            ?.let {
+                BookDetailInfo(
+                    name = it.name,
+                    author = it.author.orEmpty(),
+                    intro = it.intro,
+                    cover = it.cover.orEmpty(),
+                )
+            }
+            ?: BookDetailInfo()
+    }
 
     private fun pyRulePath(context: Context, book: NovelSearchResult): String? {
         val name = PyBookSourceManager.fileNameOf(book.sourceKey) ?: return null

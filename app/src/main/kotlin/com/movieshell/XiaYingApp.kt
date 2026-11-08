@@ -3,10 +3,12 @@ package com.movieshell
 import android.app.Application
 import coil.Coil
 import coil.ImageLoader
+import com.movieshell.core.js.LegadoJsEngine
+import com.movieshell.core.net.HttpClient
 import com.movieshell.data.maintain.CacheAutoClean
-import com.movieshell.data.novel.LegadoJsEngine
 import com.movieshell.data.novel.NovelMigration
 import com.movieshell.data.novel.NovelUpdateWorker
+import com.movieshell.data.novel.VerifyGate
 import com.movieshell.core.log.CrashHandler
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.PhpSourceManager
@@ -72,6 +74,14 @@ class XiaYingApp : Application() {
         }
         // v0.200.0：小说 JS 源变量落盘读回（重定向域名记忆跨重启生效）
         LegadoJsEngine.SourceVariableStore.init(filesDir)
+        // v1.1.6：JS 引擎的验证通道接 VerifyGate（core/js 不直接依赖数据层）；
+        // Cookie 落盘读回（登录一次，杀进程重启后仍是登录态）。
+        LegadoJsEngine.onVerifyRequested = { url, title, ua ->
+            VerifyGate.awaitVerify(url, title, ua)?.let {
+                LegadoJsEngine.JsVerifyResult(it.html, it.url, it.cookieHeader)
+            }
+        }
+        HttpClient.initCookies(filesDir)
         // v0.85.0：小说自动追更（每天一次，KEEP 防重复入队）
         NovelUpdateWorker.schedule(this)
         // v0.162.0：图片缓存超 1GB 时每日空闲清理一次（只清图片，不碰视频 SimpleCache）

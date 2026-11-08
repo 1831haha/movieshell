@@ -63,3 +63,48 @@ data class ReadingProgress(
 
 /** 书架分组。 */
 enum class ShelfTab { READING, WANT, FINISHED }
+
+/**
+ * v1.1.6 分层第 2 批：正文失败分类——UI 按它给短提示，细节进日志，不再一个通用 toast。
+ * 原 NovelSourceEngine.ContentFail，一字未改，只换位置（小说引擎接口的返回契约）。
+ */
+enum class ContentFail {
+    /** 403 或疑似验证页，验证通道可解（预加载静默时也用它，只是不提示）。 */
+    VERIFY,
+
+    /** 连接/读取超时（底层拦截器已退避重试过，这里不再叠加）。 */
+    TIMEOUT,
+
+    /** 域名解析失败。 */
+    DNS,
+
+    /** 其他 IO 异常。 */
+    NETWORK,
+
+    /** 验证已过、重抓仍 403：站方拒绝，非验证可解。 */
+    FORBIDDEN,
+
+    /** 200 且页面正常，但规则与兜底都提不出正文。 */
+    PARSE_EMPTY,
+
+    /** 正文抓到了，但净化后成空串（规则过宽）：不写盘、不覆盖旧正文。 */
+    PURIFY_EMPTY,
+
+    /** 无明确信号的失败。 */
+    UNKNOWN,
+}
+
+/** v0.250.0：正文拉取结果——空串分不清 403/超时/解析失败，调用方必须拿到原因。 */
+sealed interface ContentResult {
+    data class Ok(val text: String) : ContentResult
+    data class Failed(val reason: ContentFail) : ContentResult
+}
+
+/** v0.229.0：搜书详情页用——详情页规则一次求全（书名/作者/简介/封面/类型）。 */
+data class BookDetailInfo(
+    val name: String = "",
+    val author: String = "",
+    val intro: String = "",
+    val cover: String = "",
+    val kind: String = "",
+)

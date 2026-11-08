@@ -77,7 +77,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.movieshell.data.novel.BookProbeRecord
 import com.movieshell.data.novel.BookProbeStore
-import com.movieshell.data.novel.BookSource
+import com.movieshell.domain.model.BookSource
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.PurifyRuleStore
 import com.movieshell.data.novel.PyBookApi
