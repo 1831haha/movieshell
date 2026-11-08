@@ -112,7 +112,6 @@ import com.movieshell.data.repo.Bookmark
 import com.movieshell.data.repo.BookmarkStore
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.NovelStore
-import com.movieshell.data.repo.ReaderSettings
 import com.movieshell.data.repo.ReadingProgressStore
 import com.movieshell.data.repo.ReadingStatsStore
 import kotlinx.coroutines.CancellationException

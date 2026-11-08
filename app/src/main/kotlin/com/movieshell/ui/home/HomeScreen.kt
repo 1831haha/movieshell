@@ -123,9 +123,7 @@ import com.movieshell.data.repo.DetailSiteRoute
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.repo.HomeCache
-import com.movieshell.data.repo.HomeLayout
 import com.movieshell.data.repo.HomeLoadGate
-import com.movieshell.data.repo.HomeSettings
 import com.movieshell.data.repo.PhpCliEngine
 import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.data.source_mgr.WebParseSourceManager
