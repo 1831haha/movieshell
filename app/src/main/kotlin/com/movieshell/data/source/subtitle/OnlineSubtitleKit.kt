@@ -6,7 +6,7 @@ import com.movieshell.data.source.subtitle.SubtitleSource
 import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.PhpSourceManager
-import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.data.store.PlayerSettings
 import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.player.PlaySession
 import kotlinx.coroutines.Dispatchers

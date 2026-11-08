@@ -57,7 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.movieshell.domain.model.Novel
-import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.store.NovelStore
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.theme.LocalBrandGradient

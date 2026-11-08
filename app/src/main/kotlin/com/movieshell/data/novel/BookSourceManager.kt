@@ -2,8 +2,8 @@ package com.movieshell.data.novel
 
 import android.content.Context
 import android.util.Log
-import com.movieshell.data.repo.AtomicFile
-import com.movieshell.data.repo.NovelStore
+import com.movieshell.core.util.AtomicFile
+import com.movieshell.data.store.NovelStore
 import com.movieshell.domain.model.BookSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow

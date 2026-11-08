@@ -34,8 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.repo.TrashItem
-import com.movieshell.data.repo.TrashStore
+import com.movieshell.data.store.TrashItem
+import com.movieshell.data.store.TrashStore
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant

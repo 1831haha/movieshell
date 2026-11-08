@@ -9,9 +9,9 @@ import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.PyBookSourceManager
-import com.movieshell.data.repo.NovelDirectoryFill
-import com.movieshell.data.repo.NovelStore
-import com.movieshell.data.repo.SearchHistoryStore
+import com.movieshell.data.novel.NovelDirectoryFill
+import com.movieshell.data.store.NovelStore
+import com.movieshell.data.store.SearchHistoryStore
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow

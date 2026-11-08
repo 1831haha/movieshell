@@ -33,7 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.SniffPatternStore
+import com.movieshell.data.store.SniffPatternStore
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField

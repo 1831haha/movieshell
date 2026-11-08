@@ -13,13 +13,13 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
 import com.movieshell.data.source_mgr.DrpySourceManager
-import com.movieshell.data.repo.FollowItem
-import com.movieshell.data.repo.FollowStore
+import com.movieshell.data.store.FollowItem
+import com.movieshell.data.store.FollowStore
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source_mgr.WebParseSourceManager
 import com.movieshell.domain.model.PlayerEngine
-import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.data.store.PlayerSettings
 import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant

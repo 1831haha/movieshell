@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.novel.PurifyRule
 import com.movieshell.data.novel.PurifyRuleStore
-import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.store.NovelStore
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TechDialog

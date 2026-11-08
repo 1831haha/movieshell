@@ -42,9 +42,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.repo.MusicApi
-import com.movieshell.data.repo.MusicStore
-import com.movieshell.data.repo.MusicPlaylist
+import com.movieshell.data.source.MusicApi
+import com.movieshell.data.store.MusicStore
+import com.movieshell.data.store.MusicPlaylist
 import com.movieshell.player.MusicPlayer
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState

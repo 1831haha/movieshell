@@ -1,5 +1,6 @@
 package com.movieshell.ui.bookshelf
 
+import com.movieshell.core.util.SafeFileName
 import com.movieshell.ui.components.AppSearchBar
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -103,17 +104,17 @@ import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.NovelUpdateChecker
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.novel.TxtImporter
-import com.movieshell.data.repo.BookGroup
-import com.movieshell.data.repo.BookshelfGroupStore
-import com.movieshell.data.repo.NovelDirectoryFill
-import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.store.BookGroup
+import com.movieshell.data.store.BookshelfGroupStore
+import com.movieshell.data.novel.NovelDirectoryFill
+import com.movieshell.data.store.NovelStore
 import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.ui.novel.NovelSearchScreen
 import com.movieshell.ui.novel.NovelSearchViewModel
 import com.movieshell.ui.novel.SourceGroup
-import com.movieshell.data.repo.NovelUpdateInfo
-import com.movieshell.data.repo.NovelUpdateStore
-import com.movieshell.data.repo.ReadingProgressStore
+import com.movieshell.data.store.NovelUpdateInfo
+import com.movieshell.data.store.NovelUpdateStore
+import com.movieshell.data.store.ReadingProgressStore
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.market.PluginUi
@@ -505,7 +506,7 @@ fun BookshelfScreen(
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     // v0.294.5：文件名清洗 + 规范路径校验，防路径穿越写出缓存目录
-                    val name = com.movieshell.data.repo.SafeFileName.importName(
+                    val name = SafeFileName.importName(
                         context.contentResolver.query(uri, null, null, null, null)?.use { c ->
                             val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                             if (i >= 0 && c.moveToFirst()) c.getString(i) else null
@@ -522,7 +523,7 @@ fun BookshelfScreen(
                     inputStream.use { input ->
                         tmp.outputStream().use { input.copyTo(it) }
                     }
-                    val named = com.movieshell.data.repo.SafeFileName.childInside(context.cacheDir, name)
+                    val named = SafeFileName.childInside(context.cacheDir, name)
                         ?: run { tmp.delete(); return@runCatching "failed" }
                     // v0.218.0（S19）：先清掉上次残留的同名文件，否则改名
                     // 可能失败；改名失败直接判失败并删 tmp，不再拿着旧文件

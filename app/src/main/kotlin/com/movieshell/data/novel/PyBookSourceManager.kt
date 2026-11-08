@@ -4,8 +4,10 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
-import com.movieshell.data.repo.StoragePaths
+import com.movieshell.core.util.SafeFileName
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.source.ChaquopyEngine
+import com.movieshell.data.store.NovelStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -114,7 +116,7 @@ object PyBookSourceManager {
             if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
         } ?: return@withContext ImportResult.Failed("读取文件名失败")
         // v0.294.5：文件名清洗，防路径穿越
-        val displayName = com.movieshell.data.repo.SafeFileName.importName(rawName, "book_${System.currentTimeMillis()}.py")
+        val displayName = SafeFileName.importName(rawName, "book_${System.currentTimeMillis()}.py")
         if (!displayName.endsWith(".py", ignoreCase = true)) {
             return@withContext ImportResult.WrongExt
         }
@@ -123,11 +125,11 @@ object PyBookSourceManager {
         var tmp: File? = null
         try {
             val dir = dir(context)
-            var dst = com.movieshell.data.repo.SafeFileName.childInside(dir, displayName)
+            var dst = SafeFileName.childInside(dir, displayName)
                 ?: return@withContext ImportResult.Failed("文件名非法")
             if (dst.exists()) {
                 val base = displayName.substringBeforeLast('.')
-                dst = com.movieshell.data.repo.SafeFileName.childInside(dir, "${base}_${System.currentTimeMillis()}.py")
+                dst = SafeFileName.childInside(dir, "${base}_${System.currentTimeMillis()}.py")
                     ?: return@withContext ImportResult.Failed("文件名非法")
             }
             val staging = File(dir, "${dst.name}.${UUID.randomUUID()}.tmp")
@@ -183,8 +185,8 @@ object PyBookSourceManager {
         if (newName == oldName) return@withContext true
         val dir = dir(context)
         // v0.294.5：规范路径必须仍在书源目录内（挡 .. 等穿越）
-        val src = com.movieshell.data.repo.SafeFileName.childInside(dir, oldName) ?: return@withContext false
-        val dst = com.movieshell.data.repo.SafeFileName.childInside(dir, newName) ?: return@withContext false
+        val src = SafeFileName.childInside(dir, oldName) ?: return@withContext false
+        val dst = SafeFileName.childInside(dir, newName) ?: return@withContext false
         if (!src.isFile || dst.exists()) return@withContext false
         if (!src.renameTo(dst)) return@withContext false
         // v0.211.0 审计修复：PY 重命名原来只改文件名，书架上
@@ -192,7 +194,7 @@ object PyBookSourceManager {
         // v0.247.0（F09）：迁移写盘失败则把文件名改回去、返回失败——
         // 文件已改名、书架还指旧名，同样是半截状态。
         val migrated = runCatching {
-            com.movieshell.data.repo.NovelStore.migrateSourceKey(
+            NovelStore.migrateSourceKey(
                 context,
                 "$SOURCE_KEY_PREFIX$oldName",
                 "$SOURCE_KEY_PREFIX$newName",

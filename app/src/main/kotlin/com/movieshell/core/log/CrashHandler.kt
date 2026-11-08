@@ -4,7 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.movieshell.BuildConfig
-import com.movieshell.data.repo.StoragePaths
+import com.movieshell.core.util.StoragePaths
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date

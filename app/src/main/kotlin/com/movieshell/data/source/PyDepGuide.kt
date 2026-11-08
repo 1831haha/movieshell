@@ -1,6 +1,7 @@
 package com.movieshell.data.source
 
 import android.content.Context
+import com.movieshell.data.store.PluginStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -39,7 +40,7 @@ object PyDepGuide {
 
     /** 是否打扰过：已安装依赖包，或用户对该模块点过"下次再说"。 */
     fun shouldBother(context: Context, module: String): Boolean {
-        if (com.movieshell.data.repo.PluginStore.installedOf(DEP_PLUGIN_ID) != null) return false
+        if (PluginStore.installedOf(DEP_PLUGIN_ID) != null) return false
         return !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_PREFIX + module, false)
     }

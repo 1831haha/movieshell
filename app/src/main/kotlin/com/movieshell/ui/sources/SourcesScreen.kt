@@ -1,5 +1,6 @@
 package com.movieshell.ui.sources
 
+import com.movieshell.core.util.SafeFileName
 import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.theme.V5
 import com.movieshell.ui.theme.ok
@@ -95,29 +96,29 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.repo.AiChatStore
-import com.movieshell.data.repo.AiRepairEngine
-import com.movieshell.data.repo.AiRepairSettings
-import com.movieshell.data.repo.ApiSource
-import com.movieshell.data.repo.RuleInfo
-import com.movieshell.data.repo.ApiSourceStore
+import com.movieshell.data.store.AiChatStore
+import com.movieshell.data.ai.AiRepairEngine
+import com.movieshell.data.ai.AiRepairSettings
+import com.movieshell.data.source_mgr.ApiSource
+import com.movieshell.data.store.RuleInfo
+import com.movieshell.data.store.ApiSourceStore
 import com.movieshell.data.source_mgr.DrpySourceManager
-import com.movieshell.data.repo.HomeCache
+import com.movieshell.data.store.HomeCache
 import com.movieshell.data.source_mgr.PhpSourceManager
-import com.movieshell.data.repo.PluginMarket
+import com.movieshell.data.source.PluginMarket
 import com.movieshell.data.source_mgr.PySourceManager
-import com.movieshell.data.repo.SourceDeleteCleanup
+import com.movieshell.core.util.SourceDeleteCleanup
 import com.movieshell.data.source_mgr.SourceProbe
-import com.movieshell.data.repo.toResult
-import com.movieshell.data.repo.SourceProbeStore
-import com.movieshell.data.repo.SourceStateStore
-import com.movieshell.data.repo.StoragePaths
+import com.movieshell.data.store.toResult
+import com.movieshell.data.store.SourceProbeStore
+import com.movieshell.data.store.SourceStateStore
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.source_mgr.SubCache
 import com.movieshell.data.source_mgr.SubSiteRecord
-import com.movieshell.data.repo.SubRefreshStore
+import com.movieshell.data.store.SubRefreshStore
 import com.movieshell.data.source_mgr.SubSiteStore
-import com.movieshell.data.repo.TrashStore
-import com.movieshell.data.repo.WarehouseSync
+import com.movieshell.data.store.TrashStore
+import com.movieshell.data.sync.WarehouseSync
 import com.movieshell.data.source_mgr.WebSourceManager
 import com.movieshell.data.source_mgr.WebParseSourceManager
 import com.movieshell.ui.components.AppButton
@@ -211,17 +212,17 @@ internal fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): I
     } ?: return ImportResult.Failed("读取文件名失败")
     val ext = "." + rawName.substringAfterLast('.', "").lowercase()
     // v0.294.5：文件名清洗 + 规范路径校验，防「../」穿越写到规则目录外
-    val displayName = com.movieshell.data.repo.SafeFileName.importName(rawName, "rule_${System.currentTimeMillis()}$ext")
+    val displayName = SafeFileName.importName(rawName, "rule_${System.currentTimeMillis()}$ext")
     if (target.extensions.none { it.equals(ext, ignoreCase = true) }) {
         return ImportResult.WrongExt
     }
     return try {
         val dir = targetDir(context, target.dirName)
-        var dst = com.movieshell.data.repo.SafeFileName.childInside(dir, displayName)
+        var dst = SafeFileName.childInside(dir, displayName)
             ?: return ImportResult.Failed("文件名非法")
         if (dst.exists()) {
             val base = displayName.substringBeforeLast('.')
-            dst = com.movieshell.data.repo.SafeFileName.childInside(dir, "${base}_${System.currentTimeMillis()}$ext")
+            dst = SafeFileName.childInside(dir, "${base}_${System.currentTimeMillis()}$ext")
                 ?: return ImportResult.Failed("文件名非法")
         }
         context.contentResolver.openInputStream(uri)?.use { input ->

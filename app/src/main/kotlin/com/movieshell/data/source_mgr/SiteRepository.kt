@@ -2,8 +2,8 @@ package com.movieshell.data.source_mgr
 
 import android.content.Context
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.PhpCliEngine
-import com.movieshell.data.repo.SearchSlowSourceFilter
+import com.movieshell.data.source.PhpCliEngine
+import com.movieshell.core.util.SearchSlowSourceFilter
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.Episode
 import com.movieshell.domain.model.FilterGroup

@@ -12,10 +12,10 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.movieshell.data.repo.ApiSourceStore
-import com.movieshell.data.repo.SubRefreshStore
+import com.movieshell.data.store.ApiSourceStore
+import com.movieshell.data.store.SubRefreshStore
 import com.movieshell.data.source_mgr.SubSiteStore
-import com.movieshell.data.repo.WarehouseSync
+import com.movieshell.data.sync.WarehouseSync
 import kotlinx.coroutines.delay
 import java.util.concurrent.TimeUnit
 

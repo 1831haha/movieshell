@@ -42,8 +42,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.movieshell.data.repo.PluginMarket
-import com.movieshell.data.repo.PluginStore
+import com.movieshell.data.source.PluginMarket
+import com.movieshell.data.store.PluginStore
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.ui.components.TabTopBar

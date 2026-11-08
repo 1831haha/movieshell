@@ -2,6 +2,7 @@ package com.movieshell.data.source
 
 import com.movieshell.core.log.LogBus
 import com.movieshell.core.net.DEFAULT_UA_CHROME120
+import com.movieshell.data.store.SniffPatternStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -125,7 +126,7 @@ object SniffEngine {
     fun matchesCustomPattern(url: String): Boolean {
         if (url.isBlank()) return false
         return runCatching {
-            com.movieshell.data.repo.SniffPatternStore.compiled().any { it.containsMatchIn(url) }
+            SniffPatternStore.compiled().any { it.containsMatchIn(url) }
         }.getOrDefault(false)
     }
 
@@ -133,7 +134,7 @@ object SniffEngine {
     fun matchesExcludePattern(url: String): Boolean {
         if (url.isBlank()) return false
         return runCatching {
-            com.movieshell.data.repo.SniffPatternStore.excluded().any { it.containsMatchIn(url) }
+            SniffPatternStore.excluded().any { it.containsMatchIn(url) }
         }.getOrDefault(false)
     }
 

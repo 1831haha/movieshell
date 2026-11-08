@@ -19,6 +19,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # v1.1.9 分层门禁：拦两条红线——① 禁止引用已删空的 data/repo 包；
+      # ② 禁止直接构造 OkHttpClient（统一走 core/net/HttpClient）。
+      # 该 step 失败即构建失败；脚本默认全仓扫（CI 里工作区干净，
+      # 只查 git 改动文件等于什么都不查）。
+      - name: Check layer rules
+        run: python3 tools/check_layers.py
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:

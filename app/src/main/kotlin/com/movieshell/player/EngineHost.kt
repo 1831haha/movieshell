@@ -8,7 +8,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.ui.PlayerView
 import com.movieshell.core.log.LogBus
 import com.movieshell.domain.model.PlayerEngine
-import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.data.store.PlayerSettings
 import com.movieshell.domain.model.SubtitleStyle
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

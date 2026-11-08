@@ -48,7 +48,7 @@ import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.PyBookSourceManager
-import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.store.NovelStore
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.StatusRing

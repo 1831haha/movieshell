@@ -1,11 +1,13 @@
 package com.movieshell.ui.detail
 
+import com.movieshell.data.source.PluginMarket
+import com.movieshell.data.store.PluginStore
 import com.movieshell.util.safeIndex
 
 import androidx.compose.ui.draw.alpha
 import com.movieshell.ui.theme.ok
 
-import com.movieshell.data.repo.FollowItem
+import com.movieshell.data.store.FollowItem
 
 import androidx.compose.ui.semantics.contentDescription
 
@@ -134,20 +136,20 @@ import com.movieshell.data.download.DownloadManager
 import com.movieshell.domain.model.Episode
 import com.movieshell.domain.model.PlayLine
 import com.movieshell.domain.model.VodDetail
-import com.movieshell.data.repo.DetailSiteRoute
-import com.movieshell.data.repo.DownloadSettings
-import com.movieshell.data.repo.DownloadTask
+import com.movieshell.data.source_mgr.DetailSiteRoute
+import com.movieshell.data.store.DownloadSettings
+import com.movieshell.data.store.DownloadTask
 import com.movieshell.data.source_mgr.DrpySourceManager
-import com.movieshell.data.repo.FollowStore
+import com.movieshell.data.store.FollowStore
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.PhpCliEngine
-import com.movieshell.data.repo.SourceStateStore
+import com.movieshell.data.source.PhpCliEngine
+import com.movieshell.data.store.SourceStateStore
 import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.data.source_mgr.WebParseSourceManager
 import com.movieshell.data.source_mgr.SiteRepository
 import com.movieshell.data.source_mgr.SiteSearchResult
-import com.movieshell.data.repo.StoragePaths
+import com.movieshell.core.util.StoragePaths
 import android.app.Activity
 import android.content.pm.ActivityInfo
 import com.movieshell.player.MagnetPlayer
@@ -1572,7 +1574,7 @@ fun DetailScreen(
                     engineBusy = "正在获取插件市场…"
                     scope.launch {
                         try {
-                            val info = com.movieshell.data.repo.PluginMarket.fetch(com.movieshell.data.repo.PluginStore.DEFAULT_MARKET_URL)
+                            val info = PluginMarket.fetch(PluginStore.DEFAULT_MARKET_URL)
                             val ids = listOf(com.movieshell.player.EnginePlugins.XL_ID, com.movieshell.player.EnginePlugins.BT_ID)
                             val msgs = mutableListOf<String>()
                             for (id in ids) {

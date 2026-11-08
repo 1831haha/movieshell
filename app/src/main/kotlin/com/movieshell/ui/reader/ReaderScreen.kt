@@ -108,12 +108,12 @@ import com.movieshell.data.novel.NovelPurifyEngine
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.PurifyRuleStore
 import com.movieshell.data.novel.PyBookSourceManager
-import com.movieshell.data.repo.Bookmark
-import com.movieshell.data.repo.BookmarkStore
+import com.movieshell.data.store.Bookmark
+import com.movieshell.data.store.BookmarkStore
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.NovelStore
-import com.movieshell.data.repo.ReadingProgressStore
-import com.movieshell.data.repo.ReadingStatsStore
+import com.movieshell.data.store.NovelStore
+import com.movieshell.data.store.ReadingProgressStore
+import com.movieshell.data.store.ReadingStatsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive

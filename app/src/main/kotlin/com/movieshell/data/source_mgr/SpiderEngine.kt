@@ -3,9 +3,9 @@ package com.movieshell.data.source_mgr
 import android.content.Context
 import com.github.catvod.crawler.Spider
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.ExecutableTrust
-import com.movieshell.data.repo.JarSpiderStore
-import com.movieshell.data.repo.StoragePaths
+import com.movieshell.core.util.ExecutableTrust
+import com.movieshell.data.store.JarSpiderStore
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.Site
 import com.movieshell.domain.model.Vod

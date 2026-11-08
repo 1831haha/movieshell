@@ -6,8 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.movieshell.domain.model.Site
 import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.source_mgr.PySourceManager
-import com.movieshell.data.repo.SearchHistoryStore
-import com.movieshell.data.repo.SearchSlowSourceFilter
+import com.movieshell.data.store.SearchHistoryStore
+import com.movieshell.core.util.SearchSlowSourceFilter
 import com.movieshell.data.source_mgr.SiteRepository
 import com.movieshell.data.source_mgr.SiteSearchResult
 import kotlinx.coroutines.flow.MutableStateFlow

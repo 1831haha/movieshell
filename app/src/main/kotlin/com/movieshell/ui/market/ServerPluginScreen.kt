@@ -67,7 +67,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.repo.ServicePluginManager
+import com.movieshell.data.source_mgr.ServicePluginManager
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.V5Chip

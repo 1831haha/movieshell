@@ -8,7 +8,7 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
-import com.movieshell.data.repo.DetailSiteRoute
+import com.movieshell.data.source_mgr.DetailSiteRoute
 
 /**
  * 播放器路由：player?url={url}&title={title}&vod={vodId}&live={0/1}&site={siteKey}

@@ -48,10 +48,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.download.Notify
-import com.movieshell.data.repo.DlStatus
-import com.movieshell.data.repo.DownloadSettings
-import com.movieshell.data.repo.DownloadStore
-import com.movieshell.data.repo.DownloadTask
+import com.movieshell.data.store.DlStatus
+import com.movieshell.data.store.DownloadSettings
+import com.movieshell.data.store.DownloadStore
+import com.movieshell.data.store.DownloadTask
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant

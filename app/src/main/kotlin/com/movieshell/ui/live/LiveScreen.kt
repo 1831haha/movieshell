@@ -72,7 +72,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.PlayArrow
-import com.movieshell.data.repo.PlayerSettings
+import com.movieshell.data.store.PlayerSettings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -108,12 +108,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.movieshell.data.repo.EpgFetcher
-import com.movieshell.data.repo.LiveChannel
-import com.movieshell.data.repo.LiveSource
-import com.movieshell.data.repo.LiveStore
+import com.movieshell.data.source.EpgFetcher
+import com.movieshell.data.store.LiveChannel
+import com.movieshell.data.store.LiveSource
+import com.movieshell.data.store.LiveStore
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.TrashStore
+import com.movieshell.data.store.TrashStore
 import com.movieshell.player.EngineHost
 import com.movieshell.player.PlaySession
 import com.movieshell.player.PlayerScreen

@@ -11,7 +11,7 @@ import com.movieshell.domain.model.VodDetail
 import com.movieshell.core.log.LogBus
 import com.movieshell.core.net.HttpClient
 import com.movieshell.core.net.SourceThrottle
-import com.movieshell.data.repo.StoragePaths
+import com.movieshell.core.util.StoragePaths
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers

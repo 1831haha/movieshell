@@ -4,9 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.MusicApi
-import com.movieshell.data.repo.MusicHistoryStore
-import com.movieshell.data.repo.MusicSettings
+import com.movieshell.data.source.MusicApi
+import com.movieshell.data.store.MusicHistoryStore
+import com.movieshell.data.store.MusicSettings
 import com.movieshell.player.MusicPlayer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

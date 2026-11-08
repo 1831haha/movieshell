@@ -58,10 +58,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.movieshell.data.repo.MusicApi
-import com.movieshell.data.repo.MusicSource
-import com.movieshell.data.repo.AtomicFile
-import com.movieshell.data.repo.MusicSourceStore
+import com.movieshell.data.source.MusicApi
+import com.movieshell.data.store.MusicSource
+import com.movieshell.core.util.AtomicFile
+import com.movieshell.data.store.MusicSourceStore
 import com.movieshell.data.source.CmsApi
 import com.movieshell.data.source.LxCookieKit
 import com.movieshell.data.source.LxMusicSourceEngine

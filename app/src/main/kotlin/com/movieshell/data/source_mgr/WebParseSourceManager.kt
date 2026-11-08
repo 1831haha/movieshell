@@ -2,8 +2,8 @@ package com.movieshell.data.source_mgr
 
 import android.content.Context
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.AtomicFile
-import com.movieshell.data.repo.StoragePaths
+import com.movieshell.core.util.AtomicFile
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail

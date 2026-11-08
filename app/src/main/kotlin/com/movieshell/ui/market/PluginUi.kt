@@ -20,8 +20,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.PluginMarket
-import com.movieshell.data.repo.PluginMarket.MarketPlugin
+import com.movieshell.data.source.PluginMarket
+import com.movieshell.data.source.PluginMarket.MarketPlugin
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 

@@ -7,7 +7,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.Surface
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.StoragePaths
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.domain.model.SubtitleStyle
 import dev.jdtech.mpv.MPVLib
 import java.io.File

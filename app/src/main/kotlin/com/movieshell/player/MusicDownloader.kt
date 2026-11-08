@@ -3,8 +3,8 @@ package com.movieshell.player
 import android.content.Context
 import android.net.Uri
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.MusicApi
-import com.movieshell.data.repo.MusicStore
+import com.movieshell.data.source.MusicApi
+import com.movieshell.data.store.MusicStore
 import com.movieshell.ui.components.AppToast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

@@ -13,9 +13,9 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.MusicApi
-import com.movieshell.data.repo.MusicHistoryStore
-import com.movieshell.data.repo.MusicSourceStore
+import com.movieshell.data.source.MusicApi
+import com.movieshell.data.store.MusicHistoryStore
+import com.movieshell.data.store.MusicSourceStore
 import com.movieshell.data.source.LxMusicSourceEngine
 import com.movieshell.data.source.resolveBuiltinHuibq
 import com.movieshell.ui.market.PluginUi

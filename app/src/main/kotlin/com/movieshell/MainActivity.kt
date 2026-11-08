@@ -6,6 +6,8 @@ import androidx.compose.ui.graphics.toArgb
 
 import androidx.compose.runtime.SideEffect
 
+import com.movieshell.core.util.AppGuard
+import com.movieshell.data.store.MusicSettings
 import com.movieshell.ui.theme.V5
 
 import android.net.Uri
@@ -61,27 +63,27 @@ import androidx.navigation.compose.rememberNavController
 import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.download.SubRefreshWorker
 import com.movieshell.data.download.Notify
-import com.movieshell.data.repo.DownloadStore
+import com.movieshell.data.store.DownloadStore
 import com.movieshell.data.source_mgr.DrpySourceManager
-import com.movieshell.data.repo.FollowStore
-import com.movieshell.data.repo.LiveStore
-import com.movieshell.data.repo.PluginStore
-import com.movieshell.data.repo.SourceStateStore
+import com.movieshell.data.store.FollowStore
+import com.movieshell.data.store.LiveStore
+import com.movieshell.data.store.PluginStore
+import com.movieshell.data.store.SourceStateStore
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.LogStore
-import com.movieshell.data.repo.NovelDirectoryFill
-import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.store.LogStore
+import com.movieshell.data.novel.NovelDirectoryFill
+import com.movieshell.data.store.NovelStore
 import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.data.source_mgr.WebParseSourceManager
 import com.movieshell.data.source_mgr.SpiderEngine
-import com.movieshell.data.repo.StoragePaths
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.source_mgr.SubSiteEngines
 import com.movieshell.data.source_mgr.SubSiteStore
-import com.movieshell.data.repo.ParseStore
-import com.movieshell.data.repo.PlayerSettings
-import com.movieshell.data.repo.SniffPatternStore
-import com.movieshell.data.repo.ThemeStore
+import com.movieshell.data.store.ParseStore
+import com.movieshell.data.store.PlayerSettings
+import com.movieshell.data.store.SniffPatternStore
+import com.movieshell.data.store.ThemeStore
 import com.movieshell.data.source_mgr.WebSourceManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -200,7 +202,7 @@ class MainActivity : ComponentActivity() {
         LogBus.i("App", "侠影启动 v${BuildConfig.VERSION_NAME}")
         // v0.185.0：轻量自保护壳——硬拦截（可调试包/调试器已连）直接退出，
         // root/模拟器只警告不拦；验签不做（云构建每轮新签名，写死必误杀，见 changelog）。
-        val guard = com.movieshell.data.repo.AppGuard.check(this)
+        val guard = AppGuard.check(this)
         if (guard.hardFail) {
             AppToast.show(this, "安全检查未通过（${guard.hardReasons.joinToString("、")}），已退出", long = true)
             finish()
@@ -220,7 +222,7 @@ class MainActivity : ComponentActivity() {
         // 没存过模式的用户直接走默认暗色；显式存过亮色/跟随系统的不动（见 ThemeStore.init）。
         LogStore.init(this)
         PlayerSettings.init(this)
-        com.movieshell.data.repo.MusicSettings.init(this)
+        MusicSettings.init(this)
         com.movieshell.player.danmaku.DanmakuSettings.init(this) // v0.54：弹幕开关
         com.movieshell.player.danmaku.DanmakuSource.initCache(this) // v0.55：弹幕磁盘缓存
         ParseStore.load(this) // v0.19.0：自定义解析接口

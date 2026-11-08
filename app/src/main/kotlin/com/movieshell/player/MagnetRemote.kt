@@ -3,6 +3,7 @@ package com.movieshell.player
 import android.content.Context
 import android.content.Intent
 import com.movieshell.core.log.LogBus
+import com.movieshell.core.util.ProcessExitLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -147,7 +148,7 @@ object MagnetRemote {
         val since = System.currentTimeMillis() - 60_000
         var ex: Pair<Int, String>? = null
         for (i in 0 until 6) {
-            ex = com.movieshell.data.repo.ProcessExitLog.lastMagnetExit(ctx, since)
+            ex = ProcessExitLog.lastMagnetExit(ctx, since)
             if (ex != null) break
             Thread.sleep(300)
         }
@@ -165,7 +166,7 @@ object MagnetRemote {
         val c = ctx.applicationContext
         Thread({
             Thread.sleep(1500)
-            com.movieshell.data.repo.ProcessExitLog.logAsync(c)
+            ProcessExitLog.logAsync(c)
         }, "magnet-exitinfo").start()
         return "磁力引擎意外退出（已隔离，主程序未受影响）。可换网络重试，或用其他应用打开。下次启动会在日志里记录退出原因。"
     }

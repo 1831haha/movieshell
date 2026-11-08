@@ -6,8 +6,8 @@ import com.movieshell.domain.model.Chapter
 import com.movieshell.domain.model.ChapterMeta
 import com.movieshell.domain.model.Novel
 import com.movieshell.domain.model.NovelSearchResult
-import com.movieshell.data.repo.NovelStore
-import com.movieshell.data.repo.ReadingProgressStore
+import com.movieshell.data.store.NovelStore
+import com.movieshell.data.store.ReadingProgressStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async

@@ -32,7 +32,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.repo.OpenListClient
+import com.movieshell.core.net.OpenListClient
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TabTopBar
 import kotlinx.coroutines.launch

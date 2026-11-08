@@ -21,7 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.movieshell.data.repo.ThemeStore
+import com.movieshell.data.store.ThemeStore
 
 /**
  * v0.218.0（S28）：品牌渐变色带从顶栏组件文件搬到主题层——原来主题层

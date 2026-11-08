@@ -12,8 +12,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import com.movieshell.data.repo.PluginMarket
-import com.movieshell.data.repo.PluginStore
+import com.movieshell.data.source.PluginMarket
+import com.movieshell.data.store.PluginStore
 import com.movieshell.data.source.PyDepGuide
 import kotlinx.coroutines.launch
 

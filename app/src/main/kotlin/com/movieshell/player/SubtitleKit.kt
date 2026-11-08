@@ -1,7 +1,7 @@
 package com.movieshell.player
 
 import android.content.Context
-import com.movieshell.data.repo.AtomicFile
+import com.movieshell.core.util.AtomicFile
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source.CmsApi
 import kotlinx.coroutines.Dispatchers

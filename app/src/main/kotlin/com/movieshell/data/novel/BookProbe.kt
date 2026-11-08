@@ -2,7 +2,7 @@ package com.movieshell.data.novel
 
 import android.content.Context
 import android.util.Log
-import com.movieshell.data.repo.AtomicFile
+import com.movieshell.core.util.AtomicFile
 import com.movieshell.data.source.CmsApi
 import com.movieshell.core.net.DEFAULT_UA
 import java.io.File

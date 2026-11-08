@@ -1,5 +1,6 @@
 package com.movieshell.ui.novel
 
+import com.movieshell.data.store.NovelStore
 import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppSwitch
@@ -137,14 +138,14 @@ fun BookSourceScreen(
     LaunchedEffect(deleteTarget) {
         deleteAffectedCount = deleteTarget?.let {
             withContext(Dispatchers.IO) {
-                com.movieshell.data.repo.NovelStore.countBySourceKey(context, it.key)
+                NovelStore.countBySourceKey(context, it.key)
             }
         }
     }
     LaunchedEffect(deletePyTarget) {
         deletePyAffectedCount = deletePyTarget?.let {
             withContext(Dispatchers.IO) {
-                com.movieshell.data.repo.NovelStore.countBySourceKey(
+                NovelStore.countBySourceKey(
                     context,
                     "${PyBookSourceManager.SOURCE_KEY_PREFIX}${it.name}",
                 )
@@ -175,7 +176,7 @@ fun BookSourceScreen(
                     k.startsWith("json_") -> k.removePrefix("json_")
                     else -> k
                 }
-                com.movieshell.data.repo.NovelStore.countBySourceKey(context, key)
+                NovelStore.countBySourceKey(context, key)
             }
         }
     }

@@ -57,7 +57,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.movieshell.data.repo.MusicPlayerLayout
+import com.movieshell.domain.model.MusicPlayerLayout
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.theme.LocalBrandGradient
 import com.movieshell.ui.theme.V5

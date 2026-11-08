@@ -3,7 +3,7 @@ package com.movieshell.data.source
 import android.content.Context
 import com.movieshell.domain.model.ParseConfig
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.ParseStore
+import com.movieshell.data.store.ParseStore
 import com.movieshell.player.SniffPlayHeaders
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred

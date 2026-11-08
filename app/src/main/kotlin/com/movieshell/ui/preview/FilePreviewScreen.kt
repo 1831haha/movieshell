@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.movieshell.data.source_mgr.PhpSourceManager
-import com.movieshell.data.repo.StoragePaths
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.EmptyKind

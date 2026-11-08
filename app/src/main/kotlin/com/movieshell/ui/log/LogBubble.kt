@@ -50,10 +50,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.repo.AtomicFile
+import com.movieshell.core.util.AtomicFile
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.LogStore
-import com.movieshell.data.repo.StoragePaths
+import com.movieshell.data.store.LogStore
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.player.PlayerManager
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant

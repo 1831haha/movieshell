@@ -48,10 +48,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.movieshell.data.repo.AiChatStore
-import com.movieshell.data.repo.AiRepairEngine
-import com.movieshell.data.repo.AiRepairSettings
-import com.movieshell.data.repo.LlmClient
+import com.movieshell.data.store.AiChatStore
+import com.movieshell.data.ai.AiRepairEngine
+import com.movieshell.data.ai.AiRepairSettings
+import com.movieshell.data.ai.LlmClient
 import com.movieshell.data.source_mgr.SourceProbe
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant

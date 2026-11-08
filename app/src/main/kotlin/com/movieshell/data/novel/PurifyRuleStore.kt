@@ -2,7 +2,7 @@ package com.movieshell.data.novel
 
 import android.content.Context
 import android.util.Log
-import com.movieshell.data.repo.AtomicFile
+import com.movieshell.core.util.AtomicFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock

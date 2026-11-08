@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.ServicePluginManager
+import com.movieshell.data.source_mgr.ServicePluginManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext

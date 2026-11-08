@@ -10,9 +10,9 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.movieshell.data.download.Notify
-import com.movieshell.data.repo.BookshelfGroupStore
-import com.movieshell.data.repo.NovelStore
-import com.movieshell.data.repo.NovelUpdateStore
+import com.movieshell.data.store.BookshelfGroupStore
+import com.movieshell.data.store.NovelStore
+import com.movieshell.data.store.NovelUpdateStore
 import java.util.concurrent.TimeUnit
 
 /**

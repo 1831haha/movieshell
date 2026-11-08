@@ -118,24 +118,24 @@ import com.movieshell.domain.model.isCmsSite
 import com.movieshell.domain.model.isDrpySite
 import com.movieshell.domain.model.isJavaSpider
 import com.movieshell.domain.model.isPySite
-import com.movieshell.data.repo.ApiSourceStore
-import com.movieshell.data.repo.DetailSiteRoute
+import com.movieshell.data.store.ApiSourceStore
+import com.movieshell.data.source_mgr.DetailSiteRoute
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.DrpySourceManager
-import com.movieshell.data.repo.HomeCache
-import com.movieshell.data.repo.HomeLoadGate
-import com.movieshell.data.repo.PhpCliEngine
+import com.movieshell.data.store.HomeCache
+import com.movieshell.core.util.HomeLoadGate
+import com.movieshell.data.source.PhpCliEngine
 import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.data.source_mgr.WebParseSourceManager
 import com.movieshell.data.source_mgr.SiteRepository
-import com.movieshell.data.repo.SourceStateStore
+import com.movieshell.data.store.SourceStateStore
 import com.movieshell.data.source_mgr.SubSiteEngines
 import com.movieshell.data.source_mgr.SubSiteStore
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.V5Chip
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState
-import com.movieshell.data.repo.ThemeStore
+import com.movieshell.data.store.ThemeStore
 import com.movieshell.ui.components.FilterBar
 import com.movieshell.ui.components.PosterCard
 import android.app.Activity
@@ -161,7 +161,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.basicMarquee
-import com.movieshell.data.repo.BackgroundStore
+import com.movieshell.data.store.BackgroundStore
 
 // v0.27.6：进程级标记，区分冷启动和 tab 切回（切 tab 时 HomeScreen 被 dispose，重进 composition）。
 // 冷启动保持干净空态，切回才静默恢复缓存。

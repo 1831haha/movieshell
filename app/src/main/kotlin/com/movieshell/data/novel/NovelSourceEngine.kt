@@ -7,7 +7,7 @@ import com.movieshell.core.net.HttpClient
 import com.movieshell.core.net.PageResult
 import com.movieshell.core.net.SourceThrottle
 import com.movieshell.core.net.buildSearchRequest
-import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.store.NovelStore
 import com.movieshell.domain.model.BookDetailInfo
 import com.movieshell.domain.model.BookSource
 import com.movieshell.domain.model.ChapterMeta

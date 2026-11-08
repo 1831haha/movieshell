@@ -7,6 +7,7 @@ import android.util.Log
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import com.movieshell.core.log.LogBus
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.ui.components.AppToast
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -211,7 +212,7 @@ object ChaquopyEngine : PyEngine {
         if (selfChecked) return
         selfChecked = true
         runCatching {
-            val dir = com.movieshell.data.repo.StoragePaths.pyLibsDir(ctx)
+            val dir = StoragePaths.pyLibsDir(ctx)
             val sysPath = py.getModule("sys")?.get("path")?.toString().orEmpty()
             val inPath = sysPath.contains(dir.absolutePath)
             val brotliOk = runCatching { py.getModule("brotli"); true }.getOrDefault(false)
@@ -242,7 +243,7 @@ object ChaquopyEngine : PyEngine {
     private fun ensureLibsPath(py: Python, ctx: Context) {
         if (libsPathAdded) return
         runCatching {
-            val dir = com.movieshell.data.repo.StoragePaths.pyLibsDir(ctx)
+            val dir = StoragePaths.pyLibsDir(ctx)
             py.getModule("sys")?.get("path")?.callAttr("insert", 0, dir.absolutePath)
             Log.i(TAG, "pylibs 已加入 sys.path：${dir.absolutePath}")
         }.onSuccess {

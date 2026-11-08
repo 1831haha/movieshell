@@ -59,8 +59,8 @@ import com.movieshell.domain.model.BookDetailInfo
 import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.NovelSourceEngine
 import com.movieshell.data.novel.PyBookSourceManager
-import com.movieshell.data.repo.NovelDirectoryFill
-import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.novel.NovelDirectoryFill
+import com.movieshell.data.store.NovelStore
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.reader.ReaderJumpRequest
 import kotlinx.coroutines.Dispatchers

@@ -88,7 +88,7 @@ object LxCookieKit {
 
     /** v0.123.0：平台名映射收敛到 MusicApi.platformLabel 一处真源，这里只兜底原样返回。 */
     private fun labelOf(key: String): String =
-        com.movieshell.data.repo.MusicApi.platformLabel(key) ?: key
+        com.movieshell.data.source.MusicApi.platformLabel(key) ?: key
 
     /**
      * v0.123.0：从脚本文本嗅探提到的平台（sources 定义里的 'tx': {...} 之类键、

@@ -71,7 +71,7 @@ import androidx.compose.ui.unit.sp
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.PyBookSourceManager
-import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.store.NovelStore
 import kotlinx.coroutines.launch
 
 /**

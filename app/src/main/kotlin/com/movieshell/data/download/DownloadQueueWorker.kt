@@ -7,10 +7,10 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import com.movieshell.data.repo.AtomicFile
-import com.movieshell.data.repo.DlStatus
-import com.movieshell.data.repo.DownloadStore
-import com.movieshell.data.repo.DownloadTask
+import com.movieshell.core.util.AtomicFile
+import com.movieshell.data.store.DlStatus
+import com.movieshell.data.store.DownloadStore
+import com.movieshell.data.store.DownloadTask
 import com.movieshell.core.net.DEFAULT_UA
 import com.movieshell.player.M3u8AdFilter
 import com.movieshell.player.SniffPlayHeaders

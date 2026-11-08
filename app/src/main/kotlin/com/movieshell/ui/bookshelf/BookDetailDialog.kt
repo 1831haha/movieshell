@@ -55,12 +55,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.movieshell.data.store.ReadingProgressStore
 import com.movieshell.domain.model.Chapter
 import com.movieshell.domain.model.Novel
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.PyBookSourceManager
-import com.movieshell.data.repo.BookGroup
-import com.movieshell.data.repo.NovelStore
+import com.movieshell.data.store.BookGroup
+import com.movieshell.data.store.NovelStore
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.TechDialog
@@ -365,7 +366,7 @@ fun BookDetailDialog(
                 scope.launch {
                     val newTitle = runCatching { NovelStore.chapters(context, novel.id) }
                         .getOrNull()?.getOrNull(newIndex)?.title.orEmpty()
-                    com.movieshell.data.repo.ReadingProgressStore.save(
+                    ReadingProgressStore.save(
                         context,
                         com.movieshell.domain.model.ReadingProgress(novel.id, newIndex, 0, chapterTitle = newTitle),
                     )

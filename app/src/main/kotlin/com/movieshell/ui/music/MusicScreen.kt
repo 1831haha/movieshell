@@ -79,8 +79,8 @@ import com.movieshell.ui.components.StatusRing
 import com.movieshell.ui.components.StatusRingState
 import com.movieshell.ui.components.CapsuleTabBar
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.MusicApi
-import com.movieshell.data.repo.MusicSettings
+import com.movieshell.data.source.MusicApi
+import com.movieshell.data.store.MusicSettings
 import com.movieshell.player.MusicDownloader
 import com.movieshell.player.MusicPlayer
 import com.movieshell.ui.components.AppCard
@@ -109,11 +109,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.movieshell.data.repo.MusicSource
-import com.movieshell.data.repo.MusicSourceStore
-import com.movieshell.data.repo.MusicStore
-import com.movieshell.data.repo.MusicHistoryStore
-import com.movieshell.data.repo.MusicPlaylist
+import com.movieshell.data.store.MusicSource
+import com.movieshell.data.store.MusicSourceStore
+import com.movieshell.data.store.MusicStore
+import com.movieshell.data.store.MusicHistoryStore
+import com.movieshell.data.store.MusicPlaylist
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.lazy.LazyRow

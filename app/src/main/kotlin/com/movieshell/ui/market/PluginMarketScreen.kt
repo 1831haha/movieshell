@@ -67,10 +67,10 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.movieshell.core.log.LogBus
 import com.movieshell.ui.components.TabTopBar
-import com.movieshell.data.repo.PluginMarket
-import com.movieshell.data.repo.PluginMarket.MarketInfo
-import com.movieshell.data.repo.PluginMarket.MarketPlugin
-import com.movieshell.data.repo.PluginStore
+import com.movieshell.data.source.PluginMarket
+import com.movieshell.data.source.PluginMarket.MarketInfo
+import com.movieshell.data.source.PluginMarket.MarketPlugin
+import com.movieshell.data.store.PluginStore
 import com.movieshell.data.source_mgr.SubSiteStore
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.V5Chip

@@ -6,9 +6,9 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import com.movieshell.data.repo.DlStatus
-import com.movieshell.data.repo.DownloadStore
-import com.movieshell.data.repo.DownloadTask
+import com.movieshell.data.store.DlStatus
+import com.movieshell.data.store.DownloadStore
+import com.movieshell.data.store.DownloadTask
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

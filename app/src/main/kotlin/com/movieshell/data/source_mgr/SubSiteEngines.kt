@@ -3,8 +3,8 @@ package com.movieshell.data.source_mgr
 import android.content.Context
 import android.util.Log
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.ExecutableTrust
-import com.movieshell.data.repo.StoragePaths
+import com.movieshell.core.util.ExecutableTrust
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.FilterGroup
 import com.movieshell.domain.model.Site
