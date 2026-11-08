@@ -1,5 +1,6 @@
 package com.movieshell.data.repo
 
+import com.movieshell.core.log.LogBus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
