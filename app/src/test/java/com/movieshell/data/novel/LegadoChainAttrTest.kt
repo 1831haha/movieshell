@@ -19,7 +19,7 @@ class LegadoChainAttrTest {
         val src = BookSource.fromJson(sourceJson)
         assertNotNull(src)
         val el = Jsoup.parse(item, "https://m.suixkan.com/").selectFirst(".v-list-item")!!
-        val ctx = LegadoJsEngine.JsCtx(src!!, "https://m.suixkan.com/s/1.html")
+        val ctx = LegadoJsEngine.JsCtx(src!!.toJsRuleSource(), "https://m.suixkan.com/s/1.html")
         return LegadoJsEngine.evalTextRule(el, "https://m.suixkan.com/s/1.html", rule, ctx, LegadoJsEngine.JsState(src.key))
     }
 
