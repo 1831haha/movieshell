@@ -381,6 +381,7 @@ fun SourcePickerSheet(
                 PickerItem(
                     id = "local-drpy:${rule.name}",
                     name = name,
+                    fileName = rule.name,
                     kind = SubSiteStore.KIND_DRPY,
                     logoUrl = siteLogoUrl(rule.name, name, null)
                         ?: host?.let { faviconUrlForHost(it) },
@@ -396,6 +397,7 @@ fun SourcePickerSheet(
                 PickerItem(
                     id = "local-py:${rule.name}",
                     name = name,
+                    fileName = rule.name,
                     kind = SubSiteStore.KIND_PY,
                     logoUrl = siteLogoUrl(rule.name, name, null)
                         ?: host?.let { faviconUrlForHost(it) },
@@ -412,6 +414,7 @@ fun SourcePickerSheet(
                 PickerItem(
                     id = "local-php:${rule.name}",
                     name = name,
+                    fileName = rule.name,
                     kind = SubSiteStore.KIND_TYPE4,
                     logoUrl = siteLogoUrl(rule.name, name, null)
                         ?: host?.let { faviconUrlForHost(it) },
@@ -518,10 +521,12 @@ fun SourcePickerSheet(
         Icons.Filled.List, Icons.Filled.GridView, Icons.Filled.List,
     )
     // 搜索文本 × 类型筛选联动（先按来源过滤，再按类型/搜索过滤）
+    // v1.1.11：搜索除显示名外也按底层文件名匹配（本地规则的 fileName），标题与文件名不一致时搜文件名仍能找到。
     val visible = remember(originFiltered, query, kindFilter) {
         originFiltered.filter { item ->
             (kindFilter == null || item.kind == kindFilter) &&
-                (query.isBlank() || item.name.contains(query.trim(), ignoreCase = true))
+                (query.isBlank() || item.name.contains(query.trim(), ignoreCase = true) ||
+                    item.fileName?.contains(query.trim(), ignoreCase = true) == true)
         }
     }
 
@@ -1126,6 +1131,8 @@ private fun SourceCompactRow(item: PickerItem) {
 private data class PickerItem(
     val id: String,
     val name: String,
+    /** v1.1.11：本地规则的底层文件名（rule.name，如 xxx.py）；搜索除显示名外也按它匹配，标题与文件名不一致时搜文件名仍能找到。 */
+    val fileName: String? = null,
     val kind: String,
     val logoUrl: String?,
     val isCurrent: Boolean,

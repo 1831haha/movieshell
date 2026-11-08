@@ -1,5 +1,7 @@
 package com.movieshell.ui.ai
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -25,8 +27,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,6 +45,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -48,6 +54,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.movieshell.data.store.AiChatStore
 import com.movieshell.data.ai.AiRepairEngine
 import com.movieshell.data.ai.AiRepairSettings
@@ -56,10 +63,13 @@ import com.movieshell.data.source_mgr.SourceProbe
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppTextField
+import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.V5Divider
 import com.movieshell.ui.components.dockClearance
 import com.movieshell.ui.theme.V5
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** 对话消息里规则的落盘状态（不用枚举：check_imports 不认枚举条目，怕撞名）。 */
 private const val APPLY_IDLE = 0
@@ -139,28 +149,48 @@ private fun MessageRow(msg: AiChatStore.ChatMsg, onAskAi: (String) -> Unit = {})
             .fillMaxWidth()
             .padding(vertical = 4.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-        ) {
-            Box(
-                modifier = Modifier
-                    .widthIn(max = 320.dp)
-                    .background(
-                        if (isUser) v.primaryContainer else v.surfaceContainerHighest,
-                        RoundedCornerShape(V5.CornerMd),
-                    )
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+        // v1.1.11：带图的消息先放图（靠发送侧对齐），再放文字；只发图没写字时不留空文字气泡。
+        if (msg.imagePath != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
             ) {
-                Text(
-                    text = msg.text,
-                    style = if (isPureRule) {
-                        MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                    } else {
-                        MaterialTheme.typography.bodyMedium
-                    },
-                    color = if (isUser) v.onPrimaryContainer else v.onSurface,
+                AsyncImage(
+                    model = AiChatStore.imageFile(context, msg.imagePath),
+                    contentDescription = "对话图片",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .widthIn(max = 240.dp)
+                        .heightIn(max = 240.dp)
+                        .clip(RoundedCornerShape(V5.CornerMd)),
                 )
+            }
+            if (msg.text.isNotBlank()) Spacer(Modifier.height(6.dp))
+        }
+        if (msg.text.isNotBlank()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .widthIn(max = 320.dp)
+                        .background(
+                            if (isUser) v.primaryContainer else v.surfaceContainerHighest,
+                            RoundedCornerShape(V5.CornerMd),
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        text = msg.text,
+                        style = if (isPureRule) {
+                            MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                        } else {
+                            MaterialTheme.typography.bodyMedium
+                        },
+                        color = if (isUser) v.onPrimaryContainer else v.onSurface,
+                    )
+                }
             }
         }
         if (!isUser && kind != null && !isPureRule) {
@@ -246,7 +276,9 @@ private fun MessageRow(msg: AiChatStore.ChatMsg, onAskAi: (String) -> Unit = {})
  *
  * 顶栏“AI 助手”+ 当前服务商/模型 + “新对话”；中间消息列表（用户右、AI 左，
  * AI 消息能抠出规则时给探活验证 / 保存按钮）；底部描边输入框 + 发送。
- * 截图先用文字描述（模型看不了图）；图片直传与语音不做。
+ * v1.1.11：可以发图片了——输入框旁的选图按钮调系统图片选择器，图先缩到长边 1024 内、
+ * JPEG 80 落盘再随文字一起发；当前模型不支持视觉时对话里给换模型提示，不静默丢图；
+ * 语音不做。图片只发给支持视觉的模型看，不进 SharedPreferences。
  * 直达：检测页“去对话里改”与写源失败“去对话里接着改”先把首条消息种进
  * AiChatStore.pendingSeed，进页自动发一次。
  */
@@ -259,18 +291,44 @@ fun AiScreen() {
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
+    // v1.1.11：待发的图（AiChatStore 里已压缩落盘的文件名，未发送前显示缩略图）。
+    var pendingImage by remember { mutableStateOf<String?>(null) }
 
     val provider = AiRepairSettings.provider(context)
     val model = AiRepairSettings.model(context)
     val subtitle = if (model.isBlank()) provider.name else "${provider.name} · $model"
 
+    // v1.1.11：系统图片选择器；选中的图先压缩落盘，失败给一句提示、不卡住输入。
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val name = withContext(Dispatchers.IO) { AiChatStore.stageImage(context, uri) }
+            if (name != null) {
+                pendingImage?.let { AiChatStore.deleteImage(context, it) }
+                pendingImage = name
+            } else {
+                AppToast.show(context, "选图失败，换张图再试", long = false)
+            }
+        }
+    }
+
     fun sendMessage(text: String): Boolean {
         val content = text.trim()
-        if (content.isBlank() || thinking) return false
-        AiChatStore.addUser(content, context)
+        // v1.1.11：只发图不写字也允许发；待发图随这条用户消息一起记进会话，发出后清掉待发位。
+        val image = pendingImage
+        if ((content.isBlank() && image == null) || thinking) return false
+        AiChatStore.addUser(content, context, image)
+        pendingImage = null
         thinking = true
         scope.launch {
-            val history = AiChatStore.messages.value.map { LlmClient.ChatMessage(it.role, it.text) }
+            // 图片只传绝对路径，base64 由 LlmClient 在发请求时现读现转。
+            val history = AiChatStore.messages.value.map {
+                LlmClient.ChatMessage(
+                    it.role,
+                    it.text,
+                    it.imagePath?.let { name -> AiChatStore.imageFile(context, name).absolutePath },
+                )
+            }
             when (val r = LlmClient.chatMessages(context, history)) {
                 is LlmClient.ChatResult.Ok -> AiChatStore.addAssistant(r.text, context)
                 is LlmClient.ChatResult.Fail -> AiChatStore.addAssistant("调用失败：${r.reason}", context)
@@ -347,7 +405,7 @@ fun AiScreen() {
                     Text("和 AI 聊写源、修源", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = v.onSurface)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "粘贴报错、日志，或者让 AI 按网址写新源；截图先用文字描述，模型看不了图。",
+                        "粘贴报错、日志，或者让 AI 按网址写新源；截图也可以直接发，支持视觉的模型才能看（设置里换模型）。",
                         fontSize = 12.sp,
                         color = v.outline,
                     )
@@ -384,6 +442,37 @@ fun AiScreen() {
                 }
             }
         }
+        // v1.1.11：待发图缩略图（点叉取消，落盘的待发图一并删掉）。
+        if (pendingImage != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = V5.Gutter),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AsyncImage(
+                    model = AiChatStore.imageFile(context, pendingImage!!),
+                    contentDescription = "待发图片",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(V5.CornerMd)),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "已选一张图，随消息一起发",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = v.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = {
+                    pendingImage?.let { AiChatStore.deleteImage(context, it) }
+                    pendingImage = null
+                }) {
+                    Text("取消")
+                }
+            }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -391,6 +480,17 @@ fun AiScreen() {
                 .padding(bottom = dockClearance()),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // v1.1.11：选图按钮（系统图片选择器）；思考中不可再选，避免待发图被中途换掉。
+            IconButton(
+                onClick = { pickImage.launch("image/*") },
+                enabled = !thinking,
+            ) {
+                Icon(
+                    Icons.Outlined.Image,
+                    contentDescription = "选图",
+                    tint = if (thinking) v.outline else v.primary,
+                )
+            }
             AppTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -405,7 +505,7 @@ fun AiScreen() {
             Spacer(Modifier.width(8.dp))
             AppButton(
                 text = "发送",
-                enabled = !thinking && input.isNotBlank(),
+                enabled = !thinking && (input.isNotBlank() || pendingImage != null),
                 onClick = { if (sendMessage(input)) input = "" },
             )
         }

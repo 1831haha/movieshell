@@ -52,7 +52,7 @@ object PySourceManager {
     private const val TAG = "PySourceManager"
     private const val RULES_DIR = "py"
 
-    /** PY 标题正则（class XxxSpider），抠标题只此一处（见 RuleFileStore）。 */
+    /** PY 标题正则（class XxxSpider）。v1.1.11 起只供 hasSpiderSubclass 校验用：列表标题不再抠类名，直接显示文件名（小说 PY 书源卡片同款做法）。 */
     private val TITLE_REGEX = Regex("""class\s+(\w+Spider)""")
 
     private var appContext: Context? = null
@@ -118,11 +118,16 @@ object PySourceManager {
         RuleFileStore.copyBuiltinAssets(appContext!!.assets, RULES_DIR, rulesDir(), ".py", emptySet(), TAG)
     }
 
-    /** 扫描 StoragePaths.pyDir()（/storage/emulated/0/xiaying/py/) 下的 py 文件。 */
+    /**
+     * 扫描 StoragePaths.pyDir()（/storage/emulated/0/xiaying/py/) 下的 py 文件。
+     * v1.1.11：标题直接取文件名（不含 .py 后缀），不再用 extractTitle 抠类名——
+     * 抠类名会把红果这类文件头里的内部类 _BaseSpider 当成标题，换源弹窗搜“红”就
+     * 找不到；裸 class Spider 本就匹配不上正则。hasSpiderSubclass 的校验不受影响。
+     */
     fun listRules(): List<RuleInfo> = RuleFileStore.listRules(
         rulesDirOrNull(),
         { f -> f.isFile && f.name.endsWith(".py") },
-        { f -> RuleFileStore.extractTitle(f, TITLE_REGEX) },
+        { f -> f.nameWithoutExtension },
     )
 
     fun activeRuleName(): String? = activeName

@@ -29,8 +29,29 @@ object LlmClient {
         data class Fail(val reason: String) : ChatResult
     }
 
-    /** v1.1.3：多轮对话的一条消息，role 只用 user / assistant。 */
-    data class ChatMessage(val role: String, val content: String)
+    /** v1.1.3：多轮对话的一条消息，role 只用 user / assistant。v1.1.11：imagePath 是已压缩图片的绝对路径（调用方现解析，base64 只在发请求时现转，不落盘不进消息 JSON）。 */
+    data class ChatMessage(val role: String, val content: String, val imagePath: String? = null)
+
+    /**
+     * v1.1.11：当前模型能不能看图——只按模型名里的视觉信号认，认不出来按不支持处理，
+     * 宁可提示用户换模型也不静默丢图。覆盖现有预置模型里的视觉款：gpt-4o 系、Claude 3 起
+     * 全系、Gemini 2.x flash、千问 vl 系（模型栏手填 qwen-vl-max 这类）、智谱 glm-4v。
+     * 豆包填的是方舟接入点 ID（ep-…），从 ID 看不出支不支持，一律按不支持处理。
+     */
+    fun supportsVision(model: String): Boolean {
+        val m = model.trim().lowercase()
+        if (m.isEmpty()) return false
+        return m.contains("gpt-4o")
+            || m.startsWith("claude-")
+            || m.startsWith("gemini-")
+            || m.contains("vl")
+            || m.contains("vision")
+            || m.contains("4v")
+    }
+
+    /** v1.1.11：当前模型不支持视觉时，告诉用户换哪个已有的视觉模型（不新加服务商）。 */
+    fun visionHint(model: String): String =
+        "当前模型 $model 不支持看图，图片没发出去。换个支持视觉的模型再发：ChatGPT 选 gpt-4o、Claude 选 claude-sonnet-4、Gemini 选 gemini-2.0-flash，或千问的模型栏填 qwen-vl-max。"
 
     private val client: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         OkHttpClient.Builder()
@@ -71,12 +92,26 @@ object LlmClient {
         if (baseUrl.isBlank()) return@withContext ChatResult.Fail("未填请求地址")
         if (messages.isEmpty()) return@withContext ChatResult.Fail("没有要发的内容")
         val tail = messages.takeLast(20)
+        // v1.1.11：图片只认最后一条消息上带的（对话页刚发的）；历史里的旧图不再重发。
+        // 不支持视觉时直接给提示、不发请求；图片文件找不到了也明说，不静默丢图。
+        val imagePath = tail.lastOrNull()?.imagePath?.takeIf { it.isNotBlank() }
+        val imageBase64: String? = if (imagePath == null) {
+            null
+        } else if (!supportsVision(model)) {
+            return@withContext ChatResult.Fail(visionHint(model))
+        } else {
+            val bytes = runCatching { java.io.File(imagePath).readBytes() }.getOrNull()
+            if (bytes.isNullOrEmpty()) {
+                return@withContext ChatResult.Fail("图片文件找不到了，请重新选图再发")
+            }
+            java.util.Base64.getEncoder().encodeToString(bytes)
+        }
         val start = System.currentTimeMillis()
         try {
             val text = when (provider.style) {
-                AiRepairSettings.ApiStyle.OPENAI -> chatOpenAi(baseUrl, apiKey, model, tail)
-                AiRepairSettings.ApiStyle.ANTHROPIC -> chatAnthropic(baseUrl, apiKey, model, tail)
-                AiRepairSettings.ApiStyle.GEMINI -> chatGemini(baseUrl, apiKey, model, tail)
+                AiRepairSettings.ApiStyle.OPENAI -> chatOpenAi(baseUrl, apiKey, model, tail, imageBase64)
+                AiRepairSettings.ApiStyle.ANTHROPIC -> chatAnthropic(baseUrl, apiKey, model, tail, imageBase64)
+                AiRepairSettings.ApiStyle.GEMINI -> chatGemini(baseUrl, apiKey, model, tail, imageBase64)
             }
             ChatResult.Ok(text, System.currentTimeMillis() - start)
         } catch (e: CancellationException) {
@@ -86,7 +121,57 @@ object LlmClient {
         }
     }
 
-    private fun chatOpenAi(baseUrl: String, apiKey: String, model: String, messages: List<ChatMessage>): String {
+    /**
+     * v1.1.11：带图的那条消息拼多模态内容，没图的仍按原来字符串 content 发，
+     * 纯文字流程的请求体一行不动。imageBase64 只挂在最后一条消息上。
+     */
+    private fun openAiContent(msg: ChatMessage, imageBase64: String?, isLast: Boolean): Any {
+        if (!isLast || imageBase64 == null) return msg.content
+        return JSONArray().apply {
+            if (msg.content.isNotBlank()) {
+                put(JSONObject().apply { put("type", "text"); put("text", msg.content) })
+            }
+            put(JSONObject().apply {
+                put("type", "image_url")
+                put("image_url", JSONObject().apply { put("url", "data:image/jpeg;base64,$imageBase64") })
+            })
+        }
+    }
+
+    private fun anthropicContent(msg: ChatMessage, imageBase64: String?, isLast: Boolean): Any {
+        if (!isLast || imageBase64 == null) return msg.content
+        return JSONArray().apply {
+            if (msg.content.isNotBlank()) {
+                put(JSONObject().apply { put("type", "text"); put("text", msg.content) })
+            }
+            put(JSONObject().apply {
+                put("type", "image")
+                put("source", JSONObject().apply {
+                    put("type", "base64")
+                    put("media_type", "image/jpeg")
+                    put("data", imageBase64)
+                })
+            })
+        }
+    }
+
+    private fun geminiParts(msg: ChatMessage, imageBase64: String?, isLast: Boolean): JSONArray {
+        return JSONArray().apply {
+            if (msg.content.isNotBlank()) {
+                put(JSONObject().apply { put("text", msg.content) })
+            }
+            if (isLast && imageBase64 != null) {
+                put(JSONObject().apply {
+                    put("inlineData", JSONObject().apply {
+                        put("mimeType", "image/jpeg")
+                        put("data", imageBase64)
+                    })
+                })
+            }
+        }
+    }
+
+    private fun chatOpenAi(baseUrl: String, apiKey: String, model: String, messages: List<ChatMessage>, imageBase64: String? = null): String {
         val body = JSONObject().apply {
             put("model", model)
             put("temperature", 0.2)
@@ -94,8 +179,11 @@ object LlmClient {
             // 2000 会把大规则的返回截断，验证不过、白白失败，提到 4096。
             put("max_tokens", MAX_OUTPUT_TOKENS)
             put("messages", JSONArray().apply {
-                messages.forEach { msg ->
-                    put(JSONObject().apply { put("role", msg.role); put("content", msg.content) })
+                messages.forEachIndexed { index, msg ->
+                    put(JSONObject().apply {
+                        put("role", msg.role)
+                        put("content", openAiContent(msg, imageBase64, index == messages.lastIndex))
+                    })
                 }
             })
         }
@@ -116,13 +204,16 @@ object LlmClient {
         }
     }
 
-    private fun chatAnthropic(baseUrl: String, apiKey: String, model: String, messages: List<ChatMessage>): String {
+    private fun chatAnthropic(baseUrl: String, apiKey: String, model: String, messages: List<ChatMessage>, imageBase64: String? = null): String {
         val body = JSONObject().apply {
             put("model", model)
             put("max_tokens", MAX_OUTPUT_TOKENS)
             put("messages", JSONArray().apply {
-                messages.forEach { msg ->
-                    put(JSONObject().apply { put("role", msg.role); put("content", msg.content) })
+                messages.forEachIndexed { index, msg ->
+                    put(JSONObject().apply {
+                        put("role", msg.role)
+                        put("content", anthropicContent(msg, imageBase64, index == messages.lastIndex))
+                    })
                 }
             })
         }
@@ -143,16 +234,14 @@ object LlmClient {
         }
     }
 
-    private fun chatGemini(baseUrl: String, apiKey: String, model: String, messages: List<ChatMessage>): String {
+    private fun chatGemini(baseUrl: String, apiKey: String, model: String, messages: List<ChatMessage>, imageBase64: String? = null): String {
         val body = JSONObject().apply {
             put("contents", JSONArray().apply {
-                messages.forEach { msg ->
+                messages.forEachIndexed { index, msg ->
                     put(JSONObject().apply {
                         // Gemini 的 role：user 还是 user，assistant 对应 model。
                         put("role", if (msg.role == "assistant") "model" else "user")
-                        put("parts", JSONArray().apply {
-                            put(JSONObject().apply { put("text", msg.content) })
-                        })
+                        put("parts", geminiParts(msg, imageBase64, index == messages.lastIndex))
                     })
                 }
             })

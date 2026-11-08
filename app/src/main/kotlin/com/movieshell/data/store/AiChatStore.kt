@@ -1,6 +1,9 @@
 package com.movieshell.data.store
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -12,6 +15,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.util.UUID
 
 /**
  * v1.1.3：AI 助手对话的会话。
@@ -25,11 +30,19 @@ import java.io.File
  */
 object AiChatStore {
 
-    data class ChatMsg(val role: String, val text: String, val time: Long = System.currentTimeMillis())
+    /**
+     * v1.1.11：对话消息可带一张图。imagePath 只存图片文件名（filesDir/ai_chat_images 下的
+     * 压缩后 JPEG），不存 base64：JSON 里只留文件名，base64 只在发请求那一刻由 LlmClient
+     * 现读现转；SharedPreferences 里不放图。
+     */
+    data class ChatMsg(val role: String, val text: String, val time: Long = System.currentTimeMillis(), val imagePath: String? = null)
 
     private const val FILE_NAME = "ai_chat.json"
     private const val MAX_SEED_RULE_CHARS = 8000
     private const val MAX_SAVED = 100
+    /** v1.1.11：对话图片落盘目录；发送前缩到长边 1024 内、JPEG 80，单张通常不到 200KB。 */
+    private const val IMAGE_DIR = "ai_chat_images"
+    private const val MAX_IMAGE_EDGE = 1024
 
     private val _messages = MutableStateFlow<List<ChatMsg>>(emptyList())
     val messages: StateFlow<List<ChatMsg>> = _messages.asStateFlow()
@@ -47,8 +60,8 @@ object AiChatStore {
         if (_messages.value.isEmpty()) _messages.value = parsed
     }
 
-    fun addUser(text: String, context: Context) {
-        _messages.value = _messages.value + ChatMsg("user", text)
+    fun addUser(text: String, context: Context, imagePath: String? = null) {
+        _messages.value = _messages.value + ChatMsg("user", text, imagePath = imagePath)
         save(context)
     }
 
@@ -62,6 +75,63 @@ object AiChatStore {
         pendingSeed = null
         replaceTarget = null
         save(context)
+        ioScope.launch {
+            File(context.filesDir, IMAGE_DIR).listFiles()?.forEach { it.delete() }
+        }
+    }
+
+    /** v1.1.11：对话图片按文件名取文件；调用方只拿它显示或发请求，不直接拼路径。 */
+    fun imageFile(context: Context, imageName: String): File =
+        File(File(context.filesDir, IMAGE_DIR), imageName)
+
+    /** v1.1.11：删一张已落盘的对话图片（待发图取消、或发送失败后丢弃时用）；文件不在也不报错。 */
+    fun deleteImage(context: Context, imageName: String) {
+        ioScope.launch { runCatching { imageFile(context, imageName).delete() } }
+    }
+
+    /**
+     * v1.1.11：把系统选图器给的 Uri 压成对话用图：先按 2 的幂次采样防大图整张解码
+     * OOM，再精确缩到长边 1024 内、JPEG 80 落盘；返回文件名，失败返回 null。
+     * 在 IO 线程调（解码 + 写盘都是阻塞操作）。
+     */
+    suspend fun stageImage(context: Context, uri: Uri): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, bounds)
+            } ?: return@runCatching null
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+            var sample = 1
+            val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
+            while (longEdge / sample > MAX_IMAGE_EDGE * 2) sample *= 2
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+            val decoded = context.contentResolver.openInputStream(uri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, opts)
+            } ?: return@runCatching null
+            val scaled = if (maxOf(decoded.width, decoded.height) > MAX_IMAGE_EDGE) {
+                val ratio = MAX_IMAGE_EDGE.toFloat() / maxOf(decoded.width, decoded.height)
+                val out = Bitmap.createScaledBitmap(
+                    decoded,
+                    (decoded.width * ratio).toInt().coerceAtLeast(1),
+                    (decoded.height * ratio).toInt().coerceAtLeast(1),
+                    true,
+                )
+                if (out !== decoded) decoded.recycle()
+                out
+            } else {
+                decoded
+            }
+            val dir = File(context.filesDir, IMAGE_DIR).apply { mkdirs() }
+            val name = "img_${UUID.randomUUID()}.jpg"
+            try {
+                FileOutputStream(File(dir, name)).use { out ->
+                    scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
+                }
+                name
+            } finally {
+                scaled.recycle()
+            }
+        }.getOrNull()
     }
 
     /** 取出直达对话的首条消息，取完即清空，只发一次。 */
@@ -114,9 +184,11 @@ object AiChatStore {
                     val obj = arr.optJSONObject(i) ?: continue
                     val role = obj.optString("role")
                     val text = obj.optString("text")
+                    // v1.1.11：图片文件名也读回来；只发图没写字（text 为空）的消息也保留，别当成空消息丢掉。
+                    val imagePath = obj.optString("image").takeIf { it.isNotBlank() }
                     if (role != "user" && role != "assistant") continue
-                    if (text.isBlank()) continue
-                    add(ChatMsg(role, text, obj.optLong("time", System.currentTimeMillis())))
+                    if (text.isBlank() && imagePath == null) continue
+                    add(ChatMsg(role, text, obj.optLong("time", System.currentTimeMillis()), imagePath))
                 }
             }
         }.getOrDefault(emptyList())
@@ -131,6 +203,8 @@ object AiChatStore {
                         put("role", msg.role)
                         put("text", msg.text)
                         put("time", msg.time)
+                        // v1.1.11：只存图片文件名，不存 base64。
+                        msg.imagePath?.let { put("image", it) }
                     }
                 )
             }
