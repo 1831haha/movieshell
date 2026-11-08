@@ -8,7 +8,7 @@ import android.os.SystemClock
 import android.view.Surface
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.StoragePaths
-import com.movieshell.data.repo.SubtitleStyle
+import com.movieshell.domain.model.SubtitleStyle
 import dev.jdtech.mpv.MPVLib
 import java.io.File
 import java.util.Locale

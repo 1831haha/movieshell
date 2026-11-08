@@ -86,7 +86,7 @@ import com.movieshell.data.source_mgr.WebSourceManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.movieshell.data.repo.PlayerEngine
+import com.movieshell.domain.model.PlayerEngine
 import com.movieshell.player.EngineHost
 import com.movieshell.player.MpvPlayerManager
 import com.movieshell.player.MusicPlayer

@@ -1,4 +1,4 @@
-package com.movieshell.data.repo
+package com.movieshell.ui.reader
 
 import android.content.Context
 

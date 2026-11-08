@@ -2,36 +2,18 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import com.movieshell.core.log.LogBus
+import com.movieshell.domain.model.PlayerEngine
+import com.movieshell.domain.model.SubtitleStyle
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/** v0.20.0：播放器内核（Media3 默认，libmpv 可选，记忆选择） */
-enum class PlayerEngine { MEDIA3, LIBMPV }
-
-/**
- * v0.21.0：外挂字幕样式（双引擎共用，存在 movieshell_prefs）。
- * - edge: 0=无 1=描边 2=阴影
- * - position: 0=底部 1=顶部
- * - offsetMs: 字幕时间偏移，±10000ms
- */
-data class SubtitleStyle(
-    val sizeSp: Int = 16,
-    val color: Int = 0xFFFFFFFF.toInt(),
-    val edge: Int = EDGE_OUTLINE,
-    val position: Int = POS_BOTTOM,
-    val offsetMs: Long = 0L,
-) {
-    companion object {
-        const val EDGE_NONE = 0
-        const val EDGE_OUTLINE = 1
-        const val EDGE_SHADOW = 2
-        const val POS_BOTTOM = 0
-        const val POS_TOP = 1
-    }
-}
-
 /**
  * 播放器设置持久化（v0.14.0）。
+ *
+ * v1.1.7 分层第 3 批：PlayerEngine 枚举与 SubtitleStyle 已移 domain/model/PlayerModels.kt，
+ * 本文件只留持久化 object。去向定案：文档 §3.3（ui/player/）与 §3.4（data/player/）自相矛盾，
+ * 且 data/source/subtitle/OnlineSubtitleKit 调 setSubtitleFor——进 ui/ 会让 data 依赖 ui，
+ * 违背单向依赖；故本体留在 data/repo，第 4 批随 store 组走。
  *
  * v0.32.1：删掉全局"跳过片头/片尾"秒数——每部剧片头片尾时长都不一样，
  * 全局 N 秒对大多数剧都是错的，不再提供这个误导性设置。播放器默认不跳。

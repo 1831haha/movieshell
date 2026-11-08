@@ -1,4 +1,4 @@
-package com.movieshell.data.repo
+package com.movieshell.ui.home
 
 import android.content.Context
 import androidx.compose.material.icons.Icons

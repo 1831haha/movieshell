@@ -18,7 +18,7 @@ import com.movieshell.data.repo.FollowStore
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source_mgr.WebParseSourceManager
-import com.movieshell.data.repo.PlayerEngine
+import com.movieshell.domain.model.PlayerEngine
 import com.movieshell.data.repo.PlayerSettings
 import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.ui.components.AppButton

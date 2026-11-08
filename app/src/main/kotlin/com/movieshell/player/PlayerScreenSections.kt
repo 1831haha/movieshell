@@ -108,7 +108,7 @@ import com.movieshell.data.repo.DownloadSettings
 import com.movieshell.data.repo.DownloadStore
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.PlayerSettings
-import com.movieshell.data.repo.SubtitleStyle
+import com.movieshell.domain.model.SubtitleStyle
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppTextField

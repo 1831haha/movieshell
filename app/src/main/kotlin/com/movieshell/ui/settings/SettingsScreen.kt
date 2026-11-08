@@ -137,7 +137,7 @@ import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.LlmClient
 import com.movieshell.data.repo.LogStore
 import com.movieshell.data.repo.StoragePaths
-import com.movieshell.data.repo.PlayerEngine
+import com.movieshell.domain.model.PlayerEngine
 import com.movieshell.player.MpvPluginLoader
 import com.movieshell.ui.preview.fileProviderAuthority
 import com.movieshell.data.repo.PlayerSettings
