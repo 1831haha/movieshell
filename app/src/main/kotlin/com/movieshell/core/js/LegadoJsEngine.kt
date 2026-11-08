@@ -298,6 +298,13 @@ object LegadoJsEngine {
             cx.setLanguageVersion(Context.VERSION_ES6)
             cx.setClassShutter(ClassShutter { name ->
                 name.startsWith("com.movieshell.core.js.") ||
+                    // v1.1.8：桥类再按运行时真名放行一道——R8 改名后源码包名
+                    // 对不上运行时名（v1.1.6 搬包漏 keep 的教训），::class.java.name
+                    // 取的就是运行时的真名，混淆后也认得；只认这四个桥类，不放宽。
+                    name == JavaBridge::class.java.name ||
+                    name == SourceBridge::class.java.name ||
+                    name == CookieBridge::class.java.name ||
+                    name == StrResponse::class.java.name ||
                     name == "java.lang.String" || name == "java.lang.Integer" ||
                     name == "java.lang.Double" || name == "java.lang.Long" ||
                     name == "java.lang.Boolean"

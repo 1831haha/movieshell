@@ -13,6 +13,12 @@
 -keep class com.movieshell.domain.** { *; }
 -keepclassmembers class com.movieshell.domain.** { *; }
 
+# ---------- JS 引擎桥类（v1.1.8：ClassShutter 按源码包名放行，R8 改名后
+#   运行时名对不上，Rhino 绑桥即报 "Access to Java class ... is prohibited"，
+#   v1.1.6 搬进 core.js 时漏了这条，JS 规则搜书全挂；桥类名必须留住） ----------
+-keep class com.movieshell.core.js.** { *; }
+-keepclassmembers class com.movieshell.core.js.** { *; }
+
 # ---------- kotlinx.serialization ----------
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.**
