@@ -10,6 +10,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # v1.1.3：发 Release 需要写仓库内容（建 tag 与 Release），默认 token 权限不够。
+    permissions:
+      contents: write
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -63,14 +66,8 @@ jobs:
         run: gradle testDebugUnitTest --no-daemon
         continue-on-error: true
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: movieshell-release-apk
-          path: app/build/outputs/apk/release/*.apk
-          retention-days: 2
-          # v1.1.2：产物只留 2 天（默认 90 天攒满 7GB 致配额满、构建挂在上传步）；
-          # 包都在助手这边归档，GitHub 上只留最近两天的构建产物。
+      # v1.1.3：改走 GitHub Release 出包，见文件末尾“Prepare release files / Publish release”
+      # 两步（放 DEX 构建之后，DEX 也要一并挂上去）。
 
       # v0.30.0：构建字幕搜索插件 DEX（SubHdSource 实现，DEX 动态加载）
       - name: Build subtitle plugin DEX
@@ -84,9 +81,25 @@ jobs:
             plugin-subtitle/build/libs/plugin-subtitle.jar
           ls -la "$RUNNER_TEMP/subtitle-dex"
 
-      - name: Upload subtitle plugin DEX
-        uses: actions/upload-artifact@v4
+      # v1.1.3：改走 GitHub Release 出包——Release 附件不占 Actions 500MB 配额
+      # （官方文档：单文件限 2GB，总大小与流量不限；仓库 v0.294.35–v0.294.44 本就是 prerelease 出包）。
+      # 只在手动触发时发版，避免合 main 后重复建同一个 tag 冲突。
+      # APK 按版本号改名（movieshell-v<版本>.apk），DEX 一并挂上去。
+      - name: Prepare release files
+        id: release
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          VERSION=$(sed -n 's/.*versionName = "\(.*\)"/\1/p' app/build.gradle.kts)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          mkdir -p release-files
+          for f in app/build/outputs/apk/release/*.apk; do cp "$f" "release-files/movieshell-v$VERSION.apk"; done
+          cp "$RUNNER_TEMP/subtitle-dex/"*.dex release-files/ 2>/dev/null || true
+
+      - name: Publish release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
         with:
-          name: subtitle-plugin-dex
-          path: ${{ runner.temp }}/subtitle-dex/*.dex
-          retention-days: 2
+          tag_name: v${{ steps.release.outputs.version }}
+          name: v${{ steps.release.outputs.version }}
+          prerelease: true
+          files: release-files/*
