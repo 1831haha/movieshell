@@ -42,7 +42,7 @@ interface DrpyEngine : SourceEngine {
      * @param filter 筛选键→选中值（对应规则 filter_url 里 {{fl.键名}} 的键名）；
      * 空 map 时引擎按规则默认值渲染（filter_def[tid]，再取 filter 分组首项）。
      */
-    override suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod>
+    override suspend fun category(tid: String, pg: Int, filter: Map<String, String>): List<Vod>
 
     /**
      * 该分类的筛选定义（drpy filterable 规则的 filter 分组）。
