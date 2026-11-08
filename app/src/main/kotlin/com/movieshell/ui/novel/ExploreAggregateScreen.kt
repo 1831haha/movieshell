@@ -96,7 +96,7 @@ fun ExploreAggregateScreen(
         failedCats = failedCats - key
         scope.launch {
             val list = runCatching {
-                NovelSourceEngine.novelEngineFor(src).explore(cat.url, 1, allowGate = true)
+                NovelSourceEngine.novelEngineFor(context, src).explore(cat.url, 1, allowGate = true)
             }.getOrDefault(emptyList())
             resultsByCat = resultsByCat + (key to list)
             if (list.isEmpty()) failedCats = failedCats + key

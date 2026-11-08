@@ -108,3 +108,19 @@ data class BookDetailInfo(
     val cover: String = "",
     val kind: String = "",
 )
+
+/**
+ * v1.1.10：段评结构化版——一段下的一条评论。
+ * paraIndex 为正文切 "\n\n" 后的段落序号（1 起始）；total 为该段评论总数
+ * （源知道时才有，0=未知，按已加载条数算）；伪段（如晋江 paragraph_id=-2）
+ * 由解析层直接丢掉，不进这个模型。
+ */
+@Serializable
+data class ParagraphComment(
+    val paraIndex: Int = 0,
+    val author: String = "",
+    val text: String = "",
+    val likes: Int = 0,
+    val time: String = "",
+    val total: Int = 0,
+)

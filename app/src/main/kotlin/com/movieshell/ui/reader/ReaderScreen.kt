@@ -59,6 +59,8 @@ import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
 import com.movieshell.ui.novel.ChapterCommentDialog
+import com.movieshell.ui.novel.ParagraphCommentSheet
+import com.movieshell.ui.novel.chapterParagraphCommentTotal
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -99,6 +101,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.domain.model.Chapter
 import com.movieshell.domain.model.Novel
+import com.movieshell.domain.model.ParagraphComment
 import com.movieshell.domain.model.ReadingProgress
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.domain.model.ChapterMeta
@@ -269,6 +272,13 @@ fun ReaderScreen(
     var chapterSearchQuery by remember { mutableStateOf("") }
     // v1.1.3：段评入口开关（只有本章带评论链接时才点亮图标）。
     var showComment by remember { mutableStateOf(false) }
+    // v1.1.10：结构化段评——按章缓存的评论（数据层自带 24 小时 sidecar 缓存，
+    // UI 只记本会话已拉到的章，不再自己做缓存）；底弹目标章与默认展开段。
+    val paraCommentsByChapter = remember { mutableStateMapOf<Int, List<ParagraphComment>>() }
+    var paraCommentsLoadingChapter by remember { mutableIntStateOf(-1) }
+    var showParaSheet by remember { mutableStateOf(false) }
+    var paraSheetChapter by remember { mutableIntStateOf(-1) }
+    var paraSheetPara by remember { mutableStateOf<Int?>(null) }
     // v0.61.0：设置变化即存档（v0.89.0：加 bgTheme/pageMode；nightMode 按 bgTheme 回填做兼容）
     LaunchedEffect(fontSize, bgTheme, fontFamily, lineHeightRatio, brightness, volumePageTurn, pageMode, marginDp) {
         ReaderSettings.save(
@@ -466,6 +476,8 @@ fun ReaderScreen(
         }
         novel = n
         chapters = cs
+        // v1.1.10：换源重载后旧源的段评作废——不清会把旧源评论挂在新源章节下。
+        paraCommentsByChapter.clear()
         // v0.211.0 审计修复：目录直达——有一次性跳转请求时优先用它，
         // 而不是按旧进度恢复；无请求时走原有进度恢复。
         val jump = ReaderJumpRequest.chapter
@@ -484,6 +496,14 @@ fun ReaderScreen(
     }
 
     val chapter = chapters.getOrNull(chapterIndex)
+
+    // v1.1.10：本站支不支持结构化段评——只看书源规则字段，不看有没有拉到评论。
+    val structuredCommentsSupported = novel?.sourceKey?.let { k ->
+        jsonSources.firstOrNull { it.key == k }?.ruleParagraphComments?.isNotBlank() == true
+    } ?: false
+    // v1.1.10：当前章已拉到的结构化评论与本章总数（total 求和，未知时按条数算）。
+    val curParaComments = paraCommentsByChapter[chapterIndex].orEmpty()
+    val curParaTotal = chapterParagraphCommentTotal(curParaComments)
 
     // v0.244.0：连续阅读——滚动模式用 LazyColumn 连续流，不再按章切页；
     // 翻页模式用全局分页（见 ContinuousBookLayout），页表来自实测排版。
@@ -716,6 +736,31 @@ fun ReaderScreen(
     LaunchedEffect(chapterIndex, loaded) {
         if (!loaded) return@LaunchedEffect
         ensureContentWindow(chapterIndex)
+    }
+
+    // v1.1.10：结构化段评——章切换时源支持就后台拉一次；失败静默（入口不显示，
+    // 不 Toast、不报错）；同一章只拉一次，换源后由重载效果清表再拉。
+    LaunchedEffect(chapterIndex, structuredCommentsSupported, loaded, sourceVersion) {
+        if (!loaded || !structuredCommentsSupported) return@LaunchedEffect
+        val c = chapters.getOrNull(chapterIndex) ?: return@LaunchedEffect
+        if (paraCommentsByChapter.containsKey(c.index)) return@LaunchedEffect
+        val n = novel ?: return@LaunchedEffect
+        paraCommentsLoadingChapter = c.index
+        try {
+            val engine = NovelSourceEngine.novelEngineForKey(context, n.sourceKey)
+                ?: return@LaunchedEffect
+            val list = engine.paragraphComments(
+                novelId,
+                ChapterMeta(c.index, c.title, c.url, c.commentUrl),
+                allowGate = true,
+            )
+            if (list.isNotEmpty()) paraCommentsByChapter[c.index] = list
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            // 静默：入口不显示
+        } finally {
+            if (paraCommentsLoadingChapter == c.index) paraCommentsLoadingChapter = -1
+        }
     }
 
     /** v0.244.0：定位总入口（目录/书签/滑杆/上下章/恢复共用）：只立请求 + 即时存进度，落点归履行效果。 */
@@ -1058,8 +1103,24 @@ fun ReaderScreen(
                         Icon(Icons.Filled.Refresh, "刷新", tint = fg)
                     }
                 }
-                // v1.1.3：段评入口——只有本章带评论链接时才显示，无链接不占地方。
-                if (chapter?.commentUrl?.isNotBlank() == true) {
+                // v1.1.10：结构化段评优先——本章已拉到结构化评论时，翻页模式顶栏
+                // 只摆文字入口（滚动模式走正文下方的分段入口），旧 WebView 图标不摆；
+                // 没拉到时仍按 v1.1.3 走评论链接入口，无链接不占地方。
+                if (pageMode != 0 && curParaTotal > 0) {
+                    Text(
+                        "本章段评（$curParaTotal）",
+                        color = fg,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clickable {
+                                paraSheetChapter = chapterIndex
+                                paraSheetPara = null
+                                showParaSheet = true
+                            }
+                            .padding(horizontal = 6.dp, vertical = 8.dp),
+                    )
+                } else if (curParaComments.isEmpty() && chapter?.commentUrl?.isNotBlank() == true) {
                     IconButton(onClick = { showComment = true }) {
                         Icon(Icons.Filled.Comment, "段评", tint = fg)
                     }
@@ -1075,6 +1136,25 @@ fun ReaderScreen(
                     chapterTitle = chapter?.title.orEmpty(),
                     commentUrl = url,
                     onDismiss = { showComment = false },
+                )
+            }
+        }
+
+        // v1.1.10：结构化段评底弹（只看不写）——跟阅读背景深浅走 readerScheme，
+        // 与目录底弹同款包法；滚动模式点分段入口时只展开该段，翻页模式默认展开第一段。
+        if (showParaSheet) {
+            val targetComments = paraCommentsByChapter[paraSheetChapter].orEmpty()
+            MaterialTheme(
+                colorScheme = readerScheme,
+                typography = MaterialTheme.typography,
+                shapes = MaterialTheme.shapes,
+            ) {
+                ParagraphCommentSheet(
+                    chapterTitle = chapters.getOrNull(paraSheetChapter)?.title.orEmpty(),
+                    comments = targetComments,
+                    loading = paraCommentsLoadingChapter == paraSheetChapter && targetComments.isEmpty(),
+                    initialParaIndex = paraSheetPara,
+                    onDismiss = { showParaSheet = false },
                 )
             }
         }
@@ -1290,6 +1370,12 @@ fun ReaderScreen(
                         chapterIndex = idx
                     },
                     horizontalPadding = marginDp.dp,
+                    paragraphCommentsByChapter = paraCommentsByChapter,
+                    onParagraphCommentClick = { chIdx, paraIdx ->
+                        paraSheetChapter = chIdx
+                        paraSheetPara = paraIdx
+                        showParaSheet = true
+                    },
                 )
             } else {
                 HorizontalPager(

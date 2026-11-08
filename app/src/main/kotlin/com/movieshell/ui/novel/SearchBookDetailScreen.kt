@@ -132,7 +132,7 @@ fun SearchBookDetailScreen(
         val sid = resolveShelfId()
         shelfId = sid
         if (!isPy && source != null) {
-            detail = NovelSourceEngine.novelEngineFor(source).bookDetail(item)
+            detail = NovelSourceEngine.novelEngineFor(context, source).bookDetail(item)
         }
         chapterTitles = if (sid != null) {
             withContext(Dispatchers.IO) {

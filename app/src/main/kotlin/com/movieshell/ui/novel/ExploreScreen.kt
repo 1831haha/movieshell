@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,6 +69,7 @@ fun ExploreScreen(
     initialCategory: String? = null,
     onBack: () -> Unit = {},
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val searchVm: NovelSearchViewModel = viewModel()
     val joining by searchVm.joining.collectAsState()
@@ -104,7 +106,7 @@ fun ExploreScreen(
         loading = true
         notice = null
         scope.launch {
-            val list = runCatching { NovelSourceEngine.novelEngineFor(src).explore(cat.url, p, allowGate = true) }.getOrDefault(emptyList())
+            val list = runCatching { NovelSourceEngine.novelEngineFor(context, src).explore(cat.url, p, allowGate = true) }.getOrDefault(emptyList())
             if (myGen != loadGen) return@launch
             results = if (append) (results + list).distinctBy { it.remoteId } else list
             if (list.isEmpty() && !append) notice = "这一页没有结果（可能撞上验证，稍后重试）"

@@ -6,6 +6,7 @@ import com.movieshell.domain.model.ChapterMeta
 import com.movieshell.domain.model.ContentFail
 import com.movieshell.domain.model.ContentResult
 import com.movieshell.domain.model.NovelSearchResult
+import com.movieshell.domain.model.ParagraphComment
 import com.movieshell.domain.source.NovelEngine
 
 /**
@@ -42,4 +43,11 @@ class PyNovelEngine(
         NovelSourceEngine.bookDetailPy(context, book)
 
     override suspend fun detailCover(book: NovelSearchResult): String? = null
+
+    /** v1.1.10：PY 书源没有 ruleParagraphComments，结构化段评恒为空。 */
+    override suspend fun paragraphComments(
+        novelId: String,
+        chapter: ChapterMeta,
+        allowGate: Boolean,
+    ): List<ParagraphComment> = emptyList()
 }

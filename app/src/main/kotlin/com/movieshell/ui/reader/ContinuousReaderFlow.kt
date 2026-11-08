@@ -25,6 +25,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.domain.model.Chapter
+import com.movieshell.domain.model.ParagraphComment
+import com.movieshell.ui.novel.groupParagraphComments
 
 /**
  * v0.244.0：整本连续阅读——滚动模式连续流。
@@ -56,6 +58,9 @@ fun ContinuousReaderFlow(
     onViewportChanged: (chapterIndex: Int, charOffset: Int) -> Unit,
     // v0.294.5：正文左右边距（阅读设置「边距」）
     horizontalPadding: androidx.compose.ui.unit.Dp = 20.dp,
+    // v1.1.10：结构化段评——按章的评论（只读展示用）；入口点击回传章与段号。
+    paragraphCommentsByChapter: Map<Int, List<ParagraphComment>> = emptyMap(),
+    onParagraphCommentClick: (chapterIndex: Int, paraIndex: Int) -> Unit = { _, _ -> },
 ) {
     val density = LocalDensity.current
     val titleBottomPx = with(density) { 16.dp.toPx() }
@@ -94,6 +99,36 @@ fun ContinuousReaderFlow(
                         onChapterLayout(chapter.index, it, titleHeightState.value)
                     },
                 )
+                // v1.1.10：结构化段评入口区——只列有评论的段，每段一个可点入口；
+                // 放在正文 Text 下方，正文 Text 本身不动（视口与进度换算仍读它的布局结果）。
+                val paraGroups = groupParagraphComments(
+                    paragraphCommentsByChapter[chapter.index].orEmpty(),
+                )
+                if (paraGroups.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp),
+                    ) {
+                        Text(
+                            text = "段评",
+                            color = fg.copy(alpha = 0.55f),
+                            fontSize = 12.sp,
+                        )
+                        paraGroups.forEach { group ->
+                            Text(
+                                // v1.1.10：paraIndex 数据层已是 1 起始，直接显示，不再加 1。
+                                text = "第 ${group.paraIndex} 段 · ${group.displayCount} 条",
+                                color = fg.copy(alpha = 0.85f),
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onParagraphCommentClick(chapter.index, group.paraIndex) }
+                                    .padding(vertical = 5.dp),
+                            )
+                        }
+                    }
+                }
             }
         }
     }

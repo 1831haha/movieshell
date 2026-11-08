@@ -34,6 +34,8 @@ data class BookSource(
     val ruleTocUrl: String = "",
     /** v1.1.3：段评最小版——目录项里提评论页地址（选择器@href，与 ruleTocUrl 同口径；空表示本站无评论入口）。 */
     val ruleTocCommentUrl: String = "",
+    /** v1.1.10：段评结构化版——提逐段评论 JSON 数组的规则（JS 或 CSS，见 NovelSourceEngine.paragraphComments；空表示本站无结构化段评）。 */
+    val ruleParagraphComments: String = "",
     val ruleContent: String = "",
     /** v0.198.0：正文替换规则（阅读式 replaceRegex，每行一条，行内用 ## 分隔正则与替换）。 */
     val ruleContentReplace: String = "",
@@ -101,6 +103,7 @@ data class BookSource(
             put("content", ruleContent)
             put("replaceRegex", ruleContentReplace)
             put("nextContentUrl", ruleContentNext)
+            put("paragraphComments", ruleParagraphComments)
         })
         put("ruleToc", JSONObject().apply {
             put("chapterList", ruleTocList)
@@ -188,6 +191,7 @@ data class BookSource(
                 ruleTocUrl = rt?.optString("chapterUrl").orEmpty(),
                 ruleTocCommentUrl = rt?.optString("commentUrl").orEmpty(),
                 ruleContent = rc?.optString("content").orEmpty(),
+                ruleParagraphComments = rc?.optString("paragraphComments").orEmpty(),
                 ruleContentReplace = rc?.optString("replaceRegex").orEmpty(),
                 ruleContentNext = rc?.optString("nextContentUrl").orEmpty(),
                 ruleTocNext = rt?.optString("nextTocUrl").orEmpty(),

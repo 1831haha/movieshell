@@ -14,6 +14,7 @@ import com.movieshell.domain.model.ChapterMeta
 import com.movieshell.domain.model.ContentFail
 import com.movieshell.domain.model.ContentResult
 import com.movieshell.domain.model.NovelSearchResult
+import com.movieshell.domain.model.ParagraphComment
 import com.movieshell.domain.source.NovelEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -512,6 +513,68 @@ object NovelSourceEngine {
     }
 
     /**
+     * v1.1.10：段评结构化版——拉本章逐段评论。
+     *
+     * 规则为空 → 空列表（不发请求）；先查 sidecar 缓存（24 小时 TTL），命中直接回；
+     * 未命中按规则求值：<js> 前缀跑 Rhino（java.ajax 同步抓接口，规则须返回 JSON
+     * 数组字符串，见 ParagraphCommentStore.parseJson），否则抓章节页按 CSS
+     * 规则提 JSON 串。解析失败记日志回空列表、不缓存、不抛。
+     * 只看不写：不调站方发表接口。Rhino 求值与 java.ajax 都是同步阻塞，须在 IO 线程。
+     */
+    suspend fun paragraphComments(
+        context: Context,
+        source: BookSource,
+        novelId: String,
+        chapter: ChapterMeta,
+        allowGate: Boolean = false,
+    ): List<ParagraphComment> {
+        if (source.ruleParagraphComments.isBlank() || chapter.url.isBlank()) return emptyList()
+        ParagraphCommentStore.load(context, novelId, chapter.index)?.let { return it }
+        val jsonStr = withContext(Dispatchers.IO) {
+            runCatching { evaluateParagraphComments(source, chapter, allowGate) }
+                .onFailure {
+                    if (it is CancellationException) throw it
+                    LogBus.w(TAG, "段评求值失败 ${source.name}: ${it.message}")
+                }
+                .getOrDefault("")
+        }
+        val parsed = ParagraphCommentStore.parseJson(jsonStr) ?: return emptyList()
+        ParagraphCommentStore.save(context, novelId, chapter.index, parsed)
+        return parsed
+    }
+
+    /** v1.1.10：段评规则求值（JS 跑 Rhino，CSS 抓章节页提取；失败返回空串）。 */
+    private suspend fun evaluateParagraphComments(
+        source: BookSource,
+        chapter: ChapterMeta,
+        allowGate: Boolean,
+    ): String {
+        val rule = source.ruleParagraphComments.trim()
+        val (js, _) = LegadoJsEngine.splitJsPrefix(rule)
+        if (js != null) {
+            val state = LegadoJsEngine.JsState(source.key)
+            val ctx = LegadoJsEngine.JsCtx(
+                source = source.toJsRuleSource(),
+                baseUrl = chapter.url,
+                bookUrl = chapter.url,
+                chapterTitle = chapter.title,
+                chapterUrl = chapter.url,
+            )
+            val out = LegadoJsEngine.evalScript(
+                LegadoJsEngine.substituteTemplates(js, ctx),
+                LegadoJsEngine.bindings(ctx, state, result = "", src = ""),
+                LegadoJsEngine.jsLibPrelude(ctx.source),
+            )
+            return LegadoJsEngine.toJsString(out)
+        }
+        val page = gatedFetch(source, uaOf(source), chapter.url, allowGate, "段评") {
+            BookRuleEngine.fetchPageOutcome(chapter.url, uaOf(source), options = fetchOptions(source))
+        } ?: return ""
+        val doc = BookRuleEngine.parseDoc(page.body, page.url)
+        return BookRuleEngine.extract(doc, page.url, rule)
+    }
+
+    /**
      * v0.202.0：通用正文兜底（Readability4J，Mozilla Readability 的 Kotlin 移植，
      * Apache 2.0）：规则提空时从整页 HTML 提正文。失败返回空，不抛。
      */
@@ -723,8 +786,9 @@ object NovelSourceEngine {
 
     private val pyBookApi = PyBookApi()
 
-    /** v1.1.6 分层第 2 批：JSON 书源的 NovelEngine（绑站适配器）。 */
-    fun novelEngineFor(source: BookSource): NovelEngine = JsonNovelEngine(source)
+    /** v1.1.6 分层第 2 批：JSON 书源的 NovelEngine（绑站适配器）。
+     * v1.1.10：构造带 Context——段评 sidecar 缓存要落 filesDir。 */
+    fun novelEngineFor(context: Context, source: BookSource): NovelEngine = JsonNovelEngine(context, source)
 
     /** v1.1.6 分层第 2 批：PY 书源的 NovelEngine（绑规则适配器）。 */
     fun novelEngineForPy(context: Context, rule: PyBookSourceManager.PyBookRule): NovelEngine =
@@ -742,7 +806,7 @@ object NovelSourceEngine {
             PyNovelEngine(context, rule)
         } else {
             val source = BookSourceManager.sources.value.firstOrNull { it.key == sourceKey } ?: return null
-            JsonNovelEngine(source)
+            JsonNovelEngine(context, source)
         }
     }
 

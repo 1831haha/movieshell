@@ -4,6 +4,7 @@ import com.movieshell.domain.model.BookDetailInfo
 import com.movieshell.domain.model.ChapterMeta
 import com.movieshell.domain.model.ContentResult
 import com.movieshell.domain.model.NovelSearchResult
+import com.movieshell.domain.model.ParagraphComment
 
 /**
  * v1.1.6 分层第 2 批：小说源引擎的领域接口（小说形状，不套视频 SourceEngine——
@@ -33,4 +34,14 @@ interface NovelEngine {
 
     /** 详情封面求值：仅在搜索结果封面为空时由入架流程调用。 */
     suspend fun detailCover(book: NovelSearchResult): String?
+
+    /**
+     * v1.1.10：段评结构化版——拉本章逐段评论（规则为空或无评论时返回空列表，
+     * 不抛；sidecar 缓存 24 小时，见 NovelSourceEngine.paragraphComments）。
+     */
+    suspend fun paragraphComments(
+        novelId: String,
+        chapter: ChapterMeta,
+        allowGate: Boolean = false,
+    ): List<ParagraphComment>
 }
