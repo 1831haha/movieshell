@@ -29,6 +29,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.SmartToy
+import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -165,6 +166,37 @@ private fun MessageRow(msg: AiChatStore.ChatMsg, onAskAi: (String) -> Unit = {})
                         .clip(RoundedCornerShape(V5.CornerMd)),
                 )
             }
+            if (msg.text.isNotBlank() || msg.fileName != null) Spacer(Modifier.height(6.dp))
+        }
+        // v1.1.11：带文件的消息显示文件名（只存了文件名，大小与行数重载后不再保留）。
+        if (msg.fileName != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .background(
+                            if (isUser) v.primaryContainer else v.surfaceContainerHighest,
+                            RoundedCornerShape(V5.CornerMd),
+                        )
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Outlined.UploadFile,
+                        contentDescription = null,
+                        tint = if (isUser) v.onPrimaryContainer else v.onSurface,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = msg.fileName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isUser) v.onPrimaryContainer else v.onSurface,
+                    )
+                }
+            }
             if (msg.text.isNotBlank()) Spacer(Modifier.height(6.dp))
         }
         if (msg.text.isNotBlank()) {
@@ -271,6 +303,25 @@ private fun MessageRow(msg: AiChatStore.ChatMsg, onAskAi: (String) -> Unit = {})
     }
 }
 
+/** v1.1.11：文件大小取整显示（B / KB，待发文件行与发给 AI 的附件头共用这一个口径）。 */
+private fun formatFileSize(bytes: Long): String =
+    if (bytes < 1024) "$bytes B" else "${bytes / 1024} KB"
+
+/** v1.1.11：把待发文件内容拼进用户消息文本：文件名 + 代码围栏；只随本轮最后一条消息发。 */
+private fun fileBlockForSend(file: AiChatStore.StagedFile, content: String): String {
+    val note = buildString {
+        append(file.displayName)
+        append("（")
+        append(formatFileSize(file.sizeBytes))
+        append("，")
+        append(file.lineCount)
+        append(" 行")
+        if (file.truncated) append("，内容过长只贴前 8000 字")
+        append("）")
+    }
+    return "\n\n[附件文件：$note]\n```\n$content\n```"
+}
+
 /**
  * v1.1.3：AI 助手对话页（全屏）。
  *
@@ -279,6 +330,9 @@ private fun MessageRow(msg: AiChatStore.ChatMsg, onAskAi: (String) -> Unit = {})
  * v1.1.11：可以发图片了——输入框旁的选图按钮调系统图片选择器，图先缩到长边 1024 内、
  * JPEG 80 落盘再随文字一起发；当前模型不支持视觉时对话里给换模型提示，不静默丢图；
  * 语音不做。图片只发给支持视觉的模型看，不进 SharedPreferences。
+ * v1.1.11：也可以发文件了——输入框旁的选文件按钮调系统文件选择器，只认文本文件
+ * （.py/.js/.php/.json/.txt/.log/.md 这类），内容过长只贴前 8000 字，拼进本轮最后一条
+ * 用户消息的文本里发给 AI；文件内容不进 ai_chat.json，只留文件名，追问时不再重发。
  * 直达：检测页“去对话里改”与写源失败“去对话里接着改”先把首条消息种进
  * AiChatStore.pendingSeed，进页自动发一次。
  */
@@ -293,6 +347,8 @@ fun AiScreen() {
     var thinking by remember { mutableStateOf(false) }
     // v1.1.11：待发的图（AiChatStore 里已压缩落盘的文件名，未发送前显示缩略图）。
     var pendingImage by remember { mutableStateOf<String?>(null) }
+    // v1.1.11：待发的文件（AiChatStore 里已读成文本落盘，未发送前显示文件名与大小）。
+    var pendingFile by remember { mutableStateOf<AiChatStore.StagedFile?>(null) }
 
     val provider = AiRepairSettings.provider(context)
     val model = AiRepairSettings.model(context)
@@ -312,20 +368,56 @@ fun AiScreen() {
         }
     }
 
+    // v1.1.11：系统文件选择器；选中后立即读成文本落盘，非文本或读失败给一句提示、不卡住输入。
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            when (val r = withContext(Dispatchers.IO) { AiChatStore.stageFile(context, uri) }) {
+                is AiChatStore.StageFileResult.Ok -> {
+                    pendingFile?.let { AiChatStore.deleteStagedFile(context, it.storedName) }
+                    pendingFile = r.file
+                }
+                AiChatStore.StageFileResult.NotText ->
+                    AppToast.show(context, "只支持文本文件（.py/.js/.txt/.log 这类），图片请用选图按钮", long = false)
+                AiChatStore.StageFileResult.Failed ->
+                    AppToast.show(context, "读文件失败，换个文件再试", long = false)
+            }
+        }
+    }
+
     fun sendMessage(text: String): Boolean {
         val content = text.trim()
         // v1.1.11：只发图不写字也允许发；待发图随这条用户消息一起记进会话，发出后清掉待发位。
         val image = pendingImage
-        if ((content.isBlank() && image == null) || thinking) return false
-        AiChatStore.addUser(content, context, image)
+        // v1.1.11：只发文件不写字也允许发；待发文件只记原文件名进会话，内容另外拼进请求。
+        val file = pendingFile
+        if ((content.isBlank() && image == null && file == null) || thinking) return false
+        AiChatStore.addUser(content, context, image, file?.displayName)
         pendingImage = null
+        pendingFile = null
         thinking = true
         scope.launch {
+            // v1.1.11：文件内容只随本轮最后一条用户消息发——读出来拼进消息文本就删落盘副本，
+            // 历史消息与重载后不再重发；读不到时在消息里明说，不静默丢掉。
+            val fileBlock = if (file != null) {
+                val staged = withContext(Dispatchers.IO) { AiChatStore.readStagedFile(context, file.storedName) }
+                AiChatStore.deleteStagedFile(context, file.storedName)
+                if (staged != null) fileBlockForSend(file, staged)
+                else "\n\n[附件文件：${file.displayName}（读取失败，未附内容）]"
+            } else {
+                ""
+            }
             // 图片只传绝对路径，base64 由 LlmClient 在发请求时现读现转。
-            val history = AiChatStore.messages.value.map {
+            val lastIndex = AiChatStore.messages.value.lastIndex
+            val history = AiChatStore.messages.value.mapIndexed { index, it ->
+                val text = if (index == lastIndex && it.role == "user" && fileBlock.isNotEmpty()) {
+                    it.text + fileBlock
+                } else {
+                    it.text
+                }
                 LlmClient.ChatMessage(
                     it.role,
-                    it.text,
+                    text,
                     it.imagePath?.let { name -> AiChatStore.imageFile(context, name).absolutePath },
                 )
             }
@@ -405,7 +497,7 @@ fun AiScreen() {
                     Text("和 AI 聊写源、修源", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = v.onSurface)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "粘贴报错、日志，或者让 AI 按网址写新源；截图也可以直接发，支持视觉的模型才能看（设置里换模型）。",
+                        "粘贴报错、日志，或者让 AI 按网址写新源；截图可以直接发，文本文件（.py/.js/.txt 这类）也能发；看图要支持视觉的模型（设置里换模型）。",
                         fontSize = 12.sp,
                         color = v.outline,
                     )
@@ -473,6 +565,43 @@ fun AiScreen() {
                 }
             }
         }
+        // v1.1.11：待发文件行（点取消时落盘的待发文件一并删掉）。
+        pendingFile?.let { pf ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = V5.Gutter),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Outlined.UploadFile,
+                    contentDescription = null,
+                    tint = v.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = buildString {
+                        append(pf.displayName)
+                        append(" · ")
+                        append(formatFileSize(pf.sizeBytes))
+                        append(" · ")
+                        append(pf.lineCount)
+                        append(" 行")
+                        if (pf.truncated) append("（内容过长，只发前 8000 字）")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = v.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = {
+                    pendingFile?.let { AiChatStore.deleteStagedFile(context, it.storedName) }
+                    pendingFile = null
+                }) {
+                    Text("取消")
+                }
+            }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -480,6 +609,17 @@ fun AiScreen() {
                 .padding(bottom = dockClearance()),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // v1.1.11：选文件按钮（系统文件选择器，只认文本文件）；思考中不可再选，避免待发文件被中途换掉。
+            IconButton(
+                onClick = { pickFile.launch("*/*") },
+                enabled = !thinking,
+            ) {
+                Icon(
+                    Icons.Outlined.UploadFile,
+                    contentDescription = "选文件",
+                    tint = if (thinking) v.outline else v.primary,
+                )
+            }
             // v1.1.11：选图按钮（系统图片选择器）；思考中不可再选，避免待发图被中途换掉。
             IconButton(
                 onClick = { pickImage.launch("image/*") },
@@ -505,7 +645,7 @@ fun AiScreen() {
             Spacer(Modifier.width(8.dp))
             AppButton(
                 text = "发送",
-                enabled = !thinking && (input.isNotBlank() || pendingImage != null),
+                enabled = !thinking && (input.isNotBlank() || pendingImage != null || pendingFile != null),
                 onClick = { if (sendMessage(input)) input = "" },
             )
         }

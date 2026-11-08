@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.OpenableColumns
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,8 +35,27 @@ object AiChatStore {
      * v1.1.11：对话消息可带一张图。imagePath 只存图片文件名（filesDir/ai_chat_images 下的
      * 压缩后 JPEG），不存 base64：JSON 里只留文件名，base64 只在发请求那一刻由 LlmClient
      * 现读现转；SharedPreferences 里不放图。
+     * v1.1.11：对话消息也可带一个文本文件。fileName 只存原文件名，内容落盘在
+     * filesDir/ai_chat_files 下供本轮发送用，发送后即删；JSON 里只留文件名，内容不进
+     * ai_chat.json、也不进 SharedPreferences；重载后只保留“发过某文件”的记录。
      */
-    data class ChatMsg(val role: String, val text: String, val time: Long = System.currentTimeMillis(), val imagePath: String? = null)
+    data class ChatMsg(val role: String, val text: String, val time: Long = System.currentTimeMillis(), val imagePath: String? = null, val fileName: String? = null)
+
+    /** v1.1.11：待发文件（落盘在 filesDir/ai_chat_files 下，发送后即删）。 */
+    data class StagedFile(
+        val storedName: String,
+        val displayName: String,
+        val sizeBytes: Long,
+        val lineCount: Int,
+        val truncated: Boolean,
+    )
+
+    /** v1.1.11：选文件的结果——成功 / 不是文本文件 / 读失败。 */
+    sealed interface StageFileResult {
+        data class Ok(val file: StagedFile) : StageFileResult
+        data object NotText : StageFileResult
+        data object Failed : StageFileResult
+    }
 
     private const val FILE_NAME = "ai_chat.json"
     private const val MAX_SEED_RULE_CHARS = 8000
@@ -43,6 +63,23 @@ object AiChatStore {
     /** v1.1.11：对话图片落盘目录；发送前缩到长边 1024 内、JPEG 80，单张通常不到 200KB。 */
     private const val IMAGE_DIR = "ai_chat_images"
     private const val MAX_IMAGE_EDGE = 1024
+    /** v1.1.11：待发文件落盘目录；读内容时最多读这么多字节，够截出前 8000 字。 */
+    private const val FILE_DIR = "ai_chat_files"
+    private const val MAX_FILE_READ_BYTES = 128 * 1024
+    /** v1.1.11：认作文本文件的后缀；不在表里的按内容嗅探（见 stageFile）。 */
+    private val TEXT_FILE_EXTS = setOf(
+        "py", "js", "php", "json", "txt", "log", "md", "kt", "kts", "java",
+        "xml", "html", "htm", "css", "yaml", "yml", "toml", "ini", "cfg",
+        "conf", "sh", "csv", "ts", "tsx", "jsx", "c", "h", "cpp", "rs",
+        "go", "sql", "gradle", "properties",
+    )
+    /** v1.1.11：常见二进制后缀（直接拒，不读内容）。 */
+    private val BINARY_FILE_EXTS = setOf(
+        "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "mp4", "mkv",
+        "avi", "mov", "mp3", "wav", "flac", "zip", "rar", "7z", "tar",
+        "gz", "apk", "dex", "so", "pdf", "doc", "docx", "xls", "xlsx",
+        "exe", "bin", "db", "ttf", "otf",
+    )
 
     private val _messages = MutableStateFlow<List<ChatMsg>>(emptyList())
     val messages: StateFlow<List<ChatMsg>> = _messages.asStateFlow()
@@ -60,8 +97,8 @@ object AiChatStore {
         if (_messages.value.isEmpty()) _messages.value = parsed
     }
 
-    fun addUser(text: String, context: Context, imagePath: String? = null) {
-        _messages.value = _messages.value + ChatMsg("user", text, imagePath = imagePath)
+    fun addUser(text: String, context: Context, imagePath: String? = null, fileName: String? = null) {
+        _messages.value = _messages.value + ChatMsg("user", text, imagePath = imagePath, fileName = fileName)
         save(context)
     }
 
@@ -77,6 +114,7 @@ object AiChatStore {
         save(context)
         ioScope.launch {
             File(context.filesDir, IMAGE_DIR).listFiles()?.forEach { it.delete() }
+            File(context.filesDir, FILE_DIR).listFiles()?.forEach { it.delete() }
         }
     }
 
@@ -87,6 +125,77 @@ object AiChatStore {
     /** v1.1.11：删一张已落盘的对话图片（待发图取消、或发送失败后丢弃时用）；文件不在也不报错。 */
     fun deleteImage(context: Context, imageName: String) {
         ioScope.launch { runCatching { imageFile(context, imageName).delete() } }
+    }
+
+    /**
+     * v1.1.11：把系统文件选择器给的 Uri 读成对话附件。只认文本文件：后缀在
+     * BINARY_FILE_EXTS 里直接拒；后缀不在 TEXT_FILE_EXTS 里时按内容嗅探，含 NUL
+     * 字节的当二进制。内容过长只留前 MAX_SEED_RULE_CHARS 字，落盘到
+     * filesDir/ai_chat_files 供本轮发送用；返回待发文件信息。
+     * 用 GetContent 一次性授权，选完立即读，不留悬空 Uri；在 IO 线程调。
+     */
+    suspend fun stageFile(context: Context, uri: Uri): StageFileResult = withContext(Dispatchers.IO) {
+        runCatching {
+            val resolver = context.contentResolver
+            var rawName: String? = null
+            var sizeBytes: Long = -1
+            resolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (cursor.moveToFirst()) {
+                    if (nameIdx >= 0) rawName = cursor.getString(nameIdx)
+                    if (sizeIdx >= 0) sizeBytes = cursor.getLong(sizeIdx)
+                }
+            }
+            val displayName = rawName?.takeIf { it.isNotBlank() }
+                ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+                ?: "文件"
+            val ext = displayName.substringAfterLast('.', "").lowercase()
+            if (ext in BINARY_FILE_EXTS) return@runCatching StageFileResult.NotText
+            val bytes = resolver.openInputStream(uri)?.use { input ->
+                val out = java.io.ByteArrayOutputStream()
+                val buf = ByteArray(8192)
+                var total = 0
+                while (total < MAX_FILE_READ_BYTES) {
+                    val n = input.read(buf, 0, minOf(buf.size, MAX_FILE_READ_BYTES - total))
+                    if (n <= 0) break
+                    out.write(buf, 0, n)
+                    total += n
+                }
+                out.toByteArray()
+            } ?: return@runCatching StageFileResult.Failed
+            val text = String(bytes, Charsets.UTF_8)
+            if (ext !in TEXT_FILE_EXTS && (bytes.any { it == 0.toByte() } || text.contains('\u0000'))) {
+                return@runCatching StageFileResult.NotText
+            }
+            val truncated = text.length > MAX_SEED_RULE_CHARS
+            val content = text.take(MAX_SEED_RULE_CHARS)
+            val dir = File(context.filesDir, FILE_DIR).apply { mkdirs() }
+            val storedName = "file_${UUID.randomUUID()}.txt"
+            File(dir, storedName).writeText(content)
+            val lines = if (content.isEmpty()) 0 else content.count { it == '\n' } + 1
+            StageFileResult.Ok(
+                StagedFile(
+                    storedName = storedName,
+                    displayName = displayName,
+                    sizeBytes = if (sizeBytes >= 0) sizeBytes else bytes.size.toLong(),
+                    lineCount = lines,
+                    truncated = truncated,
+                )
+            )
+        }.getOrElse { StageFileResult.Failed }
+    }
+
+    /** v1.1.11：读回本轮待发的文件内容（发送时拼进消息文本用）；读不到返回 null。 */
+    suspend fun readStagedFile(context: Context, storedName: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            File(File(context.filesDir, FILE_DIR), storedName).takeIf { it.isFile }?.readText()
+        }.getOrNull()
+    }
+
+    /** v1.1.11：删一份已落盘的待发文件（待发文件取消、或发送后丢弃时用）；文件不在也不报错。 */
+    fun deleteStagedFile(context: Context, storedName: String) {
+        ioScope.launch { runCatching { File(File(context.filesDir, FILE_DIR), storedName).delete() } }
     }
 
     /**
@@ -186,9 +295,11 @@ object AiChatStore {
                     val text = obj.optString("text")
                     // v1.1.11：图片文件名也读回来；只发图没写字（text 为空）的消息也保留，别当成空消息丢掉。
                     val imagePath = obj.optString("image").takeIf { it.isNotBlank() }
+                    // v1.1.11：发过的文件只留文件名；只发文件没写字的消息也保留。
+                    val fileName = obj.optString("file").takeIf { it.isNotBlank() }
                     if (role != "user" && role != "assistant") continue
-                    if (text.isBlank() && imagePath == null) continue
-                    add(ChatMsg(role, text, obj.optLong("time", System.currentTimeMillis()), imagePath))
+                    if (text.isBlank() && imagePath == null && fileName == null) continue
+                    add(ChatMsg(role, text, obj.optLong("time", System.currentTimeMillis()), imagePath, fileName))
                 }
             }
         }.getOrDefault(emptyList())
@@ -205,6 +316,8 @@ object AiChatStore {
                         put("time", msg.time)
                         // v1.1.11：只存图片文件名，不存 base64。
                         msg.imagePath?.let { put("image", it) }
+                        // v1.1.11：只存原文件名，不存文件内容。
+                        msg.fileName?.let { put("file", it) }
                     }
                 )
             }
