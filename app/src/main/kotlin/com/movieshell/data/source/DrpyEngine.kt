@@ -25,49 +25,49 @@ interface DrpyEngine : SourceEngine {
      * 只有 V8DrpyEngine 真正写它，DrpySourceManager 适配器透传它。
      * 调用方据此区分“源没数据”（空结果且 lastError 为 null）与“执行失败”（空结果但有原因）。
      */
-    val lastError: String?
+    override val lastError: String?
         get() = null
 
     /** 载入一条 drpy 规则源码。必须在主线程调用。 */
     fun loadRule(js: String)
 
     /** 首页推荐。 */
-    suspend fun home(): List<Vod>
+    override suspend fun home(): List<Vod>
 
     /** 全部分类（来自 rule.class_parse 或 class_name/class_url）。 */
-    suspend fun categories(): List<CategoryType>
+    override suspend fun categories(): List<CategoryType>
 
     /**
      * 分类列表。
      * @param filter 筛选键→选中值（对应规则 filter_url 里 {{fl.键名}} 的键名）；
      * 空 map 时引擎按规则默认值渲染（filter_def[tid]，再取 filter 分组首项）。
      */
-    suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod>
+    override suspend fun category(tid: String, pg: Int, filter: Map<String, String> = emptyMap()): List<Vod>
 
     /**
      * 该分类的筛选定义（drpy filterable 规则的 filter 分组）。
      * 规则没配 filter / 非 drpy 引擎时返回空列表；UI 筛选器据此绘制。
      */
-    suspend fun filters(tid: String): List<FilterGroup> = emptyList()
+    override suspend fun filters(tid: String): List<FilterGroup> = emptyList()
 
     /** 详情。 */
-    suspend fun detail(id: String): VodDetail
+    override suspend fun detail(id: String): VodDetail
 
     /** 搜索。 */
-    suspend fun search(wd: String): List<Vod>
+    override suspend fun search(wd: String): List<Vod>
 
     /**
      * 取播放地址。
      * @return 最终可播的直链（规则内部已做嗅探/解析）。
      */
-    suspend fun play(flag: String, id: String): String
+    override suspend fun play(flag: String, id: String): String
 
     /**
      * v0.294.7（Bug2 / H2）：带 parse/jx/header/playUrl 的完整播放结果。
      * 默认实现只包一层 [play]（parse=0），只有 V8DrpyEngine 与池/管理器适配器真正透传。
      */
-    suspend fun playRaw(flag: String, id: String): RawPlay = RawPlay(url = play(flag, id))
+    override suspend fun playRaw(flag: String, id: String): RawPlay = RawPlay(url = play(flag, id))
 
     /** 销毁引擎，释放资源。 */
-    fun release()
+    override fun release()
 }

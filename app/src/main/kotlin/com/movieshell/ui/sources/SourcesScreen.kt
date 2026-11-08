@@ -109,7 +109,7 @@ import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.data.repo.SourceDeleteCleanup
 import com.movieshell.data.source_mgr.SourceProbe
 import com.movieshell.data.repo.toResult
-import com.movieshell.data.source_mgr.SourceProbeStore
+import com.movieshell.data.repo.SourceProbeStore
 import com.movieshell.data.repo.SourceStateStore
 import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.source_mgr.SubCache
