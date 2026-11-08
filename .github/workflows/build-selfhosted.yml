@@ -1,0 +1,79 @@
+name: Build MovieShell (self-hosted Windows)
+
+# 跑在本机 Windows 自建 runner 上，替代 ubuntu-latest 云构建。
+# 前置：本机已注册 self-hosted runner（标签 self-hosted / Windows / X64），run.cmd 保持运行。
+# 注意：刻意不含 pull_request 触发——公开仓库的 fork PR 会在本机执行任意代码。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell
+    env:
+      ANDROID_HOME: C:\Users\Administrator\movieshell-build\android-sdk
+      ANDROID_SDK_ROOT: C:\Users\Administrator\movieshell-build\android-sdk
+      JAVA_HOME: C:\Users\Administrator\movieshell-build\jdk-17.0.2
+      GRADLE_HOME: C:\Users\Administrator\movieshell-build\gradle-8.7
+      CHAQUOPY_PYTHON: C:\Users\Administrator\movieshell-build\python310\python.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add toolchain to PATH
+        run: |
+          "$env:JAVA_HOME\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "$env:GRADLE_HOME\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "$env:ANDROID_HOME\platform-tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Split-Path $env:CHAQUOPY_PYTHON | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Check toolchain
+        run: |
+          java -version 2>&1
+          gradle --version
+          python --version
+          Write-Output "ANDROID_HOME=$env:ANDROID_HOME"
+          Write-Output ("android.jar = " + (Test-Path "$env:ANDROID_HOME\platforms\android-34\android.jar"))
+
+      # 与云构建一致：每轮现场生成 keystore，密码取自 run_id，不入库
+      - name: Generate release keystore
+        run: |
+          $ks = "$env:RUNNER_TEMP\release.keystore"
+          $pw = "release-${{ github.run_id }}-ms"
+          keytool -genkeypair -v -keystore $ks -alias movieshell -keyalg RSA -keysize 2048 -validity 9125 -storepass $pw -keypass $pw -dname "CN=MovieShell, OU=Dev, O=MovieShell, C=CN"
+
+      - name: Build release APK
+        run: |
+          $pw = "release-${{ github.run_id }}-ms"
+          $ks = "$env:RUNNER_TEMP\release.keystore"
+          gradle assembleRelease --no-daemon "-Pandroid.injected.signing.store.file=$ks" "-Pandroid.injected.signing.store.password=$pw" "-Pandroid.injected.signing.key.alias=movieshell" "-Pandroid.injected.signing.key.password=$pw"
+
+      - name: Run unit tests
+        continue-on-error: true
+        run: gradle testDebugUnitTest --no-daemon
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: movieshell-release-apk
+          path: app/build/outputs/apk/release/*.apk
+
+      # 建构字幕搜索插件 DEX（SubHdSource 实现，DEX 动态加载）
+      - name: Build subtitle plugin DEX
+        run: |
+          gradle :plugin-subtitle:jar --no-daemon
+          $out = "$env:RUNNER_TEMP\subtitle-dex"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          & "$env:ANDROID_HOME\build-tools\34.0.0\d8.bat" --min-api 26 --lib "$env:ANDROID_HOME\platforms\android-34\android.jar" --output $out "plugin-subtitle\build\libs\plugin-subtitle.jar"
+
+      - name: Upload subtitle plugin DEX
+        uses: actions/upload-artifact@v4
+        with:
+          name: subtitle-plugin-dex
+          path: ${{ runner.temp }}/subtitle-dex/*.dex

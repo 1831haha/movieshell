@@ -78,8 +78,9 @@ chaquopy {
     defaultConfig {
         // Python 版本：3.10（Chaquopy 17 默认值，hipy 生态兼容性最好）
         version = "3.10"
-        // 构建机 Python：CI 里用 actions/setup-python 装 3.10，PATH 里有 python3.10
-        buildPython("python3.10")
+        // 构建机 Python：Linux CI 用 PATH 里的 python3.10；
+        // Windows self-hosted runner 通过 CHAQUOPY_PYTHON 指定 python.exe 绝对路径
+        buildPython(System.getenv("CHAQUOPY_PYTHON") ?: "python3.10")
         pip {
             // v0.14.6：PY 规则全量常用依赖（一次配全，避免 ModuleNotFoundError）
             // 注意：PyExecJS 无 Android arm64 版本，已剔除
