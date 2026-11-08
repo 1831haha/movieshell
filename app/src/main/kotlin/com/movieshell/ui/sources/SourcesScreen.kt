@@ -95,6 +95,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.movieshell.data.repo.AiChatStore
 import com.movieshell.data.repo.AiRepairEngine
 import com.movieshell.data.repo.AiRepairSettings
 import com.movieshell.data.repo.ApiSource
@@ -317,7 +318,11 @@ private fun ProbeDot(probe: SourceProbe.Result?) {
 
 /** v0.86.0：检测 tab 的逐源结果行——名称 + 状态徽标 + 耗时/失败原因 */
 @Composable
-private fun ProbeResultRow(target: ProbeTarget, result: SourceProbe.Result?) {
+private fun ProbeResultRow(
+    target: ProbeTarget,
+    result: SourceProbe.Result?,
+    onAiChatClick: () -> Unit = {},
+) {
         val (label, color) = when (result) {
         is SourceProbe.Result.Ok -> "${result.ms}ms" to MaterialTheme.colorScheme.ok
         is SourceProbe.Result.Slow -> "${result.ms}ms" to MaterialTheme.colorScheme.tertiary
@@ -429,6 +434,26 @@ private fun ProbeResultRow(target: ProbeTarget, result: SourceProbe.Result?) {
                             }
                         },
                     )
+                    Spacer(Modifier.width(8.dp))
+                    // v1.1.3：去对话里改——把规则原文 + 失败原因种进对话，进 AI TAB 接着改。
+                    AppButton(
+                        text = "去对话里改",
+                        variant = AppButtonVariant.Ghost,
+                        enabled = !repairing,
+                        onClick = {
+                            scope.launch {
+                                val text = withContext(Dispatchers.IO) {
+                                    AiRepairEngine.readRuleText(context, target.kind, target.name)
+                                }
+                                if (text.isNullOrBlank()) {
+                                    AppToast.show(context, "规则文件读不出来", long = true)
+                                    return@launch
+                                }
+                                AiChatStore.seedFromRepair(target.kind, target.name, text, fail?.reason.orEmpty())
+                                onAiChatClick()
+                            }
+                        },
+                    )
                 }
             }
         }
@@ -463,6 +488,8 @@ fun SourcesScreen(
     initialTab: Int = 0,
     // v0.108.0：点站点设为当前源后顺手切回主页 tab（待 MainActivity 接线：navController.navigateTab("home")）
     onGoHome: () -> Unit = {},
+    // v1.1.3：检测页“去对话里改”跳 AI TAB
+    onAiChatClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     // v0.246.0：refresh 内部协程用——读盘放 IO，列表更新回主线程
@@ -1609,6 +1636,7 @@ fun SourcesScreen(
                 ProbeResultRow(
                     target = ProbeTarget(r.kind, r.name, r.label),
                     result = r.toResult(),
+                    onAiChatClick = onAiChatClick,
                 )
             }
             if (records.isEmpty() && !probeRunning) {

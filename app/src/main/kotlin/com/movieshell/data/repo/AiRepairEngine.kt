@@ -36,6 +36,65 @@ object AiRepairEngine {
     /** 只有这三类本地规则文件能一键修（订阅展开的 CMS 站、网页源没有本地规则文件）。 */
     fun canRepair(kind: String): Boolean = kind == "js" || kind == "py" || kind == "php"
 
+    /** 从一段文本里认规则类型：能抠出规则才非空，供对话页决定给不给“探活验证”按钮。 */
+    fun detectKind(ruleText: String): String? = when {
+        ruleText.contains("var rule") -> "js"
+        ruleText.contains("class Spider") -> "py"
+        ruleText.contains("BaseSpider") -> "php"
+        else -> null
+    }
+
+    /** 检测页“去对话里改”用：读一条本地规则的原文，读不到返回 null。 */
+    fun readRuleText(context: Context, kind: String, name: String): String? {
+        val file = ruleFile(context, kind, name) ?: return null
+        return runCatching { file.readText() }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
+
+    /** 对话页“探活验证”用：只探活不保存，复用 validateFixed。 */
+    suspend fun probeRule(context: Context, kind: String, ruleText: String): SourceProbe.Result =
+        withContext(Dispatchers.IO) { validateFixed(context, kind, ruleText) }
+
+    sealed interface ApplyResult {
+        data class Ok(val fileName: String, val ms: Long) : ApplyResult
+        data class Fail(val reason: String) : ApplyResult
+    }
+
+    /**
+     * v1.1.3：对话里改好的规则落盘——先探活，不过不保存；
+     * 通过后 replaceFile 非空则备份后写回原文件，为空则按类型写新文件（同名自动加 -2、-3）。
+     */
+    suspend fun applyRuleFromChat(
+        context: Context,
+        kind: String,
+        nameHint: String,
+        ruleText: String,
+        replaceFile: File?,
+    ): ApplyResult = withContext(Dispatchers.IO) {
+        if (!canRepair(kind)) return@withContext ApplyResult.Fail("不支持的类型")
+        if (ruleText.isBlank()) return@withContext ApplyResult.Fail("规则是空的")
+        val start = System.currentTimeMillis()
+        when (val probe = validateFixed(context, kind, ruleText)) {
+            is SourceProbe.Result.Ok, is SourceProbe.Result.Slow -> {
+                if (replaceFile != null) {
+                    backup(replaceFile)
+                    runCatching { replaceFile.writeText(ruleText) }.onFailure {
+                        return@withContext ApplyResult.Fail("写回规则文件失败")
+                    }
+                    ApplyResult.Ok(replaceFile.name, System.currentTimeMillis() - start)
+                } else {
+                    val fileName = uniqueFileName(context, nameHint, ruleText, "", kind)
+                    val target = File(targetDir(context, kind), fileName)
+                    runCatching { target.writeText(ruleText) }.onFailure {
+                        return@withContext ApplyResult.Fail("保存规则文件失败")
+                    }
+                    ApplyResult.Ok(fileName, System.currentTimeMillis() - start)
+                }
+            }
+            is SourceProbe.Result.Fail -> ApplyResult.Fail("验证没过：${probe.reason}")
+            is SourceProbe.Result.Unsupported -> ApplyResult.Fail("验证没过：不支持")
+        }
+    }
+
     suspend fun repair(context: Context, kind: String, name: String, reason: String): RepairResult =
         withContext(Dispatchers.IO) {
             val file = ruleFile(context, kind, name)
@@ -234,7 +293,8 @@ object AiRepairEngine {
         return candidate
     }
 
-    private fun ruleFile(context: Context, kind: String, name: String): File? = when (kind) {
+    /** 对话页用：一条本地规则文件的位置（kind + 文件名）。 */
+    fun ruleFile(context: Context, kind: String, name: String): File? = when (kind) {
         "js" -> File(StoragePaths.jsDir(context), name)
         "py" -> File(StoragePaths.pyDir(context), name)
         "php" -> File(PhpSourceManager.rulesDir(context), name)
@@ -297,16 +357,20 @@ object AiRepairEngine {
         }
     }
 
-    /** 去掉 AI 返回的 markdown 代码围栏，只留规则本身。 */
-    private fun extractRule(text: String): String {
-        var t = text.trim()
-        if (t.startsWith("```")) {
-            val firstNl = t.indexOf('\n')
-            if (firstNl >= 0) t = t.substring(firstNl + 1)
-            val lastFence = t.lastIndexOf("```")
-            if (lastFence >= 0) t = t.substring(0, lastFence)
-        }
-        return t.trim()
+    /**
+     * 去掉 AI 返回的 markdown 代码围栏，只留规则本身。
+     * v1.1.3：对话里 AI 常在规则前后加解释，改成抠第一个围栏块；以前只返回
+     * 整段规则的用法不受影响（无围栏原样返回，纯规则加围栏同以前一样剥掉）。
+     */
+    fun extractRule(text: String): String {
+        val t = text.trim()
+        val firstFence = t.indexOf("```")
+        if (firstFence < 0) return t
+        val firstNl = t.indexOf('\n', firstFence)
+        val bodyStart = if (firstNl >= 0) firstNl + 1 else firstFence + 3
+        val lastFence = t.lastIndexOf("```")
+        val bodyEnd = if (lastFence > bodyStart) lastFence else t.length
+        return t.substring(bodyStart, bodyEnd).trim()
     }
 
     /**

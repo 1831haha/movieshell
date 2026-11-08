@@ -48,6 +48,8 @@ object NovelDirectoryFill {
                     title = it.title,
                     content = "",
                     url = it.url,
+                    // v1.1.3：段评评论链接跟着目录走——漏了这行，后台补目录的书就没有段评图标。
+                    commentUrl = it.commentUrl,
                 )
             }
             if (!NovelStore.updateSource(context, novelId, sourceKey, chapters, cover = cover)) {
@@ -76,6 +78,8 @@ object NovelDirectoryFill {
                         title = it.title,
                         content = "",
                         url = it.url,
+                        // v1.1.3：同上，书架恢复补目录也要带上评论链接。
+                        commentUrl = it.commentUrl,
                     )
                 }
                 if (!NovelStore.updateSource(context, novel.id, novel.sourceKey, chapters)) {

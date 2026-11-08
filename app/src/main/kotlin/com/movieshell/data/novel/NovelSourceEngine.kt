@@ -300,7 +300,9 @@ object NovelSourceEngine {
                 val title = BookRuleEngine.extract(el, tocPage.url, source.ruleTocTitle.ifBlank { "@text" })
                 val url = BookRuleEngine.extract(el, tocPage.url, source.ruleTocUrl.ifBlank { "@href" })
                 if (title.isBlank() || url.isBlank()) return@mapIndexedNotNull null
-                ChapterMeta(index = i, title = title, url = url)
+                // v1.1.3：段评最小版——提评论页地址（规则空时 extract 返回空串，不参与过滤）。
+                val commentUrl = BookRuleEngine.extract(el, tocPage.url, source.ruleTocCommentUrl)
+                ChapterMeta(index = i, title = title, url = url, commentUrl = commentUrl)
             }
                 // v0.194.0：导航章兜底过滤（见 NovelStore.isNavChapterTitle）。
                 .filterNot { NovelStore.isNavChapterTitle(it.title) }
@@ -349,7 +351,9 @@ object NovelSourceEngine {
                     val title = LegadoJsEngine.evalTextRule(el, pageUrl, source.ruleTocTitle.ifBlank { "@text" }, pageCtx, state)
                     val url = LegadoJsEngine.evalTextRule(el, pageUrl, source.ruleTocUrl.ifBlank { "@href" }, pageCtx, state)
                     if (title.isNotBlank() && url.isNotBlank()) {
-                        all += ChapterMeta(index = all.size, title = title, url = url)
+                        // v1.1.3：段评最小版——提评论页地址（规则空时 evalTextRule 返回空串）。
+                        val commentUrl = LegadoJsEngine.evalTextRule(el, pageUrl, source.ruleTocCommentUrl, pageCtx, state)
+                        all += ChapterMeta(index = all.size, title = title, url = url, commentUrl = commentUrl)
                     }
                 }
             }

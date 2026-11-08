@@ -4,6 +4,7 @@ import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -63,6 +65,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -72,6 +75,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.movieshell.data.novel.BookProbeRecord
+import com.movieshell.data.novel.BookProbeStore
 import com.movieshell.data.novel.BookSource
 import com.movieshell.data.novel.BookSourceManager
 import com.movieshell.data.novel.PurifyRuleStore
@@ -108,6 +113,8 @@ fun BookSourceScreen(
     val accent = MaterialTheme.colorScheme.onSurface
 
     val sources by BookSourceManager.sources.collectAsState()
+    // v1.1.3：连通状态只显示、不新增探测——读发现页已持久化的探测结果。
+    val probeMap by BookProbeStore.map.collectAsState()
     // v0.64.0：本地 PY 书源
     val pyRules by PyBookSourceManager.rules.collectAsState()
     val pyEnabled by PyBookSourceManager.enabled.collectAsState()
@@ -206,6 +213,7 @@ fun BookSourceScreen(
     LaunchedEffect(Unit) {
         BookSourceManager.load(context)
         PyBookSourceManager.load(context)
+        BookProbeStore.load(context)
     }
 
     val pyImportLauncher = rememberLauncherForActivityResult(
@@ -550,6 +558,20 @@ fun BookSourceScreen(
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
+                            // v1.1.3：连通状态点＋耗时（发现页探测结果；没去过发现页即“未测”）。
+                            val rec = probeMap[s.key]
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(bookProbeDotColor(rec?.status), CircleShape),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                bookProbeText(rec),
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.width(8.dp))
                             AppSwitch(
                                 checked = s.enabled,
                                 onCheckedChange = {
@@ -1226,4 +1248,21 @@ private fun SourceTextEditorDialog(
             }
         }
     }
+}
+
+/** v1.1.3：探测状态点颜色，与发现页 DiscoverTab 同口径：通绿、慢黄、不通红、未测灰。 */
+private fun bookProbeDotColor(status: String?): Color = when (status) {
+    "OK" -> Color(0xFF3DD68C)
+    "SLOW" -> Color(0xFFE8B45A)
+    "FAIL" -> Color(0xFFFF5A5F)
+    else -> Color(0xFF6B7385)
+}
+
+/** v1.1.3：探测状态文案＋耗时（不通不记耗时，探测失败时 ms 为 0）；只陈述连通结果，不含评分含义。 */
+private fun bookProbeText(rec: BookProbeRecord?): String = when {
+    rec == null -> "未测"
+    rec.status == "FAIL" -> "不通"
+    rec.status == "SLOW" -> "慢 ${rec.ms}ms"
+    rec.status == "OK" -> "通 ${rec.ms}ms"
+    else -> "未测"
 }

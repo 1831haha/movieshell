@@ -106,6 +106,18 @@ object PurifyRuleStore {
             }
         }
 
+    /** v1.1.3：编辑已有规则——按下标整条替换（调用方用旧规则 copy 只改填过的字段）。 */
+    suspend fun update(context: Context, index: Int, rule: PurifyRule) =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val cur = list(context).toMutableList()
+                if (index in cur.indices) {
+                    cur[index] = rule
+                    writeAll(fileOf(context), cur)
+                }
+            }
+        }
+
     private fun writeAll(f: File, rules: List<PurifyRule>) = runCatching {
         // v0.170.0：原子写盘
         AtomicFile.writeText(f, json.encodeToString(ser, rules))

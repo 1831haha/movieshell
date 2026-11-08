@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.novel.PurifyRule
@@ -47,7 +49,7 @@ import kotlinx.coroutines.launch
 
 /**
  * v0.95.0 净化规则管理（对标阅读 3.0 替换规则）：
- * 列表 + 开关 + 新增 + 删除。正文拉取后经 NovelPurifyEngine 统一净化。
+ * 列表 + 开关 + 新增 + 编辑 + 删除。正文拉取后经 NovelPurifyEngine 统一净化。
  */
 @Composable
 fun PurifyRulesScreen(
@@ -60,6 +62,8 @@ fun PurifyRulesScreen(
 
     var rules by remember { mutableStateOf<List<PurifyRule>>(emptyList()) }
     var showAdd by remember { mutableStateOf(false) }
+    // v1.1.3：正在编辑的规则下标（null=没在编辑），弹窗与新增共用。
+    var editIndex by remember { mutableStateOf<Int?>(null) }
 
     fun reload() {
         scope.launch { rules = PurifyRuleStore.list(context) }
@@ -116,7 +120,15 @@ fun PurifyRulesScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(r.name.ifBlank { "未命名规则" }, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                // v1.1.3：规则名一行截断——行尾多了编辑钮，列变窄了，
+                                // 长名字原来会换行顶高卡片。
+                                Text(
+                                    r.name.ifBlank { "未命名规则" },
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                                 // v0.102.0 P2-3：内置规则标识；开关/删除走现有逻辑
                                 if (r.builtin) {
                                     Spacer(Modifier.width(6.dp))
@@ -130,10 +142,14 @@ fun PurifyRulesScreen(
                                     )
                                 }
                             }
+                            // v1.1.3：说明行最多两行截断——正则 take(40) 原来不限行，
+                            // 列变窄后会把卡片撑得很高。
                             Text(
                                 "${r.group.ifBlank { "未分组" }} · ${scopeLabel(r.scope)} · ${r.regex.take(40)}",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                         AppSwitch(
@@ -145,6 +161,9 @@ fun PurifyRulesScreen(
                                 }
                             },
                         )
+                        IconButton(onClick = { editIndex = i }) {
+                            Icon(Icons.Filled.Edit, "编辑", tint = accent)
+                        }
                         IconButton(onClick = {
                             scope.launch {
                                 PurifyRuleStore.removeAt(context, i)
@@ -159,26 +178,44 @@ fun PurifyRulesScreen(
         }
     }
 
-    if (showAdd) {
-        var name by remember { mutableStateOf("") }
-        var regex by remember { mutableStateOf("") }
-        var replacement by remember { mutableStateOf("") }
+    // v1.1.3：新增与编辑共用一个弹窗——编辑时按旧规则预填，保存只改
+    // 名称/正则/替换为，分组、scope、开关与内置标记原样保留。
+    if (showAdd || editIndex != null) {
+        val old = editIndex?.let { rules.getOrNull(it) }
+        var name by remember(old) { mutableStateOf(old?.name ?: "") }
+        var regex by remember(old) { mutableStateOf(old?.regex ?: "") }
+        var replacement by remember(old) { mutableStateOf(old?.replacement ?: "") }
         TechDialog(
-            onDismissRequest = { showAdd = false },
-            title = "新增净化规则",
+            onDismissRequest = { showAdd = false; editIndex = null },
+            title = if (old == null) "新增净化规则" else "编辑净化规则",
             onConfirm = {
                 if (regex.isNotBlank()) {
+                    // 先快照下标：协程里再读 editIndex 可能已是 null（弹窗被关掉）。
+                    val targetIndex = editIndex
                     scope.launch {
-                        PurifyRuleStore.add(
-                            context,
-                            PurifyRule(
-                                name = name.ifBlank { "自定义规则" },
-                                group = "自定义",
-                                regex = regex,
-                                replacement = replacement,
-                            ),
-                        )
+                        if (old == null) {
+                            PurifyRuleStore.add(
+                                context,
+                                PurifyRule(
+                                    name = name.ifBlank { "自定义规则" },
+                                    group = "自定义",
+                                    regex = regex,
+                                    replacement = replacement,
+                                ),
+                            )
+                        } else if (targetIndex != null) {
+                            PurifyRuleStore.update(
+                                context,
+                                targetIndex,
+                                old.copy(
+                                    name = name.ifBlank { "自定义规则" },
+                                    regex = regex,
+                                    replacement = replacement,
+                                ),
+                            )
+                        }
                         showAdd = false
+                        editIndex = null
                         reload()
                     }
                 }
@@ -192,7 +229,7 @@ fun PurifyRulesScreen(
             TechTextField(value = replacement, onValueChange = { replacement = it }, placeholder = "替换为（删留空）")
             Spacer(Modifier.height(8.dp))
             Text(
-                "新增后可单独开关；scope 默认全局",
+                if (old == null) "新增后可单独开关；scope 默认全局" else "只改名称、正则与替换为；分组与开关不动",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

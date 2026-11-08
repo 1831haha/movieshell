@@ -16,11 +16,13 @@ import com.movieshell.ui.music.closeMusicPlayer
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Home
@@ -44,6 +46,7 @@ import com.movieshell.data.repo.SubSiteStore
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
 import com.movieshell.ui.actor.ActorWorksScreen
+import com.movieshell.ui.ai.AiScreen
 import com.movieshell.ui.bookshelf.BookshelfScreen
 import com.movieshell.ui.changelog.ChangelogScreen
 import com.movieshell.ui.detail.DetailScreen
@@ -90,8 +93,7 @@ internal data class Tab(
 // v0.36.0：5 tab 按 mockup 重排——首页/直播/书架/音乐/设置；站源 tab 删除，管理入口搬进设置页。
 // v0.79.0：实验室 tab 改为音乐；实验室功能（插件市场/嗅探正则）搬进设置页。
 // 全量重做：底栏 6 TAB——首页/直播/书架/音乐/AI/设置；框架先起来，
-// AI 具体内容后面再完善（AiScreen 目前只有新风格外壳，不做假功能）。
-// F2：AI 空壳先从底栏移除，底栏回到 5 TAB，功能做好再加回。
+// v1.1.3：AI 对话功能做好，AI TAB 加回，位置在音乐与设置之间。
 // 未选中用 Outlined，选中用 Filled＋青色（V5NavigationBar 里处理）。
 // v0.279.0 底栏 B：线性图标（Lucide 风格），选中/未选中同一套描边图标，
 // 选中靠强调色药丸 + 白色图标文字区分。
@@ -101,13 +103,14 @@ internal val tabs = listOf(
     Tab("live", "直播", Icons.Outlined.LiveTv, Icons.Filled.LiveTv),
     Tab("bookshelf", "书架", Icons.Outlined.Book, Icons.Filled.Book),
     Tab("music", "音乐", Icons.Outlined.MusicNote, Icons.Filled.MusicNote),
+    Tab("ai", "AI", Icons.Outlined.SmartToy, Icons.Filled.SmartToy),
     Tab("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings),
 )
 
 // v0.222.0：tab 级目的地（含经 navigateTab 到达的 search）——tab 切换的
 // 退出混合判定用：两边都是 tab 时旧页瞬间撤掉，不再有双页叠在一起的
 // 300ms 重影帧；tab 与子页之间仍走原转场。
-internal val TAB_ROUTES = setOf("home", "live", "bookshelf", "music", "settings", "search")
+internal val TAB_ROUTES = setOf("home", "live", "bookshelf", "music", "ai", "settings", "search")
 
 internal const val DETAIL_ROUTE = "detail/{vodId}?title={title}&episode={episode}&siteKey={siteKey}"
 internal fun NavHostController.navigateTab(route: String) {
@@ -265,6 +268,8 @@ fun NavGraphBuilder.appDestinations(
                                 },
                                 // v0.108.0 B6.1：站源页点站点设为当前源后自动回主页 tab
                                 onGoHome = { navController.navigateTab("home") },
+                                // v1.1.3：检测页“去对话里改”跳 AI TAB
+                                onAiChatClick = { navController.navigateTab("ai") },
                             )
                         }
                         // v0.24.0：直播 Tab（v0.79.0：顶部嵌入播放器+下方选台；全屏跳独立播放页）
@@ -550,8 +555,10 @@ fun NavGraphBuilder.appDestinations(
                                 onBack = { navController.popBackStack() },
                             )
                         }
-                        // F2：AI 页只有 COMING SOON 空壳，底栏与路由先移除，
-                        // AiScreen 文件保留不删，功能做好再加回。
+                        // v1.1.3：AI 对话功能做好，AI TAB 加回。
+                        composable("ai") {
+                            AiScreen()
+                        }
                         composable("settings") {
                             SettingsScreen(
                                 onManualClick = { navController.navigate("manual") },
@@ -567,6 +574,8 @@ fun NavGraphBuilder.appDestinations(
                                 onHistoryClick = { navController.navigate("history") },
                                 // v0.90.0：快捷宫格-我的追剧
                                 onFollowClick = { navController.navigate("follow") },
+                                // v1.1.3：AI 助手设置区“打开对话”与写源失败“去对话里接着改”跳 AI TAB
+                                onAiChatClick = { navController.navigateTab("ai") },
                             )
                         }
                         // v0.79.0：嗅探正则管理（原实验室）

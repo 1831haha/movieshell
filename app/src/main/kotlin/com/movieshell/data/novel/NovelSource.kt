@@ -18,4 +18,6 @@ data class ChapterMeta(
     val index: Int = 0,
     val title: String = "",
     val url: String = "",
+    /** v1.1.3：段评最小版——本章评论页地址（空表示无评论入口）。 */
+    val commentUrl: String = "",
 )

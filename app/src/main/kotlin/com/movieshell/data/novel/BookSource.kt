@@ -32,6 +32,8 @@ data class BookSource(
     val ruleTocList: String = "",
     val ruleTocTitle: String = "",
     val ruleTocUrl: String = "",
+    /** v1.1.3：段评最小版——目录项里提评论页地址（选择器@href，与 ruleTocUrl 同口径；空表示本站无评论入口）。 */
+    val ruleTocCommentUrl: String = "",
     val ruleContent: String = "",
     /** v0.198.0：正文替换规则（阅读式 replaceRegex，每行一条，行内用 ## 分隔正则与替换）。 */
     val ruleContentReplace: String = "",
@@ -88,6 +90,7 @@ data class BookSource(
             put("chapterList", ruleTocList)
             put("chapterName", ruleTocTitle)
             put("chapterUrl", ruleTocUrl)
+            put("commentUrl", ruleTocCommentUrl)
             put("nextTocUrl", ruleTocNext)
         })
         put("loginCheckJs", loginCheckJs)
@@ -144,6 +147,7 @@ data class BookSource(
                 ruleTocList = rt?.optString("chapterList").orEmpty(),
                 ruleTocTitle = rt?.optString("chapterName").orEmpty(),
                 ruleTocUrl = rt?.optString("chapterUrl").orEmpty(),
+                ruleTocCommentUrl = rt?.optString("commentUrl").orEmpty(),
                 ruleContent = rc?.optString("content").orEmpty(),
                 ruleContentReplace = rc?.optString("replaceRegex").orEmpty(),
                 ruleContentNext = rc?.optString("nextContentUrl").orEmpty(),

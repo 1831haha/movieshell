@@ -45,6 +45,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Comment
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Remove
@@ -57,6 +58,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.TechTextField
+import com.movieshell.ui.novel.ChapterCommentDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -264,6 +266,8 @@ fun ReaderScreen(
     // v0.215.0：章内搜索（本章正文内找词、点结果跳转；滚动模式按恢复同款公式换算像素，翻页模式按页首偏移跳页）。
     var showChapterSearch by remember { mutableStateOf(false) }
     var chapterSearchQuery by remember { mutableStateOf("") }
+    // v1.1.3：段评入口开关（只有本章带评论链接时才点亮图标）。
+    var showComment by remember { mutableStateOf(false) }
     // v0.61.0：设置变化即存档（v0.89.0：加 bgTheme/pageMode；nightMode 按 bgTheme 回填做兼容）
     LaunchedEffect(fontSize, bgTheme, fontFamily, lineHeightRatio, brightness, volumePageTurn, pageMode, marginDp) {
         ReaderSettings.save(
@@ -1060,6 +1064,24 @@ fun ReaderScreen(
                         Icon(Icons.Filled.Refresh, "刷新", tint = fg)
                     }
                 }
+                // v1.1.3：段评入口——只有本章带评论链接时才显示，无链接不占地方。
+                if (chapter?.commentUrl?.isNotBlank() == true) {
+                    IconButton(onClick = { showComment = true }) {
+                        Icon(Icons.Filled.Comment, "段评", tint = fg)
+                    }
+                }
+            }
+        }
+
+        // v1.1.3：段评——半屏看站方评论页（只看，不解析不存）。
+        if (showComment) {
+            val url = chapter?.commentUrl.orEmpty()
+            if (url.isNotBlank()) {
+                ChapterCommentDialog(
+                    chapterTitle = chapter?.title.orEmpty(),
+                    commentUrl = url,
+                    onDismiss = { showComment = false },
+                )
             }
         }
 
@@ -1497,6 +1519,23 @@ fun ReaderScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                     ReaderSectionHeader("显示")
+                    // v1.1.3：阅读预设——一键套用配色＋亮度（字号/行距/边距不动，
+                    // 仍是各人偏好）。改完走现有存档（LaunchedEffect 监听 bgTheme/brightness）。
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("预设", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        listOf(
+                            "米黄护眼" to 1,
+                            "夜间黑" to 3,
+                            "羊皮纸" to 6,
+                            "跟随系统" to 4,
+                        ).forEachIndexed { i, (label, theme) ->
+                            if (i > 0) Spacer(Modifier.width(4.dp))
+                            ReaderPill(label, bgTheme == theme) {
+                                bgTheme = theme
+                                brightness = -1f
+                            }
+                        }
+                    }
                     // 字号：步进器（去滑杆）
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("字号", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))

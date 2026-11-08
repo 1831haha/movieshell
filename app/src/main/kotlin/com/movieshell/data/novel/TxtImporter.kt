@@ -10,16 +10,31 @@ import java.util.UUID
 /**
  * v0.35.0 TXT 小说导入。
  *
- * - 章节切分：按行匹配 `^第[一二三四五六七八九十百千万0-9]+[章节回集]`；
+ * - 章节切分：按行逐条试内置标题模式表（第X章/节/卷、Chapter N、卷X、
+ *   楔子/序章/番外等、数字序号“1、xxx”），命中且行短（≤40 字）才算标题；
  * - 第一章之前的文字算简介（desc）；
- * - 一章没匹配到：整本算一章，标题=书名；
+ * - 一个都匹配不到：整本算一章，标题=书名；
  * - 书名=文件名去扩展名；id=随机 UUID。
  *
  * 编码：先试 UTF-8，失败换 GBK（中文 TXT 常见）。
  */
 object TxtImporter {
 
-    private val chapterRegex = Regex("^第[一二三四五六七八九十百千万0-9]+[章节回集]")
+    // v1.1.3：单条正则换成标题模式表——原先只认“第X章”，
+    // Chapter N、卷、楔子/番外、数字序号的 TXT 全被算成一章。
+    // 数字序号要求数字后跟顿号/点/空格，避免正文“2026年”这类行误切。
+    private val chapterPatterns = listOf(
+        Regex("^第[一二三四五六七八九十百千万零〇两0-9]+[章节回集卷]"),
+        Regex("^Chapter\\s*[0-9]+", RegexOption.IGNORE_CASE),
+        Regex("^卷[一二三四五六七八九十百千万0-9]+"),
+        Regex("^(楔子|序章|序言|前言|引子|番外|后记|尾声|终章)"),
+        Regex("^[0-9]+([、．]|\\.\\s|\\s)"),
+    )
+
+    private fun isChapterTitle(line: String): Boolean {
+        val t = line.trimStart()
+        return chapterPatterns.any { it.containsMatchIn(t) }
+    }
 
     data class Imported(val novel: Novel, val chapters: List<Chapter>)
 
@@ -50,10 +65,10 @@ object TxtImporter {
             val line = rawLine.trimEnd()
             // v0.215.0：首章与后续章同口径——标题行都要求短（≤40 字），
             // 否则正文里一句“第一章……”也会把首章切错位置。
-            if (curTitle == null && chapterRegex.containsMatchIn(line.trimStart()) && line.trim().length <= 40) {
+            if (curTitle == null && isChapterTitle(line) && line.trim().length <= 40) {
                 // 第一章标题出现：之前攒的是简介
                 curTitle = line.trim()
-            } else if (curTitle != null && chapterRegex.containsMatchIn(line.trimStart()) && line.trim().length <= 40) {
+            } else if (curTitle != null && isChapterTitle(line) && line.trim().length <= 40) {
                 // 新章节（标题行一般很短，避免正文里"第一章"误切）
                 flush()
                 curTitle = line.trim()

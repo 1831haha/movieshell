@@ -16,9 +16,9 @@ import java.util.concurrent.TimeUnit
  * v1.0.9：通用 LLM 客户端（多 provider，不锁死任何一家）。
  *
  * 三种接口形态：OPENAI 兼容（DeepSeek / 豆包 / 千问 / Kimi / 智谱 / ChatGPT /
- * 自定义）、ANTHROPIC 原生（Claude）、GEMINI 原生（Gemini）。本版只供设置页
- * “测试连接”调用（发一句最短问候，验证 key、网络与模型是否通）；自动修复
- * 触发、规则校验与替换放下一版。
+ * 自定义）、ANTHROPIC 原生（Claude）、GEMINI 原生（Gemini）。chat 是一次性
+ * 调用（测试连接、修源、写源用）；v1.1.3 起 chatMessages 发完整消息列表，
+ * 供 AI 助手对话页多轮用。
  * 专用 client：不走 CmsApi.defaultClient（那只有重试拦截器与共享 CookieJar，
  * LLM 不需要；且 LLM 单次可等 60 秒以上，默认 client 整 call 60 秒不够）。
  */
@@ -28,6 +28,9 @@ object LlmClient {
         data class Ok(val text: String, val ms: Long) : ChatResult
         data class Fail(val reason: String) : ChatResult
     }
+
+    /** v1.1.3：多轮对话的一条消息，role 只用 user / assistant。 */
+    data class ChatMessage(val role: String, val content: String)
 
     private val client: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         OkHttpClient.Builder()
@@ -48,25 +51,32 @@ object LlmClient {
     suspend fun testConnection(context: Context): ChatResult =
         chat(context, "请只回一个字：好")
 
-    suspend fun chat(context: Context, prompt: String): ChatResult = withContext(Dispatchers.IO) {
+    /** v1.1.3 之前的一次性入口：包一层单条 user 消息走多轮，原有调用方一律不动。 */
+    suspend fun chat(context: Context, prompt: String): ChatResult =
+        chatMessages(context, listOf(ChatMessage("user", prompt)))
+
+    /** v1.1.3：多轮对话——发完整消息列表；超 20 条只发最后 20 条，省 token。 */
+    suspend fun chatMessages(context: Context, messages: List<ChatMessage>): ChatResult = withContext(Dispatchers.IO) {
         val provider = AiRepairSettings.provider(context)
         val apiKey = AiRepairSettings.apiKey(context)
         if (apiKey.isBlank()) return@withContext ChatResult.Fail("未填 API Key")
         val model = AiRepairSettings.model(context)
         if (model.isBlank()) return@withContext ChatResult.Fail("未填模型")
         // v1.1.2：豆包只认方舟接入点 ID（ep- 开头），填模型名方舟直接报 404；
-        // 在这里先拦住，不发请求，省一次失败来回（测试连接、修源、写源都走这里）。
+        // 在这里先拦住，不发请求，省一次失败来回（测试连接、修源、写源、对话都走这里）。
         if (provider.id == "doubao" && !model.startsWith("ep-")) {
             return@withContext ChatResult.Fail("豆包模型要填方舟接入点 ID（ep- 开头），填模型名会报 404；去方舟控制台在线推理里建接入点，复制 ep-… 填进来")
         }
         val baseUrl = AiRepairSettings.baseUrl(context).trimEnd('/')
         if (baseUrl.isBlank()) return@withContext ChatResult.Fail("未填请求地址")
+        if (messages.isEmpty()) return@withContext ChatResult.Fail("没有要发的内容")
+        val tail = messages.takeLast(20)
         val start = System.currentTimeMillis()
         try {
             val text = when (provider.style) {
-                AiRepairSettings.ApiStyle.OPENAI -> chatOpenAi(baseUrl, apiKey, model, prompt)
-                AiRepairSettings.ApiStyle.ANTHROPIC -> chatAnthropic(baseUrl, apiKey, model, prompt)
-                AiRepairSettings.ApiStyle.GEMINI -> chatGemini(baseUrl, apiKey, model, prompt)
+                AiRepairSettings.ApiStyle.OPENAI -> chatOpenAi(baseUrl, apiKey, model, tail)
+                AiRepairSettings.ApiStyle.ANTHROPIC -> chatAnthropic(baseUrl, apiKey, model, tail)
+                AiRepairSettings.ApiStyle.GEMINI -> chatGemini(baseUrl, apiKey, model, tail)
             }
             ChatResult.Ok(text, System.currentTimeMillis() - start)
         } catch (e: CancellationException) {
@@ -76,7 +86,7 @@ object LlmClient {
         }
     }
 
-    private fun chatOpenAi(baseUrl: String, apiKey: String, model: String, prompt: String): String {
+    private fun chatOpenAi(baseUrl: String, apiKey: String, model: String, messages: List<ChatMessage>): String {
         val body = JSONObject().apply {
             put("model", model)
             put("temperature", 0.2)
@@ -84,7 +94,9 @@ object LlmClient {
             // 2000 会把大规则的返回截断，验证不过、白白失败，提到 4096。
             put("max_tokens", MAX_OUTPUT_TOKENS)
             put("messages", JSONArray().apply {
-                put(JSONObject().apply { put("role", "user"); put("content", prompt) })
+                messages.forEach { msg ->
+                    put(JSONObject().apply { put("role", msg.role); put("content", msg.content) })
+                }
             })
         }
         val req = Request.Builder()
@@ -104,12 +116,14 @@ object LlmClient {
         }
     }
 
-    private fun chatAnthropic(baseUrl: String, apiKey: String, model: String, prompt: String): String {
+    private fun chatAnthropic(baseUrl: String, apiKey: String, model: String, messages: List<ChatMessage>): String {
         val body = JSONObject().apply {
             put("model", model)
             put("max_tokens", MAX_OUTPUT_TOKENS)
             put("messages", JSONArray().apply {
-                put(JSONObject().apply { put("role", "user"); put("content", prompt) })
+                messages.forEach { msg ->
+                    put(JSONObject().apply { put("role", msg.role); put("content", msg.content) })
+                }
             })
         }
         val req = Request.Builder()
@@ -129,14 +143,18 @@ object LlmClient {
         }
     }
 
-    private fun chatGemini(baseUrl: String, apiKey: String, model: String, prompt: String): String {
+    private fun chatGemini(baseUrl: String, apiKey: String, model: String, messages: List<ChatMessage>): String {
         val body = JSONObject().apply {
             put("contents", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("parts", JSONArray().apply {
-                        put(JSONObject().apply { put("text", prompt) })
+                messages.forEach { msg ->
+                    put(JSONObject().apply {
+                        // Gemini 的 role：user 还是 user，assistant 对应 model。
+                        put("role", if (msg.role == "assistant") "model" else "user")
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply { put("text", msg.content) })
+                        })
                     })
-                })
+                }
             })
         }
         val req = Request.Builder()

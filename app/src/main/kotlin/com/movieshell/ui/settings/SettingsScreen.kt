@@ -122,6 +122,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.download.SubRefreshWorker
+import com.movieshell.data.repo.AiChatStore
 import com.movieshell.data.repo.AiRepairEngine
 import com.movieshell.data.repo.AiRepairSettings
 import com.movieshell.data.repo.AtomicFile
@@ -195,6 +196,8 @@ fun SettingsScreen(
     onSniffPatternsClick: () -> Unit = {}, // v0.79.0：嗅探正则管理（v0.168.0 起入口在快捷宫格）
     onHistoryClick: () -> Unit = {}, // v0.80.0：快捷宫格-观看历史
     onFollowClick: () -> Unit = {}, // v0.90.0：快捷宫格-我的追剧（资料卡已可点进历史/追剧）
+    // v1.1.3：AI 助手设置区“打开对话”与写源失败“去对话里接着改”跳 AI TAB
+    onAiChatClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     // v0.7.1：主题读持久化 ThemeStore，不再是本地假状态
@@ -650,6 +653,16 @@ fun SettingsScreen(
                 title = "AI 助手",
                 subtitle = if (aiConfigured) "${aiProvider.name} · 已填 Key" else "未配置 · DeepSeek / 豆包 / 千问…",
                 onClick = { showAiDialog = true },
+            )
+        }
+        item {
+            // v1.1.3：打开对话——和 AI 接着聊写源、修源，可粘贴日志
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.SmartToy,
+                title = "打开对话",
+                subtitle = "和 AI 接着聊写源、修源，可粘贴日志",
+                onClick = onAiChatClick,
             )
         }
         item {
@@ -1225,6 +1238,8 @@ fun SettingsScreen(
         var writeUrl by remember { mutableStateOf("") }
         var writeName by remember { mutableStateOf("") }
         var writeText by remember { mutableStateOf("") }
+        // v1.1.3：写源失败的原因，单独记一份，失败文案下给“去对话里接着改”用。
+        var writeFailReason by remember { mutableStateOf<String?>(null) }
         // v1.1.1：写源类型三选，默认 drpy JS；保存位置由类型定
         // v1.1.2：默认改成自动选——不知道选哪个就让 AI 按站结构定类型
         var writeKind by remember { mutableStateOf("auto") }
@@ -1451,6 +1466,23 @@ fun SettingsScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                 }
+                // v1.1.3：写源失败时去对话里接着改——网址 + 失败原因种进对话，进 AI TAB 自动发一次。
+                if (writeFailReason != null) {
+                    AppButton(
+                        text = "去对话里接着改",
+                        variant = AppButtonVariant.Ghost,
+                        enabled = !aiWorking,
+                        onClick = {
+                            writeFailReason?.let { reason ->
+                                AiChatStore.seedFromWrite(writeUrl, reason)
+                                showAiDialog = false
+                                onAiChatClick()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 AppButton(
                     text = if (aiWorking) "写源中…" else "让 AI 写源",
                     enabled = !aiWorking,
@@ -1460,11 +1492,13 @@ fun SettingsScreen(
                         if (provider.id == "custom") AiRepairSettings.setBaseUrl(context, baseUrlInput)
                         aiWorking = true
                         writeText = "写源中…先取首页，再让 AI 写，写完跑验证"
+                        writeFailReason = null
                         scope.launch {
                             val r = AiRepairEngine.writeSource(context, writeUrl, writeName, writeKind)
                             aiWorking = false
                             writeText = when (r) {
                                 is AiRepairEngine.WriteResult.Ok -> {
+                                    writeFailReason = null
                                     val kindName = when (r.kind) {
                                         "py" -> "Python"
                                         "php" -> "PHP"
@@ -1472,7 +1506,10 @@ fun SettingsScreen(
                                     }
                                     "写好了（$kindName），已保存：${r.fileName}（${r.ms}ms），去源管理里就能看到"
                                 }
-                                is AiRepairEngine.WriteResult.Fail -> "没写成：${r.reason}"
+                                is AiRepairEngine.WriteResult.Fail -> {
+                                    writeFailReason = r.reason
+                                    "没写成：${r.reason}"
+                                }
                             }
                         }
                     },

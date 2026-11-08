@@ -138,7 +138,7 @@ fun ChangeSourceDialog(
                 }
                 if (metas.isEmpty()) return@runCatching -1
                 val chapters = metas.map {
-                    Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url)
+                    Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url, commentUrl = it.commentUrl)
                 }
                 val updated = NovelStore.updateSource(context, novel.id, group.key, chapters)
                 if (!updated) return@runCatching -1

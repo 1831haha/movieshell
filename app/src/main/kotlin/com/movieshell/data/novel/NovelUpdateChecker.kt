@@ -57,7 +57,7 @@ object NovelUpdateChecker {
                     return@runCatching Result.NoUpdate
                 }
                 val chapters = metas.map {
-                    Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url)
+                    Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url, commentUrl = it.commentUrl)
                 }
                 if (!NovelStore.updateSource(context, novel.id, novel.sourceKey, chapters)) {
                     return@runCatching Result.Failed
@@ -66,7 +66,7 @@ object NovelUpdateChecker {
             }
             // 有更新：本地目录同步到最新（复用换源的写入逻辑，源 key 不变）
             val chapters = metas.map {
-                Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url)
+                Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url, commentUrl = it.commentUrl)
             }
             // v0.186.0 第 9 组：换源写入失败时不谎报角标，直接按失败算
             if (!NovelStore.updateSource(context, novel.id, novel.sourceKey, chapters)) {
@@ -114,7 +114,7 @@ object NovelUpdateChecker {
                 }
                 if (metas.isEmpty()) return@runCatching false
                 val chapters = metas.map {
-                    Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url)
+                    Chapter(novelId = novel.id, index = it.index, title = it.title, url = it.url, commentUrl = it.commentUrl)
                 }
                 if (!NovelStore.updateSource(context, novel.id, targetKey, chapters)) {
                     return@runCatching false
