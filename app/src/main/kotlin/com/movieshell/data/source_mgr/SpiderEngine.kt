@@ -1,8 +1,11 @@
-package com.movieshell.data.repo
+package com.movieshell.data.source_mgr
 
 import android.content.Context
 import com.github.catvod.crawler.Spider
 import com.movieshell.core.log.LogBus
+import com.movieshell.data.repo.ExecutableTrust
+import com.movieshell.data.repo.JarSpiderStore
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.Site
 import com.movieshell.domain.model.Vod
@@ -28,7 +31,7 @@ data class SpiderPlayResult(
     val jx: Int = 0,
     val playUrl: String = "",
 ) {
-    fun toRaw() = com.movieshell.data.source.RawPlay(url = url, parse = parse, jx = jx, header = header, playUrl = playUrl)
+    fun toRaw() = com.movieshell.domain.model.RawPlay(url = url, parse = parse, jx = jx, header = header, playUrl = playUrl)
 }
 
 /**

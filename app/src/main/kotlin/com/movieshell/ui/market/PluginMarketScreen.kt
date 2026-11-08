@@ -71,7 +71,7 @@ import com.movieshell.data.repo.PluginMarket
 import com.movieshell.data.repo.PluginMarket.MarketInfo
 import com.movieshell.data.repo.PluginMarket.MarketPlugin
 import com.movieshell.data.repo.PluginStore
-import com.movieshell.data.repo.SubSiteStore
+import com.movieshell.data.source_mgr.SubSiteStore
 import com.movieshell.ui.components.AppCard
 import com.movieshell.ui.components.V5Chip
 import com.movieshell.ui.components.AppTextField

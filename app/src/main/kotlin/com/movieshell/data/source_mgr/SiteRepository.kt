@@ -1,7 +1,9 @@
-package com.movieshell.data.repo
+package com.movieshell.data.source_mgr
 
 import android.content.Context
 import com.movieshell.core.log.LogBus
+import com.movieshell.data.repo.PhpCliEngine
+import com.movieshell.data.repo.SearchSlowSourceFilter
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.Episode
 import com.movieshell.domain.model.FilterGroup
@@ -20,11 +22,12 @@ import com.movieshell.domain.model.isWebParseSite
 import com.movieshell.domain.model.WebParseSiteKeyPrefix
 import com.movieshell.domain.model.toSite
 import com.movieshell.data.source.CmsApi
-import com.movieshell.data.source.DrpyEngine
 import com.movieshell.data.source.ParseApi
 import com.movieshell.data.source.TvBoxConfigParser
 import com.movieshell.data.source.Type4Api
 import com.movieshell.data.source.Type4PlayResult
+import com.movieshell.data.source.Type4SourceEngine
+import com.movieshell.domain.source.SourceEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
@@ -59,8 +62,8 @@ data class SiteSearchResult(val site: Site, val vods: List<Vod>)
  */
 class SiteRepository(
     private val cmsApi: CmsApi = CmsApi(),
-    private val drpyEngine: DrpyEngine? = null,
-    private val pyEngine: DrpyEngine? = null,
+    private val drpyEngine: SourceEngine? = null,
+    private val pyEngine: SourceEngine? = null,
     private val type4Api: Type4Api = Type4Api()
 ) {
 
@@ -157,6 +160,20 @@ class SiteRepository(
     }
 
     /**
+     * v1.1.5 分层第 1 批：按站取 SourceEngine（Drpy/Py/Type4 三路）。
+     * 分辨率与 [route] 共用：订阅子站优先用 SubSiteEngines 的专属引擎，否则回退
+     * 构造时传入的默认引擎；Type4 用共享 [type4Api] 绑站适配器。
+     * Cms/Php/JavaSpider/小说/不支持站不在本接口覆盖内，返回 null，调用方走原有分支。
+     * home/category/detail/search/filters 与失败原因桥接都调它，引擎分辨率只此一处。
+     */
+    private fun engineFor(site: Site): SourceEngine? = when (route(site)) {
+        EngineRoute.Drpy -> subOr(drpyEngine) { drpyEngineFor(site) }
+        EngineRoute.Py -> subOr(pyEngine) { pyEngineFor(site) }
+        EngineRoute.Type4 -> Type4SourceEngine(site, type4Api)
+        else -> null
+    }
+
+    /**
      * v0.187.0 H04：引擎“没抛异常但交了空结果”时的原因桥接。
      * 引擎内部失败（如 V8 超时、Type4 请求失败、PHP 退出码）只写自家 lastError、
      * 不抛异常，logged 抓不到；空结果时把对应引擎的 lastError 记进按站 map，
@@ -170,10 +187,8 @@ class SiteRepository(
         // drpy 引擎的旧原因。
         val reason = when (route(site)) {
             EngineRoute.Php -> PhpCliEngine.lastErrorFor(PhpCliEngine.scriptNameForSite(site.key, site.api))
-            EngineRoute.Type4 -> type4Api.lastErrorFor(site.key)
-            EngineRoute.Py -> (subOr(pyEngine) { pyEngineFor(site) } ?: pyEngine)?.lastError
+            EngineRoute.Type4, EngineRoute.Py, EngineRoute.Drpy -> engineFor(site)?.lastError
             EngineRoute.JavaSpider, EngineRoute.Cms, EngineRoute.SkipNovel, EngineRoute.SkipUnsupported -> null
-            EngineRoute.Drpy -> (subOr(drpyEngine) { drpyEngineFor(site) } ?: drpyEngine)?.lastError
         } ?: return
         lastFailureBySite.putIfAbsent(site.key, reason)
     }
@@ -247,15 +262,15 @@ class SiteRepository(
             EngineRoute.Php -> logged(site, "php.home ${site.name}") { PhpCliEngine.home(scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }.orEmpty()
             EngineRoute.JavaSpider -> logged(site, "spider.home ${site.name}") { SpiderEngine.home(site) }.orEmpty()
             EngineRoute.SkipNovel -> emptyList() // 小说/漫画站：只做视频点播，跳过
-            EngineRoute.Type4 -> logged(site, "type4.home ${site.name}") { type4Api.home(site) }.orEmpty()
+            EngineRoute.Type4 -> logged(site, "type4.home ${site.name}") { engineFor(site)?.home() }.orEmpty()
             EngineRoute.Cms -> logged(site, "cms.home ${site.name}") { cmsApi.home(site) }.orEmpty()
-            EngineRoute.Py -> logged(site, "py.home ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.home() }.orEmpty()
+            EngineRoute.Py -> logged(site, "py.home ${site.name}") { engineFor(site)?.home() }.orEmpty()
             // v0.188.0 M15：未知类型/地址不再静默按 drpy 跑，明确走不支持空态。
             EngineRoute.SkipUnsupported -> {
                 logSkipUnsupported(site)
                 emptyList()
             }
-            EngineRoute.Drpy -> logged(site, "drpy.home ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.home() }.orEmpty()
+            EngineRoute.Drpy -> logged(site, "drpy.home ${site.name}") { engineFor(site)?.home() }.orEmpty()
         }
         recordEngineFailureIfEmpty(site, r.isEmpty())
         LogBus.i(TAG, "home site=${site.name} 结果 ${r.size} 条")
@@ -287,18 +302,24 @@ class SiteRepository(
             // v0.188.0 M15：category 补小说站跳过分支，与 home/search 口径对齐
             // （此前小说站进分类仍走引擎链路）。
             EngineRoute.SkipNovel -> emptyList<CategoryType>() to emptyList()
-            EngineRoute.Type4 -> logged(site, "type4.category ${site.name}") { type4Api.category(site, tid, pg) }
-                .orEmptyCategory()
+            EngineRoute.Type4 -> {
+                val engine = engineFor(site)
+                logged(site, "type4.categories ${site.name}") { engine?.categories() }.orEmpty() to
+                    logged(site, "type4.category ${site.name}") { engine?.category(tid, pg, filter) }.orEmpty()
+            }
             EngineRoute.Cms -> logged(site, "cms.category ${site.name}") { cmsApi.category(site, tid, pg) }
                 .orEmptyCategory()
-            EngineRoute.Py -> logged(site, "py.categories ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.categories() }.orEmpty() to
-                logged(site, "py.category ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
+            EngineRoute.Py -> {
+                val engine = engineFor(site)
+                logged(site, "py.categories ${site.name}") { engine?.categories() }.orEmpty() to
+                    logged(site, "py.category ${site.name}") { engine?.category(tid, pg, filter) }.orEmpty()
+            }
             EngineRoute.SkipUnsupported -> {
                 logSkipUnsupported(site)
                 emptyList<CategoryType>() to emptyList()
             }
             EngineRoute.Drpy -> emptyList<CategoryType>() to
-                logged(site, "drpy.category ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.category(tid, pg, filter) }.orEmpty()
+                logged(site, "drpy.category ${site.name}") { engineFor(site)?.category(tid, pg, filter) }.orEmpty()
         }
         recordEngineFailureIfEmpty(site, r.second.isEmpty())
         LogBus.i(TAG, "category site=${site.name} 结果 ${r.second.size} 条")
@@ -322,7 +343,7 @@ class SiteRepository(
         // 能搜能播却拿不到筛选定义；现在 route() 统一认 drpy。
         if (route(site) != EngineRoute.Drpy) return emptyList()
         lastFailureBySite.remove(site.key)
-        val result = runCatching { subOr(drpyEngine) { drpyEngineFor(site) }?.filters(tid) }
+        val result = runCatching { engineFor(site)?.filters(tid) }
             .onFailure {
                 val reason = it.message?.takeIf { m -> m.isNotBlank() } ?: it::class.java.simpleName
                 lastFailureBySite[site.key] = reason
@@ -344,17 +365,17 @@ class SiteRepository(
                 ?: VodDetail(vodId = vodId)
             // v0.188.0 M15：detail 补小说站跳过分支，与 home/search 口径对齐。
             EngineRoute.SkipNovel -> VodDetail(vodId = vodId)
-            EngineRoute.Type4 -> logged(site, "type4.detail ${site.name}") { type4Api.detail(site, vodId) }
+            EngineRoute.Type4 -> logged(site, "type4.detail ${site.name}") { engineFor(site)?.detail(vodId) }
                 ?: VodDetail(vodId = vodId)
             EngineRoute.Cms -> logged(site, "cms.detail ${site.name}") { cmsApi.detail(site, vodId) }
                 ?: VodDetail(vodId = vodId)
-            EngineRoute.Py -> logged(site, "py.detail ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.detail(vodId) }
+            EngineRoute.Py -> logged(site, "py.detail ${site.name}") { engineFor(site)?.detail(vodId) }
                 ?: VodDetail(vodId = vodId)
             EngineRoute.SkipUnsupported -> {
                 logSkipUnsupported(site)
                 VodDetail(vodId = vodId)
             }
-            EngineRoute.Drpy -> logged(site, "drpy.detail ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.detail(vodId) }
+            EngineRoute.Drpy -> logged(site, "drpy.detail ${site.name}") { engineFor(site)?.detail(vodId) }
                 ?: VodDetail(vodId = vodId)
         }
         recordEngineFailureIfEmpty(site, r.vodName.isBlank() && r.vodPlayUrl.isBlank())
@@ -388,9 +409,9 @@ class SiteRepository(
             EngineRoute.Php -> logged(site, "php.search ${site.name}") { PhpCliEngine.search(wd = wd, scriptName = PhpCliEngine.scriptNameForSite(site.key, site.api)) }.orEmpty()
             EngineRoute.JavaSpider -> logged(site, "spider.search ${site.name}") { SpiderEngine.search(site, wd) }.orEmpty()
             EngineRoute.SkipNovel -> emptyList() // 小说/漫画站：只做视频点播，跳过
-            EngineRoute.Type4 -> logged(site, "type4.search ${site.name}") { type4Api.search(site, wd) }.orEmpty()
+            EngineRoute.Type4 -> logged(site, "type4.search ${site.name}") { engineFor(site)?.search(wd) }.orEmpty()
             EngineRoute.Cms -> logged(site, "cms.search ${site.name}") { cmsApi.search(site, wd) }.orEmpty()
-            EngineRoute.Py -> logged(site, "py.search ${site.name}") { subOr(pyEngine) { pyEngineFor(site) }?.search(wd) }.orEmpty()
+            EngineRoute.Py -> logged(site, "py.search ${site.name}") { engineFor(site)?.search(wd) }.orEmpty()
             EngineRoute.SkipUnsupported -> {
                 logSkipUnsupported(site)
                 emptyList()
@@ -398,7 +419,7 @@ class SiteRepository(
             // v0.189.0／v0.190.0：本地 drpy 合成站（key=drpy:active，type=4）
             // 与逐条搜本地规则的 local:drpy: 站先于 type4 分发（见 route()），
             // 否则会被当成 PHP 远端站走 Type4Api、建不出 URL。
-            EngineRoute.Drpy -> logged(site, "drpy.search ${site.name}") { subOr(drpyEngine) { drpyEngineFor(site) }?.search(wd) }.orEmpty()
+            EngineRoute.Drpy -> logged(site, "drpy.search ${site.name}") { engineFor(site)?.search(wd) }.orEmpty()
         }
         recordEngineFailureIfEmpty(site, r.isEmpty())
         LogBus.i(TAG, "search site=${site.name} 结果 ${r.size} 条")
@@ -628,9 +649,9 @@ class SiteRepository(
      * 非订阅站 / 识别失败时回退到构造时传入的默认引擎。
      */
     private fun subOr(
-        default: DrpyEngine?,
-        sub: SubSiteEngines.() -> DrpyEngine?,
-    ): DrpyEngine? = try {
+        default: SourceEngine?,
+        sub: SubSiteEngines.() -> SourceEngine?,
+    ): SourceEngine? = try {
         SubSiteEngines.sub() ?: default
     } catch (e: Exception) {
         default

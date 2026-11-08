@@ -1,8 +1,10 @@
-package com.movieshell.data.repo
+package com.movieshell.data.source_mgr
 
 import android.content.Context
 import android.util.Log
 import com.movieshell.core.log.LogBus
+import com.movieshell.data.repo.ExecutableTrust
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.FilterGroup
 import com.movieshell.domain.model.Site
@@ -116,8 +118,8 @@ object SubSiteEngines {
         flag: String,
         id: String,
         vipFlags: List<String> = com.movieshell.data.source.PlayRouting.DEFAULT_VIP_FLAGS,
-    ): com.movieshell.data.source.RawPlay {
-        val empty = com.movieshell.data.source.RawPlay()
+    ): com.movieshell.domain.model.RawPlay {
+        val empty = com.movieshell.domain.model.RawPlay()
         if (!site.isSubSite() || !site.isPySite()) return empty
         val f = File(site.api)
         if (!f.isFile) return empty
@@ -203,7 +205,7 @@ private class PooledDrpyEngine(
         }
 
     // v0.294.7（H2）：池内引擎完整结果透传
-    override suspend fun playRaw(flag: String, id: String): com.movieshell.data.source.RawPlay =
+    override suspend fun playRaw(flag: String, id: String): com.movieshell.domain.model.RawPlay =
         SubDrpyPool.withEngine(siteKey, ruleFile) { eng ->
             eng.playRaw(flag, id).also { lastSeenError = eng.lastError }
         }

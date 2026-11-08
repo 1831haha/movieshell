@@ -33,9 +33,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.movieshell.domain.model.Site
 import com.movieshell.domain.model.Vod as ModelVod
-import com.movieshell.data.repo.DrpySourceManager
-import com.movieshell.data.repo.PySourceManager
-import com.movieshell.data.repo.SiteRepository
+import com.movieshell.data.source_mgr.DrpySourceManager
+import com.movieshell.data.source_mgr.PySourceManager
+import com.movieshell.data.source_mgr.SiteRepository
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.EmptyKind
 import com.movieshell.ui.components.EmptyState

@@ -2,6 +2,7 @@ package com.movieshell.domain.source
 
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.FilterGroup
+import com.movieshell.domain.model.RawPlay
 import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail
 
@@ -11,8 +12,9 @@ import com.movieshell.domain.model.VodDetail
  * 方法名与签名照抄 data/source/DrpyEngine 的真实接口（不是文档初稿里的 PY 式
  * homeContent/categoryContent/playerContent——那是 Python Spider 的方法名，
  * Kotlin 侧一直叫 home/category/detail/search/play）。
- * 第 1 批再让 DrpyEngine / PyApi / Type4Api 实现它；playRaw（带 parse/jx 的
- * 完整播放结果）返回 data/source 的 RawPlay，暂不收入本接口。
+ * 第 1 批：DrpyEngine 直接继承本接口；PyApi/Type4Api 用适配器接入（方法都带
+ * rulePath/Site 参数，逐站绑定后实现本接口）。playRaw 返回 domain/model 的
+ * RawPlay（v1.1.5 从 data/source 移入）。
  */
 interface SourceEngine {
 
@@ -53,6 +55,12 @@ interface SourceEngine {
      * @return 最终可播的直链（规则内部已做嗅探/解析）。
      */
     suspend fun play(flag: String, id: String): String
+
+    /**
+     * 取完整播放结果（含 parse/jx/header/playUrl，供播放路由决策）。
+     * 默认实现只包一层 [play]（parse=0）；各实现返回真实结果。
+     */
+    suspend fun playRaw(flag: String, id: String): RawPlay = RawPlay(url = play(flag, id))
 
     /** 销毁引擎，释放资源。 */
     fun release()

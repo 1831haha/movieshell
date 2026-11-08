@@ -247,3 +247,18 @@ data class SniffHostRule(
     val exclude: List<String> = emptyList(),
     val script: List<String> = emptyList(),
 )
+
+/**
+ * v0.294.7：规则 playerContent / lazy 的统一原始结果（所有引擎都转成它）。
+ * - parse：1=需要解析/嗅探；jx：1=走解析线路（jx 接口）；playUrl：TVBox 解析前缀
+ *   （`json:接口`、`parse:线路名`、或直接是解析页地址前缀）。
+ * v1.1.5 分层第 1 批：从 data/source/PlayRouting.kt 移入 domain/model（纯数据载体，
+ * SourceEngine.playRaw 的返回类型；PlayRoute/PlayRouting 决策逻辑仍在 data 层）。
+ */
+data class RawPlay(
+    val url: String = "",
+    val parse: Int = 0,
+    val jx: Int = 0,
+    val header: Map<String, String> = emptyMap(),
+    val playUrl: String = "",
+)

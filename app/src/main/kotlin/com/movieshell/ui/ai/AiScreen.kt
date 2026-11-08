@@ -52,7 +52,7 @@ import com.movieshell.data.repo.AiChatStore
 import com.movieshell.data.repo.AiRepairEngine
 import com.movieshell.data.repo.AiRepairSettings
 import com.movieshell.data.repo.LlmClient
-import com.movieshell.data.repo.SourceProbe
+import com.movieshell.data.source_mgr.SourceProbe
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppTextField

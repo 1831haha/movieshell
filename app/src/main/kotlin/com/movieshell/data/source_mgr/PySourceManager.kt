@@ -1,11 +1,16 @@
-package com.movieshell.data.repo
+package com.movieshell.data.source_mgr
 
 import android.content.Context
 import android.util.Log
 import com.movieshell.core.log.LogBus
+import com.movieshell.data.repo.ExecutableTrust
+import com.movieshell.data.repo.RuleFileStore
+import com.movieshell.data.repo.RuleInfo
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail
+import com.movieshell.domain.source.SourceEngine
 import com.movieshell.data.source.ChaquopyEngine
 import com.movieshell.data.source.DrpyEngine
 import com.movieshell.data.source.PyApi
@@ -263,9 +268,9 @@ object PySourceManager {
     }
 
     /** v0.27.1：本地 PY 播放原始结果（url, parse, header），供 PlayResolver 做收尾。 */
-    suspend fun playRaw(flag: String, id: String): com.movieshell.data.source.RawPlay {
+    suspend fun playRaw(flag: String, id: String): com.movieshell.domain.model.RawPlay {
         // v0.188.0 M14：与 playUrl 同款，失败记规则路径 + 原因，不再静默交空结果。
-        val path = activeRulePath() ?: return com.movieshell.data.source.RawPlay()
+        val path = activeRulePath() ?: return com.movieshell.domain.model.RawPlay()
         return runCatching { api.play(path, flag, id) }
             .onFailure { e ->
                 // v0.294.5：取消（换源/离页/世代更替）不是失败，透出不记
@@ -274,14 +279,14 @@ object PySourceManager {
                 LogBus.e(TAG, "本地 PY playRaw 失败：规则=$path flag=$flag 原因=${e.message ?: e::class.java.simpleName}")
             }
             .onSuccess { managerLastError = null }
-            .getOrNull() ?: com.movieshell.data.source.RawPlay()
+            .getOrNull() ?: com.movieshell.domain.model.RawPlay()
     }
 
     /**
-     * 给 SiteRepository 构造器用的 DrpyEngine 适配器：
+     * 给 SiteRepository 构造器用的 SourceEngine 适配器：
      * 委托给当前 active 的 PY 规则；无 active 规则时返回空结果。
      */
-    val engineAdapter: DrpyEngine = object : DrpyEngine {
+    val engineAdapter: SourceEngine = object : DrpyEngine {
             /** v0.217.0（F53）：透传最近一次失败原因（drpy 适配器同款）。 */
             override val lastError: String?
                 get() = this@PySourceManager.adapterLastError()

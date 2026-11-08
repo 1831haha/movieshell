@@ -7,7 +7,7 @@ import coil.fetch.FetchResult
 import coil.fetch.Fetcher
 import coil.fetch.SourceResult
 import coil.request.Options
-import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.source_mgr.PySourceManager
 import okio.Buffer
 
 /**

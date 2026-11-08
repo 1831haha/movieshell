@@ -2,8 +2,10 @@ package com.movieshell.data.source
 
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.FilterGroup
+import com.movieshell.domain.model.RawPlay
 import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail
+import com.movieshell.domain.source.SourceEngine
 
 /**
  * drpy JS 规则引擎接口。
@@ -15,7 +17,7 @@ import com.movieshell.domain.model.VodDetail
  * 推荐(), 一级(), 二级(), 搜索(), 播放(), class_parse(), headers}`，
  * 全部是 async 函数，用 `this.input` 取渲染后的 URL，用全局 `request(url)` 发网络。
  */
-interface DrpyEngine {
+interface DrpyEngine : SourceEngine {
 
     /**
      * v0.187.0 H04：最近一次调用的失败原因（null = 最近一次成功、未跑过、或该实现不提供原因）。

@@ -1,19 +1,7 @@
 package com.movieshell.data.source
 
+import com.movieshell.domain.model.RawPlay
 import com.movieshell.player.MediaTypeSniffer
-
-/**
- * v0.294.7：规则 playerContent / lazy 的统一原始结果（所有引擎都转成它）。
- * - parse：1=需要解析/嗅探；jx：1=走解析线路（jx 接口）；playUrl：TVBox 解析前缀
- *   （`json:接口`、`parse:线路名`、或直接是解析页地址前缀）。
- */
-data class RawPlay(
-    val url: String = "",
-    val parse: Int = 0,
-    val jx: Int = 0,
-    val header: Map<String, String> = emptyMap(),
-    val playUrl: String = "",
-)
 
 /** 播放路由决策结果。 */
 sealed class PlayRoute {

@@ -9,11 +9,11 @@ import com.movieshell.data.novel.NovelMigration
 import com.movieshell.data.novel.NovelUpdateWorker
 import com.movieshell.core.log.CrashHandler
 import com.movieshell.core.log.LogBus
-import com.movieshell.data.repo.PhpSourceManager
+import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.repo.ServicePluginManager
-import com.movieshell.data.repo.SpiderEngine
+import com.movieshell.data.source_mgr.SpiderEngine
 import com.movieshell.data.repo.StoragePaths
-import com.movieshell.data.repo.SubSiteEngines
+import com.movieshell.data.source_mgr.SubSiteEngines
 import com.movieshell.data.source.ChaquopyEngine
 import com.movieshell.data.source.JsRuntime
 import com.movieshell.data.source.ProxyImageFetcher

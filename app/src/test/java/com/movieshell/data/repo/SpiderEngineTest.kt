@@ -1,5 +1,6 @@
 package com.movieshell.data.repo
 
+import com.movieshell.data.source_mgr.SpiderEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

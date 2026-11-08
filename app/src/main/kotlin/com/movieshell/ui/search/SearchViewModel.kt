@@ -4,12 +4,12 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.movieshell.domain.model.Site
-import com.movieshell.data.repo.DrpySourceManager
-import com.movieshell.data.repo.PySourceManager
+import com.movieshell.data.source_mgr.DrpySourceManager
+import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.data.repo.SearchHistoryStore
 import com.movieshell.data.repo.SearchSlowSourceFilter
-import com.movieshell.data.repo.SiteRepository
-import com.movieshell.data.repo.SiteSearchResult
+import com.movieshell.data.source_mgr.SiteRepository
+import com.movieshell.data.source_mgr.SiteSearchResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.Job

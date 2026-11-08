@@ -1,6 +1,11 @@
 package com.movieshell.data.repo
 
 import android.content.Context
+import com.movieshell.data.source_mgr.DrpySourceManager
+import com.movieshell.data.source_mgr.PhpSourceManager
+import com.movieshell.data.source_mgr.PySourceManager
+import com.movieshell.data.source_mgr.WebParseSourceManager
+import com.movieshell.data.source_mgr.WebSourceManager
 
 /**
  * v0.217.0（F57）：删源清理的唯一入口——站源页删除与插件市场卸载共用。

@@ -2,6 +2,7 @@ package com.movieshell.data.source
 
 import android.content.Context
 import com.movieshell.core.log.LogBus
+import com.movieshell.data.source_mgr.SubSiteStore
 import com.movieshell.domain.model.SniffHostRule
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -86,7 +87,7 @@ object SniffRules {
     fun ensureLoaded(context: Context) {
         if (!dirty) return
         runCatching {
-            val (rules, ads) = com.movieshell.data.repo.SubSiteStore.allSniffRules(context)
+            val (rules, ads) = com.movieshell.data.source_mgr.SubSiteStore.allSniffRules(context)
             set(rules, ads)
             if (rules.isNotEmpty() || ads.isNotEmpty()) {
                 LogBus.i("SniffRules", "订阅嗅探规则 ${rules.size} 条、广告域名 ${ads.size} 个")

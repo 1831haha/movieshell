@@ -4,6 +4,7 @@ import android.util.Log
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.FilterGroup
 import com.movieshell.domain.model.FilterOption
+import com.movieshell.domain.model.RawPlay
 import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail
 import com.movieshell.core.log.LogBus

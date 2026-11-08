@@ -1,5 +1,6 @@
 package com.movieshell.data.source
 
+import com.movieshell.domain.model.RawPlay
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

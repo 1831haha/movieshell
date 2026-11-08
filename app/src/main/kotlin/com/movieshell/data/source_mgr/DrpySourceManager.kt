@@ -1,12 +1,17 @@
-package com.movieshell.data.repo
+package com.movieshell.data.source_mgr
 
 import android.content.Context
 import android.util.Log
 import com.movieshell.core.log.LogBus
+import com.movieshell.data.repo.ExecutableTrust
+import com.movieshell.data.repo.RuleFileStore
+import com.movieshell.data.repo.RuleInfo
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.FilterGroup
 import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail
+import com.movieshell.domain.source.SourceEngine
 import com.movieshell.data.source.DrpyEngine
 import com.movieshell.data.source.RuleImportExpander
 import com.movieshell.data.source.V8DrpyEngine
@@ -319,18 +324,18 @@ object DrpySourceManager {
     }
 
     /** v0.294.7（H2）：完整播放结果（parse/jx/header/playUrl）。 */
-    suspend fun playRaw(flag: String, id: String): com.movieshell.data.source.RawPlay {
+    suspend fun playRaw(flag: String, id: String): com.movieshell.domain.model.RawPlay {
         val eng = engine
         val gen = generation
         val outcome = runCatching { eng?.playRaw(flag, id) }
-        if (isStale(gen, eng)) return com.movieshell.data.source.RawPlay()
+        if (isStale(gen, eng)) return com.movieshell.domain.model.RawPlay()
         return outcome
             .onFailure {
                 if (it is kotlinx.coroutines.CancellationException) throw it
                 recordFailure("play", it)
             }
             .onSuccess { managerLastError = null }
-            .getOrNull() ?: com.movieshell.data.source.RawPlay()
+            .getOrNull() ?: com.movieshell.domain.model.RawPlay()
     }
 
     suspend fun playUrl(flag: String, id: String): String {
@@ -345,10 +350,10 @@ object DrpySourceManager {
     }
 
     /**
-     * 给 SiteRepository 构造器用的 DrpyEngine 适配器：
+     * 给 SiteRepository 构造器用的 SourceEngine 适配器：
      * 委托给当前 active 规则的引擎；无 active 规则时返回空结果。
      */
-    val drpyEngineAdapter: DrpyEngine = object : DrpyEngine {
+    val drpyEngineAdapter: SourceEngine = object : DrpyEngine {
         /**
          * v0.187.0 H04：透传当前引擎的失败原因；引擎为空时说明无激活规则，
          * 空结果不是“源没数据”而是“没选规则”，调用方据此区分。
@@ -373,7 +378,7 @@ object DrpySourceManager {
         override suspend fun play(flag: String, id: String): String =
             this@DrpySourceManager.playUrl(flag, id)
 
-        override suspend fun playRaw(flag: String, id: String): com.movieshell.data.source.RawPlay =
+        override suspend fun playRaw(flag: String, id: String): com.movieshell.domain.model.RawPlay =
             this@DrpySourceManager.playRaw(flag, id)
 
         override fun release() {

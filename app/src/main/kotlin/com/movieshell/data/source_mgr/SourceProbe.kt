@@ -1,7 +1,12 @@
-package com.movieshell.data.repo
+package com.movieshell.data.source_mgr
 
 import android.content.Context
 import com.movieshell.core.log.LogBus
+import com.movieshell.data.repo.ApiSourceStore
+import com.movieshell.data.repo.JarSpiderStore
+import com.movieshell.data.repo.PhpCliEngine
+import com.movieshell.data.repo.SourceStateStore
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.data.source.CmsApi
 import com.movieshell.core.net.DEFAULT_UA
 import com.movieshell.data.source.PyApi

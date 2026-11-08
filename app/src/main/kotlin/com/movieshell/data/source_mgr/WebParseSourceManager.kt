@@ -1,12 +1,14 @@
-package com.movieshell.data.repo
+package com.movieshell.data.source_mgr
 
 import android.content.Context
 import com.movieshell.core.log.LogBus
+import com.movieshell.data.repo.AtomicFile
+import com.movieshell.data.repo.StoragePaths
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail
 import com.movieshell.data.source.GenericWebParser
-import com.movieshell.data.source.RawPlay
+import com.movieshell.domain.model.RawPlay
 import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
 import java.io.File

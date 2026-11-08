@@ -37,12 +37,12 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.movieshell.data.novel.NovelSearchResult
-import com.movieshell.data.repo.DrpySourceManager
+import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.repo.FollowStore
-import com.movieshell.data.repo.PhpSourceManager
-import com.movieshell.data.repo.WebParseSourceManager
-import com.movieshell.data.repo.PySourceManager
-import com.movieshell.data.repo.SubSiteStore
+import com.movieshell.data.source_mgr.PhpSourceManager
+import com.movieshell.data.source_mgr.WebParseSourceManager
+import com.movieshell.data.source_mgr.PySourceManager
+import com.movieshell.data.source_mgr.SubSiteStore
 import com.movieshell.player.navigateToPlayer
 import com.movieshell.player.playerDestination
 import com.movieshell.ui.actor.ActorWorksScreen

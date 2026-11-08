@@ -2,6 +2,7 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import com.movieshell.core.log.LogBus
+import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail
@@ -156,7 +157,7 @@ object PhpCliEngine {
         flag: String,
         id: String,
         scriptName: String? = null,
-    ): com.movieshell.data.source.RawPlay {
+    ): com.movieshell.domain.model.RawPlay {
         val first = runQuery(context, scriptName, "ac=play&flag=${enc(flag)}&id=${enc(id)}")
             ?.let { Type4Api().parsePlay(it) }
         if (first != null && (first.url.isNotBlank() || first.parse != 0)) {
