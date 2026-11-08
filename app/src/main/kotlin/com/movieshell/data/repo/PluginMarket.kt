@@ -4,6 +4,7 @@ import android.content.Context
 import com.movieshell.BuildConfig
 import com.movieshell.data.repo.PluginStore.InstalledPlugin
 import com.movieshell.data.source.CmsApi
+import com.movieshell.core.log.LogBus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException

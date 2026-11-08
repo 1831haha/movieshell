@@ -1,5 +1,6 @@
 package com.movieshell.data.repo
 
+import com.movieshell.core.log.LogBus
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile

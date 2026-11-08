@@ -1,5 +1,6 @@
 package com.movieshell.data.repo
 
+import com.movieshell.core.log.LogBus
 import java.io.File
 import java.security.MessageDigest
 import kotlinx.serialization.json.Json

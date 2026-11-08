@@ -1,6 +1,7 @@
 package com.movieshell.data.repo
 
 import android.content.Context
+import com.movieshell.core.log.LogBus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 

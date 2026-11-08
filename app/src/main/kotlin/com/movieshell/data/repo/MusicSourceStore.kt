@@ -1,6 +1,7 @@
 package com.movieshell.data.repo
 
 import android.content.Context
+import com.movieshell.core.log.LogBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock

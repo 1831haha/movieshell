@@ -9,6 +9,7 @@ import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail
 import com.movieshell.core.log.LogBus
 import com.movieshell.core.net.HttpClient
+import com.movieshell.core.net.ioSafe
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll

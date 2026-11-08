@@ -3,6 +3,7 @@ package com.movieshell.data.repo
 import android.content.Context
 import android.os.Build
 import com.movieshell.data.source.CmsApi
+import com.movieshell.core.log.LogBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout

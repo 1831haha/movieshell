@@ -6,6 +6,7 @@ import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.repo.SiteRepository
+import com.movieshell.core.net.getText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

@@ -1,6 +1,7 @@
 package com.movieshell.data.repo
 
 import android.content.Context
+import com.movieshell.core.log.LogBus
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date

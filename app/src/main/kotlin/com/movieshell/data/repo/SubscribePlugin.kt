@@ -3,6 +3,7 @@ package com.movieshell.data.repo
 import android.content.Context
 import com.movieshell.data.novel.BookSource
 import com.movieshell.data.novel.BookSourceManager
+import com.movieshell.core.log.LogBus
 import org.json.JSONArray
 import kotlinx.coroutines.launch
 import org.json.JSONObject

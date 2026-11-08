@@ -3,6 +3,7 @@ package com.movieshell.data.source
 import com.movieshell.domain.model.CategoryType
 import com.movieshell.domain.model.Vod
 import com.movieshell.domain.model.VodDetail
+import com.movieshell.core.net.DEFAULT_UA
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive

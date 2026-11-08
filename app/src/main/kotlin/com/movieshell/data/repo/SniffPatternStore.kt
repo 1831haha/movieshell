@@ -2,6 +2,7 @@ package com.movieshell.data.repo
 
 import android.content.Context
 import android.util.Log
+import com.movieshell.core.log.LogBus
 import org.json.JSONArray
 
 /**

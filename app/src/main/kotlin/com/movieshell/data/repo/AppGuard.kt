@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Debug
+import com.movieshell.core.log.LogBus
 import java.io.File
 
 /**
