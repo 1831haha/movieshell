@@ -3,6 +3,7 @@ package com.movieshell.ui.theme
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -80,7 +81,8 @@ val XiaYingShapes = Shapes(
  */
 @Composable
 fun MovieShellTheme(
-    darkTheme: Boolean = true,
+    // v1.1.12：默认跟随系统（之前默认深色；唯一调用方 MainActivity 显式传值，不受影响）。
+    darkTheme: Boolean = isSystemInDarkTheme(),
     themeColor: Color = SeedAmber,
     content: @Composable () -> Unit,
 ) {

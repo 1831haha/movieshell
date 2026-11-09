@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * 主题模式持久化：system（跟随系统）/ dark（深色）/ light（浅色），默认 dark（v0.279.0 旧版）。
+ * 主题模式持久化：system（跟随系统）/ dark（深色）/ light（浅色），默认 system（v1.1.12 起跟随系统）。
  *
  * - mode：UI 层 collectAsState() 订阅，切换后全 App 即时生效；
  * - setMode()：写 SharedPreferences 并推送 flow。
@@ -90,7 +90,7 @@ object ThemeStore {
         else -> null
     }
 
-    private val _mode = MutableStateFlow(MODE_DARK)
+    private val _mode = MutableStateFlow(MODE_SYSTEM)
     val mode: StateFlow<String> = _mode
 
     private val _color = MutableStateFlow(DEFAULT_COLOR)
@@ -166,9 +166,11 @@ object ThemeStore {
         // v0.237.0：默认主题改浅色（跟参考图走）。
         // v0.279.0 旧版：默认改回 经典暗色——没显式存过模式的（新装、一直用默认的）
         // 拿到 经典暗色；显式选过亮色/跟随系统的（存了值）原样保留，不强制迁移。
-        val saved = prefs.getString(KEY_MODE, MODE_DARK)
+        // v1.1.12：默认改回 跟随系统——没显式存过模式的（新装、一直用默认的）
+        // 拿到 跟随系统；显式选过深色/浅色/跟随系统的（存了值）原样保留，不强制迁移。
+        val saved = prefs.getString(KEY_MODE, MODE_SYSTEM)
             .takeIf { it == MODE_DARK || it == MODE_LIGHT || it == MODE_SYSTEM }
-            ?: MODE_DARK
+            ?: MODE_SYSTEM
         _mode.value = saved
         val preset = presetOf(prefs.getString(KEY_GRADIENT, null))
         if (preset != null) {
