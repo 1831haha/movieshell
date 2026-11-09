@@ -229,9 +229,9 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     jsonJob.await() + pyJob.await()
                 }
-                // v1.1.12：搜完读一遍失败汇总——有失败才置标，无失败保持 null。
-                _failedLabel.value = NovelSourceEngine.failedSearchLabel()
             }
+            // v1.1.12：搜完读一遍失败汇总——有失败才置标，无失败保持 null。
+            _failedLabel.value = NovelSourceEngine.failedSearchLabel()
             } catch (e: CancellationException) {
                 // 被取消（离页复位/新搜索顶掉）不留半截或旧结果；只清自己这一轮，不误清新一轮。
                 if (searchJob === myJob) _results.value = emptyList()
