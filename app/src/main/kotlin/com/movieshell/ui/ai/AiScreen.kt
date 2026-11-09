@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,15 +24,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -534,120 +540,188 @@ fun AiScreen() {
                 }
             }
         }
-        // v1.1.11：待发图缩略图（点叉取消，落盘的待发图一并删掉）。
-        if (pendingImage != null) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = V5.Gutter),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AsyncImage(
-                    model = AiChatStore.imageFile(context, pendingImage!!),
-                    contentDescription = "待发图片",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(RoundedCornerShape(V5.CornerMd)),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "已选一张图，随消息一起发",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = v.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = {
-                    pendingImage?.let { AiChatStore.deleteImage(context, it) }
-                    pendingImage = null
-                }) {
-                    Text("取消")
-                }
-            }
-        }
-        // v1.1.11：待发文件行（点取消时落盘的待发文件一并删掉）。
-        pendingFile?.let { pf ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = V5.Gutter),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Outlined.UploadFile,
-                    contentDescription = null,
-                    tint = v.primary,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = buildString {
-                        append(pf.displayName)
-                        append(" · ")
-                        append(formatFileSize(pf.sizeBytes))
-                        append(" · ")
-                        append(pf.lineCount)
-                        append(" 行")
-                        if (pf.truncated) append("（内容过长，只发前 8000 字）")
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = v.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = {
-                    pendingFile?.let { AiChatStore.deleteStagedFile(context, it.storedName) }
-                    pendingFile = null
-                }) {
-                    Text("取消")
-                }
-            }
-        }
-        Row(
+        // 输入行精致化：附件 chip 在上、输入卡片在下；只改外观，发送条件与禁用口径一字不改。
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = V5.Gutter, vertical = 8.dp)
-                .padding(bottom = dockClearance()),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = V5.Gutter)
+                .padding(top = 8.dp, bottom = dockClearance()),
         ) {
-            // v1.1.11：选文件按钮（系统文件选择器，只认文本文件）；思考中不可再选，避免待发文件被中途换掉。
-            IconButton(
-                onClick = { pickFile.launch("*/*") },
-                enabled = !thinking,
-            ) {
-                Icon(
-                    Icons.Outlined.UploadFile,
-                    contentDescription = "选文件",
-                    tint = if (thinking) v.outline else v.primary,
-                )
+            // 待发附件 chip（图 / 文件各一枚，右上角 × 移除，落盘副本一并删掉）。
+            if (pendingImage != null || pendingFile != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (pendingImage != null) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .background(v.surfaceContainerHighest, RoundedCornerShape(V5.CornerMd))
+                                .border(1.dp, v.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(V5.CornerMd))
+                                .padding(6.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                AsyncImage(
+                                    model = AiChatStore.imageFile(context, pendingImage!!),
+                                    contentDescription = "待发图片",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(8.dp)),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "已选一张图",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = v.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                // 给右上角 × 留位，别让文字顶到它。
+                                Spacer(Modifier.width(20.dp))
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(20.dp)
+                                    .background(v.surfaceContainer, CircleShape)
+                                    .border(1.dp, v.outlineVariant.copy(alpha = 0.6f), CircleShape)
+                                    .clickable {
+                                        pendingImage?.let { AiChatStore.deleteImage(context, it) }
+                                        pendingImage = null
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "移除图片",
+                                    tint = v.onSurfaceVariant,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                            }
+                        }
+                    }
+                    pendingFile?.let { pf ->
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(v.surfaceContainerHighest, RoundedCornerShape(V5.CornerMd))
+                                .border(1.dp, v.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(V5.CornerMd))
+                                .padding(6.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Outlined.UploadFile,
+                                    contentDescription = null,
+                                    tint = v.primary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = buildString {
+                                        append(pf.displayName)
+                                        append(" · ")
+                                        append(formatFileSize(pf.sizeBytes))
+                                        append(" · ")
+                                        append(pf.lineCount)
+                                        append(" 行")
+                                        if (pf.truncated) append("（内容过长，只发前 8000 字）")
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = v.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Spacer(Modifier.width(20.dp))
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(20.dp)
+                                    .background(v.surfaceContainer, CircleShape)
+                                    .border(1.dp, v.outlineVariant.copy(alpha = 0.6f), CircleShape)
+                                    .clickable {
+                                        pendingFile?.let { AiChatStore.deleteStagedFile(context, it.storedName) }
+                                        pendingFile = null
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "移除文件",
+                                    tint = v.onSurfaceVariant,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
             }
-            // v1.1.11：选图按钮（系统图片选择器）；思考中不可再选，避免待发图被中途换掉。
-            IconButton(
-                onClick = { pickImage.launch("image/*") },
-                enabled = !thinking,
-            ) {
-                Icon(
-                    Icons.Outlined.Image,
-                    contentDescription = "选图",
-                    tint = if (thinking) v.outline else v.primary,
-                )
-            }
-            AppTextField(
-                value = input,
-                onValueChange = { input = it },
-                placeholder = "发消息给 AI…（可粘贴日志）",
-                singleLine = false,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { if (sendMessage(input)) input = "" }),
+            // 输入卡片：surfaceContainer 底 + outlineVariant 微光描边 + CornerLg。
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .heightIn(max = 120.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            AppButton(
-                text = "发送",
-                enabled = !thinking && (input.isNotBlank() || pendingImage != null || pendingFile != null),
-                onClick = { if (sendMessage(input)) input = "" },
-            )
+                    .fillMaxWidth()
+                    .background(v.surfaceContainer, RoundedCornerShape(V5.CornerLg))
+                    .border(1.dp, v.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(V5.CornerLg))
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // 选文件按钮（系统文件选择器，只认文本文件）；思考中不可再选，避免待发文件被中途换掉。
+                FilledTonalIconButton(
+                    onClick = { pickFile.launch("*/*") },
+                    enabled = !thinking,
+                    modifier = Modifier.size(40.dp),
+                    shape = CircleShape,
+                ) {
+                    Icon(
+                        Icons.Outlined.UploadFile,
+                        contentDescription = "选文件",
+                    )
+                }
+                // 选图按钮（系统图片选择器）；思考中不可再选，避免待发图被中途换掉。
+                FilledTonalIconButton(
+                    onClick = { pickImage.launch("image/*") },
+                    enabled = !thinking,
+                    modifier = Modifier.size(40.dp),
+                    shape = CircleShape,
+                ) {
+                    Icon(
+                        Icons.Outlined.Image,
+                        contentDescription = "选图",
+                    )
+                }
+                AppTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    placeholder = "发消息给 AI…（可粘贴日志）",
+                    singleLine = false,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { if (sendMessage(input)) input = "" }),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(max = 120.dp),
+                )
+                FilledIconButton(
+                    onClick = { if (sendMessage(input)) input = "" },
+                    enabled = !thinking && (input.isNotBlank() || pendingImage != null || pendingFile != null),
+                    modifier = Modifier.size(40.dp),
+                    shape = CircleShape,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = v.primary,
+                        contentColor = v.onPrimary,
+                    ),
+                ) {
+                    Icon(
+                        Icons.Filled.ArrowUpward,
+                        contentDescription = "发送",
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
         }
     }
 }
