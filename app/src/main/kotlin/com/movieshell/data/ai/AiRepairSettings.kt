@@ -17,6 +17,7 @@ object AiRepairSettings {
     private const val PREFS = "ai_repair_prefs"
     private const val KEY_PROVIDER = "ai_provider"
     private const val KEY_BASE_URL = "ai_base_url"
+    private const val KEY_VISION_OVERRIDE = "ai_vision_override"
 
     enum class ApiStyle { OPENAI, ANTHROPIC, GEMINI }
 
@@ -86,6 +87,19 @@ object AiRepairSettings {
 
     fun setBaseUrl(context: Context, v: String) {
         prefs(context).edit().putString(KEY_BASE_URL, v.trim()).apply()
+    }
+
+    /**
+     * v1.1.12：我的模型支持看图（默认关）。只给名字里看不出能力的模型用——
+     * 豆包填的是方舟接入点 ID（ep-…），从 ID 看不出支不支持视觉。开着时不管
+     * 名字启发式怎么认都允许发图，用户自己为自己的接入点负责；模型本身不
+     * 支持时服务商会报错，开了不等于一定能看。
+     */
+    fun visionOverride(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_VISION_OVERRIDE, false)
+
+    fun setVisionOverride(context: Context, v: Boolean) {
+        prefs(context).edit().putBoolean(KEY_VISION_OVERRIDE, v).apply()
     }
 
     private fun prefs(context: Context) =

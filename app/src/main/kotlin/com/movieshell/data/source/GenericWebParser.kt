@@ -214,21 +214,35 @@ object GenericWebParser {
 
     // ---------------- 分类 ----------------
 
+    /**
+     * v1.1.12：导航区选择器。#menu 是补的——老模板站常把菜单放 id="menu" 的 div 里
+     * （原先六个选不中）；#header 与 .header 故意不加：老模板的 header div 常没闭合，
+     * 会把整页都包进去，导航区一下变成全站链接（实测某站 #header 命中 156 个）。
+     */
+    private val navAreaSelectors =
+        "nav a[href], header a[href], .nav a[href], .navbar a[href], .menu a[href], #nav a[href], #menu a[href]"
+
     private fun parseCategories(doc: Document, base: String): List<CategoryType> {
         val seen = LinkedHashMap<String, String>()
-        fun collect(el: Element) {
+        // 认什么、挡什么（v1.1.12 通用口径）：
+        // 前三关只认本站（同注册域，兄弟子域名算本站）：导航区、分类路径、菜单簇。
+        // 第四关是兜底：前三关一个分类都没抽到，说明本站导航本身就挂在外站上，
+        // 才把导航区的外站链接当分类认；本站已有分类时绝不触发，294.50 清掉的
+        // 内容区外站链接不会回来；内容区的链接永远不走这关。
+        fun collect(el: Element, allowCrossDomain: Boolean = false) {
             val href = el.attr("abs:href").trim()
             if (href.isBlank()) return
-            if (!isSameHost(href, base)) return
+            if (!allowCrossDomain && !isSameHost(href, base)) return
             if (isDetailOrPlayOrSearch(href)) return
             val text = cleanText(el.text())
             if (text.length !in 2..8) return
             if (text in excludedNavTexts) return
-            if (text.contains("收藏") || text.contains("主页") || text.contains("设为")) return
+            // v1.1.12：留言板不是栏目（“留言”在排除集里是精确匹配，“留言板”漏网）。
+            if (text.contains("收藏") || text.contains("主页") || text.contains("设为") || text.contains("留言")) return
             if (text.any { it.isDigit() }) return
             seen.putIfAbsent(href, text)
         }
-        doc.select("nav a[href], header a[href], .nav a[href], .navbar a[href], .menu a[href], #nav a[href]")
+        doc.select(navAreaSelectors)
             .forEach { collect(it) }
         if (seen.size < 10) {
             doc.select("a[href]").forEach { el ->
@@ -248,6 +262,9 @@ object GenericWebParser {
                     break
                 }
             }
+        }
+        if (seen.isEmpty()) {
+            doc.select(navAreaSelectors).forEach { collect(it, allowCrossDomain = true) }
         }
         return seen.entries.take(30).map { (href, name) ->
             CategoryType(typeId = href, typeName = name)

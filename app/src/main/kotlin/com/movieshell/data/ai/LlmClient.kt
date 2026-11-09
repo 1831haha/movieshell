@@ -49,9 +49,16 @@ object LlmClient {
             || m.contains("4v")
     }
 
-    /** v1.1.11：当前模型不支持视觉时，告诉用户换哪个已有的视觉模型（不新加服务商）。 */
+    /**
+     * v1.1.12：到底让不让发图——名字启发式认出来就行；认不出来时看用户有没有开
+     * “我的模型支持看图”（豆包方舟接入点 ID 就靠这个开关）。
+     */
+    fun canUseVision(context: Context, model: String): Boolean =
+        AiRepairSettings.visionOverride(context) || supportsVision(model)
+
+    /** v1.1.11：当前模型不支持视觉时，告诉用户换哪个已有的视觉模型（不新加服务商）。v1.1.12：顺带提一句视觉开关。 */
     fun visionHint(model: String): String =
-        "当前模型 $model 不支持看图，图片没发出去。换个支持视觉的模型再发：ChatGPT 选 gpt-4o、Claude 选 claude-sonnet-4、Gemini 选 gemini-2.0-flash，或千问的模型栏填 qwen-vl-max。"
+        "当前模型 $model 不支持看图，图片没发出去。换个支持视觉的模型再发：ChatGPT 选 gpt-4o、Claude 选 claude-sonnet-4、Gemini 选 gemini-2.0-flash，或千问的模型栏填 qwen-vl-max。如果你的接入点本身就是视觉模型（比如豆包方舟上建的视觉接入点），在设置 - AI 助手里打开「我的模型支持看图」再发；开了只代表你确认它能看图，模型本身不支持时服务商还是会报错。"
 
     private val client: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         OkHttpClient.Builder()
@@ -92,12 +99,14 @@ object LlmClient {
         if (baseUrl.isBlank()) return@withContext ChatResult.Fail("未填请求地址")
         if (messages.isEmpty()) return@withContext ChatResult.Fail("没有要发的内容")
         val tail = messages.takeLast(20)
-        // v1.1.11：图片只认最后一条消息上带的（对话页刚发的）；历史里的旧图不再重发。
+        // v1.1.12：图片取最近 20 条里最新的一张，不只认最后一条——换模型后发文字
+        // 追问也带上（只带最新的一张，不往上翻旧图）。图挂在哪条消息上不重要，
+        // 发请求时统一拼在最后一条消息的内容里。
         // 不支持视觉时直接给提示、不发请求；图片文件找不到了也明说，不静默丢图。
-        val imagePath = tail.lastOrNull()?.imagePath?.takeIf { it.isNotBlank() }
+        val imagePath = tail.asReversed().firstOrNull { !it.imagePath.isNullOrBlank() }?.imagePath
         val imageBase64: String? = if (imagePath == null) {
             null
-        } else if (!supportsVision(model)) {
+        } else if (!canUseVision(context, model)) {
             return@withContext ChatResult.Fail(visionHint(model))
         } else {
             val bytes = runCatching { java.io.File(imagePath).readBytes() }.getOrNull()
@@ -125,7 +134,8 @@ object LlmClient {
 
     /**
      * v1.1.11：带图的那条消息拼多模态内容，没图的仍按原来字符串 content 发，
-     * 纯文字流程的请求体一行不动。imageBase64 只挂在最后一条消息上。
+     * 纯文字流程的请求体一行不动。v1.1.12：图可能来自前面某条消息，统一拼在
+     * 最后一条消息上（imageBase64 只挂最后一条）。
      */
     private fun openAiContent(msg: ChatMessage, imageBase64: String?, isLast: Boolean): Any {
         if (!isLast || imageBase64 == null) return msg.content

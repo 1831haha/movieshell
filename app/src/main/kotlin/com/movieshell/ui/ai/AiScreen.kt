@@ -307,16 +307,28 @@ private fun MessageRow(msg: AiChatStore.ChatMsg, onAskAi: (String) -> Unit = {})
 private fun formatFileSize(bytes: Long): String =
     if (bytes < 1024) "$bytes B" else "${bytes / 1024} KB"
 
-/** v1.1.11：把待发文件内容拼进用户消息文本：文件名 + 代码围栏；只随本轮最后一条消息发。 */
-private fun fileBlockForSend(file: AiChatStore.StagedFile, content: String): String {
+/**
+ * v1.1.11：把文件内容拼进用户消息文本：文件名 + 代码围栏；只随本轮最后一条消息发。
+ * v1.1.12：新文件传大小与行数（待发时算好的）；追问重读的旧文件只传文件名与行数
+ * （大小与截断标记重载后不再保留，行数按内容现算）。
+ */
+private fun fileBlockForSend(
+    displayName: String,
+    content: String,
+    sizeText: String?,
+    lineCount: Int,
+    truncated: Boolean,
+): String {
     val note = buildString {
-        append(file.displayName)
+        append(displayName)
         append("（")
-        append(formatFileSize(file.sizeBytes))
-        append("，")
-        append(file.lineCount)
+        if (sizeText != null) {
+            append(sizeText)
+            append("，")
+        }
+        append(lineCount)
         append(" 行")
-        if (file.truncated) append("，内容过长只贴前 8000 字")
+        if (truncated) append("，内容过长只贴前 8000 字")
         append("）")
     }
     return "\n\n[附件文件：$note]\n```\n$content\n```"
@@ -332,7 +344,9 @@ private fun fileBlockForSend(file: AiChatStore.StagedFile, content: String): Str
  * 语音不做。图片只发给支持视觉的模型看，不进 SharedPreferences。
  * v1.1.11：也可以发文件了——输入框旁的选文件按钮调系统文件选择器，只认文本文件
  * （.py/.js/.php/.json/.txt/.log/.md 这类），内容过长只贴前 8000 字，拼进本轮最后一条
- * 用户消息的文本里发给 AI；文件内容不进 ai_chat.json，只留文件名，追问时不再重发。
+ * 用户消息的文本里发给 AI；文件内容不进 ai_chat.json，只留文件名。
+ * v1.1.12：文件落盘副本发送后保留，换模型后发文字追问也会把最新一份文件重新带上
+ * （只带最新的一份）；图也一样，换模型后追问带最近一张图。落盘副本只在点“新对话”时清掉。
  * 直达：检测页“去对话里改”与写源失败“去对话里接着改”先把首条消息种进
  * AiChatStore.pendingSeed，进页自动发一次。
  */
@@ -392,18 +406,41 @@ fun AiScreen() {
         // v1.1.11：只发文件不写字也允许发；待发文件只记原文件名进会话，内容另外拼进请求。
         val file = pendingFile
         if ((content.isBlank() && image == null && file == null) || thinking) return false
-        AiChatStore.addUser(content, context, image, file?.displayName)
+        // v1.1.12：发新文件前先记下历史里最新一份文件的落盘名——新文件读到了，
+        // 上一份的落盘副本就可以删了（之后追问只重读最新的一份）；没发新文件时，
+        // 追问就重读这份旧文件接着发。
+        val prevStored = AiChatStore.messages.value.asReversed()
+            .firstOrNull { it.role == "user" && it.fileStoredName != null }?.fileStoredName
+        AiChatStore.addUser(content, context, image, file?.displayName, file?.storedName)
         pendingImage = null
         pendingFile = null
         thinking = true
         scope.launch {
-            // v1.1.11：文件内容只随本轮最后一条用户消息发——读出来拼进消息文本就删落盘副本，
-            // 历史消息与重载后不再重发；读不到时在消息里明说，不静默丢掉。
+            // v1.1.12：文件只带最新的一份。有新文件读新文件，没新文件重读历史里
+            // 最新一份；落盘副本发送后不再删，留到“新对话”清空时再删。
+            // 读不到时在消息里明说，不静默丢掉。
             val fileBlock = if (file != null) {
                 val staged = withContext(Dispatchers.IO) { AiChatStore.readStagedFile(context, file.storedName) }
-                AiChatStore.deleteStagedFile(context, file.storedName)
-                if (staged != null) fileBlockForSend(file, staged)
-                else "\n\n[附件文件：${file.displayName}（读取失败，未附内容）]"
+                if (staged != null) {
+                    if (prevStored != null && prevStored != file.storedName) {
+                        AiChatStore.deleteStagedFile(context, prevStored)
+                    }
+                    fileBlockForSend(file.displayName, staged, formatFileSize(file.sizeBytes), file.lineCount, file.truncated)
+                } else {
+                    "\n\n[附件文件：${file.displayName}（读取失败，未附内容）]"
+                }
+            } else if (prevStored != null) {
+                val carried = withContext(Dispatchers.IO) { AiChatStore.readStagedFile(context, prevStored) }
+                val carriedName = AiChatStore.messages.value.asReversed()
+                    .firstOrNull { it.role == "user" && it.fileStoredName == prevStored }?.fileName
+                if (carried != null && carriedName != null) {
+                    val lines = if (carried.isEmpty()) 0 else carried.count { it == '\n' } + 1
+                    fileBlockForSend(carriedName, carried, null, lines, false)
+                } else if (carriedName != null) {
+                    "\n\n[附件文件：$carriedName（之前发的文件找不到了，未附内容）]"
+                } else {
+                    ""
+                }
             } else {
                 ""
             }
@@ -463,7 +500,12 @@ fun AiScreen() {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = { AiChatStore.clear(context) }) {
+            TextButton(onClick = {
+                // v1.1.12：新对话清落盘时，待发的图与文件也一并清掉，别留着悬空的待发位。
+                pendingImage = null
+                pendingFile = null
+                AiChatStore.clear(context)
+            }) {
                 Text("新对话")
             }
         }
@@ -497,7 +539,7 @@ fun AiScreen() {
                     Text("和 AI 聊写源、修源", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = v.onSurface)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "粘贴报错、日志，或者让 AI 按网址写新源；截图可以直接发，文本文件（.py/.js/.txt 这类）也能发；看图要支持视觉的模型（设置里换模型）。",
+                        "粘贴报错、日志，或者让 AI 按网址写新源；截图可以直接发，文本文件（.py/.js/.txt 这类）也能发，换模型后追问还会把最近的图和文件带上；看图要支持视觉的模型（设置里换模型；豆包方舟接入点在设置里打开「我的模型支持看图」）。",
                         fontSize = 12.sp,
                         color = v.outline,
                     )

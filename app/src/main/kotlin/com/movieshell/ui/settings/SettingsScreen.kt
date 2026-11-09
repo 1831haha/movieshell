@@ -1232,6 +1232,8 @@ fun SettingsScreen(
         var modelInput by remember(aiProviderId) { mutableStateOf(AiRepairSettings.model(context)) }
         var baseUrlInput by remember(aiProviderId) { mutableStateOf(AiRepairSettings.baseUrl(context)) }
         var showKey by remember { mutableStateOf(false) }
+        // v1.1.12：我的模型支持看图（默认关；豆包方舟接入点 ID 看不出支不支持，全靠这个开关）。
+        var visionOverride by remember { mutableStateOf(AiRepairSettings.visionOverride(context)) }
         // v1.1.1：模型点选弹窗（内置模型列表，不用手打记名字）
         var showAiModelDialog by remember { mutableStateOf(false) }
         // v1.1.1：AI 写新源——网址 + 源名（可空），复用上面配好的服务商、Key 与模型
@@ -1327,6 +1329,33 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+                Spacer(Modifier.height(8.dp))
+                // v1.1.12：我的模型支持看图——只在模型或接入点本身能看图时开；开着就不再
+                // 按模型名判断，直接发图。模型本身不支持时服务商会报错，开了不等于一定能看。
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "我的模型支持看图",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "豆包方舟接入点 ID 看不出支不支持，靠这个开关认；开着就直接发图，模型本身不支持时服务商会报错。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    AppSwitch(
+                        checked = visionOverride,
+                        onCheckedChange = {
+                            visionOverride = it
+                            AiRepairSettings.setVisionOverride(context, it)
+                        },
+                    )
                 }
                 Spacer(Modifier.height(8.dp))
                 if (provider.id == "custom") {

@@ -17,6 +17,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import java.util.UUID
 
 /**
@@ -35,13 +37,14 @@ object AiChatStore {
      * v1.1.11：对话消息可带一张图。imagePath 只存图片文件名（filesDir/ai_chat_images 下的
      * 压缩后 JPEG），不存 base64：JSON 里只留文件名，base64 只在发请求那一刻由 LlmClient
      * 现读现转；SharedPreferences 里不放图。
-     * v1.1.11：对话消息也可带一个文本文件。fileName 只存原文件名，内容落盘在
-     * filesDir/ai_chat_files 下供本轮发送用，发送后即删；JSON 里只留文件名，内容不进
-     * ai_chat.json、也不进 SharedPreferences；重载后只保留“发过某文件”的记录。
+     * v1.1.11：对话消息也可带一个文本文件。fileName 只存原文件名，fileStoredName 存落盘
+     * 文件名（filesDir/ai_chat_files 下）；内容不进 ai_chat.json、也不进 SharedPreferences。
+     * v1.1.12：落盘副本发送后不再删，留到“新对话”清空时再删；追问时重读历史里最新一份
+     * 文件的内容接着发，只带最新的一份。
      */
-    data class ChatMsg(val role: String, val text: String, val time: Long = System.currentTimeMillis(), val imagePath: String? = null, val fileName: String? = null)
+    data class ChatMsg(val role: String, val text: String, val time: Long = System.currentTimeMillis(), val imagePath: String? = null, val fileName: String? = null, val fileStoredName: String? = null)
 
-    /** v1.1.11：待发文件（落盘在 filesDir/ai_chat_files 下，发送后即删）。 */
+    /** v1.1.11：待发文件（落盘在 filesDir/ai_chat_files 下，v1.1.12 起发送后保留到新对话）。 */
     data class StagedFile(
         val storedName: String,
         val displayName: String,
@@ -97,8 +100,8 @@ object AiChatStore {
         if (_messages.value.isEmpty()) _messages.value = parsed
     }
 
-    fun addUser(text: String, context: Context, imagePath: String? = null, fileName: String? = null) {
-        _messages.value = _messages.value + ChatMsg("user", text, imagePath = imagePath, fileName = fileName)
+    fun addUser(text: String, context: Context, imagePath: String? = null, fileName: String? = null, fileStoredName: String? = null) {
+        _messages.value = _messages.value + ChatMsg("user", text, imagePath = imagePath, fileName = fileName, fileStoredName = fileStoredName)
         save(context)
     }
 
@@ -128,11 +131,37 @@ object AiChatStore {
     }
 
     /**
+     * v1.1.12：纯函数，文本字节按编码解码，先认 BOM，再严格校验 UTF-8，
+     * 不是合法 UTF-8 就按 GBK 解（中文站/中文 TXT 常见）。
+     * 严格校验是关键：直接按 UTF-8 硬读遇到非法字节从不抛异常，只塞替换字符，
+     * GBK 回退会变成死代码（TxtImporter v0.215.0 同款教训）。
+     */
+    fun decodeTextBytes(bytes: ByteArray): String {
+        if (bytes.isEmpty()) return ""
+        if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()) {
+            return String(bytes.copyOfRange(3, bytes.size), Charsets.UTF_8)
+        }
+        if (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) {
+            return String(bytes.copyOfRange(2, bytes.size), Charsets.UTF_16LE)
+        }
+        if (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()) {
+            return String(bytes.copyOfRange(2, bytes.size), Charsets.UTF_16BE)
+        }
+        val strict = Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+        val utf8 = runCatching { strict.decode(ByteBuffer.wrap(bytes)).toString() }.getOrNull()
+        if (!utf8.isNullOrBlank()) return utf8
+        return runCatching { String(bytes, charset("GBK")) }.getOrNull() ?: ""
+    }
+
+    /**
      * v1.1.11：把系统文件选择器给的 Uri 读成对话附件。只认文本文件：后缀在
      * BINARY_FILE_EXTS 里直接拒；后缀不在 TEXT_FILE_EXTS 里时按内容嗅探，含 NUL
      * 字节的当二进制。内容过长只留前 MAX_SEED_RULE_CHARS 字，落盘到
-     * filesDir/ai_chat_files 供本轮发送用；返回待发文件信息。
+     * filesDir/ai_chat_files 供发送用；返回待发文件信息。
      * 用 GetContent 一次性授权，选完立即读，不留悬空 Uri；在 IO 线程调。
+     * v1.1.12：内容按 decodeTextBytes 解码，GBK 文件不再乱码。
      */
     suspend fun stageFile(context: Context, uri: Uri): StageFileResult = withContext(Dispatchers.IO) {
         runCatching {
@@ -164,7 +193,7 @@ object AiChatStore {
                 }
                 out.toByteArray()
             } ?: return@runCatching StageFileResult.Failed
-            val text = String(bytes, Charsets.UTF_8)
+            val text = decodeTextBytes(bytes)
             if (ext !in TEXT_FILE_EXTS && (bytes.any { it == 0.toByte() } || text.contains('\u0000'))) {
                 return@runCatching StageFileResult.NotText
             }
@@ -186,14 +215,14 @@ object AiChatStore {
         }.getOrElse { StageFileResult.Failed }
     }
 
-    /** v1.1.11：读回本轮待发的文件内容（发送时拼进消息文本用）；读不到返回 null。 */
+    /** v1.1.11：读回待发的文件内容（发送时拼进消息文本用）；读不到返回 null。 */
     suspend fun readStagedFile(context: Context, storedName: String): String? = withContext(Dispatchers.IO) {
         runCatching {
             File(File(context.filesDir, FILE_DIR), storedName).takeIf { it.isFile }?.readText()
         }.getOrNull()
     }
 
-    /** v1.1.11：删一份已落盘的待发文件（待发文件取消、或发送后丢弃时用）；文件不在也不报错。 */
+    /** v1.1.11：删一份已落盘的待发文件（待发文件取消、被新文件顶掉、或发了新文件后清旧份时用）；文件不在也不报错。v1.1.12 起发送本身不再删，留到“新对话”清空时再删。 */
     fun deleteStagedFile(context: Context, storedName: String) {
         ioScope.launch { runCatching { File(File(context.filesDir, FILE_DIR), storedName).delete() } }
     }
@@ -297,9 +326,11 @@ object AiChatStore {
                     val imagePath = obj.optString("image").takeIf { it.isNotBlank() }
                     // v1.1.11：发过的文件只留文件名；只发文件没写字的消息也保留。
                     val fileName = obj.optString("file").takeIf { it.isNotBlank() }
+                    // v1.1.12：落盘文件名也读回来，重载后追问还能找到最新一份文件接着发。
+                    val fileStoredName = obj.optString("fileStored").takeIf { it.isNotBlank() }
                     if (role != "user" && role != "assistant") continue
                     if (text.isBlank() && imagePath == null && fileName == null) continue
-                    add(ChatMsg(role, text, obj.optLong("time", System.currentTimeMillis()), imagePath, fileName))
+                    add(ChatMsg(role, text, obj.optLong("time", System.currentTimeMillis()), imagePath, fileName, fileStoredName))
                 }
             }
         }.getOrDefault(emptyList())
@@ -318,6 +349,8 @@ object AiChatStore {
                         msg.imagePath?.let { put("image", it) }
                         // v1.1.11：只存原文件名，不存文件内容。
                         msg.fileName?.let { put("file", it) }
+                        // v1.1.12：只存落盘文件名，不存文件内容；重载后追问靠它找回最新一份文件。
+                        msg.fileStoredName?.let { put("fileStored", it) }
                     }
                 )
             }
