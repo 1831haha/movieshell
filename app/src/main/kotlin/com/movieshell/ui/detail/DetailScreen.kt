@@ -19,11 +19,7 @@ import androidx.compose.foundation.layout.PaddingValues
 
 import androidx.compose.material3.FilledTonalButton
 
-import androidx.compose.material3.Button
-
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-
-import androidx.compose.material.icons.filled.PlayArrow
 
 import androidx.compose.material.icons.filled.Add
 
@@ -34,8 +30,6 @@ import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.GraphicEq
 
 import androidx.compose.foundation.lazy.LazyRow
-
-import androidx.compose.foundation.border
 
 import com.movieshell.ui.theme.V5
 
@@ -74,7 +68,6 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.Checkbox
@@ -158,7 +151,6 @@ import com.movieshell.player.PlayResolveScope
 import com.movieshell.player.PlaySession
 import com.movieshell.player.EngineHost
 import com.movieshell.player.PicsViewerScreen
-import com.movieshell.player.InfoPopupDialog
 import com.movieshell.player.PlayerScreen
 import com.movieshell.player.resolvePlayUrl
 import com.movieshell.ui.components.AppButton
@@ -391,8 +383,6 @@ fun DetailScreen(
     // v0.77.0：跳集弹窗
     var showJumpDialog by remember { mutableStateOf(false) }
     var jumpText by remember { mutableStateOf("") }
-    // v0.47.0：简介默认折叠
-    var showDetailInfo by remember { mutableStateOf(false) } // v0.259.0：详情简介入口，点开简介弹窗
     var showTitleDialog by remember { mutableStateOf(false) } // 2026-11-01：点片名弹完整片名（片名改小 + 弹窗，两件一起做）
     var showMagnetDialog by remember { mutableStateOf(false) }
     var lastMagnetUrl by remember { mutableStateOf("") }
@@ -786,28 +776,44 @@ fun DetailScreen(
                     }
     
                     // v0.292.0 V5（design-tokens 5.2 / 02-detail）：信息区——不再套卡片，背景走 surface。
-                    // 海报 16dp 圆角 + 更新标签（labelLarge primary）+ titleLarge 片名（2026-11-01 用户要求片名改小：28sp→22sp）+ 元信息 chip + 线路 chip；
-                    // 主操作：继续播放（56dp 28 圆角 filled）+ 追剧（tonal，接 FollowStore 原有追/取消逻辑，
-                    // 与播放器顶栏追剧开关读写同一条记录）；简介卡（点开原简介弹窗）；主演 chip（点按仍走演员搜索）。
+                    // v1.1.13：标题行按参考布局重排——海报小图 64×88（点按续播）+ titleLarge 片名
+                    // 22sp 粗体（2026-11-01 用户要求片名改小：28sp→22sp）+“N集 · 年份”一行 +
+                    // 右边追剧（tonal，接 FollowStore 原有追/取消逻辑，与播放器顶栏追剧开关读写
+                    // 同一条记录）与下载图标（全页唯一入口）；简介卡一行截断＋行内展开；
+                    // 播放线路单独成段放简介下方；主演 chip（点按仍走演员搜索）。
                     item {
                         val v = MaterialTheme.colorScheme
                         Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
                             Row(
-                                verticalAlignment = Alignment.Bottom,
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.padding(horizontal = V5.Gutter),
                             ) {
                                 if (coverUrl.isNotBlank()) {
                                     AsyncImage(
                                         model = coverUrl,
-                                        contentDescription = "海报",
+                                        contentDescription = "海报，点按播放",
                                         modifier = Modifier
-                                            .size(width = 112.dp, height = 158.dp)
+                                            .size(width = 64.dp, height = 88.dp)
                                             .clip(RoundedCornerShape(V5.CornerLg))
                                             .background(v.surfaceContainerHigh)
-                                            .clickable { showCoverDialog = true },
+                                            .clickable {
+                                                // v1.1.13：点海报播放入口，接旧“继续播放”按钮的逻辑原样——
+                                                // 已在播 → 回到顶部播放器；未播 → 从断点集续播。
+                                                // 海报放大改走顶部播放区点按（showCoverDialog 不动）。
+                                                if (embeddedUrl.isNotBlank()) {
+                                                    scope.launch { listState.animateScrollToItem(0) }
+                                                } else {
+                                                    val list = if (lineEpisodes.isNotEmpty()) lineEpisodes else episodes
+                                                    val i = highlightEp.coerceIn(0, (list.size - 1).coerceAtLeast(0))
+                                                    list.getOrNull(i)?.let { ep ->
+                                                        playEpisode(ep, safeLine, i)
+                                                        scope.launch { listState.animateScrollToItem(0) }
+                                                    }
+                                                }
+                                            },
                                         contentScale = ContentScale.Crop,
                                     )
-                                    Spacer(Modifier.width(16.dp))
+                                    Spacer(Modifier.width(12.dp))
                                 }
                                 Column(modifier = Modifier.weight(1f)) {
                                     if (detail?.vodRemarks?.isNotBlank() == true) {
@@ -822,94 +828,30 @@ fun DetailScreen(
                                     }
                                     Text(
                                         text = detailTitle(detail, vodId),
-                                        style = MaterialTheme.typography.titleLarge,
+                                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                                         color = v.onSurface,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.clickable { showTitleDialog = true },
                                     )
-                                    Spacer(Modifier.height(8.dp))
-                                    // v0.121.0：空字段不渲染 chip
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                    ) {
-                                        MetaChip("${episodes.size}集")
-                                        detail?.vodYear?.takeIf { it.isNotBlank() }?.let { MetaChip(it) }
-                                    }
-                                    // v0.84.0：线路胶囊（当前线路名 + 切换图标），点按展开线路选择——
-                                    // 下方“播放线路”FilterChip 同步
-                                    if (playLines.isNotEmpty()) {
-                                        Spacer(Modifier.height(8.dp))
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier
-                                                .height(32.dp)
-                                                .clip(RoundedCornerShape(V5.CornerSm))
-                                                .border(1.dp, v.outlineVariant, RoundedCornerShape(V5.CornerSm))
-                                                .padding(horizontal = 10.dp),
-                                        ) {
-                                            Box(Modifier.size(6.dp).clip(CircleShape).background(v.ok))
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(
-                                                text = playLines[safeLine].name,
-                                                style = MaterialTheme.typography.labelLarge,
-                                                color = v.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.widthIn(max = 140.dp),
-                                            )
-                                            Spacer(Modifier.width(6.dp))
-                                            Icon(
-                                                Icons.Filled.SwapHoriz,
-                                                contentDescription = "切换源",
-                                                tint = v.onSurfaceVariant,
-                                                modifier = Modifier.size(16.dp),
-                                            )
-                                        }
+                                    // v1.1.13：meta chips 行改成一行纯文本，有哪个显示哪个
+                                    val metaLine = listOfNotNull(
+                                        "${episodes.size}集".takeIf { episodes.isNotEmpty() },
+                                        detail?.vodYear?.takeIf { it.isNotBlank() },
+                                    ).joinToString(" · ")
+                                    if (metaLine.isNotBlank()) {
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            text = metaLine,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = v.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
                                     }
                                 }
-                            }
-                            Spacer(Modifier.height(12.dp))
-                            // 主操作行：v1.0.7 压紧——两按钮 56dp→48dp，追剧收紧，上下间距收窄
-                            Row(
-                                modifier = Modifier.padding(horizontal = V5.Gutter),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                val canPlay = lineEpisodes.isNotEmpty() || episodes.isNotEmpty()
-                                val playLabel = when {
-                                    !canPlay -> "暂无可播放剧集"
-                                    embeddedUrl.isNotBlank() || (following && watchedEp >= 0) ->
-                                        "继续播放 · 第 ${highlightEp + 1} 集"
-                                    else -> "立即播放"
-                                }
-                                Button(
-                                    onClick = {
-                                        if (embeddedUrl.isNotBlank()) {
-                                            // 已在顶部播放：回到播放器
-                                            scope.launch { listState.animateScrollToItem(0) }
-                                        } else {
-                                            val list = if (lineEpisodes.isNotEmpty()) lineEpisodes else episodes
-                                            val i = highlightEp.coerceIn(0, (list.size - 1).coerceAtLeast(0))
-                                            list.getOrNull(i)?.let { ep ->
-                                                playEpisode(ep, safeLine, i)
-                                                scope.launch { listState.animateScrollToItem(0) }
-                                            }
-                                        }
-                                    },
-                                    enabled = canPlay,
-                                    shape = RoundedCornerShape(V5.CornerXl),
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(48.dp),
-                                ) {
-                                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(playLabel, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                                }
+                                Spacer(Modifier.width(8.dp))
+                                // 追剧（接 FollowStore 原有追/取消逻辑，与播放器顶栏追剧开关读写同一条记录）
                                 FilledTonalButton(
                                     onClick = {
                                         scope.launch {
@@ -942,7 +884,7 @@ fun DetailScreen(
                                     },
                                     shape = RoundedCornerShape(V5.CornerXl),
                                     contentPadding = PaddingValues(horizontal = 12.dp),
-                                    modifier = Modifier.height(48.dp),
+                                    modifier = Modifier.height(40.dp),
                                 ) {
                                     Icon(
                                         if (following) Icons.Filled.Check else Icons.Filled.Add,
@@ -952,16 +894,29 @@ fun DetailScreen(
                                     Spacer(Modifier.width(6.dp))
                                     Text(if (following) "已追剧" else "追剧", style = MaterialTheme.typography.labelLarge)
                                 }
+                                // 下载：全页唯一入口，从选集头挪过来，逻辑与可用条件不动
+                                IconButton(
+                                    onClick = { showDownloadDialog = true },
+                                    enabled = lineEpisodes.isNotEmpty(),
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Download,
+                                        contentDescription = "下载",
+                                        tint = v.onSurfaceVariant,
+                                    )
+                                }
                             }
                             Spacer(Modifier.height(12.dp))
-                            // 简介卡：点开原简介弹窗（v0.259.0 InfoPopupDialog）
+                            // v1.1.13：简介改一行截断＋“展开”，点卡片行内展开看全文、再点收起；
+                            // 旧简介弹窗（InfoPopupDialog）入口随之去掉，备注/年份已在标题行展示。
+                            var introExpanded by remember { mutableStateOf(false) }
                             Column(
                                 modifier = Modifier
                                     .padding(horizontal = V5.Gutter)
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(V5.CornerLgI))
                                     .background(v.surfaceContainer)
-                                    .clickable { showDetailInfo = true }
+                                    .clickable { introExpanded = !introExpanded }
                                     .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 14.dp),
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -971,21 +926,61 @@ fun DetailScreen(
                                         color = v.onSurface,
                                         modifier = Modifier.weight(1f),
                                     )
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                        contentDescription = "查看简介弹窗",
-                                        tint = v.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp),
-                                    )
+                                    if (detail?.vodDesc?.isNotBlank() == true) {
+                                        Text(
+                                            if (introExpanded) "收起" else "展开",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = v.primary,
+                                        )
+                                    }
                                 }
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     text = detail?.vodDesc?.ifBlank { "暂无简介" }.orEmpty(),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = v.onSurfaceVariant,
-                                    maxLines = 2,
+                                    maxLines = if (introExpanded) Int.MAX_VALUE else 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                            }
+                            // v1.1.13：播放线路单独成段，移到简介正下方；只有一条线路时整段隐藏
+                            if (playLines.size > 1) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = V5.Gutter, end = V5.Gutter, top = 12.dp, bottom = 8.dp),
+                                ) {
+                                    Text(
+                                        "播放线路",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text(
+                                        "${playLines.size} 条",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                val lineRowState = rememberLazyListState()
+                                LaunchedEffect(Unit) { if (safeLine > 0) lineRowState.scrollToItem(safeLine) }
+                                LazyRow(
+                                    state = lineRowState,
+                                    contentPadding = PaddingValues(horizontal = V5.Gutter),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    items(playLines.size) { i ->
+                                        V5Chip(
+                                            text = playLines[i].name,
+                                            selected = safeLine == i,
+                                            onClick = {
+                                                selectedLine = i
+                                                selectedEpisode = 0
+                                            },
+                                        )
+                                    }
+                                }
                             }
                             // 主演：头像字 + 名字 chip，点按仍走演员搜索
                             val actorNames = detail?.vodActor.orEmpty()
@@ -1047,79 +1042,26 @@ fun DetailScreen(
                     }
     
                     // v0.65：播放按钮行已移除（顶部嵌入播放器自动播，对标目标界面）
-                    // v0.292.0 V5：主操作行回到信息区（继续播放/追剧），顶部嵌入播放器自动播行为不变
+                    // v1.1.13：标题行改为海报小图＋片名＋追剧/下载，续播接到点海报上；顶部嵌入播放器自动播行为不变
     
-                    // 选集：drpy 真实选集优先；多条线路时上方显示“播放线路”FilterChip 行
+                    // 选集：drpy 真实选集优先；“播放线路”段已移到简介正下方（v1.1.13）
                     when {
                         lineEpisodes.isNotEmpty() -> {
-                            if (playLines.size > 1) {
-                                item {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = V5.Gutter, end = V5.Gutter, top = 12.dp, bottom = 8.dp),
-                                    ) {
-                                        Text(
-                                            "播放线路",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                        Text(
-                                            "${playLines.size} 条",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                    val lineRowState = rememberLazyListState()
-                                    LaunchedEffect(Unit) { if (safeLine > 0) lineRowState.scrollToItem(safeLine) }
-                                    LazyRow(
-                                        state = lineRowState,
-                                        contentPadding = PaddingValues(horizontal = V5.Gutter),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
-                                        items(playLines.size) { i ->
-                                            V5Chip(
-                                                text = playLines[i].name,
-                                                selected = safeLine == i,
-                                                onClick = {
-                                                    selectedLine = i
-                                                    selectedEpisode = 0
-                                                },
-                                            )
-                                        }
-                                    }
-                                }
-                            }
                             item {
                                 V5SectionTitle(
-                                    title = "选集 · 共 ${lineEpisodes.size} 集",
+                                    title = "选集 · 当前线路 ${lineEpisodes.size} 集",
                                     modifier = Modifier.padding(
                                         horizontal = V5.Gutter,
                                         vertical = 8.dp,
                                     ),
                                     // v0.77.0：集数多时给"跳集"入口，短剧 60-80 集不用手翻
+                                    // v1.1.13：下载入口已挪到标题行追剧旁，这里只留跳集
                                     action = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            if (lineEpisodes.size > 20) {
-                                                TextButton(onClick = { showJumpDialog = true }) {
-                                                    Icon(Icons.Filled.Tag, contentDescription = null, modifier = Modifier.size(18.dp))
-                                                    Spacer(Modifier.width(4.dp))
-                                                    Text("跳集", style = MaterialTheme.typography.labelLarge)
-                                                }
-                                            }
-                                            // v0.259.0：下载唯一入口移到选集区标题旁，
-                                            // 点开现有选多集入队弹窗，逻辑不动；播放器选集抽屉不放。
-                                            IconButton(
-                                                onClick = { showDownloadDialog = true },
-                                                enabled = lineEpisodes.isNotEmpty(),
-                                            ) {
-                                                Icon(
-                                                    Icons.Filled.Download,
-                                                    contentDescription = "下载",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                )
+                                        if (lineEpisodes.size > 20) {
+                                            TextButton(onClick = { showJumpDialog = true }) {
+                                                Icon(Icons.Filled.Tag, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("跳集", style = MaterialTheme.typography.labelLarge)
                                             }
                                         }
                                     },
@@ -1171,7 +1113,7 @@ fun DetailScreen(
                         episodes.size > 1 -> {
                             item {
                                 V5SectionTitle(
-                                    title = "选集 · 共 ${episodes.size} 集",
+                                    title = "选集 · 当前线路 ${episodes.size} 集",
                                     modifier = Modifier.padding(
                                         horizontal = V5.Gutter,
                                         vertical = 8.dp,
@@ -1645,18 +1587,6 @@ fun DetailScreen(
             }
         }
 
-        // v0.259.0：详情简介弹窗，与播放器信息图标共用同一套五字段规则
-        if (showDetailInfo) {
-            InfoPopupDialog(
-                name = detailTitle(detail, vodId),
-                remarks = detail?.vodRemarks.orEmpty(),
-                year = detail?.vodYear.orEmpty(),
-                desc = detail?.vodDesc.orEmpty(),
-                vodId = vodId,
-                onDismiss = { showDetailInfo = false },
-            )
-        }
-
         // v0.26.0：下载选集（多选 → 解析地址 → 入队）
         if (showDownloadDialog) {
             var selected by remember(safeLine) {
@@ -1850,20 +1780,6 @@ fun DetailScreen(
             )
         }
     }
-}
-
-@Composable
-private fun MetaChip(text: String) {
-    // v0.292.0 V5：元信息 chip——28dp、8 圆角、surfaceContainerHigh
-    Text(
-        text = text,
-        modifier = Modifier
-            .clip(RoundedCornerShape(V5.CornerSm))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 /**
