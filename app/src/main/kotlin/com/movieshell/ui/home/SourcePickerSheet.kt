@@ -138,6 +138,8 @@ fun SourcePickerSheet(
     var phpRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
     // v1.1.14：压缩包里的 PY 源（A 组 PySourceManager.listZipRules 供给）
     var zipRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
+    // v1.1.15：已导入的压缩包名（ZipPySourceStore.listZips 供给），供本地源下的包名胶囊行用。
+    var zipNames by remember { mutableStateOf<List<String>>(emptyList()) }
     var drpyHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     var pyHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     var phpHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
@@ -170,6 +172,7 @@ fun SourcePickerSheet(
         val newPy = PySourceManager.listRules()
         val newPhp = PhpSourceManager.listRules()
         val newZip = PySourceManager.listZipRules()
+        zipNames = ZipPySourceStore.listZips(context)
         drpyRules = newDrpy
         pyRules = newPy
         phpRules = newPhp
@@ -550,6 +553,13 @@ fun SourcePickerSheet(
     val kindsPresent = remember(originFiltered) { kindOrder.filter { k -> originFiltered.any { it.kind == k } } }
     var query by remember { mutableStateOf("") }
     var kindFilter by remember { mutableStateOf<String?>(null) }
+    // v1.1.15：压缩包筛选——选中的包名（ZipPySourceStore.listZips 里的文件名，
+    // 含 .zip 后缀）；null = 全部本地源。只在本地源下出现，与类型筛选可叠加。
+    var zipFilter by remember { mutableStateOf<String?>(null) }
+    // 包被删掉后（源管理页删包）过滤条件失效就回全部，不留空表。
+    LaunchedEffect(zipNames) {
+        if (zipFilter != null && zipFilter !in zipNames) zipFilter = null
+    }
     // v0.182.0：三种排列类型，搜索框右边的小宫格按钮点一下换一种：
     // 0=截图式 2 列大卡（默认），1=原来 5 列小图标，2=列表。
     // v0.184.0：扩到 6 种，点一下依次换，长按直接打开选择菜单：
@@ -563,11 +573,15 @@ fun SourcePickerSheet(
         Icons.Filled.GridView, Icons.Filled.GridView, Icons.Filled.List,
         Icons.Filled.List, Icons.Filled.GridView, Icons.Filled.List,
     )
-    // 搜索文本 × 类型筛选联动（先按来源过滤，再按类型/搜索过滤）
+    // 搜索文本 × 类型筛选 × 压缩包筛选联动（先按来源过滤，再按类型/包/搜索过滤）
     // v1.1.11：搜索除显示名外也按底层文件名匹配（本地规则的 fileName），标题与文件名不一致时搜文件名仍能找到。
-    val visible = remember(originFiltered, query, kindFilter) {
+    // v1.1.15：zipFilter 非空时只留该包里的条目（id 是 local-zip:zip:<包名>!<entry>，
+    // 按 parseIdentity 取包名比对）；不在包里的散装 .py 只在“全部”里出现。
+    val visible = remember(originFiltered, query, kindFilter, zipFilter) {
         originFiltered.filter { item ->
             (kindFilter == null || item.kind == kindFilter) &&
+                (zipFilter == null || (item.id.startsWith("local-zip:") &&
+                    ZipPySourceStore.parseIdentity(item.id.removePrefix("local-zip:"))?.first == zipFilter)) &&
                 (query.isBlank() || item.name.contains(query.trim(), ignoreCase = true) ||
                     item.fileName?.contains(query.trim(), ignoreCase = true) == true)
         }
@@ -600,7 +614,7 @@ fun SourcePickerSheet(
     }
     LaunchedEffect(loading, groupedVisible) {
         if (loading || scrolledToCurrent) return@LaunchedEffect
-        if (query.isNotBlank() || kindFilter != null) return@LaunchedEffect
+        if (query.isNotBlank() || kindFilter != null || zipFilter != null) return@LaunchedEffect
         val index = currentGroupedIndex
         if (index < 0) return@LaunchedEffect
         gridState.scrollToItem(index)
@@ -610,9 +624,11 @@ fun SourcePickerSheet(
     // 否则订阅的 CMS 筛选会带到本地源上直接出空表；同时回顶，避免停在
     // 旧来源的滚动位置上。本地源胶囊常驻在列表上方，订阅状态下也一样，
     // 不用先关弹窗、不用翻 228 个源找本地规则。
+    // v1.1.15：切来源同时清压缩包筛选，包名胶囊只在本地源下有意义。
     val selectOrigin: (String) -> Unit = { origin ->
         originFilter = origin
         kindFilter = null
+        zipFilter = null
         scope.launch {
             gridState.scrollToItem(0)
             listState.scrollToItem(0)
@@ -839,6 +855,35 @@ fun SourcePickerSheet(
                         text = kindLabel(kind),
                         selected = kindFilter == kind,
                         onClick = { kindFilter = if (kindFilter == kind) null else kind },
+                        small = true,
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        // v1.1.15：压缩包名胶囊——当前来源是本地源且导过包时才出现，没导过
+        // 不显示、不占地方；点哪个只出哪个包的源，再点一次或点“全部”回到
+        // 全部本地源；与类型筛选可叠加；只筛选列表，不触发换源（点卡片才切换）。
+        if (originFilter == "local" && zipNames.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = V5.Gutter),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                item {
+                    V5Chip(
+                        text = "全部",
+                        selected = zipFilter == null,
+                        onClick = { zipFilter = null },
+                        small = true,
+                    )
+                }
+                items(zipNames, key = { it }) { zipName ->
+                    V5Chip(
+                        text = zipDisplayName(zipName),
+                        selected = zipFilter == zipName,
+                        onClick = { zipFilter = if (zipFilter == zipName) null else zipName },
                         small = true,
                     )
                 }
@@ -1241,6 +1286,10 @@ private data class PickerItem(
 
 /** v1.1.14：四组展示的一组——标题已带数量（如“本地源（12）”），空组不进列表。 */
 private data class PickerGroup(val title: String, val items: List<PickerItem>)
+
+/** v1.1.15：压缩包胶囊显示名——去掉 .zip 后缀（大小写不敏感）。 */
+private fun zipDisplayName(zipName: String): String =
+    if (zipName.endsWith(".zip", ignoreCase = true)) zipName.dropLast(4) else zipName
 
 /**
  * v1.1.14：按 id 前缀把过滤后的条目分四组，组内顺序不变；

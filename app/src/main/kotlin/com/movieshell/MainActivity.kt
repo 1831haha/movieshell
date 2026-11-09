@@ -451,7 +451,7 @@ class MainActivity : ComponentActivity() {
 
                 // v0.279.0 底栏 B：底栏改居中浮动胶囊，浮在内容上方（不再占 Scaffold
                 // bottomBar 的高度）；内容从底栏下面滚过，底部 100dp 淡出。tab 页的滚动
-                // 内容底部留白由 LocalDockClearance 提供（78dp + 迷你播放条实测高度）。
+                // 内容底部留白由 LocalDockClearance 提供（64dp + 迷你播放条实测高度）。
                 // 非 tab 页（音乐子页等）没有底栏，迷你播放条照旧放 bottomBar 占位。
                 var miniPlayerHeightPx by remember { mutableStateOf(0) }
                 val miniPlayerHeight = with(density) { miniPlayerHeightPx.toDp() }

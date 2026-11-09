@@ -1,6 +1,10 @@
 package com.movieshell.ui.components
 
+import android.animation.ValueAnimator
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -40,6 +44,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -51,20 +57,28 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.layout
@@ -80,6 +94,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.movieshell.ui.theme.V5
 import com.movieshell.ui.theme.V5Motion
 import com.movieshell.ui.theme.artBrush
@@ -693,9 +710,11 @@ data class V5NavItem(
 )
 
 /**
- * M3 NavigationBar（design-tokens 第 5 节）：80dp、surfaceContainer 底；
- * 选中项 64×32 secondaryContainer 胶囊指示器 + 实心图标，标签 12sp（选中 onSurface 粗体，未选 onSurfaceVariant）。
+ * M3 NavigationBar（design-tokens 第 5 节）：64dp、surfaceContainer 底；
+ * 选中项 56×28 secondaryContainer 胶囊指示器 + 实心图标，标签 12sp（选中 onSurface 粗体，未选 onSurfaceVariant）。
  * 自绘而不用 NavigationBarItem：要保留首页 tab 长按刷新与切换轻触觉。
+ * v1.1.15：未选中图标 tint 改 onSurface 提亮；选中 tab 图标切过来时跑一次
+ * 流光（齿轮绕一圈、其余从下往上扫），跑完停，减动效时不跑。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -709,6 +728,18 @@ fun V5NavigationBar(
 ) {
     val cs = MaterialTheme.colorScheme
     val haptic = LocalHapticFeedback.current
+    val reducedMotion = rememberReducedMotion()
+    // v1.1.15：流光只在选中变化时跑一次——首帧不跑（进页不算切换），
+    // 之后 selectedIndex 每变一次 token 加一，选中项的图标重跑一遍。
+    var shineToken by remember { mutableStateOf(0) }
+    var firstSelection by remember { mutableStateOf(true) }
+    LaunchedEffect(selectedIndex) {
+        if (firstSelection) {
+            firstSelection = false
+        } else {
+            shineToken++
+        }
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -754,19 +785,21 @@ fun V5NavigationBar(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(width = 64.dp, height = 32.dp)
+                        .size(width = 56.dp, height = 28.dp)
                         .clip(RoundedCornerShape(50))
                         .background(indicator),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = if (selected) item.selectedIcon else item.icon,
-                        contentDescription = null,
-                        tint = if (selected) cs.onSecondaryContainer else cs.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp),
+                    NavTabIcon(
+                        item = item,
+                        selected = selected,
+                        tint = if (selected) cs.onSecondaryContainer else cs.onSurface,
+                        shineColor = cs.primary,
+                        shineToken = shineToken,
+                        reducedMotion = reducedMotion,
                     )
                 }
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(2.dp))
                 Text(
                     item.label,
                     style = MaterialTheme.typography.labelMedium,
@@ -775,6 +808,117 @@ fun V5NavigationBar(
                     maxLines = 1,
                     softWrap = false,
                 )
+            }
+        }
+    }
+}
+
+/** v1.1.15：系统减动效——照抄音乐播放页 rememberReducedMotion（v0.248.0）：
+ * 用平台标准接口（动画时长缩放为 0 或无障碍移除动画时均返回 false），
+ * 进页读一次、每次回到前台重读；开启时底栏流光全部静态，图标只提亮。 */
+@Composable
+private fun rememberReducedMotion(): Boolean {
+    var reducedMotion by remember { mutableStateOf(!ValueAnimator.areAnimatorsEnabled()) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                reducedMotion = !ValueAnimator.areAnimatorsEnabled()
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    return reducedMotion
+}
+
+/**
+ * v1.1.15：底栏 tab 图标（含选中流光）。
+ *
+ * 扫光（非齿轮）：光带沿图标字形从下往上扫一次（约 1.2 秒）。
+ * 绘制路：图标先画进离屏层（graphicsLayer Offscreen），再在同一层里用
+ * SrcAtop 画一道竖向渐变光带——SrcAtop 只在已有图标像素处落色，图标
+ * 底色不动，光带形状自然跟字形走；层外（胶囊底）不受影响。
+ * 轨道光点（齿轮）：光点沿齿轮外缘转一圈（约 2.2 秒，FastOutSlowIn
+ * 先快后慢、转完放缓停下），光晕是两层淡色同心圆 + 白色实心点，画在
+ * 图标上层。
+ * 两路都只在 shineToken 变化（即选中变化）时跑一次，跑完进度停在 1
+ * 不再绘制；减动效时不跑，图标只提亮、静态。
+ */
+@Composable
+private fun NavTabIcon(
+    item: V5NavItem,
+    selected: Boolean,
+    tint: Color,
+    shineColor: Color,
+    shineToken: Int,
+    reducedMotion: Boolean,
+) {
+    // 设置 tab 认图标本身（Outlined.Settings / Filled.Settings），不认下标。
+    val isGear = item.icon == Icons.Outlined.Settings ||
+        item.selectedIcon == Icons.Filled.Settings
+    val sweep = remember { Animatable(0f) }
+    val orbit = remember { Animatable(0f) }
+    LaunchedEffect(shineToken) {
+        if (shineToken == 0 || !selected || reducedMotion) return@LaunchedEffect
+        if (isGear) {
+            orbit.snapTo(0f)
+            orbit.animateTo(1f, tween(2200, easing = FastOutSlowInEasing))
+        } else {
+            sweep.snapTo(0f)
+            sweep.animateTo(1f, tween(1200, easing = LinearEasing))
+        }
+    }
+    Box(
+        modifier = Modifier.size(22.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = if (selected) item.selectedIcon else item.icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier
+                .size(22.dp)
+                .then(
+                    if (selected && !isGear && !reducedMotion) {
+                        Modifier
+                            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                            .drawWithContent {
+                                drawContent()
+                                val p = sweep.value
+                                if (p > 0f && p < 1f) {
+                                    val band = size.height * 0.5f
+                                    val cy = size.height * (1f - p)
+                                    drawRect(
+                                        brush = Brush.linearGradient(
+                                            colors = listOf(
+                                                Color.Transparent,
+                                                shineColor,
+                                                Color.Transparent,
+                                            ),
+                                            start = Offset(0f, cy + band / 2f),
+                                            end = Offset(0f, cy - band / 2f),
+                                        ),
+                                        blendMode = BlendMode.SrcAtop,
+                                    )
+                                }
+                            }
+                    } else Modifier,
+                ),
+        )
+        // 齿轮轨道光点：画在图标上层，进度到 1 即停，不再绘制。
+        val o = orbit.value
+        if (selected && isGear && !reducedMotion && o > 0f && o < 1f) {
+            Canvas(Modifier.size(22.dp)) {
+                val r = size.minDimension / 2f * 0.92f
+                val angle = Math.toRadians((o * 360f - 90f).toDouble())
+                val center = Offset(
+                    size.width / 2f + r * Math.cos(angle).toFloat(),
+                    size.height / 2f + r * Math.sin(angle).toFloat(),
+                )
+                drawCircle(shineColor.copy(alpha = 0.15f), radius = 4.dp.toPx(), center = center)
+                drawCircle(shineColor.copy(alpha = 0.3f), radius = 2.5.dp.toPx(), center = center)
+                drawCircle(Color.White, radius = 1.6.dp.toPx(), center = center)
             }
         }
     }

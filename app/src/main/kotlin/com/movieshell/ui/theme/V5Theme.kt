@@ -52,10 +52,10 @@ object V5 {
     val ListItemTwoLine: Dp = 72.dp
     val RowChannel: Dp = 72.dp
     val RowTrack: Dp = 56.dp
-    val NavBar: Dp = 80.dp
+    val NavBar: Dp = 64.dp
 
     /** tab 页滚动内容的底部留白 = NavigationBar 高度（底栏不再浮动，不需要淡出区）。 */
-    val DockClearance: Dp = 80.dp
+    val DockClearance: Dp = 64.dp
 
     /** 状态栏下方留白（设置 / 直播 无顶栏，内容从状态栏 + 8dp 开始）。 */
     val StatusGap: Dp = 8.dp
