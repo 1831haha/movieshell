@@ -121,6 +121,7 @@ import com.movieshell.data.store.TrashStore
 import com.movieshell.data.sync.WarehouseSync
 import com.movieshell.data.source_mgr.WebSourceManager
 import com.movieshell.data.source_mgr.WebParseSourceManager
+import com.movieshell.data.source_mgr.ZipPySourceStore
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppCard
@@ -503,6 +504,8 @@ fun SourcesScreen(
     // 各 tab 的真实数据
     val drpyRules = remember { mutableStateListOf<RuleInfo>() }
     val pyRules = remember { mutableStateListOf<RuleInfo>() }
+    // v1.1.14：压缩包里的 PY 源（A 组 PySourceManager.listZipRules 供给）
+    val zipRules = remember { mutableStateListOf<RuleInfo>() }
     val phpEntries = remember { mutableStateListOf<SourceEntry>() }
     val webSites = remember { mutableStateListOf<WebSourceManager.WebSite>() }
     val webParseSites = remember { mutableStateListOf<WebParseSourceManager.WebParseSite>() }
@@ -659,6 +662,14 @@ fun SourcesScreen(
         }
     }
 
+    fun refreshZipRules() {
+        refreshScope.launch {
+            val rules = withContext(Dispatchers.IO) { PySourceManager.listZipRules() }
+            zipRules.clear()
+            zipRules.addAll(rules)
+        }
+    }
+
     fun refreshPhpEntries() {
         refreshScope.launch {
             val entries = withContext(Dispatchers.IO) {
@@ -780,7 +791,7 @@ fun SourcesScreen(
         }
     }
 
-    fun activatePy(name: String) {
+    fun activatePy(name: String, displayName: String? = null) {
         // v0.271.0（T25）：回滚里的 Drpy 恢复走 suspend 版。
         switchJob?.cancel()
         switchJob = refreshScope.launch {
@@ -803,7 +814,7 @@ fun SourcesScreen(
         SourceStateStore.setRuleEnabled(context, TAB_PY, name, true)
         SourceStateStore.saveActiveRule(context, TAB_PY, name)
         refreshPyRules()
-        AppToast.show(context, "已切换为 $name", long = false)
+        AppToast.show(context, "已切换为 ${displayName ?: name}", long = false)
         }
     }
 
@@ -975,6 +986,24 @@ fun SourcesScreen(
         )
     }
 
+    /** v1.1.14：删除压缩包整包（含其中全部源），确认弹窗在外层，删完刷新压缩包组。 */
+    fun deleteZip(zipName: String) {
+        refreshScope.launch {
+            val ok = withContext(Dispatchers.IO) { ZipPySourceStore.deleteZip(context, zipName) }
+            if (ok) {
+                AppToast.show(context, "已删除 $zipName", long = false)
+            } else {
+                AppToast.show(context, "删除失败", long = false)
+            }
+            refreshZipRules()
+        }
+    }
+
+    /** v1.1.14：压缩包条目启停——身份串直接当键，口径与本地 PY 行一致。 */
+    fun toggleZipRuleEnabled(identity: String, enabled: Boolean) {
+        SourceStateStore.setRuleEnabled(context, TAB_PY, identity, enabled)
+    }
+
     // ---------- 置顶 ----------
     fun togglePin(item: GridFileItem) {
         val tabPins = pins.getOrPut(item.kind) { mutableListOf() }
@@ -992,6 +1021,8 @@ fun SourcesScreen(
     var menuItem by remember { mutableStateOf<GridFileItem?>(null) }
     var infoItem by remember { mutableStateOf<GridFileItem?>(null) }
     var deleteItemState by remember { mutableStateOf<GridFileItem?>(null) }
+    // v1.1.14：待删压缩包（zip 文件名），弹窗确认后调 ZipPySourceStore.deleteZip，整包删除
+    var pendingDeleteZip by remember { mutableStateOf<String?>(null) }
     // v0.108.0：订阅删除二次确认（挂起的待删订阅，弹窗确认后才进回收站）
     var pendingDeleteSub by remember { mutableStateOf<SourceEntry?>(null) }
     // v0.112.0：订阅级备注/分组编辑（挂起的待编辑订阅）
@@ -1054,9 +1085,27 @@ fun SourcesScreen(
         importLauncher.launch("*/*")
     }
 
+    // v1.1.14：压缩包导入——选 .zip 文件走 ZipPySourceStore.importZip，成功按
+    // 导入源数 Toast 并刷新压缩包组，失败 Toast 原因；入口在本地源导入行。
+    val zipImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        refreshScope.launch {
+            val result = withContext(Dispatchers.IO) { ZipPySourceStore.importZip(context, uri) }
+            if (result.ok) {
+                AppToast.show(context, "已导入 ${result.count} 个源", long = false)
+            } else {
+                AppToast.show(context, result.reason ?: "导入失败", long = true)
+            }
+            refreshZipRules()
+        }
+    }
+
     LaunchedEffect(Unit) {
         refreshDrpyRules()
         refreshPyRules()
+        refreshZipRules()
         refreshPhpEntries()
         refreshWebSites()
         refreshWebParseSites()
@@ -1469,6 +1518,11 @@ fun SourcesScreen(
         val visibleLocal = localItems.filter {
             matchesSourceQuery(it.displayName, it.fileName, it.detail)
         }
+        // v1.1.14：压缩包的源——按 zip 文件名分组，搜索同样过滤，空组不显示；
+        // 当前激活态与本地 PY 同口径（订阅在用时本地规则都不算激活）
+        val visibleZipRules = zipRules.filter { matchesSourceQuery(it.title, it.name) }
+        val zipGroups = visibleZipRules.groupBy { it.name.removePrefix("zip:").substringBefore('!') }.toList()
+        val zipActive = if (SubSiteStore.getCurrent(context) != null) null else PySourceManager.activeRuleName()
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -1519,6 +1573,7 @@ fun SourcesScreen(
                         AppButton(text = "PHP", onClick = { requestImport(IMPORT_PHP) }, variant = AppButtonVariant.Ghost)
                     }
                 }
+                AppButton(text = "压缩包", onClick = { zipImportLauncher.launch("application/zip") }, variant = AppButtonVariant.Ghost)
             }
         }
         if (visibleLocal.isEmpty()) {
@@ -1552,6 +1607,39 @@ fun SourcesScreen(
                     }
                     if (pair.size == 1) {
                         Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+        // ===== 压缩包的源 =====
+        if (zipGroups.isNotEmpty()) {
+            item {
+                V5SectionTitle(title = "压缩包的源 · ${visibleZipRules.size} 个")
+            }
+            item {
+                Text(
+                    text = "压缩包里的 PY 源直接用，不解压；点行切换，开关启停与本地 PY 行一致",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            zipGroups.forEach { (zipName, rules) ->
+                item(key = "zip:$zipName") {
+                    ZipHeaderRow(
+                        zipName = zipName,
+                        count = rules.size,
+                        onDelete = { pendingDeleteZip = zipName },
+                    )
+                }
+                rules.forEach { rule ->
+                    item(key = "zip-rule:${rule.name}") {
+                        ZipRuleRow(
+                            rule = rule,
+                            isActive = rule.name == zipActive,
+                            enabled = !disabledRules.getOrDefault(TAB_PY, emptySet()).contains(rule.name),
+                            onClick = { activatePy(rule.name, rule.title.ifBlank { rule.name }) },
+                            onToggleEnabled = { toggleZipRuleEnabled(rule.name, it) },
+                        )
                     }
                 }
             }
@@ -1783,6 +1871,24 @@ fun SourcesScreen(
         ) {
                 Text(
                     "将「${item.fileName}」移入回收站，可随时恢复。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+        }
+    }
+
+    // ---- v1.1.14：压缩包删除二次确认（整包删除，含其中全部源） ----
+    pendingDeleteZip?.let { zipName ->
+        TechDialog(
+            onDismissRequest = { pendingDeleteZip = null },
+            title = "删除压缩包",
+            confirmText = "删除",
+            onConfirm = {
+                pendingDeleteZip = null
+                deleteZip(zipName)
+            },
+        ) {
+                Text(
+                    "将「$zipName」及其中全部源删除。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
         }
@@ -2120,6 +2226,116 @@ private fun FileCard(
             AppSwitch(
                 checked = item.enabled,
                 onCheckedChange = { onToggleEnabled(item, it) },
+            )
+        }
+    }
+}
+
+/**
+ * v1.1.14：压缩包头行——zip 文件名 + 内含源数 + 删除按钮（删整包，确认弹窗在外层）。
+ */
+@Composable
+private fun ZipHeaderRow(
+    zipName: String,
+    count: Int,
+    onDelete: () -> Unit,
+) {
+    AppCard(
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.FolderOpen,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = zipName,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "$count 个源",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(4.dp))
+            IconButton(onClick = onDelete) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "删除压缩包",
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * v1.1.14：压缩包内单条源——缩进一行，徽标 PY + 名 + 当前勾 + 启停开关，
+ * 排版照抄 FileCard 单行紧凑卡；点按走 activatePy（身份串），长按菜单不给
+ * （身份串不是磁盘文件，预览/编辑/删除文件菜单对它无意义）。
+ */
+@Composable
+private fun ZipRuleRow(
+    rule: RuleInfo,
+    isActive: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    onToggleEnabled: (Boolean) -> Unit,
+) {
+    AppCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp)
+            .alpha(if (enabled) 1f else 0.45f)
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+            ) {
+                Text(
+                    text = "PY",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = rule.title.ifBlank { rule.name },
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(4.dp))
+            if (isActive) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "当前使用",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Spacer(Modifier.width(2.dp))
+            AppSwitch(
+                checked = enabled,
+                onCheckedChange = onToggleEnabled,
             )
         }
     }

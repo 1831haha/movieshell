@@ -130,6 +130,25 @@ object PySourceManager {
         { f -> f.nameWithoutExtension },
     )
 
+    /** v1.1.14：压缩包源条目（pyzipDir 下全部 zip 的全部 .py 条目）。 */
+    fun listZipRules(): List<RuleInfo> {
+        val ctx = appContext ?: return emptyList()
+        return ZipPySourceStore.listZipRules(ctx)
+    }
+
+    /**
+     * v1.1.14：规则是否存在。zip 身份解析后校验 zip 文件存在且包里有该条目；
+     * 否则按原路校验 pyDir 下文件存在。
+     */
+    fun ruleExists(name: String): Boolean {
+        if (ZipPySourceStore.isZipIdentity(name)) {
+            val ctx = appContext ?: return false
+            return ZipPySourceStore.zipEntryExists(ctx, name)
+        }
+        val dir = rulesDirOrNull() ?: return false
+        return File(dir, name).isFile
+    }
+
     fun activeRuleName(): String? = activeName
 
     /** v0.291.0：proxy:// 封面取图用——返回当前激活 PY 规则的可信副本路径（与调规则同一路径）。 */
@@ -141,6 +160,18 @@ object PySourceManager {
     /** v0.215.0：同 drpy——先验文件存在再动当前态，返回是否切源成功。 */
     fun setActiveRule(name: String?): Boolean {
         if (name == activeName) return true
+        // v1.1.14：zip 身份先走 ruleExists 校验，通过直接设 activeName，
+        // 不走 ExecutableTrust、不读文件；失败返回 false。
+        if (name != null && ZipPySourceStore.isZipIdentity(name)) {
+            if (!ruleExists(name)) {
+                Log.w(TAG, "压缩包规则不存在: $name")
+                return false
+            }
+            readScope.coroutineContext[Job]?.cancelChildren()
+            activeName = name
+            Log.i(TAG, "active PY 规则: $name")
+            return true
+        }
         if (name != null) {
             val probe = File(rulesDirOrNull() ?: return false, name)
             if (!probe.isFile) {
@@ -167,8 +198,18 @@ object PySourceManager {
     }
 
     private fun activeRulePath(): String? {
-        val dir = rulesDirOrNull() ?: return null
         val name = activeName ?: return null
+        // v1.1.14：zip 身份返回桥态 "zip:<zip 绝对路径>!<entry 路径>"，不走可信副本。
+        if (ZipPySourceStore.isZipIdentity(name)) {
+            val ctx = appContext ?: return null
+            val (zipName, entry) = ZipPySourceStore.parseIdentity(name) ?: return null
+            if (zipName.contains('/') || zipName.contains('\\')) return null
+            return ZipPySourceStore.bridgeIdentity(
+                File(StoragePaths.pyzipDir(ctx), zipName).absolutePath,
+                entry,
+            )
+        }
+        val dir = rulesDirOrNull() ?: return null
         val ctx = appContext ?: return null
         // S2：后台执行读私有可信副本；公开文件被改写后返回旧副本，
         // 可信副本也不可信时返回 null，调用方按无规则处理，不读公开文件。

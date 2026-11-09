@@ -124,7 +124,7 @@ object SourceStateStore {
         val name = prefs.getString(KEY_ACTIVE_NAME, null) ?: return
         val exists = when (kind) {
             "js" -> DrpySourceManager.listRules().any { it.name == name }
-            "py" -> PySourceManager.listRules().any { it.name == name }
+            "py" -> PySourceManager.ruleExists(name)
             "php" -> PhpSourceManager.listRules().any { it.name == name }
             "webparse" -> WebParseSourceManager.listSites().any { it.fileName == name }
             else -> false

@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -35,6 +36,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
@@ -70,6 +72,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import coil.compose.AsyncImage
 import com.movieshell.data.source_mgr.ApiSource
 import com.movieshell.data.store.RuleInfo
@@ -79,6 +83,7 @@ import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.data.source_mgr.WebParseSourceManager
+import com.movieshell.data.source_mgr.ZipPySourceStore
 import com.movieshell.data.store.SourceStateStore
 import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.source_mgr.SubCurrent
@@ -131,6 +136,8 @@ fun SourcePickerSheet(
     var drpyRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
     var pyRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
     var phpRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
+    // v1.1.14：压缩包里的 PY 源（A 组 PySourceManager.listZipRules 供给）
+    var zipRules by remember { mutableStateOf<List<RuleInfo>>(emptyList()) }
     var drpyHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     var pyHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     var phpHosts by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
@@ -162,9 +169,11 @@ fun SourcePickerSheet(
         val newDrpy = DrpySourceManager.listRules()
         val newPy = PySourceManager.listRules()
         val newPhp = PhpSourceManager.listRules()
+        val newZip = PySourceManager.listZipRules()
         drpyRules = newDrpy
         pyRules = newPy
         phpRules = newPhp
+        zipRules = newZip
         drpyActiveName = DrpySourceManager.activeRuleName()
         pyActiveName = PySourceManager.activeRuleName()
         phpActiveName = PhpSourceManager.activeRuleName()
@@ -190,6 +199,7 @@ fun SourcePickerSheet(
         newDrpy.forEach { ids += "local-drpy:${it.name}" }
         newPy.forEach { ids += "local-py:${it.name}" }
         newPhp.forEach { ids += "local-php:${it.name}" }
+        newZip.forEach { ids += "local-zip:${it.name}" }
         webParseSites.forEach { ids += "local-webparse:${it.fileName}" }
         newSubSites.forEach { (sub, rec) -> ids += "sub:${sub.url}:${rec.key}" }
         ids.size
@@ -371,8 +381,23 @@ fun SourcePickerSheet(
         }
     }
 
+    // v1.1.14：压缩包导入——选 .zip 文件走 ZipPySourceStore.importZip，成功按
+    // 导入源数 Toast 并重读列表，失败 Toast 原因；入口在标题行刷新按钮旁。
+    val zipImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { ZipPySourceStore.importZip(context, uri) }
+            if (result.ok) {
+                AppToast.show(context, "已导入 ${result.count} 个源", long = false)
+            } else {
+                AppToast.show(context, result.reason ?: "导入失败", long = true)
+            }
+            reloadFromCache()
+        }
+    }
+
     // 统一条目：本地 drpy 规则 / 本地 py 规则 / 本地 php 规则 / 通用网页源 / 订阅站点
-    val items: List<PickerItem> = remember(cur, drpyRules, pyRules, phpRules, webParseSites, drpyHosts, pyHosts, phpHosts, drpyActiveName, pyActiveName, phpActiveName, webParseActiveName, subSites) {
+    val items: List<PickerItem> = remember(cur, drpyRules, pyRules, phpRules, zipRules, webParseSites, drpyHosts, pyHosts, phpHosts, drpyActiveName, pyActiveName, phpActiveName, webParseActiveName, subSites) {
         val list = mutableListOf<PickerItem>()
         drpyRules.forEach { rule ->
             val name = rule.title.ifBlank { rule.name }
@@ -401,6 +426,24 @@ fun SourcePickerSheet(
                     kind = SubSiteStore.KIND_PY,
                     logoUrl = siteLogoUrl(rule.name, name, null)
                         ?: host?.let { faviconUrlForHost(it) },
+                    isCurrent = cur == null && rule.name == pyActiveName,
+                    onPick = { pickLocal(false, rule.name) },
+                ),
+            )
+        }
+        // v1.1.14：压缩包里的 PY 源——kind 沿用 PY（走现成 PY 筛选 chip），
+        // 身份串直接当 fileName（搜索按它匹配）；点按复用 pickLocal(false, 身份)，
+        // PySourceManager.setActiveRule 接身份串切换，pyActiveName 命中即当前源。
+        // 压缩包内条目没有站点 host，logoUrl 传空走首字色块回退。
+        zipRules.forEach { rule ->
+            val name = rule.title.ifBlank { rule.name }
+            list.add(
+                PickerItem(
+                    id = "local-zip:${rule.name}",
+                    name = name,
+                    fileName = rule.name,
+                    kind = SubSiteStore.KIND_PY,
+                    logoUrl = null,
                     isCurrent = cur == null && rule.name == pyActiveName,
                     onPick = { pickLocal(false, rule.name) },
                 ),
@@ -530,6 +573,10 @@ fun SourcePickerSheet(
         }
     }
 
+    // v1.1.14：四组展示——本地源 / 订阅源 / 压缩包的源 / 网页源；组标题带数量，
+    // 空组不显示；来源胶囊、搜索、类型筛选先过滤，分组只对过滤后的 visible 再分。
+    val groupedVisible: List<PickerGroup> = remember(visible) { groupPickerItems(visible) }
+
     // v0.153.0：打开即定位到当前源。网格状态 + 只定位一次的标记（弹窗每次打开都是
     // 新组合，标记天然复位；搜索/筛选改动会取消在途滚动，标记只在滚动完成后才置位，
     // 避免一次取消就永久丢定位）。
@@ -537,10 +584,24 @@ fun SourcePickerSheet(
     // v0.294.2：列表三种排法（列表/宽卡/紧凑）也要知道是否在顶，供嵌套滚动守卫判断
     val listState = rememberLazyListState()
     var scrolledToCurrent by remember { mutableStateOf(false) }
-    LaunchedEffect(loading, visible) {
+    // v1.1.14：分组后网格里多了组头行，定位下标要把组头算进去（组头 1 行 + 组内条目）。
+    val currentGroupedIndex = remember(groupedVisible) {
+        var index = 0
+        var found = -1
+        for (group in groupedVisible) {
+            val within = group.items.indexOfFirst { it.isCurrent }
+            if (within >= 0) {
+                found = index + 1 + within
+                break
+            }
+            index += 1 + group.items.size
+        }
+        found
+    }
+    LaunchedEffect(loading, groupedVisible) {
         if (loading || scrolledToCurrent) return@LaunchedEffect
         if (query.isNotBlank() || kindFilter != null) return@LaunchedEffect
-        val index = visible.indexOfFirst { it.isCurrent }
+        val index = currentGroupedIndex
         if (index < 0) return@LaunchedEffect
         gridState.scrollToItem(index)
         scrolledToCurrent = true
@@ -588,6 +649,16 @@ fun SourcePickerSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = { zipImportLauncher.launch("application/zip") },
+                enabled = !loading,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.FolderOpen,
+                    contentDescription = "导入压缩包",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             IconButton(
                 onClick = { onRefreshClick() },
                 enabled = !refreshing && !loading,
@@ -802,8 +873,13 @@ fun SourcePickerSheet(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize().sheetListScrollGuard { gridState.canScrollBackward },
             ) {
-                items(visible, key = { it.id }) { item ->
-                    SourceCard2Col(item = item)
+                groupedVisible.forEach { group ->
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        PickerGroupHeader(title = group.title)
+                    }
+                    items(group.items, key = { it.id }) { item ->
+                        SourceCard2Col(item = item)
+                    }
                 }
             }
         } else if (layoutMode == 1) {
@@ -820,8 +896,13 @@ fun SourcePickerSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize().sheetListScrollGuard { gridState.canScrollBackward },
             ) {
-                items(visible, key = { it.id }) { item ->
-                    SourceGridCard(item = item)
+                groupedVisible.forEach { group ->
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        PickerGroupHeader(title = group.title)
+                    }
+                    items(group.items, key = { it.id }) { item ->
+                        SourceGridCard(item = item)
+                    }
                 }
             }
         } else if (layoutMode == 2) {
@@ -835,8 +916,11 @@ fun SourcePickerSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize().sheetListScrollGuard { listState.canScrollBackward },
             ) {
-                items(visible, key = { it.id }) { item ->
-                    SourceListRow(item = item)
+                groupedVisible.forEach { group ->
+                    item { PickerGroupHeader(title = group.title) }
+                    items(group.items, key = { it.id }) { item ->
+                        SourceListRow(item = item)
+                    }
                 }
             }
         } else if (layoutMode == 3) {
@@ -850,8 +934,11 @@ fun SourcePickerSheet(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize().sheetListScrollGuard { listState.canScrollBackward },
             ) {
-                items(visible, key = { it.id }) { item ->
-                    SourceWideCard(item = item)
+                groupedVisible.forEach { group ->
+                    item { PickerGroupHeader(title = group.title) }
+                    items(group.items, key = { it.id }) { item ->
+                        SourceWideCard(item = item)
+                    }
                 }
             }
         } else if (layoutMode == 4) {
@@ -867,8 +954,13 @@ fun SourcePickerSheet(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize().sheetListScrollGuard { gridState.canScrollBackward },
             ) {
-                items(visible, key = { it.id }) { item ->
-                    SourceGridCard(item = item)
+                groupedVisible.forEach { group ->
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        PickerGroupHeader(title = group.title)
+                    }
+                    items(group.items, key = { it.id }) { item ->
+                        SourceGridCard(item = item)
+                    }
                 }
             }
         } else {
@@ -882,8 +974,11 @@ fun SourcePickerSheet(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxSize().sheetListScrollGuard { listState.canScrollBackward },
             ) {
-                items(visible, key = { it.id }) { item ->
-                    SourceCompactRow(item = item)
+                groupedVisible.forEach { group ->
+                    item { PickerGroupHeader(title = group.title) }
+                    items(group.items, key = { it.id }) { item ->
+                        SourceCompactRow(item = item)
+                    }
                 }
             }
         }
@@ -905,9 +1000,13 @@ private fun kindLabel(kind: String): String = when (kind) {
  * v0.182.0：卡片第二行不编假数据。截图里“响应速度：秒播/极速”那行，
  * 咱们源里根本没有测速字段，编一个就是假的；这里只写真实有的：
  * 本地规则 / 订阅站源 + 是不是当前源。
+ * v1.1.14：压缩包里的源单标“压缩包的源”，与四组分组头口径一致。
  */
-private fun originLabel(id: String): String =
-    if (id.startsWith("sub:")) "订阅站源" else "本地规则"
+private fun originLabel(id: String): String = when {
+    id.startsWith("sub:") -> "订阅站源"
+    id.startsWith("local-zip:") -> "压缩包的源"
+    else -> "本地规则"
+}
 
 /**
  * v0.218.0（S2）：源卡片共用外框——原来 5 套卡片各抄一遍“当前源描边 +
@@ -1139,6 +1238,49 @@ private data class PickerItem(
     val unsupportedReason: String? = null,
     val onPick: () -> Unit,
 )
+
+/** v1.1.14：四组展示的一组——标题已带数量（如“本地源（12）”），空组不进列表。 */
+private data class PickerGroup(val title: String, val items: List<PickerItem>)
+
+/**
+ * v1.1.14：按 id 前缀把过滤后的条目分四组，组内顺序不变；
+ * 组顺序固定：本地源 / 订阅源 / 压缩包的源 / 网页源。
+ */
+private fun groupPickerItems(visible: List<PickerItem>): List<PickerGroup> {
+    val local = mutableListOf<PickerItem>()
+    val sub = mutableListOf<PickerItem>()
+    val zip = mutableListOf<PickerItem>()
+    val web = mutableListOf<PickerItem>()
+    visible.forEach { item ->
+        when {
+            item.id.startsWith("local-zip:") -> zip += item
+            item.id.startsWith("local-webparse:") -> web += item
+            item.id.startsWith("sub:") -> sub += item
+            else -> local += item
+        }
+    }
+    return listOf(
+        "本地源" to local,
+        "订阅源" to sub,
+        "压缩包的源" to zip,
+        "网页源" to web,
+    ).mapNotNull { (title, items) ->
+        if (items.isEmpty()) null else PickerGroup("$title（${items.size}）", items)
+    }
+}
+
+/** v1.1.14：四组分组头——小字主色标题，网格里占满整行。 */
+@Composable
+private fun PickerGroupHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+    )
+}
 
 /** 4 列网格里的单个源卡片：图标 + 名。v0.140.0：方形紧凑（圆角收至 14dp，间距收紧）。 */
 @Composable

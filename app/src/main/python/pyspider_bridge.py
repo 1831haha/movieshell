@@ -17,6 +17,8 @@ import json
 import re
 import sys
 import traceback
+import types
+import zipfile
 
 _spiders = {}
 
@@ -134,10 +136,77 @@ def _install_resp_sniffer():
 _install_resp_sniffer()
 
 
+def _find_spider_class(module):
+    """找模块内定义的 Spider 子类（排除 import 进来的基类本身）。"""
+    for name in dir(module):
+        obj = getattr(module, name, None)
+        if (
+            isinstance(obj, type)
+            and getattr(obj, "__module__", None) == module.__name__
+            and hasattr(obj, "homeContent")
+        ):
+            return obj
+    return None
+
+
+def _instantiate_spider(module, rule_path):
+    """按找到的 Spider 子类实例化（init 失败吞掉，与原路同款）。"""
+    spider_cls = _find_spider_class(module)
+    if spider_cls is None:
+        raise ImportError("规则文件里没有找到 Spider 子类: %s" % rule_path)
+    inst = spider_cls()
+    try:
+        inst.init("")
+    except Exception:
+        pass
+    return inst
+
+
+def _load_spider_zip(rule_path):
+    """从压缩包条目加载 Spider（v1.1.14：压缩包源永远不解压）。
+
+    桥态身份：zip:<zip 绝对路径>!<entry 路径>，缓存键就是该身份串。
+    """
+    if rule_path in _spiders:
+        return _spiders[rule_path]
+    rest = rule_path[4:]
+    bang = rest.find("!")
+    if bang <= 0:
+        raise ImportError("压缩包规则身份不对：%s" % rule_path)
+    zip_path = rest[:bang]
+    entry_path = rest[bang + 1:]
+    if not entry_path:
+        raise ImportError("压缩包规则身份不对：%s" % rule_path)
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            code_bytes = zf.read(entry_path)
+    except Exception as e:
+        raise ImportError("压缩包规则读不出来：%s（%s）" % (rule_path, e))
+    code = None
+    for enc in ("utf-8", "gbk"):
+        try:
+            code = code_bytes.decode(enc)
+            break
+        except Exception:
+            continue
+    if code is None:
+        raise ImportError("压缩包规则解码失败：%s" % rule_path)
+    mod_name = "ms_zip_%d" % (abs(hash(rule_path)) % (10 ** 8))
+    module = types.ModuleType(mod_name)
+    module.__file__ = rule_path
+    sys.modules[mod_name] = module
+    exec(compile(code, rule_path, "exec"), module.__dict__)
+    inst = _instantiate_spider(module, rule_path)
+    _spiders[rule_path] = inst
+    return inst
+
+
 def _load_spider(rule_path):
     """加载规则文件并实例化 Spider（带缓存）。"""
     if rule_path in _spiders:
         return _spiders[rule_path]
+    if rule_path.startswith("zip:"):
+        return _load_spider_zip(rule_path)
     mod_name = "ms_rule_%d" % (abs(hash(rule_path)) % (10 ** 8))
     # v0.294.22：可信副本偶发无 .py 后缀时，spec_from_file_location 在 Chaquopy 上返回 None；
     # 改用 SourceFileLoader 按路径硬加载，不依赖后缀。
@@ -155,25 +224,7 @@ def _load_spider(rule_path):
     sys.modules[mod_name] = module
     spec.loader.exec_module(module)
 
-    spider_cls = None
-    # 优先找模块内定义的 Spider 子类（排除 import 进来的基类本身）
-    for name in dir(module):
-        obj = getattr(module, name, None)
-        if (
-            isinstance(obj, type)
-            and getattr(obj, "__module__", None) == module.__name__
-            and hasattr(obj, "homeContent")
-        ):
-            spider_cls = obj
-            break
-    if spider_cls is None:
-        raise ImportError("规则文件里没有找到 Spider 子类: %s" % rule_path)
-
-    inst = spider_cls()
-    try:
-        inst.init("")
-    except Exception:
-        pass
+    inst = _instantiate_spider(module, rule_path)
     _spiders[rule_path] = inst
     return inst
 
@@ -273,6 +324,23 @@ def reset(rule_path=""):
     else:
         _spiders.clear()
         _book_spiders.clear()
+    return _to_json({"ok": True})
+
+
+def reset_zip(zip_name):
+    """清掉指定压缩包内全部条目的桥缓存（v1.1.14：zip 导入覆盖/删除后调用）。
+
+    缓存键是桥态身份串，zip 部分在感叹号之前，取 basename 与 zip_name 比。
+    """
+    import os
+
+    doomed = [
+        k for k in list(_spiders)
+        if k.startswith("zip:") and os.path.basename(k[4:].split("!", 1)[0]) == zip_name
+    ]
+    for k in doomed:
+        _spiders.pop(k, None)
+        _book_spiders.pop(k, None)
     return _to_json({"ok": True})
 
 

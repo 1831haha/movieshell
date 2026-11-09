@@ -80,6 +80,8 @@ object StoragePaths {
 
     fun jsDir(context: Context): File = File(baseDir(context), "js").also { it.mkdirs() }
     fun pyDir(context: Context): File = File(baseDir(context), "py").also { it.mkdirs() }
+    /** v1.1.14：压缩包源存放目录（xiaying/pyzip/，只存 .zip，永远不解压）。 */
+    fun pyzipDir(context: Context): File = File(baseDir(context), "pyzip").also { it.mkdirs() }
     fun phpDir(context: Context): File = File(baseDir(context), "php").also { it.mkdirs() }
     fun webDir(context: Context): File = File(baseDir(context), "web").also { it.mkdirs() }
     fun webParseDir(context: Context): File = File(baseDir(context), "webparse").also { it.mkdirs() }
@@ -196,6 +198,7 @@ object StoragePaths {
         jsDir(context),
         File(jsDir(context), "subs").also { it.mkdirs() },
         pyDir(context),
+        pyzipDir(context),
         File(pyDir(context), "book").also { it.mkdirs() },
         File(pyDir(context), "subs").also { it.mkdirs() },
         phpDir(context),

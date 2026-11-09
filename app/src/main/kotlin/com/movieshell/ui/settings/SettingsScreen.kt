@@ -468,6 +468,12 @@ fun SettingsScreen(
         // 3. 外观
         item { SettingsCaption("外观") }
         item {
+            // v1.1.14：分组收进圆角卡片——每组一个 AppCard（24dp），组内行内容与顺序原样
+            AppCard(
+                shape = RoundedCornerShape(V5.CornerCard),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             // v0.294.11：主题模式与主题色合并为一个「主题」入口（用户要求），点开一个面板里同时选
             val colorSource by ThemeStore.source.collectAsState()
             val modeLabel = when (themeMode) {
@@ -491,8 +497,6 @@ fun SettingsScreen(
                 subtitle = "$modeLabel · $colorLabel",
                 onClick = { showThemeDialog = true },
             )
-        }
-        item {
             // v0.82.0：背景底图
             SegItem(
                 position = SegPos.Last,
@@ -504,10 +508,17 @@ fun SettingsScreen(
                     else bgPicker.launch("image/*")
                 },
             )
+                }
+            }
         }
         // 4. 播放 · 解析
         item { SettingsCaption("播放 · 解析") }
         item {
+            AppCard(
+                shape = RoundedCornerShape(V5.CornerCard),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             // v0.20.0：播放器内核——Media3（默认）/ libmpv；v0.29.0：libmpv 插件化，未安装时标注
             SegItem(
                 position = SegPos.First,
@@ -520,8 +531,6 @@ fun SettingsScreen(
                 },
                 onClick = { showEngineDialog = true },
             )
-        }
-        item {
             // v0.27.7：重力感应自动横屏（默认开）
             SegItem(
                 position = SegPos.Middle,
@@ -536,8 +545,6 @@ fun SettingsScreen(
                     )
                 },
             )
-        }
-        item {
             // v0.294.5：直播自动播放——始终 / 仅 Wi‑Fi / 关闭；点整行弹紧凑下拉选
             val labels = listOf("始终", "仅 Wi‑Fi", "关闭")
             SegItem(
@@ -577,10 +584,17 @@ fun SettingsScreen(
                     }
                 },
             )
+                }
+            }
         }
         // 5. 数据
         item { SettingsCaption("数据") }
         item {
+            AppCard(
+                shape = RoundedCornerShape(V5.CornerCard),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             // v0.46.0：订阅自动刷新开关
             SegItem(
                 position = SegPos.First,
@@ -604,8 +618,6 @@ fun SettingsScreen(
                     )
                 },
             )
-        }
-        item {
             SegItem(
                 position = SegPos.Middle,
                 icon = Icons.Outlined.NotificationsActive,
@@ -628,8 +640,6 @@ fun SettingsScreen(
                     )
                 },
             )
-        }
-        item {
             // v0.51.0：WebDAV 云同步；v0.186.0：范围是订阅、追剧、书架、音乐、直播，不含插件与设置
             val cloudConfigured = CloudSyncManager.isConfigured(context)
             SegItem(
@@ -642,8 +652,6 @@ fun SettingsScreen(
                     showCloudDialog = true
                 },
             )
-        }
-        item {
             // v1.0.9：AI 助手——源坏了检测完一键修；先在这里选 AI、填 Key
             val aiProvider = AiRepairSettings.provider(context)
             val aiConfigured = AiRepairSettings.apiKey(context).isNotBlank()
@@ -654,8 +662,6 @@ fun SettingsScreen(
                 subtitle = if (aiConfigured) "${aiProvider.name} · 已填 Key" else "未配置 · DeepSeek / 豆包 / 千问…",
                 onClick = { showAiDialog = true },
             )
-        }
-        item {
             // v1.1.3：打开对话——和 AI 接着聊写源、修源，可粘贴日志
             SegItem(
                 position = SegPos.Middle,
@@ -664,8 +670,6 @@ fun SettingsScreen(
                 subtitle = "和 AI 接着聊写源、修源，可粘贴日志",
                 onClick = onAiChatClick,
             )
-        }
-        item {
             SegItem(
                 position = SegPos.Middle,
                 icon = Icons.Outlined.Backup,
@@ -680,8 +684,6 @@ fun SettingsScreen(
                     )
                 },
             )
-        }
-        item {
             AnimatedVisibility(visible = backupExpanded) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     SegItem(
@@ -727,8 +729,6 @@ fun SettingsScreen(
                     }
                 }
             }
-        }
-        item {
             SegItem(
                 position = SegPos.Middle,
                 icon = Icons.Outlined.Downloading,
@@ -744,8 +744,6 @@ fun SettingsScreen(
                     Text("$maxParallel", style = MaterialTheme.typography.titleMedium, color = cs.primary)
                 },
             )
-        }
-        item {
             SegItem(
                 position = SegPos.Middle,
                 icon = Icons.Outlined.CleaningServices,
@@ -753,8 +751,6 @@ fun SettingsScreen(
                 subtitle = "$cacheSize · 视频分片 + 图片缓存",
                 onClick = { showClearCacheDialog = true },
             )
-        }
-        item {
             // v0.294.26：磁力缓存占用 + 清理；尾部点按循环切换上限
             SegItem(
                 position = SegPos.Middle,
@@ -772,8 +768,6 @@ fun SettingsScreen(
                     }) { Text("上限 ${magnetCap}GB", style = MaterialTheme.typography.labelLarge) }
                 },
             )
-        }
-        item {
             // v0.294.32：磁力引擎优先级（迅雷优先 / BT 优先），失败自动换另一个
             var prefer by remember { mutableStateOf(com.movieshell.player.EnginePlugins.prefer(context)) }
             val bt = com.movieshell.player.EnginePlugins.btInstalled(context)
@@ -792,8 +786,6 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.labelLarge, color = cs.primary)
                 },
             )
-        }
-        item {
             // v0.188.0：旧字幕 key 清理入口——点开先说明条数，确认后才删
             SegItem(
                 position = SegPos.Last,
@@ -805,10 +797,17 @@ fun SettingsScreen(
                     showClearLegacySubtitleDialog = true
                 },
             )
+                }
+            }
         }
         // 6. 插件（289：“插件市场源”占位格已删，插件中心只剩工具磁贴一个入口）
         item { SettingsCaption("插件") }
         item {
+            AppCard(
+                shape = RoundedCornerShape(V5.CornerCard),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             SegItem(
                 position = SegPos.Single,
                 icon = Icons.Outlined.Extension,
@@ -822,10 +821,17 @@ fun SettingsScreen(
                     )
                 },
             )
+                }
+            }
         }
         // 7. 帮助
         item { SettingsCaption("帮助") }
         item {
+            AppCard(
+                shape = RoundedCornerShape(V5.CornerCard),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             SegItem(
                 position = SegPos.First,
                 icon = Icons.Outlined.BugReport,
@@ -839,8 +845,6 @@ fun SettingsScreen(
                     )
                 },
             )
-        }
-        item {
             // v0.188.0：关于不可点，版本信息在副标题里展示
             SegItem(
                 position = SegPos.Middle,
@@ -855,8 +859,6 @@ fun SettingsScreen(
                     )
                 },
             )
-        }
-        item {
             // v0.30.0：更新日志独立入口
             SegItem(
                 position = SegPos.Last,
@@ -865,6 +867,8 @@ fun SettingsScreen(
                 subtitle = "每一版的更新内容",
                 onClick = onChangelogClick,
             )
+                }
+            }
         }
     }
 

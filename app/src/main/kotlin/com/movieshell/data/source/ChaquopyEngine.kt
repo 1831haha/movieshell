@@ -366,6 +366,13 @@ object ChaquopyEngine : PyEngine {
         }.onFailure { Log.w(TAG, "resetRuleCache 失败", it) }
     }
 
+    /** v1.1.14：清掉指定压缩包内全部条目的桥缓存（zip 导入覆盖/删除后调用）。 */
+    suspend fun resetZipCache(zipName: String): Unit = withContext(Dispatchers.IO) {
+        runCatching {
+            python().getModule("pyspider_bridge").callAttr("reset_zip", zipName)
+        }.onFailure { Log.w(TAG, "resetZipCache 失败", it) }
+    }
+
     /**
      * v0.203.0：yt-dlp 通用解析。调插件 yt-dlp-generic 提供的 yt_generic.resolve。
      * 插件未装时 getModule 抛异常，包成空串返回，不触发 ParseApi 的熔断；
