@@ -47,6 +47,13 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
     private val _searched = MutableStateFlow(false)
     val searched: StateFlow<Boolean> = _searched
 
+    /**
+     * v1.1.12：本次搜书的失败汇总（影视侧 SearchViewModel.failedLabel 同款口径），
+     * null=本次无书源失败。失败时旧结果保留、顶行明说；只有无失败且 0 条时才算“没找到”。
+     */
+    private val _failedLabel = MutableStateFlow<String?>(null)
+    val failedLabel: StateFlow<String?> = _failedLabel
+
     // v0.220.0：忙状态改集合——连点多本时每本各管各的“加入中”，原来单槽位
     // 会让先点的那本弹回“加入书架”。
     private val _joining = MutableStateFlow<Set<String>>(emptySet())
@@ -94,6 +101,7 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
             lockPyName = name
             _results.value = emptyList()
             _searched.value = false
+            _failedLabel.value = null
             _keyword.value = ""
         }
     }
@@ -108,6 +116,7 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         searchJob = null
         _results.value = emptyList()
         _searched.value = false
+        _failedLabel.value = null
     }
 
     /** v0.294.55：离开找书（取消/返回/切走 tab）时整体复位——词、结果、已搜标记一起清，
@@ -177,9 +186,10 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
         // v0.109.0 A4：连续搜索取消前一次——旧慢请求后返回覆盖新结果；try/finally
         // 保证被取消时 loading 也能落下
         searchJob?.cancel()
-        // v0.294.55：新搜索开始先清旧结果——原来要等新结果回来才覆盖，期间（以及被取消时）
-        // 一直显示上一次的结果，换源后搜不到也像是“还在显示全本小说网 95 本”。
-        _results.value = emptyList()
+        // v1.1.12：新搜索开始不再先清旧结果——失败时旧结果要留着、顶行明说“显示的是
+        // 上次的结果”；成功的新结果回来自然覆盖。失败汇总也在此清掉，旧汇总不串到新一轮。
+        _failedLabel.value = null
+        NovelSourceEngine.clearSearchFailures()
         searchJob = viewModelScope.launch {
             val myJob = coroutineContext[Job]
             try {
@@ -219,11 +229,16 @@ class NovelSearchViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     jsonJob.await() + pyJob.await()
                 }
+                // v1.1.12：搜完读一遍失败汇总——有失败才置标，无失败保持 null。
+                _failedLabel.value = NovelSourceEngine.failedSearchLabel()
             }
             } catch (e: CancellationException) {
                 // 被取消（离页复位/新搜索顶掉）不留半截或旧结果；只清自己这一轮，不误清新一轮。
                 if (searchJob === myJob) _results.value = emptyList()
                 throw e
+            } catch (e: Exception) {
+                // v1.1.12：整轮搜书抛异常也不清空旧结果——顶行明说这次失败，显示的是上次的结果。
+                _failedLabel.value = NovelSourceEngine.failedSearchLabel() ?: "搜书失败了"
             } finally {
                 _loading.value = false
             }

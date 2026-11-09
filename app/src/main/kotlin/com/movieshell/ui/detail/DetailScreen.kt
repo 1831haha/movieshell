@@ -1216,16 +1216,40 @@ fun DetailScreen(
                         }
                         else -> {
                             // v0.171.0：0 集时不再只剩标题加空白，给一句空提示
+                            // v1.1.12：光说“没有”没用——给换源入口：点一下滑到下方同名剧区，
+                            // 那里列着其他源的同名剧，点开就是换源。0 集时本来就没有线路可换，
+                            // 所以入口是换源，不是换线路。
                             item {
-                                Text(
-                                    text = "暂无可播放剧集",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                Column(
                                     modifier = Modifier.padding(
                                         horizontal = V5.Gutter,
                                         vertical = 8.dp,
                                     ),
-                                )
+                                ) {
+                                    Text(
+                                        text = "暂无可播放剧集",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = "这个源没有可播剧集，下滑看看同名剧、换个源试试",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    TextButton(
+                                        onClick = {
+                                            scope.launch {
+                                                listState.animateScrollToItem(
+                                                    (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0),
+                                                )
+                                            }
+                                        },
+                                        contentPadding = PaddingValues(0.dp),
+                                    ) {
+                                        Text("看看同名剧，换个源")
+                                    }
+                                }
                             }
                             item { Spacer(Modifier.height(16.dp)) }
                         }

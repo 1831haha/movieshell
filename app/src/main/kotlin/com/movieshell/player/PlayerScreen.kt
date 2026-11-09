@@ -1355,12 +1355,27 @@ fun PlayerScreen(
             }
     ) {
         if (playUrl.isBlank()) {
-            Text(
-                text = "暂无可播放地址",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
+            // v1.1.12：播不了别只剩一行“没有”——给一句指引和返回换线路的入口。
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.align(Alignment.Center),
-            )
+            ) {
+                Text(
+                    text = "暂无可播放地址",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "这个地址播不了，返回换条线路再试试",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(12.dp))
+                TextButton(onClick = onBack) {
+                    Text("返回换线路重试")
+                }
+            }
         } else {
             // v0.20.0：双引擎渲染二选一——Media3 用 PlayerView，libmpv 用 MpvVideoView（SurfaceView）；
             // key(engine) 保证切换内核时重建画面

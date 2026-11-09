@@ -71,6 +71,7 @@ import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.AppTextField
 import com.movieshell.ui.components.AppToast
+import com.movieshell.ui.components.TechDialog
 import com.movieshell.ui.components.V5Divider
 import com.movieshell.ui.components.dockClearance
 import com.movieshell.ui.theme.V5
@@ -367,6 +368,8 @@ fun AiScreen() {
     var thinking by remember { mutableStateOf(false) }
     // v1.1.11：待发的图（AiChatStore 里已压缩落盘的文件名，未发送前显示缩略图）。
     var pendingImage by remember { mutableStateOf<String?>(null) }
+    // v1.1.12：新对话先确认再清空——长对话误触清掉找不回来，全站删除都有确认，这里补上。
+    var showClearConfirm by remember { mutableStateOf(false) }
     // v1.1.11：待发的文件（AiChatStore 里已读成文本落盘，未发送前显示文件名与大小）。
     var pendingFile by remember { mutableStateOf<AiChatStore.StagedFile?>(null) }
 
@@ -506,14 +509,25 @@ fun AiScreen() {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = {
-                // v1.1.12：新对话清落盘时，待发的图与文件也一并清掉，别留着悬空的待发位。
-                pendingImage = null
-                pendingFile = null
-                AiChatStore.clear(context)
-            }) {
+            TextButton(onClick = { showClearConfirm = true }) {
                 Text("新对话")
             }
+        }
+        // v1.1.12：新对话确认——点确认才清空整轮对话（含待发的图片和文件），取消什么都不做。
+        if (showClearConfirm) {
+            TechDialog(
+                onDismissRequest = { showClearConfirm = false },
+                title = "开始新对话？",
+                subtitle = "会清空整轮对话，包括待发的图片和文件，清空后找不回来。",
+                confirmText = "清空",
+                onConfirm = {
+                    showClearConfirm = false
+                    // v1.1.12：新对话清落盘时，待发的图与文件也一并清掉，别留着悬空的待发位。
+                    pendingImage = null
+                    pendingFile = null
+                    AiChatStore.clear(context)
+                },
+            ) {}
         }
         V5Divider()
         if (messages.isEmpty() && !thinking) {

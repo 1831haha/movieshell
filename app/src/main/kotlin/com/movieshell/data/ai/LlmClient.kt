@@ -128,7 +128,27 @@ object LlmClient {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            ChatResult.Fail(e.message?.take(80) ?: "调用失败")
+            ChatResult.Fail(translateCallError(e))
+        }
+    }
+
+    /**
+     * v1.1.12：调用失败只说人话——服务商的英文原文（401 Incorrect API key、
+     * Read timed out 这类）不贴给用户。状态码优先按消息里的 HTTP 码认，
+     * 超时按异常类型/关键词认；其他一律给中文兜底，不露英文、不露 null。
+     * 注意：FailCategory 分类解析的是探活原因（SourceProbe），不是这里的
+     * reason，翻译不影响修源分类；AiRepairEngine 只原样展示这句。
+     */
+    private fun translateCallError(e: Exception): String {
+        val msg = e.message.orEmpty()
+        return when {
+            msg.contains("HTTP 401") -> "密钥不对或已过期，去设置页检查"
+            msg.contains("HTTP 429") -> "请求太频繁，稍后再试"
+            msg == "返回为空" -> "服务商返回为空，重试一次"
+            e is java.net.SocketTimeoutException ||
+                msg.contains("timed out", ignoreCase = true) ||
+                msg.contains("timeout", ignoreCase = true) -> "网络超时，重试一次"
+            else -> "调用失败，请检查网络与设置后重试"
         }
     }
 

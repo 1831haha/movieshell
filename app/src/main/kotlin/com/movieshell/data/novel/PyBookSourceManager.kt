@@ -114,7 +114,7 @@ object PyBookSourceManager {
         val rawName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
             val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
-        } ?: return@withContext ImportResult.Failed("读取文件名失败")
+        } ?: return@withContext ImportResult.Failed("文件打不开，重新选一次")
         // v0.294.5：文件名清洗，防路径穿越
         val displayName = SafeFileName.importName(rawName, "book_${System.currentTimeMillis()}.py")
         if (!displayName.endsWith(".py", ignoreCase = true)) {
@@ -126,17 +126,17 @@ object PyBookSourceManager {
         try {
             val dir = dir(context)
             var dst = SafeFileName.childInside(dir, displayName)
-                ?: return@withContext ImportResult.Failed("文件名非法")
+                ?: return@withContext ImportResult.Failed("文件名不对，换个名字再试")
             if (dst.exists()) {
                 val base = displayName.substringBeforeLast('.')
                 dst = SafeFileName.childInside(dir, "${base}_${System.currentTimeMillis()}.py")
-                    ?: return@withContext ImportResult.Failed("文件名非法")
+                    ?: return@withContext ImportResult.Failed("文件名不对，换个名字再试")
             }
             val staging = File(dir, "${dst.name}.${UUID.randomUUID()}.tmp")
             tmp = staging
             val input = context.contentResolver.openInputStream(uri) ?: run {
                 staging.delete()
-                return@withContext ImportResult.Failed("无法读取所选文件")
+                return@withContext ImportResult.Failed("文件打不开，重新选一次")
             }
             input.use { ins ->
                 staging.outputStream().use { ins.copyTo(it) }
@@ -162,7 +162,7 @@ object PyBookSourceManager {
             if (!staging.renameTo(dst)) {
                 staging.delete()
                 tmp = null
-                return@withContext ImportResult.Failed("保存书源失败")
+                return@withContext ImportResult.Failed("保存失败，请重试")
             }
             tmp = null
             load(context)
@@ -170,7 +170,22 @@ object PyBookSourceManager {
         } catch (e: Exception) {
             Log.w(TAG, "导入书源失败", e)
             tmp?.delete()
-            ImportResult.Failed(e.message ?: "未知错误")
+            ImportResult.Failed(importErrorText(e))
+        }
+    }
+
+    /**
+     * v1.1.12：导入失败只说人话——catch 到的异常原文（英文 IO 报错）不贴给用户；
+     * 读不到按“文件打不开”算，其他一律中文兜底。
+     */
+    private fun importErrorText(e: Exception): String {
+        val msg = e.message.orEmpty()
+        return if (msg.contains("读取") || msg.contains("read", ignoreCase = true) ||
+            msg.contains("open", ignoreCase = true)
+        ) {
+            "文件打不开，重新选一次"
+        } else {
+            "导入失败，请重试"
         }
     }
 

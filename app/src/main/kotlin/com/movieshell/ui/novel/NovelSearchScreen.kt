@@ -111,6 +111,8 @@ fun NovelSearchScreen(
     val loading by vm.loading.collectAsState()
     val results by vm.results.collectAsState()
     val searched by vm.searched.collectAsState()
+    // v1.1.12：本次搜书的失败汇总（null=本次无书源失败），失败与“真没书”分开说。
+    val failedLabel by vm.failedLabel.collectAsState()
     val joining by vm.joining.collectAsState()
     // v0.67.0：小说搜索历史（独立作用域）
     val history by vm.history.collectAsState()
@@ -210,7 +212,36 @@ fun NovelSearchScreen(
                 }
             }
             searched && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("没找到，换个关键词或检查书源规则", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 32.dp),
+                ) {
+                    // v1.1.12：失败和“真没书”分开说——失败不叫“没找到”。
+                    if (failedLabel != null) {
+                        Text(
+                            "这次搜索失败了，书源没有返回结果",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "换个关键词或稍后再试（$failedLabel）",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = { vm.doSearch() }) {
+                            Text("重新搜索")
+                        }
+                    } else {
+                        Text(
+                            "没找到，换个关键词或换个书源试试",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = onManageSources) {
+                        Text("去书源管理")
+                    }
+                }
             }
             !searched -> {
                 // v0.67.0：搜索历史（一点即搜，X 单删）
@@ -268,6 +299,17 @@ fun NovelSearchScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 96.dp),
             ) {
+                // v1.1.12：这次搜失败了，顶行明说、下面显示的是上次的结果。
+                failedLabel?.let { label ->
+                    item(key = "search_failed_banner") {
+                        Text(
+                            text = "刚才那次搜索失败，显示的是上次的结果（$label）",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
                 results.forEach { group ->
                     item(key = "header_${group.key}") {
                         Text(

@@ -47,6 +47,23 @@ object NovelSourceEngine {
     private const val SEARCH_MAX_CONCURRENCY = 4
     private val searchSemaphore = Semaphore(SEARCH_MAX_CONCURRENCY)
 
+    /**
+     * v1.1.12：最近一次搜书失败的书源名（内存态，不落盘；影视侧 SiteRepository
+     * 的 failedSearchLabel 同款口径）。语义是最近一次：每次搜书入口先清、
+     * 本次失败再记；取消不记。空结果且无失败 = 源确实没数据；空结果且有
+     * 失败 = 执行失败，UI 据此把“没找到”和“搜失败了”分开说。
+     */
+    private val failedSearchNames = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /** 搜书入口先清失败汇总（新一轮开始，旧汇总作废）。 */
+    fun clearSearchFailures() {
+        failedSearchNames.clear()
+    }
+
+    /** 最近一次搜书的失败汇总文案，null=本次无书源失败。 */
+    fun failedSearchLabel(): String? =
+        if (failedSearchNames.isEmpty()) null else "${failedSearchNames.size} 个书源失败"
+
     // v1.1.6：ContentFail / ContentResult 已移入 domain/model（NovelModels.kt），
     // 供 NovelEngine 契约与 UI 共用。
 
@@ -181,7 +198,11 @@ object NovelSourceEngine {
             val req = buildSearchRequest(source.searchUrl, keyword)
             val html = gatedFetch(source, null, source.url, allowGate) {
                 BookRuleEngine.fetchSearchPageOutcome(req, options = fetchOptions(source))
-            }?.body ?: return emptyList()
+            }?.body ?: run {
+                // v1.1.12：页没抓到是搜失败了，不是“没书”——记一笔，搜书页据此分开说。
+                failedSearchNames.add(source.name)
+                return emptyList()
+            }
             val url = req.url
             return BookRuleEngine.selectList(html, source.ruleSearchList).mapNotNull { el ->
                 val name = BookRuleEngine.extract(el, url, source.ruleSearchName.ifBlank { "@text" })
@@ -200,7 +221,12 @@ object NovelSourceEngine {
             val ua = uaOf(source)
             val state = LegadoJsEngine.JsState(source.key)
             val ctx = LegadoJsEngine.JsCtx(source = source.toJsRuleSource(), baseUrl = source.url, keyword = keyword, page = 1)
-            val urlStr = evalSearchUrl(source, ctx, state) ?: return@withContext emptyList()
+            val urlStr = evalSearchUrl(source, ctx, state)
+            if (urlStr == null) {
+                // v1.1.12：搜索地址算不出来是搜失败了，不是“没书”。
+                failedSearchNames.add(source.name)
+                return@withContext emptyList()
+            }
             val req = buildSearchRequest(urlStr, keyword)
             var page = gatedFetch(source, ua, source.url, allowGate) {
                 BookRuleEngine.fetchSearchPageOutcome(req, ua, options = fetchOptions(source))
@@ -208,6 +234,8 @@ object NovelSourceEngine {
             if (page == null) {
                 // v0.223.0：搜书诊断——未抓到页以前是静默空，记一行才能分清是请求问题还是解析问题。
                 LogBus.w(TAG, "搜书诊断 ${source.name} 未抓到页")
+                // v1.1.12：同上，记一笔失败。
+                failedSearchNames.add(source.name)
                 return@withContext emptyList()
             }
             // v0.209.0：登录后重抓也过验证通道——999 这类源先握手再被墙时，
@@ -258,6 +286,8 @@ object NovelSourceEngine {
                             // 让协程正常取消（v0.230.0 bookDetail 同款）；否则旧搜索
                             // 被取消后仍正常返回空结果，覆盖新搜索的结果。
                             if (it is CancellationException) throw it
+                            // v1.1.12：记一笔失败，搜书页据此区分“真没书”和“搜失败了”。
+                            failedSearchNames.add(s.name)
                             LogBus.w(TAG, "搜索失败 ${s.name}: ${it.message}")
                         }
                         .getOrDefault(emptyList())
@@ -846,6 +876,8 @@ object NovelSourceEngine {
             .onFailure {
                 // v0.247.0（取消语义）：同 searchAll，取消原样抛出。
                 if (it is CancellationException) throw it
+                // v1.1.12：记一笔失败，搜书页据此区分“真没书”和“搜失败了”。
+                failedSearchNames.add(rule.name)
                 LogBus.w(TAG, "PY 书源搜索失败 ${rule.name}: ${it.message}")
             }
             .getOrDefault(emptyList())
