@@ -4,7 +4,6 @@ import android.animation.ValueAnimator
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -42,9 +41,14 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -69,16 +73,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.layout
@@ -834,17 +834,35 @@ private fun rememberReducedMotion(): Boolean {
 
 /**
  * v1.1.15：底栏 tab 图标（含选中流光）。
- *
- * 扫光（非齿轮）：光带沿图标字形从下往上扫一次（约 1.2 秒）。
- * 绘制路：图标先画进离屏层（graphicsLayer Offscreen），再在同一层里用
- * SrcAtop 画一道竖向渐变光带——SrcAtop 只在已有图标像素处落色，图标
- * 底色不动，光带形状自然跟字形走；层外（胶囊底）不受影响。
- * 轨道光点（齿轮）：光点沿齿轮外缘转一圈（约 2.2 秒，FastOutSlowIn
- * 先快后慢、转完放缓停下），光晕是两层淡色同心圆 + 白色实心点，画在
- * 图标上层。
- * 两路都只在 shineToken 变化（即选中变化）时跑一次，跑完进度停在 1
- * 不再绘制；减动效时不跑，图标只提亮、静态。
+ * v1.1.16：六个图标统一小球绕一圈，扫光取消——选中变化时跑一次
+ * （约 2.2 秒，FastOutSlowIn 先快后慢、转完放缓停下），跑完进度停
+ * 在 1 不再绘制；减动效时不跑，图标只提亮、静态。
+ * 轨道半径按字形外沿取，小球大小按字形给（见 orbitStyle）；设置齿
+ * 轮选中态用镂空齿轮（Outlined.Settings，中间透），小球沿齿轮内圈
+ * 转；其余五个沿图标外沿转。小球是两层淡色同心圆光晕 + 白色实心
+ * 点，画在图标上层，光晕跟小球走。
  */
+// v1.1.16：小球轨道样式——轨道半径 / 白点半径 / 中层光晕半径 / 外层
+// 光晕半径（dp）。轨道 + 外层光晕 ≤ 14dp，不出 28dp 高的胶囊。
+private data class OrbitStyle(val orbit: Dp, val core: Dp, val mid: Dp, val outer: Dp)
+
+// v1.1.16：按选中图标（selectedIcon）认 tab。轨道半径按字形外沿取
+// （24 视口单位换算到 22dp 图标，1 单位 = 0.917dp）：首页屋顶
+// 8.3dp、两侧 9.2dp、底角 11.7dp，轨道 10.5dp 贴着两侧走；直播机
+// 身两侧 10.1dp、底角 12.5dp，轨道 10.5dp 贴着两侧走；书架书上下
+// 沿 9.2dp、四角 11.7dp，轨道 10.0dp；音乐音符最远 8.5dp、字形
+// 窄，轨道 9.0dp、球最小；AI 机器人底角 10.4dp、耳 10.1dp，轨道
+// 10.5dp；设置齿轮内圈见上一条，轨道 4.2dp、球贴着中心孔走。
+private fun orbitStyle(item: V5NavItem): OrbitStyle = when (item.selectedIcon) {
+    Icons.Filled.Settings -> OrbitStyle(4.2.dp, 1.6.dp, 2.5.dp, 4.0.dp)
+    Icons.Filled.Home -> OrbitStyle(10.5.dp, 1.5.dp, 2.5.dp, 3.5.dp)
+    Icons.Filled.LiveTv -> OrbitStyle(10.5.dp, 1.5.dp, 2.5.dp, 3.5.dp)
+    Icons.Filled.Book -> OrbitStyle(10.0.dp, 1.5.dp, 2.5.dp, 3.5.dp)
+    Icons.Filled.MusicNote -> OrbitStyle(9.0.dp, 1.2.dp, 2.2.dp, 3.2.dp)
+    Icons.Filled.SmartToy -> OrbitStyle(10.5.dp, 1.3.dp, 2.3.dp, 3.3.dp)
+    else -> OrbitStyle(10.0.dp, 1.5.dp, 2.5.dp, 3.5.dp)
+}
+
 @Composable
 private fun NavTabIcon(
     item: V5NavItem,
@@ -857,68 +875,39 @@ private fun NavTabIcon(
     // 设置 tab 认图标本身（Outlined.Settings / Filled.Settings），不认下标。
     val isGear = item.icon == Icons.Outlined.Settings ||
         item.selectedIcon == Icons.Filled.Settings
-    val sweep = remember { Animatable(0f) }
     val orbit = remember { Animatable(0f) }
     LaunchedEffect(shineToken) {
         if (shineToken == 0 || !selected || reducedMotion) return@LaunchedEffect
-        if (isGear) {
-            orbit.snapTo(0f)
-            orbit.animateTo(1f, tween(2200, easing = FastOutSlowInEasing))
-        } else {
-            sweep.snapTo(0f)
-            sweep.animateTo(1f, tween(1200, easing = LinearEasing))
-        }
+        orbit.snapTo(0f)
+        orbit.animateTo(1f, tween(2200, easing = FastOutSlowInEasing))
     }
     Box(
         modifier = Modifier.size(22.dp),
         contentAlignment = Alignment.Center,
     ) {
+        // v1.1.16：齿轮选中态也用镂空齿轮（Outlined.Settings），实心齿
+        // 轮会把里面的小球盖住；未选中态本来就是 Outlined，和原来一样。
         Icon(
-            imageVector = if (selected) item.selectedIcon else item.icon,
+            imageVector = if (isGear) Icons.Outlined.Settings
+            else if (selected) item.selectedIcon else item.icon,
             contentDescription = null,
             tint = tint,
-            modifier = Modifier
-                .size(22.dp)
-                .then(
-                    if (selected && !isGear && !reducedMotion) {
-                        Modifier
-                            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                            .drawWithContent {
-                                drawContent()
-                                val p = sweep.value
-                                if (p > 0f && p < 1f) {
-                                    val band = size.height * 0.5f
-                                    val cy = size.height * (1f - p)
-                                    drawRect(
-                                        brush = Brush.linearGradient(
-                                            colors = listOf(
-                                                Color.Transparent,
-                                                shineColor,
-                                                Color.Transparent,
-                                            ),
-                                            start = Offset(0f, cy + band / 2f),
-                                            end = Offset(0f, cy - band / 2f),
-                                        ),
-                                        blendMode = BlendMode.SrcAtop,
-                                    )
-                                }
-                            }
-                    } else Modifier,
-                ),
+            modifier = Modifier.size(22.dp),
         )
-        // 齿轮轨道光点：画在图标上层，进度到 1 即停，不再绘制。
+        // 小球绕一圈：画在图标上层，进度到 1 即停，不再绘制。
         val o = orbit.value
-        if (selected && isGear && !reducedMotion && o > 0f && o < 1f) {
+        if (selected && !reducedMotion && o > 0f && o < 1f) {
             Canvas(Modifier.size(22.dp)) {
-                val r = size.minDimension / 2f * 0.92f
+                val style = orbitStyle(item)
+                val r = style.orbit.toPx()
                 val angle = Math.toRadians((o * 360f - 90f).toDouble())
                 val center = Offset(
                     size.width / 2f + r * Math.cos(angle).toFloat(),
                     size.height / 2f + r * Math.sin(angle).toFloat(),
                 )
-                drawCircle(shineColor.copy(alpha = 0.15f), radius = 4.dp.toPx(), center = center)
-                drawCircle(shineColor.copy(alpha = 0.3f), radius = 2.5.dp.toPx(), center = center)
-                drawCircle(Color.White, radius = 1.6.dp.toPx(), center = center)
+                drawCircle(shineColor.copy(alpha = 0.15f), radius = style.outer.toPx(), center = center)
+                drawCircle(shineColor.copy(alpha = 0.3f), radius = style.mid.toPx(), center = center)
+                drawCircle(Color.White, radius = style.core.toPx(), center = center)
             }
         }
     }
