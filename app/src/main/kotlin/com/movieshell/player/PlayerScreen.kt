@@ -64,6 +64,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -245,9 +246,16 @@ fun PlayerScreen(
     // v0.109.0 A2：双引擎画面 View 引用（keepScreenOn 用，Media3/libmpv 统一）
     var videoView by remember { mutableStateOf<View?>(null) }
     // v0.74.0：倍速记忆——从持久化恢复上次的倍速
-    var speedIndex by remember {
-        val saved = PlayerSettings.getSpeed(context)
-        mutableIntStateOf(SPEEDS.indexOf(saved).takeIf { it >= 0 } ?: 2) // 默认 1.0x
+    // v1.1.19：倍速改走 PlayerSettings.speedFlow 共享流——详情页胶囊与播放器
+    // 内倍速菜单/齿轮页共用同一个速度源，任一处改速，另一处立即跟上；
+    // speedIndex 由流派生（只读），改速统一走 applySpeed。
+    val currentSpeed by PlayerSettings.speedFlow(context).collectAsState()
+    val speedIndex = SPEEDS.indexOf(currentSpeed).coerceAtLeast(0)
+
+    /** v1.1.19：改速唯一入口——生效 + 持久化 + 推流，三处同步。 */
+    fun applySpeed(v: Float) {
+        EngineHost.setPlaybackSpeed(v)
+        PlayerSettings.setSpeed(context, v)
     }
     var playModeIndex by remember { mutableIntStateOf(0) } // v0.65：循环模式，默认顺序播放
     // v0.125.0：全屏画面比例偏好（持久化恢复；v0.255.0 起默认适应，见 PlayerSettings）
@@ -1686,14 +1694,16 @@ fun PlayerScreen(
         // 锁定时隐藏顶栏（只留解锁按钮防误触）
         // v0.65：加时钟 + 分辨率行（对标目标界面）
         var clockText by remember { mutableStateOf("") }
-        var streamInfo by remember { mutableStateOf("") }
+        // v1.1.19：真实画面尺寸与实测码率改走 PlayerManager 的流（尺寸变化即推，
+        // 不再 10 秒轮询）；时钟仍 10 秒一刷。
+        val realVideoSize by PlayerManager.videoSize.collectAsState()
+        val bitrateBps by PlayerManager.bitrateEstimate.collectAsState()
+        val streamInfo = VideoQuality.resolutionText(realVideoSize?.width ?: 0, realVideoSize?.height ?: 0)
         LaunchedEffect(uiVm.controlsVisible) {
             if (!uiVm.controlsVisible) return@LaunchedEffect
             while (true) {
                 clockText = java.text.SimpleDateFormat("HH:mm", Locale.getDefault())
                     .format(java.util.Date())
-                val vs = PlayerManager.player?.videoSize
-                streamInfo = if (vs != null && vs.width > 0) "${vs.width}×${vs.height}" else ""
                 kotlinx.coroutines.delay(10_000)
             }
         }
@@ -1741,21 +1751,55 @@ fun PlayerScreen(
                     // weight 在顶栏 Row 里有明确宽度，溢出判断才准）
                     modifier = Modifier.weight(1f).basicMarquee(),
                 )
-                // v0.259.0：清晰度只读标签“自动”放标题旁（目前只有自动档位，
-                // 不做可点开的假分辨率列表）
-                if (!isLive) {
+                // v1.1.19：顶栏右侧按效果图排布——分辨率角标、清晰度按钮、网速、时钟。
+                // 清晰度按真实流尺寸定（拿不到时退线路名推测）；点它轮换到下一条线路，
+                // 同集重播；只有一条线路时只提示，不做假切换。直播没有线路概念，不显示。
+                // v0.69.1：嵌入模式分辨率并入标题行（单独的分辨率行只在全屏保留）
+                if (embedded && streamInfo.isNotBlank()) {
                     Text(
-                        text = "自动",
+                        text = streamInfo,
                         color = Color.White.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                     )
                     Spacer(Modifier.width(4.dp))
                 }
-                // v0.69.1：嵌入模式分辨率并入标题行（单独的分辨率行只在全屏保留）
-                if (embedded && streamInfo.isNotBlank()) {
+                if (!isLive) {
+                    val lineName = PlaySession.currentLine()?.name
+                    val quality = VideoQuality.label(
+                        realVideoSize?.width ?: 0, realVideoSize?.height ?: 0, lineName,
+                    )
+                    Box(
+                        modifier = Modifier
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(50))
+                            .clickable {
+                                val lines = PlaySession.lines
+                                if (lines.size <= 1) {
+                                    AppToast.show(context, "当前只有一条线路", long = false)
+                                } else {
+                                    val next = (PlaySession.lineIndex + 1) % lines.size
+                                    val nextName = lines[next].name
+                                    switchEpisode(next, PlaySession.episodeIndex)
+                                    val nextQ = VideoQuality.parseLineHint(nextName) ?: "自动"
+                                    AppToast.show(context, "已切换到「$nextName」线路 · $nextQ", long = false)
+                                }
+                            }
+                            .padding(horizontal = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = quality,
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
                     Text(
-                        text = streamInfo,
+                        text = VideoQuality.bitrateText(bitrateBps),
                         color = Color.White.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
@@ -1992,7 +2036,8 @@ fun PlayerScreen(
                     .padding(horizontal = 12.dp, vertical = if (embedded) 0.dp else 2.dp),
             ) {
                 // 第一行：当前时间 + 进度条 + 总时长；v0.86.0：直播没有进度可言，直接隐藏
-                if (!isLive) {
+                // v1.1.19：单行控制时这行隐藏，进度条改放单行控制行里。
+                if (!isLive && !(embedded && !isFullscreen)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth(),
@@ -2025,12 +2070,63 @@ fun PlayerScreen(
                     )
                 }
                 }
+                // v1.1.19：详情页竖屏播放区按效果图单行控制——播放/暂停、进度条、
+                // 时间、投屏、全屏一行到底；倍速与弹幕开关已移到详情页 Tab 胶囊，
+                // 选集/上下集直接点页内选集网格，控制行不再重复放。
+                // 直播、全屏、独立页仍走下面原有两行式。
+                if (embedded && !isFullscreen && !isLive) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        RoundControlButton(
+                            icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            desc = if (isPlaying) "暂停" else "播放",
+                            onClick = { EngineHost.togglePlayPause() },
+                            size = 44.dp,
+                        )
+                        PlayerSeekBar(
+                            value = (uiVm.gestureScrubMs ?: if (scrubbing) scrubPos else pos).toFloat(),
+                            valueRange = 0f..dur.coerceAtLeast(1L).toFloat(),
+                            onValueChange = {
+                                scrubPos = it.toLong()
+                                scrubbing = true
+                            },
+                            onValueChangeFinished = {
+                                EngineHost.seekTo(scrubPos)
+                                scrubbing = false
+                            },
+                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                        )
+                        Text(
+                            text = "${fmtTime(uiVm.gestureScrubMs ?: if (scrubbing) scrubPos else pos)} / ${fmtTime(dur)}",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                        )
+                        RoundControlButton(
+                            icon = Icons.Filled.Cast,
+                            desc = "投屏",
+                            onClick = { AppToast.show(context, "投屏开发中", long = false) },
+                            size = 44.dp,
+                        )
+                        RoundControlButton(
+                            icon = Icons.Filled.Fullscreen,
+                            desc = "全屏",
+                            onClick = { goFullscreenOnly() },
+                            size = 44.dp,
+                        )
+                    }
+                }
                 // 第二行：暂停 + 上一集/下一集 + 倍速 + 选集 + 自动 + 引擎 + 全屏（固定右端）
                 // v0.255.0：外层不滚动、左区可滚动、右区只放全屏——v0.221 的整行
                 // 横向滚动 + Spacer(weight) 结构在窄屏上把全屏推出屏外（得横滑才
                 // 找得到），且 weight 在滚动容器里剩余空间分配不可靠，正是小窗
                 // 切全屏回来图标看着变形的嫌疑点；顺序播放/自动/引擎收进顶部
                 // 更多菜单，底部只留高频项，全屏 36dp 图标 20dp 全程固定尺寸。
+                // v1.1.19：单行控制时（详情页竖屏点播）下面这行整行隐藏，改走上面
+                // 的单行控制行；直播/全屏/独立页仍走这里。
+                if (!(embedded && !isFullscreen && !isLive)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth(),
@@ -2097,9 +2193,7 @@ fun PlayerScreen(
                                 onDismiss = { showSpeedMenu = false },
                                 onPick = { v ->
                                     showSpeedMenu = false
-                                    speedIndex = SPEEDS.indexOf(v).coerceAtLeast(0)
-                                    EngineHost.setPlaybackSpeed(v)
-                                    PlayerSettings.setSpeed(context, v)
+                                    applySpeed(v)
                                 },
                             )
                         }
@@ -2208,6 +2302,7 @@ fun PlayerScreen(
                     )
                 }
                 }
+                }
                 // v0.259.0：清晰度“自动”已移到顶栏标题旁只读显示；
                 // 引擎等横屏完整条项只在横屏追加，竖屏收进齿轮。
             }
@@ -2266,11 +2361,7 @@ fun PlayerScreen(
                                 V5Chip(
                                     text = "${v}X",
                                     selected = i == speedIndex,
-                                    onClick = {
-                                        speedIndex = i
-                                        EngineHost.setPlaybackSpeed(v)
-                                        PlayerSettings.setSpeed(context, v)
-                                    },
+                                    onClick = { applySpeed(v) },
                                 )
                             }
                         }

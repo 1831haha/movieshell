@@ -291,10 +291,26 @@ object PlayerSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getFloat(KEY_SPEED, 1.0f).takeIf { it > 0f } ?: 1.0f
 
+    /**
+     * v1.1.19：倍速的共享流——播放页胶囊与播放器内倍速菜单/齿轮页共用同一
+     * 个速度源，任一处改速，另一处立即跟上；旧 getSpeed 只读盘，没有流。
+     * 首次调用时从盘里载入一次，之后只由 setSpeed 推进。
+     */
+    private val _speed = MutableStateFlow(1.0f)
+    private var speedLoaded = false
+    fun speedFlow(context: Context): StateFlow<Float> {
+        if (!speedLoaded) {
+            _speed.value = getSpeed(context)
+            speedLoaded = true
+        }
+        return _speed
+    }
+
     /** v0.74.0：记忆倍速。 */
     fun setSpeed(context: Context, speed: Float) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putFloat(KEY_SPEED, speed).apply()
+        _speed.value = speed
     }
 
     /**

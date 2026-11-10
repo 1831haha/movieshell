@@ -61,6 +61,23 @@ object PlayerManager {
         _isPlayerFullscreen.value = v
     }
 
+    /**
+     * v1.1.19：当前流的真实画面尺寸（onVideoSizeChanged 推进；换流时清掉，
+     * 防旧尺寸冒充新流）。libmpv 路不走这里，读不到时调用方用线路名推测。
+     */
+    private val _videoSize = MutableStateFlow<androidx.media3.common.VideoSize?>(null)
+    val videoSize: StateFlow<androidx.media3.common.VideoSize?> = _videoSize.asStateFlow()
+
+    /**
+     * v1.1.19：当前流的实测下行码率（bit/s，DefaultBandwidthMeter 在
+     * httpFactory 上采样推进；全走磁盘缓存、无网络流量时为 0）。
+     */
+    private val _bitrateEstimate = MutableStateFlow(0L)
+    val bitrateEstimate: StateFlow<Long> = _bitrateEstimate.asStateFlow()
+
+    /** v1.1.19：带宽表（init 里建；play() 里挂到 httpFactory 上测网速）。 */
+    private var bandwidthMeter: androidx.media3.datasource.DefaultBandwidthMeter? = null
+
 
     // v0.99.0 P0-5：用浏览器 UA，自定义 App UA 会被影视 CDN/WAF 直接 403
 
@@ -134,6 +151,7 @@ object PlayerManager {
             if (decoderFallbackUrl.startsWith("http://127.0.0.1")) LogBus.i("Player", "本机磁力流：首帧已渲染")
         }
         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+            if (videoSize.width > 0) _videoSize.value = videoSize
             if (decoderFallbackUrl.startsWith("http://127.0.0.1") && videoSize.width > 0)
                 LogBus.i("Player", "本机磁力流：画面 ${videoSize.width}×${videoSize.height}")
         }
@@ -230,6 +248,19 @@ object PlayerManager {
         if (exoPlayer != null) return
         val app = context.applicationContext
         appContext = app
+        // v1.1.19：带宽表——play() 里挂到 httpFactory 上做 TransferListener，
+        // 采样到的码率推进 bitrateEstimate，供播放页顶栏显示网速。
+        if (bandwidthMeter == null) {
+            bandwidthMeter = androidx.media3.datasource.DefaultBandwidthMeter.Builder(app).build()
+            bandwidthMeter?.addEventListener(
+                android.os.Handler(android.os.Looper.getMainLooper()),
+                object : androidx.media3.datasource.BandwidthMeter.EventListener {
+                    override fun onBandwidthSample(elapsedMs: Int, bytesTransferred: Long, bitrateEstimate: Long) {
+                        _bitrateEstimate.value = bitrateEstimate
+                    }
+                },
+            )
+        }
         // v0.102.0 P2-4：自适应码率上限 1080p（默认开启自适应，这里只封顶分辨率）
         val trackSelector = DefaultTrackSelector(app)
         trackSelector.setParameters(
@@ -296,6 +327,9 @@ object PlayerManager {
         lastUrl = url
         lastHeaders = headers
         lastSubtitleUrl = subtitleUrl
+        // v1.1.19：换流清掉旧的尺寸与码率，顶栏不拿上一条流的数据冒充这一条。
+        _videoSize.value = null
+        _bitrateEstimate.value = 0L
         if (url != decoderFallbackUrl) {
             decoderFallbackUrl = url
             decoderFallbackDone = false
@@ -313,6 +347,9 @@ object PlayerManager {
                 if (url.startsWith("http://127.0.0.1")) 180_000 else DefaultHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS,
             )
             .setAllowCrossProtocolRedirects(true)
+            // v1.1.19：带宽表挂上游——只计量真正走网络的流量（缓存命中不经过这里），
+            // 采样码率进 bitrateEstimate，供顶栏显示网速。
+            .setTransferListener(bandwidthMeter)
         if (rest.isNotEmpty()) {
             httpFactory.setDefaultRequestProperties(rest)
         }

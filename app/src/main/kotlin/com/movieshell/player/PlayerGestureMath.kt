@@ -9,7 +9,7 @@ import kotlin.math.abs
  */
 object PlayerGestureMath {
     const val BOOST_SPEED = 3.0f
-    val SPEED_CHOICES = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
+    val SPEED_CHOICES = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f)
 
     fun scrubSpanMs(durationMs: Long): Long =
         if (durationMs <= 0) 120_000L else (durationMs / 2).coerceIn(60_000L, 600_000L)
