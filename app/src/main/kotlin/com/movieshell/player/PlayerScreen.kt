@@ -211,6 +211,10 @@ fun PlayerScreen(
     onLiveError: (() -> Unit)? = null,
     // v0.160.0：直播频道自带的请求头（插件 lives 里 ua 字段，有才传；没有不编 UA/Referer）
     liveHeaders: Map<String, String> = emptyMap(),
+    // v1.1.19：画面容器底色——详情页嵌入时传当前剧的种子色（与整页背景同一个
+    // animateColorAsState，换剧时一起 0.4 秒交叉淡化）；不传时保持黑色。
+    // 有画面时视频盖住它，只在黑边（非 16:9 片源的上下黑条）与首帧未出时可见。
+    backgroundSeed: Color? = null,
     // Q3：覆盖层状态改由 PlayerUiViewModel 持有（默认按当前目的地作用域取实例，独立页与详情嵌入页均不改调用处）。
     uiVm: PlayerUiViewModel = viewModel(),
 ) {
@@ -1303,7 +1307,7 @@ fun PlayerScreen(
     Box(
         modifier = (if (embedded && !isFullscreen && cfgOrientation != Configuration.ORIENTATION_LANDSCAPE)
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-        else Modifier.fillMaxSize()).background(Color.Black)
+        else Modifier.fillMaxSize()).background(backgroundSeed ?: Color.Black)
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)

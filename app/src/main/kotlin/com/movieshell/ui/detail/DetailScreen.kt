@@ -869,11 +869,12 @@ fun DetailScreen(
                             else Modifier.padding(top = inner.calculateTopPadding(), bottom = inner.calculateBottomPadding())
                         ),
                 ) {
-                    // v1.1.19：背景跟随海报——种子色往主题背景兑 28%，顶部深、45% 处淡回主题背景；
+                    // v1.1.19：背景跟随海报——种子色往主题背景兑 45%，顶部深、60% 处淡回主题背景；
                     // 换剧时 0.4 秒交叉淡化，减动效时直接切；取不到种子色时纯主题背景。
+                    // 播放区（占位＋播放器画面容器）共用同一个 seedColor，换剧时一起淡化。
                     val seedColor by animateColorAsState(
                         targetValue = posterSeed?.let {
-                            blendColor(MaterialTheme.colorScheme.background, Color(it), 0.28f)
+                            blendColor(MaterialTheme.colorScheme.background, Color(it), 0.45f)
                         } ?: MaterialTheme.colorScheme.background,
                         animationSpec = tween(durationMillis = if (reducedMotion) 0 else 400),
                         label = "detailBgSeed",
@@ -885,7 +886,7 @@ fun DetailScreen(
                                 Brush.verticalGradient(
                                     colorStops = arrayOf(
                                         0.0f to seedColor,
-                                        0.45f to MaterialTheme.colorScheme.background,
+                                        0.6f to MaterialTheme.colorScheme.background,
                                         1.0f to MaterialTheme.colorScheme.background,
                                     ),
                                 ),
@@ -914,6 +915,8 @@ fun DetailScreen(
                                         enabled = coverUrl.isNotBlank(),
                                         onClick = { showCoverDialog = true },
                                     ),
+                                // v1.1.19：无封面时占位也不再是写死的灰块，跟当前剧的种子色走。
+                                backgroundColor = seedColor,
                             ) {
                                 Box(modifier = Modifier.fillMaxSize()) {
                                     // 真实封面（Coil，无封面时保留渐变占位）
@@ -1780,6 +1783,9 @@ fun DetailScreen(
                             infoRemarks = detail?.vodRemarks.orEmpty(),
                             infoYear = detail?.vodYear.orEmpty(),
                             infoDesc = detail?.vodDesc.orEmpty(),
+                            // v1.1.19：画面容器底色跟当前剧的种子色（与整页背景同一个
+                            // animateColorAsState，换剧时一起 0.4 秒交叉淡化）。
+                            backgroundSeed = seedColor,
                             // v0.294.45：原地全屏时返回键先收回容器，不退出详情页。
                             onBack = { if (playerFullscreen) playerFullscreen = false else onBack() },
                             embedded = true,

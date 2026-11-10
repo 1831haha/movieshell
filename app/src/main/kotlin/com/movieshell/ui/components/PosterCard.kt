@@ -125,10 +125,12 @@ fun PosterCard(
 @Composable
 fun PlainBlock(
     modifier: Modifier = Modifier,
+    // v1.1.19：底色——不传时保持 surfaceVariant；详情页播放区占位传当前剧的种子色。
+    backgroundColor: Color? = null,
     content: @Composable () -> Unit = {},
 ) {
     Box(
-        modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
+        modifier = modifier.background(backgroundColor ?: MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) { content() }
 }
