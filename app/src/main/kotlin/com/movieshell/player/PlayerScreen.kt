@@ -1775,7 +1775,7 @@ fun PlayerScreen(
                     )
                     Box(
                         modifier = Modifier
-                            .height(36.dp)
+                            .height(26.dp)
                             .clip(RoundedCornerShape(50))
                             .background(Color.Black.copy(alpha = 0.4f))
                             .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(50))
@@ -1791,13 +1791,13 @@ fun PlayerScreen(
                                     AppToast.show(context, "已切换到「$nextName」线路 · $nextQ", long = false)
                                 }
                             }
-                            .padding(horizontal = 10.dp),
+                            .padding(horizontal = 8.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = quality,
                             color = Color.White,
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                             maxLines = 1,
                         )
                     }
@@ -2105,7 +2105,7 @@ fun PlayerScreen(
                         Text(
                             text = "${fmtTime(uiVm.gestureScrubMs ?: if (scrubbing) scrubPos else pos)} / ${fmtTime(dur)}",
                             color = Color.White,
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                             maxLines = 1,
                         )
                         RoundControlButton(
