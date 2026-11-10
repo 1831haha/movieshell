@@ -2103,9 +2103,10 @@ fun PlayerScreen(
                             modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                         )
                         Text(
+                            // v1.1.22：用户反馈仍显大——嵌入单行时间字 11sp→10sp（全屏两行式不动）。
                             text = "${fmtTime(uiVm.gestureScrubMs ?: if (scrubbing) scrubPos else pos)} / ${fmtTime(dur)}",
                             color = Color.White,
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
                             maxLines = 1,
                         )
                         RoundControlButton(

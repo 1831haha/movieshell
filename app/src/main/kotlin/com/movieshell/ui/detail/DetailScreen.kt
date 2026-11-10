@@ -545,10 +545,11 @@ fun DetailScreen(
     @Composable
     fun EpisodeChip(index: Int, name: String, selected: Boolean, onClick: () -> Unit) {
         val v = MaterialTheme.colorScheme
+        // v1.1.22：用户反馈仍显大——40dp→34dp、字 14sp→13sp、图标 16dp→14dp。
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(40.dp)
+                .height(34.dp)
                 .clip(RoundedCornerShape(V5.CornerMd))
                 .background(if (selected) Color(0xFFA855F7) else v.surfaceContainerHigh)
                 .clickable(onClick = onClick)
@@ -576,13 +577,13 @@ fun DetailScreen(
                         Icons.Filled.GraphicEq,
                         contentDescription = "正在播放",
                         tint = v.onPrimary,
-                        modifier = Modifier.size(16.dp).offset(y = eqOffsetY.dp),
+                        modifier = Modifier.size(14.dp).offset(y = eqOffsetY.dp),
                     )
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(
                     text = episodeLabel(name),
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
                     color = if (selected) v.onPrimary else v.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -939,13 +940,19 @@ fun DetailScreen(
                     // v1.1.19：背景跟随海报——种子色往主题背景兑 45%，顶部深、60% 处淡回主题背景；
                     // 换剧时 0.4 秒交叉淡化，减动效时直接切；取不到种子色时纯主题背景。
                     // 播放区（占位＋播放器画面容器）共用同一个 seedColor，换剧时一起淡化。
+                    // v1.1.22：用户反馈浅色下根本看不出变化——兑色 45%→65%、渐变 60%→75% 处才淡回，
+                    // Tab 栏底色也改用 seedColor（原先不透明主题背景把渐变顶部全盖住了）。
+                    // 效果图上用户仍说看不出来——兑色再提到 85%、底部不再淡回纯底色而是留 30% 种子色，
+                    // 整页到底都有海报色，不是一截淡蓝。
                     val seedColor by animateColorAsState(
                         targetValue = posterSeed?.let {
-                            blendColor(MaterialTheme.colorScheme.background, Color(it), 0.45f)
+                            blendColor(MaterialTheme.colorScheme.background, Color(it), 0.85f)
                         } ?: MaterialTheme.colorScheme.background,
                         animationSpec = tween(durationMillis = if (reducedMotion) 0 else 400),
                         label = "detailBgSeed",
                     )
+                    // 底部 tint：种子色往底色兑 65%，等效种子色留 30%，随 seedColor 一起淡化。
+                    val seedLight = blendColor(seedColor, MaterialTheme.colorScheme.background, 0.65f)
                     Box(
                         Modifier
                             .fillMaxSize()
@@ -953,8 +960,7 @@ fun DetailScreen(
                                 Brush.verticalGradient(
                                     colorStops = arrayOf(
                                         0.0f to seedColor,
-                                        0.6f to MaterialTheme.colorScheme.background,
-                                        1.0f to MaterialTheme.colorScheme.background,
+                                        1.0f to seedLight,
                                     ),
                                 ),
                             ),
@@ -1005,6 +1011,7 @@ fun DetailScreen(
                     stickyHeader {
                         DetailTabBar(
                             selectedTab = selectedTab,
+                            barBackground = seedColor,
                             onSelect = { tab ->
                                 selectedTabIndex = tab.ordinal
                                 scope.launch { listState.scrollToItem(0) }
@@ -2324,6 +2331,7 @@ private enum class DetailTab(val label: String, val color: Color) {
 @Composable
 private fun DetailTabBar(
     selectedTab: DetailTab,
+    barBackground: Color,
     onSelect: (DetailTab) -> Unit,
     following: Boolean,
     onToggleFollow: () -> Unit,
@@ -2336,15 +2344,19 @@ private fun DetailTabBar(
 ) {
     val reducedMotion = rememberReducedMotion()
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxWidth().background(cs.background)) {
+    // v1.1.22：底色改用种子色——原先不透明主题背景把海报渐变顶部全盖住，
+    // Tab 栏那一块永远是纯底色，背景跟随海报在视觉上从这里就断了。
+    Column(Modifier.fillMaxWidth().background(barBackground)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = V5.Gutter, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                .padding(start = V5.Gutter, end = 8.dp, top = 0.dp, bottom = 0.dp),
         ) {
             // 五 Tab 等宽＋滑动胶囊（BoxWithConstraints 直接量 Dp 宽，不用密度换算）
-            BoxWithConstraints(Modifier.weight(1f).height(48.dp)) {
+            // v1.1.22：用户两度反馈行太高——盒子 48dp→40dp、胶囊内收 4dp→0dp、行上下内边距 2dp→0dp，
+            // 整行 52dp→40dp，与按钮同高，不再留空。
+            BoxWithConstraints(Modifier.weight(1f).height(40.dp)) {
                 val tabWidth = maxWidth / 5
                 val pillOffset by animateDpAsState(
                     targetValue = tabWidth * selectedTab.ordinal,
@@ -2361,9 +2373,9 @@ private fun DetailTabBar(
                         .offset(x = pillOffset)
                         .width(tabWidth)
                         .fillMaxHeight()
-                        .padding(vertical = 6.dp, horizontal = 2.dp)
+                        .padding(vertical = 0.dp, horizontal = 2.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(pillColor.copy(alpha = 0.30f)),
+                        .background(pillColor.copy(alpha = 0.45f)),
                 )
                 Row(Modifier.fillMaxSize()) {
                     DetailTab.values().forEach { tab ->
@@ -2377,16 +2389,21 @@ private fun DetailTabBar(
                             contentAlignment = Alignment.Center,
                         ) {
                             // v1.1.20：未选中也有边框和各自颜色——描边与文字都用该 Tab 色，
-                            // 边框盒子与滑动胶囊同尺寸（上下 6dp、左右 2dp 内收），选中靠
+                            // 边框盒子与滑动胶囊同尺寸（上下 0dp、左右 2dp 内收），选中靠
                             // 滑动胶囊底色区分，不再全灰。
+                            // v1.1.22：未选中加一层半透明白底——Tab 栏底色跟海报走后，深色 Tab
+                            //（如蓝色追更）在蓝色行底上几乎看不见，白底让五个胶囊在任何海报色上都站得住。
                             Box(
                                 Modifier
                                     .fillMaxSize()
-                                    .padding(vertical = 6.dp, horizontal = 2.dp)
+                                    .padding(vertical = 0.dp, horizontal = 2.dp)
                                     .clip(RoundedCornerShape(50))
                                     .then(
                                         if (selected) Modifier
-                                        else Modifier.border(1.dp, tab.color, RoundedCornerShape(50)),
+                                        else Modifier.background(
+                                            Color.White.copy(alpha = 0.35f),
+                                            RoundedCornerShape(50),
+                                        ).border(1.dp, tab.color, RoundedCornerShape(50)),
                                     ),
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -2404,14 +2421,17 @@ private fun DetailTabBar(
             }
             Spacer(Modifier.width(8.dp))
             // 右边胶囊：收藏、弹幕、倍速
+            // v1.1.22：上下内边距 4dp→0dp——胶囊高 48dp→40dp，与 Tab 胶囊（40dp）对齐。
+            // v1.1.22：底色改半透明 surface——Tab 栏底色跟海报走后，原先暖灰实底在蓝色行底上
+            // 像一块补丁；半透明让它透出一点海报色，跟整行融在一起。
             Box {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
-                        .background(cs.surfaceContainerHigh)
+                        .background(cs.surface.copy(alpha = 0.65f))
                         .border(1.dp, cs.outlineVariant, RoundedCornerShape(50))
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                        .padding(horizontal = 4.dp, vertical = 0.dp),
                 ) {
                     IconButton(
                         onClick = onToggleFollow,
