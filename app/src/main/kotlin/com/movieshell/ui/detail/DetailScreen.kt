@@ -1,5 +1,7 @@
 package com.movieshell.ui.detail
 
+import com.movieshell.data.source.DoubanReviews
+import com.movieshell.data.source.DoubanReviews.DoubanReview
 import com.movieshell.data.source.PluginMarket
 import com.movieshell.data.store.PluginStore
 import com.movieshell.util.safeIndex
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Tag
 
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Favorite
@@ -489,12 +492,26 @@ fun DetailScreen(
     // 数据是不是别源顶上的；RecEntry 带站 key，点推荐卡能进它自己的源。
     var recs by remember(vodId) { mutableStateOf<List<RecEntry>?>(null) }
     var recsFallback by remember(vodId) { mutableStateOf(false) }
+    // v1.1.21：剧评——豆瓣真实短评，第一次进剧评 Tab 才拉，之后不再重复拉；
+    // 豆瓣短评接口在本机出口 IP 下会间歇 400，失败只记空态，不编造、不崩溃。
+    var reviews by remember(vodId) { mutableStateOf<List<DoubanReview>?>(null) }
+    var reviewsLoading by remember(vodId) { mutableStateOf(false) }
+    var reviewsEmpty by remember(vodId) { mutableStateOf(false) }
+    var reviewsRetried by remember(vodId) { mutableStateOf(false) }
     // v1.1.19：快搜——本页内搜全部已启用源（复用搜片页同一条 searchAllFlow），
     // 点提交/点热词才搜，不随输入逐字搜；搜过一次的词进搜索历史。
     var quickQuery by remember(vodId) { mutableStateOf("") }
     var quickResults by remember(vodId) { mutableStateOf<List<SiteSearchResult>?>(null) }
     var quickSearching by remember(vodId) { mutableStateOf(false) }
     var quickHistory by remember { mutableStateOf<List<String>>(emptyList()) }
+    // 剧评加载：第一次进 Tab 与空态重试共用；失败只记空态。
+    suspend fun loadReviews() {
+        if (reviewsLoading) return
+        reviewsLoading = true
+        val list = DoubanReviews.reviewsFor(detail?.vodName.orEmpty())
+        reviewsLoading = false
+        if (list.isEmpty()) reviewsEmpty = true else reviews = list
+    }
     LaunchedEffect(selectedTab) {
         if (selectedTab == DetailTab.RECS && recs == null) {
             val home = loadCurrentSourceHome(context, subSite)
@@ -514,6 +531,9 @@ fun DetailScreen(
         }
         if (selectedTab == DetailTab.SEARCH && quickHistory.isEmpty()) {
             quickHistory = SearchHistoryStore.list(context)
+        }
+        if (selectedTab == DetailTab.REVIEWS && reviews == null && !reviewsEmpty) {
+            loadReviews()
         }
     }
     // v1.1.19：减动效——跟系统设置走，Tab 胶囊、背景淡化、简介展开全关动画。
@@ -1738,7 +1758,20 @@ fun DetailScreen(
                             }
                         }
                         DetailTab.REVIEWS -> {
-                            item { ReviewsPanel() }
+                            item {
+                                ReviewsPanel(
+                                    reviews = reviews,
+                                    loading = reviewsLoading,
+                                    empty = reviewsEmpty,
+                                    onRetry = {
+                                        if (!reviewsRetried) {
+                                            reviewsRetried = true
+                                            reviewsEmpty = false
+                                            scope.launch { loadReviews() }
+                                        }
+                                    },
+                                )
+                            }
                         }
                         DetailTab.RECS -> {
                             item {
@@ -2740,27 +2773,172 @@ private fun FollowPanel(
     }
 }
 
-// v1.1.19：剧评 Tab——App 没有剧评数据源，诚实空态，不编造假用户/假星级。
+// v1.1.21：剧评 Tab——豆瓣真实短评（suggest 取条目 id，rexxar 取短评）；
+// 懒加载，只在第一次点开时请求；失败或搜不到只显示诚实空态，不编造假用户、假星级。
 @Composable
-private fun ReviewsPanel() {
+private fun ReviewsPanel(
+    reviews: List<DoubanReview>?,
+    loading: Boolean,
+    empty: Boolean,
+    onRetry: () -> Unit,
+) {
     val cs = MaterialTheme.colorScheme
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = V5.Gutter, vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(horizontal = V5.Gutter, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            text = "暂无剧评",
-            style = MaterialTheme.typography.titleMedium,
-            color = cs.onSurface,
-        )
+        if (loading) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+            ) {
+                CircularProgressIndicator(
+                    color = DetailTab.REVIEWS.color,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "正在加载豆瓣短评…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = cs.onSurfaceVariant,
+                )
+            }
+        }
+        if (empty) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onRetry() }
+                    .padding(vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = "暂无剧评",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = cs.onSurface,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "豆瓣暂无该片短评",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = cs.onSurfaceVariant,
+                )
+            }
+        }
+        reviews?.forEach { review ->
+            ReviewCard(review)
+        }
+    }
+}
+
+// v1.1.21：单条豆瓣短评卡片——surfaceContainer 底、V5 大圆角；头像带主题描边；
+// 星级金色实心空心按 value/5；有用数是小胶囊，0 时不显示；颜色全走主题色。
+@Composable
+private fun ReviewCard(review: DoubanReview) {
+    val cs = MaterialTheme.colorScheme
+    val filled = review.stars.coerceIn(0, 5)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(V5.CornerLg))
+            .background(cs.surfaceContainer)
+            .padding(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (review.avatarUrl.isNotBlank()) {
+                AsyncImage(
+                    model = review.avatarUrl,
+                    contentDescription = "评论者头像",
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .border(1.dp, cs.outlineVariant, CircleShape),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(cs.surfaceContainerHigh)
+                        .border(1.dp, cs.outlineVariant, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = review.userName.take(1).ifBlank { "豆" },
+                        style = MaterialTheme.typography.labelLarge,
+                        color = cs.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = review.userName.ifBlank { "豆瓣用户" },
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                color = cs.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (filled > 0) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "★".repeat(filled),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DetailTab.RECS.color,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "☆".repeat(5 - filled),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.onSurfaceVariant.copy(alpha = 0.4f),
+                        maxLines = 1,
+                    )
+                }
+                Spacer(Modifier.width(6.dp))
+            }
+            if (review.time.isNotBlank()) {
+                Text(
+                    text = review.time,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "该片源不提供剧评",
-            style = MaterialTheme.typography.bodyMedium,
-            color = cs.onSurfaceVariant,
+            text = review.text,
+            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
+            color = cs.onSurface,
         )
+        if (review.voteCount > 0) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(cs.surfaceContainerHigh)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Filled.ThumbUp,
+                    contentDescription = "觉得有用",
+                    tint = cs.onSurfaceVariant,
+                    modifier = Modifier.size(12.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = "${review.voteCount} 人觉得有用",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
