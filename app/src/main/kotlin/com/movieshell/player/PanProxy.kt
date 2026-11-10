@@ -153,7 +153,7 @@ object PanProxy {
             if (!range.isNullOrBlank()) builder.header("Range", range)
             val resp = runCatching { HttpClient.streamClient().newCall(builder.build()).execute() }
                 .onFailure { LogBus.w(TAG, "回源失败：${it.message}") }.getOrNull()
-                ?: return newFixedLengthResponse(Response.Status.BAD_GATEWAY, MIME_PLAINTEXT, "upstream fail")
+                ?: return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "upstream fail")
             if (!resp.isSuccessful) {
                 val code = resp.code
                 runCatching { resp.close() }
@@ -162,14 +162,14 @@ object PanProxy {
                     when (code) {
                         400 -> Response.Status.BAD_REQUEST
                         404 -> Response.Status.NOT_FOUND
-                        else -> Response.Status.BAD_GATEWAY
+                        else -> Response.Status.INTERNAL_ERROR
                     },
                     MIME_PLAINTEXT, "upstream $code",
                 )
             }
             val body = resp.body ?: run {
                 runCatching { resp.close() }
-                return newFixedLengthResponse(Response.Status.BAD_GATEWAY, MIME_PLAINTEXT, "empty body")
+                return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "empty body")
             }
             val total = resp.header("Content-Length")?.toLongOrNull()
                 ?: body.contentLength().takeIf { it >= 0 }

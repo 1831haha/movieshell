@@ -74,7 +74,7 @@ fun PanLoginDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("$name网盘登录", style = MaterialTheme.typography.titleMedium)
+                        Text("${name}网盘登录", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(2.dp))
                         Text(
                             if (loggedIn) hintLoggedIn else hintLoggedOut,
@@ -123,7 +123,7 @@ fun PanLoginDialog(
                         TextButton(onClick = {
                             clearCookie()
                             loggedIn = false
-                            AppToast.show(context, "已退出$name登录")
+                            AppToast.show(context, "已退出${name}登录")
                         }) { Text("退出登录") }
                     }
                     Spacer(Modifier.weight(1f))
@@ -145,7 +145,7 @@ fun PanLoginDialog(
                                 val cookie = CookieManager.getInstance()
                                     .getCookie(cookieUrl).orEmpty()
                                 if (cookie.isBlank()) {
-                                    AppToast.show(context, "还没登录，先在上方页面登$name账号", long = true)
+                                    AppToast.show(context, "还没登录，先在上方页面登${name}账号", long = true)
                                 } else if (saveCookie(cookie)) {
                                     loggedIn = true
                                     AppToast.show(context, "已保存，请回播放页重试")

@@ -43,21 +43,21 @@ object PanDispatch {
         val pre = withContext(Dispatchers.IO) { PanShareCheck.check(platform, shareUrl, cookie) }
         when (pre) {
             PanShareCheck.Result.DEAD -> {
-                AppToast.show(context, "这个$name分享已失效，换个链接再试", long = true)
+                AppToast.show(context, "这个${name}分享已失效，换个链接再试", long = true)
                 return ""
             }
             PanShareCheck.Result.NEED_LOGIN -> {
-                AppToast.show(context, "这个$name分享要先登录：设置 → 网盘 → $name网盘", long = true)
+                AppToast.show(context, "这个${name}分享要先登录：设置 → 网盘 → ${name}网盘", long = true)
                 return ""
             }
             PanShareCheck.Result.LOGIN_EXPIRED -> {
                 markExpired(platform)
-                AppToast.show(context, "登录已过期，去设置 → 网盘 → $name网盘重登", long = true)
+                AppToast.show(context, "登录已过期，去设置 → 网盘 → ${name}网盘重登", long = true)
                 return ""
             }
             else -> { /* OK / UNKNOWN：继续走规则 */ }
         }
-        AppToast.show(context, "正在解析$name分享…")
+        AppToast.show(context, "正在解析${name}分享…")
         val rule = when (platform) {
             PanShareLinks.Platform.QUARK -> "quark.py"
             PanShareLinks.Platform.UC -> "uc.py"
@@ -66,12 +66,12 @@ object PanDispatch {
         }
         val rulePath = PySourceManager.builtinRulePath(rule)
         if (rulePath.isNullOrBlank()) {
-            AppToast.show(context, "$name规则未就绪，请重启 App 再试", long = true)
-            LogBus.w(TAG, "内置$name规则路径为空")
+            AppToast.show(context, "${name}规则未就绪，请重启 App 再试", long = true)
+            LogBus.w(TAG, "内置${name}规则路径为空")
             return ""
         }
         val raw = runCatching { PyApi().play(rulePath, flag, shareUrl) }
-            .onFailure { LogBus.w(TAG, "$name规则执行失败：${it.message}") }
+            .onFailure { LogBus.w(TAG, "${name}规则执行失败：${it.message}") }
             .getOrNull()
         val direct = raw?.url.orEmpty()
         if (direct.isBlank()) {
