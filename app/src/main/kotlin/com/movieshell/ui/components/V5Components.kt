@@ -837,30 +837,30 @@ private fun rememberReducedMotion(): Boolean {
  * v1.1.16：六个图标统一小球绕一圈，扫光取消——选中变化时跑一次
  * （约 2.2 秒，FastOutSlowIn 先快后慢、转完放缓停下），跑完进度停
  * 在 1 不再绘制；减动效时不跑，图标只提亮、静态。
- * 轨道半径按字形外沿取，小球大小按字形给（见 orbitStyle）；设置齿
- * 轮选中态用镂空齿轮（Outlined.Settings，中间透），小球沿齿轮内圈
- * 转；其余五个沿图标外沿转。小球是两层淡色同心圆光晕 + 白色实心
- * 点，画在图标上层，光晕跟小球走。
+ * 小球都在图标里面转（见 orbitStyle）：设置齿轮选中态用镂空齿轮
+ * （Outlined.Settings，中间透），小球沿齿轮内圈转；其余五个小球
+ * 在实心图标中间转小圈，轨道约 4dp，以图标中心为圆心，画在图标
+ * 上层。小球大小按字形给；小球是白芯 + 主题色光晕（cs.primary，
+ * 跟随系统主题），身后拖一条约四分之一圈的渐隐光尾，跟着球走。
  */
 // v1.1.16：小球轨道样式——轨道半径 / 白点半径 / 中层光晕半径 / 外层
-// 光晕半径（dp）。轨道 + 外层光晕 ≤ 14dp，不出 28dp 高的胶囊。
+// 光晕半径（dp）。六个小球都在图标里面转：齿轮沿内圈（4.2dp），其
+// 余五个在图标中间转小圈（轨道约 4dp）；轨道 + 外层光晕 ≤ 8.2dp，
+// 远在 28dp 高的胶囊以内。
 private data class OrbitStyle(val orbit: Dp, val core: Dp, val mid: Dp, val outer: Dp)
 
-// v1.1.16：按选中图标（selectedIcon）认 tab。轨道半径按字形外沿取
-// （24 视口单位换算到 22dp 图标，1 单位 = 0.917dp）：首页屋顶
-// 8.3dp、两侧 9.2dp、底角 11.7dp，轨道 10.5dp 贴着两侧走；直播机
-// 身两侧 10.1dp、底角 12.5dp，轨道 10.5dp 贴着两侧走；书架书上下
-// 沿 9.2dp、四角 11.7dp，轨道 10.0dp；音乐音符最远 8.5dp、字形
-// 窄，轨道 9.0dp、球最小；AI 机器人底角 10.4dp、耳 10.1dp，轨道
-// 10.5dp；设置齿轮内圈见上一条，轨道 4.2dp、球贴着中心孔走。
+// v1.1.16：按选中图标（selectedIcon）认 tab。齿轮沿内圈转，轨道
+// 4.2dp、球贴着中心孔走（中心孔半径 3.3dp）；其余五个在实心图标
+// 中间转小圈，轨道一律 4.0dp，球径按字形给——首页/直播/书架
+// 1.5dp、音乐 1.2dp（字形最窄，球最小）、AI 1.3dp。
 private fun orbitStyle(item: V5NavItem): OrbitStyle = when (item.selectedIcon) {
     Icons.Filled.Settings -> OrbitStyle(4.2.dp, 1.6.dp, 2.5.dp, 4.0.dp)
-    Icons.Filled.Home -> OrbitStyle(10.5.dp, 1.5.dp, 2.5.dp, 3.5.dp)
-    Icons.Filled.LiveTv -> OrbitStyle(10.5.dp, 1.5.dp, 2.5.dp, 3.5.dp)
-    Icons.Filled.Book -> OrbitStyle(10.0.dp, 1.5.dp, 2.5.dp, 3.5.dp)
-    Icons.Filled.MusicNote -> OrbitStyle(9.0.dp, 1.2.dp, 2.2.dp, 3.2.dp)
-    Icons.Filled.SmartToy -> OrbitStyle(10.5.dp, 1.3.dp, 2.3.dp, 3.3.dp)
-    else -> OrbitStyle(10.0.dp, 1.5.dp, 2.5.dp, 3.5.dp)
+    Icons.Filled.Home -> OrbitStyle(4.0.dp, 1.5.dp, 2.5.dp, 3.5.dp)
+    Icons.Filled.LiveTv -> OrbitStyle(4.0.dp, 1.5.dp, 2.5.dp, 3.5.dp)
+    Icons.Filled.Book -> OrbitStyle(4.0.dp, 1.5.dp, 2.5.dp, 3.5.dp)
+    Icons.Filled.MusicNote -> OrbitStyle(4.0.dp, 1.2.dp, 2.2.dp, 3.2.dp)
+    Icons.Filled.SmartToy -> OrbitStyle(4.0.dp, 1.3.dp, 2.3.dp, 3.3.dp)
+    else -> OrbitStyle(4.0.dp, 1.5.dp, 2.5.dp, 3.5.dp)
 }
 
 @Composable
@@ -900,11 +900,30 @@ private fun NavTabIcon(
             Canvas(Modifier.size(22.dp)) {
                 val style = orbitStyle(item)
                 val r = style.orbit.toPx()
-                val angle = Math.toRadians((o * 360f - 90f).toDouble())
+                val angleDeg = o * 360f - 90f
+                val angle = Math.toRadians(angleDeg.toDouble())
                 val center = Offset(
                     size.width / 2f + r * Math.cos(angle).toFloat(),
                     size.height / 2f + r * Math.sin(angle).toFloat(),
                 )
+                // v1.1.16：流光尾——沿轨道跟在小球后面，8 个渐隐圆点串
+                // 成约四分之一圈的光尾（每点隔约 11°），越靠后越淡越
+                // 小，由亮到透明渐隐；先画光尾，再画球头，球头压在
+                // 最上层。颜色取 shineColor（cs.primary，跟随主题）。
+                val tailDots = 8
+                for (i in 1..tailDots) {
+                    val t = i.toFloat() / tailDots.toFloat()
+                    val tailAngle = Math.toRadians((angleDeg - t * 90f).toDouble())
+                    val tailCenter = Offset(
+                        size.width / 2f + r * Math.cos(tailAngle).toFloat(),
+                        size.height / 2f + r * Math.sin(tailAngle).toFloat(),
+                    )
+                    drawCircle(
+                        shineColor.copy(alpha = 0.45f * (1f - t)),
+                        radius = style.core.toPx() * (1f - t * 0.6f),
+                        center = tailCenter,
+                    )
+                }
                 drawCircle(shineColor.copy(alpha = 0.15f), radius = style.outer.toPx(), center = center)
                 drawCircle(shineColor.copy(alpha = 0.3f), radius = style.mid.toPx(), center = center)
                 drawCircle(Color.White, radius = style.core.toPx(), center = center)
