@@ -29,13 +29,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.movieshell.data.source.SniffConfig
 import com.movieshell.data.source_mgr.BaiduAuthStore
 import com.movieshell.data.source_mgr.QuarkAuthStore
 import com.movieshell.data.source_mgr.UcAuthStore
 import com.movieshell.ui.components.AppToast
 
 /**
- * v1.1.23 扩充：网盘登录通用弹窗（夸克/UC/百度三家共用，挂在设置页“网盘”组里）。
+ * v1.1.23 扩充：网盘登录通用弹窗（夸克/UC/百度三家共用，挂在网盘中心页）。
+ * v1.1.24：三家登录页按实测改真登录页 + 按网盘设 UA（夸克手机版手机号
+ * 登录页 + 手机 UA；UC 首页 + 桌面 UA + 宽视口；百度 passport 登录页 +
+ * 手机 UA）。cookieUrl 三家不变，保存的是整串 Cookie（含父域 Cookie）。
  *
  * 两条路，二选一：
  * 1. 网页登录：在页里登网盘账号，再点“保存登录态”，读 WebView 的
@@ -56,6 +60,8 @@ fun PanLoginDialog(
     saveCookie: (String) -> Boolean,
     clearCookie: () -> Boolean,
     onDismiss: () -> Unit,
+    userAgent: String? = null,
+    useDesktopViewport: Boolean = false,
 ) {
     val context = LocalContext.current
     Dialog(
@@ -90,6 +96,8 @@ fun PanLoginDialog(
                         WebView(ctx).apply {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
+                            userAgent?.let { settings.userAgentString = it }
+                            if (useDesktopViewport) settings.useWideViewPort = true
                             CookieManager.getInstance().setAcceptCookie(true)
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView, url: String) {
@@ -161,11 +169,11 @@ fun PanLoginDialog(
     }
 }
 
-/** 夸克登录弹窗（设置页“网盘”组调用）。 */
+/** 夸克登录弹窗（网盘中心页调用；真登录页：手机版手机号登录 + 手机 UA）。 */
 @Composable
 fun QuarkLoginDialog(onDismiss: () -> Unit) = PanLoginDialog(
     name = "夸克",
-    loginUrl = "https://pan.quark.cn",
+    loginUrl = "https://uop.quark.cn/cas/custom/login?custom_login_type=mobile&client_id=503&display=mobile",
     cookieUrl = "https://pan.quark.cn",
     hintLoggedIn = "已登录 · 夸克分享可播",
     hintLoggedOut = "未登录 · 大文件播不了，先登录",
@@ -175,7 +183,7 @@ fun QuarkLoginDialog(onDismiss: () -> Unit) = PanLoginDialog(
     onDismiss = onDismiss,
 )
 
-/** UC 登录弹窗（设置页“网盘”组调用）。 */
+/** UC 登录弹窗（网盘中心页调用；首页 + 桌面 UA + 宽视口，首屏自带登录框）。 */
 @Composable
 fun UcLoginDialog(onDismiss: () -> Unit) = PanLoginDialog(
     name = "UC",
@@ -187,13 +195,15 @@ fun UcLoginDialog(onDismiss: () -> Unit) = PanLoginDialog(
     saveCookie = UcAuthStore::saveCookie,
     clearCookie = UcAuthStore::clear,
     onDismiss = onDismiss,
+    userAgent = SniffConfig.DESKTOP_UA,
+    useDesktopViewport = true,
 )
 
-/** 百度登录弹窗（设置页“网盘”组调用；取直链需 SVIP 账号）。 */
+/** 百度登录弹窗（网盘中心页调用；取直链需 SVIP 账号）。 */
 @Composable
 fun BaiduLoginDialog(onDismiss: () -> Unit) = PanLoginDialog(
     name = "百度",
-    loginUrl = "https://pan.baidu.com",
+    loginUrl = "https://passport.baidu.com/v2/?login",
     cookieUrl = "https://pan.baidu.com",
     hintLoggedIn = "已登录 · 百度分享可播（取直链需 SVIP）",
     hintLoggedOut = "未登录 · 百度分享播不了，先登录（取直链需 SVIP）",

@@ -76,6 +76,7 @@ import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.reader.ReaderScreen
 import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.ParseSettingsScreen
+import com.movieshell.ui.settings.PanCenterScreen
 import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.settings.SniffPatternsScreen
 import com.movieshell.ui.sources.SourcesScreen
@@ -567,6 +568,8 @@ fun NavGraphBuilder.appDestinations(
                                 onSourcesClick = { navController.navigate("sources") },
                                 // v0.78.2：解析接口子页面
                                 onParseSettingsClick = { navController.navigate("parse_settings") },
+                                // v1.1.24：网盘中心页
+                                onPanCenterClick = { navController.navigate("pan_center") },
                                 // v0.127.0：插件中心单入口（原插件市场/服务插件合并）
                                 onPluginCenterClick = { navController.navigate("plugin_center/0") },
                                 onSniffPatternsClick = { navController.navigate("sniff_patterns") },
@@ -587,6 +590,12 @@ fun NavGraphBuilder.appDestinations(
                         // v0.78.2：解析接口子页面（列表/测活/添加收进这里）
                         composable("parse_settings") {
                             ParseSettingsScreen(
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
+                        // v1.1.24：网盘中心页（6 家网盘：已接入 3 家 + 第一批 3 家）
+                        composable("pan_center") {
+                            PanCenterScreen(
                                 onBack = { navController.popBackStack() },
                             )
                         }

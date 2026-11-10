@@ -136,9 +136,6 @@ import com.movieshell.data.source.JsRuntime
 import com.movieshell.core.log.CrashHandler
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.ai.LlmClient
-import com.movieshell.data.source_mgr.BaiduAuthStore
-import com.movieshell.data.source_mgr.QuarkAuthStore
-import com.movieshell.data.source_mgr.UcAuthStore
 import com.movieshell.data.store.LogStore
 import com.movieshell.core.util.StoragePaths
 import com.movieshell.domain.model.PlayerEngine
@@ -196,6 +193,7 @@ fun SettingsScreen(
     onChangelogClick: () -> Unit = {},
     onSourcesClick: () -> Unit = {}, // v0.36.0：站源管理入口（tab 删除后搬进设置）
     onParseSettingsClick: () -> Unit = {}, // v0.78.2：解析接口子页面入口
+    onPanCenterClick: () -> Unit = {}, // v1.1.24：网盘中心页入口（6 家网盘收进这里）
     onPluginCenterClick: () -> Unit = {}, // v0.127.0：插件中心（插件/服务/市场三页签，原两入口合并）
     onSniffPatternsClick: () -> Unit = {}, // v0.79.0：嗅探正则管理（v0.168.0 起入口在快捷宫格）
     onHistoryClick: () -> Unit = {}, // v0.80.0：快捷宫格-观看历史
@@ -224,17 +222,7 @@ fun SettingsScreen(
     var aiProviderId by remember { mutableStateOf(AiRepairSettings.provider(context).id) }
     var aiWorking by remember { mutableStateOf(false) }
     var aiTestText by remember { mutableStateOf("") }
-    // v1.1.23：夸克网盘登录
-    var showQuarkDialog by remember { mutableStateOf(false) }
-    var quarkLoggedIn by remember { mutableStateOf(QuarkAuthStore.hasCookie()) }
-    var quarkExpired by remember { mutableStateOf(QuarkAuthStore.isExpired()) }
-    // v1.1.23 扩充：UC、百度网盘登录
-    var showUcDialog by remember { mutableStateOf(false) }
-    var ucLoggedIn by remember { mutableStateOf(UcAuthStore.hasCookie()) }
-    var ucExpired by remember { mutableStateOf(UcAuthStore.isExpired()) }
-    var showBaiduDialog by remember { mutableStateOf(false) }
-    var baiduLoggedIn by remember { mutableStateOf(BaiduAuthStore.hasCookie()) }
-    var baiduExpired by remember { mutableStateOf(BaiduAuthStore.isExpired()) }
+    // v1.1.24：三家网盘登录弹窗已搬进网盘中心页，本页只留一个入口
     // v0.186.0：云端更新的冲突确认弹窗（已有 TechDialog 机制，不新开入口）
     var showCloudConflict by remember { mutableStateOf(false) }
     var cloudConflictText by remember { mutableStateOf("") }
@@ -625,7 +613,7 @@ fun SettingsScreen(
                 }
             }
         }
-        // v1.1.23：网盘
+        // v1.1.24：网盘
         item { SettingsCaption("网盘") }
         item {
             AppCard(
@@ -634,37 +622,11 @@ fun SettingsScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     SegItem(
-                        position = SegPos.First,
+                        position = SegPos.Single,
                         icon = Icons.Outlined.Cloud,
-                        title = "夸克网盘",
-                        subtitle = when {
-                            quarkExpired -> "登录已过期 · 点进去重登"
-                            quarkLoggedIn -> "已登录 · 夸克分享可播"
-                            else -> "未登录 · 大文件播不了，先登录"
-                        },
-                        onClick = { showQuarkDialog = true },
-                    )
-                    SegItem(
-                        position = SegPos.Middle,
-                        icon = Icons.Outlined.Cloud,
-                        title = "UC网盘",
-                        subtitle = when {
-                            ucExpired -> "登录已过期 · 点进去重登"
-                            ucLoggedIn -> "已登录 · UC 分享可播"
-                            else -> "未登录 · 大文件播不了，先登录"
-                        },
-                        onClick = { showUcDialog = true },
-                    )
-                    SegItem(
-                        position = SegPos.Last,
-                        icon = Icons.Outlined.Cloud,
-                        title = "百度网盘",
-                        subtitle = when {
-                            baiduExpired -> "登录已过期 · 点进去重登"
-                            baiduLoggedIn -> "已登录 · 百度分享可播（取直链需 SVIP）"
-                            else -> "未登录 · 百度分享播不了，先登录（取直链需 SVIP）"
-                        },
-                        onClick = { showBaiduDialog = true },
+                        title = "网盘",
+                        subtitle = "夸克 · UC · 百度 · 阿里 · 光鸭 · 迅雷",
+                        onClick = onPanCenterClick,
                     )
                 }
             }
@@ -955,29 +917,6 @@ fun SettingsScreen(
     }
 
     // v0.20.0：播放器内核选择（持久化，播放器内一键切换走同一偏好）
-    // v1.1.23：夸克网盘登录弹窗
-    if (showQuarkDialog) {
-        QuarkLoginDialog(onDismiss = {
-            showQuarkDialog = false
-            quarkLoggedIn = QuarkAuthStore.hasCookie()
-            quarkExpired = QuarkAuthStore.isExpired()
-        })
-    }
-    // v1.1.23 扩充：UC、百度网盘登录弹窗
-    if (showUcDialog) {
-        UcLoginDialog(onDismiss = {
-            showUcDialog = false
-            ucLoggedIn = UcAuthStore.hasCookie()
-            ucExpired = UcAuthStore.isExpired()
-        })
-    }
-    if (showBaiduDialog) {
-        BaiduLoginDialog(onDismiss = {
-            showBaiduDialog = false
-            baiduLoggedIn = BaiduAuthStore.hasCookie()
-            baiduExpired = BaiduAuthStore.isExpired()
-        })
-    }
     // v0.29.0：libmpv 插件化——未安装时选 libmpv 提示去插件市场，不切换
     // v0.294.11：「主题」面板——上「模式」分段、下「配色」色圈；点选即生效，面板保持打开
     if (showThemeDialog) {

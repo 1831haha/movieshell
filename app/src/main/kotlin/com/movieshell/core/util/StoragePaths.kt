@@ -47,11 +47,14 @@ object StoragePaths {
 
     /**
      * v1.1.21：内置规则文件名（assets 自带，随安装包来，免授权可用）。
-     * 无授权时本地文件源一律不读，唯独这两个内置规则照常列出、照常激活——
+     * 无授权时本地文件源一律不读，唯独这些内置规则照常列出、照常激活——
      * 它们是安装包的一部分，不是用户从文件管理器放进来的。
      * 注意：shim.js 是垫片，从不进列表，不在这里。
      */
-    val BUILTIN_RULE_NAMES: Set<String> = setOf("sp002.js", "btsow_spider.py", "quark.py", "uc.py", "baidu.py")
+    val BUILTIN_RULE_NAMES: Set<String> = setOf(
+        "sp002.js", "btsow_spider.py", "quark.py", "uc.py", "baidu.py",
+        "ali.py", "guangya.py", "xunlei.py",
+    )
 
     /** v1.1.21：无授权时某条本地规则是否仍可见——只认内置规则名。 */
     fun isBuiltinRule(name: String): Boolean = name in BUILTIN_RULE_NAMES

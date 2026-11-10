@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit
  * - 百度：调一次 share/wxlist（带提取码）：
  *   errno 0 → 分享有效；errno 2/-12 → 分享已失效或提取码不对。
  *   注意百度 verify 接口时通时不通（同链接两次结果不同），不用它做检测。
+ * - 阿里/光鸭/迅雷：暂不做播前检测，直接 UNKNOWN 交给规则正常跑。
  * 其他情况一律 UNKNOWN，交给规则正常跑，不因检测误拦。
  */
 object PanShareCheck {
@@ -58,6 +59,8 @@ object PanShareCheck {
             )
             PanShareLinks.Platform.BAIDU -> checkBaidu(baiduBase ?: BAIDU_BASE, id, code, client)
             PanShareLinks.Platform.ALIYUN -> Result.UNKNOWN
+            PanShareLinks.Platform.GUANGYA -> Result.UNKNOWN
+            PanShareLinks.Platform.XUNLEI -> Result.UNKNOWN
         }
     }
 

@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
  * v1.1.23：网盘分享分发——分享链接不再当直链给播放器。
  * v1.1.23 扩充：夸克、UC、百度三家都接；播前先验有效性，失效/过期
  * 直接给人话提示，不等到播放器黑屏才知道。
+ * v1.1.24：阿里、光鸭、迅雷三家也接进来，六家全走规则解析。
  *
  * 流程：认出是哪家盘 → 播前检测（分享失效/要登录/登录过期先拦下）→
  * 调对应内置 PY 规则 playerContent 拿直链 → 直链包进回环代理地址交
@@ -24,7 +25,6 @@ import kotlinx.coroutines.withContext
  * 规则返回的直链加头由代理持有，播放地址里只有一个不透明 token。
  *
  * 失败时给明确提示、不静默失败：哪一步、为什么、下一步做什么都说清。
- * 阿里云盘还没接，先拦下明说，不当直链放行。
  */
 object PanDispatch {
 
@@ -34,10 +34,6 @@ object PanDispatch {
     suspend fun resolve(context: Context, shareUrl: String, flag: String): String {
         val platform = PanShareLinks.platformOf(shareUrl) ?: return ""
         val name = platformName(platform)
-        if (platform == PanShareLinks.Platform.ALIYUN) {
-            AppToast.show(context, "暂只支持夸克、UC、百度网盘，阿里云盘以后再接", long = true)
-            return ""
-        }
         val cookie = cookieOf(platform)
         // 播前检测：分享失效/要登录/登录过期先拦下，别等黑屏。
         val pre = withContext(Dispatchers.IO) { PanShareCheck.check(platform, shareUrl, cookie) }
@@ -62,7 +58,9 @@ object PanDispatch {
             PanShareLinks.Platform.QUARK -> "quark.py"
             PanShareLinks.Platform.UC -> "uc.py"
             PanShareLinks.Platform.BAIDU -> "baidu.py"
-            PanShareLinks.Platform.ALIYUN -> return ""
+            PanShareLinks.Platform.ALIYUN -> "ali.py"
+            PanShareLinks.Platform.GUANGYA -> "guangya.py"
+            PanShareLinks.Platform.XUNLEI -> "xunlei.py"
         }
         val rulePath = PySourceManager.builtinRulePath(rule)
         if (rulePath.isNullOrBlank()) {
@@ -92,6 +90,8 @@ object PanDispatch {
         PanShareLinks.Platform.UC -> "UC"
         PanShareLinks.Platform.BAIDU -> "百度"
         PanShareLinks.Platform.ALIYUN -> "阿里"
+        PanShareLinks.Platform.GUANGYA -> "光鸭"
+        PanShareLinks.Platform.XUNLEI -> "迅雷"
     }
 
     private fun cookieOf(platform: PanShareLinks.Platform): String = when (platform) {
@@ -99,6 +99,8 @@ object PanDispatch {
         PanShareLinks.Platform.UC -> UcAuthStore.getCookie()
         PanShareLinks.Platform.BAIDU -> BaiduAuthStore.getCookie()
         PanShareLinks.Platform.ALIYUN -> ""
+        PanShareLinks.Platform.GUANGYA -> ""
+        PanShareLinks.Platform.XUNLEI -> ""
     }
 
     private fun markExpired(platform: PanShareLinks.Platform) {
@@ -106,7 +108,10 @@ object PanDispatch {
             PanShareLinks.Platform.QUARK -> QuarkAuthStore.markExpired()
             PanShareLinks.Platform.UC -> UcAuthStore.markExpired()
             PanShareLinks.Platform.BAIDU -> BaiduAuthStore.markExpired()
-            PanShareLinks.Platform.ALIYUN -> { /* 不接 */ }
+            // 游客路线，无登录态
+            PanShareLinks.Platform.ALIYUN -> { }
+            PanShareLinks.Platform.GUANGYA -> { }
+            PanShareLinks.Platform.XUNLEI -> { }
         }
     }
 
@@ -127,6 +132,11 @@ object PanDispatch {
         } else {
             "百度分享要登录才能播：设置 → 网盘 → 百度网盘（取直链需 SVIP）"
         }
-        PanShareLinks.Platform.ALIYUN -> "阿里云盘暂不支持"
+        PanShareLinks.Platform.ALIYUN ->
+            "阿里解析失败：转码和直链都没拿到，可能是分享须登录或接口变了，换个链接再试或去设置里看"
+        PanShareLinks.Platform.GUANGYA ->
+            "光鸭解析失败：可能是分享失效、付费分支或接口变了，换个链接再试或去设置里看"
+        PanShareLinks.Platform.XUNLEI ->
+            "迅雷解析失败：可能是验证码没过、分享失效或接口变了，换个链接再试或去设置里看"
     }
 }
