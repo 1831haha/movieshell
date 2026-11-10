@@ -113,7 +113,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.mutableIntStateOf
@@ -516,27 +520,42 @@ fun DetailScreen(
     val reducedMotion = rememberReducedMotion()
 
     // v0.71.0：带已看角标的选集 chip（追剧且看到该集时右上角标记）
-    // v0.292.0 V5：48dp 12 圆角方格——surfaceContainerHigh；当前集 primary + 均衡器图标；已看右上 tertiary 圆点
+    // v0.292.0 V5：40dp 12 圆角方格——surfaceContainerHigh；当前集剧评紫 + 均衡器图标（跳动，减动效时静止）；已看右上 tertiary 圆点
     @Composable
     fun EpisodeChip(index: Int, name: String, selected: Boolean, onClick: () -> Unit) {
         val v = MaterialTheme.colorScheme
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(40.dp)
                 .clip(RoundedCornerShape(V5.CornerMd))
-                .background(if (selected) v.primary else v.surfaceContainerHigh)
+                .background(if (selected) Color(0xFFA855F7) else v.surfaceContainerHigh)
                 .clickable(onClick = onClick)
                 .padding(horizontal = 6.dp),
             contentAlignment = Alignment.Center,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (selected) {
+                    // v1.1.21：选中集均衡器图标轻微上下跳动；减动效开时静止。
+                    val eqOffsetY = if (reducedMotion) {
+                        0f
+                    } else {
+                        val eqTransition = rememberInfiniteTransition(label = "eqBounce")
+                        eqTransition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = -2.5f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse,
+                            ),
+                            label = "eqBounceY",
+                        ).value
+                    }
                     Icon(
                         Icons.Filled.GraphicEq,
                         contentDescription = "正在播放",
                         tint = v.onPrimary,
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(16.dp).offset(y = eqOffsetY.dp),
                     )
                     Spacer(Modifier.width(4.dp))
                 }
