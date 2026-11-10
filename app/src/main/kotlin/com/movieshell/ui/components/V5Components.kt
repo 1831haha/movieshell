@@ -4,6 +4,7 @@ import android.animation.ValueAnimator
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -74,10 +75,14 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -102,6 +107,10 @@ import com.movieshell.ui.theme.V5Motion
 import com.movieshell.ui.theme.artBrush
 import com.movieshell.ui.theme.artRing
 import com.movieshell.ui.theme.isDark
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * v0.292.0 V5 Material You 共享组件（design-tokens.md 第 5 节）。
@@ -794,7 +803,6 @@ fun V5NavigationBar(
                         item = item,
                         selected = selected,
                         tint = if (selected) cs.onSecondaryContainer else cs.onSurface,
-                        shineColor = cs.primary,
                         shineToken = shineToken,
                         reducedMotion = reducedMotion,
                     )
@@ -833,34 +841,145 @@ private fun rememberReducedMotion(): Boolean {
 }
 
 /**
- * v1.1.15：底栏 tab 图标（含选中流光）。
- * v1.1.16：六个图标统一小球绕一圈，扫光取消——选中变化时跑一次
- * （约 2.2 秒，FastOutSlowIn 先快后慢、转完放缓停下），跑完进度停
- * 在 1 不再绘制；减动效时不跑，图标只提亮、静态。
- * 小球都在图标里面转（见 orbitStyle）：设置齿轮选中态用镂空齿轮
- * （Outlined.Settings，中间透），小球沿齿轮内圈转；其余五个小球
- * 在实心图标中间转小圈，轨道约 4dp，以图标中心为圆心，画在图标
- * 上层。小球大小按字形给；小球是白芯 + 主题色光晕（cs.primary，
- * 跟随系统主题），身后拖一条约四分之一圈的渐隐光尾，跟着球走。
+ * v1.1.17：底栏 tab 图标（含选中动效）。
+ * 选中变化时跑一次：小球顺时针沿各图标的字形轮廓走一圈（约 2.2 秒，
+ * FastOutSlowIn 先快后慢、转完放缓停下），光尾跟着球长到接成一整
+ * 圈，再整体约 0.6 秒慢慢变暗消失；三个图标有收尾彩蛋（书架描书
+ * 签、AI 眼睛亮、齿轮外圈亮）。进页首帧不跑，点已选中的 tab 不重
+ * 跑；减动效时不跑，图标只提亮、静态。
+ * 齿轮选中态用镂空齿轮（Outlined.Settings，中间透），小球沿齿轮
+ * 内圈（半径 4.2dp）转；其余五个小球沿各自字形轮廓走，轨道按字
+ * 形边缘内收约 1dp，画在图标上层。颜色是炫彩多色、不跟主题色：
+ * 小球色相随转圈流转（彩虹色，2 圈色相走完一整圈，收尾同色无
+ * 缝），透明度脉动（0.25~1，每圈约 2.5 次）；光尾同样是彩虹色，
+ * 沿轨道长度方向色相渐变。球径：首页/直播/书架 0.75dp、音乐
+ * 0.65dp、AI 0.7dp、齿轮 0.85dp；光尾宽 0.75dp；光晕约球半径
+ * 的 1.6 倍。
  */
-// v1.1.16：小球轨道样式——轨道半径 / 白点半径 / 中层光晕半径 / 外层
-// 光晕半径（dp）。六个小球都在图标里面转：齿轮沿内圈（4.2dp），其
-// 余五个在图标中间转小圈（轨道约 4dp）；轨道 + 外层光晕 ≤ 8.2dp，
-// 远在 28dp 高的胶囊以内。
-private data class OrbitStyle(val orbit: Dp, val core: Dp, val mid: Dp, val outer: Dp)
+// v1.1.17：收尾彩蛋种类——无、书签、眼睛、齿轮外圈。
+private enum class FinaleKind { NONE, RIBBON, EYES, GEAR }
 
-// v1.1.16：按选中图标（selectedIcon）认 tab。齿轮沿内圈转，轨道
-// 4.2dp、球贴着中心孔走（中心孔半径 3.3dp）；其余五个在实心图标
-// 中间转小圈，轨道一律 4.0dp，球径按字形给——首页/直播/书架
-// 1.5dp、音乐 1.2dp（字形最窄，球最小）、AI 1.3dp。
-private fun orbitStyle(item: V5NavItem): OrbitStyle = when (item.selectedIcon) {
-    Icons.Filled.Settings -> OrbitStyle(4.2.dp, 1.6.dp, 2.5.dp, 4.0.dp)
-    Icons.Filled.Home -> OrbitStyle(4.0.dp, 1.5.dp, 2.5.dp, 3.5.dp)
-    Icons.Filled.LiveTv -> OrbitStyle(4.0.dp, 1.5.dp, 2.5.dp, 3.5.dp)
-    Icons.Filled.Book -> OrbitStyle(4.0.dp, 1.5.dp, 2.5.dp, 3.5.dp)
-    Icons.Filled.MusicNote -> OrbitStyle(4.0.dp, 1.2.dp, 2.2.dp, 3.2.dp)
-    Icons.Filled.SmartToy -> OrbitStyle(4.0.dp, 1.3.dp, 2.3.dp, 3.3.dp)
-    else -> OrbitStyle(4.0.dp, 1.5.dp, 2.5.dp, 3.5.dp)
+// v1.1.17：小球轨道规格——球半径；轨道 Path 构造器；书签彩蛋的
+// 书签 Path 构造器（只书架有，默认空 Path）；收尾彩蛋种类。
+// 所有轨道 Path 都按 24 分坐标写，构造器入参 u 为每单位对应的 px 数。
+private data class OrbitSpec(
+    val core: Dp,
+    val buildOrbit: (Float) -> Path,
+    val buildRibbon: (Float) -> Path = { Path() },
+    val finale: FinaleKind = FinaleKind.NONE,
+)
+
+// v1.1.17：圆角矩形轨道（起点为顶边中点，顺时针）。left/top/
+// right/bottom 为 24 分坐标，r 为圆角半径。
+private fun rectOrbitPath(u: Float, left: Float, top: Float, right: Float, bottom: Float, r: Float): Path {
+    val cx = (left + right) / 2f
+    return Path().apply {
+        moveTo(cx * u, top * u)
+        lineTo((right - r) * u, top * u)
+        quadraticBezierTo(right * u, top * u, right * u, (top + r) * u)
+        lineTo(right * u, (bottom - r) * u)
+        quadraticBezierTo(right * u, bottom * u, (right - r) * u, bottom * u)
+        lineTo((left + r) * u, bottom * u)
+        quadraticBezierTo(left * u, bottom * u, left * u, (bottom - r) * u)
+        lineTo(left * u, (top + r) * u)
+        quadraticBezierTo(left * u, top * u, (left + r) * u, top * u)
+        close()
+    }
+}
+
+// v1.1.17：首页轨道——内收后的房子多边形（屋顶顶点 12,4.34、
+// 屋檐墙 x=6/18、底 y=19），屋檐与底角微圆角，顺时针。
+private fun homeOrbitPath(u: Float): Path = Path().apply {
+    moveTo(12f * u, 4.34f * u)
+    lineTo(17.4f * u, 9.2f * u)
+    quadraticBezierTo(18f * u, 9.75f * u, 18f * u, 10.5f * u)
+    lineTo(18f * u, 18.2f * u)
+    quadraticBezierTo(18f * u, 19f * u, 17.2f * u, 19f * u)
+    lineTo(6.8f * u, 19f * u)
+    quadraticBezierTo(6f * u, 19f * u, 6f * u, 18.2f * u)
+    lineTo(6f * u, 10.5f * u)
+    quadraticBezierTo(6f * u, 9.75f * u, 6.6f * u, 9.2f * u)
+    close()
+}
+
+// v1.1.17：音乐轨道——沿音符轮廓走（旗块 x=12..18、y=3..7，符
+// 干 x=12..14，符头椭圆中心 10,17.55、rx=4、ry=4），顺时针；头
+// 部一段收进轮廓内，不外鼓出 x=14。
+private fun musicOrbitPath(u: Float): Path = Path().apply {
+    moveTo(13f * u, 4.2f * u)
+    lineTo(16.8f * u, 4.2f * u)
+    quadraticBezierTo(17.6f * u, 4.2f * u, 17.6f * u, 5f * u)
+    lineTo(17.6f * u, 5.8f * u)
+    quadraticBezierTo(17.6f * u, 6.6f * u, 16.8f * u, 6.6f * u)
+    lineTo(13.6f * u, 6.6f * u)
+    lineTo(13.6f * u, 13.6f * u)
+    cubicTo(13.8f * u, 14.8f * u, 13.6f * u, 17.2f * u, 12.6f * u, 19.2f * u)
+    cubicTo(11f * u, 21.2f * u, 8.4f * u, 21f * u, 7.4f * u, 19.2f * u)
+    cubicTo(6.4f * u, 17.4f * u, 7.6f * u, 15f * u, 9.8f * u, 14.4f * u)
+    cubicTo(10.8f * u, 14.1f * u, 11.7f * u, 14.3f * u, 12.4f * u, 14.7f * u)
+    lineTo(12.4f * u, 4.2f * u)
+    close()
+}
+
+// v1.1.17：齿轮内圈轨道——半径 4.2dp 的圆（24 分坐标下半径
+// 4.2*24/22），起点为顶部，顺时针。
+private fun gearOrbitPath(u: Float): Path {
+    val r = 4.2f * 24f / 22f * u
+    val cx = 12f * u
+    val cy = 12f * u
+    return Path().apply {
+        moveTo(cx, cy - r)
+        arcTo(Rect(cx - r, cy - r, cx + r, cy + r), -90f, 180f, false)
+        arcTo(Rect(cx - r, cy - r, cx + r, cy + r), 90f, 180f, false)
+    }
+}
+
+// v1.1.17：书签彩蛋的书签 Path（24 分坐标，顺时针）。
+private fun bookmarkPath(u: Float): Path = Path().apply {
+    moveTo(9.3f * u, 4.4f * u)
+    lineTo(10.7f * u, 4.4f * u)
+    lineTo(10.7f * u, 8.4f * u)
+    lineTo(10f * u, 7.9f * u)
+    lineTo(9.3f * u, 8.4f * u)
+    close()
+}
+
+// v1.1.17：齿轮外形上的点——r 为半径（24 分坐标），deg 为从顶
+// 部起顺时针的角度。
+private fun gearPoint(r: Float, deg: Float, u: Float): Offset {
+    val a = deg * PI.toFloat() / 180f
+    return Offset((12f + r * sin(a)) * u, (12f - r * cos(a)) * u)
+}
+
+// v1.1.17：齿轮外圈 Path（24 分坐标，供彩蛋描边用）：8 齿，每
+// 齿齿顶 20°、齿顶半径 8.8、齿根半径 7.0，齿顶与齿根之间直线连
+// 接成多边形；中心孔半径 3.6 另画圆。
+private fun gearOutlinePath(u: Float): Path {
+    val path = Path()
+    for (i in 0 until 8) {
+        val a = i * 45f
+        val tipStart = gearPoint(8.8f, a + 12.5f, u)
+        val tipEnd = gearPoint(8.8f, a + 32.5f, u)
+        val valleyEnd = gearPoint(7.0f, a + 57.5f, u)
+        if (i == 0) path.moveTo(tipStart.x, tipStart.y) else path.lineTo(tipStart.x, tipStart.y)
+        path.lineTo(tipEnd.x, tipEnd.y)
+        path.lineTo(valleyEnd.x, valleyEnd.y)
+    }
+    path.close()
+    return path
+}
+
+// v1.1.17：按选中图标（selectedIcon）认 tab。球径：首页/直播/
+// 书架 0.75dp、音乐 0.65dp（字形最窄，球最小）、AI 0.7dp、齿
+// 轮 0.85dp；彩蛋：书架描书签、AI 眼睛亮、齿轮外圈亮。
+private fun orbitSpec(item: V5NavItem): OrbitSpec = when (item.selectedIcon) {
+    Icons.Filled.Settings -> OrbitSpec(0.85.dp, ::gearOrbitPath, finale = FinaleKind.GEAR)
+    Icons.Filled.Home -> OrbitSpec(0.75.dp, ::homeOrbitPath)
+    Icons.Filled.LiveTv -> OrbitSpec(0.75.dp, { u -> rectOrbitPath(u, 4f, 9f, 20f, 19f, 1f) })
+    Icons.Filled.Book -> OrbitSpec(0.75.dp, { u -> rectOrbitPath(u, 5f, 3f, 19f, 21f, 1f) }, ::bookmarkPath, FinaleKind.RIBBON)
+    Icons.Filled.MusicNote -> OrbitSpec(0.65.dp, ::musicOrbitPath)
+    Icons.Filled.SmartToy -> OrbitSpec(0.7.dp, { u -> rectOrbitPath(u, 5f, 8f, 19f, 19f, 2f) }, finale = FinaleKind.EYES)
+    else -> OrbitSpec(0.75.dp, ::homeOrbitPath)
 }
 
 @Composable
@@ -868,18 +987,22 @@ private fun NavTabIcon(
     item: V5NavItem,
     selected: Boolean,
     tint: Color,
-    shineColor: Color,
     shineToken: Int,
     reducedMotion: Boolean,
 ) {
     // 设置 tab 认图标本身（Outlined.Settings / Filled.Settings），不认下标。
     val isGear = item.icon == Icons.Outlined.Settings ||
         item.selectedIcon == Icons.Filled.Settings
+    // v1.1.17：两段动效——轨道 0→1（约 2.2 秒，FastOutSlowIn），
+    // 再接彩蛋＋变暗 0→1（700ms 彩蛋＋600ms 变暗，线性）。
     val orbit = remember { Animatable(0f) }
+    val post = remember { Animatable(0f) }
     LaunchedEffect(shineToken) {
         if (shineToken == 0 || !selected || reducedMotion) return@LaunchedEffect
         orbit.snapTo(0f)
+        post.snapTo(0f)
         orbit.animateTo(1f, tween(2200, easing = FastOutSlowInEasing))
+        post.animateTo(1f, tween(1300, easing = LinearEasing))
     }
     Box(
         modifier = Modifier.size(22.dp),
@@ -894,39 +1017,112 @@ private fun NavTabIcon(
             tint = tint,
             modifier = Modifier.size(22.dp),
         )
-        // 小球绕一圈：画在图标上层，进度到 1 即停，不再绘制。
+        // 轨道没跑完、或彩蛋＋变暗没跑完之前，一直绘制；跑完即停。
         val o = orbit.value
-        if (selected && !reducedMotion && o > 0f && o < 1f) {
+        val p = post.value
+        if (selected && !reducedMotion && ((o > 0f && o < 1f) || (o >= 1f && p < 1f))) {
             Canvas(Modifier.size(22.dp)) {
-                val style = orbitStyle(item)
-                val r = style.orbit.toPx()
-                val angleDeg = o * 360f - 90f
-                val angle = Math.toRadians(angleDeg.toDouble())
-                val center = Offset(
-                    size.width / 2f + r * Math.cos(angle).toFloat(),
-                    size.height / 2f + r * Math.sin(angle).toFloat(),
-                )
-                // v1.1.16：流光尾——沿轨道跟在小球后面，8 个渐隐圆点串
-                // 成约四分之一圈的光尾（每点隔约 11°），越靠后越淡越
-                // 小，由亮到透明渐隐；先画光尾，再画球头，球头压在
-                // 最上层。颜色取 shineColor（cs.primary，跟随主题）。
-                val tailDots = 8
-                for (i in 1..tailDots) {
-                    val t = i.toFloat() / tailDots.toFloat()
-                    val tailAngle = Math.toRadians((angleDeg - t * 90f).toDouble())
-                    val tailCenter = Offset(
-                        size.width / 2f + r * Math.cos(tailAngle).toFloat(),
-                        size.height / 2f + r * Math.sin(tailAngle).toFloat(),
-                    )
-                    drawCircle(
-                        shineColor.copy(alpha = 0.45f * (1f - t)),
-                        radius = style.core.toPx() * (1f - t * 0.6f),
-                        center = tailCenter,
-                    )
+                val spec = orbitSpec(item)
+                val u = size.width / 24f
+                val center = Offset(size.width / 2f, size.height / 2f)
+                val corePx = spec.core.toPx()
+                val tailWidthPx = 0.75.dp.toPx()
+                val orbitPath = spec.buildOrbit(u)
+                val measure = PathMeasure().apply { setPath(orbitPath, false) }
+                val totalLen = measure.length
+
+                // 总时间轴（毫秒）：轨道 2200 + 彩蛋 700 + 变暗 600。
+                val elapsedMs = o * 2200f + p * 1300f
+                // 彩蛋进度（post 前 700ms）与变暗进度（post 后 600ms）。
+                val finaleProgress = (p * 1300f / 700f).coerceIn(0f, 1f)
+                val fadeProgress = ((p * 1300f - 700f) / 600f).coerceIn(0f, 1f)
+                val fadeAlpha = 1f - fadeProgress
+                // 彩蛋里的取色色相：沿时间接着轨道末尾的色相走。
+                val finaleHue = (elapsedMs / 2200f * 360f * 2f) % 360f
+                // 透明度脉动：0.25~1，每圈约 2.5 次，彩蛋阶段接着走。
+                val pulseAlpha = (0.25f + 0.75f * abs(sin(elapsedMs / 2200f * PI.toFloat() * 2.5f))) * fadeAlpha
+                // 沿 Path 从 0 画到 trailLen 的彩虹光尾，分 48 段，每段
+                // 色相按其在轨道上的位置取，圆头收尾。
+                fun rainbowTrail(m: PathMeasure, len: Float, trailLen: Float, alpha: Float, hueCycles: Float, widthPx: Float) {
+                    if (trailLen <= 0f || alpha <= 0f || len <= 0f) return
+                    val segments = 48
+                    val step = trailLen / segments
+                    var prev = m.getPosition(0f)
+                    for (i in 1..segments) {
+                        val d = (step * i).coerceAtMost(trailLen)
+                        val pos = m.getPosition(d)
+                        val mid = (d + step * (i - 1)) / 2f
+                        val hue = ((mid / len) * 360f * hueCycles) % 360f
+                        drawLine(
+                            color = Color.hsv(hue, 0.95f, 1f).copy(alpha = alpha),
+                            start = prev,
+                            end = pos,
+                            strokeWidth = widthPx,
+                            cap = StrokeCap.Round,
+                        )
+                        prev = pos
+                    }
                 }
-                drawCircle(shineColor.copy(alpha = 0.15f), radius = style.outer.toPx(), center = center)
-                drawCircle(shineColor.copy(alpha = 0.3f), radius = style.mid.toPx(), center = center)
-                drawCircle(Color.White, radius = style.core.toPx(), center = center)
+
+                // 小球位置与色相：轨道阶段沿轨道走；彩蛋阶段书架去描
+                // 书签，其余停在圈顶；光尾先画，球头压在最上层。
+                var ballPos: Offset
+                var ballHue: Float
+                if (o < 1f) {
+                    val d = o * totalLen
+                    ballPos = measure.getPosition(d)
+                    ballHue = ((d / totalLen) * 360f * 2f) % 360f
+                    rainbowTrail(measure, totalLen, d, fadeAlpha, 2f, tailWidthPx)
+                } else {
+                    rainbowTrail(measure, totalLen, totalLen, fadeAlpha, 2f, tailWidthPx)
+                    when (spec.finale) {
+                        FinaleKind.RIBBON -> {
+                            val ribbonPath = spec.buildRibbon(u)
+                            val ribbonMeasure = PathMeasure().apply { setPath(ribbonPath, false) }
+                            val ribbonLen = ribbonMeasure.length
+                            val rd = (finaleProgress * ribbonLen).coerceAtMost(ribbonLen)
+                            ballPos = ribbonMeasure.getPosition(rd)
+                            ballHue = if (ribbonLen > 0f) ((rd / ribbonLen) * 360f) % 360f else 0f
+                            rainbowTrail(ribbonMeasure, ribbonLen, rd, fadeAlpha, 1f, tailWidthPx)
+                        }
+                        FinaleKind.EYES -> {
+                            ballPos = measure.getPosition(totalLen)
+                            ballHue = 0f
+                            val eyeAlpha = minOf(1f, finaleProgress * 3f) * fadeAlpha
+                            val eyeRPx = 1.4.dp.toPx()
+                            listOf(Offset(9f * u, 11.5f * u), Offset(15f * u, 11.5f * u)).forEach { eye ->
+                                drawCircle(Color.hsv(finaleHue, 0.95f, 1f).copy(alpha = 0.3f * eyeAlpha), radius = eyeRPx * 1.6f, center = eye)
+                                drawCircle(Color.hsv(finaleHue, 0.95f, 1f).copy(alpha = eyeAlpha), radius = eyeRPx, center = eye)
+                            }
+                        }
+                        FinaleKind.GEAR -> {
+                            ballPos = measure.getPosition(totalLen)
+                            ballHue = 0f
+                            val gearAlpha = minOf(1f, finaleProgress * 3f) * fadeAlpha
+                            val gearPath = gearOutlinePath(u)
+                            val gearMeasure = PathMeasure().apply { setPath(gearPath, false) }
+                            // 光晕：宽描边淡色打底，再描彩虹色。
+                            drawPath(
+                                path = gearPath,
+                                color = Color.hsv(finaleHue, 0.95f, 1f).copy(alpha = 0.15f * gearAlpha),
+                                style = Stroke(width = 3.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+                            )
+                            rainbowTrail(gearMeasure, gearMeasure.length, gearMeasure.length, gearAlpha, 1f, 1.5.dp.toPx())
+                            drawCircle(
+                                color = Color.hsv(finaleHue, 0.95f, 1f).copy(alpha = gearAlpha),
+                                radius = 3.6f * u,
+                                center = center,
+                                style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round),
+                            )
+                        }
+                        FinaleKind.NONE -> {
+                            ballPos = measure.getPosition(totalLen)
+                            ballHue = 0f
+                        }
+                    }
+                }
+                drawCircle(Color.hsv(ballHue, 0.95f, 1f).copy(alpha = 0.35f * pulseAlpha), radius = corePx * 1.6f, center = ballPos)
+                drawCircle(Color.hsv(ballHue, 0.95f, 1f).copy(alpha = pulseAlpha), radius = corePx, center = ballPos)
             }
         }
     }
