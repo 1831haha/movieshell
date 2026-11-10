@@ -36,13 +36,16 @@ object SpiderApi {
         appContext = context.applicationContext
     }
 
-    /** 本地代理地址：壳子不跑本地代理服务，返回空（依赖它的 spider 播放会优雅失败）。 */
+    /**
+     * v1.1.23：本地代理地址——回环代理 PanProxy 只听 127.0.0.1，
+     * jar spider 拼 Proxy 地址就用这个。服务起不来返回空（旧行为）。
+     */
     @JvmStatic
-    fun getAddress(lan: Boolean): String = ""
+    fun getAddress(lan: Boolean): String = "127.0.0.1"
 
-    /** 本地代理端口：同上，返回空。 */
+    /** 本地代理端口：同上，取 PanProxy 的实际监听端口。 */
     @JvmStatic
-    fun getPort(): String = ""
+    fun getPort(): String = com.movieshell.player.PanProxy.portString()
 
     @JvmStatic
     fun log(msg: String) {

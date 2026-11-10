@@ -252,6 +252,9 @@ private suspend fun execute(ctx: RouteContext, route: PlayRoute, raw: RawPlay, f
             val target = route.prefix + u
             sniffPage(ctx, target, raw) ?: if (ctx.cancelled) "" else jxList(ctx, u, raw)
         }
+        // v1.1.23：网盘分享失败不回退原样播——分享页给播放器就是黑屏，
+        // 失败原因已由 PanDispatch 弹 Toast 明说，这里直接交空。
+        is PlayRoute.PanShare -> return PanDispatch.resolve(ctx.context, u, ctx.flag)
     }
     if (result.isNotBlank() || ctx.cancelled) return result
     // parse=0 推断出的路由全失败：回退原样直播（旧行为）

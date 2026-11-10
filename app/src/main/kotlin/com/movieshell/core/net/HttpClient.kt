@@ -81,6 +81,27 @@ object HttpClient {
      */
     fun drpyClient(): OkHttpClient = drpySharedClient
 
+    /**
+     * v1.1.23：流式代理专用 client（只供 PanProxy 用）。
+     * 播大文件是长流：defaultClient 的 callTimeout 60 秒会把超过 60 秒的
+     * 播放中途掐断，readTimeout 15 秒会在网速抖动时掐断；这里连接 15 秒、
+     * 读取不限时、写入 15 秒、无整 call 上限、不重试（半截流不能重发）。
+     * 只保留 UA 拦截器与简易日志，不挂内存 CookieJar：代理取流只带规则给的
+     * 显式头（Jar 会把显式 Cookie 顶掉）。
+     */
+    fun streamClient(): OkHttpClient = streamSharedClient
+
+    private val streamSharedClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        OkHttpClient.Builder()
+            .connectTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            .readTimeout(0L, TimeUnit.SECONDS)
+            .writeTimeout(TIMEOUT_S, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
+            .addInterceptor(uaInterceptor)
+            .addInterceptor(simpleLogInterceptor)
+            .build()
+    }
+
     private val drpySharedClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         OkHttpClient.Builder()
             .connectTimeout(DRPY_CONNECT_TIMEOUT_S, TimeUnit.SECONDS)

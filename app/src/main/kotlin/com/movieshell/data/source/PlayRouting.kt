@@ -24,6 +24,9 @@ sealed class PlayRoute {
 
     /** playUrl = 解析页前缀（http…）：拼接后嗅探 */
     data class PrefixSniff(val prefix: String, override val url: String) : PlayRoute()
+
+    /** v1.1.23：网盘分享链接——不当直链，交 PanDispatch 走规则解析 */
+    data class PanShare(override val url: String) : PlayRoute()
 }
 
 /**
@@ -116,6 +119,8 @@ object PlayRouting {
     ): PlayRoute {
         val url = raw.url.trim()
         if (url.isEmpty()) return PlayRoute.Direct("")
+        // v1.1.23：网盘分享链接优先于一切——之前落到 Direct 当网页播，必然黑屏
+        if (PanShareLinks.isShare(url)) return PlayRoute.PanShare(url)
         if (raw.jx != 1 && isMediaUrl(url)) return PlayRoute.Direct(url)
         val prefix = raw.playUrl.trim().ifEmpty { sitePlayUrl.trim() }
         parsePrefix(prefix, url)?.let { return it }
