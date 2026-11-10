@@ -1265,7 +1265,7 @@ fun HomeScreen(
             if (subSourceName.isNotBlank() && subSourceName != siteName) "$subSourceName · $siteName" else siteName
         }
         SourceStateStore.activeDrpyRule() != null -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
-        SourceStateStore.activePyRule() != null -> "本地·${PySourceManager.activeRuleName().orEmpty()}"
+        SourceStateStore.activePyRule() != null -> "本地·${PySourceManager.activeRuleDisplayName().orEmpty()}"
         SourceStateStore.activePhpRule() != null -> "本地·${SourceStateStore.activePhpRule().orEmpty()}"
         SourceStateStore.activeWebParseRule() != null -> "网页解析·${WebParseSourceManager.activeSiteName().orEmpty()}"
         else -> "选择站源"

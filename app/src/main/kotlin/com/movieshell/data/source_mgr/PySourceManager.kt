@@ -151,6 +151,13 @@ object PySourceManager {
 
     fun activeRuleName(): String? = activeName
 
+    /** v1.1.18：首页胶囊显示名——zip 源的 activeName 是身份串 "zip:<包名>!<entry>"，直接显示会被胶囊截掉源名；只取 entry 文件名去 .py 后缀（与 ZipPySourceStore.listZipEntries 的 RuleInfo.title 取法一致），其余原样返回。 */
+    fun activeRuleDisplayName(): String? {
+        val name = activeName ?: return null
+        val (_, entry) = ZipPySourceStore.parseIdentity(name) ?: return name
+        return File(entry).nameWithoutExtension
+    }
+
     /** v0.291.0：proxy:// 封面取图用——返回当前激活 PY 规则的可信副本路径（与调规则同一路径）。 */
     fun activeRulePathForProxy(): String? = activeRulePath()
 
