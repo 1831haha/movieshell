@@ -29,22 +29,34 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.movieshell.data.source_mgr.BaiduAuthStore
 import com.movieshell.data.source_mgr.QuarkAuthStore
+import com.movieshell.data.source_mgr.UcAuthStore
 import com.movieshell.ui.components.AppToast
 
 /**
- * v1.1.23：夸克网盘登录（挂在设置页“网盘”组里）。
+ * v1.1.23 扩充：网盘登录通用弹窗（夸克/UC/百度三家共用，挂在设置页“网盘”组里）。
  *
  * 两条路，二选一：
- * 1. 网页登录：在页里登夸克账号，再点“保存登录态”，读 WebView 的
+ * 1. 网页登录：在页里登网盘账号，再点“保存登录态”，读 WebView 的
  *    Cookie 存进 App 私有目录；
  * 2. 手填 Cookie：从浏览器开发者工具拷整串 Cookie 粘贴保存。
  * 只存 Cookie，不存账号密码；Cookie 值不进日志。
  * 游客能播约 50MB 以内的小文件，电影正片（几个 GB）必须登录，
- * 否则点播会提示先登录。
+ * 否则点播会提示先登录；百度取直链还要登录的 SVIP 账号。
  */
 @Composable
-fun QuarkLoginDialog(onDismiss: () -> Unit) {
+fun PanLoginDialog(
+    name: String,
+    loginUrl: String,
+    cookieUrl: String,
+    hintLoggedIn: String,
+    hintLoggedOut: String,
+    hasCookie: () -> Boolean,
+    saveCookie: (String) -> Boolean,
+    clearCookie: () -> Boolean,
+    onDismiss: () -> Unit,
+) {
     val context = LocalContext.current
     Dialog(
         onDismissRequest = onDismiss,
@@ -52,7 +64,7 @@ fun QuarkLoginDialog(onDismiss: () -> Unit) {
     ) {
         var webView by remember { mutableStateOf<WebView?>(null) }
         var loaded by remember { mutableStateOf(false) }
-        var loggedIn by remember { mutableStateOf(QuarkAuthStore.hasCookie()) }
+        var loggedIn by remember { mutableStateOf(hasCookie()) }
         var showManual by remember { mutableStateOf(false) }
         var manualCookie by remember { mutableStateOf("") }
         Surface(Modifier.fillMaxSize()) {
@@ -62,10 +74,10 @@ fun QuarkLoginDialog(onDismiss: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("夸克网盘登录", style = MaterialTheme.typography.titleMedium)
+                        Text("$name网盘登录", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            if (loggedIn) "已登录 · 夸克分享可播" else "未登录 · 大文件播不了，先登录",
+                            if (loggedIn) hintLoggedIn else hintLoggedOut,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -84,7 +96,7 @@ fun QuarkLoginDialog(onDismiss: () -> Unit) {
                                     loaded = true
                                 }
                             }
-                            loadUrl("https://pan.quark.cn")
+                            loadUrl(loginUrl)
                             webView = this
                         }
                     },
@@ -109,15 +121,15 @@ fun QuarkLoginDialog(onDismiss: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     if (loggedIn) {
                         TextButton(onClick = {
-                            QuarkAuthStore.clear()
+                            clearCookie()
                             loggedIn = false
-                            AppToast.show(context, "已退出夸克登录")
+                            AppToast.show(context, "已退出$name登录")
                         }) { Text("退出登录") }
                     }
                     Spacer(Modifier.weight(1f))
                     if (showManual) {
                         Button(onClick = {
-                            if (QuarkAuthStore.saveCookie(manualCookie)) {
+                            if (saveCookie(manualCookie)) {
                                 loggedIn = true
                                 manualCookie = ""
                                 showManual = false
@@ -131,10 +143,10 @@ fun QuarkLoginDialog(onDismiss: () -> Unit) {
                             enabled = loaded,
                             onClick = {
                                 val cookie = CookieManager.getInstance()
-                                    .getCookie("https://pan.quark.cn").orEmpty()
+                                    .getCookie(cookieUrl).orEmpty()
                                 if (cookie.isBlank()) {
-                                    AppToast.show(context, "还没登录，先在上方页面登夸克账号", long = true)
-                                } else if (QuarkAuthStore.saveCookie(cookie)) {
+                                    AppToast.show(context, "还没登录，先在上方页面登$name账号", long = true)
+                                } else if (saveCookie(cookie)) {
                                     loggedIn = true
                                     AppToast.show(context, "已保存，请回播放页重试")
                                 } else {
@@ -148,3 +160,45 @@ fun QuarkLoginDialog(onDismiss: () -> Unit) {
         }
     }
 }
+
+/** 夸克登录弹窗（设置页“网盘”组调用）。 */
+@Composable
+fun QuarkLoginDialog(onDismiss: () -> Unit) = PanLoginDialog(
+    name = "夸克",
+    loginUrl = "https://pan.quark.cn",
+    cookieUrl = "https://pan.quark.cn",
+    hintLoggedIn = "已登录 · 夸克分享可播",
+    hintLoggedOut = "未登录 · 大文件播不了，先登录",
+    hasCookie = QuarkAuthStore::hasCookie,
+    saveCookie = QuarkAuthStore::saveCookie,
+    clearCookie = QuarkAuthStore::clear,
+    onDismiss = onDismiss,
+)
+
+/** UC 登录弹窗（设置页“网盘”组调用）。 */
+@Composable
+fun UcLoginDialog(onDismiss: () -> Unit) = PanLoginDialog(
+    name = "UC",
+    loginUrl = "https://drive.uc.cn",
+    cookieUrl = "https://drive.uc.cn",
+    hintLoggedIn = "已登录 · UC 分享可播",
+    hintLoggedOut = "未登录 · 大文件播不了，先登录",
+    hasCookie = UcAuthStore::hasCookie,
+    saveCookie = UcAuthStore::saveCookie,
+    clearCookie = UcAuthStore::clear,
+    onDismiss = onDismiss,
+)
+
+/** 百度登录弹窗（设置页“网盘”组调用；取直链需 SVIP 账号）。 */
+@Composable
+fun BaiduLoginDialog(onDismiss: () -> Unit) = PanLoginDialog(
+    name = "百度",
+    loginUrl = "https://pan.baidu.com",
+    cookieUrl = "https://pan.baidu.com",
+    hintLoggedIn = "已登录 · 百度分享可播（取直链需 SVIP）",
+    hintLoggedOut = "未登录 · 百度分享播不了，先登录（取直链需 SVIP）",
+    hasCookie = BaiduAuthStore::hasCookie,
+    saveCookie = BaiduAuthStore::saveCookie,
+    clearCookie = BaiduAuthStore::clear,
+    onDismiss = onDismiss,
+)

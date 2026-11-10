@@ -136,7 +136,9 @@ import com.movieshell.data.source.JsRuntime
 import com.movieshell.core.log.CrashHandler
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.ai.LlmClient
+import com.movieshell.data.source_mgr.BaiduAuthStore
 import com.movieshell.data.source_mgr.QuarkAuthStore
+import com.movieshell.data.source_mgr.UcAuthStore
 import com.movieshell.data.store.LogStore
 import com.movieshell.core.util.StoragePaths
 import com.movieshell.domain.model.PlayerEngine
@@ -225,6 +227,14 @@ fun SettingsScreen(
     // v1.1.23：夸克网盘登录
     var showQuarkDialog by remember { mutableStateOf(false) }
     var quarkLoggedIn by remember { mutableStateOf(QuarkAuthStore.hasCookie()) }
+    var quarkExpired by remember { mutableStateOf(QuarkAuthStore.isExpired()) }
+    // v1.1.23 扩充：UC、百度网盘登录
+    var showUcDialog by remember { mutableStateOf(false) }
+    var ucLoggedIn by remember { mutableStateOf(UcAuthStore.hasCookie()) }
+    var ucExpired by remember { mutableStateOf(UcAuthStore.isExpired()) }
+    var showBaiduDialog by remember { mutableStateOf(false) }
+    var baiduLoggedIn by remember { mutableStateOf(BaiduAuthStore.hasCookie()) }
+    var baiduExpired by remember { mutableStateOf(BaiduAuthStore.isExpired()) }
     // v0.186.0：云端更新的冲突确认弹窗（已有 TechDialog 机制，不新开入口）
     var showCloudConflict by remember { mutableStateOf(false) }
     var cloudConflictText by remember { mutableStateOf("") }
@@ -624,11 +634,37 @@ fun SettingsScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     SegItem(
-                        position = SegPos.Single,
+                        position = SegPos.First,
                         icon = Icons.Outlined.Cloud,
                         title = "夸克网盘",
-                        subtitle = if (quarkLoggedIn) "已登录 · 夸克分享可播" else "未登录 · 大文件播不了，先登录",
+                        subtitle = when {
+                            quarkExpired -> "登录已过期 · 点进去重登"
+                            quarkLoggedIn -> "已登录 · 夸克分享可播"
+                            else -> "未登录 · 大文件播不了，先登录"
+                        },
                         onClick = { showQuarkDialog = true },
+                    )
+                    SegItem(
+                        position = SegPos.Middle,
+                        icon = Icons.Outlined.Cloud,
+                        title = "UC网盘",
+                        subtitle = when {
+                            ucExpired -> "登录已过期 · 点进去重登"
+                            ucLoggedIn -> "已登录 · UC 分享可播"
+                            else -> "未登录 · 大文件播不了，先登录"
+                        },
+                        onClick = { showUcDialog = true },
+                    )
+                    SegItem(
+                        position = SegPos.Last,
+                        icon = Icons.Outlined.Cloud,
+                        title = "百度网盘",
+                        subtitle = when {
+                            baiduExpired -> "登录已过期 · 点进去重登"
+                            baiduLoggedIn -> "已登录 · 百度分享可播（取直链需 SVIP）"
+                            else -> "未登录 · 百度分享播不了，先登录（取直链需 SVIP）"
+                        },
+                        onClick = { showBaiduDialog = true },
                     )
                 }
             }
@@ -924,6 +960,22 @@ fun SettingsScreen(
         QuarkLoginDialog(onDismiss = {
             showQuarkDialog = false
             quarkLoggedIn = QuarkAuthStore.hasCookie()
+            quarkExpired = QuarkAuthStore.isExpired()
+        })
+    }
+    // v1.1.23 扩充：UC、百度网盘登录弹窗
+    if (showUcDialog) {
+        UcLoginDialog(onDismiss = {
+            showUcDialog = false
+            ucLoggedIn = UcAuthStore.hasCookie()
+            ucExpired = UcAuthStore.isExpired()
+        })
+    }
+    if (showBaiduDialog) {
+        BaiduLoginDialog(onDismiss = {
+            showBaiduDialog = false
+            baiduLoggedIn = BaiduAuthStore.hasCookie()
+            baiduExpired = BaiduAuthStore.isExpired()
         })
     }
     // v0.29.0：libmpv 插件化——未安装时选 libmpv 提示去插件市场，不切换

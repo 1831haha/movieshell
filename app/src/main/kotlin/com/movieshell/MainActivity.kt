@@ -237,6 +237,8 @@ class MainActivity : ComponentActivity() {
         DrpySourceManager.init(this)
         PySourceManager.init(this)
         com.movieshell.data.source_mgr.QuarkAuthStore.init(this) // v1.1.23：夸克登录态
+        com.movieshell.data.source_mgr.UcAuthStore.init(this) // v1.1.23 扩充：UC 登录态
+        com.movieshell.data.source_mgr.BaiduAuthStore.init(this) // v1.1.23 扩充：百度登录态
         PhpSourceManager.init(this)
         WebParseSourceManager.init(this)
         // v0.22.0：插件市场本地状态

@@ -51,7 +51,7 @@ object StoragePaths {
      * 它们是安装包的一部分，不是用户从文件管理器放进来的。
      * 注意：shim.js 是垫片，从不进列表，不在这里。
      */
-    val BUILTIN_RULE_NAMES: Set<String> = setOf("sp002.js", "btsow_spider.py", "quark.py")
+    val BUILTIN_RULE_NAMES: Set<String> = setOf("sp002.js", "btsow_spider.py", "quark.py", "uc.py", "baidu.py")
 
     /** v1.1.21：无授权时某条本地规则是否仍可见——只认内置规则名。 */
     fun isBuiltinRule(name: String): Boolean = name in BUILTIN_RULE_NAMES

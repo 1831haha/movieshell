@@ -3,14 +3,29 @@
 夸克网盘分享解析规则（v1.1.23 内置）
 
 只做一件事：把夸克分享链接变成可播直链。
-链路：分享链接取 stoken，再列文件，最后取直链（先直取，不转存原画）。
+链路：分享链接取 stoken，再列文件，最后取直链。
+取直链分三档，按顺序走，拿到就停：
+1. 游客/登录直取（share 侧 file/download）——小文件直接通；
+2. 转存原画（登录态）：save→轮询 task→自己盘 file/download，
+   转存后的直链是原文件，走 Kotlin 的 PanSaveApi（可单测）；
+3. 转码预览（登录态，转存成功但直取失败时）：file/v2/play 取 m3u8，
+   画质低于原画，但不断链。
 
 已实测（2026-11-10 沙箱出口直连 drive-pc.quark.cn）：
 - token、detail 均通；file/download 用 share_fid_token 取链通。
 - 游客直取只放行约 50MB 以内的小文件，大文件回 23018，必须登录。
 - 直链域名 dl-guest-zb-u.drive.quark.cn，HEAD 200，支持 Range 拖动。
+- 直链回源必须带 file/download 响应下发的 __pugs Cookie，裸 URL 回 403。
 - 登录态取法：App 里登录夸克后存在私有目录，规则经 Java 桥读
   QuarkAuthStore.getCookie() 拿到；拿不到就按游客跑。
+
+转存与转码形态（CatVod QuarkApi.java 同款，curl 只验到 401 形态）：
+- 建/找 TV 目录 → sharepage/save 取 task_id → GET task 轮询最多 3 次、
+  间隔 1 秒，save_as_top_fids[0] 是转存后新 fid；
+- 原画直链用转存后 fid 调 file/download（fids 传单个字符串）；
+- 转码用转存后 fid 调 file/v2/play，m3u8 在 video_info.url。
+- 登录后全程沙箱验不了（无夸克登录 Cookie），单测见 PanSaveApiTest，
+  真机登录后待验。
 
 注意：detail 列表里文件 token 的字段名是 share_fid_token，不是 fid_token，
 后者是空的；照旧写法会一直报 41020 token 校验异常。
@@ -31,10 +46,13 @@ class Spider(Spider):
         self.ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         self.api = "https://drive-pc.quark.cn/1/clouddrive"
+        self.pr = "pr=ucpro&fr=pc"
         self.referer = "https://pan.quark.cn/"
         self._cookie = None
         self._video_exts = (".mp4", ".mkv", ".mov", ".avi", ".flv", ".wmv",
                             ".m4v", ".ts", ".rmvb", ".webm")
+        # 游客直取约 50MB 封顶；大于它且已登录时优先走转存，免得直试必回 23018。
+        self._large_size = 50 * 1024 * 1024
 
     # ---------------- 登录态 ----------------
 
@@ -81,7 +99,7 @@ class Spider(Spider):
 
     def _token(self, s, pwd_id, code):
         try:
-            r = s.post(self.api + "/share/sharepage/token?pr=ucpro&fr=pc",
+            r = s.post(self.api + "/share/sharepage/token?" + self.pr,
                        json={"pwd_id": pwd_id, "passcode": code or ""}, timeout=15)
             d = r.json()
             if d.get("code") == 0:
@@ -106,7 +124,8 @@ class Spider(Spider):
         return []
 
     def _list_share(self, share_url):
-        """返回 (标题, 视频文件列表)。单文件夹分享自动钻一层。"""
+        """返回 (标题, 视频文件列表)。多层目录自动收集：根目录起，最多进 24 个
+        子目录、最深 4 层、最多 200 个视频；集名带上子目录前缀以便区分。"""
         pwd_id, code = self._parse_share(share_url)
         if not pwd_id:
             return "", [], "", ""
@@ -114,19 +133,31 @@ class Spider(Spider):
         stoken, title = self._token(s, pwd_id, code)
         if not stoken:
             return "", [], "", ""
-        items = self._detail(s, pwd_id, stoken, "0")
-        files = [f for f in items if not f.get("dir")]
-        dirs = [f for f in items if f.get("dir")]
-        if not files and len(dirs) == 1:
-            items = self._detail(s, pwd_id, stoken, dirs[0].get("fid") or "")
-            files = [f for f in items if not f.get("dir")]
-        videos = [f for f in files
+        all_files = []
+        queue = [("0", "", 0)]
+        visited_dirs = 0
+        while queue and len(all_files) < 200:
+            pdir_fid, prefix, depth = queue.pop(0)
+            items = self._detail(s, pwd_id, stoken, pdir_fid)
+            for f in items:
+                if f.get("dir"):
+                    if depth < 4 and visited_dirs < 24:
+                        queue.append((f.get("fid") or "",
+                                      prefix + str(f.get("file_name") or "") + "/",
+                                      depth + 1))
+                        visited_dirs += 1
+                else:
+                    if prefix:
+                        f = dict(f)
+                        f["file_name"] = prefix + str(f.get("file_name") or "")
+                    all_files.append(f)
+        videos = [f for f in all_files
                   if f.get("file_type") == 1 or
                   str(f.get("file_name") or "").lower().endswith(self._video_exts)]
         if not videos:
-            videos = files
-        if not title and items:
-            title = str(items[0].get("file_name") or "")
+            videos = all_files
+        if not title and all_files:
+            title = str(all_files[0].get("file_name") or "")
         return title, videos, pwd_id, stoken
 
     # ---------------- 取直链 ----------------
@@ -134,7 +165,7 @@ class Spider(Spider):
     def _download(self, s, pwd_id, stoken, fid, fid_token):
         """返回 (直链, 游客 pugs, 错误码, 错误信息)。直链为空表示失败。"""
         try:
-            r = s.post(self.api + "/file/download?pr=ucpro&fr=pc", json={
+            r = s.post(self.api + "/file/download?" + self.pr, json={
                 "fids": [fid], "fids_token": [fid_token or ""],
                 "pwd_id": pwd_id, "stoken": stoken,
                 "speedup_session": "", "token": "",
@@ -153,6 +184,26 @@ class Spider(Spider):
         except Exception as e:
             return "", "", -1, str(e)
 
+    def _save_flow(self, pwd_id, stoken, fid, fid_token):
+        """转存原画再取直链；转存成功但直取失败时再试转码。返回 (直链, 回源 Cookie)。"""
+        try:
+            from com.movieshell.data.source_mgr import PanSaveApi
+            saved = PanSaveApi.saveAndDownload(
+                self._load_cookie(), self.api, self.pr, self.ua, self.referer,
+                pwd_id, stoken, fid, fid_token, False)
+            url = saved.optString("url") or ""
+            cookie = saved.optString("cookie") or ""
+            if url:
+                return url, cookie
+            saved_fid = saved.optString("saved_fid") or ""
+            if not saved_fid:
+                return "", ""
+            play = PanSaveApi.transcode(
+                self._load_cookie(), self.api, self.pr, self.ua, self.referer, saved_fid)
+            return play.optString("url") or "", ""
+        except Exception:
+            return "", ""
+
     def _resolve_file(self, share_url, want_fid=""):
         title, videos, pwd_id, stoken = self._list_share(share_url)
         if not videos:
@@ -166,6 +217,12 @@ class Spider(Spider):
         if pick is None:
             pick = max(videos, key=lambda f: int(f.get("size") or 0))
         return pick, pwd_id, stoken, title
+
+    def _ok(self, url, pugs):
+        headers = {"Referer": self.referer, "User-Agent": self.ua}
+        if pugs:
+            headers["Cookie"] = "__pugs=" + pugs
+        return {"parse": 0, "url": url, "header": headers}
 
     # ---------------- TVBox 五方法 ----------------
 
@@ -224,15 +281,22 @@ class Spider(Spider):
             return {"parse": 0, "url": ""}
         fid = str(pick.get("fid") or "")
         fid_token = pick.get("share_fid_token") or pick.get("fid_token") or ""
+        size = int(pick.get("size") or 0)
+        cookie = self._load_cookie()
+        # 大文件且已登录：优先转存原画（游客直取约 50MB 封顶，直试必回 23018）。
+        if cookie and size > self._large_size:
+            url, pugs = self._save_flow(pwd_id, stoken, fid, fid_token)
+            if url:
+                return self._ok(url, pugs)
         # 先游客直取；大文件回 23018、未登录回 31001 时，有登录态再重试一次。
         s = self._session()
         url, pugs, code, _msg = self._download(s, pwd_id, stoken, fid, fid_token)
-        if not url and code in (23018, 31001) and self._load_cookie():
+        if not url and code in (23018, 31001) and cookie:
             s2 = self._session(with_cookie=True)
             url, pugs, code, _msg = self._download(s2, pwd_id, stoken, fid, fid_token)
+        # 直取全败且已登录：转存原画，不成再试转码。
+        if not url and cookie:
+            url, pugs = self._save_flow(pwd_id, stoken, fid, fid_token)
         if not url:
             return {"parse": 0, "url": ""}
-        headers = {"Referer": self.referer, "User-Agent": self.ua}
-        if pugs:
-            headers["Cookie"] = "__pugs=" + pugs
-        return {"parse": 0, "url": url, "header": headers}
+        return self._ok(url, pugs)
