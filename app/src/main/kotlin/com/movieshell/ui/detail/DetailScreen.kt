@@ -38,7 +38,9 @@ import com.movieshell.ui.theme.V5
 
 import com.movieshell.ui.components.AppToast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.clickable
@@ -52,12 +54,14 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -67,6 +71,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -107,7 +112,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.offset
@@ -202,7 +207,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun DetailScreen(
     vodId: String,
@@ -1143,7 +1148,7 @@ fun DetailScreen(
                                         )
                                         Spacer(Modifier.width(6.dp))
                                         Text(
-                                            text = "$sourceLabel · $detailQuality",
+                                            text = "$sourceName · $detailQuality",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = v.onSurfaceVariant,
                                             maxLines = 1,
@@ -1332,7 +1337,7 @@ fun DetailScreen(
                                 val cs = MaterialTheme.colorScheme
                                 val epGridState = rememberLazyGridState()
                                 val displayIndices: List<Int> =
-                                    if (epDesc) lineEpisodes.indices.reversed() else lineEpisodes.indices.toList()
+                                    if (epDesc) lineEpisodes.indices.reversed().toList() else lineEpisodes.indices.toList()
                                 LaunchedEffect(highlightEp, lineEpisodes.size, epDesc, epViewGrid) {
                                     if (lineEpisodes.isNotEmpty()) {
                                         runCatching {
@@ -1462,7 +1467,7 @@ fun DetailScreen(
                                 val cs = MaterialTheme.colorScheme
                                 val epGridState = rememberLazyGridState()
                                 val displayIndices: List<Int> =
-                                    if (epDesc) episodes.indices.reversed() else episodes.indices.toList()
+                                    if (epDesc) episodes.indices.reversed().toList() else episodes.indices.toList()
                                 LaunchedEffect(highlightEp, episodes.size, epDesc, epViewGrid) {
                                     if (episodes.isNotEmpty()) {
                                         runCatching {
@@ -1686,7 +1691,7 @@ fun DetailScreen(
                                 RecsPanel(
                                     recs = recs,
                                     currentVodId = vodId,
-                                    onOpen = { recId -> onVodClick(recId, siteKey) },
+                                    onOpen = { recId -> onVodClick(recId, siteKey.orEmpty()) },
                                 )
                             }
                         }
@@ -2798,6 +2803,7 @@ private fun RecsPanel(
 
 // v1.1.19：快搜 Tab——本页内搜全部已启用源（复用搜片页同一条 searchAllFlow），
 // 点提交/点热词才搜，不随输入逐字搜；热词是真实搜索历史（为空时只放当前片名一枚）。
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun QuickSearchPanel(
     query: String,
@@ -2816,7 +2822,7 @@ private fun QuickSearchPanel(
             value = query,
             onValueChange = onQueryChange,
             placeholder = "搜剧名、演员…",
-            onSearch = onSearch,
+            onSearch = { onSearch() },
             onClear = { onQueryChange("") },
         )
         val hotWords = if (history.isEmpty()) {

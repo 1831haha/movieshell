@@ -76,7 +76,7 @@ object PlayerManager {
     val bitrateEstimate: StateFlow<Long> = _bitrateEstimate.asStateFlow()
 
     /** v1.1.19：带宽表（init 里建；play() 里挂到 httpFactory 上测网速）。 */
-    private var bandwidthMeter: androidx.media3.datasource.DefaultBandwidthMeter? = null
+    private var bandwidthMeter: androidx.media3.exoplayer.upstream.DefaultBandwidthMeter? = null
 
 
     // v0.99.0 P0-5：用浏览器 UA，自定义 App UA 会被影视 CDN/WAF 直接 403
@@ -251,10 +251,10 @@ object PlayerManager {
         // v1.1.19：带宽表——play() 里挂到 httpFactory 上做 TransferListener，
         // 采样到的码率推进 bitrateEstimate，供播放页顶栏显示网速。
         if (bandwidthMeter == null) {
-            bandwidthMeter = androidx.media3.datasource.DefaultBandwidthMeter.Builder(app).build()
+            bandwidthMeter = androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.Builder(app).build()
             bandwidthMeter?.addEventListener(
                 android.os.Handler(android.os.Looper.getMainLooper()),
-                object : androidx.media3.datasource.BandwidthMeter.EventListener {
+                object : androidx.media3.exoplayer.upstream.BandwidthMeter.EventListener {
                     override fun onBandwidthSample(elapsedMs: Int, bytesTransferred: Long, bitrateEstimate: Long) {
                         _bitrateEstimate.value = bitrateEstimate
                     }
