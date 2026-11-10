@@ -201,11 +201,13 @@ import com.movieshell.ui.search.buildSearchConfigJson
 import com.movieshell.ui.search.goDetail
 import com.movieshell.ui.home.PosterSeed
 import com.movieshell.ui.theme.BrandGradientColors
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -272,6 +274,8 @@ fun DetailScreen(
     // 当前源本身不列；失败静默，只显示搜到的。
     var sameTitleGroups by remember { mutableStateOf<List<SiteSearchResult>>(emptyList()) }
     var sameTitleSearching by remember { mutableStateOf(false) }
+    // v1.1.20：搜完标记——搜完为空时显示“其他源暂无同名剧”，不再整区隐藏。
+    var sameTitleDone by remember { mutableStateOf(false) }
     val sameTitleRepo = remember {
         SiteRepository(
             drpyEngine = DrpySourceManager.drpyEngineAdapter,
@@ -283,6 +287,7 @@ fun DetailScreen(
         if (sameTitleKey.isBlank()) return@LaunchedEffect
         sameTitleGroups = emptyList()
         sameTitleSearching = true
+        sameTitleDone = false
         try {
             sameTitleRepo.loadFromConfig(
                 withContext(Dispatchers.IO) { buildSearchConfigJson(context) },
@@ -305,6 +310,7 @@ fun DetailScreen(
             LogBus.w("DetailSameTitle", "同名剧后台搜索失败：${e.message}")
         } finally {
             sameTitleSearching = false
+            sameTitleDone = true
         }
     }
     // v0.27.6：抽成函数，失败态的"重试"按钮可复用
@@ -475,7 +481,10 @@ fun DetailScreen(
     // 有新集发通知）；进页读一次，开关只改这一处。
     var remindEnabled by remember { mutableStateOf(FollowStore.isCheckEnabled(context)) }
     // v1.1.19：推荐——当前源首页数据，第一次进推荐 Tab 才拉，之后不再重复拉。
-    var recs by remember(vodId) { mutableStateOf<List<Vod>?>(null) }
+    // v1.1.20：当前源首页为空时走 fallback（其他源同类热门），recsFallback 记
+    // 数据是不是别源顶上的；RecEntry 带站 key，点推荐卡能进它自己的源。
+    var recs by remember(vodId) { mutableStateOf<List<RecEntry>?>(null) }
+    var recsFallback by remember(vodId) { mutableStateOf(false) }
     // v1.1.19：快搜——本页内搜全部已启用源（复用搜片页同一条 searchAllFlow），
     // 点提交/点热词才搜，不随输入逐字搜；搜过一次的词进搜索历史。
     var quickQuery by remember(vodId) { mutableStateOf("") }
@@ -484,7 +493,20 @@ fun DetailScreen(
     var quickHistory by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(selectedTab) {
         if (selectedTab == DetailTab.RECS && recs == null) {
-            recs = loadCurrentSourceHome(context, subSite)
+            val home = loadCurrentSourceHome(context, subSite)
+            if (home.isNotEmpty()) {
+                recs = home.map { RecEntry(it, siteKey.orEmpty()) }
+                recsFallback = false
+            } else {
+                recs = loadFallbackRecs(
+                    context = context,
+                    subSite = subSite,
+                    category = detail?.typeName.orEmpty(),
+                    currentTitle = detail?.vodName.orEmpty(),
+                    currentVodId = vodId,
+                )
+                recsFallback = true
+            }
         }
         if (selectedTab == DetailTab.SEARCH && quickHistory.isEmpty()) {
             quickHistory = SearchHistoryStore.list(context)
@@ -1592,8 +1614,8 @@ fun DetailScreen(
                     // v1.0.7：同名剧——集数下方列出所有源的同名剧（精确片名），
                     // 后台流式搜、搜到一个源就出现一个；点开进那个源的详情页。
                     // v1.1.19：横向可滑海报卡（96dp 宽、2:3 海报＋剧名＋备注/年份＋源名绿点）；
-                    // 搜完为空时整区隐藏（“其他源暂无同名剧”文案已删）。
-                    if (sameTitleGroups.isNotEmpty() || sameTitleSearching) {
+                    // v1.1.20：搜完为空时不再整区隐藏，留一行“其他源暂无同名剧”。
+                    if (sameTitleGroups.isNotEmpty() || sameTitleSearching || sameTitleDone) {
                         item {
                             V5SectionTitle(
                                 title = if (sameTitleGroups.isNotEmpty()) {
@@ -1627,6 +1649,19 @@ fun DetailScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
+                            }
+                        }
+                        if (!sameTitleSearching && sameTitleGroups.isEmpty() && sameTitleDone) {
+                            item {
+                                Text(
+                                    text = "其他源暂无同名剧",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(
+                                        horizontal = V5.Gutter,
+                                        vertical = 8.dp,
+                                    ),
+                                )
                             }
                         }
                         if (sameTitleGroups.isNotEmpty()) {
@@ -1691,7 +1726,8 @@ fun DetailScreen(
                                 RecsPanel(
                                     recs = recs,
                                     currentVodId = vodId,
-                                    onOpen = { recId -> onVodClick(recId, siteKey.orEmpty()) },
+                                    fallback = recsFallback,
+                                    onOpen = { recId, recSiteKey -> onVodClick(recId, recSiteKey) },
                                 )
                             }
                         }
@@ -2227,6 +2263,9 @@ private enum class DetailTab(val label: String, val color: Color) {
 
 // v1.1.19：Tab 栏——五 Tab 等宽占满整行、一行不换行；选中胶囊底（该色 15% 透明度）＋
 // 该色加粗 17sp、滑块 0.38 秒平滑移动且颜色同步过渡，未选中灰字；行底一条细分隔线。
+// v1.1.20：字号各降一档（选中 16sp、未选中 15sp）；选中胶囊底加深到 30% 透明度；
+// 未选中也有边框和各自颜色（描边与文字都用该 Tab 色）；右边胶囊与 Tab 行同高 48dp，
+// 倍速文字 15sp 与 Tab 字同大小。
 // 右边胶囊：收藏（爱心，实心粉色＝已追剧）、弹幕开关（开时绿色）、倍速（文字按钮，
 // 点一下弹六档选单，当前档高亮打勾）。减动效时滑块与颜色过渡 0ms。
 @Composable
@@ -2271,7 +2310,7 @@ private fun DetailTabBar(
                         .fillMaxHeight()
                         .padding(vertical = 6.dp, horizontal = 2.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(pillColor.copy(alpha = 0.15f)),
+                        .background(pillColor.copy(alpha = 0.30f)),
                 )
                 Row(Modifier.fillMaxSize()) {
                     DetailTab.values().forEach { tab ->
@@ -2284,13 +2323,28 @@ private fun DetailTabBar(
                                 .clickable { onSelect(tab) },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(
-                                text = tab.label,
-                                color = if (selected) tab.color else cs.onSurfaceVariant,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = if (selected) 17.sp else 16.sp,
-                                maxLines = 1,
-                            )
+                            // v1.1.20：未选中也有边框和各自颜色——描边与文字都用该 Tab 色，
+                            // 边框盒子与滑动胶囊同尺寸（上下 6dp、左右 2dp 内收），选中靠
+                            // 滑动胶囊底色区分，不再全灰。
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(vertical = 6.dp, horizontal = 2.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .then(
+                                        if (selected) Modifier
+                                        else Modifier.border(1.dp, tab.color, RoundedCornerShape(50)),
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = tab.label,
+                                    color = tab.color,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = if (selected) 16.sp else 15.sp,
+                                    maxLines = 1,
+                                )
+                            }
                         }
                     }
                 }
@@ -2308,7 +2362,7 @@ private fun DetailTabBar(
                 ) {
                     IconButton(
                         onClick = onToggleFollow,
-                        modifier = Modifier.size(42.dp),
+                        modifier = Modifier.size(40.dp),
                     ) {
                         Icon(
                             if (following) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
@@ -2319,21 +2373,21 @@ private fun DetailTabBar(
                     }
                     IconButton(
                         onClick = onToggleDanmaku,
-                        modifier = Modifier.size(42.dp),
+                        modifier = Modifier.size(40.dp),
                     ) {
                         DanmakuIcon(enabled = danmakuEnabled)
                     }
                     Box(
                         Modifier
                             .sizeIn(minWidth = 48.dp)
-                            .height(42.dp)
+                            .height(40.dp)
                             .clip(CircleShape)
                             .clickable { onRateMenuChange(true) },
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = PlayerGestureMath.speedLabel(currentSpeed),
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelLarge.copy(fontSize = 15.sp),
                             color = cs.onSurface,
                             maxLines = 1,
                         )
@@ -2693,17 +2747,19 @@ private fun ReviewsPanel() {
 
 // v1.1.19：推荐 Tab——当前源首页数据（订阅站走 home，本地规则走各引擎 home），
 // 三列海报网格（3:4 海报＋剧名＋备注），排除当前在看的一部；点一部在当前源打开它。
+// v1.1.20：fallback 时标题改“同类热门”，点卡进它自己的源；空态文案也跟着换。
 @Composable
 private fun RecsPanel(
-    recs: List<Vod>?,
+    recs: List<RecEntry>?,
     currentVodId: String,
-    onOpen: (String) -> Unit,
+    fallback: Boolean,
+    onOpen: (vodId: String, siteKey: String) -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    val list = recs?.filter { it.vodId != currentVodId }
+    val list = recs?.filter { it.vod.vodId != currentVodId }
     Column(Modifier.fillMaxWidth().padding(horizontal = V5.Gutter, vertical = 8.dp)) {
         Text(
-            text = "看了这部剧的人也在看",
+            text = if (fallback) "同类热门" else "看了这部剧的人也在看",
             style = MaterialTheme.typography.titleMedium,
             color = cs.onSurface,
             modifier = Modifier.padding(bottom = 12.dp),
@@ -2725,7 +2781,7 @@ private fun RecsPanel(
             }
             list.isNullOrEmpty() -> {
                 Text(
-                    text = "当前源暂无推荐",
+                    text = if (fallback) "暂无同类热门推荐" else "当前源暂无推荐",
                     style = MaterialTheme.typography.bodyMedium,
                     color = cs.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 16.dp),
@@ -2738,12 +2794,13 @@ private fun RecsPanel(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(list.size, key = { list[it].vodId }) { i ->
-                        val vod = list[i]
+                    items(list.size, key = { list[it].vod.vodId }) { i ->
+                        val entry = list[i]
+                        val vod = entry.vod
                         Column(
                             Modifier
                                 .clip(RoundedCornerShape(V5.CornerLg))
-                                .clickable { onOpen(vod.vodId) },
+                                .clickable { onOpen(vod.vodId, entry.siteKey) },
                         ) {
                             if (vod.vodPic.isNotBlank()) {
                                 AsyncImage(
@@ -2948,6 +3005,71 @@ private suspend fun loadCurrentSourceHome(context: Context, subSite: Site?): Lis
         else if (SourceStateStore.activeWebParseRule() != null) WebParseSourceManager.home()
         else emptyList()
     }.getOrDefault(emptyList())
+}
+
+// v1.1.20：推荐条目——Vod 本身不带站信息，fallback 的卡必须记自己的站 key，
+// 点开才能进它自己的源详情（与同名剧 goDetail 同口径）。
+private data class RecEntry(val vod: Vod, val siteKey: String)
+
+// v1.1.20：推荐 fallback——当前源首页为空时，按当前剧分类从其他源取同类热门：
+// 先按分类关键词全源搜（searchAllFlow，各源并发、单源 15 秒超时），
+// 再试其他订阅站首页（按分类过滤，最多 3 站、每站 8 秒超时）；
+// 全是真实数据，没有就返回空列表（面板给“暂无同类热门推荐”）。
+// 同名片（片名一字不差）不算同类推荐，直接排除；按 vodId 去重、上限 12 条。
+// 注意：取消要透传，不包成空列表（与同名剧搜索同款处理）。
+private suspend fun loadFallbackRecs(
+    context: Context,
+    subSite: Site?,
+    category: String,
+    currentTitle: String,
+    currentVodId: String,
+): List<RecEntry> {
+    val out = mutableListOf<RecEntry>()
+    val seenIds = mutableSetOf<String>()
+    fun accept(vod: Vod, siteKey: String) {
+        if (out.size >= 12) return
+        if (vod.vodId.isBlank() || vod.vodId == currentVodId) return
+        if (vod.vodName.trim().isNotEmpty() && vod.vodName.trim() == currentTitle.trim()) return
+        if (!seenIds.add(vod.vodId)) return
+        out += RecEntry(vod, siteKey)
+    }
+    val repo = SiteRepository(
+        drpyEngine = DrpySourceManager.drpyEngineAdapter,
+        pyEngine = PySourceManager.engineAdapter,
+    )
+    val currentKeys = buildSet {
+        subSite?.key?.takeIf { it.isNotBlank() }?.let { add(it) }
+        DrpySourceManager.activeRuleName()?.let { add("$LOCAL_DRPY_PREFIX$it") }
+        PySourceManager.activeRuleName()?.let { add("$LOCAL_PY_PREFIX$it") }
+        PhpSourceManager.activeRuleName()?.let { add("php:$it") }
+    }
+    try {
+        repo.loadFromConfig(withContext(Dispatchers.IO) { buildSearchConfigJson(context) })
+        if (category.isNotBlank()) {
+            repo.searchAllFlow(category).collect { group ->
+                if (group.site.key in currentKeys) return@collect
+                for (vod in group.vods) accept(vod, group.site.key)
+            }
+        }
+        if (out.isEmpty()) {
+            val others = repo.getEnabledSites().filter { it.key !in currentKeys }.take(3)
+            for (site in others) {
+                if (out.size >= 12) break
+                val home = withTimeoutOrNull(8_000) {
+                    runCatching { repo.home(site) }.getOrDefault(emptyList())
+                }.orEmpty()
+                for (vod in home) {
+                    if (category.isNotBlank() && vod.typeName.trim() != category.trim()) continue
+                    accept(vod, site.key)
+                }
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        LogBus.w("DetailRecs", "推荐 fallback 失败：${e.message}")
+    }
+    return out
 }
 
 // v1.1.19：颜色混合——把 from 往 to 兑 ratio（0..1），背景跟随海报用。

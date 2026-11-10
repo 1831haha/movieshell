@@ -70,6 +70,10 @@ fun TechDialog(
     /** v0.245.0：强制深浅；null=跟系统主题（其他页面默认），阅读页传
      * 阅读背景的实际深浅，系统浅色时夜间黑阅读页的弹窗也不再发白。 */
     forceDark: Boolean? = null,
+    // v1.1.20：紧凑模式（默认关，其他 90 多处弹窗不受影响）——内容超长的
+    // 弹窗（如 AI 助手设置）在小屏上放不下时用：内外边距与标题字号收紧，
+    // 底部按钮降到 36dp；仍不带滚动，内容必须靠调用处精简到一屏内。
+    compact: Boolean = false,
     // content 放最后：调用处用尾随 lambda 写法时必须对应最后一个参数
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -110,14 +114,14 @@ fun TechDialog(
                 .clip(RoundedCornerShape(28.dp))
                 .background(dialogBg)
                 .padding(
-                    horizontal = if (landscape) 20.dp else 24.dp,
-                    vertical = if (landscape) 16.dp else 24.dp,
+                    horizontal = if (compact) 16.dp else if (landscape) 20.dp else 24.dp,
+                    vertical = if (compact) 12.dp else if (landscape) 16.dp else 24.dp,
                 ),
         ) {
             Column {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                     // v0.279.0 旧版：标题用主文字色，不再青字 + 渐变短线。
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -129,20 +133,23 @@ fun TechDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(if (compact) 6.dp else 12.dp))
                 // v0.194.0：内容区不再固定浅色，改跟主题——浅色主题下裸 Text
                 // 拿 onSurface 深色正好可读，深色主题下拿浅色也可读。
                 CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
                     content()
                 }
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(if (compact) 6.dp else 16.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (dismissText != null) {
-                        TextButton(onClick = onDismissRequest) {
+                        TextButton(
+                            onClick = onDismissRequest,
+                            modifier = Modifier.height(if (compact) 36.dp else 40.dp),
+                        ) {
                             Text(
                                 dismissText,
                                 color = MaterialTheme.colorScheme.primary,
@@ -156,7 +163,7 @@ fun TechDialog(
                             onClick = onConfirm,
                             enabled = confirmEnabled,
                             shape = RoundedCornerShape(50),
-                            modifier = Modifier.height(40.dp),
+                            modifier = Modifier.height(if (compact) 36.dp else 40.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -188,6 +195,9 @@ fun TechTextField(
     enabled: Boolean = true,
     // v0.213.0：Cookie 输入框遮掩用（默认不遮掩，其他调用方不受影响）
     visualTransformation: VisualTransformation = VisualTransformation.None,
+    // v1.1.20：紧凑模式（默认关）——上下内边距 12dp 降到 6dp、字号降到
+    // bodyMedium，供一屏放不下的长弹窗（如 AI 助手设置）调用处显式开启。
+    compact: Boolean = false,
 ) {
     val shape = RoundedCornerShape(12.dp)
     // v0.294.3：有值时占位提示缩成框内顶部小标签（同 AppTextField），预填值的编辑框不再“无标签”
@@ -200,7 +210,8 @@ fun TechTextField(
         singleLine = singleLine,
         minLines = minLines,
         enabled = enabled,
-        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        textStyle = (if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge)
+            .copy(color = MaterialTheme.colorScheme.onSurface),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         interactionSource = interactionSource,
         keyboardOptions = keyboardOptions,
@@ -214,7 +225,7 @@ fun TechTextField(
                 else MaterialTheme.colorScheme.outline,
                 shape = shape,
             )
-            .padding(horizontal = 16.dp, vertical = if (floatLabel) 6.dp else 12.dp),
+            .padding(horizontal = 16.dp, vertical = if (compact || floatLabel) 6.dp else 12.dp),
         decorationBox = { inner ->
             Column {
                 if (floatLabel) {

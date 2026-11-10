@@ -1253,16 +1253,23 @@ fun SettingsScreen(
             onDismissRequest = { if (!aiWorking) showAiDialog = false },
             title = "AI 助手",
             dismissText = "关闭",
+            // v1.1.20：一屏放下、不要滚动——弹窗加宽到 94% 屏宽 + 紧凑模式
+            // （内边距/标题/底部按钮收紧），内容区同步压间距、压字号、压按钮高。
+            widthFraction = 0.94f,
+            compact = true,
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     "源失效时先分清坏在哪：结构变了的才交给 AI 修，站挂了的 AI 也修不了。Key 只存本机，不上传。",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showAiProviderDialog = true }
+                        .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -1271,9 +1278,11 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { showAiProviderDialog = true }) {
-                        Text(provider.name)
-                    }
+                    Text(
+                        text = provider.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
                 if (!provider.domestic) {
                     Text(
@@ -1283,27 +1292,36 @@ fun SettingsScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                 }
-                TechTextField(
-                    value = keyInput,
-                    onValueChange = { keyInput = it },
-                    placeholder = "API Key",
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !aiWorking,
-                    visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                )
+                // v1.1.20：显示/隐藏并到输入框同一行，不再单独占一行。
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TextButton(onClick = { showKey = !showKey }, enabled = !aiWorking) {
-                        Text(if (showKey) "隐藏" else "显示", fontSize = 12.sp)
-                    }
+                    TechTextField(
+                        value = keyInput,
+                        onValueChange = { keyInput = it },
+                        placeholder = "API Key",
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        enabled = !aiWorking,
+                        visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                        compact = true,
+                    )
+                    Text(
+                        text = if (showKey) "隐藏" else "显示",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable(enabled = !aiWorking) { showKey = !showKey }
+                            .padding(start = 8.dp, top = 8.dp, bottom = 8.dp),
+                    )
                 }
                 if (provider.models.isNotEmpty()) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = !aiWorking) { showAiModelDialog = true }
+                            .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -1312,9 +1330,13 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = { showAiModelDialog = true }, enabled = !aiWorking) {
-                            Text(modelInput.ifBlank { provider.defaultModel })
-                        }
+                        Text(
+                            text = modelInput.ifBlank { provider.defaultModel },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 } else {
                     TechTextField(
@@ -1324,6 +1346,7 @@ fun SettingsScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !aiWorking,
+                        compact = true,
                     )
                     // v1.1.2：豆包填模型名会报 404，常驻提示一次，省得再踩
                     if (provider.id == "doubao") {
@@ -1334,7 +1357,7 @@ fun SettingsScreen(
                         )
                     }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
                 // v1.1.12：我的模型支持看图——只在模型或接入点本身能看图时开；开着就不再
                 // 按模型名判断，直接发图。模型本身不支持时服务商会报错，开了不等于一定能看。
                 Row(
@@ -1349,7 +1372,7 @@ fun SettingsScreen(
                         )
                         Text(
                             text = "豆包方舟接入点 ID 看不出支不支持，靠这个开关认；开着就直接发图，模型本身不支持时服务商会报错。",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -1361,7 +1384,7 @@ fun SettingsScreen(
                         },
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
                 if (provider.id == "custom") {
                     TechTextField(
                         value = baseUrlInput,
@@ -1370,14 +1393,17 @@ fun SettingsScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !aiWorking,
+                        compact = true,
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(4.dp))
                 }
                 if (aiTestText.isNotBlank()) {
                     Text(
                         aiTestText,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(4.dp))
                 }
@@ -1386,6 +1412,7 @@ fun SettingsScreen(
                         text = "测试连接",
                         variant = AppButtonVariant.Ghost,
                         enabled = !aiWorking,
+                        compact = true,
                         onClick = {
                             AiRepairSettings.setApiKey(context, keyInput)
                             AiRepairSettings.setModel(context, modelInput)
@@ -1407,6 +1434,7 @@ fun SettingsScreen(
                     AppButton(
                         text = "保存",
                         enabled = !aiWorking,
+                        compact = true,
                         onClick = {
                             AiRepairSettings.setApiKey(context, keyInput)
                             AiRepairSettings.setModel(context, modelInput)
@@ -1417,7 +1445,7 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f),
                     )
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(6.dp))
                 Text(
                     "写新源",
                     style = MaterialTheme.typography.bodyMedium,
@@ -1425,39 +1453,43 @@ fun SettingsScreen(
                 )
                 Text(
                     "填一个视频站网址，AI 照着站结构写一条新源；类型不知道就选自动，AI 自己定；先跑探活验证，首页能出数才保存，验证不过不保存。写不了小说与直播源。",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
                 Row(modifier = Modifier.fillMaxWidth()) {
                     AppButton(
                         text = "自动",
                         variant = if (writeKind == "auto") AppButtonVariant.Primary else AppButtonVariant.Ghost,
                         enabled = !aiWorking,
+                        compact = true,
                         onClick = { writeKind = "auto" },
                         modifier = Modifier.weight(1f),
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(4.dp))
                     AppButton(
                         text = "drpy",
                         variant = if (writeKind == "js") AppButtonVariant.Primary else AppButtonVariant.Ghost,
                         enabled = !aiWorking,
+                        compact = true,
                         onClick = { writeKind = "js" },
                         modifier = Modifier.weight(1f),
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(4.dp))
                     AppButton(
                         text = "Python",
                         variant = if (writeKind == "py") AppButtonVariant.Primary else AppButtonVariant.Ghost,
                         enabled = !aiWorking,
+                        compact = true,
                         onClick = { writeKind = "py" },
                         modifier = Modifier.weight(1f),
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(4.dp))
                     AppButton(
                         text = "PHP",
                         variant = if (writeKind == "php") AppButtonVariant.Primary else AppButtonVariant.Ghost,
                         enabled = !aiWorking,
+                        compact = true,
                         onClick = { writeKind = "php" },
                         modifier = Modifier.weight(1f),
                     )
@@ -1469,10 +1501,10 @@ fun SettingsScreen(
                         "auto" -> "AI 先定类型，验证过按类型保存"
                         else -> "保存到 xiaying/js/"
                     },
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
                 TechTextField(
                     value = writeUrl,
                     onValueChange = { writeUrl = it },
@@ -1480,8 +1512,9 @@ fun SettingsScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !aiWorking,
+                    compact = true,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
                 TechTextField(
                     value = writeName,
                     onValueChange = { writeName = it },
@@ -1489,8 +1522,9 @@ fun SettingsScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !aiWorking,
+                    compact = true,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
                 if (writeText.isNotBlank()) {
                     Text(
                         writeText,
@@ -1505,6 +1539,7 @@ fun SettingsScreen(
                         text = "去对话里接着改",
                         variant = AppButtonVariant.Ghost,
                         enabled = !aiWorking,
+                        compact = true,
                         onClick = {
                             writeFailReason?.let { reason ->
                                 AiChatStore.seedFromWrite(writeUrl, reason)
@@ -1514,11 +1549,12 @@ fun SettingsScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(4.dp))
                 }
                 AppButton(
                     text = if (aiWorking) "写源中…" else "让 AI 写源",
                     enabled = !aiWorking,
+                    compact = true,
                     onClick = {
                         AiRepairSettings.setApiKey(context, keyInput)
                         AiRepairSettings.setModel(context, modelInput)

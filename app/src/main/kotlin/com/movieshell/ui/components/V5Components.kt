@@ -1180,6 +1180,9 @@ fun AppButton(
     variant: AppButtonVariant = AppButtonVariant.Primary,
     enabled: Boolean = true,
     icon: ImageVector? = null,
+    // v1.1.20：紧凑模式（默认关）——高 40dp 降到 36dp、横向内边距收到 8dp、
+    // 字号降到 labelMedium（12sp），窄按钮（如写源类型里的“Python”）不再截字。
+    compact: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
     val colors = when (variant) {
@@ -1201,13 +1204,19 @@ fun AppButton(
             Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
         }
-        Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        Text(
+            text,
+            style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+        )
     }
-    val pad = PaddingValues(horizontal = if (variant == AppButtonVariant.Ghost) 12.dp else 20.dp)
+    val pad = PaddingValues(
+        horizontal = if (compact) 8.dp else if (variant == AppButtonVariant.Ghost) 12.dp else 20.dp,
+    )
     if (variant == AppButtonVariant.Ghost) {
         TextButton(
             onClick = onClick,
-            modifier = modifier.height(V5.Button),
+            modifier = modifier.height(if (compact) 36.dp else V5.Button),
             enabled = enabled,
             shape = shape,
             colors = colors,
@@ -1217,7 +1226,7 @@ fun AppButton(
     } else {
         androidx.compose.material3.Button(
             onClick = onClick,
-            modifier = modifier.height(V5.Button),
+            modifier = modifier.height(if (compact) 36.dp else V5.Button),
             enabled = enabled,
             shape = shape,
             colors = colors,
