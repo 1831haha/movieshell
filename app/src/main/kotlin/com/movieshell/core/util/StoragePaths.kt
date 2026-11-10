@@ -45,6 +45,17 @@ object StoragePaths {
     /** 用户拍板的公开根目录名 */
     const val ROOT_NAME = "xiaying"
 
+    /**
+     * v1.1.21：内置规则文件名（assets 自带，随安装包来，免授权可用）。
+     * 无授权时本地文件源一律不读，唯独这两个内置规则照常列出、照常激活——
+     * 它们是安装包的一部分，不是用户从文件管理器放进来的。
+     * 注意：shim.js 是垫片，从不进列表，不在这里。
+     */
+    val BUILTIN_RULE_NAMES: Set<String> = setOf("sp002.js", "btsow_spider.py")
+
+    /** v1.1.21：无授权时某条本地规则是否仍可见——只认内置规则名。 */
+    fun isBuiltinRule(name: String): Boolean = name in BUILTIN_RULE_NAMES
+
     /** 用户拍板的完整路径（标准设备上与 publicRoot() 一致） */
     const val PUBLIC_ROOT_PATH = "/storage/emulated/0/xiaying"
 
@@ -157,6 +168,12 @@ object StoragePaths {
      * （目录建不了/不可写，如未授予所有文件访问权限）时回退旧私有根
      * filesDir/server_plugins，App 照常用、不崩。根目录解析只此一处，
      * ServicePluginManager 的安装/启动/卸载/自检全部走这里，不许散落硬编码。
+     *
+     * v1.1.21 定性：私有回退保留可用——服务插件只能经 App 自身的安装流程
+     * （市场下载、签名校验）进来，不是用户从文件管理器扔进来的源文件；
+     * 公开侧无授权时系统本来就读不到；私有侧又没有到公开侧的合并链路，
+     * 收紧会把已装服务直接 stranded，只能重装。所以不拦，公开侧读不到
+     * 是系统行为，不是本函数放水。
      */
     fun serviceDir(context: Context): File {
         val pub = File(publicRoot(), "service")
@@ -462,16 +479,7 @@ object StoragePaths {
         }
     }
 
-    private const val KEY_PERM_SKIPPED = "storage_perm_prompt_skipped"
     private const val KEY_MERGE_WARNED = "merge_conflict_warned"
-
-    /** v0.294.5：启动时的存储权限引导是否已被用户跳过（跳过一次就不再每次启动都弹） */
-    fun isPermPromptSkipped(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_PERM_SKIPPED, false)
-
-    fun setPermPromptSkipped(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_PERM_SKIPPED, true).apply()
-    }
 
     /**
      * v0.294.5：授权前导入的文件“消失”修复。无权限时 baseDir() 回退到私有

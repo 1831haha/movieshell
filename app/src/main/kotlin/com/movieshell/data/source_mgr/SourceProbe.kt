@@ -296,15 +296,19 @@ object SourceProbe {
                 tasks += ProbeTask("py", r.name, r.name) { probePy(context, f) }
             }
         }
-        PhpSourceManager.rulesDir(context).listFiles { f -> PhpSourceManager.isSourceFile(f) }.orEmpty()
-            .sortedBy { it.name }
-            .forEach { f ->
-                // v0.188.0 M32：PHP 探活补 isRuleEnabled 检查，与 js/py/web
-                // 同款——已禁用 PHP 规则不再被检测并计入报告。
-                if (SourceStateStore.isRuleEnabled("php", f.name)) {
-                    tasks += ProbeTask("php", f.name, f.name) { probePhp(context, f.name) }
+        // v1.1.21：PHP 直扫规则目录（不走 PhpSourceManager.listRules），
+        // 门禁要在这里另补；订阅展开目录 js/subs、py/subs 不受影响。
+        if (StoragePaths.hasAccess(context)) {
+            PhpSourceManager.rulesDir(context).listFiles { f -> PhpSourceManager.isSourceFile(f) }.orEmpty()
+                .sortedBy { it.name }
+                .forEach { f ->
+                    // v0.188.0 M32：PHP 探活补 isRuleEnabled 检查，与 js/py/web
+                    // 同款——已禁用 PHP 规则不再被检测并计入报告。
+                    if (SourceStateStore.isRuleEnabled("php", f.name)) {
+                        tasks += ProbeTask("php", f.name, f.name) { probePhp(context, f.name) }
+                    }
                 }
-            }
+        }
         WebSourceManager.listSites().forEach { s ->
             if (SourceStateStore.isRuleEnabled("web", s.fileName)) {
                 tasks += ProbeTask("web", s.fileName, s.fileName) { probeHttp(s.url) }

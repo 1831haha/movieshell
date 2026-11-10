@@ -113,6 +113,7 @@ import com.movieshell.data.store.LiveChannel
 import com.movieshell.data.store.LiveSource
 import com.movieshell.data.store.LiveStore
 import com.movieshell.core.log.LogBus
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.store.TrashStore
 import com.movieshell.player.EngineHost
 import com.movieshell.player.PlaySession
@@ -1307,7 +1308,14 @@ fun LiveManageScreen(onBack: () -> Unit) {
                     // （点开仍是本地 M3U 文件导入 / 手动添加频道弹窗）。
                     AppButton(
                         text = "导入本地",
-                        onClick = { filePicker.launch("*/*") },
+                        onClick = {
+                            // v1.1.21：无授权时不打开文件选择器，先提示去授权。
+                            if (!StoragePaths.hasAccess(context)) {
+                                AppToast.show(context, "需要先授予存储权限，才能导入本地 M3U", long = true)
+                            } else {
+                                filePicker.launch("*/*")
+                            }
+                        },
                         modifier = Modifier.weight(1f),
                         variant = AppButtonVariant.Secondary,
                     )

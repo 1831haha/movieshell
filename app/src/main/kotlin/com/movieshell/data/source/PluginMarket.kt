@@ -524,6 +524,11 @@ object PluginMarket {
             }
             progress?.onStage(InstallStage.Installing, 0, 0)
             val installWarn = if (plugin.type == "live") {
+                // v1.1.21：live 插件落盘在 liveDir，无授权时装完也看不见，
+                // 先拦下来，不让用户装完却找不到。
+                if (!StoragePaths.hasAccess(context)) {
+                    throw IllegalStateException("需要先授予存储权限，才能安装直播插件")
+                }
                 installLive(context, plugin, tmp, oldVersion).also {
                     // v0.96.1：live 插件装完自动刷新聚合，不然还播内存里的旧频道
                     runCatching { LiveStore.refresh(context) }
@@ -615,6 +620,11 @@ object PluginMarket {
             checkManifest(zf, plugin)
             when (plugin.type) {
                 "source" -> {
+                    // v1.1.21：站源插件落盘在规则目录，无授权时装完也看不见，
+                    // 先拦下来，不让用户装完却找不到。
+                    if (!StoragePaths.hasAccess(context)) {
+                        throw IllegalStateException("需要先授予存储权限，才能安装站源插件")
+                    }
                     // DsPlayer 的 catLib 等「源依赖库」包（payload/ + source.json）不是站源，
                     // 按规则装入会把库文件当成源，故明确拒绝
                     if (entries.all { it.name.startsWith("payload/") || it.name == "source.json" || it.name == "plugin.json" }) {
@@ -1028,9 +1038,11 @@ object PluginMarket {
 
     /** v0.96.1：是否有 live 备份（供 UI 决定显不显示"还原旧版"）。 */
     fun hasLiveBackup(context: Context, id: String): Boolean =
-        StoragePaths.liveDir(context)
-            .listFiles { f -> f.isFile && f.name.startsWith("$id.json.bak-") }
-            .orEmpty().isNotEmpty()
+        // v1.1.21：无授权时 liveDir 下的备份不可见，不给还原入口。
+        StoragePaths.hasAccess(context) &&
+            StoragePaths.liveDir(context)
+                .listFiles { f -> f.isFile && f.name.startsWith("$id.json.bak-") }
+                .orEmpty().isNotEmpty()
 
     /** 远程版本是否新于本地版本（语义版本比对；minApp 门槛复用）。 */
     fun isNewer(remote: String, local: String): Boolean {

@@ -5,6 +5,7 @@ import com.movieshell.ui.components.AppSearchBar
 import com.movieshell.ui.theme.V5
 import com.movieshell.ui.theme.ok
 
+import android.app.Activity
 import android.content.Context
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.AppSwitch
@@ -207,6 +208,10 @@ internal sealed interface ImportResult {
  * - 后缀不在允许列表内 -> WrongExt
  */
 internal fun importRuleFile(context: Context, uri: Uri, target: ImportTarget): ImportResult {
+    // v1.1.21：无授权时不许再静默写进私有回退目录，先拦下来。
+    if (!StoragePaths.hasAccess(context)) {
+        return ImportResult.Failed("需要先授予存储权限，才能导入本地规则")
+    }
     val rawName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
         val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
@@ -251,6 +256,8 @@ private fun listLocalFolderEntries(
     activeName: String? = null,
     filter: ((File) -> Boolean)? = null,
 ): List<SourceEntry> {
+    // v1.1.21：PHP 分组直扫规则目录，门禁落在这里，无授权时读空。
+    if (!StoragePaths.hasAccess(context)) return emptyList()
     val dir = targetDir(context, dirName)
     return dir.listFiles { f -> f.isFile && (filter?.invoke(f) ?: true) }
         .orEmpty()
@@ -1032,6 +1039,8 @@ fun SourcesScreen(
     // v0.294.5：导入目标改 rememberSaveable（存 dirName）——系统选择器期间 Activity 被回收/转屏，
     // 回来时 remember 已重置，选好的文件被静默丢弃。
     var pendingImportDir by rememberSaveable { mutableStateOf<String?>(null) }
+    // v1.1.21：无授权时点导入先弹去授权（不直接跳系统设置页，先讲清原因）。
+    var showStoragePermDialog by remember { mutableStateOf(false) }
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri ->
@@ -1081,6 +1090,11 @@ fun SourcesScreen(
     }
 
     fun requestImport(target: ImportTarget) {
+        // v1.1.21：无授权时不打开文件选择器，先去授权。
+        if (!StoragePaths.hasAccess(context)) {
+            showStoragePermDialog = true
+            return
+        }
         pendingImportDir = target.dirName
         importLauncher.launch("*/*")
     }
@@ -1099,6 +1113,22 @@ fun SourcesScreen(
                 AppToast.show(context, result.reason ?: "导入失败", long = true)
             }
             refreshZipRules()
+        }
+    }
+
+    // v1.1.21：无授权时导入/压缩包入口弹的去授权提示（只讲清原因，不堵操作）。
+    if (showStoragePermDialog) {
+        TechDialog(
+            onDismissRequest = { showStoragePermDialog = false },
+            title = "需要存储权限",
+            confirmText = "去授权",
+            onConfirm = {
+                showStoragePermDialog = false
+                (context as? Activity)?.let { StoragePaths.requestAccess(it) }
+            },
+            dismissText = "稍后",
+        ) {
+            Text("导入本地规则要先授予「所有文件访问权限」，文件存在 /storage/emulated/0/xiaying/ 里。不授权也能用订阅源和内置源。")
         }
     }
 
@@ -1573,16 +1603,47 @@ fun SourcesScreen(
                         AppButton(text = "PHP", onClick = { requestImport(IMPORT_PHP) }, variant = AppButtonVariant.Ghost)
                     }
                 }
-                AppButton(text = "压缩包", onClick = { zipImportLauncher.launch("application/zip") }, variant = AppButtonVariant.Ghost)
+                AppButton(
+                    text = "压缩包",
+                    onClick = {
+                        // v1.1.21：无授权时不打开文件选择器，先去授权。
+                        if (!StoragePaths.hasAccess(context)) showStoragePermDialog = true
+                        else zipImportLauncher.launch("application/zip")
+                    },
+                    variant = AppButtonVariant.Ghost,
+                )
+            }
+        }
+        // v1.1.21：无授权时本地源不可用的明确提示（不静默空表）。
+        if (!StoragePaths.hasAccess(context)) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "未授予存储权限，本地文件源不可用",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    AppButton(text = "去授权", onClick = { showStoragePermDialog = true }, variant = AppButtonVariant.Ghost)
+                }
             }
         }
         if (visibleLocal.isEmpty()) {
             item {
+                val noAccess = sourceQuery.isBlank() && !StoragePaths.hasAccess(context)
                 EmptyState(
                     kind = EmptyKind.Empty,
                     icon = Icons.Filled.FolderOpen,
                     title = if (sourceQuery.isBlank()) "暂无本地规则" else "没有匹配的源",
-                    hint = if (sourceQuery.isBlank()) "点「导入」添加 .py / .js / .php 文件" else "换个关键词试试",
+                    hint = if (sourceQuery.isBlank()) {
+                        if (noAccess) "未授予存储权限，本地文件源不可用，授权后就能用"
+                        else "点「导入」添加 .py / .js / .php 文件"
+                    } else "换个关键词试试",
+                    actionText = if (noAccess) "去授权" else null,
+                    onAction = if (noAccess) ({ showStoragePermDialog = true }) else null,
                 )
             }
         } else {

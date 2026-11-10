@@ -153,6 +153,8 @@ object LiveStore {
 
     /** 本地 M3U 文件导入：拷进 liveDir 当 LOCAL_FILE 订阅 */
     fun importLocalFile(context: Context, src: File, displayName: String): Boolean {
+        // v1.1.21：无授权时不许再静默写进私有回退目录。
+        if (!StoragePaths.hasAccess(context)) return false
         val dst = File(
             StoragePaths.liveDir(context),
             "import_${System.currentTimeMillis()}.m3u",
@@ -287,12 +289,16 @@ object LiveStore {
         }
         // live 插件（v0.23.0 安装时已校验 lives 数组）
         // v0.173.0：单个插件文件读不出也只跳过，不让 refresh 整体抛。
-        StoragePaths.liveDir(context).listFiles { f -> f.isFile && f.name.endsWith(".json") }
-            .orEmpty().sortedBy { it.name }.forEach { f ->
-                val key = "plugin:${f.nameWithoutExtension}"
-                val pluginText = runCatching { f.readText() }.getOrNull() ?: return@forEach
-                out += parseLiveJson(pluginText, key).map { it.copy(favorite = favs.contains(it.id)) }
-            }
+        // v1.1.21：liveDir 下的 .json 全是本地文件，无授权时不读；手动频道
+        // 与远程订阅不受影响，上面已照常聚合。
+        if (StoragePaths.hasAccess(context)) {
+            StoragePaths.liveDir(context).listFiles { f -> f.isFile && f.name.endsWith(".json") }
+                .orEmpty().sortedBy { it.name }.forEach { f ->
+                    val key = "plugin:${f.nameWithoutExtension}"
+                    val pluginText = runCatching { f.readText() }.getOrNull() ?: return@forEach
+                    out += parseLiveJson(pluginText, key).map { it.copy(favorite = favs.contains(it.id)) }
+                }
+        }
         _channels.value = out
         saveCachedChannels(context, out)
         LogBus.i("Live", "聚合 ${out.size} 个频道（手动/订阅/插件）")
@@ -317,7 +323,13 @@ object LiveStore {
                 var failReason: String? = null
                 try {
                     text = when (s.type) {
-                        LiveSource.LOCAL_FILE -> runCatching { File(s.url).readText() }.getOrNull()
+                        // v1.1.21：本地文件源无授权时不读，原因写明是权限。
+                        LiveSource.LOCAL_FILE -> if (!StoragePaths.hasAccess(context)) {
+                            failReason = "需要存储权限"
+                            null
+                        } else {
+                            runCatching { File(s.url).readText() }.getOrNull()
+                        }
                         else -> withTimeoutOrNull(15_000) { downloadText(s.url) }
                     }
                     if (text == null && s.type != LiveSource.LOCAL_FILE) failReason = "超时"

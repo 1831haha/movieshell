@@ -121,6 +121,9 @@ object WebSourceManager {
 
     private fun sitesDirOrNull(): File? {
         val ctx = appContext ?: return null
+        // v1.1.21：网页源（.json 描述与 .html 文件）全是用户本地文件，
+        // 无授权时一律不可见；setActiveSite(null) 清空不走这里。
+        if (!StoragePaths.hasAccess(ctx)) return null
         return StoragePaths.webDir(ctx)
     }
 }

@@ -90,11 +90,27 @@ object DrpySourceManager {
     }
 
     /** 扫描 StoragePaths.jsDir()（/storage/emulated/0/xiaying/js/) 下的 js 文件。 */
-    fun listRules(): List<RuleInfo> = RuleFileStore.listRules(
-        rulesDirOrNull(),
-        { f -> f.isFile && f.name.endsWith(".js") && f.name != SHIM_NAME },
-        { f -> RuleFileStore.extractTitle(f, TITLE_REGEX) },
+    fun listRules(): List<RuleInfo> = visibleRules(
+        RuleFileStore.listRules(
+            rulesDirOrNull(),
+            { f -> f.isFile && f.name.endsWith(".js") && f.name != SHIM_NAME },
+            { f -> RuleFileStore.extractTitle(f, TITLE_REGEX) },
+        ),
     )
+
+    /**
+     * v1.1.21：无授权时只留内置规则（assets 自带），用户规则一律不列。
+     * appContext 为空时连授权状态都判不了，直接交空表，不猜。
+     */
+    private fun visibleRules(all: List<RuleInfo>): List<RuleInfo> {
+        val ctx = appContext ?: return emptyList()
+        return if (StoragePaths.hasAccess(ctx)) all
+        else all.filter { StoragePaths.isBuiltinRule(it.name) }
+    }
+
+    /** v1.1.21：无授权时某条规则能不能激活——只认内置规则名。 */
+    private fun canActivate(ctx: Context, name: String): Boolean =
+        StoragePaths.hasAccess(ctx) || StoragePaths.isBuiltinRule(name)
 
     fun activeRuleName(): String? = activeName
 
@@ -113,6 +129,11 @@ object DrpySourceManager {
     fun setActiveRule(name: String?): Boolean {
         if (name == activeName) return true
         if (name != null) {
+            val ctx = appContext ?: return false
+            if (!canActivate(ctx, name)) {
+                Log.w(TAG, "无存储权限，本地规则不可激活: $name")
+                return false
+            }
             val probe = File(rulesDirOrNull() ?: return false, name)
             if (!probe.isFile) {
                 Log.w(TAG, "规则文件不存在: $name")
@@ -177,6 +198,14 @@ object DrpySourceManager {
             engine = null
             activeName = null
             return true
+        }
+        // v1.1.21：无授权时只认内置规则，不读用户规则文件。
+        run {
+            val ctx = appContext ?: return false
+            if (!canActivate(ctx, name)) {
+                Log.w(TAG, "无存储权限，本地规则不可激活: $name")
+                return false
+            }
         }
         // v0.271.0 补：世代号在读文件前就占位——两次快速切换时，后发起的一单
         // 世代号更大，先发起的一单读完文件后见世代已变直接作废，不毁新单引擎；
@@ -272,6 +301,9 @@ object DrpySourceManager {
     private fun trustedExpand(ctx: android.content.Context, js: String): String {
         return RuleImportExpander.expand(js) { spec ->
             runCatching {
+                // v1.1.21：无授权时 import 只认内置规则名，不读用户文件。
+                val base = spec.removePrefix("./").substringAfterLast('/')
+                if (!canActivate(ctx, base)) return@runCatching null
                 val dir = StoragePaths.jsDir(ctx)
                 val lib = File(dir, spec)
                 if (!lib.canonicalPath.startsWith(dir.canonicalPath)) null

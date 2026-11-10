@@ -285,20 +285,20 @@ class MainActivity : ComponentActivity() {
                 darkTheme = darkTheme,
                 themeColor = Color(themeColorInt),
             ) {
-                // v0.7.2：存储权限引导（无权限时文件走私有回退目录，App 照常用）
+                // v0.7.2：存储权限引导（无权限时本地文件源不可用）
                 // v0.274.0（T42）：弹窗状态改 rememberSaveable——原来转屏后
                 // remember 重置，跳过一次的弹窗又弹出来；已授权时也不弹，
                 // 防“授权后回 App、恢复的旧状态又把弹窗顶出来”。
-                // v0.294.5：点过「跳过」就记住，不再每次启动都弹（设置里仍可去授权）。
+                // v1.1.21：跳过不再被记住——每次启动、无授权就弹，直到授权
+                // 为止；“稍后”只关掉本次，不堵 App（订阅源/内置源仍能用）。
                 var showPermDialog by rememberSaveable {
-                    mutableStateOf(!StoragePaths.hasAccess(this@MainActivity) && !StoragePaths.isPermPromptSkipped(this@MainActivity))
+                    mutableStateOf(!StoragePaths.hasAccess(this@MainActivity))
                 }
                 if (showPermDialog && !StoragePaths.hasAccess(this@MainActivity)) {
                     TechDialog(
                         onDismissRequest = {
                             showPermDialog = false
-                            StoragePaths.setPermPromptSkipped(this@MainActivity)
-                            LogBus.w("StoragePaths", "用户跳过了存储权限申请")
+                            LogBus.w("StoragePaths", "用户这次先不授权存储权限")
                         },
                         title = "需要存储权限",
                         confirmText = "去授权",
@@ -306,9 +306,9 @@ class MainActivity : ComponentActivity() {
                             showPermDialog = false
                             StoragePaths.requestAccess(this@MainActivity)
                         },
-                        dismissText = "跳过",
+                        dismissText = "稍后",
                     ) {
-                        Text("规则、备份、日志要存到 /storage/emulated/0/xiaying/，请授予「所有文件访问权限」。跳过也能用，文件会存在应用私有目录。")
+                        Text("本地规则、备份、日志要存到 /storage/emulated/0/xiaying/，请授予「所有文件访问权限」。不授权也能用订阅源和内置源，但本地文件源（自己放进来的 .js / .py / .php / 网页源 / 压缩包 / 直播文件）都不可用，去授权后就能用。")
                     }
                 }
                 Box(Modifier.fillMaxSize()) {
@@ -629,7 +629,23 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch(Dispatchers.IO) {
                 StoragePaths.migrateFromPrivate(appCtx)
                 StoragePaths.mergePrivateRootIntoPublic(appCtx)
+                // v1.1.21：授权后把之前看不见的本地源恢复回来（激活记录在
+                // 无授权期间特意没清，就是等这一刻）；主线程恢复，引擎在
+                // 主线程建，与启动恢复同口径。
+                withContext(Dispatchers.Main) {
+                    SourceStateStore.restoreActiveRule(appCtx)
+                }
             }
+        } else if (storageAccessAtStart && !StoragePaths.hasAccess(this)) {
+            // v1.1.21：使用中被收回权限——本地规则不再可读，正在用的也停掉
+            // （引擎释放、激活态清空）；已保存的激活记录不动，重新授权后
+            // 由上面那条分支恢复回来。
+            storageAccessAtStart = false
+            DrpySourceManager.setActiveRule(null)
+            PySourceManager.setActiveRule(null)
+            PhpSourceManager.setActiveRule(null)
+            WebParseSourceManager.setActiveByFileName(null)
+            LogBus.w("StoragePaths", "存储权限被收回，已停用本地规则")
         }
     }
 

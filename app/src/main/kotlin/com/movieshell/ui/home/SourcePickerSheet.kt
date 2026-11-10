@@ -666,7 +666,14 @@ fun SourcePickerSheet(
             )
             Spacer(Modifier.weight(1f))
             IconButton(
-                onClick = { zipImportLauncher.launch("application/zip") },
+                onClick = {
+                    // v1.1.21：无授权时不打开文件选择器，先提示去授权。
+                    if (!StoragePaths.hasAccess(context)) {
+                        AppToast.show(context, "需要先授予存储权限，才能导入压缩包源", long = true)
+                    } else {
+                        zipImportLauncher.launch("application/zip")
+                    }
+                },
                 enabled = !loading,
             ) {
                 Icon(
@@ -706,6 +713,30 @@ fun SourcePickerSheet(
                     text = "关闭",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        // v1.1.21：无授权时本地源不可用的明确提示（不静默空表）。
+        if (!StoragePaths.hasAccess(context)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = V5.Gutter, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "未授予存储权限，本地文件源不可用，订阅源照常用",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "去授权",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable {
+                        (context as? android.app.Activity)?.let { StoragePaths.requestAccess(it) }
+                    },
                 )
             }
         }

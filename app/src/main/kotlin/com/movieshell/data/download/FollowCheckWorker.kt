@@ -157,6 +157,10 @@ class FollowCheckWorker(
             }
             "drpy" -> {
                 // S2：追剧检测是后台执行，读私有可信副本，不读公开文件。
+                // v1.1.21：无授权时只查内置规则的追剧，用户规则跳过不查。
+                if (!StoragePaths.hasAccess(context) && !StoragePaths.isBuiltinRule(item.sourceKey)) {
+                    return CheckOutcome.NoData
+                }
                 val publicFile = File(StoragePaths.jsDir(context), item.sourceKey)
                 if (!publicFile.isFile) return CheckOutcome.NoData
                 val trusted = ExecutableTrust.trustedFile(
@@ -194,6 +198,10 @@ class FollowCheckWorker(
             "py" -> {
                 PySourceManager.init(context)
                 // S2：同 drpy，后台执行读私有可信副本。
+                // v1.1.21：无授权时只查内置规则的追剧，用户规则跳过不查。
+                if (!StoragePaths.hasAccess(context) && !StoragePaths.isBuiltinRule(item.sourceKey)) {
+                    return CheckOutcome.NoData
+                }
                 val publicFile = File(StoragePaths.pyDir(context), item.sourceKey)
                 if (!publicFile.isFile) return CheckOutcome.NoData
                 val trusted = ExecutableTrust.trustedFile(

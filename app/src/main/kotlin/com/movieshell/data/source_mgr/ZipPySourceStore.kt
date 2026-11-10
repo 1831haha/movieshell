@@ -61,7 +61,10 @@ object ZipPySourceStore {
         dir.listFiles { f -> f.isFile && f.name.endsWith(".zip", ignoreCase = true) }
             .orEmpty().map { it.name }.sorted()
 
-    fun listZips(context: Context): List<String> = listZips(StoragePaths.pyzipDir(context))
+    // v1.1.21：压缩包全是用户文件，无授权时 Context 版入口一律交空/假；
+    // File(dir) 版是纯逻辑，供单测用，不动。
+    fun listZips(context: Context): List<String> =
+        if (!StoragePaths.hasAccess(context)) emptyList() else listZips(StoragePaths.pyzipDir(context))
 
     fun listZipEntries(dir: File, zipName: String): List<RuleInfo> {
         val zip = File(dir, zipName)
@@ -84,13 +87,15 @@ object ZipPySourceStore {
     }
 
     fun listZipEntries(context: Context, zipName: String): List<RuleInfo> =
-        listZipEntries(StoragePaths.pyzipDir(context), zipName)
+        if (!StoragePaths.hasAccess(context)) emptyList()
+        else listZipEntries(StoragePaths.pyzipDir(context), zipName)
 
     fun listZipRules(dir: File): List<RuleInfo> =
         listZips(dir).flatMap { listZipEntries(dir, it) }
 
     fun listZipRules(context: Context): List<RuleInfo> =
-        listZipRules(StoragePaths.pyzipDir(context))
+        if (!StoragePaths.hasAccess(context)) emptyList()
+        else listZipRules(StoragePaths.pyzipDir(context))
 
     /** zip 包里是否有该条目（PySourceManager.ruleExists 的 zip 分支用）。 */
     fun zipEntryExists(dir: File, identity: String): Boolean {
@@ -106,7 +111,8 @@ object ZipPySourceStore {
     }
 
     fun zipEntryExists(context: Context, identity: String): Boolean =
-        zipEntryExists(StoragePaths.pyzipDir(context), identity)
+        StoragePaths.hasAccess(context) &&
+            zipEntryExists(StoragePaths.pyzipDir(context), identity)
 
     /** 读 entry 前 4KB，标题正则找得到即 true；只做校验，不做显示标题。 */
     fun hasSpiderSubclass(dir: File, identity: String): Boolean {
@@ -128,7 +134,8 @@ object ZipPySourceStore {
     }
 
     fun hasSpiderSubclass(context: Context, identity: String): Boolean =
-        hasSpiderSubclass(StoragePaths.pyzipDir(context), identity)
+        StoragePaths.hasAccess(context) &&
+            hasSpiderSubclass(StoragePaths.pyzipDir(context), identity)
 
     data class ImportZipResult(val ok: Boolean, val zipName: String?, val count: Int, val reason: String?) {
         companion object {
@@ -145,6 +152,10 @@ object ZipPySourceStore {
      * 成功后清掉该包条目的桥缓存（覆盖同名 zip 时旧实例不再复用）。
      */
     suspend fun importZip(context: Context, uri: Uri): ImportZipResult = withContext(Dispatchers.IO) {
+        // v1.1.21：无授权时不许再静默写进私有回退目录，先拦下来。
+        if (!StoragePaths.hasAccess(context)) {
+            return@withContext ImportZipResult.Err("需要先授予存储权限，才能导入压缩包源")
+        }
         val dir = StoragePaths.pyzipDir(context)
         val rawName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
             val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -182,6 +193,8 @@ object ZipPySourceStore {
 
     /** 删 zip 文件，并清掉该包条目的桥缓存。 */
     suspend fun deleteZip(context: Context, zipName: String): Boolean = withContext(Dispatchers.IO) {
+        // v1.1.21：无授权时压缩包不可见，也不删看不见的文件，防误删。
+        if (!StoragePaths.hasAccess(context)) return@withContext false
         val dir = StoragePaths.pyzipDir(context)
         val f = SafeFileName.childInside(dir, zipName) ?: return@withContext false
         if (!f.isFile) return@withContext false

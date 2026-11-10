@@ -126,6 +126,11 @@ class V8DrpyEngine(
         // canonical 路径校验防 ../ 逃出规则目录。
         val expanded = RuleImportExpander.expand(js) { spec ->
             runCatching {
+                // v1.1.21：无授权时 import 只认内置规则名，不读用户文件。
+                val base = spec.removePrefix("./").substringAfterLast('/')
+                if (!StoragePaths.hasAccess(appContext) && !StoragePaths.isBuiltinRule(base)) {
+                    return@runCatching null
+                }
                 val dir = StoragePaths.jsDir(appContext)
                 val f = File(dir, spec)
                 if (f.canonicalPath.startsWith(dir.canonicalPath) && f.isFile) f.readText() else null

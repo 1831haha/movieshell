@@ -76,6 +76,8 @@ fun previewKindDir(context: Context, kind: String): File? = when (kind) {
  * 调用方按“文件不存在”处理，不读、不分享、不外发编辑。
  */
 fun resolvePreviewFile(context: Context, kind: String, fileName: String): File? {
+    // v1.1.21：无授权时只预览内置规则，不读用户文件。
+    if (!StoragePaths.hasAccess(context) && !StoragePaths.isBuiltinRule(fileName)) return null
     val dir = previewKindDir(context, kind) ?: return null
     return runCatching {
         val base = dir.canonicalFile

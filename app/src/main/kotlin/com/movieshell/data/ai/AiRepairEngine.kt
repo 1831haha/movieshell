@@ -49,6 +49,8 @@ object AiRepairEngine {
 
     /** 检测页“去对话里改”用：读一条本地规则的原文，读不到返回 null。 */
     fun readRuleText(context: Context, kind: String, name: String): String? {
+        // v1.1.21：无授权时只读内置规则原文。
+        if (!StoragePaths.hasAccess(context) && !StoragePaths.isBuiltinRule(name)) return null
         val file = ruleFile(context, kind, name) ?: return null
         return runCatching { file.readText() }.getOrNull()?.takeIf { it.isNotBlank() }
     }
@@ -75,6 +77,11 @@ object AiRepairEngine {
     ): ApplyResult = withContext(Dispatchers.IO) {
         if (!canRepair(kind)) return@withContext ApplyResult.Fail("不支持的类型")
         if (ruleText.isBlank()) return@withContext ApplyResult.Fail("规则是空的")
+        // v1.1.21：新写一条规则是写用户文件，先授权；写回已显示的规则
+        // （无授权时只剩内置规则）不拦，落点仍在私有回退目录。
+        if (replaceFile == null && !StoragePaths.hasAccess(context)) {
+            return@withContext ApplyResult.Fail("需要先授予存储权限，才能保存新规则")
+        }
         val start = System.currentTimeMillis()
         when (val probe = validateFixed(context, kind, ruleText)) {
             is SourceProbe.Result.Ok, is SourceProbe.Result.Slow -> {
@@ -100,6 +107,10 @@ object AiRepairEngine {
 
     suspend fun repair(context: Context, kind: String, name: String, reason: String): RepairResult =
         withContext(Dispatchers.IO) {
+            // v1.1.21：无授权时只修内置规则。
+            if (!StoragePaths.hasAccess(context) && !StoragePaths.isBuiltinRule(name)) {
+                return@withContext RepairResult.Fail("需要先授予存储权限，才能修复本地规则")
+            }
             val file = ruleFile(context, kind, name)
                 ?: return@withContext RepairResult.Fail("不支持的类型")
             if (!file.isFile) return@withContext RepairResult.Fail("规则文件丢失")
@@ -150,6 +161,10 @@ object AiRepairEngine {
      */
     suspend fun writeSource(context: Context, rawUrl: String, nameHint: String, kind: String = "js"): WriteResult =
         withContext(Dispatchers.IO) {
+            // v1.1.21：写新源是写用户文件，先授权再跑，避免 AI 白跑一轮才发现存不下。
+            if (!StoragePaths.hasAccess(context)) {
+                return@withContext WriteResult.Fail("需要先授予存储权限，再用 AI 写源")
+            }
             val url = normalizeUrl(rawUrl)
                 ?: return@withContext WriteResult.Fail("网址不对，请填完整网址，如 https://www.xxx.com")
             if (AiRepairSettings.apiKey(context).isBlank()) {

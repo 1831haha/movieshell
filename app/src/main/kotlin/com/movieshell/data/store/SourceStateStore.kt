@@ -1,6 +1,7 @@
 package com.movieshell.data.store
 
 import android.content.Context
+import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source_mgr.PySourceManager
@@ -122,6 +123,9 @@ object SourceStateStore {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val kind = prefs.getString(KEY_ACTIVE_KIND, null) ?: return
         val name = prefs.getString(KEY_ACTIVE_NAME, null) ?: return
+        // v1.1.21：无授权时本地源本来就看不见，不算“文件已丢”，记录留着
+        // 不清除；授权回来（onResume 补调一次）再恢复，不让用户重选。
+        if (!StoragePaths.hasAccess(context)) return
         val exists = when (kind) {
             "js" -> DrpySourceManager.listRules().any { it.name == name }
             "py" -> PySourceManager.ruleExists(name)

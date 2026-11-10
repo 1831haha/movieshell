@@ -124,11 +124,27 @@ object PySourceManager {
      * 抠类名会把红果这类文件头里的内部类 _BaseSpider 当成标题，换源弹窗搜“红”就
      * 找不到；裸 class Spider 本就匹配不上正则。hasSpiderSubclass 的校验不受影响。
      */
-    fun listRules(): List<RuleInfo> = RuleFileStore.listRules(
-        rulesDirOrNull(),
-        { f -> f.isFile && f.name.endsWith(".py") },
-        { f -> f.nameWithoutExtension },
+    fun listRules(): List<RuleInfo> = visibleRules(
+        RuleFileStore.listRules(
+            rulesDirOrNull(),
+            { f -> f.isFile && f.name.endsWith(".py") },
+            { f -> f.nameWithoutExtension },
+        ),
     )
+
+    /**
+     * v1.1.21：无授权时只留内置规则（assets 自带），用户规则一律不列。
+     * appContext 为空时连授权状态都判不了，直接交空表，不猜。
+     */
+    private fun visibleRules(all: List<RuleInfo>): List<RuleInfo> {
+        val ctx = appContext ?: return emptyList()
+        return if (StoragePaths.hasAccess(ctx)) all
+        else all.filter { StoragePaths.isBuiltinRule(it.name) }
+    }
+
+    /** v1.1.21：无授权时某条规则能不能激活——只认内置规则名。 */
+    private fun canActivate(ctx: Context, name: String): Boolean =
+        StoragePaths.hasAccess(ctx) || StoragePaths.isBuiltinRule(name)
 
     /** v1.1.14：压缩包源条目（pyzipDir 下全部 zip 的全部 .py 条目）。 */
     fun listZipRules(): List<RuleInfo> {
@@ -141,10 +157,14 @@ object PySourceManager {
      * 否则按原路校验 pyDir 下文件存在。
      */
     fun ruleExists(name: String): Boolean {
+        val ctx = appContext ?: return false
         if (ZipPySourceStore.isZipIdentity(name)) {
-            val ctx = appContext ?: return false
+            // v1.1.21：压缩包全是用户文件，无授权时一律不可见。
+            if (!StoragePaths.hasAccess(ctx)) return false
             return ZipPySourceStore.zipEntryExists(ctx, name)
         }
+        // v1.1.21：无授权时只认内置规则名。
+        if (!canActivate(ctx, name)) return false
         val dir = rulesDirOrNull() ?: return false
         return File(dir, name).isFile
     }
@@ -180,6 +200,12 @@ object PySourceManager {
             return true
         }
         if (name != null) {
+            // v1.1.21：无授权时只认内置规则名。
+            val ctx = appContext ?: return false
+            if (!canActivate(ctx, name)) {
+                Log.w(TAG, "无存储权限，本地规则不可激活: $name")
+                return false
+            }
             val probe = File(rulesDirOrNull() ?: return false, name)
             if (!probe.isFile) {
                 Log.w(TAG, "规则文件不存在: $name")
@@ -206,9 +232,11 @@ object PySourceManager {
 
     private fun activeRulePath(): String? {
         val name = activeName ?: return null
+        val ctx = appContext ?: return null
         // v1.1.14：zip 身份返回桥态 "zip:<zip 绝对路径>!<entry 路径>"，不走可信副本。
         if (ZipPySourceStore.isZipIdentity(name)) {
-            val ctx = appContext ?: return null
+            // v1.1.21：压缩包全是用户文件，无授权时不执行。
+            if (!StoragePaths.hasAccess(ctx)) return null
             val (zipName, entry) = ZipPySourceStore.parseIdentity(name) ?: return null
             if (zipName.contains('/') || zipName.contains('\\')) return null
             return ZipPySourceStore.bridgeIdentity(
@@ -216,8 +244,9 @@ object PySourceManager {
                 entry,
             )
         }
+        // v1.1.21：无授权时只认内置规则名。
+        if (!canActivate(ctx, name)) return null
         val dir = rulesDirOrNull() ?: return null
-        val ctx = appContext ?: return null
         // S2：后台执行读私有可信副本；公开文件被改写后返回旧副本，
         // 可信副本也不可信时返回 null，调用方按无规则处理，不读公开文件。
         val trusted = ExecutableTrust.trustedFile(

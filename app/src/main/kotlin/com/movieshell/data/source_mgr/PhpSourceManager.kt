@@ -104,6 +104,9 @@ object PhpSourceManager {
 
     private fun rulesDirOrNull(): File? {
         val ctx = appContext ?: return null
+        // v1.1.21：PHP 无内置规则，无授权时目录不可见，列表与激活全空；
+        // name=null 的清空分支不走这里，不受影响。
+        if (!StoragePaths.hasAccess(ctx)) return null
         return rulesDir(ctx)
     }
 

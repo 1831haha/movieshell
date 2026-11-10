@@ -273,6 +273,11 @@ private object SubDrpyPool {
                                     if (!lib.canonicalPath.startsWith(dir.canonicalPath)) null
                                     else {
                                         val rel = lib.relativeTo(dir).path.removePrefix("./")
+                                        // v1.1.21：无授权时订阅规则的 import 只认订阅展开目录
+                                        // （subs/）下的文件与内置规则名，不读用户顶层规则文件。
+                                        if (!StoragePaths.hasAccess(ctx) &&
+                                            !rel.startsWith("subs/") && !StoragePaths.isBuiltinRule(rel)
+                                        ) return@runCatching null
                                         val trustedLib = ExecutableTrust.trustedFile(
                                             ctx.filesDir,
                                             lib,

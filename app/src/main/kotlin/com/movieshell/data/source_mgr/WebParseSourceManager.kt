@@ -209,6 +209,9 @@ object WebParseSourceManager {
 
     private fun sitesDirOrNull(): File? {
         val ctx = appContext ?: return null
+        // v1.1.21：通用网页源是用户在 App 里手填的网址、存成公开目录下的
+        // JSON 文件，无授权时一律不可见；name=null 的清空分支不走这里。
+        if (!StoragePaths.hasAccess(ctx)) return null
         return StoragePaths.webParseDir(ctx)
     }
 }

@@ -70,6 +70,12 @@ object PyBookSourceManager {
      */
     suspend fun load(context: Context): Boolean = loadMutex.withLock {
         withContext(Dispatchers.IO) {
+            // v1.1.21：PY 书源全是用户文件，无授权时列表读空、返回 false，
+            // 调用方按“不可用”处理，不把空表误判成“用户没有书源”。
+            if (!StoragePaths.hasAccess(context)) {
+                _rules.value = emptyList()
+                return@withContext false
+            }
             // v0.186.0 第 9 组：只把含 bookSearch 的文件列为规则候选——
             // 无 bookSearch 的半截文件、影视 spider、杂 .py 不再进候选，启用集合也随之清理。
             // dir() 已 mkdirs，列不出就是 IO 故障，不是“没有规则”。
@@ -93,6 +99,8 @@ object PyBookSourceManager {
     }
 
     fun rulePath(context: Context, name: String): String? {
+        // v1.1.21：无授权时不给阅读器/搜索递本地规则路径。
+        if (!StoragePaths.hasAccess(context)) return null
         val f = File(dir(context), name)
         return if (f.isFile) f.absolutePath else null
     }
@@ -111,6 +119,10 @@ object PyBookSourceManager {
 
     /** 导入 .py 书源文件：先写 .tmp、校验含 bookSearch、通过再改名。 */
     suspend fun import(context: Context, uri: Uri): ImportResult = withContext(Dispatchers.IO) {
+        // v1.1.21：无授权时不许再静默写进私有回退目录。
+        if (!StoragePaths.hasAccess(context)) {
+            return@withContext ImportResult.Failed("需要先授予存储权限，才能导入 PY 书源")
+        }
         val rawName = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
             val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
