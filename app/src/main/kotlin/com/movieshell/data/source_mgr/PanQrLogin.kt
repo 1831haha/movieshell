@@ -198,26 +198,33 @@ object PanQrLogin {
     /**
      * ticket 换 Cookie（bundle 实证：doAuth 调 bizHost/account/info?st=tmpST，
      * 成功看 body.success，Set-Cookie 落会话）。
-     * 成功返回整串 Cookie（须含 __puus，否则算换取失败）；失败返回 null。
+     * v1.1.30：①用调用方取 token 的同一个 jar（带 _UP_* 会话 Cookie）换取——
+     *   之前每次新建空 jar，服务端认不出 ticket 是哪个会话的就拒（1.1.29 真机：
+     *   扫码已成功、换取失败）；②带 lw=scan（QuarkPan 同款；官方 doAuth 也认
+     *   这个参数）与业务站 Referer；③成功判据放宽：__puus 或 __pus 任一在即
+     *   可（扫码登录只落 __pus 也算通，QuarkPan 拿到的就是 __pus/__kp/__kps/__uid）。
+     * 成功返回整串 Cookie；失败返回 null。
      */
     fun exchangeUopTicket(
         client: OkHttpClient = defaultClient(),
         bizBase: String,
         ticket: String,
         ua: String,
+        jar: CookieManager? = null,
+        referer: String? = null,
     ): String? {
-        val jar = CookieManager(null, CookiePolicy.ACCEPT_ALL)
-        val jarClient = client.newBuilder().cookieJar(JavaNetCookieJar(jar)).build()
-        val info = getText(jarClient, "$bizBase/account/info?st=${enc(ticket)}", ua)
+        val useJar = jar ?: CookieManager(null, CookiePolicy.ACCEPT_ALL)
+        val jarClient = client.newBuilder().cookieJar(JavaNetCookieJar(useJar)).build()
+        val info = getText(jarClient, "$bizBase/account/info?st=${enc(ticket)}&lw=scan", ua, referer)
         val ok = info?.let { runCatching { JSONObject(it).optBoolean("success", false) }.getOrDefault(false) }
             ?: false
         if (!ok) {
             // 兜底：根路径 ?st= 再收一次（account/info 若不存在时靠它落 Cookie）。
-            getText(jarClient, "$bizBase/?st=${enc(ticket)}", ua)
+            getText(jarClient, "$bizBase/?st=${enc(ticket)}&lw=scan", ua, referer)
         }
-        val cookie = jar.cookieStore.get(URI(bizBase))
+        val cookie = useJar.cookieStore.get(URI(bizBase))
             .joinToString("; ") { "${it.name}=${it.value}" }
-        return cookie.takeIf { it.contains("__puus=") }
+        return cookie.takeIf { it.contains("__puus=") || it.contains("__pus=") }
     }
 
     // ---------------- 百度 ----------------
@@ -454,7 +461,7 @@ class PanQrSession(
             val ticket = PanQrLogin.pollQuarkTicket(jarClient, uopBase, token, referer = "$bizBase/", clientId = clientId) ?: continue
             _state.value = QrState.Exchanging
             val ua = if (provider == PanProvider.UC) PanQrLogin.UC_UA else PanQrLogin.QUARK_UA
-            val cookie = PanQrLogin.exchangeUopTicket(client, bizBase, ticket, ua)
+            val cookie = PanQrLogin.exchangeUopTicket(client, bizBase, ticket, ua, jar = jar, referer = "$bizBase/")
             if (cookie == null) {
                 _state.value = QrState.Error("扫码成功，但换取登录态失败，请用手动输入 Cookie")
                 return

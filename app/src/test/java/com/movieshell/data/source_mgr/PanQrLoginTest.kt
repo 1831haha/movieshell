@@ -109,6 +109,30 @@ class PanQrLoginTest {
         assertNull(PanQrLogin.exchangeUopTicket(client, base, "ST-BAD", "UA"))
     }
 
+    @Test
+    fun quarkTicketExchangeUsesSessionJar() {
+        // v1.1.30：换取必须带取 token 的同一个会话 jar（_UP_* Cookie 跟着走）、
+        // 带 lw=scan 与业务站 Referer；只落 __pus 也算换取成功。
+        val jar = java.net.CookieManager(null, java.net.CookiePolicy.ACCEPT_ALL)
+        jar.cookieStore.add(
+            java.net.URI(base),
+            java.net.HttpCookie("_UP_X", "SESS1"),
+        )
+        server.enqueue(
+            json("""{"success":true,"data":{}}""")
+                .setHeader("Set-Cookie", "__pus=PUS1; Path=/"),
+        )
+        val cookie = PanQrLogin.exchangeUopTicket(
+            client, base, "ST-1", "UA", jar = jar, referer = "https://pan.quark.cn/",
+        )
+        assertTrue(cookie?.contains("__pus=PUS1") == true)
+        assertTrue(cookie?.contains("_UP_X=SESS1") == true)
+        val req = server.takeRequest()
+        assertTrue(req.path.orEmpty().contains("/account/info?st=ST-1&lw=scan"))
+        assertTrue(req.getHeader("Cookie").orEmpty().contains("_UP_X=SESS1"))
+        assertEquals("https://pan.quark.cn/", req.getHeader("Referer"))
+    }
+
     // ---------------- 百度 ----------------
 
     @Test
