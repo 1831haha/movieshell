@@ -331,8 +331,13 @@ fun SettingsScreen(
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val ok = BackgroundStore.setCustomBg(context, uri)
-            AppToast.show(context, if (ok) "背景底图已更换" else "设置失败，换张图片试试", long = false)
+            // v1.1.26：失败时直接报哪一步失败（读不到图/读不出尺寸/解码失败/压缩失败/写不进目录），不用再抓日志猜。
+            val err = BackgroundStore.setCustomBg(context, uri)
+            if (err == null) {
+                AppToast.show(context, "背景底图已更换", long = false)
+            } else {
+                AppToast.show(context, "设置失败：$err", long = true)
+            }
         }
     }
     // v0.247.0（F41）：派生值（开关/统计/当前源/缓存占用）原来只在首次

@@ -19,7 +19,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.movieshell.data.store.ThemeStore
@@ -70,6 +72,17 @@ val XiaYingShapes = Shapes(
 )
 
 /**
+ * v1.1.26：全 App 字号统一倍率（用户定：向底栏 tab 标签 12sp 看齐）。
+ * 正文 16sp→12.8sp、标题 22sp→17.6sp；底栏标签与阅读正文不跟这个倍率
+ * （底栏自己就是参照、阅读正文是你自己调的字号，各见其注释）。
+ * 觉得还大还小，改这一个数就行。
+ */
+const val UiFontScale = 0.8f
+
+/** 未缩放的 density：底栏、阅读页用回它，字号保持原样。 */
+val LocalUnscaledDensity = compositionLocalOf { Density(1f, 1f) }
+
+/**
  * v0.292.0 V5 Material You 主题入口。
  *
  * 色板来源（[ThemeStore.source]）：
@@ -102,8 +115,12 @@ fun MovieShellTheme(
     }
     val scheme = animateScheme(target)
     val brandColors = brandArgb?.map { Color(it) } ?: listOf(scheme.primary, scheme.primary)
+    // v1.1.26：字号统一 ×UiFontScale——系统字号设置照常乘在里面。
+    val baseDensity = LocalDensity.current
     CompositionLocalProvider(
         LocalBrandGradient provides brandColors,
+        LocalDensity provides Density(baseDensity.density, baseDensity.fontScale * UiFontScale),
+        LocalUnscaledDensity provides baseDensity,
     ) {
         MaterialTheme(
             colorScheme = scheme,

@@ -12,6 +12,9 @@ package com.movieshell
  */
 
 import kotlinx.coroutines.CoroutineScope
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import com.movieshell.ui.theme.LocalUnscaledDensity
 import com.movieshell.ui.music.closeMusicPlayer
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -511,10 +514,14 @@ fun NavGraphBuilder.appDestinations(
                             arguments = listOf(navArgument("novelId") { type = NavType.StringType }),
                         ) { entry ->
                             val novelId = entry.arguments?.getString("novelId").orEmpty()
-                            ReaderScreen(
-                                novelId = novelId,
-                                onBack = { navController.popBackStack() },
-                            )
+                            // v1.1.26：阅读正文是你自己调的字号，不跟全 App ×0.8；
+                            // 整个阅读页用回未缩放 density，正文大小与分页都保持原样。
+                            CompositionLocalProvider(LocalDensity provides LocalUnscaledDensity.current) {
+                                ReaderScreen(
+                                    novelId = novelId,
+                                    onBack = { navController.popBackStack() },
+                                )
+                            }
                         }
                         // v0.26.0：下载管理
                         composable("downloads") {

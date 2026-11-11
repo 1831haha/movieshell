@@ -40,22 +40,39 @@ object BackgroundStore {
         _customBg.value = if (f.isFile && f.length() > 0) f else null
     }
 
-    /** 从相册选图设为底图，返回是否成功。 */
-    suspend fun setCustomBg(context: Context, uri: Uri): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
+    /**
+     * 从相册选图设为底图。成功返回 null，失败返回原因（直接显示给用户）。
+     * v1.1.26：原来只返回 Boolean，失败原因只能靠日志猜；现在每一步失败都带原因。
+     */
+    suspend fun setCustomBg(context: Context, uri: Uri): String? = withContext(Dispatchers.IO) {
+        var reason: String? = null
+        val ok = runCatching {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, bounds)
-            } ?: return@runCatching false
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching false
+            val stream1 = context.contentResolver.openInputStream(uri)
+            if (stream1 == null) {
+                reason = "读不到这张图"
+                return@runCatching false
+            }
+            stream1.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                reason = "这张图读不出尺寸"
+                return@runCatching false
+            }
             // 先按 2 的幂次采样到长边 3840 以内，防大图整张解码 OOM，再精确缩到 1920。
             var sample = 1
             val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
             while (longEdge / sample > MAX_EDGE * 2) sample *= 2
             val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-            val decoded = context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input, null, opts)
-            } ?: return@runCatching false
+            val stream2 = context.contentResolver.openInputStream(uri)
+            if (stream2 == null) {
+                reason = "读不到这张图"
+                return@runCatching false
+            }
+            val decoded = stream2.use { BitmapFactory.decodeStream(it, null, opts) }
+            if (decoded == null) {
+                reason = "图片解码失败"
+                return@runCatching false
+            }
             val scaled = if (maxOf(decoded.width, decoded.height) > MAX_EDGE) {
                 val ratio = MAX_EDGE.toFloat() / maxOf(decoded.width, decoded.height)
                 val out = Bitmap.createScaledBitmap(
@@ -74,17 +91,25 @@ object BackgroundStore {
             try {
                 FileOutputStream(tmp).use { out ->
                     if (!scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)) {
+                        reason = "图片压缩失败"
                         return@runCatching false
                     }
                 }
-                if (!AtomicFile.replaceFile(tmp, dest)) return@runCatching false
+                if (!AtomicFile.replaceFile(tmp, dest)) {
+                    reason = "写不进应用目录"
+                    return@runCatching false
+                }
             } finally {
                 scaled.recycle()
                 if (tmp.exists()) tmp.delete()
             }
             _customBg.value = dest
             true
-        }.onFailure { Log.w(TAG, "设置背景底图失败", it) }.getOrDefault(false)
+        }.onFailure {
+            Log.w(TAG, "设置背景底图失败", it)
+            reason = "异常：${it.message ?: it.javaClass.simpleName}"
+        }.getOrDefault(false)
+        if (ok) null else reason ?: "未知原因"
     }
 
     /**

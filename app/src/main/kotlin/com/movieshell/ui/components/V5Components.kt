@@ -87,6 +87,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -102,6 +103,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.movieshell.ui.theme.LocalUnscaledDensity
 import com.movieshell.ui.theme.V5
 import com.movieshell.ui.theme.V5Motion
 import com.movieshell.ui.theme.artBrush
@@ -808,14 +810,17 @@ fun V5NavigationBar(
                     )
                 }
                 Spacer(Modifier.height(2.dp))
-                Text(
-                    item.label,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (selected) cs.onSurface else cs.onSurfaceVariant,
-                    maxLines = 1,
-                    softWrap = false,
-                )
+                // v1.1.26：底栏标签就是全 App 字号的参照（12sp），不跟 ×0.8。
+                CompositionLocalProvider(LocalDensity provides LocalUnscaledDensity.current) {
+                    Text(
+                        item.label,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (selected) cs.onSurface else cs.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
             }
         }
     }
