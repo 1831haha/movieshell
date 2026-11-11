@@ -167,12 +167,14 @@ fun V5TopTabs(
     modifier: Modifier = Modifier,
     onLongClick: ((Int) -> Unit)? = null,
     trailing: @Composable RowScope.() -> Unit = {},
+    // v1.1.29：高度可调，默认 V5.Tabs（48dp）；首页收紧时传 40dp，音乐页不动。
+    height: Dp = V5.Tabs,
 ) {
     val cs = MaterialTheme.colorScheme
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(V5.Tabs)
+            .height(height)
             .v5BottomDivider(cs.surfaceContainerHighest),
         verticalAlignment = Alignment.CenterVertically,
     ) {

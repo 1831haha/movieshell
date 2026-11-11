@@ -1391,20 +1391,21 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(if (homeLayout.columns > 1) 16.dp else 0.dp),
                 horizontalArrangement = Arrangement.spacedBy(if (homeLayout.columns >= 4) 8.dp else 12.dp),
             ) {
-                // v0.292.0 V5 顶栏：28dp 标志 + 「侠影」（titleLarge）+ 右侧站源胶囊；
+                // v0.292.0 V5 顶栏：24dp 标志 + 「侠影」（titleLarge）+ 右侧站源胶囊；
+                // v1.1.29 顶栏收紧：64dp→52dp（内容只有 36dp 胶囊，去掉空高），
                 // 搜索栏紧贴其下（0 间距），布局切换已移到海报网格的分区标题上。
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(V5.TopBar),
+                            .height(52.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // v0.294.4：品牌标换成启动图标同款「交影」（深暖棕圆角方 + X 笔画 + 播放镂空），不随主题着色。
                         Image(
                             painter = painterResource(com.movieshell.R.drawable.ic_brand_mark),
                             contentDescription = null,
-                            modifier = Modifier.size(28.dp),
+                            modifier = Modifier.size(24.dp),
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
@@ -1429,8 +1430,8 @@ fun HomeScreen(
                         Row(
                             modifier = Modifier
                                 .widthIn(max = 220.dp)
-                                .height(40.dp)
-                                .clip(RoundedCornerShape(20.dp))
+                                .height(36.dp)
+                                .clip(RoundedCornerShape(18.dp))
                                 .background(cs.surfaceContainerHigh)
                                 .combinedClickable(
                                     onClick = { showSourceSheet = true },
@@ -1475,13 +1476,14 @@ fun HomeScreen(
                         }
                     }
                 }
-                // v0.292.0 V5：M3 SearchBar（收起态，点进搜索页）
+                // v0.292.0 V5：M3 SearchBar（收起态，点进搜索页）；v1.1.29 收紧：48dp→44dp。
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     V5SearchField(
                         placeholder = "搜索影片、剧集、演员…",
                         icon = Icons.Filled.Search,
                         onClick = onSearchClick,
                         modifier = Modifier.fillMaxWidth(),
+                        height = 44.dp,
                     )
                 }
                 // 分类标签栏：只在有真实分类时显示（v0.28.1：横向滚动）。
@@ -1489,9 +1491,11 @@ fun HomeScreen(
                 // 其后是规则自己的分类（第 i 格对应第 i 个分类，loadDrpyCategory 按 1 计）。
                 if (drpyCats.isNotEmpty() && !(recommendEmpty && !drpyReady)) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
+                        // v1.1.29 收紧：48dp→40dp，与搜索栏间距 8dp→4dp。
                         V5TopTabs(
                             titles = listOf("推荐") + chipLabels,
                             selected = selectedPosition,
+                            height = 40.dp,
                             onSelect = { index ->
                                 if (index == 0) {
                                     // 回推荐流：只切展示（VM 里推荐缓存还在），不发网络请求；
@@ -1509,7 +1513,7 @@ fun HomeScreen(
                             },
                             modifier = Modifier
                                 .v5Bleed(V5.Gutter)
-                                .padding(top = 8.dp),
+                                .padding(top = 4.dp),
                         )
                     }
                 }

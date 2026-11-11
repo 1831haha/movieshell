@@ -49,14 +49,23 @@ class PanQrLoginTest {
     fun quarkTokenFetch() {
         // v1.1.27：先预热一次取 _UP_* 会话 Cookie，再正式取 token——
         // 要排两个响应；正式取 token 的请求须带业务站 Referer。
+        // v1.1.29：每次请求都带 client_id＋v＋全新 request_id（官方 bundle 的 uop 默认参数）。
         server.enqueue(json("""{"status":2000000,"message":"ok","data":{"members":{"token":"warmup"}}}"""))
         server.enqueue(json("""{"status":2000000,"message":"ok","data":{"members":{"token":"tok123"}}}"""))
         assertEquals("tok123", PanQrLogin.fetchQuarkToken(client, base, referer = "https://pan.quark.cn/"))
         val warmup = server.takeRequest()
-        assertTrue(warmup.path.orEmpty().endsWith("/cas/ajax/getTokenForQrcodeLogin"))
         val real = server.takeRequest()
-        assertTrue(real.path.orEmpty().endsWith("/cas/ajax/getTokenForQrcodeLogin"))
+        for (req in listOf(warmup, real)) {
+            val path = req.path.orEmpty()
+            assertTrue(path.contains("/cas/ajax/getTokenForQrcodeLogin?"))
+            assertTrue(path.contains("client_id=532"))
+            assertTrue(path.contains("v=1.2"))
+            assertTrue(path.contains("request_id="))
+        }
         assertEquals("https://pan.quark.cn/", real.getHeader("Referer"))
+        // 两次请求各带一个全新 request_id，不能复用同一个。
+        val rid = { p: String -> p.substringAfter("request_id=").substringBefore("&") }
+        assertTrue(rid(warmup.path.orEmpty()) != rid(real.path.orEmpty()))
     }
 
     @Test
