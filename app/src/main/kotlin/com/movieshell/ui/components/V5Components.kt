@@ -166,9 +166,11 @@ fun V5TopTabs(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: ((Int) -> Unit)? = null,
-    trailing: @Composable RowScope.() -> Unit = {},
     // v1.1.29：高度可调，默认 V5.Tabs（48dp）；首页收紧时传 40dp，音乐页不动。
+    // 注意：必须放在 trailing 之前——Kotlin 尾随 lambda 绑的是最后一个参数，
+    // 放后面会让音乐页那个尾随 Row 绑到 height 上（#601 编译失败的教训）。
     height: Dp = V5.Tabs,
+    trailing: @Composable RowScope.() -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
     Row(
