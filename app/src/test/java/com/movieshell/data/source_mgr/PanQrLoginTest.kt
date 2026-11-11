@@ -47,9 +47,16 @@ class PanQrLoginTest {
 
     @Test
     fun quarkTokenFetch() {
+        // v1.1.27：先预热一次取 _UP_* 会话 Cookie，再正式取 token——
+        // 要排两个响应；正式取 token 的请求须带业务站 Referer。
+        server.enqueue(json("""{"status":2000000,"message":"ok","data":{"members":{"token":"warmup"}}}"""))
         server.enqueue(json("""{"status":2000000,"message":"ok","data":{"members":{"token":"tok123"}}}"""))
-        assertEquals("tok123", PanQrLogin.fetchQuarkToken(client, base))
-        assertTrue(server.takeRequest().path.orEmpty().endsWith("/cas/ajax/getTokenForQrcodeLogin"))
+        assertEquals("tok123", PanQrLogin.fetchQuarkToken(client, base, referer = "https://pan.quark.cn/"))
+        val warmup = server.takeRequest()
+        assertTrue(warmup.path.orEmpty().endsWith("/cas/ajax/getTokenForQrcodeLogin"))
+        val real = server.takeRequest()
+        assertTrue(real.path.orEmpty().endsWith("/cas/ajax/getTokenForQrcodeLogin"))
+        assertEquals("https://pan.quark.cn/", real.getHeader("Referer"))
     }
 
     @Test
