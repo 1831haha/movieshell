@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,12 +52,14 @@ import com.movieshell.ui.theme.V5
 /**
  * 网盘中心页（v1.1.25：按批准的六宫格效果图重做）。
  *
- * 3x2 六家，每格：名＋品牌徽标、登录状态小标签、底部“扫码登录”＋
- * “清除 Cookie”两按钮一一对应（阿里先不做扫码，那格是“手动输入”＋
- * “清除 Cookie”）；“无需登录”那组列表已去掉（游客
+ * 3x2 六家，每格：名＋品牌徽标、登录状态小标签、一行用途说明、底部
+ * “扫码登录”整宽按钮＋其下居中的“清除 Cookie”（阿里先不做扫码，那格是
+ * “手动输入”＋“清除 Cookie”）；“无需登录”那组列表已去掉（游客
  * 播放照旧走规则，不在中心页单列）。不再嵌 WebView 登录页，登录
  * 一律走扫码弹窗（阿里只留手动输入）；手动填 Cookie/Token 入口在扫码弹窗里兜底。
  * 登录态以私有目录下的登录态文件是否存在为准，过期标记另行提示重登。
+ * v1.1.28：卡片原来中间一大片空（状态签与按钮之间是 weight spacer），
+ * 补一行用途说明、清除改居中放按钮下方，扫码按钮整宽。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -157,6 +160,18 @@ private val PanProvider.brandColor: Color
         PanProvider.XUNLEI -> Color(0xFF2BA5E8)
     }
 
+/** 每家一行用途说明（卡片中部填充，别让卡片空着）。只说登录的用途，
+ * 不写没验过的能力口径（夸克/UC 登录后转存是设计走法、百度 SVIP 是已定结论）。 */
+private val PanProvider.cardHint: String
+    get() = when (this) {
+        PanProvider.QUARK -> "扫码登录，分享链接转存后播原画"
+        PanProvider.UC -> "扫码登录，分享链接转存后播原画"
+        PanProvider.BAIDU -> "扫码登录，播片要 SVIP 才有直链"
+        PanProvider.ALIYUN -> "手动填 token，登录后播分享链接"
+        PanProvider.GUANGYA -> "手动填 token，登录后播分享链接"
+        PanProvider.XUNLEI -> "手动填 token，登录后播分享链接"
+    }
+
 @Composable
 private fun PanProviderCard(
     provider: PanProvider,
@@ -169,7 +184,7 @@ private fun PanProviderCard(
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(172.dp),
+            .height(196.dp),
     ) {
         Column(Modifier.fillMaxSize().padding(10.dp)) {
             Row(
@@ -197,22 +212,28 @@ private fun PanProviderCard(
             }
             Spacer(Modifier.height(8.dp))
             StatusPill(state)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = provider.cardHint,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
             Spacer(Modifier.weight(1f))
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            OutlinedButton(
+                onClick = onScan,
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
             ) {
-                OutlinedButton(
-                    onClick = onScan,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
-                ) {
-                    Text(scanLabel, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                }
-                OutlinedButton(
+                Text(scanLabel, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+            }
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                TextButton(
                     onClick = onClear,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 ) {
                     Text("清除 Cookie", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                 }
