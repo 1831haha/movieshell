@@ -1326,31 +1326,37 @@ fun HomeScreen(
         }
     }
     // v0.279.0 起平底；自定义背景底图（设置页更换）照旧在深色下生效。
+    // v1.1.27：浅色下也画自定义底图——之前只在深色下画，浅色设了也看不见
+    // （设置页照样显示“已自定义”，用户以为没生效）。深色走老路（黑罩 0.55＋
+    // 内容区 0.62）；浅色只用内容区一道白罩 0.55，照片留约一半亮度，字还能看清。
     Box(modifier = Modifier.fillMaxSize().background(cs.background)) {
-        if (darkTheme) {
-            if (customBg != null) {
-                AsyncImage(
-                    model = customBg,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-                // 深色罩：保证文字可读
+        if (customBg != null) {
+            AsyncImage(
+                model = customBg,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            // 深色罩：保证文字可读
+            if (darkTheme) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color.Black.copy(alpha = 0.55f)),
                 )
-            } else {
-                FlowingGlowBackground(modifier = Modifier.fillMaxSize())
             }
+        } else if (darkTheme) {
+            FlowingGlowBackground(modifier = Modifier.fillMaxSize())
         }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    if (darkTheme && customBg != null) cs.background.copy(alpha = 0.62f)
-                    else cs.background
+                    when {
+                        customBg == null -> cs.background
+                        darkTheme -> cs.background.copy(alpha = 0.62f)
+                        else -> cs.background.copy(alpha = 0.55f)
+                    }
                 ),
         ) {
             // v0.45.0：官方 Material3 下拉刷新

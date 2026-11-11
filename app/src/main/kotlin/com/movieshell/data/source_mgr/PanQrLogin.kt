@@ -66,8 +66,12 @@ object PanQrLogin {
     private const val UC_PARAM_STR = "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"
 
     // UA 照抄 PanShareCheck 的三家（仓库现有写法，不新编）；internal 供会话层用。
-    internal const val QUARK_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    // v1.1.27：夸克取 token 必须用手机 UA——之前是 Windows 桌面 Chrome UA，
+    // 发出去的 token 是按桌面网页签发的，用户用夸克浏览器扫码确认时被拒
+    // （OK影视同款码能过、咱的不能过，码一模一样、扫码 App 也是同一个，
+    // 只剩取 token 的请求不一样）。改成与手机浏览器同款移动 UA。
+    internal const val QUARK_UA = "Mozilla/5.0 (Linux; Android 14; Redmi K80) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
     internal const val UC_UA = "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
     internal const val BAIDU_UA = "Mozilla/5.0 (Linux; Android 14; Redmi K80) AppleWebKit/537.36 " +
@@ -87,8 +91,11 @@ object PanQrLogin {
 
     private fun enc(v: String): String = URLEncoder.encode(v, "UTF-8")
 
-    private fun getText(client: OkHttpClient, url: String, ua: String? = null): String? {
-        val req = Request.Builder().url(url).apply { ua?.let { header("User-Agent", it) } }.build()
+    private fun getText(client: OkHttpClient, url: String, ua: String? = null, referer: String? = null): String? {
+        val req = Request.Builder().url(url).apply {
+            ua?.let { header("User-Agent", it) }
+            referer?.let { header("Referer", it) }
+        }.build()
         return runCatching {
             client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return null
@@ -129,14 +136,18 @@ object PanQrLogin {
     fun buildUopQrContent(provider: PanProvider, token: String): String =
         if (provider == PanProvider.UC) buildUcQrContent(token) else buildQuarkQrContent(token)
 
-    /** 取 token：失败重试 4 次、间隔 300ms（bundle 同款口径）。 */
+    /** 取 token：失败重试 4 次、间隔 300ms（bundle 同款口径）。
+     * v1.1.27：先预热一次取 _UP_* 会话 Cookie（调用方传 jarClient 才会
+     * 存下来），正式取 token 时带上业务站 Referer，与手机浏览器同款会话。 */
     fun fetchQuarkToken(
         client: OkHttpClient = defaultClient(),
         uopBase: String = UOP_BASE,
         attempts: Int = 4,
+        referer: String? = null,
     ): String? {
+        getText(client, "$uopBase/cas/ajax/getTokenForQrcodeLogin", QUARK_UA, referer)
         repeat(attempts) { i ->
-            val body = getText(client, "$uopBase/cas/ajax/getTokenForQrcodeLogin", QUARK_UA)
+            val body = getText(client, "$uopBase/cas/ajax/getTokenForQrcodeLogin", QUARK_UA, referer)
             val token = body?.let { runCatching { JSONObject(it) }.getOrNull() }
                 ?.optJSONObject("data")?.optJSONObject("members")?.optString("token")
                 ?.takeIf { it.isNotBlank() }
@@ -154,8 +165,9 @@ object PanQrLogin {
         client: OkHttpClient = defaultClient(),
         uopBase: String = UOP_BASE,
         token: String,
+        referer: String? = null,
     ): String? {
-        val body = getText(client, "$uopBase/cas/ajax/getServiceTicketByQrcodeToken?token=${enc(token)}", QUARK_UA)
+        val body = getText(client, "$uopBase/cas/ajax/getServiceTicketByQrcodeToken?token=${enc(token)}", QUARK_UA, referer)
             ?: return null
         val json = runCatching { JSONObject(body) }.getOrNull() ?: return null
         if (json.optInt("status", -1) != 2000000) return null
@@ -403,7 +415,13 @@ class PanQrSession(
     }
 
     private suspend fun runUop() {
-        val token = PanQrLogin.fetchQuarkToken(client, uopBase)
+        // v1.1.27：取 token 与轮询共用一个 Cookie 会话（uop 下发的 _UP_*），
+        // 并带上业务站 Referer，尽量贴近手机浏览器的真实请求（裸请求＋桌面
+        // UA 取到的 token 在夸克浏览器里确认会被拒）。
+        val bizBase = if (provider == PanProvider.UC) ucBizBase else quarkBizBase
+        val jar = CookieManager(null, CookiePolicy.ACCEPT_ALL)
+        val jarClient = client.newBuilder().cookieJar(JavaNetCookieJar(jar)).build()
+        val token = PanQrLogin.fetchQuarkToken(jarClient, uopBase, referer = "$bizBase/")
         if (token == null) {
             _state.value = QrState.Error("取二维码失败，请点刷新重试")
             return
@@ -412,9 +430,8 @@ class PanQrSession(
         val deadline = System.currentTimeMillis() + budgetMs
         while (System.currentTimeMillis() < deadline) {
             delay(pollIntervalMs)
-            val ticket = PanQrLogin.pollQuarkTicket(client, uopBase, token) ?: continue
+            val ticket = PanQrLogin.pollQuarkTicket(jarClient, uopBase, token, referer = "$bizBase/") ?: continue
             _state.value = QrState.Exchanging
-            val bizBase = if (provider == PanProvider.UC) ucBizBase else quarkBizBase
             val ua = if (provider == PanProvider.UC) PanQrLogin.UC_UA else PanQrLogin.QUARK_UA
             val cookie = PanQrLogin.exchangeUopTicket(client, bizBase, ticket, ua)
             if (cookie == null) {
