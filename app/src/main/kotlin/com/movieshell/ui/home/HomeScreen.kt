@@ -78,10 +78,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -104,6 +104,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -977,7 +978,21 @@ fun HomeScreen(
                 delay(waitMs)
                 if (key == homeCacheKey()) {
                     LogBus.i("Home", "退避结束，自动重试首页")
-                    loadHome(force = true, onDone = onDone)
+                    // v1.1.25：退避重试持有的是组合 scope——delay 期间用户
+                    // 离开首页，组合已走，loadHome 里 scope.async 会抛
+                    // “The coroutine scope left the composition”（日志里
+                    // 大量 PY 搜索同错同源）；这是预期失效，直接跳过，
+                    // 不记失败、不卡 loading（回首页会重新加载）。
+                    // CancellationException 照旧透出，不吞取消。
+                    try {
+                        loadHome(force = true, onDone = onDone)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        LogBus.i("Home", "退避重试已失效（页面已离开），跳过：${e.message}")
+                        vm.setLoading(false)
+                        onDone()
+                    }
                 } else {
                     onDone()
                 }
@@ -1897,24 +1912,44 @@ fun HomeScreen(
         // 站源切换（v0.7.1）
         // v0.109.0 B7：换源器改 DsPlayer 式小图标模式——居中 Dialog 换成底部弹窗，
         // 内含标题/搜索/类型筛选/4 列图标网格（ui/home/SourcePickerSheet.kt）。
+        // v1.1.25：双形态——默认悬浮窗（小居中 Dialog，没有拖动手势，下拉只能滚
+        // 列表，关闭只走点外部/返回键）；切到底部弹窗即恢复 HEAD 的 ModalBottomSheet
+        // （skipPartiallyExpanded、85% 高、圆角、拖动手柄）。形态走 HomeSettings
+        // 持久化，点标题行切换按钮即换形态、下次打开记住；切形态时弹窗内容重建，
+        // 搜索框文字会重置，接受。
+        val pickerMode by HomeSettings.pickerMode.collectAsState()
         if (showSourceSheet) {
-            // v1.0.5：弹窗默认全开（skipPartiallyExpanded）——半开档位会让弹窗停在离全开
-            // 差一线的位置（内容高度开着弹窗时会变：订阅解析行、类型筛选行），此时快速上滑
-            // 会被弹窗拿去补完最后那一线，列表分不到手势、看着就是"偶尔拉不动"。去掉半开档位
-            // 后上滑手势永远进列表。只改换源弹窗这一处。
-            ModalBottomSheet(
-                onDismissRequest = { showSourceSheet = false },
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                shape = RoundedCornerShape(
-                    topStart = V5.CornerMd,
-                    topEnd = V5.CornerMd,
-                ),
-                containerColor = MaterialTheme.colorScheme.surface,
-            ) {
-                SourcePickerSheet(
-                    onDismiss = { showSourceSheet = false },
-                    onChanged = { refreshDrpyState(fromUserSwitch = true) },
-                )
+            if (pickerMode == HomeSettings.PickerMode.FLOAT) {
+                Dialog(
+                    onDismissRequest = { showSourceSheet = false },
+                    properties = DialogProperties(usePlatformDefaultWidth = false),
+                ) {
+                    SourcePickerSheet(
+                        mode = HomeSettings.PickerMode.FLOAT,
+                        onDismiss = { showSourceSheet = false },
+                        onChanged = { refreshDrpyState(fromUserSwitch = true) },
+                    )
+                }
+            } else {
+                // v1.0.5：弹窗默认全开（skipPartiallyExpanded）——半开档位会让弹窗停在离全开
+                // 差一线的位置（内容高度开着弹窗时会变：订阅解析行、类型筛选行），此时快速上滑
+                // 会被弹窗拿去补完最后那一线，列表分不到手势、看着就是"偶尔拉不动"。去掉半开档位
+                // 后上滑手势永远进列表。只改换源弹窗这一处。
+                ModalBottomSheet(
+                    onDismissRequest = { showSourceSheet = false },
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                    shape = RoundedCornerShape(
+                        topStart = V5.CornerMd,
+                        topEnd = V5.CornerMd,
+                    ),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ) {
+                    SourcePickerSheet(
+                        mode = HomeSettings.PickerMode.SHEET,
+                        onDismiss = { showSourceSheet = false },
+                        onChanged = { refreshDrpyState(fromUserSwitch = true) },
+                    )
+                }
             }
         }
     } // v0.32.0：闭合 Box（流动光斑垫底）

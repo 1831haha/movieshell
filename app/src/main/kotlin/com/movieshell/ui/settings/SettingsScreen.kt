@@ -39,7 +39,6 @@ import android.content.ClipData
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.search.currentSourceName as searchCurrentSourceName
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -466,29 +465,6 @@ fun SettingsScreen(
                 QuickEntry("离线下载", Icons.Outlined.Download, onDownloadsClick, Modifier.weight(1f))
                 QuickEntry("插件中心", Icons.Outlined.Extension, onPluginCenterClick, Modifier.weight(1f))
                 QuickEntry("使用手册", Icons.Outlined.MenuBook, onManualClick, Modifier.weight(1f))
-            }
-        }
-        // v1.1.21：存储权限——无授权时本地文件源不可用，点进去授权。
-        item { SettingsCaption("存储") }
-        item {
-            AppCard(
-                shape = RoundedCornerShape(V5.CornerCard),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    val storageGranted = StoragePaths.hasAccess(context)
-                    SegItem(
-                        position = SegPos.Single,
-                        icon = Icons.Outlined.UploadFile,
-                        title = "存储权限",
-                        subtitle = if (storageGranted) "已授权 · 本地源可用" else "未授权 · 本地文件源不可用",
-                        onClick = {
-                            if (!storageGranted) {
-                                (context as? Activity)?.let { StoragePaths.requestAccess(it) }
-                            }
-                        },
-                    )
-                }
             }
         }
         // 3. 外观

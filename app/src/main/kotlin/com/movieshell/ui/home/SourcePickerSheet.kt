@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -121,12 +122,20 @@ import kotlinx.coroutines.withContext
  * 图标匹配加第四级：站点 host 的 favicon.ico（本地规则读文件头取 host，
  * 订阅站源取 api 的 host），取不到或加载失败仍回退首字。
  *
+ * v1.1.25：双形态（见 HomeScreen 挂载处）——默认悬浮窗（小居中 Dialog，
+ * 宽 86%、高 62%，标题 + 搜索 + 胶囊行扁平列表，不分组头、不带来源/类型/
+ * 压缩包胶囊与宫格切换，关闭只走点外部/返回键）；切到底部弹窗即恢复
+ * ModalBottomSheet 形态（85% 高、六种排列、胶囊筛选、守卫全在）。
+ * 形态走 HomeSettings 持久化，标题行切换按钮点一下即换、下次打开记住；
+ * 切形态时弹窗内容重建，搜索框文字会重置，接受。
+ *
  * v0.153.0：打开即定位到当前源——131 个源里当前源靠后时不再从头翻；
  * 只在无搜索、无类型筛选的默认列表下定位一次（筛选会把当前源滤掉，强制定位无意义）。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SourcePickerSheet(
+    mode: HomeSettings.PickerMode,
     onDismiss: () -> Unit,
     onChanged: () -> Unit,
 ) {
@@ -595,7 +604,9 @@ fun SourcePickerSheet(
     // 新组合，标记天然复位；搜索/筛选改动会取消在途滚动，标记只在滚动完成后才置位，
     // 避免一次取消就永久丢定位）。
     val gridState: LazyGridState = rememberLazyGridState()
-    // v0.294.2：列表三种排法（列表/宽卡/紧凑）也要知道是否在顶，供嵌套滚动守卫判断
+    // v0.294.2：列表三种排法（列表/宽卡/紧凑）各用自己的 listState——
+    // 切来源/筛选回顶与打开定位当前源都要它滚；底部弹窗形态下它还供
+    // sheetListScrollGuard 判断列表是否在顶，悬浮窗形态下没有弹窗可守。
     val listState = rememberLazyListState()
     var scrolledToCurrent by remember { mutableStateOf(false) }
     // v1.1.14：分组后网格里多了组头行，定位下标要把组头算进去（组头 1 行 + 组内条目）。
@@ -612,12 +623,20 @@ fun SourcePickerSheet(
         }
         found
     }
+    // v1.1.25：按形态分流定位——悬浮窗是扁平列表，滚 listState 到当前源在
+    // visible 里的下标；底部弹窗沿用分组网格口径，滚 gridState。
     LaunchedEffect(loading, groupedVisible) {
         if (loading || scrolledToCurrent) return@LaunchedEffect
         if (query.isNotBlank() || kindFilter != null || zipFilter != null) return@LaunchedEffect
-        val index = currentGroupedIndex
-        if (index < 0) return@LaunchedEffect
-        gridState.scrollToItem(index)
+        if (mode == HomeSettings.PickerMode.FLOAT) {
+            val index = visible.indexOfFirst { it.isCurrent }
+            if (index < 0) return@LaunchedEffect
+            listState.scrollToItem(index)
+        } else {
+            val index = currentGroupedIndex
+            if (index < 0) return@LaunchedEffect
+            gridState.scrollToItem(index)
+        }
         scrolledToCurrent = true
     }
     // v0.294.52：回本地源就是点一下来源胶囊——切来源时必须清类型筛选，
@@ -635,12 +654,26 @@ fun SourcePickerSheet(
         }
     }
 
+    // v1.1.25：双形态根容器——悬浮窗是小居中卡片（宽 86%、高 62%，圆角 24dp，
+    // 自己铺主题 surface，Dialog 默认居中 + 默认遮罩）；底部弹窗恢复 HEAD 的
+    // 85% 高全宽，底色与圆角由 ModalBottomSheet 给。
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .fillMaxHeight(0.85f),
+        modifier = if (mode == HomeSettings.PickerMode.FLOAT) {
+            Modifier
+                .fillMaxWidth(0.86f)
+                .fillMaxHeight(0.62f)
+                .clip(RoundedCornerShape(24.dp))
+                .background(MaterialTheme.colorScheme.surface)
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f)
+        },
     ) {
         // v0.182.0：顶部标题改截图口径“切换站源”，右边加关闭（原来只能下滑关闭）。
+        // v1.1.25：标题行加形态切换按钮——悬浮窗只留标题 + 切换按钮（关闭走点外部/
+        // 返回键）；底部弹窗保留原来的导入/刷新/关闭，再加切换按钮。窄屏下总数先缩
+        // （weight fill=false + 省略），按钮一律不裁。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -653,67 +686,76 @@ fun SourcePickerSheet(
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Spacer(Modifier.padding(4.dp))
-            Text(
-                // v0.267.0（T5）：原来标题用过滤后的 visible.size，搜
-                // 索/筛选后总数就变了；标题一律显示总数 items.size，
-                // 筛选后另注已筛选数，不再拿筛选数冒充总数。
-                // v0.294.52：总数按当前来源算（不是全量 228），否则标题与下面
-                // 只出一个来源的列表对不上。
-                text = if (loading) "加载中…" else if (visible.size == originFiltered.size) "共 ${originFiltered.size} 个源" else "共 ${originFiltered.size} 个源，已筛选 ${visible.size} 个",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.weight(1f))
-            IconButton(
-                onClick = {
-                    // v1.1.21：无授权时不打开文件选择器，先提示去授权。
-                    if (!StoragePaths.hasAccess(context)) {
-                        AppToast.show(context, "需要先授予存储权限，才能导入压缩包源", long = true)
-                    } else {
-                        zipImportLauncher.launch("application/zip")
-                    }
-                },
-                enabled = !loading,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.FolderOpen,
-                    contentDescription = "导入压缩包",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (mode == HomeSettings.PickerMode.FLOAT) {
+                Spacer(Modifier.weight(1f))
+                PickerModeToggle(mode = mode)
+            } else {
+                Spacer(Modifier.padding(4.dp))
+                Text(
+                    // v0.267.0（T5）：原来标题用过滤后的 visible.size，搜
+                    // 索/筛选后总数就变了；标题一律显示总数 items.size，
+                    // 筛选后另注已筛选数，不再拿筛选数冒充总数。
+                    // v0.294.52：总数按当前来源算（不是全量 228），否则标题与下面
+                    // 只出一个来源的列表对不上。
+                    text = if (loading) "加载中…" else if (visible.size == originFiltered.size) "共 ${originFiltered.size} 个源" else "共 ${originFiltered.size} 个源，已筛选 ${visible.size} 个",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
-            }
-            IconButton(
-                onClick = { onRefreshClick() },
-                enabled = !refreshing && !loading,
-            ) {
-                if (refreshing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                    )
-                } else {
+                IconButton(
+                    onClick = {
+                        // v1.1.21：无授权时不打开文件选择器，先提示去授权。
+                        if (!StoragePaths.hasAccess(context)) {
+                            AppToast.show(context, "需要先授予存储权限，才能导入压缩包源", long = true)
+                        } else {
+                            zipImportLauncher.launch("application/zip")
+                        }
+                    },
+                    enabled = !loading,
+                ) {
                     Icon(
-                        imageVector = Icons.Filled.Refresh,
-                        contentDescription = "刷新源",
+                        imageVector = Icons.Filled.FolderOpen,
+                        contentDescription = "导入压缩包",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
-            // v0.184.0：关闭改图 2 那种文字 pill（原来 X 图标太小、不起眼），
-            // 背景跟随主题主色浅 tint，换主题色时它也跟着变。
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
-                    .clickable(onClick = onDismiss)
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "关闭",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                IconButton(
+                    onClick = { onRefreshClick() },
+                    enabled = !refreshing && !loading,
+                ) {
+                    if (refreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.Refresh,
+                            contentDescription = "刷新源",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                PickerModeToggle(mode = mode)
+                Spacer(Modifier.padding(6.dp))
+                // v0.184.0：关闭改图 2 那种文字 pill（原来 X 图标太小、不起眼），
+                // 背景跟随主题主色浅 tint，换主题色时它也跟着变。
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                        .clickable(onClick = onDismiss)
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "关闭",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         }
         // v1.1.21：无授权时本地源不可用的明确提示（不静默空表）。
@@ -740,7 +782,8 @@ fun SourcePickerSheet(
                 )
             }
         }
-        // 搜索框：按源名过滤，右边是小宫格切换（点一下换一种排列，长按打开选择）。
+        // 搜索框：按源名过滤。底部弹窗形态下右边是小宫格切换（点一下换一种排列，
+        // 长按打开选择）；悬浮窗形态下只有搜索框，照效果图。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -758,8 +801,9 @@ fun SourcePickerSheet(
                 placeholder = "搜索站源",
                 modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.padding(8.dp))
-            Box {
+            if (mode == HomeSettings.PickerMode.SHEET) {
+                Spacer(Modifier.padding(8.dp))
+                Box {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
@@ -804,98 +848,16 @@ fun SourcePickerSheet(
                         )
                     }
                 }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        // v0.294.52：来源胶囊行（横向可滑，订阅多也不挤）——第一颗永远是
-        // “本地源”，正在用订阅时点它即回本地源列表，不用关弹窗翻找；
-        // 每颗订阅胶囊点下去，下面只出该订阅的站。
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = V5.Gutter),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            item {
-                V5Chip(
-                    text = "本地源",
-                    selected = originFilter == "local",
-                    onClick = { selectOrigin("local") },
-                    small = true,
-                )
-            }
-            items(origins, key = { it.first }) { (origin, label, count) ->
-                V5Chip(
-                    text = "$label（$count）",
-                    selected = originFilter == origin,
-                    onClick = { selectOrigin(origin) },
-                    small = true,
-                )
-            }
-        }
-        // v0.294.54：缺缓存订阅的可见状态——旧版这里悄悄只有本地源，
-        // 用户以为订阅丢了，其实只是缓存还没解析完。解析中给一行提示，
-        // 解析完胶囊自己出现；失败也明说，不留“订阅不见了”的悬念。
-        if (parsingSubNames.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = V5.Gutter),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                )
-                Spacer(Modifier.padding(4.dp))
-                Text(
-                    text = "正在解析订阅：${parsingSubNames.joinToString("、")}，解析完这里会多出对应胶囊，不用重开",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        } else if (failedSubNames.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "以下订阅解析失败，点右上角刷新再试一次：${failedSubNames.joinToString("、")}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = V5.Gutter),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        // 小字类型筛选 chips
-        if (kindsPresent.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = V5.Gutter),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                V5Chip(text = "全部", selected = kindFilter == null, onClick = { kindFilter = null }, small = true)
-                kindsPresent.forEach { kind ->
-                    V5Chip(
-                        text = kindLabel(kind),
-                        selected = kindFilter == kind,
-                        onClick = { kindFilter = if (kindFilter == kind) null else kind },
-                        small = true,
-                    )
                 }
             }
-            Spacer(Modifier.height(8.dp))
         }
-        // v1.1.15：压缩包名胶囊——当前来源是本地源且导过包时才出现，没导过
-        // 不显示、不占地方；点哪个只出哪个包的源，再点一次或点“全部”回到
-        // 全部本地源；与类型筛选可叠加；只筛选列表，不触发换源（点卡片才切换）。
-        if (originFilter == "local" && zipNames.isNotEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        // v1.1.25：以下四组（来源胶囊 / 解析状态 / 类型筛选 / 压缩包胶囊）只在底部弹窗形态下出现；
+        // 悬浮窗照效果图只有标题 + 搜索 + 胶囊行列表。
+        if (mode == HomeSettings.PickerMode.SHEET) {
+            // v0.294.52：来源胶囊行（横向可滑，订阅多也不挤）——第一颗永远是
+            // “本地源”，正在用订阅时点它即回本地源列表，不用关弹窗翻找；
+            // 每颗订阅胶囊点下去，下面只出该订阅的站。
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = V5.Gutter),
@@ -904,25 +866,114 @@ fun SourcePickerSheet(
             ) {
                 item {
                     V5Chip(
-                        text = "全部",
-                        selected = zipFilter == null,
-                        onClick = { zipFilter = null },
+                        text = "本地源",
+                        selected = originFilter == "local",
+                        onClick = { selectOrigin("local") },
                         small = true,
                     )
                 }
-                items(zipNames, key = { it }) { zipName ->
+                items(origins, key = { it.first }) { (origin, label, count) ->
                     V5Chip(
-                        text = zipDisplayName(zipName),
-                        selected = zipFilter == zipName,
-                        onClick = { zipFilter = if (zipFilter == zipName) null else zipName },
+                        text = "$label（$count）",
+                        selected = originFilter == origin,
+                        onClick = { selectOrigin(origin) },
                         small = true,
                     )
                 }
             }
+            // v0.294.54：缺缓存订阅的可见状态——旧版这里悄悄只有本地源，
+            // 用户以为订阅丢了，其实只是缓存还没解析完。解析中给一行提示，
+            // 解析完胶囊自己出现；失败也明说，不留“订阅不见了”的悬念。
+            if (parsingSubNames.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = V5.Gutter),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.padding(4.dp))
+                    Text(
+                        text = "正在解析订阅：${parsingSubNames.joinToString("、")}，解析完这里会多出对应胶囊，不用重开",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            } else if (failedSubNames.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "以下订阅解析失败，点右上角刷新再试一次：${failedSubNames.joinToString("、")}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = V5.Gutter),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Spacer(Modifier.height(8.dp))
+            // 小字类型筛选 chips
+            if (kindsPresent.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = V5.Gutter),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    V5Chip(text = "全部", selected = kindFilter == null, onClick = { kindFilter = null }, small = true)
+                    kindsPresent.forEach { kind ->
+                        V5Chip(
+                            text = kindLabel(kind),
+                            selected = kindFilter == kind,
+                            onClick = { kindFilter = if (kindFilter == kind) null else kind },
+                            small = true,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            // v1.1.15：压缩包名胶囊——当前来源是本地源且导过包时才出现，没导过
+            // 不显示、不占地方；点哪个只出哪个包的源，再点一次或点“全部”回到
+            // 全部本地源；与类型筛选可叠加；只筛选列表，不触发换源（点卡片才切换）。
+            if (originFilter == "local" && zipNames.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = V5.Gutter),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    item {
+                        V5Chip(
+                            text = "全部",
+                            selected = zipFilter == null,
+                            onClick = { zipFilter = null },
+                            small = true,
+                        )
+                    }
+                    items(zipNames, key = { it }) { zipName ->
+                        V5Chip(
+                            text = zipDisplayName(zipName),
+                            selected = zipFilter == zipName,
+                            onClick = { zipFilter = if (zipFilter == zipName) null else zipName },
+                            small = true,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
         }
         // v0.182.0：三种排列，数据同一批（现在的源原样放进去），只换排法。
         // v0.184.0：扩到 6 种，见 layoutNames。
+        // v1.1.25：悬浮窗是扁平胶囊行列表（不分组头、不分六种排列）；底部弹窗
+        // 沿用原来的六种排列，守卫照 HEAD 全挂回去。
         if (loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 // 整区加载圈统一为 StatusRing（跑马灯圆环 + 黄色状态点）
@@ -931,10 +982,28 @@ fun SourcePickerSheet(
         } else if (visible.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = if (items.isEmpty()) "暂无可用站源" else if (originFiltered.isEmpty()) "该来源下暂无源，点上方胶囊换个来源" else "没有匹配的源，换个关键词试试",
+                    // 悬浮窗里没有来源胶囊，空来源的提示不提“点上方胶囊”。
+                    text = if (items.isEmpty()) "暂无可用站源" else if (originFiltered.isEmpty()) {
+                        if (mode == HomeSettings.PickerMode.FLOAT) "该来源下暂无源" else "该来源下暂无源，点上方胶囊换个来源"
+                    } else "没有匹配的源，换个关键词试试",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        } else if (mode == HomeSettings.PickerMode.FLOAT) {
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(
+                    start = V5.Gutter,
+                    end = V5.Gutter,
+                    bottom = 12.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(visible, key = { it.id }) { item ->
+                    SourceFloatRow(item = item)
+                }
             }
         } else if (layoutMode == 0) {
             LazyVerticalGrid(
@@ -947,7 +1016,8 @@ fun SourcePickerSheet(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize().sheetListScrollGuard { gridState.canScrollBackward },
+                modifier = Modifier.fillMaxSize()
+                    .sheetListScrollGuard { gridState.canScrollBackward },
             ) {
                 groupedVisible.forEach { group ->
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -970,7 +1040,8 @@ fun SourcePickerSheet(
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize().sheetListScrollGuard { gridState.canScrollBackward },
+                modifier = Modifier.fillMaxSize()
+                    .sheetListScrollGuard { gridState.canScrollBackward },
             ) {
                 groupedVisible.forEach { group ->
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -990,7 +1061,8 @@ fun SourcePickerSheet(
                     bottom = 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize().sheetListScrollGuard { listState.canScrollBackward },
+                modifier = Modifier.fillMaxSize()
+                    .sheetListScrollGuard { listState.canScrollBackward },
             ) {
                 groupedVisible.forEach { group ->
                     item { PickerGroupHeader(title = group.title) }
@@ -1008,7 +1080,8 @@ fun SourcePickerSheet(
                     bottom = 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize().sheetListScrollGuard { listState.canScrollBackward },
+                modifier = Modifier.fillMaxSize()
+                    .sheetListScrollGuard { listState.canScrollBackward },
             ) {
                 groupedVisible.forEach { group ->
                     item { PickerGroupHeader(title = group.title) }
@@ -1028,7 +1101,8 @@ fun SourcePickerSheet(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize().sheetListScrollGuard { gridState.canScrollBackward },
+                modifier = Modifier.fillMaxSize()
+                    .sheetListScrollGuard { gridState.canScrollBackward },
             ) {
                 groupedVisible.forEach { group ->
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -1048,7 +1122,8 @@ fun SourcePickerSheet(
                     bottom = 16.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxSize().sheetListScrollGuard { listState.canScrollBackward },
+                modifier = Modifier.fillMaxSize()
+                    .sheetListScrollGuard { listState.canScrollBackward },
             ) {
                 groupedVisible.forEach { group ->
                     item { PickerGroupHeader(title = group.title) }
@@ -1056,6 +1131,89 @@ fun SourcePickerSheet(
                         SourceCompactRow(item = item)
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * v1.1.25：形态切换按钮——胶囊样式（与“宫格·大卡”按钮同款底色），带交换
+ * 图标 + 当前形态名；点一下立刻换形态并持久化（HomeSettings），下次打开
+ * 记住；切形态时弹窗内容重建，搜索框文字会重置，接受。
+ */
+@Composable
+private fun PickerModeToggle(mode: HomeSettings.PickerMode) {
+    val context = LocalContext.current
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .clickable {
+                val next = if (mode == HomeSettings.PickerMode.FLOAT) {
+                    HomeSettings.PickerMode.SHEET
+                } else {
+                    HomeSettings.PickerMode.FLOAT
+                }
+                HomeSettings.setPickerMode(context, next)
+            }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Filled.SwapHoriz,
+                contentDescription = "切换弹窗形态",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.padding(2.dp))
+            Text(
+                text = mode.label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/**
+ * v1.1.25：悬浮窗胶囊行——圆角胶囊：棕色首字母图标 + 源名 + 右边类型小标签；
+ * 点行即换源；当前源靠卡片底色浅 tint + 名字加粗标出（SourceCardFrame 现成口径）。
+ */
+@Composable
+private fun SourceFloatRow(item: PickerItem) {
+    SourceCardFrame(
+        item = item,
+        corner = 50.dp,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        gradientRing = false,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SourceLogo(logoUrl = item.logoUrl, name = item.name, size = 32.dp)
+            Spacer(Modifier.padding(8.dp))
+            Text(
+                text = item.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal,
+                color = if (item.isCurrent) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    text = kindLabel(item.kind),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
             }
         }
     }

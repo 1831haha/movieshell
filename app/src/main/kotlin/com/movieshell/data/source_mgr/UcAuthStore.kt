@@ -28,6 +28,16 @@ object UcAuthStore {
     /** 退出登录：删掉本地 Cookie 文件。 */
     fun clear(): Boolean = store.clear()
 
+    /** 退出登录：删文件＋清 WebView 该域 Cookie（中心页“清除 Cookie”用）。 */
+    fun clearAll(): Boolean {
+        val ok = store.clear()
+        clearWebCookies(
+            "https://drive.uc.cn", ".uc.cn",
+            listOf("__puus", "__pus", "__kps", "__uid"),
+        )
+        return ok
+    }
+
     /** 播前检测到登录态失效时打标记。 */
     fun markExpired() = store.markExpired()
 

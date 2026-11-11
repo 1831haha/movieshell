@@ -14,8 +14,13 @@ android {
         applicationId = "com.movieshell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 453
-        versionName = "1.1.24"
+        versionCode = 454
+        versionName = "1.1.25"
+
+        // v1.1.25：阿里云盘开放平台应用凭证——构建期注入，仓库不许出现凭证明文。
+        // 未配置时为空串，阿里扫码入口给明确提示；CI 里由 secrets 注入环境变量。
+        buildConfigField("String", "ALIYUN_APP_ID", "\"${System.getenv("ALIYUN_APP_ID") ?: ""}\"")
+        buildConfigField("String", "ALIYUN_APP_SECRET", "\"${System.getenv("ALIYUN_APP_SECRET") ?: ""}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {
@@ -135,6 +140,10 @@ dependencies {
 
     // 网络 / JSON
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // v1.1.25：PanQrLogin 用 okhttp3.JavaNetCookieJar 收 Set-Cookie——它不在
+    // okhttp 主包里（jar 实测无此 class），在 okhttp-urlconnection 4.12.0 里，
+    // 不加这行云构建编译不过。版本与 okhttp 保持一致。
+    implementation("com.squareup.okhttp3:okhttp-urlconnection:4.12.0")
     implementation("org.jsoup:jsoup:1.17.2")
     // v0.202.0：小说通用正文兜底——Mozilla Readability 的 Kotlin 移植（Apache 2.0），规则提空时从整页提正文
     implementation("net.dankito.readability4j:readability4j:1.0.8")
@@ -147,6 +156,8 @@ dependencies {
 
     // 图片加载（v0.12.1：海报真实图片）
     implementation("io.coil-kt:coil-compose:2.6.0")
+    // v1.1.25：扫码登录二维码本地画（Maven Central 实测 core 3.5.4，pom 200）
+    implementation("com.google.zxing:core:3.5.4")
 
     // 播放器 (Media3 / ExoPlayer)
     implementation("androidx.media3:media3-exoplayer:1.4.1")

@@ -29,6 +29,13 @@ object BaiduAuthStore {
     /** 退出登录：删掉本地 Cookie 文件。 */
     fun clear(): Boolean = store.clear()
 
+    /** 退出登录：删文件＋清 WebView 该域 Cookie（中心页“清除 Cookie”用）。 */
+    fun clearAll(): Boolean {
+        val ok = store.clear()
+        clearWebCookies("https://pan.baidu.com", ".baidu.com", listOf("BDUSS", "STOKEN"))
+        return ok
+    }
+
     /** 播前检测到登录态失效时打标记。 */
     fun markExpired() = store.markExpired()
 

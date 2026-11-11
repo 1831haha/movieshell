@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.ime
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -56,6 +57,7 @@ import androidx.compose.material3.Text
 import com.movieshell.ui.components.TechDialog
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.navigation.NavController
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -64,6 +66,7 @@ import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.download.SubRefreshWorker
 import com.movieshell.data.download.Notify
 import com.movieshell.data.store.DownloadStore
+import com.movieshell.data.source.ParseProgressBus
 import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.store.FollowStore
 import com.movieshell.data.store.LiveStore
@@ -239,6 +242,9 @@ class MainActivity : ComponentActivity() {
         com.movieshell.data.source_mgr.QuarkAuthStore.init(this) // v1.1.23：夸克登录态
         com.movieshell.data.source_mgr.UcAuthStore.init(this) // v1.1.23 扩充：UC 登录态
         com.movieshell.data.source_mgr.BaiduAuthStore.init(this) // v1.1.23 扩充：百度登录态
+        com.movieshell.data.source_mgr.AliyunAuthStore.init(this) // v1.1.25：阿里登录态
+        com.movieshell.data.source_mgr.GuangyaAuthStore.init(this) // v1.1.25：光鸭登录态
+        com.movieshell.data.source_mgr.XunleiAuthStore.init(this) // v1.1.25：迅雷登录态
         PhpSourceManager.init(this)
         WebParseSourceManager.init(this)
         // v0.22.0：插件市场本地状态
@@ -316,6 +322,16 @@ class MainActivity : ComponentActivity() {
                 }
                 Box(Modifier.fillMaxSize()) {
                 val navController = rememberNavController()
+                // v1.1.25：回首页取消嗅探——目的地变回 home（底部 tab、返回键、
+                // 详情页回首页）时结束进行中的解析会话，隐藏“正在网页嗅探”
+                // 指示；无会话时 cancel() 是空操作。
+                DisposableEffect(navController) {
+                    val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
+                        if (destination.route == "home") ParseProgressBus.cancel()
+                    }
+                    navController.addOnDestinationChangedListener(listener)
+                    onDispose { navController.removeOnDestinationChangedListener(listener) }
+                }
                 // v0.249.0 收尾：进阅读器的最终关卡——全 App 只有两处 navigate("reader/")，
                 // 各页自己的守卫（书架点书、详情页等目录）是第一层，这里是兜底：
                 // 未就绪的书不进空阅读页，FAILED 顺手重试；书不在架沿用老行为。

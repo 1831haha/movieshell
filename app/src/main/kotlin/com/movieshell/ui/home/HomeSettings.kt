@@ -39,6 +39,15 @@ object HomeSettings {
     private const val PREFS = "movieshell_prefs"
     private const val KEY_HOME_LAYOUT = "home_layout"
     private const val KEY_SOURCE_PICKER_LAYOUT = "source_picker_layout"
+    private const val KEY_PICKER_MODE = "source_picker_mode"
+
+    // v1.1.25：换源器容器形态——悬浮窗（小居中 Dialog）/ 底部弹窗
+    // （ModalBottomSheet），默认悬浮窗；与 pickerLayout 同机制持久化，
+    // 关弹窗重开、进程重建都不再回默认。
+    enum class PickerMode(val label: String) {
+        FLOAT("悬浮窗"),
+        SHEET("底部弹窗"),
+    }
 
     private val _layout = MutableStateFlow(HomeLayout.GRID_4)
     val layout: StateFlow<HomeLayout> = _layout.asStateFlow()
@@ -47,6 +56,10 @@ object HomeSettings {
     // 与首页布局同机制持久化，关弹窗重开不再回默认大卡。
     private val _pickerLayout = MutableStateFlow(0)
     val pickerLayout: StateFlow<Int> = _pickerLayout.asStateFlow()
+
+    // v1.1.25：换源器容器形态，默认悬浮窗。
+    private val _pickerMode = MutableStateFlow(PickerMode.FLOAT)
+    val pickerMode: StateFlow<PickerMode> = _pickerMode.asStateFlow()
 
     private var loaded = false
 
@@ -59,6 +72,9 @@ object HomeSettings {
             .getOrDefault(HomeLayout.GRID_4)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         _pickerLayout.value = prefs.getInt(KEY_SOURCE_PICKER_LAYOUT, 0).coerceIn(0, 5)
+        _pickerMode.value = runCatching {
+            PickerMode.valueOf(prefs.getString(KEY_PICKER_MODE, null)!!)
+        }.getOrDefault(PickerMode.FLOAT)
     }
 
     fun setPickerLayout(context: Context, mode: Int) {
@@ -69,6 +85,17 @@ object HomeSettings {
                 .putInt(KEY_SOURCE_PICKER_LAYOUT, clamped)
                 .apply()
         }.onFailure { LogBus.w("HomeSettings", "换源器布局持久化失败：${it.message}") }
+    }
+
+    // v1.1.25：换源器容器形态切换——点切换按钮即换形态并持久化，
+    // 下次打开直接用上次选的；写失败只记日志，不挡切换。
+    fun setPickerMode(context: Context, mode: PickerMode) {
+        _pickerMode.value = mode
+        runCatching {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_PICKER_MODE, mode.name)
+                .apply()
+        }.onFailure { LogBus.w("HomeSettings", "换源器形态持久化失败：${it.message}") }
     }
 
     fun setLayout(context: Context, layout: HomeLayout) {

@@ -16,6 +16,11 @@ jobs:
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      # v1.1.25：阿里云盘扫码登录的应用凭证（构建期注入；未配置时为空串，
+      # 代码侧提示“未配置”。Secrets 在仓库 Settings → Secrets 里建，
+      # 注册完成后填 ALIYUN_APP_ID / ALIYUN_APP_SECRET，凭证不进仓库。）
+      ALIYUN_APP_ID: ${{ secrets.ALIYUN_APP_ID }}
+      ALIYUN_APP_SECRET: ${{ secrets.ALIYUN_APP_SECRET }}
     steps:
       - uses: actions/checkout@v4
 

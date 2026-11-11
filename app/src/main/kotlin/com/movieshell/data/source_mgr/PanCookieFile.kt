@@ -1,8 +1,22 @@
 package com.movieshell.data.source_mgr
 
 import android.content.Context
+import android.webkit.CookieManager
 import com.movieshell.core.log.LogBus
 import java.io.File
+
+/**
+ * 清 WebView 里指定域的 Cookie：按名逐个写过期＋flush。文件删除是
+ * 主路（登录态只认文件），这里只清 WebView 侧，避免下次打开网页
+ * 还带着旧登录态。按域清，不动其他站的 Cookie。
+ */
+internal fun clearWebCookies(url: String, domain: String, names: List<String>) {
+    val cm = CookieManager.getInstance()
+    for (name in names) {
+        cm.setCookie(url, "$name=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; Domain=$domain")
+    }
+    cm.flush()
+}
 
 /**
  * 网盘登录态落盘小件（夸克/UC/百度三家共用，Cookie 只存私有目录）。
