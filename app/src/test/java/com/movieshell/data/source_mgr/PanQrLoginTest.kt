@@ -114,9 +114,12 @@ class PanQrLoginTest {
         // v1.1.30：换取必须带取 token 的同一个会话 jar（_UP_* Cookie 跟着走）、
         // 带 lw=scan 与业务站 Referer；只落 __pus 也算换取成功。
         val jar = java.net.CookieManager(null, java.net.CookiePolicy.ACCEPT_ALL)
-        jar.cookieStore.add(
+        // 用 put() 模拟服务端 Set-Cookie 落会话 Cookie（真机上 _UP_* 就是这么来的）；
+        // 直接往 cookieStore.add 一个没设 Domain 的 HttpCookie，store.get 能拿到、
+        // 但 CookieManager.get() 不会把它发出去（JDK 实测），请求头里就没它。
+        jar.put(
             java.net.URI(base),
-            java.net.HttpCookie("_UP_X", "SESS1"),
+            mapOf("Set-Cookie" to listOf("_UP_X=SESS1; Path=/")),
         )
         server.enqueue(
             json("""{"success":true,"data":{}}""")
