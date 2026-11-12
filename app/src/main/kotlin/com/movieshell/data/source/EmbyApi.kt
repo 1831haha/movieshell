@@ -30,7 +30,7 @@ object EmbyApi {
 
     private const val TAG = "EmbyApi"
     private const val CLIENT_NAME = "XiaYing"
-    private const val CLIENT_VERSION = "1.1.31"
+    private const val CLIENT_VERSION = "1.1.32"
 
     private val jsonLenient = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 

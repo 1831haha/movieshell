@@ -297,10 +297,18 @@ fun MediaServerScreen(
         scope.launch {
             val type = if (formType == "jellyfin") EmbyApi.ServerType.JELLYFIN else EmbyApi.ServerType.EMBY
             val deviceId = EmbyStore.deviceId(context)
-            val auth = if (formApiKey.isNotBlank()) {
+            var auth = if (formApiKey.isNotBlank()) {
                 EmbyApi.loginByApiKey(address, type, deviceId, formApiKey.trim())
             } else {
-                EmbyApi.loginByPassword(address, type, deviceId, formUser.trim(), formPass)
+                null
+            }
+            var usedApiKey = auth != null && formApiKey.isNotBlank()
+            // v1.1.31 补：API Key 失败但账号密码也填了时，改走账号密码再试一次——
+            // API Key 框里误留几个字符不该直接判死刑（2026-11-12 真机实证：框里 3 个字符
+            // 导致一直走 API Key 路径拿 401，账号密码一次都没试过）。
+            if (auth == null && formUser.isNotBlank() && formPass.isNotBlank()) {
+                auth = EmbyApi.loginByPassword(address, type, deviceId, formUser.trim(), formPass)
+                usedApiKey = false
             }
             formTesting = false
             if (auth == null) {
@@ -312,7 +320,7 @@ fun MediaServerScreen(
                 type = formType,
                 baseUrl = EmbyApi.normalizeBase(address),
                 username = formUser.trim(),
-                authMode = if (formApiKey.isNotBlank()) "apikey" else "password",
+                authMode = if (usedApiKey) "apikey" else "password",
                 token = auth.token,
                 userId = auth.userId,
             )
