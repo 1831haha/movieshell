@@ -122,7 +122,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.transformWhile
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -729,8 +729,8 @@ fun PlayerScreen(
             var bestVod: Vod? = null
             var bestScore = -1
             withTimeoutOrNull(12_000) {
-                repo.searchAllFlow(target).transformWhile { group ->
-                    if (group.site.key in currentKeys) return@transformWhile true
+                repo.searchAllFlow(target).takeWhile { group ->
+                    if (group.site.key in currentKeys) return@takeWhile true
                     val exact = group.vods.firstOrNull { it.vodName.trim() == target }
                     if (exact != null) {
                         val s = SourceHealthStore.score(group.site.key)
@@ -740,7 +740,7 @@ fun PlayerScreen(
                             bestVod = exact
                         }
                         // 够稳的源一到就停，不等慢源跑完
-                        if (s >= 70) return@transformWhile false
+                        if (s >= 70) return@takeWhile false
                     }
                     true
                 }.collect {}
