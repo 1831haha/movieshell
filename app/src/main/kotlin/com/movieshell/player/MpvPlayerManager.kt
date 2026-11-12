@@ -41,6 +41,8 @@ object MpvPlayerManager {
     private val initialized = AtomicBoolean(false)
     private val destroyed = AtomicBoolean(false)
 
+    private var appContext: Context? = null
+
     /**
      * v0.25.0：libmpv 初始化是否失败过（native 库缺失等）。
      * 一旦失败，本进程内视为该引擎不可用，EngineHost.play 直接回退 Media3，不再尝试。
@@ -104,6 +106,7 @@ object MpvPlayerManager {
     fun init(context: Context) {
         if (initialized.get() || destroyed.get()) return
         val app = context.applicationContext
+        appContext = app
         executor.execute {
             if (!initialized.compareAndSet(false, true)) return@execute
             try {
@@ -241,12 +244,15 @@ object MpvPlayerManager {
     /**
      * 播放 [url]。headers 中的 "User-Agent" 走独立的 user-agent 选项
      * （UA 常含逗号，不能塞进 http-header-fields 的逗号分隔列表）。
+     * v1.1.31：点播 m3u8 先走 MpvAdFilter 拉列表过滤后播本地文件（失败回原地址）；
+     * 直播不走过滤。
      */
     fun play(
         url: String,
         headers: Map<String, String> = emptyMap(),
         startPositionMs: Long = 0L,
         subtitleUrl: String? = null,
+        live: Boolean = false,
     ) {
         if (url.isBlank()) {
             LogBus.e("MpvPlayer", "播放地址为空，已拒绝")
@@ -269,8 +275,12 @@ object MpvPlayerManager {
                 return@execute
             }
             runCatching {
+                // v1.1.31：点播 m3u8 过滤后播本地文件；失败（null）走原地址
+                val playUrl = appContext?.let {
+                    runCatching { MpvAdFilter.prepareFilteredPlaylist(it, url, headers, live) }.getOrNull()
+                } ?: url
                 MPVLib.command(
-                    arrayOf("loadfile", url, "replace", "-1", buildFileOptions(headers, startPositionMs, subtitleUrl))
+                    arrayOf("loadfile", playUrl, "replace", "-1", buildFileOptions(headers, startPositionMs, subtitleUrl))
                 )
                 MPVLib.setPropertyBoolean("pause", false)
             }.onSuccess {

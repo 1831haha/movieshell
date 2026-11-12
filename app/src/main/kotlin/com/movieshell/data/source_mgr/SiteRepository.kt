@@ -22,6 +22,7 @@ import com.movieshell.domain.model.isWebParseSite
 import com.movieshell.domain.model.WebParseSiteKeyPrefix
 import com.movieshell.domain.model.toSite
 import com.movieshell.data.source.CmsApi
+import com.movieshell.data.store.SourceHealthStore
 import com.movieshell.data.source.ParseApi
 import com.movieshell.data.source.TvBoxConfigParser
 import com.movieshell.data.source.Type4Api
@@ -387,6 +388,9 @@ class SiteRepository(
         if (r.vodPlayFrom.isNotBlank()) {
             LogBus.i(TAG, "detail playFrom: ${r.vodPlayFrom.take(100)}")
         }
+        // v1.1.31：健康分记账——有剧名或播放地址=成功；空详情且有失败原因=失败
+        if (r.vodName.isNotBlank() || r.vodPlayUrl.isNotBlank()) SourceHealthStore.recordSuccess(site.key)
+        else if (lastFailureReason(site) != null) SourceHealthStore.recordFailure(site.key)
         return r
     }
 
@@ -437,6 +441,7 @@ class SiteRepository(
         timeoutMs: Long,
         failedNames: MutableSet<String>,
     ): SiteSearchResult {
+        var failed = false
         val vods = try {
             searchSemaphore.withPermit {
                 withTimeout(timeoutMs) { search(site, wd) }
@@ -446,6 +451,7 @@ class SiteRepository(
             SearchSlowSourceFilter.onTimeout(site.key)
             LogBus.w(TAG, "聚合搜索源超时：${site.name}")
             failedNames += site.name
+            failed = true
             emptyList()
         } catch (e: CancellationException) {
             // 调用方取消（切页/新搜索）不是源失败：透传，不记失败、不吞。
@@ -455,6 +461,7 @@ class SiteRepository(
             // 失败源在聚合搜索里静默消失。现记带源名的 warning 并计入失败。
             LogBus.w(TAG, "聚合搜索源失败：${site.name}：${e.message ?: e::class.java.simpleName}")
             failedNames += site.name
+            failed = true
             emptyList()
         }
         // search() 内部失败不抛异常（logged 吞成空结果）：空结果且
@@ -464,8 +471,13 @@ class SiteRepository(
             lastFailureReason(site)?.let { reason ->
                 LogBus.w(TAG, "聚合搜索源失败：${site.name}：$reason")
                 failedNames += site.name
+                failed = true
             }
         }
+        // v1.1.31：健康分记账——有结果=成功；空结果且失败（超时/异常/有失败原因）=失败；
+        // 空结果无原因=源确实没数据，不记
+        if (vods.isNotEmpty()) SourceHealthStore.recordSuccess(site.key)
+        else if (failed) SourceHealthStore.recordFailure(site.key)
         return SiteSearchResult(site, vods)
     }
 

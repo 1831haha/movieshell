@@ -106,6 +106,7 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.domain.model.PlayLine
 import com.movieshell.data.store.DownloadSettings
 import com.movieshell.data.store.DownloadStore
+import com.movieshell.data.store.SourceHealthStore
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.store.PlayerSettings
 import com.movieshell.domain.model.SubtitleStyle
@@ -286,6 +287,8 @@ internal fun savePlayerProgress(
     val position = EngineHost.currentPosition()
     // v0.24.0：直播无进度概念也记一条（position 0），kind=live 供历史页分流
     if (!isLive && position <= 0) return
+    // v1.1.31：健康分记账——播出进度即成功（同地址 10 分钟内只记一次）
+    if (!isLive && sourceKey.isNotBlank()) SourceHealthStore.recordPlaySuccessOnce(url, sourceKey)
     HistoryStore.saveProgress(
         context = context,
         title = title,

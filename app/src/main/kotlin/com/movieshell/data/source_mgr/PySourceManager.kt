@@ -116,6 +116,12 @@ object PySourceManager {
         appContext = context.applicationContext
         ChaquopyEngine.init(context)
         RuleFileStore.copyBuiltinAssets(appContext!!.assets, RULES_DIR, rulesDir(), ".py", emptySet(), TAG)
+        // v1.1.31：网盘功能已砍——删掉早年由 App 拷进规则目录的六个盘规则
+        // （quark/uc/baidu/ali/guangya/xunlei），后端（PanDispatch/PanProxy）
+        // 已不存在，留着只会列出播不了的死源。只删这六个 exact 文件名。
+        for (name in setOf("quark.py", "uc.py", "baidu.py", "ali.py", "guangya.py", "xunlei.py")) {
+            runCatching { File(rulesDir(), name).takeIf { it.isFile }?.delete() }
+        }
     }
 
     /**
@@ -228,21 +234,6 @@ object PySourceManager {
         activeName = name
         Log.i(TAG, "active PY 规则: $name")
         return true
-    }
-
-    /**
-     * v1.1.23：取内置规则的可信副本路径（不切换 active 规则）。
-     * 供 PanDispatch 直接调夸克规则 playerContent 用；只认内置规则名，
-     * 公开文件改动时按 setActiveRule 同款显式重信任。
-     */
-    fun builtinRulePath(name: String): String? {
-        val ctx = appContext ?: return null
-        if (!StoragePaths.isBuiltinRule(name)) return null
-        val dir = rulesDirOrNull() ?: return null
-        val file = File(dir, name)
-        if (!file.isFile) return null
-        return ExecutableTrust.trustedFile(ctx.filesDir, file, "py:$name", allowRetrust = true)
-            ?.absolutePath
     }
 
     private fun activeRulePath(): String? {

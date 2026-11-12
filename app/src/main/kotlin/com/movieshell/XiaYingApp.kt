@@ -17,6 +17,7 @@ import com.movieshell.data.source_mgr.ServicePluginManager
 import com.movieshell.data.source_mgr.SpiderEngine
 import com.movieshell.core.util.StoragePaths
 import com.movieshell.data.source_mgr.SubSiteEngines
+import com.movieshell.data.store.SourceHealthStore
 import com.movieshell.data.source.ChaquopyEngine
 import com.movieshell.data.source.JsRuntime
 import com.movieshell.data.source.ProxyImageFetcher
@@ -58,6 +59,8 @@ class XiaYingApp : Application() {
         SubSiteEngines.init(this)
         SpiderEngine.init(this)
         PhpSourceManager.init(this)
+        // v1.1.31：站点健康分读盘（搜索/详情/播放记账用）
+        SourceHealthStore.init(this)
         // v0.294.46：PY 解释器后台预热——原来第一次点 PY 源时才 Python.start()，
         // 1–2 秒启动费全算在首屏里；启动时后台预热，首屏只剩站点网络时间。
         // 不阻塞启动：失败只记日志，首个 PY 源调用时再按老路启动。

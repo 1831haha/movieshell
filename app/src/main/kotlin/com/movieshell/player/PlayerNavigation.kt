@@ -44,7 +44,13 @@ fun NavController.navigateToPlayer(
 }
 
 /** 在 NavHost DSL 中注册播放器目的地 */
-fun NavGraphBuilder.playerDestination(onBack: () -> Unit) {
+fun NavGraphBuilder.playerDestination(
+    onBack: () -> Unit,
+    // v1.1.31：libmpv 未安装时跳插件市场装插件
+    onOpenPluginCenter: () -> Unit = {},
+    // v1.1.31：播放失败自动换源——跳同名剧详情页同集播
+    onAutoSwitchSource: ((vodId: String, siteKey: String, episodeIndex: Int) -> Unit)? = null,
+) {
     composable(
         route = "$PLAYER_ROUTE_BASE?url={url}&title={title}&vod={vod}&live={live}&site={site}",
         arguments = listOf(
@@ -75,6 +81,8 @@ fun NavGraphBuilder.playerDestination(onBack: () -> Unit) {
                 siteKey = playSiteKey,
                 isLive = entry.arguments?.getString("live") == "1",
                 onBack = onBack,
+                onOpenPluginCenter = onOpenPluginCenter,
+                onAutoSwitchSource = onAutoSwitchSource,
             )
         }
     }

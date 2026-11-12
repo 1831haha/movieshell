@@ -165,6 +165,7 @@ import com.movieshell.data.store.DownloadSettings
 import com.movieshell.data.store.DownloadTask
 import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.store.FollowStore
+import com.movieshell.data.store.SourceHealthStore
 import com.movieshell.data.store.PlayerSettings
 import com.movieshell.data.store.SearchHistoryStore
 import com.movieshell.core.log.LogBus
@@ -230,6 +231,10 @@ fun DetailScreen(
     onActorClick: (actorName: String) -> Unit = {},
     // v1.0.7：同名剧区点按进详情（与搜索页 onVodClick 同口径）
     onVodClick: (vodId: String, siteKey: String) -> Unit = { _, _ -> },
+    // v1.1.31：libmpv 未安装时跳插件市场装插件
+    onOpenPluginCenter: () -> Unit = {},
+    // v1.1.31：播放失败自动换源——跳其他源同名剧详情页（同集）；null=不自动换源
+    onSwitchSource: ((vodId: String, siteKey: String, episodeIndex: Int) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1717,7 +1722,8 @@ fun DetailScreen(
                                     contentPadding = PaddingValues(horizontal = V5.Gutter),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
-                                    sameTitleGroups.forEach { group ->
+                                    // v1.1.31：健康分排序——稳的源在前
+                                    sameTitleGroups.sortedByDescending { SourceHealthStore.score(it.site.key) }.forEach { group ->
                                         group.vods.forEach { vod ->
                                             item(key = "${group.site.key}:${vod.vodId}") {
                                                 SameNameCard(
@@ -1892,6 +1898,11 @@ fun DetailScreen(
                             embedded = true,
                             isFullscreen = playerFullscreen,
                             onFullscreen = { playerFullscreen = true },
+                            onOpenPluginCenter = onOpenPluginCenter,
+                            // v1.1.31：播放失败自动换源——跳同名剧详情页同集播
+                            onAutoSwitchSource = { vodId, siteKey, epIdx ->
+                                onSwitchSource?.invoke(vodId, siteKey, epIdx)
+                            },
                             onExitFullscreen = { playerFullscreen = false },
                             onEpisodeChange = { lineIdx, epIdx ->
                                 playingLine = lineIdx

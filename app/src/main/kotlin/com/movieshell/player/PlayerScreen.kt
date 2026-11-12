@@ -13,14 +13,21 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
 import com.movieshell.data.source_mgr.DrpySourceManager
+import com.movieshell.data.source_mgr.SiteRepository
 import com.movieshell.data.store.FollowItem
 import com.movieshell.data.store.FollowStore
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source_mgr.WebParseSourceManager
 import com.movieshell.domain.model.PlayerEngine
+import com.movieshell.domain.model.Site
+import com.movieshell.domain.model.Vod
 import com.movieshell.data.store.PlayerSettings
+import com.movieshell.data.store.SourceHealthStore
 import com.movieshell.data.source_mgr.PySourceManager
+import com.movieshell.ui.search.LOCAL_DRPY_PREFIX
+import com.movieshell.ui.search.LOCAL_PY_PREFIX
+import com.movieshell.ui.search.buildSearchConfigJson
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
 import com.movieshell.ui.components.V5Chip
@@ -187,6 +194,8 @@ fun PlayerScreen(
     siteKey: String? = null,
     isLive: Boolean = false,
     onBack: () -> Unit,
+    // v1.1.31：libmpv 未安装时跳插件市场（市场页签）装插件；默认空实现
+    onOpenPluginCenter: () -> Unit = {},
     // v0.65：嵌入模式——详情页顶部 16:9 直接播；onFullscreen 是嵌入时点全屏的回调
     // （详情页原地放大、直播页跳独立播放页，各入口自己定）
     embedded: Boolean = false,
@@ -209,6 +218,9 @@ fun PlayerScreen(
     // v0.158.0：直播最终失败回调（同内核重拉 2 次 + 换内核之后才到这里，
     // 直播页用它自动切同名源；null 时走原错误对话框，不改点播行为）
     onLiveError: (() -> Unit)? = null,
+    // v1.1.31：播放失败自动换源——全部线路耗尽时搜其他源同名剧，跳详情页同集播；
+    // null=不自动换源（直播不传，走原 onLiveError）
+    onAutoSwitchSource: ((vodId: String, siteKey: String, episodeIndex: Int) -> Unit)? = null,
     // v0.160.0：直播频道自带的请求头（插件 lives 里 ua 字段，有才传；没有不编 UA/Referer）
     liveHeaders: Map<String, String> = emptyMap(),
     // v1.1.19：画面容器底色——详情页嵌入时传当前剧的种子色（与整页背景同一个
@@ -296,6 +308,8 @@ fun PlayerScreen(
     var autoSwitching by remember { mutableStateOf(false) } // playUrl 变化来自自动重试
     // v0.21.0：同地址已试过的内核（防 Media3↔libmpv 乒乓）
     val triedEngines = remember { mutableSetOf<PlayerEngine>() }
+    // v1.1.31：自动换源每集只试一次（换地址时由 LaunchedEffect(playUrl) 复位）
+    var autoSourceTried by remember { mutableStateOf(false) }
     // v0.123.0：同一内核重拉流重试计数（补充B：IO 错误先同内核自愈，≤2 次）
     val sameEngineRetries = remember { mutableIntStateOf(0) }
     // v1.0.8：同一地址是否已试过“清 Referer 重试”（只试一次，换地址重置）
@@ -742,11 +756,70 @@ fun PlayerScreen(
                     autoSwitching = true
                     playUrl = link
                 } else {
-                    errorMsg = "所有线路均播放失败"
+                    tryAutoSwitchSource("所有线路均播放失败")
                 }
             }
         } else {
+            tryAutoSwitchSource(fallbackMsg)
+        }
+    }
+
+    /**
+     * v1.1.31：播放失败自动换源——当前源全部线路耗尽时，在其他源里搜同名剧（精确片名），
+     * 按健康分取最稳的一个，跳它的详情页同集播。只试一次；找不到/搜不到就落回原报错。
+     * 直播、没标题、没回调时不走这条路。
+     */
+    fun tryAutoSwitchSource(fallbackMsg: String) {
+        val target = title.trim()
+        val cb = onAutoSwitchSource
+        if (cb == null || isLive || target.isBlank() || autoSourceTried) {
             errorMsg = fallbackMsg
+            return
+        }
+        autoSourceTried = true
+        AppToast.show(context, "当前源播不了，正在找其他源…", long = false)
+        scope.launch {
+            val repo = SiteRepository(
+                drpyEngine = DrpySourceManager.drpyEngineAdapter,
+                pyEngine = PySourceManager.engineAdapter,
+            )
+            runCatching {
+                withContext(Dispatchers.IO) { repo.loadFromConfig(buildSearchConfigJson(context)) }
+            }
+            val currentKeys = buildSet {
+                siteKey?.takeIf { it.isNotBlank() }?.let { add(it) }
+                DrpySourceManager.activeRuleName()?.let { add("$LOCAL_DRPY_PREFIX$it") }
+                PySourceManager.activeRuleName()?.let { add("$LOCAL_PY_PREFIX$it") }
+                PhpSourceManager.activeRuleName()?.let { add("php:$it") }
+            }
+            var bestSite: Site? = null
+            var bestVod: Vod? = null
+            var bestScore = -1
+            withTimeoutOrNull(12_000) {
+                repo.searchAllFlow(target).collect { group ->
+                    if (group.site.key in currentKeys) return@collect
+                    val exact = group.vods.firstOrNull { it.vodName.trim() == target }
+                    if (exact != null) {
+                        val s = SourceHealthStore.score(group.site.key)
+                        if (s > bestScore) {
+                            bestScore = s
+                            bestSite = group.site
+                            bestVod = exact
+                        }
+                        // 够稳的源一到就停，不等慢源跑完
+                        if (s >= 70) return@withTimeoutOrNull
+                    }
+                }
+            }
+            val site = bestSite
+            val vod = bestVod
+            if (site != null && vod != null) {
+                LogBus.i("Player", "播放失败，自动换源：${site.name}（健康分 $bestScore）")
+                AppToast.show(context, "已自动换源：${site.name}", long = false)
+                cb(vod.vodId, site.key, PlaySession.episodeIndex)
+            } else {
+                errorMsg = fallbackMsg
+            }
         }
     }
 
@@ -762,6 +835,10 @@ fun PlayerScreen(
      * 新引擎 play(pos)，不得改覆盖后才读新引擎位置当断点。
      */
     fun handlePlayFailure(msg: String) {
+        // v1.1.31：健康分记账——播放失败（同地址 10 分钟内只记一次）
+        if (!isLive && !playSourceKey.isNullOrBlank()) {
+            SourceHealthStore.recordPlayFailureOnce(playUrl, playSourceKey)
+        }
         // v0.294.7（L1）：解析结果缓存里这条地址播不了，作废，下次重新解析
         com.movieshell.data.source.ParseCache.invalidateResult(playUrl)
         if (sameEngineRetries.intValue < 2) {
@@ -884,6 +961,7 @@ fun PlayerScreen(
         }
         try {
             if (!autoSwitching) triedLines.clear() else autoSwitching = false
+            autoSourceTried = false
             // v0.186.0 第 5 组：先保存上一地址进度，再清自动换内核覆盖。
             // savePlayerProgress 经 EngineHost.currentPosition() 按当前覆盖
             // 路由读位置，先清覆盖会读成用户设置引擎的位置而非实际在播
@@ -1073,6 +1151,8 @@ fun PlayerScreen(
 
     // v0.25.0：切换中防抖（快速连点不叠请求）
     var switchingEngine by remember { mutableStateOf(false) }
+    // v1.1.31：libmpv 插件未安装时弹安装入口（手动切内核 / 报错弹窗共用跳转）
+    var showMpvInstallDialog by remember { mutableStateOf(false) }
     var showSpeedMenu by remember { mutableStateOf(false) }
     // v0.294.21：切内核时定格的最后一帧（新内核出画前盖在画面上，不黑屏）
     var frozenFrame by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
@@ -1108,9 +1188,10 @@ fun PlayerScreen(
             try {
                 val pos = EngineHost.currentPosition()
                 frozenFrame = FrameGrab.capture(videoView)
-                // v0.123.0：手动切 libmpv 前先查插件在不在，没装别把用户带进黑屏
+                // v1.1.31：手动切 libmpv 前先查插件在不在——没装弹安装入口，
+                // 不再只 Toast 一句让用户自己去市场找
                 if (target == PlayerEngine.LIBMPV && !MpvPluginLoader.isInstalled(context)) {
-                    AppToast.show(context, "libmpv 插件未安装，请先到插件市场安装", long = true)
+                    showMpvInstallDialog = true
                     return@launch
                 }
                 EngineHost.stop()
@@ -1220,8 +1301,39 @@ fun PlayerScreen(
                             androidx.compose.material3.Text("网页嗅探本集")
                         }
                     }
+                    // v1.1.31：Media3 播不了时，libmpv（FFmpeg 软解）可能播得了——
+                    // 未安装时在报错弹窗里给一键装插件入口
+                    if (EngineHost.engine() == PlayerEngine.MEDIA3 &&
+                        !MpvPluginLoader.isInstalled(context) && !MpvPlayerManager.initFailed
+                    ) {
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                playError = null
+                                onOpenPluginCenter()
+                            },
+                        ) {
+                            androidx.compose.material3.Text("安装 libmpv 插件试试")
+                        }
+                    }
                 }
             }
+    }
+    // v1.1.31：libmpv 插件未安装——装完在播放页更多菜单里切到 libmpv
+    if (showMpvInstallDialog) {
+        TechDialog(
+            onDismissRequest = { showMpvInstallDialog = false },
+            title = "libmpv 插件未安装",
+            confirmText = "去插件市场安装",
+            onConfirm = {
+                showMpvInstallDialog = false
+                onOpenPluginCenter()
+            },
+            dismissText = "以后再说",
+        ) {
+            androidx.compose.material3.Text(
+                "libmpv 是 FFmpeg 软解内核，能播 Media3 播不了的格式（AC3/DTS/TrueHD/AV1/杜比视界等）。",
+            )
+        }
     }
 
     // v0.14.0：片尾跳过——距离结尾 skipOutroSec 时自动下一集（无下一集则暂停）

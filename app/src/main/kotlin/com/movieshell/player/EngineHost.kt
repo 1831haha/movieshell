@@ -126,7 +126,7 @@ object EngineHost {
                 PlayerManager.play(url, headers, startPositionMs, subtitleUrl, live)
             } else {
                 MpvPlayerManager.init(context)
-                MpvPlayerManager.play(url, headers, startPositionMs, subtitleUrl)
+                MpvPlayerManager.play(url, headers, startPositionMs, subtitleUrl, live)
             }
             val cost = SystemClock.elapsedRealtime() - t0
             // v0.25.0：结构化诊断日志（URL 脱敏：只留 host + 后缀）

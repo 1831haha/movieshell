@@ -51,9 +51,10 @@ object StoragePaths {
      * 它们是安装包的一部分，不是用户从文件管理器放进来的。
      * 注意：shim.js 是垫片，从不进列表，不在这里。
      */
+    // v1.1.31：网盘功能已砍，六个盘规则（quark/uc/baidu/ali/guangya/xunlei）
+    // 不再是内置规则。
     val BUILTIN_RULE_NAMES: Set<String> = setOf(
-        "sp002.js", "btsow_spider.py", "quark.py", "uc.py", "baidu.py",
-        "ali.py", "guangya.py", "xunlei.py",
+        "sp002.js", "btsow_spider.py",
     )
 
     /** v1.1.21：无授权时某条本地规则是否仍可见——只认内置规则名。 */

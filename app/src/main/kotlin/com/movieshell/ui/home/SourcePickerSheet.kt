@@ -79,6 +79,7 @@ import coil.compose.AsyncImage
 import com.movieshell.data.source_mgr.ApiSource
 import com.movieshell.data.store.RuleInfo
 import com.movieshell.data.store.ApiSourceStore
+import com.movieshell.data.store.SourceHealthStore
 import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.core.log.LogBus
 import com.movieshell.data.source_mgr.PhpSourceManager
@@ -594,6 +595,8 @@ fun SourcePickerSheet(
                 (query.isBlank() || item.name.contains(query.trim(), ignoreCase = true) ||
                     item.fileName?.contains(query.trim(), ignoreCase = true) == true)
         }
+            // v1.1.31：健康分排序——稳的源在前；都没试过（50 分）时稳定排序保原顺序
+            .sortedByDescending { SourceHealthStore.scoreForPickerId(it.id) }
     }
 
     // v1.1.14：四组展示——本地源 / 订阅源 / 压缩包的源 / 网页源；组标题带数量，

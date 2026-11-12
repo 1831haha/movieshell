@@ -75,11 +75,11 @@ import com.movieshell.ui.novel.PurifyRulesScreen
 import com.movieshell.ui.novel.SearchBookDetailScreen
 import com.movieshell.ui.novel.SourceGroup
 import com.movieshell.ui.openlist.OpenListBrowseScreen
+import com.movieshell.ui.mediaserver.MediaServerScreen
 import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.reader.ReaderScreen
 import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.ParseSettingsScreen
-import com.movieshell.ui.settings.PanCenterScreen
 import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.settings.SniffPatternsScreen
 import com.movieshell.ui.sources.SourcesScreen
@@ -287,6 +287,8 @@ fun NavGraphBuilder.appDestinations(
                                     )
                                 },
                                 onManageClick = { navController.navigate("live_manage") },
+                                // v1.1.31：libmpv 未安装时跳插件市场装插件
+                                onOpenPluginCenter = { navController.navigate("plugin_center/2") },
                             )
                         }
                         composable("live_manage") {
@@ -575,10 +577,12 @@ fun NavGraphBuilder.appDestinations(
                                 onSourcesClick = { navController.navigate("sources") },
                                 // v0.78.2：解析接口子页面
                                 onParseSettingsClick = { navController.navigate("parse_settings") },
-                                // v1.1.24：网盘中心页
-                                onPanCenterClick = { navController.navigate("pan_center") },
                                 // v0.127.0：插件中心单入口（原插件市场/服务插件合并）
                                 onPluginCenterClick = { navController.navigate("plugin_center/0") },
+                                // v1.1.31：内核选 libmpv 但插件未安装时，直接跳市场页签装插件
+                                onOpenMarketClick = { navController.navigate("plugin_center/2") },
+                                // v1.1.31：Emby / Jellyfin 媒体服务器
+                                onMediaServerClick = { navController.navigate("media_server") },
                                 onSniffPatternsClick = { navController.navigate("sniff_patterns") },
                                 // v0.80.0：快捷宫格-观看历史
                                 onHistoryClick = { navController.navigate("history") },
@@ -597,12 +601,6 @@ fun NavGraphBuilder.appDestinations(
                         // v0.78.2：解析接口子页面（列表/测活/添加收进这里）
                         composable("parse_settings") {
                             ParseSettingsScreen(
-                                onBack = { navController.popBackStack() },
-                            )
-                        }
-                        // v1.1.24：网盘中心页（6 家网盘：已接入 3 家 + 第一批 3 家）
-                        composable("pan_center") {
-                            PanCenterScreen(
                                 onBack = { navController.popBackStack() },
                             )
                         }
@@ -702,9 +700,26 @@ fun NavGraphBuilder.appDestinations(
                                 },
                                 // v0.294.45：详情全屏已改为原地放大，不再经 onPlay 跳独立播放页，
                                 // 故这里不再传 onPlay；独立播放页仍供历史、搜索、直播等其他入口用。
+                                // v1.1.31：libmpv 未安装时跳插件市场装插件
+                                onOpenPluginCenter = { navController.navigate("plugin_center/2") },
+                                // v1.1.31：播放失败自动换源——跳同名剧详情页同集播
+                                onSwitchSource = { vodId, siteKey, episode ->
+                                    navController.navigate(
+                                        "detail/${Uri.encode(vodId)}?episode=$episode&siteKey=${Uri.encode(siteKey)}",
+                                    )
+                                },
                             )
                         }
-                        playerDestination(onBack = { navController.popBackStack() })
+                        playerDestination(
+                            onBack = { navController.popBackStack() },
+                            onOpenPluginCenter = { navController.navigate("plugin_center/2") },
+                            // v1.1.31：播放失败自动换源——跳同名剧详情页同集播
+                            onAutoSwitchSource = { vodId, siteKey, episode ->
+                                navController.navigate(
+                                    "detail/${Uri.encode(vodId)}?episode=$episode&siteKey=${Uri.encode(siteKey)}",
+                                )
+                            },
+                        )
                         composable(
                             route = "web_sniff/{name}/{url}",
                             arguments = listOf(
@@ -729,6 +744,18 @@ fun NavGraphBuilder.appDestinations(
                         // v0.294.55：本机 OpenList 网盘浏览（服务插件配套，地址固定本机 5244）
                         composable("openlist") {
                             OpenListBrowseScreen(
+                                onBack = { navController.popBackStack() },
+                                onPlay = { playUrl, title ->
+                                    navController.navigateToPlayer(
+                                        url = playUrl,
+                                        title = title,
+                                    )
+                                },
+                            )
+                        }
+                        // v1.1.31：Emby / Jellyfin 媒体服务器
+                        composable("media_server") {
+                            MediaServerScreen(
                                 onBack = { navController.popBackStack() },
                                 onPlay = { playUrl, title ->
                                     navController.navigateToPlayer(

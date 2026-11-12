@@ -152,6 +152,8 @@ private object LiveSelection {
 fun LiveScreen(
     onFullscreenChannel: (LiveChannel) -> Unit,
     onManageClick: () -> Unit,
+    // v1.1.31：libmpv 未安装时跳插件市场装插件
+    onOpenPluginCenter: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -433,6 +435,7 @@ fun LiveScreen(
                             PlaySession.returnToEmbedded = true
                             onFullscreenChannel(playing)
                         },
+                        onOpenPluginCenter = onOpenPluginCenter,
                         // v0.158.0：最终失败自动切同名源（同内核重拉+换内核已在播放器内走完）；
                         // 切到其他源时把换源过滤放回全部，避免列表与在播频道对不上
                         onLiveError = {

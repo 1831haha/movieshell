@@ -35,6 +35,7 @@ import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Subtitles
+import androidx.compose.material.icons.outlined.Storage
 import android.content.ClipData
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
@@ -129,6 +130,7 @@ import com.movieshell.core.util.AtomicFile
 import com.movieshell.data.sync.BackupManager
 import com.movieshell.data.sync.CloudSyncManager
 import com.movieshell.data.store.DownloadStore
+import com.movieshell.data.store.EmbyStore
 import com.movieshell.data.store.FollowStore
 import com.movieshell.data.store.SubRefreshStore
 import com.movieshell.data.source.JsRuntime
@@ -143,6 +145,7 @@ import com.movieshell.ui.preview.fileProviderAuthority
 import com.movieshell.data.store.PlayerSettings
 import com.movieshell.player.PlayerManager
 import com.movieshell.data.source.PluginMarket
+import com.movieshell.data.source.SniffConfig
 import com.movieshell.data.store.PluginStore
 import com.movieshell.data.store.ThemeStore
 import com.movieshell.ui.components.AppButton
@@ -192,8 +195,11 @@ fun SettingsScreen(
     onChangelogClick: () -> Unit = {},
     onSourcesClick: () -> Unit = {}, // v0.36.0：站源管理入口（tab 删除后搬进设置）
     onParseSettingsClick: () -> Unit = {}, // v0.78.2：解析接口子页面入口
-    onPanCenterClick: () -> Unit = {}, // v1.1.24：网盘中心页入口（6 家网盘收进这里）
     onPluginCenterClick: () -> Unit = {}, // v0.127.0：插件中心（插件/服务/市场三页签，原两入口合并）
+    // v1.1.31：内核选 libmpv 但插件未安装时，直接跳市场页签装插件
+    onOpenMarketClick: () -> Unit = onPluginCenterClick,
+    // v1.1.31：Emby / Jellyfin 媒体服务器入口
+    onMediaServerClick: () -> Unit = {},
     onSniffPatternsClick: () -> Unit = {}, // v0.79.0：嗅探正则管理（v0.168.0 起入口在快捷宫格）
     onHistoryClick: () -> Unit = {}, // v0.80.0：快捷宫格-观看历史
     onFollowClick: () -> Unit = {}, // v0.90.0：快捷宫格-我的追剧（资料卡已可点进历史/追剧）
@@ -221,13 +227,15 @@ fun SettingsScreen(
     var aiProviderId by remember { mutableStateOf(AiRepairSettings.provider(context).id) }
     var aiWorking by remember { mutableStateOf(false) }
     var aiTestText by remember { mutableStateOf("") }
-    // v1.1.24：三家网盘登录弹窗已搬进网盘中心页，本页只留一个入口
     // v0.186.0：云端更新的冲突确认弹窗（已有 TechDialog 机制，不新开入口）
     var showCloudConflict by remember { mutableStateOf(false) }
     var cloudConflictText by remember { mutableStateOf("") }
     // v0.20.0：播放器内核（Media3 默认，libmpv 可选，记忆选择）
     val engine by PlayerSettings.engine.collectAsState()
     var showEngineDialog by remember { mutableStateOf(false) }
+    // v1.1.31：媒体服务器入口副标题（已添加台数）
+    val embyServers by EmbyStore.servers.collectAsState()
+    val embySubtitle = if (embyServers.isEmpty()) "未添加 · 支持 Emby / Jellyfin" else "已添加 ${embyServers.size} 台"
     var showThemeDialog by remember { mutableStateOf(false) }
     var cacheSize by remember { mutableStateOf("计算中…") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
@@ -384,6 +392,13 @@ fun SettingsScreen(
         statsLoaded = true
     }
     LaunchedEffect(Unit) { refreshDerived() }
+    // v1.1.31：媒体服务器配置读盘（只读一次，供入口副标题用）
+    LaunchedEffect(Unit) { EmbyStore.ensureLoaded(context) }
+    // v1.1.31：去广告开关读盘（SniffConfig 首次读是默认值，读完再同步一次开关态）
+    LaunchedEffect(Unit) {
+        SniffConfig.ensureLoaded(context)
+        adFilterOn = SniffConfig.adFilterEnabled
+    }
     val settingsLifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(settingsLifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -401,6 +416,8 @@ fun SettingsScreen(
     val cs = MaterialTheme.colorScheme
     val customBg by BackgroundStore.customBg.collectAsState()
     val gravityRotate by PlayerSettings.gravityRotate.collectAsState()
+    // v1.1.31：去广告总开关（SniffConfig.adFilterEnabled，默认开；Media3 与 libmpv 共用）
+    var adFilterOn by remember { mutableStateOf(SniffConfig.adFilterEnabled) }
     val liveAutoplay by PlayerSettings.liveAutoplay.collectAsState()
     var showLiveAutoplayMenu by remember { mutableStateOf(false) }
     val logEnabled by LogStore.enabled.collectAsState()
@@ -591,24 +608,35 @@ fun SettingsScreen(
                     }
                 },
             )
-                }
-            }
-        }
-        // v1.1.24：网盘
-        item { SettingsCaption("网盘") }
-        item {
-            AppCard(
-                shape = RoundedCornerShape(V5.CornerCard),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    SegItem(
-                        position = SegPos.Single,
-                        icon = Icons.Outlined.Cloud,
-                        title = "网盘",
-                        subtitle = "夸克 · UC · 百度 · 阿里 · 光鸭 · 迅雷",
-                        onClick = onPanCenterClick,
+            // v1.1.31：Emby / Jellyfin 媒体服务器（自建服务器直连，不经过中转）
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Outlined.Storage,
+                title = "媒体服务器",
+                subtitle = embySubtitle,
+                onClick = onMediaServerClick,
+            )
+            // v1.1.31：去广告总开关（SniffConfig.adFilterEnabled，默认开；
+            // 管 m3u8 分片过滤 + 嗅探候选排除 / JS 注入 / 域名拦截；Media3 与 libmpv 共用）
+            SegItem(
+                position = SegPos.Last,
+                icon = Icons.Outlined.Block,
+                title = "去广告",
+                subtitle = if (adFilterOn) "开 · 过滤 m3u8 插播广告" else "关 · 不过滤插播广告",
+                onClick = {
+                    SniffConfig.update(context, adFilter = !adFilterOn)
+                    adFilterOn = !adFilterOn
+                },
+                trailing = {
+                    AppSwitch(
+                        checked = adFilterOn,
+                        onCheckedChange = {
+                            SniffConfig.update(context, adFilter = it)
+                            adFilterOn = it
+                        },
                     )
+                },
+            )
                 }
             }
         }
@@ -997,7 +1025,9 @@ fun SettingsScreen(
                     )
                     showEngineDialog = false
                 } else {
-                    AppToast.show(context, "去 设置-插件中心 安装 libmpv 播放器引擎", long = true)
+                    // v1.1.31：未安装不再只 Toast，直接跳市场页签装插件
+                    showEngineDialog = false
+                    onOpenMarketClick()
                 }
             },
         )
