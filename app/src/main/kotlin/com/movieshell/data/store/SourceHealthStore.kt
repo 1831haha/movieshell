@@ -2,6 +2,8 @@ package com.movieshell.data.store
 
 import android.content.Context
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
 /**
@@ -118,7 +120,7 @@ object SourceHealthStore {
         if (now - lastPersistMs < PERSIST_MIN_INTERVAL_MS) return
         lastPersistMs = now
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_JSON, json.encodeToString(records))
+            .putString(KEY_JSON, json.encodeToString(MapSerializer(String.serializer(), HealthRecord.serializer()), records))
             .apply()
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.util.UUID
 
@@ -77,7 +78,7 @@ object EmbyStore {
     private fun persist(context: Context, list: List<EmbyServer>) {
         _servers.value = list
         prefs(context).edit()
-            .putString(KEY_SERVERS, json.encodeToString(list))
+            .putString(KEY_SERVERS, json.encodeToString(ListSerializer(EmbyServer.serializer()), list))
             .apply()
     }
 

@@ -340,13 +340,17 @@ fun MediaServerScreen(
                         ) {
                             servers.forEach { s ->
                                 DropdownMenuItem(
-                                    text = { Text(s.name) },
-                                    supportingText = {
-                                        Text(
-                                            s.baseUrl,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
+                                    text = {
+                                        Column {
+                                            Text(s.name)
+                                            Text(
+                                                s.baseUrl,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
                                     },
                                     leadingIcon = {
                                         if (s.id == active.id) {

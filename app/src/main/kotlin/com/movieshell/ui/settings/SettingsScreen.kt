@@ -391,6 +391,8 @@ fun SettingsScreen(
         statsFailed = failed
         statsLoaded = true
     }
+    // v1.1.31：去广告总开关（SniffConfig.adFilterEnabled，默认开；Media3 与 libmpv 共用）
+    var adFilterOn by remember { mutableStateOf(SniffConfig.adFilterEnabled) }
     LaunchedEffect(Unit) { refreshDerived() }
     // v1.1.31：媒体服务器配置读盘（只读一次，供入口副标题用）
     LaunchedEffect(Unit) { EmbyStore.ensureLoaded(context) }
@@ -416,8 +418,6 @@ fun SettingsScreen(
     val cs = MaterialTheme.colorScheme
     val customBg by BackgroundStore.customBg.collectAsState()
     val gravityRotate by PlayerSettings.gravityRotate.collectAsState()
-    // v1.1.31：去广告总开关（SniffConfig.adFilterEnabled，默认开；Media3 与 libmpv 共用）
-    var adFilterOn by remember { mutableStateOf(SniffConfig.adFilterEnabled) }
     val liveAutoplay by PlayerSettings.liveAutoplay.collectAsState()
     var showLiveAutoplayMenu by remember { mutableStateOf(false) }
     val logEnabled by LogStore.enabled.collectAsState()

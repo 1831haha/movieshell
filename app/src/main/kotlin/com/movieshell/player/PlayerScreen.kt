@@ -121,6 +121,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -696,6 +698,69 @@ fun PlayerScreen(
     }
 
     /**
+     * v1.1.31：播放失败自动换源——当前源全部线路耗尽时，在其他源里搜同名剧（精确片名），
+     * 按健康分取最稳的一个，跳它的详情页同集播。只试一次；找不到/搜不到就落回原报错。
+     * 直播、没标题、没回调时不走这条路。
+     */
+    fun tryAutoSwitchSource(fallbackMsg: String) {
+        val target = title.trim()
+        val cb = onAutoSwitchSource
+        if (cb == null || isLive || target.isBlank() || autoSourceTried) {
+            errorMsg = fallbackMsg
+            return
+        }
+        autoSourceTried = true
+        AppToast.show(context, "当前源播不了，正在找其他源…", long = false)
+        scope.launch {
+            val repo = SiteRepository(
+                drpyEngine = DrpySourceManager.drpyEngineAdapter,
+                pyEngine = PySourceManager.engineAdapter,
+            )
+            runCatching {
+                withContext(Dispatchers.IO) { repo.loadFromConfig(buildSearchConfigJson(context)) }
+            }
+            val currentKeys = buildSet {
+                siteKey?.takeIf { it.isNotBlank() }?.let { add(it) }
+                DrpySourceManager.activeRuleName()?.let { add("$LOCAL_DRPY_PREFIX$it") }
+                PySourceManager.activeRuleName()?.let { add("$LOCAL_PY_PREFIX$it") }
+                PhpSourceManager.activeRuleName()?.let { add("php:$it") }
+            }
+            var bestSite: Site? = null
+            var bestVod: Vod? = null
+            var bestScore = -1
+            withTimeoutOrNull(12_000) {
+                repo.searchAllFlow(target).transformWhile { group ->
+                    if (group.site.key in currentKeys) return@transformWhile true
+                    val exact = group.vods.firstOrNull { it.vodName.trim() == target }
+                    if (exact != null) {
+                        val s = SourceHealthStore.score(group.site.key)
+                        if (s > bestScore) {
+                            bestScore = s
+                            bestSite = group.site
+                            bestVod = exact
+                        }
+                        // 够稳的源一到就停，不等慢源跑完
+                        if (s >= 70) return@transformWhile false
+                    }
+                    true
+                }.collect {}
+            }
+            val site = bestSite
+            val vod = bestVod
+            if (site != null && vod != null && bestScore >= 30) {
+                LogBus.i("Player", "播放失败，自动换源：${site.name}（健康分 $bestScore）")
+                AppToast.show(context, "已自动换源：${site.name}", long = false)
+                cb(vod.vodId, site.key, PlaySession.episodeIndex)
+            } else {
+                // v1.1.31：剩下的全是常年失败的源（未试过的源是 50 分，不受这条影响），
+                // 换过去大概率再失败——不如直接报原错误，省一次换源等待
+                if (site != null) LogBus.i("Player", "自动换源放弃：最好源 ${site.name} 仅 $bestScore 分")
+                errorMsg = fallbackMsg
+            }
+        }
+    }
+
+    /**
      * v0.19.0：播放错误 → 按线路顺序自动重试（同集换线路）。
      * v0.25.0：抽成独立函数，自动换内核失败时复用；全部试完仍失败才置 errorMsg。
      * 注意声明位置：同 playCurrentUrl，初始失败链与错误回调都要调它。
@@ -764,68 +829,6 @@ fun PlayerScreen(
             }
         } else {
             tryAutoSwitchSource(fallbackMsg)
-        }
-    }
-
-    /**
-     * v1.1.31：播放失败自动换源——当前源全部线路耗尽时，在其他源里搜同名剧（精确片名），
-     * 按健康分取最稳的一个，跳它的详情页同集播。只试一次；找不到/搜不到就落回原报错。
-     * 直播、没标题、没回调时不走这条路。
-     */
-    fun tryAutoSwitchSource(fallbackMsg: String) {
-        val target = title.trim()
-        val cb = onAutoSwitchSource
-        if (cb == null || isLive || target.isBlank() || autoSourceTried) {
-            errorMsg = fallbackMsg
-            return
-        }
-        autoSourceTried = true
-        AppToast.show(context, "当前源播不了，正在找其他源…", long = false)
-        scope.launch {
-            val repo = SiteRepository(
-                drpyEngine = DrpySourceManager.drpyEngineAdapter,
-                pyEngine = PySourceManager.engineAdapter,
-            )
-            runCatching {
-                withContext(Dispatchers.IO) { repo.loadFromConfig(buildSearchConfigJson(context)) }
-            }
-            val currentKeys = buildSet {
-                siteKey?.takeIf { it.isNotBlank() }?.let { add(it) }
-                DrpySourceManager.activeRuleName()?.let { add("$LOCAL_DRPY_PREFIX$it") }
-                PySourceManager.activeRuleName()?.let { add("$LOCAL_PY_PREFIX$it") }
-                PhpSourceManager.activeRuleName()?.let { add("php:$it") }
-            }
-            var bestSite: Site? = null
-            var bestVod: Vod? = null
-            var bestScore = -1
-            withTimeoutOrNull(12_000) {
-                repo.searchAllFlow(target).collect { group ->
-                    if (group.site.key in currentKeys) return@collect
-                    val exact = group.vods.firstOrNull { it.vodName.trim() == target }
-                    if (exact != null) {
-                        val s = SourceHealthStore.score(group.site.key)
-                        if (s > bestScore) {
-                            bestScore = s
-                            bestSite = group.site
-                            bestVod = exact
-                        }
-                        // 够稳的源一到就停，不等慢源跑完
-                        if (s >= 70) return@withTimeoutOrNull
-                    }
-                }
-            }
-            val site = bestSite
-            val vod = bestVod
-            if (site != null && vod != null && bestScore >= 30) {
-                LogBus.i("Player", "播放失败，自动换源：${site.name}（健康分 $bestScore）")
-                AppToast.show(context, "已自动换源：${site.name}", long = false)
-                cb(vod.vodId, site.key, PlaySession.episodeIndex)
-            } else {
-                // v1.1.31：剩下的全是常年失败的源（未试过的源是 50 分，不受这条影响），
-                // 换过去大概率再失败——不如直接报原错误，省一次换源等待
-                if (site != null) LogBus.i("Player", "自动换源放弃：最好源 ${site.name} 仅 $bestScore 分")
-                errorMsg = fallbackMsg
-            }
         }
     }
 
