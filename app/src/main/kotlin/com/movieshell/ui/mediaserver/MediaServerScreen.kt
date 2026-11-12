@@ -1,7 +1,9 @@
 package com.movieshell.ui.mediaserver
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -21,15 +25,22 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Tv
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,6 +53,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -325,13 +340,26 @@ fun MediaServerScreen(
                         ) {
                             servers.forEach { s ->
                                 DropdownMenuItem(
-                                    text = { Text(if (s.id == active.id) "● ${s.name}" else s.name) },
+                                    text = { Text(s.name) },
+                                    supportingText = {
+                                        Text(
+                                            s.baseUrl,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        if (s.id == active.id) {
+                                            Icon(Icons.Outlined.Check, contentDescription = "当前服务器")
+                                        }
+                                    },
                                     onClick = {
                                         showServerMenu = false
                                         EmbyStore.setActive(context, s.id)
                                     },
                                 )
                             }
+                            HorizontalDivider()
                             DropdownMenuItem(
                                 text = { Text("添加服务器") },
                                 onClick = { showServerMenu = false; openAdd() },
@@ -359,6 +387,18 @@ fun MediaServerScreen(
                         modifier = Modifier.fillMaxWidth().padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
+                        Box(
+                            modifier = Modifier.size(64.dp).clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Outlined.Storage, null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(28.dp),
+                            )
+                        }
+                        Spacer(Modifier.height(16.dp))
                         Text("还没有添加媒体服务器", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(8.dp))
                         Text(
@@ -368,11 +408,38 @@ fun MediaServerScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(16.dp))
-                        TextButton(onClick = { openAdd() }) { Text("添加服务器") }
+                        Button(onClick = { openAdd() }) { Text("添加服务器") }
                     }
                 }
             } else if (active != null) {
                 val server = active
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                            .clickable { showServerMenu = true }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier.size(8.dp).clip(CircleShape)
+                                .background(Color(0xFF4ADE80)),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(server.name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            server.baseUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text("切换", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
                 item {
                     OutlinedTextField(
                         value = query,
@@ -380,6 +447,14 @@ fun MediaServerScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         placeholder = { Text("搜索影片 / 剧集") },
                         leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (query.isNotEmpty()) {
+                                IconButton(onClick = { query = "" }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "清空")
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(24.dp),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { doSearch(server, query) }),
@@ -387,10 +462,23 @@ fun MediaServerScreen(
                 }
                 if (authExpired) {
                     item {
-                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                            Text("登录已过期，请重新登录", style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.height(8.dp))
-                            TextButton(onClick = { openEdit(server) }) { Text("重新登录") }
+                        Column(
+                            Modifier.fillMaxWidth().padding(16.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                                .padding(16.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Outlined.ErrorOutline, null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("登录已过期，请重新登录", style = MaterialTheme.typography.titleMedium)
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            FilledTonalButton(onClick = { openEdit(server) }) { Text("重新登录") }
                         }
                     }
                 } else if (loading) {
@@ -398,13 +486,31 @@ fun MediaServerScreen(
                         Column(
                             Modifier.fillMaxWidth().padding(32.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                        ) { CircularProgressIndicator() }
+                        ) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "正在加载…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 } else if (error.isNotBlank()) {
                     item {
-                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                        Column(
+                            Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                Icons.Outlined.ErrorOutline, null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(40.dp),
+                            )
+                            Spacer(Modifier.height(8.dp))
                             Text(error, color = MaterialTheme.colorScheme.error)
-                            TextButton(onClick = {
+                            Spacer(Modifier.height(12.dp))
+                            FilledTonalButton(onClick = {
                                 when (level) {
                                     Level.Root -> loadRoot(server)
                                     is Level.Folder -> loadFolder(server, level.id)
@@ -416,7 +522,7 @@ fun MediaServerScreen(
                     }
                 } else if (searching) {
                     if (items.isEmpty()) {
-                        item { Text("没有找到相关内容", Modifier.padding(16.dp)) }
+                        item { EmptyState(Icons.Outlined.Search, "没有找到相关内容", "换个关键词试试") }
                     } else {
                         items(items, key = { it.Id }) { item ->
                             EmbyRow(server, item) { openItem(server, item) }
@@ -425,25 +531,13 @@ fun MediaServerScreen(
                 } else when (level) {
                     Level.Root -> {
                         if (resumeItems.isNotEmpty()) {
-                            item {
-                                Text(
-                                    "继续观看",
-                                    Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                            }
+                            item { SectionHeader("继续观看", resumeItems.size) }
                             items(resumeItems, key = { it.Id }) { item ->
                                 EmbyRow(server, item) { openItem(server, item) }
                             }
                         }
                         if (views.isNotEmpty()) {
-                            item {
-                                Text(
-                                    "媒体库",
-                                    Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                            }
+                            item { SectionHeader("媒体库", views.size) }
                             items(views, key = { it.Id }) { view ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth()
@@ -454,22 +548,41 @@ fun MediaServerScreen(
                                         .padding(horizontal = 16.dp, vertical = 14.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Icon(
-                                        if (view.CollectionType == "tvshows") Icons.Outlined.Tv else Icons.Outlined.Movie,
-                                        contentDescription = null,
-                                    )
+                                    Box(
+                                        modifier = Modifier.size(40.dp).clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primaryContainer),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            if (view.CollectionType == "tvshows") Icons.Outlined.Tv else Icons.Outlined.Movie,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.size(22.dp),
+                                        )
+                                    }
                                     Spacer(Modifier.width(12.dp))
-                                    Text(view.Name, style = MaterialTheme.typography.titleMedium)
+                                    Column(Modifier.weight(1f)) {
+                                        Text(view.Name, style = MaterialTheme.typography.titleMedium)
+                                        Text(
+                                            if (view.CollectionType == "tvshows") "剧集库" else "电影库",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Icon(
+                                        Icons.Outlined.ChevronRight, null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             }
                         }
                         if (views.isEmpty() && resumeItems.isEmpty()) {
-                            item { Text("媒体库是空的", Modifier.padding(16.dp)) }
+                            item { EmptyState(Icons.Outlined.Movie, "媒体库是空的", "服务器上还没有媒体库") }
                         }
                     }
                     is Level.Folder, is Level.Series, is Level.Season -> {
                         if (items.isEmpty()) {
-                            item { Text("这里是空的", Modifier.padding(16.dp)) }
+                            item { EmptyState(Icons.Outlined.Movie, "这里是空的") }
                         } else {
                             items(items, key = { it.Id }) { item ->
                                 EmbyRow(server, item) { openItem(server, item) }
@@ -486,6 +599,7 @@ fun MediaServerScreen(
             onDismissRequest = { if (!formTesting) showAdd = false },
             title = if (editing == null) "添加服务器" else "编辑服务器",
             confirmText = if (formTesting) "正在连接…" else "测试并保存",
+            confirmEnabled = !formTesting,
             onConfirm = { if (!formTesting) saveForm() },
             dismissText = "取消",
         ) {
@@ -497,23 +611,32 @@ fun MediaServerScreen(
                     label = { Text("名称（可空）") },
                     singleLine = true,
                 )
-                Row {
-                    TextButton(
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = formType == "emby",
                         onClick = { formType = "emby" },
-                        enabled = formType != "emby",
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                     ) { Text("Emby") }
-                    TextButton(
+                    SegmentedButton(
+                        selected = formType == "jellyfin",
                         onClick = { formType = "jellyfin" },
-                        enabled = formType != "jellyfin",
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                     ) { Text("Jellyfin") }
                 }
                 OutlinedTextField(
                     value = formAddress,
                     onValueChange = { formAddress = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("服务器地址，如 http://192.168.1.10:8096") },
+                    label = { Text("服务器地址") },
+                    placeholder = { Text("http://192.168.1.10:8096") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                )
+                Text(
+                    "账号登录",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
                 )
                 OutlinedTextField(
                     value = formUser,
@@ -531,16 +654,30 @@ fun MediaServerScreen(
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 )
+                Text(
+                    "或用 API Key（可选，填了可免密码）",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
                 OutlinedTextField(
                     value = formApiKey,
                     onValueChange = { formApiKey = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("API Key（可选，填了可免密码）") },
+                    label = { Text("API Key") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                 )
                 if (formError.isNotBlank()) {
-                    Text(formError, color = MaterialTheme.colorScheme.error)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Outlined.ErrorOutline, null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(formError, color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         }
@@ -585,6 +722,46 @@ private fun displayTitle(item: EmbyApi.EmbyItem): String {
     return item.Name
 }
 
+// v1.1.31 精致化：分组标题＋数量角标。
+@Composable
+private fun SectionHeader(title: String, count: Int) {
+    Row(
+        Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.width(8.dp))
+        Box(
+            Modifier.clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                .padding(horizontal = 7.dp, vertical = 2.dp),
+        ) {
+            Text(
+                "$count",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+// v1.1.31 精致化：空态（图标＋标题＋可选副文案）。
+@Composable
+private fun EmptyState(icon: ImageVector, title: String, subtitle: String? = null) {
+    Column(
+        Modifier.fillMaxWidth().padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(40.dp))
+        Spacer(Modifier.height(8.dp))
+        Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!subtitle.isNullOrBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
 private fun formatDuration(ms: Long): String {
     val totalSec = (ms / 1000).toInt()
     val h = totalSec / 3600
@@ -604,16 +781,33 @@ private fun EmbyRow(
     val resumeMs = EmbyApi.ticksToMs(item.UserData?.PlaybackPositionTicks ?: 0L)
     val durMs = EmbyApi.ticksToMs(item.RunTimeTicks)
     val pct = if (durMs > 0) (resumeMs * 100 / durMs).toInt().coerceIn(0, 100) else 0
+    var imageFailed by remember(poster) { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AsyncImage(
-            model = poster,
-            contentDescription = null,
-            modifier = Modifier.size(width = 56.dp, height = 80.dp),
-        )
+        Box(
+            modifier = Modifier.size(width = 56.dp, height = 80.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Outlined.Movie, null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(24.dp),
+            )
+            if (!imageFailed) {
+                AsyncImage(
+                    model = poster,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    onError = { imageFailed = true },
+                )
+            }
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -644,21 +838,19 @@ private fun EmbyRow(
                 Spacer(Modifier.height(6.dp))
                 LinearProgressIndicator(
                     progress = pct / 100f,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(4.dp)
+                        .clip(RoundedCornerShape(2.dp)),
                 )
                 Text(
-                    text = "已看到 ${pct}%",
+                    text = "已看到 ${pct}% · 还剩 ${formatDuration(durMs - resumeMs)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        if (item.Type == "Series" || item.Type == "Season") {
-            Text(
-                text = "›",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Icon(
+            Icons.Outlined.ChevronRight, null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

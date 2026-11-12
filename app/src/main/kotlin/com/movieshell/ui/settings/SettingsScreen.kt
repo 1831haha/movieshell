@@ -1012,10 +1012,13 @@ fun SettingsScreen(
         }
     }
     if (showEngineDialog) {
+        // v1.1.31 精致化：未安装时选项上直接写明点后去市场安装，选之前就知道
+        val libmpvOption =
+            if (MpvPluginLoader.isInstalled(context)) "libmpv" else "libmpv（未安装 · 点后去市场安装）"
         SingleChoiceDialog(
             title = "播放器内核",
-            options = listOf("Media3（默认）", "libmpv"),
-            selected = if (engine == PlayerEngine.MEDIA3) "Media3（默认）" else "libmpv",
+            options = listOf("Media3（默认）", libmpvOption),
+            selected = if (engine == PlayerEngine.MEDIA3) "Media3（默认）" else libmpvOption,
             onDismiss = { showEngineDialog = false },
             onSelect = {
                 if (it.startsWith("Media3") || MpvPluginLoader.isInstalled(context)) {

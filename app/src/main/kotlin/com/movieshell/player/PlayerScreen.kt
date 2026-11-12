@@ -67,12 +67,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Lock
@@ -1326,6 +1329,7 @@ fun PlayerScreen(
         TechDialog(
             onDismissRequest = { showMpvInstallDialog = false },
             title = "libmpv 插件未安装",
+            subtitle = "FFmpeg 软解内核",
             confirmText = "去插件市场安装",
             onConfirm = {
                 showMpvInstallDialog = false
@@ -1333,9 +1337,34 @@ fun PlayerScreen(
             },
             dismissText = "以后再说",
         ) {
-            androidx.compose.material3.Text(
-                "libmpv 是 FFmpeg 软解内核，能播 Media3 播不了的格式（AC3/DTS/TrueHD/AV1/杜比视界等）。",
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
+                    modifier = Modifier.size(52.dp).clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Download, null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(26.dp),
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    androidx.compose.material3.Text("能播 Media3 播不了的格式")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    androidx.compose.material3.Text("AC3 · DTS · TrueHD · AV1 · 杜比视界")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    androidx.compose.material3.Text("装完在播放页右上角「更多」里切换内核")
+                }
+            }
         }
     }
 
