@@ -104,9 +104,15 @@ object EngineHost {
                 return false
             }
             if (MpvPlayerManager.initFailed) {
-                LogBus.w("Play", "$proto 需 libmpv，但 libmpv 初始化失败过，已拒绝")
-                AppToast.show(context, "libmpv 不可用，$proto 无法播放", long = false)
-                return false
+                if (MpvPlayerManager.initFailedMissingPlugin && MpvPluginLoader.isInstalled(context)) {
+                    // v1.1.31：上次失败是缺插件，现在已补装——清标记重试
+                    MpvPlayerManager.clearInitFailed()
+                    LogBus.i("Play", "$proto：libmpv 插件已补装，重试初始化")
+                } else {
+                    LogBus.w("Play", "$proto 需 libmpv，但 libmpv 初始化失败过，已拒绝")
+                    AppToast.show(context, "libmpv 不可用，$proto 无法播放", long = false)
+                    return false
+                }
             }
             if (engine() == PlayerEngine.MEDIA3) {
                 setEngineOverride(PlayerEngine.LIBMPV)
@@ -115,10 +121,16 @@ object EngineHost {
         }
         var eng = engine()
         if (eng == PlayerEngine.LIBMPV && MpvPlayerManager.initFailed) {
-            LogBus.w("Play", "libmpv 已禁用（初始化失败过），回退 Media3")
-            AppToast.show(context, "libmpv 不可用，已切回 Media3", long = false)
-            setEngineOverride(PlayerEngine.MEDIA3)
-            eng = PlayerEngine.MEDIA3
+            if (MpvPlayerManager.initFailedMissingPlugin && MpvPluginLoader.isInstalled(context)) {
+                // v1.1.31：上次失败是缺插件，现在已补装——清标记重试初始化，不用重启 App
+                MpvPlayerManager.clearInitFailed()
+                LogBus.i("Play", "libmpv 插件已补装，重试初始化")
+            } else {
+                LogBus.w("Play", "libmpv 已禁用（初始化失败过），回退 Media3")
+                AppToast.show(context, "libmpv 不可用，已切回 Media3", long = false)
+                setEngineOverride(PlayerEngine.MEDIA3)
+                eng = PlayerEngine.MEDIA3
+            }
         }
         return try {
             if (eng == PlayerEngine.MEDIA3) {

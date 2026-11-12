@@ -813,11 +813,14 @@ fun PlayerScreen(
             }
             val site = bestSite
             val vod = bestVod
-            if (site != null && vod != null) {
+            if (site != null && vod != null && bestScore >= 30) {
                 LogBus.i("Player", "播放失败，自动换源：${site.name}（健康分 $bestScore）")
                 AppToast.show(context, "已自动换源：${site.name}", long = false)
                 cb(vod.vodId, site.key, PlaySession.episodeIndex)
             } else {
+                // v1.1.31：剩下的全是常年失败的源（未试过的源是 50 分，不受这条影响），
+                // 换过去大概率再失败——不如直接报原错误，省一次换源等待
+                if (site != null) LogBus.i("Player", "自动换源放弃：最好源 ${site.name} 仅 $bestScore 分")
                 errorMsg = fallbackMsg
             }
         }

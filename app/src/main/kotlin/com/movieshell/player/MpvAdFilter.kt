@@ -44,6 +44,14 @@ object MpvAdFilter {
         if (!SniffConfig.adFilterEnabled) return null
         if (live) return null
         if (!AdFilteringDataSource.isPlaylistRequest(url, null)) return null
+        val dir = File(context.filesDir, CACHE_DIR).apply { mkdirs() }
+        val file = File(dir, sha256(url) + ".m3u8")
+        // v1.1.31：同一地址 1 小时内的过滤结果直接复用——点播播放列表是静态的，
+        // 换内核重试/同集重播不用每次都重新拉一次
+        if (file.exists() && System.currentTimeMillis() - file.lastModified() < 3_600_000L) {
+            LogBus.i("MpvAdFilter", "去广告：复用 1 小时内缓存 ${file.name}")
+            return file.absolutePath
+        }
         return runCatching {
             val client = HttpClient.defaultClient().newBuilder()
                 .connectTimeout(3, TimeUnit.SECONDS)
@@ -52,14 +60,25 @@ object MpvAdFilter {
                 .build()
             val text = download(client, url, headers) ?: return null
             val filtered = filterPlaylist(client, url, headers, text) ?: return null
-            val dir = File(context.filesDir, CACHE_DIR).apply { mkdirs() }
-            val file = File(dir, sha256(url) + ".m3u8")
+            pruneCache(dir)
             file.writeText(filtered, Charsets.UTF_8)
             LogBus.i("MpvAdFilter", "去广告：${url.take(80)} -> 本地 ${file.name}（${filtered.length} 字符）")
             file.absolutePath
         }.onFailure {
             LogBus.w("MpvAdFilter", "过滤失败，走原地址：${it.message}")
         }.getOrNull()
+    }
+
+    /** 缓存淘汰：只留最新的 50 个、7 天内的——同一地址的过滤文件不设上限会一直涨。 */
+    private fun pruneCache(dir: File) {
+        runCatching {
+            val files = dir.listFiles()?.sortedByDescending { it.lastModified() } ?: return
+            val now = System.currentTimeMillis()
+            val sevenDays = 7L * 24 * 60 * 60 * 1000
+            files.forEachIndexed { idx, f ->
+                if (idx >= 50 || now - f.lastModified() > sevenDays) f.delete()
+            }
+        }
     }
 
     private fun download(client: OkHttpClient, url: String, headers: Map<String, String>): String? {

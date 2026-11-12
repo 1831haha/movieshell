@@ -16,6 +16,9 @@ class EmbyApiTest {
         assertEquals("http://192.168.1.10:8096", EmbyApi.normalizeBase("http://192.168.1.10:8096/emby"))
         assertEquals("http://192.168.1.10:8096", EmbyApi.normalizeBase("http://192.168.1.10:8096/emby/"))
         assertEquals("https://emby.example.com", EmbyApi.normalizeBase("https://emby.example.com"))
+        // v1.1.31：裸地址补 http://
+        assertEquals("http://192.168.1.10:8096", EmbyApi.normalizeBase("192.168.1.10:8096"))
+        assertEquals("http://192.168.1.10:8096", EmbyApi.normalizeBase("192.168.1.10:8096/emby"))
     }
 
     @Test

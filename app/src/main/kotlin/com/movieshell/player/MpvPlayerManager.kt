@@ -49,6 +49,9 @@ object MpvPlayerManager {
      */
     private val initFailedFlag = AtomicBoolean(false)
     val initFailed: Boolean get() = initFailedFlag.get()
+    // v1.1.31：初始化失败是否因为插件没装——是才允许装完后重试；原生加载失败等其他原因仍 sticky
+    private val initFailedMissingPluginFlag = AtomicBoolean(false)
+    val initFailedMissingPlugin: Boolean get() = initFailedMissingPluginFlag.get()
 
     @Volatile private var attachedSurface: Surface? = null
     @Volatile private var surfaceW: Int = 0
@@ -134,9 +137,22 @@ object MpvPlayerManager {
             } catch (t: Throwable) {
                 initialized.set(false)
                 initFailedFlag.set(true)
+                // v1.1.31：只记"缺插件"这一种可恢复原因——文件在但加载失败（损坏/架构不对）
+                // 不属于缺插件，不重试
+                initFailedMissingPluginFlag.set(!MpvPluginLoader.isInstalled(app))
                 LogBus.e("MpvPlayer", "libmpv 初始化失败：${t.message}")
             }
         }
+    }
+
+    /**
+     * v1.1.31：起播失败后用户才装上插件——清掉失败标记，让下次起播重试初始化。
+     * 只由 EngineHost 在"缺插件导致失败、且现在已装上"时调用；其他原因的失败仍保持
+     * sticky，不反复重试。
+     */
+    fun clearInitFailed() {
+        initFailedFlag.set(false)
+        initFailedMissingPluginFlag.set(false)
     }
 
     /**

@@ -91,6 +91,9 @@ object EmbyApi {
     /** 地址归一化：去空白/尾斜杠/尾部 /emby（类型前缀由 [apiBase] 再补，不由用户地址带）。 */
     fun normalizeBase(raw: String): String {
         var u = raw.trim().removeSuffix("/")
+        // v1.1.31：没写协议头的裸地址（如 192.168.1.10:8096）默认补 http://，
+        // 否则 OkHttp 建请求直接炸，登录页只剩一句"登录失败"
+        if (!u.contains("://")) u = "http://$u"
         if (u.endsWith("/emby", ignoreCase = true)) u = u.dropLast(5).removeSuffix("/")
         return u
     }
