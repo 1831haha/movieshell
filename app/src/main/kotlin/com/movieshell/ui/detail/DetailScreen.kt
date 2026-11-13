@@ -7,6 +7,7 @@ import com.movieshell.data.store.PluginStore
 import com.movieshell.util.safeIndex
 
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.shadow
 import com.movieshell.ui.theme.ok
 
 import com.movieshell.data.store.FollowItem
@@ -19,6 +20,8 @@ import androidx.compose.foundation.layout.widthIn
 
 import androidx.compose.foundation.layout.PaddingValues
 
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -33,6 +36,8 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.FavoriteBorder
 
 import androidx.compose.foundation.lazy.LazyRow
@@ -551,12 +556,16 @@ fun DetailScreen(
     fun EpisodeChip(index: Int, name: String, selected: Boolean, onClick: () -> Unit) {
         val v = MaterialTheme.colorScheme
         // v1.1.22：用户反馈仍显大——40dp→34dp、字 14sp→13sp、图标 16dp→14dp。
+        // v1.2.3：未选中改毛玻璃（半透底 + 白描边）；选中仍是剧评紫 + 均衡器，
+        // 只加紫光阴影——在播集的颜色信号不动。
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(34.dp)
+                .then(if (selected) Modifier.shadow(6.dp, RoundedCornerShape(V5.CornerMd), spotColor = Color(0xFFA855F7)) else Modifier)
                 .clip(RoundedCornerShape(V5.CornerMd))
-                .background(if (selected) Color(0xFFA855F7) else v.surfaceContainerHigh)
+                .background(if (selected) Color(0xFFA855F7) else v.surfaceContainerHigh.copy(alpha = 0.6f))
+                .border(1.dp, if (selected) Color(0xFFA855F7) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(V5.CornerMd))
                 .clickable(onClick = onClick)
                 .padding(horizontal = 6.dp),
             contentAlignment = Alignment.Center,
@@ -958,18 +967,44 @@ fun DetailScreen(
                     )
                     // 底部 tint：种子色往底色兑 65%，等效种子色留 30%，随 seedColor 一起淡化。
                     val seedLight = blendColor(seedColor, MaterialTheme.colorScheme.background, 0.65f)
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colorStops = arrayOf(
-                                        0.0f to seedColor,
-                                        1.0f to seedLight,
+                    Box(Modifier.fillMaxSize()) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colorStops = arrayOf(
+                                            0.0f to seedColor,
+                                            1.0f to seedLight,
+                                        ),
                                     ),
                                 ),
-                            ),
-                    )
+                        )
+                        // v1.2.3：影图风光斑——种子色光斑左上、冷色光斑右上，静止不动画；
+                        // 光斑在背景层，不跟列表滚动。
+                        Box(
+                            Modifier
+                                .align(Alignment.TopStart)
+                                .offset((-90).dp, (-70).dp)
+                                .size(340.dp)
+                                .background(
+                                    Brush.radialGradient(
+                                        listOf(seedColor.copy(alpha = 0.35f), Color.Transparent),
+                                    ),
+                                ),
+                        )
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(70.dp, (-40).dp)
+                                .size(300.dp)
+                                .background(
+                                    Brush.radialGradient(
+                                        listOf(Color(0xFF6366F1).copy(alpha = 0.16f), Color.Transparent),
+                                    ),
+                                ),
+                        )
+                    }
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -1049,22 +1084,15 @@ fun DetailScreen(
                     item {
                         val v = MaterialTheme.colorScheme
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            // v1.1.19：卡上渐变带——透明→卡面色，与上方播放区柔和接缝。
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(20.dp)
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(Color.Transparent, v.surfaceContainer),
-                                        ),
-                                    ),
-                            )
+                            // v1.2.3：信息卡改毛玻璃——内收 16dp 不再贴边，半透底 + 白描边 +
+                            // 柔阴影；上下两条 20dp 渐变带随全宽贴边卡一起去掉。
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(v.surfaceContainer)
-                                    .padding(horizontal = V5.Gutter)
+                                    .padding(horizontal = V5.Gutter, vertical = 4.dp)
+                                    .shadow(10.dp, RoundedCornerShape(V5.CornerLgI))
+                                    .detailGlass(RoundedCornerShape(V5.CornerLgI))
+                                    .padding(16.dp)
                                     .height(IntrinsicSize.Max),
                             ) {
                                 if (coverUrl.isNotBlank()) {
@@ -1074,6 +1102,7 @@ fun DetailScreen(
                                         modifier = Modifier
                                             .width(134.dp)
                                             .aspectRatio(2f / 3f)
+                                            .shadow(8.dp, RoundedCornerShape(V5.CornerLg))
                                             .clip(RoundedCornerShape(V5.CornerLg))
                                             .background(v.surfaceContainerHigh)
                                             .clickable {
@@ -1140,7 +1169,8 @@ fun DetailScreen(
                                                 Box(
                                                     Modifier
                                                         .clip(RoundedCornerShape(8.dp))
-                                                        .background(v.surfaceContainerHigh)
+                                                        .background(v.surfaceContainerHigh.copy(alpha = 0.6f))
+                                                        .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(8.dp))
                                                         .padding(horizontal = 8.dp, vertical = 3.dp),
                                                 ) {
                                                     Text(
@@ -1166,14 +1196,28 @@ fun DetailScreen(
                                         else -> ""
                                     }
                                     if (updateLine.isNotBlank()) {
-                                        Text(
-                                            text = updateLine,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = Color(0xFF22C55E),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
+                                        // v1.2.3：更新行前加呼吸绿点（与源名行同款微光圆点）。
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
                                             modifier = Modifier.padding(top = 4.dp),
-                                        )
+                                        ) {
+                                            Box(
+                                                Modifier
+                                                    .size(6.dp)
+                                                    .shadow(6.dp, CircleShape, spotColor = Color(0xFF22C55E))
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF22C55E)),
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(
+                                                text = updateLine,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = Color(0xFF22C55E),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                        }
                                     }
                                     // v1.1.19：简介——两行截断，点“详情 >”原地展开、再点收起；
                                     // 字号随内容逐步缩（下限 12sp，只在未展开时、只缩不涨，换剧重置）。
@@ -1217,6 +1261,7 @@ fun DetailScreen(
                                         Box(
                                             Modifier
                                                 .size(6.dp)
+                                                .shadow(6.dp, CircleShape, spotColor = Color(0xFF22C55E))
                                                 .clip(CircleShape)
                                                 .background(Color(0xFF22C55E)),
                                         )
@@ -1231,17 +1276,8 @@ fun DetailScreen(
                                     }
                                 }
                             }
-                            // v1.1.19：卡下渐变带——卡面色→透明，与下方线路标题柔和接缝。
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(20.dp)
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(v.surfaceContainer, Color.Transparent),
-                                        ),
-                                    ),
-                            )
+                            // v1.2.3：卡下渐变带随毛玻璃卡一起去掉，留 12dp 间距接播放线路。
+                            Spacer(Modifier.height(12.dp))
                             // v1.1.13：播放线路单独成段，移到简介正下方；只有一条线路时整段隐藏
                             // v1.1.19：标题行上边距归零——卡下 20dp 渐变带就是与线路标题的间距。
                             if (playLines.size > 1) {
@@ -1318,7 +1354,8 @@ fun DetailScreen(
                                             modifier = Modifier
                                                 .height(40.dp)
                                                 .clip(RoundedCornerShape(20.dp))
-                                                .background(v.surfaceContainerHigh)
+                                                .background(v.surfaceContainerHigh.copy(alpha = 0.6f))
+                                                .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(20.dp))
                                                 .clickable { onActorClick(name) }
                                                 .padding(start = 4.dp, end = 14.dp),
                                         ) {
@@ -1454,7 +1491,8 @@ fun DetailScreen(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clip(RoundedCornerShape(V5.CornerLg))
-                                                    .background(if (highlightEp == i) cs.primaryContainer else cs.surfaceContainer)
+                                                    .background(if (highlightEp == i) cs.primaryContainer else cs.surfaceContainer.copy(alpha = 0.7f))
+                                                    .border(1.dp, if (highlightEp == i) cs.primary.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(V5.CornerLg))
                                                     .clickable { playEpisode(ep, safeLine, i) }
                                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                                             ) {
@@ -1588,7 +1626,8 @@ fun DetailScreen(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clip(RoundedCornerShape(V5.CornerLg))
-                                                    .background(if (highlightEp == i) cs.primaryContainer else cs.surfaceContainer)
+                                                    .background(if (highlightEp == i) cs.primaryContainer else cs.surfaceContainer.copy(alpha = 0.7f))
+                                                    .border(1.dp, if (highlightEp == i) cs.primary.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(V5.CornerLg))
                                                     .clickable { onPickRaw(i) }
                                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                                             ) {
@@ -1628,24 +1667,52 @@ fun DetailScreen(
                             // 那里列着其他源的同名剧，点开就是换源。0 集时本来就没有线路可换，
                             // 所以入口是换源，不是换线路。
                             item {
+                                // v1.2.3：空态精致化——票根图标放进绿光圆环，标题＋说明居中，
+                                // 主按钮改绿渐变胶囊，“重新加载”降成文字按钮；入口逻辑不动
+                                // （主按钮滑到下方同名剧区，重新加载走 reloadDetail）。
                                 Column(
-                                    modifier = Modifier.padding(
-                                        horizontal = V5.Gutter,
-                                        vertical = 8.dp,
-                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = V5.Gutter, vertical = 16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
+                                    Box(
+                                        Modifier
+                                            .size(92.dp)
+                                            .shadow(16.dp, CircleShape, spotColor = Color(0xFF22C55E))
+                                            .clip(CircleShape)
+                                            .background(
+                                                Brush.radialGradient(
+                                                    listOf(
+                                                        Color(0xFF22C55E).copy(alpha = 0.16f),
+                                                        Color(0xFF22C55E).copy(alpha = 0.04f),
+                                                    ),
+                                                ),
+                                            )
+                                            .border(1.dp, Color(0xFF22C55E).copy(alpha = 0.30f), CircleShape),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Movie,
+                                            contentDescription = null,
+                                            tint = Color(0xFF22C55E),
+                                            modifier = Modifier.size(38.dp),
+                                        )
+                                    }
+                                    Spacer(Modifier.height(18.dp))
                                     Text(
                                         text = "暂无可播放剧集",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                     )
-                                    Spacer(Modifier.height(4.dp))
+                                    Spacer(Modifier.height(8.dp))
                                     Text(
                                         text = "这个源没有可播剧集，下滑看看同名剧、换个源试试",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    TextButton(
+                                    Spacer(Modifier.height(20.dp))
+                                    Button(
                                         onClick = {
                                             scope.launch {
                                                 listState.animateScrollToItem(
@@ -1653,9 +1720,31 @@ fun DetailScreen(
                                                 )
                                             }
                                         },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                                         contentPadding = PaddingValues(0.dp),
+                                        shape = RoundedCornerShape(50),
+                                        modifier = Modifier.shadow(8.dp, RoundedCornerShape(50), spotColor = Color(0xFF22C55E)),
                                     ) {
-                                        Text("看看同名剧，换个源")
+                                        Box(
+                                            Modifier
+                                                .background(
+                                                    Brush.horizontalGradient(
+                                                        listOf(Color(0xFF22C55E), Color(0xFF16A34A)),
+                                                    ),
+                                                )
+                                                .padding(horizontal = 26.dp, vertical = 12.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Text(
+                                                "看看同名剧，换个源",
+                                                color = Color.White,
+                                                style = MaterialTheme.typography.labelLarge,
+                                            )
+                                        }
+                                    }
+                                    Spacer(Modifier.height(8.dp))
+                                    TextButton(onClick = { reloadDetail() }) {
+                                        Text("重新加载")
                                     }
                                 }
                             }
@@ -1768,6 +1857,7 @@ fun DetailScreen(
                                             scope.launch { listState.scrollToItem(0) }
                                         }
                                     },
+                                    coverUrl = coverUrl,
                                 )
                             }
                         }
@@ -2549,16 +2639,29 @@ private fun DanmakuIcon(enabled: Boolean, modifier: Modifier = Modifier) {
 }
 
 // v1.1.19：线路 chip——选中绿底＋绿字（效果图口径）；未选描边＋灰字。
+// v1.2.3：详情页毛玻璃配方（效果图定版）——半透 surfaceContainer + 低透明白描边，
+// 盖在种子色渐变底上透出海报色，和首页/播放页同一套影图风；大卡片再叠一层
+// shadow() 柔阴影（小 tile 不叠，省渲染）。亮色主题下白描边几不可见，卡片仍靠
+// 半透底色 + 阴影成形。
+@Composable
+private fun Modifier.detailGlass(shape: RoundedCornerShape): Modifier {
+    return this
+        .clip(shape)
+        .background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.75f))
+        .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
+}
+
 @Composable
 private fun LineChip(text: String, selected: Boolean, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Box(
         Modifier
+            .then(if (selected) Modifier.shadow(6.dp, RoundedCornerShape(50), spotColor = Color(0xFF22C55E)) else Modifier)
             .clip(RoundedCornerShape(50))
-            .background(if (selected) Color(0xFF22C55E) else Color.Transparent)
+            .background(if (selected) Color(0xFF22C55E) else cs.surfaceContainer.copy(alpha = 0.6f))
             .border(
                 1.dp,
-                if (selected) Color(0xFF22C55E) else cs.outlineVariant,
+                if (selected) Color(0xFF22C55E) else Color.White.copy(alpha = 0.10f),
                 RoundedCornerShape(50),
             )
             .clickable(onClick = onClick)
@@ -2582,7 +2685,8 @@ private fun SameNameCard(vod: Vod, siteName: String, onClick: () -> Unit) {
         modifier = Modifier
             .width(96.dp)
             .clip(RoundedCornerShape(V5.CornerLg))
-            .background(cs.surfaceContainer)
+            .background(cs.surfaceContainer.copy(alpha = 0.75f))
+            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(V5.CornerLg))
             .clickable(onClick = onClick)
             .padding(8.dp),
     ) {
@@ -2668,6 +2772,7 @@ private fun FollowPanel(
     remindEnabled: Boolean,
     onToggleRemind: (Boolean) -> Unit,
     onPlayEpisode: (Int) -> Unit,
+    coverUrl: String = "",
 ) {
     val cs = MaterialTheme.colorScheme
     val latest = episodes.indices.toList().takeLast(4).reversed()
@@ -2681,11 +2786,25 @@ private fun FollowPanel(
         Column(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(V5.CornerLg))
-                .background(cs.surfaceContainer)
+                .shadow(10.dp, RoundedCornerShape(V5.CornerLg))
+                .detailGlass(RoundedCornerShape(V5.CornerLg))
                 .padding(16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // v1.2.3：追更卡加海报小图（无图时不占位）。
+                if (coverUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = coverUrl,
+                        contentDescription = "海报",
+                        modifier = Modifier
+                            .width(56.dp)
+                            .aspectRatio(2f / 3f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(cs.surfaceContainerHigh),
+                        contentScale = ContentScale.Crop,
+                    )
+                    Spacer(Modifier.width(12.dp))
+                }
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
@@ -2714,18 +2833,80 @@ private fun FollowPanel(
                 style = MaterialTheme.typography.bodyMedium,
                 color = cs.onSurfaceVariant,
             )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = if (watchedEp >= 0) "已看到：第 ${watchedEp + 1} 集" else "还没开始看",
-                style = MaterialTheme.typography.bodyMedium,
-                color = cs.onSurfaceVariant,
-            )
+            // v1.2.3：追更进度条——已看集数占总集数的比例，蓝→青渐变；
+            // 下方左“已看到第 N 集”、右“N / M”。
+            if (episodes.isNotEmpty()) {
+                val watchedCount = (watchedEp + 1).coerceIn(0, episodes.size)
+                val progress = watchedCount.toFloat() / episodes.size
+                Spacer(Modifier.height(10.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.08f)),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(progress)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(Color(0xFF3B82F6), Color(0xFF22D3EE)),
+                                ),
+                            ),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Text(
+                        text = if (watchedEp >= 0) "已看到：第 ${watchedEp + 1} 集" else "还没开始看",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = cs.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "$watchedCount / ${episodes.size}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = cs.onSurface,
+                    )
+                }
+            }
             Spacer(Modifier.height(12.dp))
-            FilledTonalButton(
-                onClick = onToggleFollow,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(if (following) "取消追更" else "追更这部剧")
+            // v1.2.3：未追更时主按钮改蓝渐变（和效果图一致）；已追更的“取消追更”
+            // 仍是 tonal 次按钮，逻辑与原来一样。
+            if (following) {
+                FilledTonalButton(
+                    onClick = onToggleFollow,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("取消追更")
+                }
+            } else {
+                Button(
+                    onClick = onToggleFollow,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                    contentPadding = PaddingValues(0.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(8.dp, RoundedCornerShape(14.dp), spotColor = Color(0xFF3B82F6)),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(Color(0xFF3B82F6), Color(0xFF2563EB)),
+                                ),
+                            )
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("追更这部剧", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                    }
+                }
             }
         }
         // 最近更新
@@ -2743,10 +2924,26 @@ private fun FollowPanel(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(V5.CornerLg))
-                        .background(cs.surfaceContainer)
+                        .background(cs.surfaceContainer.copy(alpha = 0.7f))
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(V5.CornerLg))
                         .clickable { onPlayEpisode(idx) }
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                 ) {
+                    // v1.2.3：集号小方块（效果图口径）。
+                    Box(
+                        Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(cs.surfaceContainerHigh.copy(alpha = 0.6f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "${idx + 1}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = cs.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
                     Text(
                         text = ep.name.ifBlank { "第${idx + 1}集" },
                         style = MaterialTheme.typography.bodyMedium,
@@ -2786,8 +2983,17 @@ private fun FollowPanel(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 12.dp),
+                .padding(top = 12.dp)
+                .detailGlass(RoundedCornerShape(V5.CornerLg))
+                .padding(horizontal = 16.dp, vertical = 14.dp),
         ) {
+            Icon(
+                Icons.Filled.Notifications,
+                contentDescription = null,
+                tint = DetailTab.FOLLOW.color,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     text = "追更提醒",
