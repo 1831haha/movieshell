@@ -45,6 +45,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -136,6 +139,11 @@ fun NovelSearchScreen(
     // v1.2.1：搜书结果按源分组可折叠——默认全展开，点组头收起/展开；
     // 折叠态按源 key 记在本次页面内，组头始终显示本数，收起也不会悄悄藏结果。
     var collapsedGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // v1.2.1：新结果一到就复位折叠态——上次的折叠不带到新结果上；
+    // 搜失败时结果不换（留着旧结果＋顶行明说），折叠也不动，正好对上。
+    LaunchedEffect(results) {
+        collapsedGroups = emptySet()
+    }
     // v1.2.1：两种视图切换——按源分组（可折叠）/ 全部合并按书名排序；切 tab 回来不丢。
     var mergeMode by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     // 合并视图：各源结果放一起按书名排（中文按拼音，Collator）；同源内先按 remoteId 去重，与分组视图一致。
@@ -404,32 +412,24 @@ fun NovelSearchScreen(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
                 ) {
                     Text(
-                        "共 ${results.sumOf { it.books.size }} 本",
+                        // v1.2.1：总数按去重后算——跟列表实际画出的行数一致，不虚报。
+                        "共 ${results.sumOf { it.books.distinctBy { book -> book.remoteId }.size }} 本",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(
-                        onClick = { mergeMode = false },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    ) {
-                        Text(
-                            "按源分组",
-                            fontSize = 13.sp,
-                            fontWeight = if (!mergeMode) FontWeight.Bold else FontWeight.Normal,
-                            color = if (!mergeMode) accent else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    TextButton(
-                        onClick = { mergeMode = true },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    ) {
-                        Text(
-                            "合并排序",
-                            fontSize = 13.sp,
-                            fontWeight = if (mergeMode) FontWeight.Bold else FontWeight.Normal,
-                            color = if (mergeMode) accent else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    // v1.2.1：分段按钮（跟添加服务器的 Emby/Jellyfin 同款），比俩文字按钮精致。
+                    SingleChoiceSegmentedButtonRow {
+                        SegmentedButton(
+                            selected = !mergeMode,
+                            onClick = { mergeMode = false },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                        ) { Text("按源分组", fontSize = 13.sp) }
+                        SegmentedButton(
+                            selected = mergeMode,
+                            onClick = { mergeMode = true },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                        ) { Text("合并排序", fontSize = 13.sp) }
                     }
                 }
                 LazyColumn(
@@ -461,7 +461,8 @@ fun NovelSearchScreen(
                                         collapsedGroups = if (collapsed) collapsedGroups - group.key
                                         else collapsedGroups + group.key
                                     }
-                                    .padding(top = 4.dp),
+                                    // v1.2.1：组头上下各留 6dp——整行点按面积够大，不止一行字高。
+                                    .padding(vertical = 6.dp),
                             ) {
                                 Text(
                                     "来自 ${group.name}（${group.books.size} 本）",
