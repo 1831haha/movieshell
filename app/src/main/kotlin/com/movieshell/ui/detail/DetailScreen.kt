@@ -967,44 +967,18 @@ fun DetailScreen(
                     )
                     // 底部 tint：种子色往底色兑 65%，等效种子色留 30%，随 seedColor 一起淡化。
                     val seedLight = blendColor(seedColor, MaterialTheme.colorScheme.background, 0.65f)
-                    Box(Modifier.fillMaxSize()) {
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        colorStops = arrayOf(
-                                            0.0f to seedColor,
-                                            1.0f to seedLight,
-                                        ),
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colorStops = arrayOf(
+                                        0.0f to seedColor,
+                                        1.0f to seedLight,
                                     ),
                                 ),
-                        )
-                        // v1.2.3：影图风光斑——种子色光斑左上、冷色光斑右上，静止不动画；
-                        // 光斑在背景层，不跟列表滚动。
-                        Box(
-                            Modifier
-                                .align(Alignment.TopStart)
-                                .offset((-90).dp, (-70).dp)
-                                .size(340.dp)
-                                .background(
-                                    Brush.radialGradient(
-                                        listOf(seedColor.copy(alpha = 0.35f), Color.Transparent),
-                                    ),
-                                ),
-                        )
-                        Box(
-                            Modifier
-                                .align(Alignment.TopEnd)
-                                .offset(70.dp, (-40).dp)
-                                .size(300.dp)
-                                .background(
-                                    Brush.radialGradient(
-                                        listOf(Color(0xFF6366F1).copy(alpha = 0.16f), Color.Transparent),
-                                    ),
-                                ),
-                        )
-                    }
+                            ),
+                    )
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -1084,15 +1058,22 @@ fun DetailScreen(
                     item {
                         val v = MaterialTheme.colorScheme
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            // v1.2.3：信息卡改毛玻璃——内收 16dp 不再贴边，半透底 + 白描边 +
-                            // 柔阴影；上下两条 20dp 渐变带随全宽贴边卡一起去掉。
+                            // v1.1.19：卡上渐变带——透明→卡面色，与上方播放区柔和接缝。
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(20.dp)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(Color.Transparent, v.surfaceContainer),
+                                        ),
+                                    ),
+                            )
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = V5.Gutter, vertical = 4.dp)
-                                    .shadow(10.dp, RoundedCornerShape(V5.CornerLgI))
-                                    .detailGlass(RoundedCornerShape(V5.CornerLgI))
-                                    .padding(16.dp)
+                                    .background(v.surfaceContainer)
+                                    .padding(horizontal = V5.Gutter)
                                     .height(IntrinsicSize.Max),
                             ) {
                                 if (coverUrl.isNotBlank()) {
@@ -1102,7 +1083,6 @@ fun DetailScreen(
                                         modifier = Modifier
                                             .width(134.dp)
                                             .aspectRatio(2f / 3f)
-                                            .shadow(8.dp, RoundedCornerShape(V5.CornerLg))
                                             .clip(RoundedCornerShape(V5.CornerLg))
                                             .background(v.surfaceContainerHigh)
                                             .clickable {
@@ -1169,8 +1149,7 @@ fun DetailScreen(
                                                 Box(
                                                     Modifier
                                                         .clip(RoundedCornerShape(8.dp))
-                                                        .background(v.surfaceContainerHigh.copy(alpha = 0.6f))
-                                                        .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(8.dp))
+                                                        .background(v.surfaceContainerHigh)
                                                         .padding(horizontal = 8.dp, vertical = 3.dp),
                                                 ) {
                                                     Text(
@@ -1196,28 +1175,14 @@ fun DetailScreen(
                                         else -> ""
                                     }
                                     if (updateLine.isNotBlank()) {
-                                        // v1.2.3：更新行前加呼吸绿点（与源名行同款微光圆点）。
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
+                                        Text(
+                                            text = updateLine,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color(0xFF22C55E),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.padding(top = 4.dp),
-                                        ) {
-                                            Box(
-                                                Modifier
-                                                    .size(6.dp)
-                                                    .shadow(6.dp, CircleShape, spotColor = Color(0xFF22C55E))
-                                                    .clip(CircleShape)
-                                                    .background(Color(0xFF22C55E)),
-                                            )
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(
-                                                text = updateLine,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = Color(0xFF22C55E),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f),
-                                            )
-                                        }
+                                        )
                                     }
                                     // v1.1.19：简介——两行截断，点“详情 >”原地展开、再点收起；
                                     // 字号随内容逐步缩（下限 12sp，只在未展开时、只缩不涨，换剧重置）。
@@ -1261,7 +1226,6 @@ fun DetailScreen(
                                         Box(
                                             Modifier
                                                 .size(6.dp)
-                                                .shadow(6.dp, CircleShape, spotColor = Color(0xFF22C55E))
                                                 .clip(CircleShape)
                                                 .background(Color(0xFF22C55E)),
                                         )
@@ -1276,8 +1240,17 @@ fun DetailScreen(
                                     }
                                 }
                             }
-                            // v1.2.3：卡下渐变带随毛玻璃卡一起去掉，留 12dp 间距接播放线路。
-                            Spacer(Modifier.height(12.dp))
+                            // v1.1.19：卡下渐变带——卡面色→透明，与下方线路标题柔和接缝。
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(20.dp)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(v.surfaceContainer, Color.Transparent),
+                                        ),
+                                    ),
+                            )
                             // v1.1.13：播放线路单独成段，移到简介正下方；只有一条线路时整段隐藏
                             // v1.1.19：标题行上边距归零——卡下 20dp 渐变带就是与线路标题的间距。
                             if (playLines.size > 1) {
@@ -1354,8 +1327,7 @@ fun DetailScreen(
                                             modifier = Modifier
                                                 .height(40.dp)
                                                 .clip(RoundedCornerShape(20.dp))
-                                                .background(v.surfaceContainerHigh.copy(alpha = 0.6f))
-                                                .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(20.dp))
+                                                .background(v.surfaceContainerHigh)
                                                 .clickable { onActorClick(name) }
                                                 .padding(start = 4.dp, end = 14.dp),
                                         ) {
@@ -2454,63 +2426,46 @@ private fun DetailTabBar(
                 .fillMaxWidth()
                 .padding(start = V5.Gutter, end = 8.dp, top = 0.dp, bottom = 0.dp),
         ) {
-            // 五 Tab 等宽＋滑动胶囊（BoxWithConstraints 直接量 Dp 宽，不用密度换算）
-            // v1.1.22：用户两度反馈行太高——盒子 48dp→40dp、胶囊内收 4dp→0dp、行上下内边距 2dp→0dp，
-            // 整行 52dp→40dp，与按钮同高，不再留空。
-            BoxWithConstraints(Modifier.weight(1f).height(40.dp)) {
-                val tabWidth = maxWidth / 5
-                val pillOffset by animateDpAsState(
-                    targetValue = tabWidth * selectedTab.ordinal,
-                    animationSpec = tween(durationMillis = if (reducedMotion) 0 else 380),
-                    label = "tabPillOffset",
-                )
-                val pillColor by animateColorAsState(
-                    targetValue = selectedTab.color,
-                    animationSpec = tween(durationMillis = if (reducedMotion) 0 else 380),
-                    label = "tabPillColor",
-                )
-                Box(
-                    Modifier
-                        .offset(x = pillOffset)
-                        .width(tabWidth)
-                        .fillMaxHeight()
-                        .padding(vertical = 0.dp, horizontal = 2.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(pillColor.copy(alpha = 0.45f)),
-                )
-                Row(Modifier.fillMaxSize()) {
-                    DetailTab.values().forEach { tab ->
-                        val selected = tab == selectedTab
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(50))
-                                .clickable { onSelect(tab) },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            // v1.1.20：未选中也有边框和各自颜色——描边与文字都用该 Tab 色，
-                            // 边框盒子与滑动胶囊同尺寸（上下 0dp、左右 2dp 内收），选中靠
-                            // 滑动胶囊底色区分，不再全灰。
-                            // v1.1.22：未选中加一层半透明白底——Tab 栏底色跟海报走后，深色 Tab
-                            //（如蓝色追更）在蓝色行底上几乎看不见，白底让五个胶囊在任何海报色上都站得住。
+            // 五 Tab 一个整胶囊（用户 2026-11-13 截图定版）：选中是实底绿圆＋白字，
+            // 其余纯文字、无描边；绿圆随切 Tab 滑动，0.38 秒；行高仍 40dp。
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(40.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(cs.surface.copy(alpha = 0.65f))
+                    .border(1.dp, cs.outlineVariant, RoundedCornerShape(50)),
+            ) {
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val tabWidth = maxWidth / 5
+                    val circleSize = minOf(tabWidth, 40.dp)
+                    val circleOffset by animateDpAsState(
+                        targetValue = tabWidth * selectedTab.ordinal + (tabWidth - circleSize) / 2,
+                        animationSpec = tween(durationMillis = if (reducedMotion) 0 else 380),
+                        label = "tabCircleOffset",
+                    )
+                    Box(
+                        Modifier
+                            .align(Alignment.CenterStart)
+                            .offset(x = circleOffset)
+                            .size(circleSize)
+                            .clip(CircleShape)
+                            .background(Color(0xFF22C55E)),
+                    )
+                    Row(Modifier.fillMaxSize()) {
+                        DetailTab.values().forEach { tab ->
+                            val selected = tab == selectedTab
                             Box(
                                 Modifier
-                                    .fillMaxSize()
-                                    .padding(vertical = 0.dp, horizontal = 2.dp)
-                                    .clip(RoundedCornerShape(50))
-                                    .then(
-                                        if (selected) Modifier
-                                        else Modifier.background(
-                                            Color.White.copy(alpha = 0.35f),
-                                            RoundedCornerShape(50),
-                                        ).border(1.dp, tab.color, RoundedCornerShape(50)),
-                                    ),
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(CircleShape)
+                                    .clickable { onSelect(tab) },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
                                     text = tab.label,
-                                    color = tab.color,
+                                    color = if (selected) Color.White else cs.onSurfaceVariant,
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                                     fontSize = if (selected) 16.sp else 15.sp,
                                     maxLines = 1,
