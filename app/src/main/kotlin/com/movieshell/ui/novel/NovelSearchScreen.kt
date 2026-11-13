@@ -28,6 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Source
@@ -129,6 +131,9 @@ fun NovelSearchScreen(
     }
     // v0.108.0 B4：已在书架时点按钮 → 二次确认移出的目标
     var removeTarget by remember { mutableStateOf<Pair<SourceGroup, NovelSearchResult>?>(null) }
+    // v1.2.1：搜书结果按源分组可折叠——默认全展开，点组头收起/展开；
+    // 折叠态按源 key 记在本次页面内，组头始终显示本数，收起也不会悄悄藏结果。
+    var collapsedGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     // v0.66.0：锁定单 PY 源时只搜它（书源管理点源直达）；锁变化时 VM 清空旧结果
     val lockedPyRule = remember(pyRules, pySourceName) {
@@ -311,15 +316,35 @@ fun NovelSearchScreen(
                     }
                 }
                 results.forEach { group ->
+                    // v1.2.1：组头可点折叠——整行点一下收起/展开该源的全部结果，
+                    // 图标跟更新日志同款（ExpandLess/ExpandMore），默认全展开。
+                    val collapsed = group.key in collapsedGroups
                     item(key = "header_${group.key}") {
-                        Text(
-                            "来自 ${group.name}（${group.books.size} 本）",
-                            fontSize = 13.sp,
-                            color = accent,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                                .clickable {
+                                    collapsedGroups = if (collapsed) collapsedGroups - group.key
+                                    else collapsedGroups + group.key
+                                }
+                                .padding(top = 4.dp),
+                        ) {
+                            Text(
+                                "来自 ${group.name}（${group.books.size} 本）",
+                                fontSize = 13.sp,
+                                color = accent,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Icon(
+                                imageVector = if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                                contentDescription = if (collapsed) "展开" else "收起",
+                                tint = accent,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
+                    if (!collapsed) {
                     items(group.books.distinctBy { it.remoteId }, key = { "${group.key}_${it.remoteId}" }) { item ->
                         AppCard {
                             Row(
@@ -392,6 +417,7 @@ fun NovelSearchScreen(
                                 )
                             }
                         }
+                    }
                     }
                 }
             }
