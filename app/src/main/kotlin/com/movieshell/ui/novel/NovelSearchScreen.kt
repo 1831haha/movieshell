@@ -75,6 +75,8 @@ import com.movieshell.domain.model.NovelSearchResult
 import com.movieshell.data.novel.PyBookSourceManager
 import com.movieshell.data.store.NovelStore
 import kotlinx.coroutines.launch
+import java.text.Collator
+import java.util.Locale
 
 /**
  * v0.61.0 找书页：多书源并发真搜 → 加入书架（只拉目录，正文阅读时按需拉取）。
@@ -134,6 +136,101 @@ fun NovelSearchScreen(
     // v1.2.1：搜书结果按源分组可折叠——默认全展开，点组头收起/展开；
     // 折叠态按源 key 记在本次页面内，组头始终显示本数，收起也不会悄悄藏结果。
     var collapsedGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // v1.2.1：两种视图切换——按源分组（可折叠）/ 全部合并按书名排序；切 tab 回来不丢。
+    var mergeMode by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    // 合并视图：各源结果放一起按书名排（中文按拼音，Collator）；同源内先按 remoteId 去重，与分组视图一致。
+    val mergedBooks = remember(results) {
+        val collator = Collator.getInstance(Locale.CHINA)
+        results.flatMap { group ->
+            group.books.distinctBy { it.remoteId }.map { book -> group to book }
+        }.sortedWith(compareBy(collator) { (_, book) -> book.title })
+    }
+    // v1.2.1：两种视图共用的结果卡片——合并视图多一行“来自某源”，分组视图不画。
+    // 局部函数先声明后调用（声明在 LazyColumn 之前）。
+    @Composable
+    fun BookCard(group: SourceGroup, item: NovelSearchResult, showSource: Boolean) {
+        AppCard {
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .clickable { onOpenDetail(group, item) }
+                    .padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // v0.211.0：结果卡片补封面——之前只画标题/作者，
+                // 截图里那种“左图右文”才是用户一眼能认的书。无封面时
+                // 用书名首字占位，不留空白方块。
+                // v0.227.0：卡片瘦身——封面 56×76→48×64、内边距
+                // 14→10dp，单卡约 104→84dp，一屏多看两本左右。
+                val coverShape = RoundedCornerShape(10.dp)
+                if (!item.cover.isNullOrBlank()) {
+                    AsyncImage(
+                        model = item.cover,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp, 64.dp).clip(coverShape),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.size(48.dp, 64.dp)
+                            .clip(coverShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            item.title.firstOrNull()?.toString() ?: "书",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = accent,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    // v0.227.0：标题最多两行（长书名不断尾），
+                    // 作者仍一行；卡片不再被三四行撑高。
+                    Text(
+                        item.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        item.author ?: "佚名",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (showSource) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "来自 ${group.name}",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                val onShelf = shelfNovelIds(group, item).any { it in shelfIds }
+                val busy = (group.key + item.remoteId) in joining
+                // v0.211.0：原生 Button（系统紫）改统一 AppButton；
+                // 已在书架仍走 Secondary 灰底（v0.193.0 口径不变）。
+                AppButton(
+                    text = if (busy) "加入中" else if (onShelf) "已在书架" else "加入书架",
+                    onClick = {
+                        if (onShelf) removeTarget = group to item
+                        else vm.joinShelf(group, item)
+                    },
+                    enabled = !busy,
+                    variant = if (onShelf) AppButtonVariant.Secondary else AppButtonVariant.Primary,
+                )
+            }
+        }
+    }
 
     // v0.66.0：锁定单 PY 源时只搜它（书源管理点源直达）；锁变化时 VM 清空旧结果
     val lockedPyRule = remember(pyRules, pySourceName) {
@@ -300,10 +397,46 @@ fun NovelSearchScreen(
                 }
             }
             // v0.211.0：底部留 96dp，最后一行不再被底部 dock / 精致提示盖住。
-            else -> LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 96.dp),
-            ) {
+            // v1.2.1：两种视图切换行固定在列表上方——按源分组（可折叠）/ 全部合并按书名排序。
+            else -> Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                ) {
+                    Text(
+                        "共 ${results.sumOf { it.books.size }} 本",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = { mergeMode = false },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) {
+                        Text(
+                            "按源分组",
+                            fontSize = 13.sp,
+                            fontWeight = if (!mergeMode) FontWeight.Bold else FontWeight.Normal,
+                            color = if (!mergeMode) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(
+                        onClick = { mergeMode = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) {
+                        Text(
+                            "合并排序",
+                            fontSize = 13.sp,
+                            fontWeight = if (mergeMode) FontWeight.Bold else FontWeight.Normal,
+                            color = if (mergeMode) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 96.dp),
+                ) {
                 // v1.1.12：这次搜失败了，顶行明说、下面显示的是上次的结果。
                 failedLabel?.let { label ->
                     item(key = "search_failed_banner") {
@@ -315,111 +448,49 @@ fun NovelSearchScreen(
                         )
                     }
                 }
-                results.forEach { group ->
-                    // v1.2.1：组头可点折叠——整行点一下收起/展开该源的全部结果，
-                    // 图标跟更新日志同款（ExpandLess/ExpandMore），默认全展开。
-                    val collapsed = group.key in collapsedGroups
-                    item(key = "header_${group.key}") {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                                .clickable {
-                                    collapsedGroups = if (collapsed) collapsedGroups - group.key
-                                    else collapsedGroups + group.key
-                                }
-                                .padding(top = 4.dp),
-                        ) {
-                            Text(
-                                "来自 ${group.name}（${group.books.size} 本）",
-                                fontSize = 13.sp,
-                                color = accent,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Icon(
-                                imageVector = if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
-                                contentDescription = if (collapsed) "展开" else "收起",
-                                tint = accent,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                    }
-                    if (!collapsed) {
-                    items(group.books.distinctBy { it.remoteId }, key = { "${group.key}_${it.remoteId}" }) { item ->
-                        AppCard {
+                if (!mergeMode) {
+                    results.forEach { group ->
+                        // v1.2.1：组头可点折叠——整行点一下收起/展开该源的全部结果，
+                        // 图标跟更新日志同款（ExpandLess/ExpandMore），默认全展开。
+                        val collapsed = group.key in collapsedGroups
+                        item(key = "header_${group.key}") {
                             Row(
-                                modifier = Modifier.fillMaxWidth()
-                                    .clickable { onOpenDetail(group, item) }
-                                    .padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                // v0.211.0：结果卡片补封面——之前只画标题/作者，
-                                // 截图里那种“左图右文”才是用户一眼能认的书。无封面时
-                                // 用书名首字占位，不留空白方块。
-                                // v0.227.0：卡片瘦身——封面 56×76→48×64、内边距
-                                // 14→10dp，单卡约 104→84dp，一屏多看两本左右。
-                                val coverShape = RoundedCornerShape(10.dp)
-                                if (!item.cover.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = item.cover,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(48.dp, 64.dp).clip(coverShape),
-                                        contentScale = ContentScale.Crop,
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier.size(48.dp, 64.dp)
-                                            .clip(coverShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Text(
-                                            item.title.firstOrNull()?.toString() ?: "书",
-                                            fontSize = 20.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = accent,
-                                        )
+                                modifier = Modifier.fillMaxWidth()
+                                    .clickable {
+                                        collapsedGroups = if (collapsed) collapsedGroups - group.key
+                                        else collapsedGroups + group.key
                                     }
-                                }
-                                Spacer(Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    // v0.227.0：标题最多两行（长书名不断尾），
-                                    // 作者仍一行；卡片不再被三四行撑高。
-                                    Text(
-                                        item.title,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        item.author ?: "佚名",
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                                Spacer(Modifier.width(8.dp))
-                                val onShelf = shelfNovelIds(group, item).any { it in shelfIds }
-                                val busy = (group.key + item.remoteId) in joining
-                                // v0.211.0：原生 Button（系统紫）改统一 AppButton；
-                                // 已在书架仍走 Secondary 灰底（v0.193.0 口径不变）。
-                                AppButton(
-                                    text = if (busy) "加入中" else if (onShelf) "已在书架" else "加入书架",
-                                    onClick = {
-                                        if (onShelf) removeTarget = group to item
-                                        else vm.joinShelf(group, item)
-                                    },
-                                    enabled = !busy,
-                                    variant = if (onShelf) AppButtonVariant.Secondary else AppButtonVariant.Primary,
+                                    .padding(top = 4.dp),
+                            ) {
+                                Text(
+                                    "来自 ${group.name}（${group.books.size} 本）",
+                                    fontSize = 13.sp,
+                                    color = accent,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    imageVector = if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                                    contentDescription = if (collapsed) "展开" else "收起",
+                                    tint = accent,
+                                    modifier = Modifier.size(20.dp),
                                 )
                             }
                         }
+                        if (!collapsed) {
+                            items(group.books.distinctBy { it.remoteId }, key = { "${group.key}_${it.remoteId}" }) { item ->
+                                BookCard(group, item, showSource = false)
+                            }
+                        }
                     }
+                } else {
+                    // v1.2.1：合并视图——各源结果放一起按书名排，每行标来源。
+                    items(mergedBooks, key = { (group, book) -> "${group.key}_${book.remoteId}" }) { (group, book) ->
+                        BookCard(group, book, showSource = true)
                     }
                 }
+            }
             }
         }
         // v0.108.0 B4：已在书架点按钮 → 二次确认移出（影图风 TechDialog，文案走主题色）
