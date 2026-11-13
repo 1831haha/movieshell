@@ -94,10 +94,16 @@ object EngineHost {
         // 未装插件时直接拒绝、不切内核；libmpv 初始化失败过时也不回退 Media3（回退也播不了）。
         // v0.162.0：原生 rtp:// 同理（组播只在局域网 WiFi 下有意义，蜂窝下播不了属环境限制，
         // 不是代码能保证的；不做 /status 探活，播了才知道）。
+        // v1.2.2：rtsp:// 同理（Media3 不吃 rtsp；广东 IPTV 这类运营商流走 libmpv/FFmpeg）。
         val isRtmp = url.trim().startsWith("rtmp://", true)
         val isRtp = url.trim().startsWith("rtp://", true)
-        if (isRtmp || isRtp) {
-            val proto = if (isRtmp) "RTMP" else "RTP"
+        val isRtsp = url.trim().startsWith("rtsp://", true)
+        if (isRtmp || isRtp || isRtsp) {
+            val proto = when {
+                isRtmp -> "RTMP"
+                isRtp -> "RTP"
+                else -> "RTSP"
+            }
             if (!MpvPluginLoader.isInstalled(context)) {
                 LogBus.w("Play", "$proto 需 libmpv 插件，未安装已拒绝")
                 AppToast.show(context, "$proto 需 libmpv 插件，请先到插件市场安装", long = true)
@@ -154,7 +160,7 @@ object EngineHost {
         }
     }
 
-    /** 播放地址合法性：非空 + 协议白名单（http/https/magnet/file/本地绝对路径 + v0.152.0 的 rtmp + v0.162.0 的 rtp）。
+    /** 播放地址合法性：非空 + 协议白名单（http/https/magnet/file/本地绝对路径 + v0.152.0 的 rtmp + v0.162.0 的 rtp + v1.2.2 的 rtsp）。
      * v0.218.0（S12）：pics:// 不再算可播——原来白名单含 pics，起播又静默
      * 拒绝，两处对同一地址结论相反；看图不走视频引擎（走 PicsViewerScreen
      * 分流），这里排除后 pics 进来走上面的非法地址分支，给可见提示。 */
@@ -164,6 +170,7 @@ object EngineHost {
         return u.startsWith("http://", true) || u.startsWith("https://", true) ||
             u.startsWith("magnet:", true) || u.startsWith("file://", true) ||
             u.startsWith("rtmp://", true) || u.startsWith("rtp://", true) ||
+            u.startsWith("rtsp://", true) ||
             u.startsWith("/")
     }
 

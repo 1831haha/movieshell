@@ -127,6 +127,9 @@ object MpvPlayerManager {
                 MPVLib.setOptionString("idle", "yes")
                 MPVLib.setOptionString("cache", "yes")
                 MPVLib.setOptionString("demuxer-readahead-secs", "30")
+                // v1.2.2：RTSP 走 TCP 传输——运营商 IPTV 的 UDP 在手机网下常被拦，
+                // TCP 更稳；只影响 RTSP 解复用，其他流不动。
+                MPVLib.setOptionString("rtsp-transport", "tcp")
                 MPVLib.init()
                 MPVLib.observeProperty("time-pos", MPVLib.MPV_FORMAT_DOUBLE)
                 MPVLib.observeProperty("duration", MPVLib.MPV_FORMAT_DOUBLE)

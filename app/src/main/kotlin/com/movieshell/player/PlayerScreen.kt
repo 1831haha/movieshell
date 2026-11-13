@@ -897,15 +897,17 @@ fun PlayerScreen(
         val other =
             if (cur == PlayerEngine.MEDIA3) PlayerEngine.LIBMPV else PlayerEngine.MEDIA3
         // v0.186.0 第 5 组：RTMP 与 RTP 只能走 libmpv，与 EngineHost 强制路由一致。
+        // v1.2.2：RTSP 同理。
         // Media3 在此不是可用目标，直接跳过，不走“切到 Media3 又被强制改回
         // libmpv”的空转；此时 other 视为不可用，落到换线路。
-        val isRtmpOrRtp = playUrl.trim().startsWith("rtmp://", true) ||
-            playUrl.trim().startsWith("rtp://", true)
-        val otherUsable = other != PlayerEngine.MEDIA3 || !isRtmpOrRtp
+        val isMpvOnly = playUrl.trim().startsWith("rtmp://", true) ||
+            playUrl.trim().startsWith("rtp://", true) ||
+            playUrl.trim().startsWith("rtsp://", true)
+        val otherUsable = other != PlayerEngine.MEDIA3 || !isMpvOnly
         val otherUsableWithInstall = otherUsable && (other == PlayerEngine.MEDIA3 ||
             (MpvPluginLoader.isInstalled(context) && !MpvPlayerManager.initFailed))
         if (!otherUsableWithInstall) {
-            LogBus.w("Player", "跳过自动换内核：$other 不可用（未安装、初始化失败过或 RTMP/RTP 不走 Media3）")
+            LogBus.w("Player", "跳过自动换内核：$other 不可用（未安装、初始化失败过或 RTMP/RTP/RTSP 不走 Media3）")
         }
         val alreadyTried = triedEngines + EngineHost.fallbackTriedEngines()
         if (otherUsableWithInstall && other !in alreadyTried) {
