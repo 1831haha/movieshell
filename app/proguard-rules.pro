@@ -82,3 +82,13 @@
 
 # 迅雷引擎 Java 胶水（JNI 回调字段/方法名不能混淆）
 -keep class com.xunlei.downloadlib.** { *; }
+
+# ---------- 小说/阅读 UI（v1.2.0：ReaderScreen 单个 @Composable 2350 行，
+#   R8 全模式优化后 DEX 寄存器类型冲突，点小说 tab 即 VerifyError 闪退；
+#   这几个包的组合函数不让 R8 合并/改名，配合 gradle.properties 关全模式） ----------
+-keep class com.movieshell.ui.reader.** { *; }
+-keepclassmembers class com.movieshell.ui.reader.** { *; }
+-keep class com.movieshell.ui.bookshelf.** { *; }
+-keepclassmembers class com.movieshell.ui.bookshelf.** { *; }
+-keep class com.movieshell.ui.novel.** { *; }
+-keepclassmembers class com.movieshell.ui.novel.** { *; }
