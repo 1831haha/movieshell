@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,6 +28,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -44,6 +46,7 @@ import com.movieshell.ui.theme.seedColorScheme
  * v1.2.6：主题面板从设置页抽出——设置页「主题」只剩一个入口（进主题收藏夹），
  * 模式/配色/炫彩/海报取色在收藏夹页的「自定义配色」行里开这个面板；点选即生效，面板保持打开。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ThemePanelDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
