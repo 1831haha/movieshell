@@ -158,7 +158,7 @@ object ParseDeadLines {
 
     /** 解析命中时登记：结果地址是事后反查的唯一线索。 */
     fun noteHit(videoUrl: String, resultUrl: String, line: String, lineUrl: String, now: Long = System.currentTimeMillis()) {
-        if (videoUrl.isBlank() || resultUrl.isBlank() || line.isBlank()) return
+        if (videoUrl.isBlank() || resultUrl.isBlank()) return
         if (byResult.size >= MAX_HITS) {
             byResult.entries.removeIf { now - it.value.at > TTL_MS }
         }
