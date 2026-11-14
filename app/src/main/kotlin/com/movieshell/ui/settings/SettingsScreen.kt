@@ -106,6 +106,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -134,6 +135,7 @@ import com.movieshell.data.store.PlayerSettings
 import com.movieshell.player.PlayerManager
 import com.movieshell.data.source.PluginMarket
 import com.movieshell.data.store.PluginStore
+import com.movieshell.data.store.SettingsLayoutStore
 import com.movieshell.data.store.ThemeCollectionStore
 import com.movieshell.data.store.ThemeStore
 import com.movieshell.ui.components.AppButton
@@ -324,6 +326,7 @@ fun SettingsScreen(
         followCheckEnabled = FollowStore.isCheckEnabled(context)
         subRefreshEnabled = SubRefreshStore.isEnabled(context)
         runCatching { ThemeCollectionStore.init(context) }
+        SettingsLayoutStore.init(context)
         // v0.101.0：缓存占用（视频 m3u8 分片 + Coil 图片磁盘缓存）
         cacheSize = runCatching { refreshCacheSize(context) }.getOrDefault(cacheSize)
         magnetCap = com.movieshell.player.MagnetCache.capGb(context)
@@ -375,421 +378,455 @@ fun SettingsScreen(
     // 内容从状态栏下 8dp 开始：追剧/历史/源 三个统计环 → 5 个工具磁贴 → Android 16 式分段列表分组。
     // 原有每一项设置、入口、动作都保留，弹窗与逻辑一行未动。
     val cs = MaterialTheme.colorScheme
-    val gravityRotate by PlayerSettings.gravityRotate.collectAsState()
     val logEnabled by LogStore.enabled.collectAsState()
     val themeKey by ThemeStore.themeKey.collectAsState()
     val statText: (Int) -> String = { n -> if (!statsLoaded) "…" else if (statsFailed) "—" else "$n" }
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(cs.surfaceContainer),
-        contentPadding = PaddingValues(
-            start = V5.Gutter,
-            end = V5.Gutter,
-            top = V5.StatusGap,
-            bottom = dockClearance() + 16.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        // 1. 三个统计环：追剧（有更新占比）/ 历史（占 50 条上限）/ 源（本地占比）；
-        // 三格都可点：追剧页 / 历史页 / 站源管理（2026-10-28 用户要求恢复“源”入口）。
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                StatGaugeTile(
-                    label = "追剧",
-                    value = statText(followCount),
-                    sub = if (statsLoaded && !statsFailed && followCount > 0) "$followNewCount 部更新" else if (!statsLoaded) "统计中…" else "暂无更新",
-                    progress = if (followCount > 0) followNewCount.toFloat() / followCount else 0f,
-                    ringColor = cs.primary,
-                    onClick = onFollowClick,
-                    modifier = Modifier.weight(1f),
-                )
-                StatGaugeTile(
-                    label = "历史",
-                    value = statText(histCount),
-                    sub = if (statsLoaded && !statsFailed) "上限 50" else null,
-                    progress = histCount / 50f,
-                    ringColor = cs.secondary,
-                    onClick = onHistoryClick,
-                    modifier = Modifier.weight(1f),
-                )
-                StatGaugeTile(
-                    label = "源",
-                    value = statText(subCount + localCount),
-                    sub = if (!statsLoaded) "统计中…" else if (statsFailed) "统计失败" else "订阅 $subCount · 本地 $localCount",
-                    progress = if (subCount + localCount > 0) localCount.toFloat() / (subCount + localCount) else 0f,
-                    ringColor = cs.tertiary,
-                    onClick = onSourcesClick,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+    // v1.2.7：设置页活布局——拖拽状态 + 布局表（可移行住哪、按什么顺序）。
+    val dragState = rememberSettingDragState()
+    val settingsLayout by SettingsLayoutStore.layout.collectAsState()
+    LaunchedEffect(settingsLayout) { dragState.containers = settingsLayout }
+    val onSettingDrop: (String, SettingDropTarget) -> Unit = { id, target ->
+        when (target) {
+            is SettingDropTarget.Insert -> SettingsLayoutStore.move(context, id, target.container, target.index)
+            is SettingDropTarget.EnterPage -> SettingsLayoutStore.move(context, id, target.container, Int.MAX_VALUE)
+            SettingDropTarget.BackToMain -> Unit
         }
-        item { Spacer(Modifier.height(6.dp)) }
-        // 2. 工具磁贴（原快捷宫格 5 个入口，一行排开）
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(V5.CornerCard))
-                    .background(cs.surfaceContainerLowest)
-                    .padding(horizontal = 8.dp, vertical = 16.dp),
-            ) {
-                // v0.168.0：我的追剧与统计重复已去掉；289 去重：站源管理只留统计环“源”。
-                QuickEntry("嗅探正则", Icons.Outlined.ManageSearch, onSniffPatternsClick, Modifier.weight(1f))
-                QuickEntry("解析接口", Icons.Outlined.Link, onParseSettingsClick, Modifier.weight(1f))
-                QuickEntry("离线下载", Icons.Outlined.Download, onDownloadsClick, Modifier.weight(1f))
-                QuickEntry("插件中心", Icons.Outlined.Extension, onPluginCenterClick, Modifier.weight(1f))
-                QuickEntry("使用手册", Icons.Outlined.MenuBook, onManualClick, Modifier.weight(1f))
-            }
-        }
-        // 3. 外观
-        item { SettingsCaption("外观") }
-        item {
-            // v1.1.14：分组收进圆角卡片——每组一个 AppCard（24dp），组内行内容与顺序原样
-            AppCard(
-                shape = RoundedCornerShape(V5.CornerCard),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            // v1.2.6：主题与主题收藏夹合并为一个「主题」入口（用户要求）——点开进收藏夹页，
-            // 模式/配色/炫彩/海报取色在收藏夹页的「自定义配色」行里开面板；背景底图入口也在收藏夹页。
-            val colorSource by ThemeStore.source.collectAsState()
-            val modeLabel = when (themeMode) {
-                ThemeStore.MODE_LIGHT -> "浅色"
-                ThemeStore.MODE_DARK -> "深色"
-                else -> "跟随系统"
-            }
-            val colorLabel = when {
-                colorSource == ThemeStore.SOURCE_POSTER -> "海报取色"
-                colorSource == ThemeStore.SOURCE_DYNAMIC -> "系统取色"
-                themeKey.startsWith("g:") ->
-                    "炫彩 " + (ThemeStore.GRADIENT_OPTIONS.firstOrNull { "g:${it.id}" == themeKey }?.name ?: "渐变")
-                themeKey.startsWith("c:") ->
-                    "预设色 " + (themeKey.removePrefix("c:").toIntOrNull()?.let { ThemeStore.colorName(it) } ?: "自定义")
-                else -> "预设色"
-            }
-            SegItem(
-                position = SegPos.Single,
-                icon = Icons.Outlined.Palette,
-                title = "主题",
-                subtitle = "$modeLabel · $colorLabel",
-                onClick = onThemeCollectionClick,
-            )
+    }
+    // v1.2.7：设置页活布局——LazyColumn 与拖拽悬浮层同处一个 Box，悬浮副本才能跟手走。
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(cs.surfaceContainer),
+            contentPadding = PaddingValues(
+                start = V5.Gutter,
+                end = V5.Gutter,
+                top = V5.StatusGap,
+                bottom = dockClearance() + 16.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            // 1. 三个统计环：追剧（有更新占比）/ 历史（占 50 条上限）/ 源（本地占比）；
+            // 三格都可点：追剧页 / 历史页 / 站源管理（2026-10-28 用户要求恢复“源”入口）。
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    StatGaugeTile(
+                        label = "追剧",
+                        value = statText(followCount),
+                        sub = if (statsLoaded && !statsFailed && followCount > 0) "$followNewCount 部更新" else if (!statsLoaded) "统计中…" else "暂无更新",
+                        progress = if (followCount > 0) followNewCount.toFloat() / followCount else 0f,
+                        ringColor = cs.primary,
+                        onClick = onFollowClick,
+                        modifier = Modifier.weight(1f),
+                    )
+                    StatGaugeTile(
+                        label = "历史",
+                        value = statText(histCount),
+                        sub = if (statsLoaded && !statsFailed) "上限 50" else null,
+                        progress = histCount / 50f,
+                        ringColor = cs.secondary,
+                        onClick = onHistoryClick,
+                        modifier = Modifier.weight(1f),
+                    )
+                    StatGaugeTile(
+                        label = "源",
+                        value = statText(subCount + localCount),
+                        sub = if (!statsLoaded) "统计中…" else if (statsFailed) "统计失败" else "订阅 $subCount · 本地 $localCount",
+                        progress = if (subCount + localCount > 0) localCount.toFloat() / (subCount + localCount) else 0f,
+                        ringColor = cs.tertiary,
+                        onClick = onSourcesClick,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
-        }
-        // 4. 播放 · 解析
-        item { SettingsCaption("播放 · 解析") }
-        item {
-            AppCard(
-                shape = RoundedCornerShape(V5.CornerCard),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            // v1.2.6：播放设置子页面入口——播放器内核 / 直播自动播放 / 去广告 / 同时下载数收进这里。
-            SegItem(
-                position = SegPos.First,
-                icon = Icons.Outlined.SmartDisplay,
-                title = "播放设置",
-                subtitle = "内核 · 去广告 · 自动播放 · 下载数",
-                onClick = onPlaybackSettingsClick,
-            )
-            // v0.27.7：重力感应自动横屏（默认开）
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Outlined.ScreenRotation,
-                title = "重力感应横屏",
-                subtitle = if (gravityRotate) "自动 · 随手机方向" else "关闭",
-                onClick = { PlayerSettings.setGravityRotate(context, !gravityRotate) },
-                trailing = {
-                    AppSwitch(
-                        checked = gravityRotate,
-                        onCheckedChange = { PlayerSettings.setGravityRotate(context, it) },
-                    )
-                },
-            )
-            // v1.1.31：Emby / Jellyfin 媒体服务器（自建服务器直连，不经过中转）
-            SegItem(
-                position = SegPos.Last,
-                icon = Icons.Outlined.Storage,
-                title = "媒体服务器",
-                subtitle = embySubtitle,
-                onClick = onMediaServerClick,
-            )
+            item { Spacer(Modifier.height(6.dp)) }
+            // 2. 工具磁贴（原快捷宫格 5 个入口，一行排开）
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(V5.CornerCard))
+                        .background(cs.surfaceContainerLowest)
+                        .padding(horizontal = 8.dp, vertical = 16.dp),
+                ) {
+                    // v0.168.0：我的追剧与统计重复已去掉；289 去重：站源管理只留统计环“源”。
+                    QuickEntry("嗅探正则", Icons.Outlined.ManageSearch, onSniffPatternsClick, Modifier.weight(1f))
+                    QuickEntry("解析接口", Icons.Outlined.Link, onParseSettingsClick, Modifier.weight(1f))
+                    QuickEntry("离线下载", Icons.Outlined.Download, onDownloadsClick, Modifier.weight(1f))
+                    QuickEntry("插件中心", Icons.Outlined.Extension, onPluginCenterClick, Modifier.weight(1f))
+                    QuickEntry("使用手册", Icons.Outlined.MenuBook, onManualClick, Modifier.weight(1f))
                 }
             }
-        }
-        // 5. 数据
-        item { SettingsCaption("数据") }
-        item {
-            AppCard(
-                shape = RoundedCornerShape(V5.CornerCard),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            // v0.46.0：订阅自动刷新开关
-            SegItem(
-                position = SegPos.First,
-                icon = Icons.Outlined.Sync,
-                title = "订阅自动刷新",
-                subtitle = (if (subRefreshEnabled) "每天 1 次" else "关闭") + " · 失效的在订阅管理标出",
-                onClick = {
-                    val next = !subRefreshEnabled
-                    SubRefreshStore.setEnabled(context, next)
-                    subRefreshEnabled = next
-                    SubRefreshWorker.reschedule(context)
-                },
-                trailing = {
-                    AppSwitch(
-                        checked = subRefreshEnabled,
-                        onCheckedChange = {
-                            SubRefreshStore.setEnabled(context, it)
-                            subRefreshEnabled = it
-                            SubRefreshWorker.reschedule(context)
-                        },
-                    )
-                },
-            )
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Outlined.NotificationsActive,
-                title = "追剧更新提醒",
-                subtitle = (if (followCheckEnabled) "每天 2 次" else "关闭") + " · 有新集数发通知",
-                onClick = {
-                    val next = !followCheckEnabled
-                    FollowStore.setCheckEnabled(context, next)
-                    followCheckEnabled = next
-                    FollowCheckWorker.reschedule(context)
-                },
-                trailing = {
-                    AppSwitch(
-                        checked = followCheckEnabled,
-                        onCheckedChange = {
-                            FollowStore.setCheckEnabled(context, it)
-                            followCheckEnabled = it
-                            FollowCheckWorker.reschedule(context)
-                        },
-                    )
-                },
-            )
-            // v0.51.0：WebDAV 云同步；v0.186.0：范围是订阅、追剧、书架、音乐、直播，不含插件与设置
-            val cloudConfigured = CloudSyncManager.isConfigured(context)
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Outlined.CloudSync,
-                title = "WebDAV 云同步",
-                subtitle = if (cloudConfigured) "已配置 · " + CloudSyncManager.lastSyncText(context) else "未配置 · 坚果云/Alist/群晖",
-                onClick = {
-                    lastSyncText = CloudSyncManager.lastSyncText(context)
-                    showCloudDialog = true
-                },
-            )
-            // v1.0.9：AI 助手——源坏了检测完一键修；先在这里选 AI、填 Key
-            val aiProvider = AiRepairSettings.provider(context)
-            val aiConfigured = AiRepairSettings.apiKey(context).isNotBlank()
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Outlined.AutoFixHigh,
-                title = "AI 助手",
-                subtitle = if (aiConfigured) "${aiProvider.name} · 已填 Key" else "未配置 · DeepSeek / 豆包 / 千问…",
-                onClick = { showAiDialog = true },
-            )
-            // v1.1.3：打开对话——和 AI 接着聊写源、修源，可粘贴日志
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Outlined.SmartToy,
-                title = "打开对话",
-                subtitle = "和 AI 接着聊写源、修源，可粘贴日志",
-                onClick = onAiChatClick,
-            )
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Outlined.Backup,
-                title = "备份与恢复",
-                subtitle = "导出 / 导入 · 订阅·追剧·书架·音乐·直播",
-                onClick = { backupExpanded = !backupExpanded },
-                trailing = {
-                    Icon(
-                        imageVector = if (backupExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = if (backupExpanded) "收起" else "展开",
-                        tint = cs.onSurfaceVariant,
-                    )
-                },
-            )
-            AnimatedVisibility(visible = backupExpanded) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    SegItem(
-                        position = SegPos.Middle,
-                        icon = Icons.Outlined.Info,
-                        title = "说明",
-                        subtitle = "导出 / 导入 JSON 备份文件：订阅、追剧、书架、音乐、直播（不含插件、下载、播放历史与设置）",
-                    )
-                    SegItem(
-                        position = SegPos.Middle,
-                        icon = Icons.Outlined.Backup,
-                        title = "备份到文件",
-                        subtitle = "导出到 /storage/emulated/0/xiaying/backup/",
-                        onClick = { exportBackup() },
-                    )
-                    SegItem(
-                        position = SegPos.Middle,
-                        icon = Icons.Outlined.Restore,
-                        title = "从文件恢复",
-                        subtitle = "从 JSON 备份文件恢复订阅、当前规则、追剧、书架、音乐、直播",
-                        onClick = { importLauncher.launch("application/json") },
-                    )
-                    // v0.216.0（C15）：上次恢复中断/失败后留下的恢复前快照
-                    if (hasPreSnapshot) {
-                        SegItem(
-                            position = SegPos.Middle,
-                            icon = Icons.Outlined.History,
-                            title = "恢复中断前的备份",
-                            subtitle = "上次恢复没完成，导回恢复开始前的数据",
-                            onClick = {
-                                scope.launch {
-                                    when (val r = BackupManager.restorePreRestoreSnapshot(context)) {
-                                        is BackupManager.RestoreResult.Ok -> {
-                                            hasPreSnapshot = false
-                                            AppToast.show(context, "已恢复到中断前的数据", long = false)
-                                        }
-                                        is BackupManager.RestoreResult.Failed ->
-                                            AppToast.show(context, "恢复失败：${r.reason}", long = true)
-                                    }
-                                }
-                            },
-                        )
+            // 3. 外观
+            item { SettingsCaption("外观") }
+            item {
+                // v1.1.14：分组收进圆角卡片——每组一个 AppCard（24dp），组内行内容与顺序原样
+                AppCard(
+                    shape = RoundedCornerShape(V5.CornerCard),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // v1.2.6：主题与主题收藏夹合并为一个「主题」入口（用户要求）——点开进收藏夹页，
+                // 模式/配色/炫彩/海报取色在收藏夹页的「自定义配色」行里开面板；背景底图入口也在收藏夹页。
+                val colorSource by ThemeStore.source.collectAsState()
+                val modeLabel = when (themeMode) {
+                    ThemeStore.MODE_LIGHT -> "浅色"
+                    ThemeStore.MODE_DARK -> "深色"
+                    else -> "跟随系统"
+                }
+                val colorLabel = when {
+                    colorSource == ThemeStore.SOURCE_POSTER -> "海报取色"
+                    colorSource == ThemeStore.SOURCE_DYNAMIC -> "系统取色"
+                    themeKey.startsWith("g:") ->
+                        "炫彩 " + (ThemeStore.GRADIENT_OPTIONS.firstOrNull { "g:${it.id}" == themeKey }?.name ?: "渐变")
+                    themeKey.startsWith("c:") ->
+                        "预设色 " + (themeKey.removePrefix("c:").toIntOrNull()?.let { ThemeStore.colorName(it) } ?: "自定义")
+                    else -> "预设色"
+                }
+                SegItem(
+                    position = SegPos.Single,
+                    icon = Icons.Outlined.Palette,
+                    title = "主题",
+                    subtitle = "$modeLabel · $colorLabel",
+                    onClick = onThemeCollectionClick,
+                )
                     }
                 }
             }
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Outlined.CleaningServices,
-                title = "清理缓存",
-                subtitle = "$cacheSize · 视频分片 + 图片缓存",
-                onClick = { showClearCacheDialog = true },
-            )
-            // v0.294.26：磁力缓存占用 + 清理；尾部点按循环切换上限
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Outlined.CleaningServices,
-                title = "磁力缓存",
-                subtitle = "$magnetSize · 超过上限或 3 天未用自动清理",
-                onClick = { showClearMagnetDialog = true },
-                trailing = {
-                    TextButton(onClick = {
-                        val ch = com.movieshell.player.MagnetCache.CAP_CHOICES_GB
-                        val next = ch[(ch.indexOf(magnetCap) + 1).mod(ch.size)]
-                        magnetCap = next
-                        com.movieshell.player.MagnetCache.setCapGb(context, next)
-                        AppToast.show(context, "磁力缓存上限：${next}GB", long = false)
-                    }) { Text("上限 ${magnetCap}GB", style = MaterialTheme.typography.labelLarge) }
-                },
-            )
-            // v0.294.32：磁力引擎优先级（迅雷优先 / BT 优先），失败自动换另一个
-            var prefer by remember { mutableStateOf(com.movieshell.player.EnginePlugins.prefer(context)) }
-            val bt = com.movieshell.player.EnginePlugins.btInstalled(context)
-            val xl = com.movieshell.player.EnginePlugins.xlInstalled(context)
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Outlined.CleaningServices,
-                title = "磁力引擎",
-                subtitle = "迅雷${if (xl) "已装" else "未装"} · BT${if (bt) "已装" else "未装"} · 失败自动换另一个",
-                onClick = {
-                    prefer = if (prefer == "bt") "xunlei" else "bt"
-                    com.movieshell.player.EnginePlugins.setPrefer(context, prefer)
-                },
-                trailing = {
-                    Text(if (prefer == "bt") "BT 优先" else "迅雷优先",
-                        style = MaterialTheme.typography.labelLarge, color = cs.primary)
-                },
-            )
-            // v0.188.0：旧字幕 key 清理入口——点开先说明条数，确认后才删
-            SegItem(
-                position = SegPos.Last,
-                icon = Icons.Outlined.Subtitles,
-                title = "清理旧字幕记忆",
-                subtitle = "只删旧格式按剧记忆，需手动确认",
-                onClick = {
-                    legacySubtitleCount = countLegacyPerShowKeys(context)
-                    showClearLegacySubtitleDialog = true
-                },
-            )
+            // 4. 播放 · 解析
+            item { SettingsCaption("播放 · 解析") }
+            item {
+                AppCard(
+                    shape = RoundedCornerShape(V5.CornerCard),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        modifier = Modifier.settingDropContainer(dragState, SettingsLayoutStore.MAIN_PLAYBACK),
+                    ) {
+                // v1.2.6：播放设置子页面入口——长按一行拖到它上面松手，行就搬进播放设置页。
+                val entryHovered = dragState.hoverTarget ==
+                    SettingDropTarget.EnterPage(SettingsLayoutStore.PAGE_PLAYBACK)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .settingDropEntry(dragState, SettingsLayoutStore.PAGE_PLAYBACK)
+                        .then(
+                            if (entryHovered) Modifier.border(
+                                2.dp, cs.primary, RoundedCornerShape(V5.CornerCard),
+                            ) else Modifier,
+                        ),
+                ) {
+                    SegItem(
+                        position = SegPos.First,
+                        icon = Icons.Outlined.SmartDisplay,
+                        title = "播放设置",
+                        subtitle = if (entryHovered) "松手放进来" else "内核 · 去广告 · 自动播放 · 下载数",
+                        onClick = onPlaybackSettingsClick,
+                    )
+                }
+                // v1.2.7：这组里的可移行按布局表渲染，长按可拖走（进播放设置页 / 组内调顺序）。
+                val playbackItems = settingsLayout[SettingsLayoutStore.MAIN_PLAYBACK].orEmpty()
+                playbackItems.forEach { id ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .settingDraggable(dragState, id, onSettingDrop)
+                            .then(if (dragState.draggedId == id) Modifier.alpha(0.3f) else Modifier),
+                    ) {
+                        MovableSettingRow(
+                            id = id,
+                            style = SettingRowStyle.Card,
+                            cardPosition = SegPos.Middle,
+                            divider = true,
+                            onOpenMarketClick = onOpenMarketClick,
+                        )
+                    }
+                }
+                // v1.1.31：Emby / Jellyfin 媒体服务器（自建服务器直连，不经过中转）
+                SegItem(
+                    position = SegPos.Last,
+                    icon = Icons.Outlined.Storage,
+                    title = "媒体服务器",
+                    subtitle = embySubtitle,
+                    onClick = onMediaServerClick,
+                )
+                    }
+                }
+            }
+            // 5. 数据
+            item { SettingsCaption("数据") }
+            item {
+                AppCard(
+                    shape = RoundedCornerShape(V5.CornerCard),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // v0.46.0：订阅自动刷新开关
+                SegItem(
+                    position = SegPos.First,
+                    icon = Icons.Outlined.Sync,
+                    title = "订阅自动刷新",
+                    subtitle = (if (subRefreshEnabled) "每天 1 次" else "关闭") + " · 失效的在订阅管理标出",
+                    onClick = {
+                        val next = !subRefreshEnabled
+                        SubRefreshStore.setEnabled(context, next)
+                        subRefreshEnabled = next
+                        SubRefreshWorker.reschedule(context)
+                    },
+                    trailing = {
+                        AppSwitch(
+                            checked = subRefreshEnabled,
+                            onCheckedChange = {
+                                SubRefreshStore.setEnabled(context, it)
+                                subRefreshEnabled = it
+                                SubRefreshWorker.reschedule(context)
+                            },
+                        )
+                    },
+                )
+                SegItem(
+                    position = SegPos.Middle,
+                    icon = Icons.Outlined.NotificationsActive,
+                    title = "追剧更新提醒",
+                    subtitle = (if (followCheckEnabled) "每天 2 次" else "关闭") + " · 有新集数发通知",
+                    onClick = {
+                        val next = !followCheckEnabled
+                        FollowStore.setCheckEnabled(context, next)
+                        followCheckEnabled = next
+                        FollowCheckWorker.reschedule(context)
+                    },
+                    trailing = {
+                        AppSwitch(
+                            checked = followCheckEnabled,
+                            onCheckedChange = {
+                                FollowStore.setCheckEnabled(context, it)
+                                followCheckEnabled = it
+                                FollowCheckWorker.reschedule(context)
+                            },
+                        )
+                    },
+                )
+                // v0.51.0：WebDAV 云同步；v0.186.0：范围是订阅、追剧、书架、音乐、直播，不含插件与设置
+                val cloudConfigured = CloudSyncManager.isConfigured(context)
+                SegItem(
+                    position = SegPos.Middle,
+                    icon = Icons.Outlined.CloudSync,
+                    title = "WebDAV 云同步",
+                    subtitle = if (cloudConfigured) "已配置 · " + CloudSyncManager.lastSyncText(context) else "未配置 · 坚果云/Alist/群晖",
+                    onClick = {
+                        lastSyncText = CloudSyncManager.lastSyncText(context)
+                        showCloudDialog = true
+                    },
+                )
+                // v1.0.9：AI 助手——源坏了检测完一键修；先在这里选 AI、填 Key
+                val aiProvider = AiRepairSettings.provider(context)
+                val aiConfigured = AiRepairSettings.apiKey(context).isNotBlank()
+                SegItem(
+                    position = SegPos.Middle,
+                    icon = Icons.Outlined.AutoFixHigh,
+                    title = "AI 助手",
+                    subtitle = if (aiConfigured) "${aiProvider.name} · 已填 Key" else "未配置 · DeepSeek / 豆包 / 千问…",
+                    onClick = { showAiDialog = true },
+                )
+                // v1.1.3：打开对话——和 AI 接着聊写源、修源，可粘贴日志
+                SegItem(
+                    position = SegPos.Middle,
+                    icon = Icons.Outlined.SmartToy,
+                    title = "打开对话",
+                    subtitle = "和 AI 接着聊写源、修源，可粘贴日志",
+                    onClick = onAiChatClick,
+                )
+                SegItem(
+                    position = SegPos.Middle,
+                    icon = Icons.Outlined.Backup,
+                    title = "备份与恢复",
+                    subtitle = "导出 / 导入 · 订阅·追剧·书架·音乐·直播",
+                    onClick = { backupExpanded = !backupExpanded },
+                    trailing = {
+                        Icon(
+                            imageVector = if (backupExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = if (backupExpanded) "收起" else "展开",
+                            tint = cs.onSurfaceVariant,
+                        )
+                    },
+                )
+                AnimatedVisibility(visible = backupExpanded) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        SegItem(
+                            position = SegPos.Middle,
+                            icon = Icons.Outlined.Info,
+                            title = "说明",
+                            subtitle = "导出 / 导入 JSON 备份文件：订阅、追剧、书架、音乐、直播（不含插件、下载、播放历史与设置）",
+                        )
+                        SegItem(
+                            position = SegPos.Middle,
+                            icon = Icons.Outlined.Backup,
+                            title = "备份到文件",
+                            subtitle = "导出到 /storage/emulated/0/xiaying/backup/",
+                            onClick = { exportBackup() },
+                        )
+                        SegItem(
+                            position = SegPos.Middle,
+                            icon = Icons.Outlined.Restore,
+                            title = "从文件恢复",
+                            subtitle = "从 JSON 备份文件恢复订阅、当前规则、追剧、书架、音乐、直播",
+                            onClick = { importLauncher.launch("application/json") },
+                        )
+                        // v0.216.0（C15）：上次恢复中断/失败后留下的恢复前快照
+                        if (hasPreSnapshot) {
+                            SegItem(
+                                position = SegPos.Middle,
+                                icon = Icons.Outlined.History,
+                                title = "恢复中断前的备份",
+                                subtitle = "上次恢复没完成，导回恢复开始前的数据",
+                                onClick = {
+                                    scope.launch {
+                                        when (val r = BackupManager.restorePreRestoreSnapshot(context)) {
+                                            is BackupManager.RestoreResult.Ok -> {
+                                                hasPreSnapshot = false
+                                                AppToast.show(context, "已恢复到中断前的数据", long = false)
+                                            }
+                                            is BackupManager.RestoreResult.Failed ->
+                                                AppToast.show(context, "恢复失败：${r.reason}", long = true)
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+                SegItem(
+                    position = SegPos.Middle,
+                    icon = Icons.Outlined.CleaningServices,
+                    title = "清理缓存",
+                    subtitle = "$cacheSize · 视频分片 + 图片缓存",
+                    onClick = { showClearCacheDialog = true },
+                )
+                // v0.294.26：磁力缓存占用 + 清理；尾部点按循环切换上限
+                SegItem(
+                    position = SegPos.Middle,
+                    icon = Icons.Outlined.CleaningServices,
+                    title = "磁力缓存",
+                    subtitle = "$magnetSize · 超过上限或 3 天未用自动清理",
+                    onClick = { showClearMagnetDialog = true },
+                    trailing = {
+                        TextButton(onClick = {
+                            val ch = com.movieshell.player.MagnetCache.CAP_CHOICES_GB
+                            val next = ch[(ch.indexOf(magnetCap) + 1).mod(ch.size)]
+                            magnetCap = next
+                            com.movieshell.player.MagnetCache.setCapGb(context, next)
+                            AppToast.show(context, "磁力缓存上限：${next}GB", long = false)
+                        }) { Text("上限 ${magnetCap}GB", style = MaterialTheme.typography.labelLarge) }
+                    },
+                )
+                // v0.294.32：磁力引擎优先级（迅雷优先 / BT 优先），失败自动换另一个
+                var prefer by remember { mutableStateOf(com.movieshell.player.EnginePlugins.prefer(context)) }
+                val bt = com.movieshell.player.EnginePlugins.btInstalled(context)
+                val xl = com.movieshell.player.EnginePlugins.xlInstalled(context)
+                SegItem(
+                    position = SegPos.Middle,
+                    icon = Icons.Outlined.CleaningServices,
+                    title = "磁力引擎",
+                    subtitle = "迅雷${if (xl) "已装" else "未装"} · BT${if (bt) "已装" else "未装"} · 失败自动换另一个",
+                    onClick = {
+                        prefer = if (prefer == "bt") "xunlei" else "bt"
+                        com.movieshell.player.EnginePlugins.setPrefer(context, prefer)
+                    },
+                    trailing = {
+                        Text(if (prefer == "bt") "BT 优先" else "迅雷优先",
+                            style = MaterialTheme.typography.labelLarge, color = cs.primary)
+                    },
+                )
+                // v0.188.0：旧字幕 key 清理入口——点开先说明条数，确认后才删
+                SegItem(
+                    position = SegPos.Last,
+                    icon = Icons.Outlined.Subtitles,
+                    title = "清理旧字幕记忆",
+                    subtitle = "只删旧格式按剧记忆，需手动确认",
+                    onClick = {
+                        legacySubtitleCount = countLegacyPerShowKeys(context)
+                        showClearLegacySubtitleDialog = true
+                    },
+                )
+                    }
+                }
+            }
+            // 6. 插件（289：“插件市场源”占位格已删，插件中心只剩工具磁贴一个入口）
+            item { SettingsCaption("插件") }
+            item {
+                AppCard(
+                    shape = RoundedCornerShape(V5.CornerCard),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                SegItem(
+                    position = SegPos.Single,
+                    icon = Icons.Outlined.Extension,
+                    title = "显示不兼容插件",
+                    subtitle = (if (showIncompatible) "显示" else "隐藏") + " · apk/import 仅查看",
+                    onClick = { PluginStore.setShowIncompatible(context, !showIncompatible) },
+                    trailing = {
+                        AppSwitch(
+                            checked = showIncompatible,
+                            onCheckedChange = { PluginStore.setShowIncompatible(context, it) },
+                        )
+                    },
+                )
+                    }
+                }
+            }
+            // 7. 帮助
+            item { SettingsCaption("帮助") }
+            item {
+                AppCard(
+                    shape = RoundedCornerShape(V5.CornerCard),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                SegItem(
+                    position = SegPos.First,
+                    icon = Icons.Outlined.BugReport,
+                    title = "运行日志悬浮窗",
+                    subtitle = if (logEnabled) "已开启 · 小泡可拖动，点开看日志" else "关闭 · 排查问题时打开",
+                    onClick = { LogStore.setEnabled(context, !logEnabled) },
+                    trailing = {
+                        AppSwitch(
+                            checked = logEnabled,
+                            onCheckedChange = { LogStore.setEnabled(context, it) },
+                        )
+                    },
+                )
+                // v0.188.0：关于不可点，版本信息在副标题里展示
+                SegItem(
+                    position = SegPos.Middle,
+                    icon = Icons.Outlined.Info,
+                    title = "关于侠影",
+                    subtitle = "v${com.movieshell.BuildConfig.VERSION_NAME} · 本地影视聚合",
+                    leading = {
+                        Image(
+                            painter = painterResource(com.movieshell.R.drawable.ic_brand_mark),
+                            contentDescription = null,
+                            modifier = Modifier.size(40.dp),
+                        )
+                    },
+                )
+                // v0.30.0：更新日志独立入口
+                SegItem(
+                    position = SegPos.Last,
+                    icon = Icons.Outlined.NewReleases,
+                    title = "更新日志",
+                    subtitle = "每一版的更新内容",
+                    onClick = onChangelogClick,
+                )
+                    }
                 }
             }
         }
-        // 6. 插件（289：“插件市场源”占位格已删，插件中心只剩工具磁贴一个入口）
-        item { SettingsCaption("插件") }
-        item {
-            AppCard(
-                shape = RoundedCornerShape(V5.CornerCard),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            SegItem(
-                position = SegPos.Single,
-                icon = Icons.Outlined.Extension,
-                title = "显示不兼容插件",
-                subtitle = (if (showIncompatible) "显示" else "隐藏") + " · apk/import 仅查看",
-                onClick = { PluginStore.setShowIncompatible(context, !showIncompatible) },
-                trailing = {
-                    AppSwitch(
-                        checked = showIncompatible,
-                        onCheckedChange = { PluginStore.setShowIncompatible(context, it) },
-                    )
-                },
-            )
-                }
-            }
-        }
-        // 7. 帮助
-        item { SettingsCaption("帮助") }
-        item {
-            AppCard(
-                shape = RoundedCornerShape(V5.CornerCard),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            SegItem(
-                position = SegPos.First,
-                icon = Icons.Outlined.BugReport,
-                title = "运行日志悬浮窗",
-                subtitle = if (logEnabled) "已开启 · 小泡可拖动，点开看日志" else "关闭 · 排查问题时打开",
-                onClick = { LogStore.setEnabled(context, !logEnabled) },
-                trailing = {
-                    AppSwitch(
-                        checked = logEnabled,
-                        onCheckedChange = { LogStore.setEnabled(context, it) },
-                    )
-                },
-            )
-            // v0.188.0：关于不可点，版本信息在副标题里展示
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Outlined.Info,
-                title = "关于侠影",
-                subtitle = "v${com.movieshell.BuildConfig.VERSION_NAME} · 本地影视聚合",
-                leading = {
-                    Image(
-                        painter = painterResource(com.movieshell.R.drawable.ic_brand_mark),
-                        contentDescription = null,
-                        modifier = Modifier.size(40.dp),
-                    )
-                },
-            )
-            // v0.30.0：更新日志独立入口
-            SegItem(
-                position = SegPos.Last,
-                icon = Icons.Outlined.NewReleases,
-                title = "更新日志",
-                subtitle = "每一版的更新内容",
-                onClick = onChangelogClick,
-            )
-                }
-            }
-        }
+        SettingDragOverlay(dragState, SettingRowStyle.Card, onOpenMarketClick)
     }
 
     if (showClearMagnetDialog) {
@@ -1637,7 +1674,7 @@ private fun QuickEntry(
 }
 
 /** 分段列表位置：决定外圆角（组首尾 24dp，组内 6dp）。 */
-private enum class SegPos { First, Middle, Last, Single }
+internal enum class SegPos { First, Middle, Last, Single }
 
 /**
  * v0.292.0 V5：Android 16 式分段列表项——surfaceContainerLowest 底，组首尾外角 24dp、内角 6dp，
@@ -1645,7 +1682,7 @@ private enum class SegPos { First, Middle, Last, Single }
  * [content] 放在标题下方（主题模式分段按钮、主题色色圈）。
  */
 @Composable
-private fun SegItem(
+internal fun SegItem(
     position: SegPos,
     icon: ImageVector,
     title: String,
