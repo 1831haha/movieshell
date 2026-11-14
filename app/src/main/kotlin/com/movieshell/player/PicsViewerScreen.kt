@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -58,12 +59,12 @@ fun parsePicsUrls(url: String): List<String> {
 
 /**
  * 看图请求：解码按屏宽取（默认 Scale.FIT，不裁剪），预取与展示共用同一构造，
- * 缓存键一致，预取完往下刷直接命中缓存。
+ * 缓存键一致，预取完往下刷直接命中缓存。尺寸按 2:3 占位框取，与条目一致。
  */
 fun picsRequest(context: Context, imageUrl: String, headers: Map<String, String>, widthPx: Int): ImageRequest =
     ImageRequest.Builder(context)
         .data(imageUrl)
-        .size(widthPx, widthPx * 2)
+        .size(widthPx, widthPx * 3 / 2)
         .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
         .build()
 
@@ -107,8 +108,10 @@ fun PicsViewerScreen(
 
     // v0.266.0：长流模式——原来是左右翻页的 HorizontalPager + 上一张/
     // 下一张按钮，现在所有图连成一条竖向长流一直往下刷，不再分页、
-    // 不再有翻页按钮；每张图按屏宽等比缩放（FillWidth），点图仍可
-    // 显隐顶栏；顶栏只显示总张数，不再显示“第几张 / 共几张”。
+    // 不再有翻页按钮；点图仍可显隐顶栏；顶栏只显示总张数，不再显示“第几张 / 共几张”。
+    // v1.2.10：条目先按 2:3 占位——原来没图时条目是 0 高，图一张一张长出来，
+    // 列表总高度一直变，根本拉不到底。现在高度第一帧就定死，Fit 不裁剪，
+    // 非 2:3 的图留黑边、不丢内容；图集图多为 2:3 竖图，正好贴合。
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -124,9 +127,10 @@ fun PicsViewerScreen(
                 AsyncImage(
                     model = request,
                     contentDescription = "第 ${index + 1} 张",
-                    contentScale = ContentScale.FillWidth,
+                    contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .aspectRatio(2f / 3f)
                         .clickable { uiVisible = !uiVisible },
                 )
             }

@@ -135,6 +135,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -218,6 +219,7 @@ import com.movieshell.ui.theme.BrandGradientColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -301,36 +303,7 @@ fun DetailScreen(
         )
     }
     val sameTitleKey = detail?.vodName?.takeIf { it.isNotBlank() }.orEmpty()
-    LaunchedEffect(sameTitleKey) {
-        if (sameTitleKey.isBlank()) return@LaunchedEffect
-        sameTitleGroups = emptyList()
-        sameTitleSearching = true
-        sameTitleDone = false
-        try {
-            sameTitleRepo.loadFromConfig(
-                withContext(Dispatchers.IO) { buildSearchConfigJson(context) },
-            )
-            // 当前源的 key：订阅/CMS 站用 subSite.key，本地规则站用激活规则 key
-            val currentKeys = buildSet {
-                subSite?.key?.takeIf { it.isNotBlank() }?.let { add(it) }
-                DrpySourceManager.activeRuleName()?.let { add("$LOCAL_DRPY_PREFIX$it") }
-                PySourceManager.activeRuleName()?.let { add("$LOCAL_PY_PREFIX$it") }
-                PhpSourceManager.activeRuleName()?.let { add("php:$it") }
-            }
-            sameTitleRepo.searchAllFlow(sameTitleKey).collect { group ->
-                if (group.site.key in currentKeys) return@collect
-                val exact = group.vods.filter { it.vodName.trim() == sameTitleKey.trim() }
-                if (exact.isNotEmpty()) {
-                    sameTitleGroups = sameTitleGroups + SiteSearchResult(group.site, exact)
-                }
-            }
-        } catch (e: Exception) {
-            LogBus.w("DetailSameTitle", "同名剧后台搜索失败：${e.message}")
-        } finally {
-            sameTitleSearching = false
-            sameTitleDone = true
-        }
-    }
+    // v1.2.10：同名剧搜索挪到自动播放之后（见下方 autoPlayed 附近），等主线任务落定再跑。
     // v0.27.6：抽成函数，失败态的"重试"按钮可复用
     // v0.47.0：20 秒超时——规则 hang 住时不再无限骨架屏，转失败态可重试
     // v0.171.0：世代号 + 取消旧任务——刷新按钮、失败重试、LaunchedEffect 可并发
@@ -880,6 +853,42 @@ fun DetailScreen(
             }
             selectedEpisode = startEp
             playEpisode(lineEpisodes[startEp], safeLine, startEp)
+        }
+    }
+    // v1.2.10：同名剧搜索等主线任务完成再跑——原来详情一回来就全源扇出搜，
+    // 跟自动播放抢 PY 引擎和网络，播半天起不来。等自动播放落定（已播或已失败，
+    // 不再解析中）再搜；没可播剧集时不等，直接搜。只跑一次，换集不重搜。
+    LaunchedEffect(sameTitleKey) {
+        if (sameTitleKey.isBlank()) return@LaunchedEffect
+        // 门没开就等着（主线任务进行中）；门一开就搜。门内直接读播放状态，
+        // 不能读包好的 val，否则 snapshotFlow 观测不到变化。
+        snapshotFlow { !embeddedResolving && (autoPlayed || lineEpisodes.isEmpty()) }.first { it }
+        sameTitleGroups = emptyList()
+        sameTitleSearching = true
+        sameTitleDone = false
+        try {
+            sameTitleRepo.loadFromConfig(
+                withContext(Dispatchers.IO) { buildSearchConfigJson(context) },
+            )
+            // 当前源的 key：订阅/CMS 站用 subSite.key，本地规则站用激活规则 key
+            val currentKeys = buildSet {
+                subSite?.key?.takeIf { it.isNotBlank() }?.let { add(it) }
+                DrpySourceManager.activeRuleName()?.let { add("$LOCAL_DRPY_PREFIX$it") }
+                PySourceManager.activeRuleName()?.let { add("$LOCAL_PY_PREFIX$it") }
+                PhpSourceManager.activeRuleName()?.let { add("php:$it") }
+            }
+            sameTitleRepo.searchAllFlow(sameTitleKey).collect { group ->
+                if (group.site.key in currentKeys) return@collect
+                val exact = group.vods.filter { it.vodName.trim() == sameTitleKey.trim() }
+                if (exact.isNotEmpty()) {
+                    sameTitleGroups = sameTitleGroups + SiteSearchResult(group.site, exact)
+                }
+            }
+        } catch (e: Exception) {
+            LogBus.w("DetailSameTitle", "同名剧后台搜索失败：${e.message}")
+        } finally {
+            sameTitleSearching = false
+            sameTitleDone = true
         }
     }
     // v0.156.0：最顶上那一栏整个去掉（标题/追剧/分享都不再占一栏），
