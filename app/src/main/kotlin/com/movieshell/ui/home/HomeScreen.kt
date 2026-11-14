@@ -126,6 +126,7 @@ import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.store.HomeCache
 import com.movieshell.core.util.HomeLoadGate
 import com.movieshell.data.source.PhpCliEngine
+import com.movieshell.data.source_mgr.PhpSourceManager
 import com.movieshell.data.source_mgr.PySourceManager
 import com.movieshell.data.source_mgr.WebParseSourceManager
 import com.movieshell.data.source_mgr.SiteRepository
@@ -1280,9 +1281,9 @@ fun HomeScreen(
             val siteName = subSite?.name?.ifBlank { "订阅源" } ?: "订阅源"
             if (subSourceName.isNotBlank() && subSourceName != siteName) "$subSourceName · $siteName" else siteName
         }
-        SourceStateStore.activeDrpyRule() != null -> "本地·${DrpySourceManager.activeRuleName().orEmpty()}"
+        SourceStateStore.activeDrpyRule() != null -> "本地·${DrpySourceManager.activeRuleDisplayName().orEmpty()}"
         SourceStateStore.activePyRule() != null -> "本地·${PySourceManager.activeRuleDisplayName().orEmpty()}"
-        SourceStateStore.activePhpRule() != null -> "本地·${SourceStateStore.activePhpRule().orEmpty()}"
+        SourceStateStore.activePhpRule() != null -> "本地·${PhpSourceManager.activeRuleDisplayName().orEmpty()}"
         SourceStateStore.activeWebParseRule() != null -> "网页解析·${WebParseSourceManager.activeSiteName().orEmpty()}"
         else -> "选择站源"
     }

@@ -177,10 +177,10 @@ object PySourceManager {
 
     fun activeRuleName(): String? = activeName
 
-    /** v1.1.18：首页胶囊显示名——zip 源的 activeName 是身份串 "zip:<包名>!<entry>"，直接显示会被胶囊截掉源名；只取 entry 文件名去 .py 后缀（与 ZipPySourceStore.listZipEntries 的 RuleInfo.title 取法一致），其余原样返回。 */
+    /** v1.1.18：首页胶囊显示名——zip 源的 activeName 是身份串 "zip:<包名>!<entry>"，直接显示会被胶囊截掉源名；只取 entry 文件名去 .py 后缀（与 ZipPySourceStore.listZipEntries 的 RuleInfo.title 取法一致）；普通源同样去 .py 后缀，与列表标题一致（v1.2.12 补）。 */
     fun activeRuleDisplayName(): String? {
         val name = activeName ?: return null
-        val (_, entry) = ZipPySourceStore.parseIdentity(name) ?: return name
+        val (_, entry) = ZipPySourceStore.parseIdentity(name) ?: return File(name).nameWithoutExtension
         return File(entry).nameWithoutExtension
     }
 

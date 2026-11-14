@@ -25,9 +25,9 @@ object PhpSourceManager {
 
     private const val TAG = "PhpSourceManager"
 
-    /** PHP 标题正则：类名优先，注释名兜底（见 RuleFileStore）。 */
-    private val CLASS_REGEX = Regex("""class\s+(\w+Spider)""")
-    private val COMMENT_REGEX = Regex("""\*\s*([^\r\n*]{2,40})""")
+    /** v1.2.12：标题直接取文件名（不含 .php 后缀），与 v1.1.11 的 PY 同款——此前按类名/注释抠标题：
+     * 正常 T4 规则的类就叫 Spider，类名正则（要求名字以 Spider 结尾且前面至少一个字符）抠不到；
+     * 注释正则（第一个 `*` 后面的文字）会抠到代码片段，如分页的 `* $limit;`、请求头的 `*/*;q=0.8`。 */
 
     /** 非源文件：控制台首页、源列表生成器、框架文件。 */
     private val EXCLUDED_FILES = setOf("index.php", "config.php", "spider.php", "HtmlParser.php")
@@ -61,14 +61,17 @@ object PhpSourceManager {
         }
     }
 
-    /** 扫描规则目录下的源文件。 */
+    /** 扫描规则目录下的源文件。标题取文件名（见上）。 */
     fun listRules(): List<RuleInfo> = RuleFileStore.listRules(
         rulesDirOrNull(),
         { f -> isSourceFile(f) },
-        { f -> RuleFileStore.extractTitle(f, CLASS_REGEX) ?: RuleFileStore.extractTitle(f, COMMENT_REGEX) },
+        { f -> f.nameWithoutExtension },
     )
 
     fun activeRuleName(): String? = activeName
+
+    /** v1.2.12：首页胶囊显示名——文件名去 .php 后缀，与列表标题一致（PY/DrpySourceManager 同款）。 */
+    fun activeRuleDisplayName(): String? = activeName?.let { File(it).nameWithoutExtension }
 
     /** 选中规则。主线程调用；name=null 时清空。 */
     /** v0.215.0：同 drpy——先验文件存在再动当前态，返回是否切源成功。 */

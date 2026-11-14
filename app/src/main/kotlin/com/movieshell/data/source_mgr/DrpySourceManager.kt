@@ -36,8 +36,8 @@ object DrpySourceManager {
     private const val RULES_DIR = "drpy"
     private const val SHIM_NAME = "shim.js"
 
-    /** drpy 标题正则（title: '...'），抠标题只此一处（见 RuleFileStore）。 */
-    private val TITLE_REGEX = Regex("""title\s*:\s*['"]([^'"]{1,40})['"]""")
+    /** v1.2.12：标题直接取文件名（不含 .js 后缀），与 PY v1.1.11、PHP v1.2.12 同款——此前按
+     * 文件头第一个 `title: '...'` 抠，规则改名/注释里带 title 字段都会抠错，且与 PY/PHP 两路取法不统一。 */
 
     private var appContext: Context? = null
     private var initialized = false
@@ -94,7 +94,7 @@ object DrpySourceManager {
         RuleFileStore.listRules(
             rulesDirOrNull(),
             { f -> f.isFile && f.name.endsWith(".js") && f.name != SHIM_NAME },
-            { f -> RuleFileStore.extractTitle(f, TITLE_REGEX) },
+            { f -> f.nameWithoutExtension },
         ),
     )
 
@@ -113,6 +113,9 @@ object DrpySourceManager {
         StoragePaths.hasAccess(ctx) || StoragePaths.isBuiltinRule(name)
 
     fun activeRuleName(): String? = activeName
+
+    /** v1.2.12：首页胶囊显示名——文件名去 .js 后缀，与列表标题一致（PY/PhpSourceManager 同款）。 */
+    fun activeRuleDisplayName(): String? = activeName?.let { File(it).nameWithoutExtension }
 
     fun hasActiveRule(): Boolean = engine != null && activeName != null
 
