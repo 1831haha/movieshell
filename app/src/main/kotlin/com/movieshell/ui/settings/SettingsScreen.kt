@@ -4,12 +4,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.Icon
-import com.movieshell.ui.components.V5Segmented
 import com.movieshell.ui.components.V5RingGauge
 import com.movieshell.ui.components.V5Dot
 import com.movieshell.ui.components.V5Tile
-import com.movieshell.ui.theme.seedColorScheme
-import com.movieshell.ui.theme.isDark
 import com.movieshell.ui.theme.ok
 
 import com.movieshell.ui.theme.V5
@@ -20,7 +17,6 @@ import com.movieshell.ui.components.V5Tile
 import com.movieshell.ui.components.V5Row
 import com.movieshell.ui.components.V5Dot
 import com.movieshell.ui.components.V5RingGauge
-import com.movieshell.ui.components.V5Segmented
 import com.movieshell.ui.components.dockClearance
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.semantics.contentDescription
@@ -66,13 +62,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Cached
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
@@ -99,10 +93,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import com.movieshell.ui.components.TechDialog
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import com.movieshell.ui.components.TechTextField
@@ -121,7 +112,6 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.download.FollowCheckWorker
 import com.movieshell.data.download.SubRefreshWorker
 import com.movieshell.data.store.AiChatStore
@@ -130,7 +120,6 @@ import com.movieshell.data.ai.AiRepairSettings
 import com.movieshell.core.util.AtomicFile
 import com.movieshell.data.sync.BackupManager
 import com.movieshell.data.sync.CloudSyncManager
-import com.movieshell.data.store.DownloadStore
 import com.movieshell.data.store.EmbyStore
 import com.movieshell.data.store.FollowStore
 import com.movieshell.data.store.SubRefreshStore
@@ -140,13 +129,10 @@ import com.movieshell.core.log.LogBus
 import com.movieshell.data.ai.LlmClient
 import com.movieshell.data.store.LogStore
 import com.movieshell.core.util.StoragePaths
-import com.movieshell.domain.model.PlayerEngine
-import com.movieshell.player.MpvPluginLoader
 import com.movieshell.ui.preview.fileProviderAuthority
 import com.movieshell.data.store.PlayerSettings
 import com.movieshell.player.PlayerManager
 import com.movieshell.data.source.PluginMarket
-import com.movieshell.data.source.SniffConfig
 import com.movieshell.data.store.PluginStore
 import com.movieshell.data.store.ThemeCollectionStore
 import com.movieshell.data.store.ThemeStore
@@ -167,7 +153,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -184,7 +169,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.filled.Image
 import coil.imageLoader
-import com.movieshell.data.store.BackgroundStore
 
 // v0.27.0 Soft Tech 换皮：分组卡片走 AppCard，分组标题走 V5SectionTitle，
 // 对话框 20dp 圆角 + 输入框走 AppTextField，按钮走 AppButton。逻辑与文案零变更。
@@ -198,6 +182,7 @@ fun SettingsScreen(
     onSourcesClick: () -> Unit = {}, // v0.36.0：站源管理入口（tab 删除后搬进设置）
     onParseSettingsClick: () -> Unit = {}, // v0.78.2：解析接口子页面入口
     onThemeCollectionClick: () -> Unit = {}, // v1.2.5：主题收藏夹子页面入口
+    onPlaybackSettingsClick: () -> Unit = {}, // v1.2.6：播放设置子页面入口
     onPluginCenterClick: () -> Unit = {}, // v0.127.0：插件中心（插件/服务/市场三页签，原两入口合并）
     // v1.1.31：内核选 libmpv 但插件未安装时，直接跳市场页签装插件
     onOpenMarketClick: () -> Unit = onPluginCenterClick,
@@ -233,13 +218,9 @@ fun SettingsScreen(
     // v0.186.0：云端更新的冲突确认弹窗（已有 TechDialog 机制，不新开入口）
     var showCloudConflict by remember { mutableStateOf(false) }
     var cloudConflictText by remember { mutableStateOf("") }
-    // v0.20.0：播放器内核（Media3 默认，libmpv 可选，记忆选择）
-    val engine by PlayerSettings.engine.collectAsState()
-    var showEngineDialog by remember { mutableStateOf(false) }
     // v1.1.31：媒体服务器入口副标题（已添加台数）
     val embyServers by EmbyStore.servers.collectAsState()
     val embySubtitle = if (embyServers.isEmpty()) "未添加 · 支持 Emby / Jellyfin" else "已添加 ${embyServers.size} 台"
-    var showThemeDialog by remember { mutableStateOf(false) }
     var cacheSize by remember { mutableStateOf("计算中…") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var magnetSize by remember { mutableStateOf("计算中…") }
@@ -256,7 +237,6 @@ fun SettingsScreen(
     var followCheckEnabled by remember { mutableStateOf(FollowStore.isCheckEnabled(context)) }
     // v0.46.0：订阅自动刷新开关
     var subRefreshEnabled by remember { mutableStateOf(SubRefreshStore.isEnabled(context)) }
-    var maxParallel by remember { mutableStateOf(DownloadStore.maxParallel(context)) }
 
     // v0.7.2：备份直接导出到 xiaying/backup/，不再弹系统文件选择器
     // v0.186.0：exportJson 改 suspend（追剧/书架/音乐走 suspend 读接口），这里进协程
@@ -335,22 +315,6 @@ fun SettingsScreen(
     var statsFailed by remember { mutableStateOf(false) }
     // 源名只作页头纯文字展示（不是格子、不可点），复用搜索页同一口径
     var currentSourceName by remember { mutableStateOf("未设置") }
-    // v0.82.0：背景底图
-    var showBgMenu by remember { mutableStateOf(false) }
-    val bgPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            // v1.1.26：失败时直接报哪一步失败（读不到图/读不出尺寸/解码失败/压缩失败/写不进目录），不用再抓日志猜。
-            val err = BackgroundStore.setCustomBg(context, uri)
-            if (err == null) {
-                AppToast.show(context, "背景底图已更换", long = false)
-            } else {
-                AppToast.show(context, "设置失败：$err", long = true)
-            }
-        }
-    }
     // v0.247.0（F41）：派生值（开关/统计/当前源/缓存占用）原来只在首次
     // 组合拉一次，别的入口改后回设置页仍显示旧值；抽成 refreshDerived，
     // 首屏与每次 ON_RESUME 各跑一次（沿用 HomeScreen 的 resume 刷新口径）。
@@ -359,8 +323,6 @@ fun SettingsScreen(
         // 开关重读：备份恢复等跨入口写盘后回页即刷新
         followCheckEnabled = FollowStore.isCheckEnabled(context)
         subRefreshEnabled = SubRefreshStore.isEnabled(context)
-        maxParallel = DownloadStore.maxParallel(context)
-        runCatching { BackgroundStore.load(context) }
         runCatching { ThemeCollectionStore.init(context) }
         // v0.101.0：缓存占用（视频 m3u8 分片 + Coil 图片磁盘缓存）
         cacheSize = runCatching { refreshCacheSize(context) }.getOrDefault(cacheSize)
@@ -395,16 +357,9 @@ fun SettingsScreen(
         statsFailed = failed
         statsLoaded = true
     }
-    // v1.1.31：去广告总开关（SniffConfig.adFilterEnabled，默认开；Media3 与 libmpv 共用）
-    var adFilterOn by remember { mutableStateOf(SniffConfig.adFilterEnabled) }
     LaunchedEffect(Unit) { refreshDerived() }
     // v1.1.31：媒体服务器配置读盘（只读一次，供入口副标题用）
     LaunchedEffect(Unit) { EmbyStore.ensureLoaded(context) }
-    // v1.1.31：去广告开关读盘（SniffConfig 首次读是默认值，读完再同步一次开关态）
-    LaunchedEffect(Unit) {
-        SniffConfig.ensureLoaded(context)
-        adFilterOn = SniffConfig.adFilterEnabled
-    }
     val settingsLifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(settingsLifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -420,12 +375,7 @@ fun SettingsScreen(
     // 内容从状态栏下 8dp 开始：追剧/历史/源 三个统计环 → 5 个工具磁贴 → Android 16 式分段列表分组。
     // 原有每一项设置、入口、动作都保留，弹窗与逻辑一行未动。
     val cs = MaterialTheme.colorScheme
-    val customBg by BackgroundStore.customBg.collectAsState()
-    // v1.2.5：主题收藏夹底图状态（背景底图行副标题按它显示，不只看有没有自定义文件）。
-    val themeBgId by ThemeCollectionStore.background.collectAsState()
     val gravityRotate by PlayerSettings.gravityRotate.collectAsState()
-    val liveAutoplay by PlayerSettings.liveAutoplay.collectAsState()
-    var showLiveAutoplayMenu by remember { mutableStateOf(false) }
     val logEnabled by LogStore.enabled.collectAsState()
     val themeKey by ThemeStore.themeKey.collectAsState()
     val statText: (Int) -> String = { n -> if (!statsLoaded) "…" else if (statsFailed) "—" else "$n" }
@@ -504,7 +454,8 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            // v0.294.11：主题模式与主题色合并为一个「主题」入口（用户要求），点开一个面板里同时选
+            // v1.2.6：主题与主题收藏夹合并为一个「主题」入口（用户要求）——点开进收藏夹页，
+            // 模式/配色/炫彩/海报取色在收藏夹页的「自定义配色」行里开面板；背景底图入口也在收藏夹页。
             val colorSource by ThemeStore.source.collectAsState()
             val modeLabel = when (themeMode) {
                 ThemeStore.MODE_LIGHT -> "浅色"
@@ -521,29 +472,11 @@ fun SettingsScreen(
                 else -> "预设色"
             }
             SegItem(
-                position = SegPos.First,
+                position = SegPos.Single,
                 icon = Icons.Outlined.Palette,
                 title = "主题",
                 subtitle = "$modeLabel · $colorLabel",
-                onClick = { showThemeDialog = true },
-            )
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Filled.Favorite,
-                title = "主题收藏夹",
-                subtitle = "4 套内置主题 · 5 张内置底图",
                 onClick = onThemeCollectionClick,
-            )
-            // v0.82.0：背景底图
-            SegItem(
-                position = SegPos.Last,
-                icon = Icons.Outlined.Wallpaper,
-                title = "背景底图",
-                subtitle = ThemeCollectionStore.backgroundLabel(themeBgId) + " · 首页生效",
-                onClick = {
-                    if (customBg != null) showBgMenu = true
-                    else bgPicker.launch("image/*")
-                },
             )
                 }
             }
@@ -556,17 +489,13 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            // v0.20.0：播放器内核——Media3（默认）/ libmpv；v0.29.0：libmpv 插件化，未安装时标注
+            // v1.2.6：播放设置子页面入口——播放器内核 / 直播自动播放 / 去广告 / 同时下载数收进这里。
             SegItem(
                 position = SegPos.First,
                 icon = Icons.Outlined.SmartDisplay,
-                title = "播放器内核",
-                subtitle = when {
-                    engine == PlayerEngine.MEDIA3 -> "Media3（默认）"
-                    MpvPluginLoader.isInstalled(context) -> "libmpv · 插件内核"
-                    else -> "libmpv · 插件未安装"
-                },
-                onClick = { showEngineDialog = true },
+                title = "播放设置",
+                subtitle = "内核 · 去广告 · 自动播放 · 下载数",
+                onClick = onPlaybackSettingsClick,
             )
             // v0.27.7：重力感应自动横屏（默认开）
             SegItem(
@@ -582,73 +511,13 @@ fun SettingsScreen(
                     )
                 },
             )
-            // v0.294.5：直播自动播放——始终 / 仅 Wi‑Fi / 关闭；点整行弹紧凑下拉选
-            val labels = listOf("始终", "仅 Wi‑Fi", "关闭")
-            SegItem(
-                position = SegPos.Middle,
-                icon = Icons.Outlined.LiveTv,
-                title = "直播自动播放",
-                subtitle = when (liveAutoplay) {
-                    PlayerSettings.LIVE_AUTOPLAY_WIFI -> "仅 Wi‑Fi 下进直播页自动起播"
-                    PlayerSettings.LIVE_AUTOPLAY_OFF -> "关闭 · 点频道才播"
-                    else -> "始终 · 进直播页自动起播"
-                },
-                onClick = { showLiveAutoplayMenu = true },
-                trailing = {
-                    Box {
-                        Text(
-                            labels.getOrElse(liveAutoplay) { labels[0] },
-                            style = MaterialTheme.typography.labelLarge,
-                            color = cs.primary,
-                        )
-                        DropdownMenu(
-                            expanded = showLiveAutoplayMenu,
-                            onDismissRequest = { showLiveAutoplayMenu = false },
-                        ) {
-                            labels.forEachIndexed { i, label ->
-                                DropdownMenuItem(
-                                    text = { Text(label) },
-                                    onClick = {
-                                        showLiveAutoplayMenu = false
-                                        PlayerSettings.setLiveAutoplay(context, i)
-                                    },
-                                    trailingIcon = if (i == liveAutoplay) {
-                                        { Icon(Icons.Outlined.Check, null, tint = cs.primary) }
-                                    } else null,
-                                )
-                            }
-                        }
-                    }
-                },
-            )
             // v1.1.31：Emby / Jellyfin 媒体服务器（自建服务器直连，不经过中转）
             SegItem(
-                position = SegPos.Middle,
+                position = SegPos.Last,
                 icon = Icons.Outlined.Storage,
                 title = "媒体服务器",
                 subtitle = embySubtitle,
                 onClick = onMediaServerClick,
-            )
-            // v1.1.31：去广告总开关（SniffConfig.adFilterEnabled，默认开；
-            // 管 m3u8 分片过滤 + 嗅探候选排除 / JS 注入 / 域名拦截；Media3 与 libmpv 共用）
-            SegItem(
-                position = SegPos.Last,
-                icon = Icons.Outlined.Block,
-                title = "去广告",
-                subtitle = if (adFilterOn) "开 · 过滤 m3u8 插播广告" else "关 · 不过滤插播广告",
-                onClick = {
-                    SniffConfig.update(context, adFilter = !adFilterOn)
-                    adFilterOn = !adFilterOn
-                },
-                trailing = {
-                    AppSwitch(
-                        checked = adFilterOn,
-                        onCheckedChange = {
-                            SniffConfig.update(context, adFilter = it)
-                            adFilterOn = it
-                        },
-                    )
-                },
             )
                 }
             }
@@ -797,21 +666,6 @@ fun SettingsScreen(
             }
             SegItem(
                 position = SegPos.Middle,
-                icon = Icons.Outlined.Downloading,
-                title = "同时下载数",
-                subtitle = "$maxParallel 个并行 · 点按切换（1-3）",
-                onClick = {
-                    val next = if (maxParallel >= 3) 1 else maxParallel + 1
-                    DownloadStore.setMaxParallel(context, next)
-                    maxParallel = next
-                    DownloadManager.pump(context)
-                },
-                trailing = {
-                    Text("$maxParallel", style = MaterialTheme.typography.titleMedium, color = cs.primary)
-                },
-            )
-            SegItem(
-                position = SegPos.Middle,
                 icon = Icons.Outlined.CleaningServices,
                 title = "清理缓存",
                 subtitle = "$cacheSize · 视频分片 + 图片缓存",
@@ -938,116 +792,6 @@ fun SettingsScreen(
         }
     }
 
-    // v0.20.0：播放器内核选择（持久化，播放器内一键切换走同一偏好）
-    // v0.29.0：libmpv 插件化——未安装时选 libmpv 提示去插件市场，不切换
-    // v0.294.11：「主题」面板——上「模式」分段、下「配色」色圈；点选即生效，面板保持打开
-    if (showThemeDialog) {
-        val cs = MaterialTheme.colorScheme
-        val dark = cs.isDark
-        TechDialog(
-            onDismissRequest = { showThemeDialog = false },
-            title = "主题",
-            dismissText = "完成",
-        ) {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("模式", style = MaterialTheme.typography.labelLarge, color = cs.primary)
-                Spacer(Modifier.height(8.dp))
-                val modes = listOf(
-                    "跟随系统" to ThemeStore.MODE_SYSTEM,
-                    "浅色" to ThemeStore.MODE_LIGHT,
-                    "深色" to ThemeStore.MODE_DARK,
-                )
-                V5Segmented(
-                    options = modes.map { it.first },
-                    selected = modes.indexOfFirst { it.second == themeMode },
-                    onSelect = { ThemeStore.setMode(context, modes[it].second) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(16.dp))
-                Text("配色", style = MaterialTheme.typography.labelLarge, color = cs.primary)
-                Spacer(Modifier.height(8.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    run {
-                        ThemeSwatch(
-                            selected = themeKey == "p:poster",
-                            label = "海报取色",
-                            onClick = { ThemeStore.setSource(context, ThemeStore.SOURCE_POSTER) },
-                        ) {
-                            PosterSwatchArt()
-                        }
-                    }
-                    if (android.os.Build.VERSION.SDK_INT >= 31) {
-                        run {
-                            ThemeSwatch(
-                                selected = themeKey == "d:dynamic",
-                                label = "系统取色",
-                                onClick = { ThemeStore.setSource(context, ThemeStore.SOURCE_DYNAMIC) },
-                            ) {
-                                Box(
-                                    Modifier
-                                        .fillMaxSize()
-                                        .background(cs.surfaceContainerHighest),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(Icons.Outlined.Wallpaper, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(22.dp))
-                                }
-                            }
-                        }
-                    }
-                    ThemeStore.COLOR_OPTIONS.forEach { argb ->
-                        ThemeSwatch(
-                            selected = themeKey == "c:$argb",
-                            label = ThemeStore.colorName(argb) ?: "主题色",
-                            onClick = { ThemeStore.setColor(context, argb) },
-                        ) {
-                            SeedSwatchArt(seedColorScheme(argb, dark))
-                        }
-                    }
-                    ThemeStore.GRADIENT_OPTIONS.forEach { preset ->
-                        ThemeSwatch(
-                            selected = themeKey == "g:${preset.id}",
-                            label = preset.name,
-                            onClick = { ThemeStore.setGradient(context, preset.id) },
-                        ) {
-                            Box(
-                                Modifier
-                                    .fillMaxSize()
-                                    .background(Brush.sweepGradient(preset.colors.map { Color(it) } + Color(preset.colors.first()))),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if (showEngineDialog) {
-        // v1.1.31 精致化：未安装时选项上直接写明点后去市场安装，选之前就知道
-        val libmpvOption =
-            if (MpvPluginLoader.isInstalled(context)) "libmpv" else "libmpv（未安装 · 点后去市场安装）"
-        SingleChoiceDialog(
-            title = "播放器内核",
-            options = listOf("Media3（默认）", libmpvOption),
-            selected = if (engine == PlayerEngine.MEDIA3) "Media3（默认）" else libmpvOption,
-            onDismiss = { showEngineDialog = false },
-            onSelect = {
-                if (it.startsWith("Media3") || MpvPluginLoader.isInstalled(context)) {
-                    PlayerSettings.setEngine(
-                        context,
-                        if (it.startsWith("Media3")) PlayerEngine.MEDIA3 else PlayerEngine.LIBMPV,
-                    )
-                    showEngineDialog = false
-                } else {
-                    // v1.1.31：未安装不再只 Toast，直接跳市场页签装插件
-                    showEngineDialog = false
-                    onOpenMarketClick()
-                }
-            },
-        )
-    }
     if (showClearMagnetDialog) {
         TechDialog(
             onDismissRequest = { showClearMagnetDialog = false },
@@ -1716,33 +1460,6 @@ fun SettingsScreen(
             Text(cloudConflictText, style = MaterialTheme.typography.bodySmall)
         }
     }
-
-    // v0.82.0：背景底图操作菜单
-    if (showBgMenu) {
-        TechDialog(
-            onDismissRequest = { showBgMenu = false },
-            title = "背景底图",
-            confirmText = "更换图片",
-            onConfirm = {
-                showBgMenu = false
-                bgPicker.launch("image/*")
-            },
-        ) {
-            Text("更换首页的背景底图，或恢复默认。")
-            Spacer(Modifier.height(4.dp))
-            TextButton(
-                onClick = {
-                    showBgMenu = false
-                    scope.launch {
-                        // v0.273.0（T33）：清空按删除结果给提示——原来删没删掉都说已恢复。
-                        val ok = BackgroundStore.clearCustomBg(context)
-                        AppToast.show(context, if (ok) "已恢复默认背景" else "恢复失败，请重试", long = false)
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("恢复默认", modifier = Modifier.fillMaxWidth()) }
-        }
-    }
 }
 
 @Composable
@@ -1811,7 +1528,7 @@ private fun countLegacyPerShowKeys(context: Context): Int {
 }
 
 @Composable
-private fun SingleChoiceDialog(
+internal fun SingleChoiceDialog(
     title: String,
     options: List<String>,
     selected: String,
@@ -1996,71 +1713,6 @@ private fun SegItem(
         if (content != null) {
             Spacer(Modifier.height(14.dp))
             content()
-        }
-    }
-}
-
-/** 主题色色圈（48dp；选中 = 2dp primary 外圈 + 3dp 间隙）。 */
-@Composable
-private fun ThemeSwatch(
-    selected: Boolean,
-    label: String,
-    onClick: () -> Unit,
-    art: @Composable () -> Unit,
-) {
-    val cs = MaterialTheme.colorScheme
-    Box(
-        modifier = Modifier
-            .size(54.dp)
-            .clip(CircleShape)
-            .then(if (selected) Modifier.border(2.dp, cs.primary, CircleShape) else Modifier)
-            .clickable(onClick = onClick)
-            .semantics { this.selected = selected; contentDescription = if (selected) "已选：$label" else label },
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            Modifier
-                .size(if (selected) 44.dp else 48.dp)
-                .clip(CircleShape),
-        ) { art() }
-    }
-}
-
-/** 预设色圈：左半 primary，右上 primaryContainer，右下 tertiaryContainer（M3 色板预览）。 */
-@Composable
-private fun SeedSwatchArt(scheme: androidx.compose.material3.ColorScheme) {
-    Row(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f).fillMaxSize().background(scheme.primary))
-        Column(Modifier.weight(1f).fillMaxSize()) {
-            Box(Modifier.weight(1f).fillMaxWidth().background(scheme.primaryContainer))
-            Box(Modifier.weight(1f).fillMaxWidth().background(scheme.tertiaryContainer))
-        }
-    }
-}
-
-/** 海报取色色圈：当前色板四象限 + 中心取色图标。 */
-@Composable
-private fun PosterSwatchArt() {
-    val cs = MaterialTheme.colorScheme
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(Modifier.fillMaxSize()) {
-            Row(Modifier.weight(1f)) {
-                Box(Modifier.weight(1f).fillMaxSize().background(cs.primaryContainer))
-                Box(Modifier.weight(1f).fillMaxSize().background(cs.primary))
-            }
-            Row(Modifier.weight(1f)) {
-                Box(Modifier.weight(1f).fillMaxSize().background(cs.tertiaryContainer))
-                Box(Modifier.weight(1f).fillMaxSize().background(cs.secondary))
-            }
-        }
-        Box(
-            Modifier
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(cs.surfaceContainerLowest),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Outlined.AutoAwesome, null, tint = cs.primary, modifier = Modifier.size(16.dp))
         }
     }
 }

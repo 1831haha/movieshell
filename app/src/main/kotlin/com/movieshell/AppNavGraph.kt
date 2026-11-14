@@ -82,6 +82,7 @@ import com.movieshell.ui.search.SearchScreen
 import com.movieshell.ui.settings.ParseSettingsScreen
 import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.settings.SniffPatternsScreen
+import com.movieshell.ui.settings.PlaybackSettingsScreen
 import com.movieshell.ui.settings.ThemeCollectionScreen
 import com.movieshell.ui.sources.SourcesScreen
 import com.movieshell.ui.web.WebSniffScreen
@@ -580,6 +581,8 @@ fun NavGraphBuilder.appDestinations(
                                 onParseSettingsClick = { navController.navigate("parse_settings") },
                                 // v1.2.5：主题收藏夹子页面
                                 onThemeCollectionClick = { navController.navigate("theme_collection") },
+                                // v1.2.6：播放设置子页面
+                                onPlaybackSettingsClick = { navController.navigate("playback_settings") },
                                 // v0.127.0：插件中心单入口（原插件市场/服务插件合并）
                                 onPluginCenterClick = { navController.navigate("plugin_center/0") },
                                 // v1.1.31：内核选 libmpv 但插件未安装时，直接跳市场页签装插件
@@ -611,6 +614,13 @@ fun NavGraphBuilder.appDestinations(
                         composable("theme_collection") {
                             ThemeCollectionScreen(
                                 onBack = { navController.popBackStack() },
+                            )
+                        }
+                        // v1.2.6：播放设置子页面
+                        composable("playback_settings") {
+                            PlaybackSettingsScreen(
+                                onBack = { navController.popBackStack() },
+                                onOpenMarketClick = { navController.navigate("plugin_center/2") },
                             )
                         }
                         // v0.30.0：更新日志独立页

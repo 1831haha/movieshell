@@ -91,6 +91,8 @@ fun ThemeCollectionScreen(onBack: () -> Unit) {
     val gradientId by ThemeStore.gradientId.collectAsState()
     val brandGradient by ThemeStore.brandGradient.collectAsState()
     var confirmDelete by remember { mutableStateOf<ThemeCollectionStore.SavedTheme?>(null) }
+    // v1.2.6：自定义配色（模式/主题色/炫彩/海报取色）从设置页搬到这里，面板见 ThemePanelDialog。
+    var showThemeDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { ThemeCollectionStore.init(context) }
 
@@ -158,6 +160,18 @@ fun ThemeCollectionScreen(onBack: () -> Unit) {
                         shape = RoundedCornerShape(22.dp),
                         modifier = Modifier.weight(1f).height(44.dp),
                     ) { Text("↓ 导入主题") }
+                }
+            }
+            item {
+                // v1.2.6：配色入口——模式、主题色、炫彩渐变、海报取色都在面板里。
+                SettingsGroup(title = "配色") {
+                    SettingsRow(
+                        icon = Icons.Outlined.Palette,
+                        title = "自定义配色",
+                        subtitle = "模式、主题色、炫彩渐变、海报取色",
+                        onClick = { showThemeDialog = true },
+                        divider = false,
+                    )
                 }
             }
             item {
@@ -293,6 +307,10 @@ fun ThemeCollectionScreen(onBack: () -> Unit) {
         ) {
             Text("确定删除「${target.name}」吗？", style = MaterialTheme.typography.bodyMedium)
         }
+    }
+
+    if (showThemeDialog) {
+        ThemePanelDialog(onDismiss = { showThemeDialog = false })
     }
 }
 
