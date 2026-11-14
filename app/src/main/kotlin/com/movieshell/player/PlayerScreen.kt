@@ -783,52 +783,74 @@ fun PlayerScreen(
     }
 
     fun tryNextLine(fallbackMsg: String) {
+        // v1.2.8：到这一步说明当前地址彻底播不了（同内核重拉/清 Referer/换内核都试过），
+        // 按结果地址反查记死给出这条死链的解析线路；之后重解析跳过它，换下一条线出结果。
+        // 直链/嗅探地址查不到解析记录，返回 false、什么都不记。
+        com.movieshell.data.source.ParseDeadLines.markDeadByResult(playUrl)
         val lines = PlaySession.lines
         val resolver = PlaySession.resolver
         val curLine = PlaySession.lineIndex
-        if (resolver != null && lines.size > 1 && curLine !in triedLines) {
-            triedLines.add(curLine)
-            scope.launch {
-                var next = (curLine + 1) % lines.size
-                var link = ""
-                var targetLine = -1
-                var targetEpIdx = 0
-                var guard = 0
-                while (guard < lines.size && link.isBlank()) {
-                    if (next !in triedLines) {
-                        triedLines.add(next)
-                        val line = lines[next]
-                        val epIdx = PlaySession.episodeIndex
-                            .coerceIn(0, (line.episodes.size - 1).coerceAtLeast(0))
-                        val ep = line.episodes.getOrNull(epIdx)
-                        // 磁力不参与自动重试（走 MagnetPlayer 分支，无播放器错误可重试）
-                        if (ep != null && !MagnetPlayer.isMagnet(ep.url)) {
-                            val resolved = resolver(context, ep)
-                            if (resolved.isNotBlank() && resolved != playUrl) {
-                                link = resolved
-                                targetLine = next
-                                targetEpIdx = epIdx
-                            }
+        // v1.2.8：单视频线路的源以前直接走自动换源，现在也先同线路重解析一次
+        // （记死的解析线已被跳过，可能拿到另一条解析线的结果）。
+        if (resolver == null || lines.isEmpty() || curLine in triedLines) {
+            tryAutoSwitchSource(fallbackMsg)
+            return
+        }
+        triedLines.add(curLine)
+        scope.launch {
+            var next = (curLine + 1) % lines.size
+            var link = ""
+            var targetLine = -1
+            var targetEpIdx = 0
+            var guard = 0
+            while (guard < lines.size && link.isBlank()) {
+                if (next !in triedLines) {
+                    triedLines.add(next)
+                    val line = lines[next]
+                    val epIdx = PlaySession.episodeIndex
+                        .coerceIn(0, (line.episodes.size - 1).coerceAtLeast(0))
+                    val ep = line.episodes.getOrNull(epIdx)
+                    // 磁力不参与自动重试（走 MagnetPlayer 分支，无播放器错误可重试）
+                    if (ep != null && !MagnetPlayer.isMagnet(ep.url)) {
+                        val resolved = resolver(context, ep)
+                        if (resolved.isNotBlank() && resolved != playUrl) {
+                            link = resolved
+                            targetLine = next
+                            targetEpIdx = epIdx
                         }
                     }
-                    next = (next + 1) % lines.size
-                    guard++
                 }
-                if (link.isNotBlank()) {
-                    PlaySession.moveTo(targetLine, targetEpIdx)
-                    // v0.175.0：自动换线路也要通知外部——之前只改了 PlaySession，
-                    // 详情页的选中线路没收到通知，Tab 和源胶囊还停在旧线路上。
-                    onEpisodeChange(targetLine, targetEpIdx)
-                    AppToast.show(context, "已自动切换到「${lines[targetLine].name}」", long = false)
-                    LogBus.i("Player", "播放失败，自动换线路：${lines[targetLine].name}")
+                next = (next + 1) % lines.size
+                guard++
+            }
+            if (link.isNotBlank()) {
+                PlaySession.moveTo(targetLine, targetEpIdx)
+                // v0.175.0：自动换线路也要通知外部——之前只改了 PlaySession，
+                // 详情页的选中线路没收到通知，Tab 和源胶囊还停在旧线路上。
+                onEpisodeChange(targetLine, targetEpIdx)
+                AppToast.show(context, "已自动切换到「${lines[targetLine].name}」", long = false)
+                LogBus.i("Player", "播放失败，自动换线路：${lines[targetLine].name}")
+                autoSwitching = true
+                playUrl = link
+            } else {
+                // v1.2.8：没有别的视频线路可试时，同线路重解析一次——记死的解析线
+                // 已被跳过，可能拿到另一条解析线的结果；拿不到或还是同一条死链
+                // 才走自动换源。每条视频线路每集只重解析一次（triedLines 守卫），
+                // 不会在死解析线之间来回空转。
+                val curEp = lines.getOrNull(curLine)?.episodes?.getOrNull(PlaySession.episodeIndex)
+                val relink = if (curEp != null && !MagnetPlayer.isMagnet(curEp.url)) {
+                    resolver(context, curEp)
+                } else ""
+                if (relink.isNotBlank() && relink != playUrl) {
+                    LogBus.i("Player", "播放失败，同线路换解析线路重试")
+                    AppToast.show(context, "已切换解析线路，正在重试", long = false)
+                    sameEngineRetries.intValue = 0
                     autoSwitching = true
-                    playUrl = link
+                    playUrl = relink
                 } else {
                     tryAutoSwitchSource("所有线路均播放失败")
                 }
             }
-        } else {
-            tryAutoSwitchSource(fallbackMsg)
         }
     }
 

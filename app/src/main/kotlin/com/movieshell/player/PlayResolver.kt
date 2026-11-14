@@ -24,6 +24,7 @@ import com.movieshell.data.source_mgr.SpiderEngine
 import com.movieshell.data.source_mgr.SubSiteRecord
 import com.movieshell.data.source.AutoSniffer
 import com.movieshell.data.source.ParseApi
+import com.movieshell.data.source.ParseDeadLines
 import com.movieshell.data.source.ParseProgressBus
 import com.movieshell.data.source.PlayRoute
 import com.movieshell.data.source.PlayRouting
@@ -278,6 +279,11 @@ private suspend fun parseWith(ctx: RouteContext, parses: List<ParseConfig>, u: S
     val hit = api.parseDetailed(parses, u, ctx.context, ctx.flag)
     if (api.cancelledByUser) ctx.cancelled = true
     hit ?: return null
+    // v1.2.8：记下这次命中的解析线路（按结果地址），播失败时按地址反查记死
+    val lineUrl = parses.firstOrNull {
+        ParseDeadLines.normLineName(it.name) == ParseDeadLines.normLineName(hit.line)
+    }?.url.orEmpty()
+    ParseDeadLines.noteHit(u, hit.url, hit.line, lineUrl)
     // v0.186.0：解析结果带上原规则头（解析线路自己的头优先）
     if (raw.header.isNotEmpty()) SniffPlayHeaders.putFallback(hit.url, raw.header)
     return hit.url

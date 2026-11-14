@@ -69,6 +69,16 @@ class ParseApi(
         fun isJsonType(p: ParseConfig): Boolean =
             p.type == 1 || p.type == 2 ||
                 ((p.type == 3 || p.type == 4) && p.url.trim().startsWith("http", ignoreCase = true))
+
+        /**
+         * v1.2.8（纯函数）：去掉已记死的解析线路（按线路名归一化后比对）；
+         * 全部都被记死时返回原列表（不留空），调用方不得因此一条都不试。
+         */
+        fun withoutDeadLines(lines: List<ParseConfig>, dead: Set<String>): List<ParseConfig> {
+            if (dead.isEmpty()) return lines
+            val kept = lines.filterNot { ParseDeadLines.normLineName(it.name) in dead }
+            return kept.ifEmpty { lines }
+        }
     }
 
     /** 解析命中：直链 + 该直链播放需要的请求头 + 命中线路名 */
@@ -114,14 +124,18 @@ class ParseApi(
         // 全部熔断时不至于一条都不试：退回全部线路（熔断只是排序提示）
         val pool = notTripped.ifEmpty { usable }
         val ordered = PlayRouting.orderLines(pool, flag, { it.flags }, { ParseStore.score(it.url) })
-        LogBus.i(TAG, "开始解析：${ordered.size} 条线路（跳过熔断 ${usable.size - notTripped.size}），url=$videoUrl")
-        val session = if (showProgress) ParseProgressBus.begin(ordered) else null
+        // v1.2.8：上次给这片回了死链的线路先跳过（播失败时记的）；全跳光了就照常用全部，
+        // 不留空——死线也可能只是当时那一下不行。
+        val dead = ParseDeadLines.deadLinesFor(videoUrl)
+        val raceLines = withoutDeadLines(ordered, dead).ifEmpty { ordered }
+        LogBus.i(TAG, "开始解析：${raceLines.size} 条线路（跳过熔断 ${usable.size - notTripped.size}，跳过记死 ${ordered.size - raceLines.size}），url=$videoUrl")
+        val session = if (showProgress) ParseProgressBus.begin(raceLines) else null
         val hit = try {
             if (session == null) {
-                race(ordered, videoUrl, context, null)
+                race(raceLines, videoUrl, context, null)
             } else {
                 coroutineScope {
-                    val raceJob = async { race(ordered, videoUrl, context, session) }
+                    val raceJob = async { race(raceLines, videoUrl, context, session) }
                     select<ParseHit?> {
                         raceJob.onAwait { it }
                         session.control.onAwait { c ->

@@ -26,11 +26,16 @@ class ParseApiTest {
         server = MockWebServer()
         server.start()
         api = ParseApi()
+        // v1.2.8：记死状态与解析缓存是进程级单例，测试之间隔离
+        ParseDeadLines.clear()
+        ParseCache.clear()
     }
 
     @After
     fun tearDown() {
         server.shutdown()
+        ParseDeadLines.clear()
+        ParseCache.clear()
     }
 
     private fun type1(
@@ -103,6 +108,44 @@ class ParseApiTest {
         assertEquals("", api.parse(emptyList(), "vid123"))
         assertEquals("", api.parse(listOf(type1()), ""))
         assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun deadLine_skippedOnRetry_parseReturnsNextLine() = runTest {
+        // v1.2.8：第一轮最快的线回了死链（记死 + 缓存失效），第二轮重解析跳过它，拿到另一条线的结果。
+        // 两条线各用一个 MockWebServer，慢线加 300ms 响应延迟，保证第一轮快线先赢。
+        val fast = MockWebServer()
+        val slow = MockWebServer()
+        fast.start()
+        slow.start()
+        try {
+            val deadUrl = "http://down.itufm.top/dead.mp4"
+            val goodUrl = "https://cdn.example/good.m3u8"
+            fast.enqueue(json("""{"url":"$deadUrl"}"""))
+            slow.enqueue(json("""{"url":"$goodUrl"}""").setHeadersDelay(300, TimeUnit.MILLISECONDS))
+            slow.enqueue(json("""{"url":"$goodUrl"}"""))
+            val lines = listOf(
+                ParseConfig(name = "快线", url = fast.url("/parse.php").toString(), type = 1),
+                ParseConfig(name = "慢线", url = slow.url("/parse.php").toString(), type = 1),
+            )
+            val videoUrl = "https://v.example/vid"
+
+            val first = api.parseDetailed(lines, videoUrl, null, "", showProgress = false)
+            assertEquals(deadUrl, first?.url)
+            assertEquals("快线", first?.line)
+
+            // 模拟播放器：记死死链线路 + 缓存失效（handlePlayFailure / tryNextLine 的行为）
+            ParseDeadLines.noteHit(videoUrl, deadUrl, first!!.line, lines.first { it.name == first.line }.url)
+            assertTrue(ParseDeadLines.markDeadByResult(deadUrl))
+            ParseCache.invalidateResult(deadUrl)
+
+            val second = api.parseDetailed(lines, videoUrl, null, "", showProgress = false)
+            assertEquals(goodUrl, second?.url)
+            assertEquals("慢线", second?.line)
+        } finally {
+            fast.shutdown()
+            slow.shutdown()
+        }
     }
 
     // ---------------- extractUrl 纯函数 ----------------
