@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -26,10 +27,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
+import android.content.Context
 import com.movieshell.data.source.stripHtml
 
 /**
@@ -51,6 +56,17 @@ fun parsePicsUrls(url: String): List<String> {
         .filter { it.isNotBlank() }
 }
 
+/**
+ * 看图请求：解码按屏宽取（默认 Scale.FIT，不裁剪），预取与展示共用同一构造，
+ * 缓存键一致，预取完往下刷直接命中缓存。
+ */
+fun picsRequest(context: Context, imageUrl: String, headers: Map<String, String>, widthPx: Int): ImageRequest =
+    ImageRequest.Builder(context)
+        .data(imageUrl)
+        .size(widthPx, widthPx * 2)
+        .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
+        .build()
+
 @Composable
 fun PicsViewerScreen(
     url: String,
@@ -62,6 +78,16 @@ fun PicsViewerScreen(
     // 解析链路把源返回的 Referer/UA 存在 SniffPlayHeaders 里（key 是整条 pics:// 地址），
     // 看图时原样带给每张图，防盗链站点不带 Referer 会 403。peek 不消费，翻页重组还能用。
     val headers = remember(url) { SniffPlayHeaders.peek(url) }
+    // v1.2.9：42 张大图一次拉到底——原来每张图只在滚到眼前时才开始下载+全尺寸解码，
+    // 一张接一张慢慢冒，滑到底要等半天。进页就把全部图预取进缓存，往下刷直接命中。
+    val density = LocalDensity.current
+    val widthPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.roundToPx() }
+    val imageLoader = context.imageLoader
+    LaunchedEffect(url) {
+        images.forEach { imageUrl ->
+            imageLoader.enqueue(picsRequest(context, imageUrl, headers, widthPx))
+        }
+    }
     var uiVisible by remember { mutableStateOf(true) }
 
     if (images.isEmpty()) {
@@ -92,11 +118,8 @@ fun PicsViewerScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             itemsIndexed(images) { index, imageUrl ->
-                val request = remember(imageUrl, headers) {
-                    ImageRequest.Builder(context)
-                        .data(imageUrl)
-                        .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
-                        .build()
+                val request = remember(imageUrl, headers, widthPx) {
+                    picsRequest(context, imageUrl, headers, widthPx)
                 }
                 AsyncImage(
                     model = request,
