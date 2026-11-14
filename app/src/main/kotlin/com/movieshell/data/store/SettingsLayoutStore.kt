@@ -45,7 +45,8 @@ object SettingsLayoutStore {
         _layout.value = normalize(raw)
     }
 
-    private fun normalize(raw: String?): Map<String, List<String>> {
+    /** 纯函数版 init（只读存的字符串），供单测直接验补齐/去重逻辑。 */
+    internal fun normalize(raw: String?): Map<String, List<String>> {
         val saved = mutableMapOf<String, List<String>>()
         runCatching {
             val obj = JSONObject(raw ?: return@runCatching)
@@ -55,18 +56,17 @@ object SettingsLayoutStore {
             }
         }
         val out = mutableMapOf<String, List<String>>()
-        for ((container, defaults) in DEFAULT_LAYOUT) {
-            val list = (saved[container] ?: emptyList()).toMutableList()
-            // 默认住这的行，存里没有就补到末尾（以后新加可移项，老布局不丢它）。
-            for (id in defaults) if (id !in list) list.add(id)
-            out[container] = list
+        val seen = mutableSetOf<String>()
+        for (container in DEFAULT_LAYOUT.keys) {
+            // 同一行只留第一次出现的位置（存坏了也不重影）。
+            out[container] = (saved[container] ?: emptyList()).filter { seen.add(it) }
         }
-        // 哪行都不住着（旧布局漏了）就放回默认容器。
-        val placed = out.values.flatten().toSet()
+        // 只补“哪都没住”的行（以后新加可移项，老布局不丢它）；已搬走的行不回默认容器。
         for (id in ALL_ITEMS) {
-            if (id !in placed) {
+            if (id !in seen) {
                 val home = DEFAULT_LAYOUT.entries.first { id in it.value }.key
                 out[home] = out.getValue(home) + id
+                seen.add(id)
             }
         }
         return out
@@ -74,13 +74,24 @@ object SettingsLayoutStore {
 
     /** 把一项挪到目标容器指定位置（同容器 = 调顺序，跨容器 = 搬家），立即存盘。 */
     fun move(context: Context, itemId: String, toContainer: String, toIndex: Int) {
-        if (itemId !in ALL_ITEMS || toContainer !in DEFAULT_LAYOUT) return
-        val next = _layout.value.mapValues { it.value.toMutableList() }.toMutableMap()
+        val next = moveInLayout(_layout.value, itemId, toContainer, toIndex)
+        _layout.value = next
+        save(context, next)
+    }
+
+    /** 纯函数版 move（不碰 Context、不碰磁盘），供单测直接验搬家逻辑。 */
+    internal fun moveInLayout(
+        layout: Map<String, List<String>>,
+        itemId: String,
+        toContainer: String,
+        toIndex: Int,
+    ): Map<String, List<String>> {
+        if (itemId !in ALL_ITEMS || toContainer !in DEFAULT_LAYOUT) return layout
+        val next = layout.mapValues { it.value.toMutableList() }.toMutableMap()
         for (list in next.values) list.remove(itemId)
         val target = next.getValue(toContainer)
         target.add(toIndex.coerceIn(0, target.size), itemId)
-        _layout.value = next
-        save(context, next)
+        return next
     }
 
     fun reset(context: Context) {
