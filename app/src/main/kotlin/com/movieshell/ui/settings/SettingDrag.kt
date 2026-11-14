@@ -51,8 +51,9 @@ class SettingDragState {
         private set
     var hoverTarget by mutableStateOf<SettingDropTarget?>(null)
         private set
+    // rootTopLeft 与 stripRect 由悬浮层/回页条直接写（公开 set），其余状态只许经
+    // begin/moveTo/end/cancel 改（private set），避免外部乱改拖动状态。
     var rootTopLeft by mutableStateOf(Offset.Zero)
-        private set
 
     /** 各容器当前住的行（布局流），供落点算插入位置；宿主屏每次布局变化时更新。 */
     var containers by mutableStateOf<Map<String, List<String>>>(emptyMap())
@@ -61,17 +62,8 @@ class SettingDragState {
     val containerRects = mutableMapOf<String, Rect>()
     val entryRects = mutableMapOf<String, Rect>()
     var stripRect by mutableStateOf<Rect?>(null)
-        private set
 
     val isDragging get() = draggedId != null
-
-    fun setRootTopLeft(pos: Offset) {
-        rootTopLeft = pos
-    }
-
-    fun setStripRect(rect: Rect?) {
-        stripRect = rect
-    }
 
     fun begin(id: String, fingerWindowPos: Offset, size: IntSize) {
         if (draggedId != null) return
@@ -174,7 +166,7 @@ fun Modifier.settingDropEntry(
 fun Modifier.settingBackStrip(
     dragState: SettingDragState,
 ): Modifier = onGloballyPositioned { coords ->
-    dragState.setStripRect(coords.boundsInWindow())
+    dragState.stripRect = coords.boundsInWindow()
 }
 
 /** 拖动时的悬浮跟手副本 + 插入位置指示线，宿主屏放在最外层 Box 的最后。 */
@@ -189,7 +181,7 @@ fun SettingDragOverlay(
     Box(
         Modifier
             .fillMaxSize()
-            .onGloballyPositioned { dragState.setRootTopLeft(it.boundsInWindow().topLeft) },
+            .onGloballyPositioned { dragState.rootTopLeft = it.boundsInWindow().topLeft },
     ) {
         Surface(
             modifier = Modifier

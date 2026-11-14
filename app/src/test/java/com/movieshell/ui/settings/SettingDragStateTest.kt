@@ -52,7 +52,7 @@ class SettingDragStateTest {
 
     @Test fun dragRowOntoStripGoesBackToMain() {
         val s = state()
-        s.setStripRect(Rect(0f, 0f, 400f, 60f))
+        s.stripRect = Rect(0f, 0f, 400f, 60f)
         s.begin("engine", Offset(200f, 230f), IntSize(400, 60))
         s.moveTo(Offset(200f, 30f))
         assertEquals("engine" to SettingDropTarget.BackToMain, s.end())
@@ -60,7 +60,7 @@ class SettingDragStateTest {
 
     @Test fun stripBeatsContainerWhenOverlapping() {
         val s = state()
-        s.setStripRect(Rect(0f, 180f, 400f, 240f))
+        s.stripRect = Rect(0f, 180f, 400f, 240f)
         s.begin("engine", Offset(200f, 230f), IntSize(400, 60))
         s.moveTo(Offset(200f, 220f))
         assertEquals("engine" to SettingDropTarget.BackToMain, s.end())
