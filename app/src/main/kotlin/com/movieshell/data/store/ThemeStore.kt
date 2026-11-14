@@ -22,6 +22,9 @@ object ThemeStore {
     private const val KEY_COLOR = "theme_color"
     /** v0.87.1：炫彩渐变主题 id；有值=渐变模式，无值=单色模式 */
     private const val KEY_GRADIENT = "theme_gradient"
+    /** v1.2.5：自定义渐变色带（逗号分隔 ARGB），KEY_GRADIENT="custom" 时有效。 */
+    private const val KEY_GRADIENT_COLORS = "theme_gradient_colors"
+    const val GRADIENT_CUSTOM = "custom"
 
     /**
      * 默认主题色：v0.279.0 旧版 改为 经典蓝 #3D9BFF（原为青 #4DD0E1）；
@@ -172,11 +175,24 @@ object ThemeStore {
             .takeIf { it == MODE_DARK || it == MODE_LIGHT || it == MODE_SYSTEM }
             ?: MODE_SYSTEM
         _mode.value = saved
-        val preset = presetOf(prefs.getString(KEY_GRADIENT, null))
-        if (preset != null) {
-            applyGradient(preset)
-        } else {
-            applyColor(prefs.getInt(KEY_COLOR, DEFAULT_COLOR))
+        val savedGradient = prefs.getString(KEY_GRADIENT, null)
+        val preset = presetOf(savedGradient)
+        when {
+            preset != null -> applyGradient(preset)
+            // v1.2.5：自定义渐变（主题收藏夹内置主题/收藏快照用），色带另存 KEY_GRADIENT_COLORS。
+            savedGradient == GRADIENT_CUSTOM -> {
+                val colors = prefs.getString(KEY_GRADIENT_COLORS, null)
+                    ?.split(",")?.mapNotNull { it.toIntOrNull() }?.takeIf { it.isNotEmpty() }
+                if (colors != null) {
+                    _gradientId.value = GRADIENT_CUSTOM
+                    _brandGradient.value = colors
+                    _color.value = prefs.getInt(KEY_COLOR, DEFAULT_COLOR)
+                    _themeKey.value = "g:$GRADIENT_CUSTOM"
+                } else {
+                    applyColor(prefs.getInt(KEY_COLOR, DEFAULT_COLOR))
+                }
+            }
+            else -> applyColor(prefs.getInt(KEY_COLOR, DEFAULT_COLOR))
         }
         // v0.292.0：海报取色 / 系统取色是叠在种子色上的来源开关（种子色仍保留作兜底）
         when (prefs.getString(KEY_SOURCE, SOURCE_SEED)) {
@@ -237,6 +253,7 @@ object ThemeStore {
             .edit()
             .putInt(KEY_COLOR, argb)
             .remove(KEY_GRADIENT)
+            .remove(KEY_GRADIENT_COLORS)
             .apply()
         clearSource(context)
         applyColor(argb)
@@ -247,9 +264,30 @@ object ThemeStore {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_GRADIENT, id)
+            .remove(KEY_GRADIENT_COLORS)
             .apply()
         clearSource(context)
         applyGradient(preset)
+    }
+
+    /**
+     * v1.2.5：自定义渐变（主题收藏夹用）：色带 + 锚点色（种子色）一起存，
+     * 恢复走 init 的 custom 分支；themeKey 记 "g:custom"。
+     */
+    fun setCustomGradient(context: Context, colors: List<Int>, anchor: Int) {
+        val list = colors.take(4)
+        if (list.isEmpty()) return
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_COLOR, anchor)
+            .putString(KEY_GRADIENT, GRADIENT_CUSTOM)
+            .putString(KEY_GRADIENT_COLORS, list.joinToString(","))
+            .apply()
+        clearSource(context)
+        _gradientId.value = GRADIENT_CUSTOM
+        _brandGradient.value = list
+        _color.value = anchor
+        _themeKey.value = "g:$GRADIENT_CUSTOM"
     }
 
     private fun applyColor(argb: Int) {

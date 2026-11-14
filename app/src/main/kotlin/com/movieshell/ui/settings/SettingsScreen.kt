@@ -72,6 +72,7 @@ import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
@@ -147,6 +148,7 @@ import com.movieshell.player.PlayerManager
 import com.movieshell.data.source.PluginMarket
 import com.movieshell.data.source.SniffConfig
 import com.movieshell.data.store.PluginStore
+import com.movieshell.data.store.ThemeCollectionStore
 import com.movieshell.data.store.ThemeStore
 import com.movieshell.ui.components.AppButton
 import com.movieshell.ui.components.AppButtonVariant
@@ -195,6 +197,7 @@ fun SettingsScreen(
     onChangelogClick: () -> Unit = {},
     onSourcesClick: () -> Unit = {}, // v0.36.0：站源管理入口（tab 删除后搬进设置）
     onParseSettingsClick: () -> Unit = {}, // v0.78.2：解析接口子页面入口
+    onThemeCollectionClick: () -> Unit = {}, // v1.2.5：主题收藏夹子页面入口
     onPluginCenterClick: () -> Unit = {}, // v0.127.0：插件中心（插件/服务/市场三页签，原两入口合并）
     // v1.1.31：内核选 libmpv 但插件未安装时，直接跳市场页签装插件
     onOpenMarketClick: () -> Unit = onPluginCenterClick,
@@ -358,6 +361,7 @@ fun SettingsScreen(
         subRefreshEnabled = SubRefreshStore.isEnabled(context)
         maxParallel = DownloadStore.maxParallel(context)
         runCatching { BackgroundStore.load(context) }
+        runCatching { ThemeCollectionStore.init(context) }
         // v0.101.0：缓存占用（视频 m3u8 分片 + Coil 图片磁盘缓存）
         cacheSize = runCatching { refreshCacheSize(context) }.getOrDefault(cacheSize)
         magnetCap = com.movieshell.player.MagnetCache.capGb(context)
@@ -417,6 +421,8 @@ fun SettingsScreen(
     // 原有每一项设置、入口、动作都保留，弹窗与逻辑一行未动。
     val cs = MaterialTheme.colorScheme
     val customBg by BackgroundStore.customBg.collectAsState()
+    // v1.2.5：主题收藏夹底图状态（背景底图行副标题按它显示，不只看有没有自定义文件）。
+    val themeBgId by ThemeCollectionStore.background.collectAsState()
     val gravityRotate by PlayerSettings.gravityRotate.collectAsState()
     val liveAutoplay by PlayerSettings.liveAutoplay.collectAsState()
     var showLiveAutoplayMenu by remember { mutableStateOf(false) }
@@ -521,12 +527,19 @@ fun SettingsScreen(
                 subtitle = "$modeLabel · $colorLabel",
                 onClick = { showThemeDialog = true },
             )
+            SegItem(
+                position = SegPos.Middle,
+                icon = Icons.Filled.Favorite,
+                title = "主题收藏夹",
+                subtitle = "4 套内置主题 · 5 张内置底图",
+                onClick = onThemeCollectionClick,
+            )
             // v0.82.0：背景底图
             SegItem(
                 position = SegPos.Last,
                 icon = Icons.Outlined.Wallpaper,
                 title = "背景底图",
-                subtitle = (if (customBg != null) "已自定义" else "默认") + " · 首页生效",
+                subtitle = ThemeCollectionStore.backgroundLabel(themeBgId) + " · 首页生效",
                 onClick = {
                     if (customBg != null) showBgMenu = true
                     else bgPicker.launch("image/*")

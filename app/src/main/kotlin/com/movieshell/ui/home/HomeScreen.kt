@@ -163,6 +163,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.basicMarquee
 import com.movieshell.data.store.BackgroundStore
+import com.movieshell.data.store.ThemeCollectionStore
 
 // v0.27.6：进程级标记，区分冷启动和 tab 切回（切 tab 时 HomeScreen 被 dispose，重进 composition）。
 // 冷启动保持干净空态，切回才静默恢复缓存。
@@ -1289,7 +1290,9 @@ fun HomeScreen(
     // v0.32.0 影院黑：流动渐变光斑垫底，内容浮上
     // v0.82.0：用户自定义背景底图（设置页更换）优先
     val customBg by BackgroundStore.customBg.collectAsState()
-    LaunchedEffect(Unit) { BackgroundStore.load(context) }
+    // v1.2.5：主题收藏夹底图（内置 assets / 自定义相册图）。
+    val bgId by ThemeCollectionStore.background.collectAsState()
+    LaunchedEffect(Unit) { BackgroundStore.load(context); ThemeCollectionStore.init(context) }
     // v0.237.0 浅色高密度：浅色下不要光斑、自定义底图、半透明罩；深色保持原样。
     val themeMode by ThemeStore.mode.collectAsState()
     val darkTheme = when (themeMode) {
@@ -1329,8 +1332,27 @@ fun HomeScreen(
     // v1.1.27：浅色下也画自定义底图——之前只在深色下画，浅色设了也看不见
     // （设置页照样显示“已自定义”，用户以为没生效）。深色走老路（黑罩 0.55＋
     // 内容区 0.62）；浅色只用内容区一道白罩 0.55，照片留约一半亮度，字还能看清。
+    // v1.2.5：主题收藏夹底图——内置 assets 或自定义相册图；罩子透明度沿用老口径，晚霞再加深。
+    val bgAsset = ThemeCollectionStore.backgroundDef(bgId)?.asset
+    val bgBoost = ThemeCollectionStore.scrimBoost(bgId)
+    val hasBg = bgAsset != null || (bgId == ThemeCollectionStore.BG_CUSTOM && customBg != null)
     Box(modifier = Modifier.fillMaxSize().background(cs.background)) {
-        if (customBg != null) {
+        if (bgAsset != null) {
+            AsyncImage(
+                model = "file:///android_asset/theme_bg/$bgAsset",
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            // 深色罩：保证文字可读
+            if (darkTheme) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = (0.55f + bgBoost).coerceAtMost(0.8f))),
+                )
+            }
+        } else if (bgId == ThemeCollectionStore.BG_CUSTOM && customBg != null) {
             AsyncImage(
                 model = customBg,
                 contentDescription = null,
@@ -1353,9 +1375,9 @@ fun HomeScreen(
                 .fillMaxSize()
                 .background(
                     when {
-                        customBg == null -> cs.background
-                        darkTheme -> cs.background.copy(alpha = 0.62f)
-                        else -> cs.background.copy(alpha = 0.55f)
+                        !hasBg -> cs.background
+                        darkTheme -> cs.background.copy(alpha = (0.62f + bgBoost).coerceAtMost(0.85f))
+                        else -> cs.background.copy(alpha = (0.55f + bgBoost).coerceAtMost(0.85f))
                     }
                 ),
         ) {
