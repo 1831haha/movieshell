@@ -47,7 +47,7 @@ data class SettingRowContent(
 )
 
 @Composable
-fun MovableSettingRow(
+internal fun MovableSettingRow(
     id: String,
     style: SettingRowStyle,
     cardPosition: SegPos,

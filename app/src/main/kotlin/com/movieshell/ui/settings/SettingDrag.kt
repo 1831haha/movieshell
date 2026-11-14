@@ -65,6 +65,10 @@ class SettingDragState {
 
     val isDragging get() = draggedId != null
 
+    fun setRootTopLeft(pos: Offset) {
+        rootTopLeft = pos
+    }
+
     fun setStripRect(rect: Rect?) {
         stripRect = rect
     }
@@ -185,7 +189,7 @@ fun SettingDragOverlay(
     Box(
         Modifier
             .fillMaxSize()
-            .onGloballyPositioned { dragState.rootTopLeft = it.boundsInWindow().topLeft },
+            .onGloballyPositioned { dragState.setRootTopLeft(it.boundsInWindow().topLeft) },
     ) {
         Surface(
             modifier = Modifier
