@@ -27,7 +27,7 @@ object PhpSourceManager {
 
     /** v1.2.12：标题直接取文件名（不含 .php 后缀），与 v1.1.11 的 PY 同款——此前按类名/注释抠标题：
      * 正常 T4 规则的类就叫 Spider，类名正则（要求名字以 Spider 结尾且前面至少一个字符）抠不到；
-     * 注释正则（第一个 `*` 后面的文字）会抠到代码片段，如分页的 `* $limit;`、请求头的 `*/*;q=0.8`。 */
+     * 注释正则（第一个 `*` 后面的文字）会抠到代码片段，如分页的 `* $limit;`、请求头的 Accept 值（q=0.8 那段）。 */
 
     /** 非源文件：控制台首页、源列表生成器、框架文件。 */
     private val EXCLUDED_FILES = setOf("index.php", "config.php", "spider.php", "HtmlParser.php")
