@@ -68,6 +68,9 @@ fun picsRequest(context: Context, imageUrl: String, headers: Map<String, String>
         .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
         .build()
 
+/** v1.2.11：看图预取上限——只预取前 10 张（约 7 屏），够 cover 首屏滑动；原来进页就把全部 42 张都预取（约 12.5MB），打开一次就拉满带宽+全解码。往下刷时滚到眼前的图照常按需加载，2:3 占位已定死、拉到底不受影响。 */
+private const val PREFETCH_COUNT = 10
+
 @Composable
 fun PicsViewerScreen(
     url: String,
@@ -80,12 +83,12 @@ fun PicsViewerScreen(
     // 看图时原样带给每张图，防盗链站点不带 Referer 会 403。peek 不消费，翻页重组还能用。
     val headers = remember(url) { SniffPlayHeaders.peek(url) }
     // v1.2.9：42 张大图一次拉到底——原来每张图只在滚到眼前时才开始下载+全尺寸解码，
-    // 一张接一张慢慢冒，滑到底要等半天。进页就把全部图预取进缓存，往下刷直接命中。
+    // 一张接一张慢慢冒，滑到底要等半天。进页就把前 10 张预取进缓存，往下刷直接命中。
     val density = LocalDensity.current
     val widthPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.roundToPx() }
     val imageLoader = context.imageLoader
     LaunchedEffect(url) {
-        images.forEach { imageUrl ->
+        images.take(PREFETCH_COUNT).forEach { imageUrl ->
             imageLoader.enqueue(picsRequest(context, imageUrl, headers, widthPx))
         }
     }

@@ -104,7 +104,10 @@ object LogBus {
         synchronized(lock) {
             deque.addLast(entry)
             while (deque.size > MAX) deque.removeFirst()
-            _entries.value = deque.toList()
+            // v1.2.11：没人看日志时别每次全量复制+发射——搜索扇出/解析竞速时每秒几十条，
+            // 每条都复制 2000 条的列表。日志悬浮窗打开才有人订阅，那时再发射；
+            // 新订阅者本来就能拿到 StateFlow 的当前值。clear() 仍无条件发射（冷路径）。
+            if (_entries.subscriptionCount.value > 0) _entries.value = deque.toList()
         }
         // 同时写一份到 logcat；单元测试环境下 android.util.Log 是 stub，吞掉
         runCatching {

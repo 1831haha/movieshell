@@ -34,7 +34,7 @@ import kotlin.coroutines.resume
 /**
  * 追剧更新检测 Worker（v0.26.0）。
  *
- * 每天 2 次（12 小时周期，仅 WiFi/有网时跑）：逐个追剧调 detail() 数集数，
+ * 每天 2 次（12 小时周期，仅 WiFi 时跑）：逐个追剧调 detail() 数集数，
  * 变多则标 NEW + 发通知。单源失败只记日志不中断整体。
  */
 class FollowCheckWorker(
@@ -241,7 +241,8 @@ class FollowCheckWorker(
             val req = PeriodicWorkRequestBuilder<FollowCheckWorker>(12, TimeUnit.HOURS)
                 .setConstraints(
                     Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        // v1.2.11：仅 WiFi——原来是任何网络（含移动数据），注释写“仅 WiFi”却没做到。
+                        .setRequiredNetworkType(NetworkType.UNMETERED)
                         .build(),
                 )
                 .build()

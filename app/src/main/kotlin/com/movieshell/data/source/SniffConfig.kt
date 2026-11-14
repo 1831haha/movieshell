@@ -59,8 +59,8 @@ object SniffConfig {
     var autoSniffTimeoutMs: Long = 15_000L
         private set
 
-    /** v0.294.7（H3）：一次解析的总时间预算（全部线路并发合计） */
-    var parseBudgetMs: Long = 45_000L
+    /** v0.294.7（H3）：一次解析的总时间预算（全部线路并发合计）；v1.2.11：默认 45 秒→30 秒（设置里仍可改，10–180 秒） */
+    var parseBudgetMs: Long = 30_000L
         private set
 
     /** v0.294.7（M8）：嗅探 UA 模式 */
@@ -84,7 +84,7 @@ object SniffConfig {
             adFilterEnabled = p.getBoolean(K_AD_FILTER, true)
             sniffTimeoutMs = p.getLong(K_SNIFF_TIMEOUT, 20_000L).coerceIn(5_000L, 120_000L)
             autoSniffTimeoutMs = p.getLong(K_AUTO_SNIFF_TIMEOUT, 15_000L).coerceIn(5_000L, 60_000L)
-            parseBudgetMs = p.getLong(K_PARSE_BUDGET, 45_000L).coerceIn(10_000L, 180_000L)
+            parseBudgetMs = p.getLong(K_PARSE_BUDGET, 30_000L).coerceIn(10_000L, 180_000L)
             uaMode = p.getInt(K_UA_MODE, UA_MOBILE).coerceIn(0, 1)
             loaded = true
         }

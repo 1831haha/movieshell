@@ -1071,7 +1071,10 @@ object MusicPlayer {
         progressJob?.cancel()
         progressJob = scope.launch {
             while (true) {
-                delay(500)
+                val c0 = controller ?: break
+                // v1.2.11：暂停时 2 秒醒一次，别 500ms 空转（进度不动，不用推 state）；
+                // 恢复播放会重调 startProgressPoll，进度最多晚 2 秒接上。
+                delay(if (c0.isPlaying) 500 else 2000)
                 val c = controller ?: break
                 if (c.isPlaying) {
                     val dur = c.duration.coerceAtLeast(0L)

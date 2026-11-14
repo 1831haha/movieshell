@@ -56,8 +56,8 @@ class ParseApi(
 
         /** JSON 线路单条超时 */
         private const val JSON_TIMEOUT_MS = 12_000L
-        /** JSON 线路并发上限 */
-        private const val JSON_CONCURRENCY = 8
+        /** JSON 线路并发上限（v1.2.11：8→4——线路已按健康分排过序，最靠前的先跑，先到先得，4 路够了，少占射频） */
+        private const val JSON_CONCURRENCY = 4
         /** 嗅探线路并发上限（AutoSniffer 另有全局 2 个 WebView 上限） */
         private const val SNIFF_CONCURRENCY = 2
 

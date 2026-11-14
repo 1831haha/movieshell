@@ -75,7 +75,8 @@ object OrientationSensor {
             .getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return
         sensorManager = sm
         sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-            sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_UI)
+            // v1.2.11：方向判断有 400ms 防抖，60ms 采样是浪费，200ms 足够。
+            sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
     }
 
