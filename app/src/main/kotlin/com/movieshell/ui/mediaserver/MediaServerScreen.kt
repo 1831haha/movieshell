@@ -68,6 +68,7 @@ import com.movieshell.data.source.EmbyApi
 import com.movieshell.data.store.EmbyServer
 import com.movieshell.data.store.EmbyStore
 import com.movieshell.player.HistoryStore
+import com.movieshell.player.PlaySession
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
@@ -236,7 +237,13 @@ fun MediaServerScreen(
                 sourceType = "emby", sourceKey = server.name,
             )
         }
-        onPlay(url, display)
+        // v1.2.13：片头片尾跳过——播前取一次详情拿章节（列表接口不带 Chapters，
+        // 200 条全带会把列表回包撑大）；取不到就按无章节照常播，不挡播放。
+        scope.launch {
+            val detail = EmbyApi.item(server.baseUrl, typeOf(server), EmbyStore.deviceId(context), auth, item.Id)
+            PlaySession.setChapters(detail?.Chapters ?: item.Chapters)
+            onPlay(url, display)
+        }
     }
 
     fun openItem(server: EmbyServer, item: EmbyApi.EmbyItem) {

@@ -2,6 +2,7 @@ package com.movieshell.data.source
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -79,5 +80,96 @@ class EmbyApiTest {
         assertEquals(2024, resp.Items[0].ProductionYear)
         assertEquals(3_600_000_000L, resp.Items[0].UserData?.PlaybackPositionTicks)
         assertEquals(12, resp.Items[1].ChildCount)
+    }
+
+    @Test
+    fun `item parses chapters when present and empty when missing`() {
+        val withChapters = """
+            {"Id":"9","Name":"示例电影","Type":"Movie","RunTimeTicks":6000000000,
+             "Chapters":[{"Name":"Intro","StartPositionTicks":0},
+                        {"Name":"Chapter 2","StartPositionTicks":900000000},
+                        {"Name":"End Credits","StartPositionTicks":5400000000}]}
+        """.trimIndent()
+        val item = jsonLenient.decodeFromString<EmbyApi.EmbyItem>(withChapters)
+        assertEquals(3, item.Chapters.size)
+        assertEquals("Intro", item.Chapters[0].Name)
+        assertEquals(0L, item.Chapters[0].StartPositionTicks)
+        assertEquals(5_400_000_000L, item.Chapters[2].StartPositionTicks)
+        val withoutChapters = jsonLenient.decodeFromString<EmbyApi.EmbyItem>(
+            """{"Id":"9","Name":"示例电影","Type":"Movie"}""",
+        )
+        assertTrue(withoutChapters.Chapters.isEmpty())
+    }
+
+    private fun chapters(vararg pairs: Pair<String, Long>): List<EmbyApi.EmbyChapter> =
+        pairs.map { EmbyApi.EmbyChapter(it.first, it.second) }
+
+    @Test
+    fun `findSkipTarget returns intro skip inside intro chapter`() {
+        val target = EmbyApi.findSkipTarget(
+            chapters("Intro" to 0L, "Chapter 2" to 900_000_000L, "End Credits" to 5_400_000_000L),
+            positionMs = 30_000L,
+            durationMs = 600_000L,
+        )
+        assertEquals("跳过片头", target?.label)
+        assertEquals(90_000L, target?.seekToMs)
+    }
+
+    @Test
+    fun `findSkipTarget returns outro skip inside credits chapter`() {
+        val target = EmbyApi.findSkipTarget(
+            chapters("Intro" to 0L, "Chapter 2" to 900_000_000L, "End Credits" to 5_400_000_000L),
+            positionMs = 550_000L,
+            durationMs = 600_000L,
+        )
+        assertEquals("跳过片尾", target?.label)
+        assertEquals(600_000L, target?.seekToMs)
+    }
+
+    @Test
+    fun `findSkipTarget returns null in middle chapter`() {
+        assertNull(
+            EmbyApi.findSkipTarget(
+                chapters("Intro" to 0L, "Chapter 2" to 900_000_000L, "End Credits" to 5_400_000_000L),
+                positionMs = 300_000L,
+                durationMs = 600_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun `findSkipTarget matches chinese names and OP ED exactly`() {
+        val intro = EmbyApi.findSkipTarget(
+            chapters("片头" to 0L, "正片" to 600_000_000L),
+            positionMs = 10_000L,
+            durationMs = 600_000L,
+        )
+        assertEquals("跳过片头", intro?.label)
+        val outro = EmbyApi.findSkipTarget(
+            chapters("正片" to 0L, "ED" to 5_400_000_000L),
+            positionMs = 550_000L,
+            durationMs = 600_000L,
+        )
+        assertEquals("跳过片尾", outro?.label)
+        assertEquals(600_000L, outro?.seekToMs)
+    }
+
+    @Test
+    fun `findSkipTarget is case insensitive and ignores unknown duration`() {
+        val target = EmbyApi.findSkipTarget(
+            chapters("INTRODUCTION" to 0L, "Main" to 900_000_000L),
+            positionMs = 5_000L,
+            durationMs = 600_000L,
+        )
+        assertEquals("跳过片头", target?.label)
+        // 最后一章是片尾但片长未知：结尾算不出，不给跳过按钮。
+        assertNull(
+            EmbyApi.findSkipTarget(
+                chapters("Main" to 0L, "Outro" to 5_400_000_000L),
+                positionMs = 550_000L,
+                durationMs = 0L,
+            ),
+        )
+        assertTrue(EmbyApi.findSkipTarget(emptyList(), 10_000L, 600_000L) == null)
     }
 }

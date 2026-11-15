@@ -25,6 +25,8 @@ import com.movieshell.data.store.ReadingProgressStore
 import com.movieshell.domain.model.Chapter
 import com.movieshell.domain.model.Novel
 import com.movieshell.domain.model.ReadingProgress
+import com.movieshell.player.HistoryEntry
+import com.movieshell.player.HistoryStore
 import java.io.File
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -55,14 +57,16 @@ import kotlinx.serialization.json.putJsonObject
  *   "bookshelf": {"novels": [{"novel", "chapters"}], "groups": [...],
  *                "progress": [...], "bookmarks": [{"novelId", "items"}]},
  *   "music": {"local": [...], "fav": [...], "playlists": [...]},
- *   "live": {"sources": [...], "manual": [...], "favs": [...], "globalEpg": "..."} }
+ *   "live": {"sources": [...], "manual": [...], "favs": [...], "globalEpg": "..."},
+ *   "history": [ 播放历史条目 ] }
  *
  * - apiSources 来自 ApiSourceStore（持久化文件，不存在则用默认订阅）；
  * - activeRules.drpy/py 读各 Manager 现有 API（内存状态）；
  * - php/web 目前没有 active 概念，固定导出 null，恢复时忽略。
  * - v0.186.0：第 7 组扩展——追剧、书架、音乐、直播各占独立一段，
  *   不混进 apiSources；老备份（无这四段）照常导入，缺段即跳过。
- * - 本备份不是全量：插件、下载任务、播放历史、各项设置不在其中，
+ * - v1.2.13：播放历史进备份（history 段，WebDAV 同步用；老备份无此段时跳过）。
+ * - 本备份不是全量：插件、下载任务、各项设置不在其中，
  *   导出页与同步文案不得宣称全量。
  * - 恢复口径与主段一致：全部校验先行，缺字段的段整单拒绝；
  *   写盘后回读比对，任何一段失败则主段与各段一并回滚。
@@ -195,6 +199,7 @@ object BackupManager {
             put("bookshelf", bookshelfSection)
             put("music", musicSection)
             put("live", live)
+            put("history", encodeList(HistoryStore.getHistory(context), HistoryEntry.serializer()))
         }
         return ExportResult.Ok(root.toString())
     }
@@ -332,6 +337,11 @@ object BackupManager {
             parseLiveSection(liveEl)
                 ?: return RestoreResult.Failed("备份直播段格式不对，拒绝恢复（当前数据未动）")
         }
+        val historyEl = root["history"]
+        val historyItems: List<HistoryEntry>? = if (historyEl == null) null else {
+            parseHistorySection(historyEl)
+                ?: return RestoreResult.Failed("备份播放历史段格式不对，拒绝恢复（当前数据未动）")
+        }
         // ---- 2. 快照当前状态（回滚用；只快照备份里带有的段） ----
         DrpySourceManager.init(context)
         PySourceManager.init(context)
@@ -342,6 +352,7 @@ object BackupManager {
         val prevBookshelf = if (bookshelf != null) snapshotBookshelf(context) else null
         val prevMusic = if (music != null) snapshotMusic(context) else null
         val prevLiveRaw = if (live != null) readLivePrefsRaw(context) else null
+        val prevHistory = if (historyItems != null) HistoryStore.getHistory(context) else null
         // ---- 2b. 磁盘快照（v0.216.0 C15）：内存快照中途被杀就没了。
         // 动笔前先把当前完整备份落盘；成功后删，失败/被杀则留着可导回。
         // v0.246.0：快照写失败直接中止恢复——原来只记日志继续恢复，
@@ -396,6 +407,7 @@ object BackupManager {
         var wroteBookshelf = false
         var wroteMusic = false
         var wroteLive = false
+        var wroteHistory = false
         if (followItems != null) {
             if (restoreFollow(context, followItems)) wroteFollow = true
             else extraFailed = "追剧段写入失败"
@@ -412,7 +424,15 @@ object BackupManager {
             if (restoreLive(context, live)) wroteLive = true
             else extraFailed = "直播段写入失败"
         }
-        if (extraFailed.isEmpty() && !verifyExtras(context, followItems, bookshelf, music, live)) {
+        // v1.2.13：播放历史段——本地历史已损坏时恢复写盘会被 HistoryStore
+        // 拒绝（防旧历史被顶掉），这里先判再写，失败原因写明白，不静默丢数据。
+        if (extraFailed.isEmpty() && historyItems != null) {
+            if (HistoryStore.isCorruptLoaded()) {
+                extraFailed = "本地播放历史已损坏，恢复已中止（请先在历史页处理损坏数据）"
+            } else if (restoreHistory(context, historyItems)) wroteHistory = true
+            else extraFailed = "播放历史段写入失败"
+        }
+        if (extraFailed.isEmpty() && !verifyExtras(context, followItems, bookshelf, music, live, historyItems)) {
             extraFailed = "写入后校验失败（回读与备份对不上）"
         }
         if (extraFailed.isNotEmpty()) {
@@ -434,6 +454,8 @@ object BackupManager {
                     if (snap != null) syncLiveFlow(context, snap.first, snap.second)
                 }
             }.onFailure { Log.w(TAG, "回滚直播段失败", it) }
+            runCatching { if (wroteHistory && prevHistory != null) restoreHistory(context, prevHistory) }
+                .onFailure { Log.w(TAG, "回滚播放历史段失败", it) }
             return RestoreResult.Failed("$extraFailed，已还原")
         }
         // php / web：当前版本无 active 概念，恢复时忽略
@@ -550,6 +572,18 @@ object BackupManager {
         if (manual.any { it.id.isBlank() || it.name.isBlank() || it.url.isBlank() }) return null
         if (favs.any { it.isBlank() }) return null
         return LiveParsed(sources, manual, favs, prim.content)
+    }
+
+    /**
+     * v1.2.13：播放历史段校验——url 是去重键，必须非空且不重复；进度与总时长
+     * 不能为负；条数不超过 HistoryStore 的上限（本版导出最多 50 条）。
+     */
+    private fun parseHistorySection(el: JsonElement): List<HistoryEntry>? {
+        val list = decodeListOrNull(el, HistoryEntry.serializer()) ?: return null
+        if (list.size > MAX_HISTORY_ENTRIES) return null
+        if (list.any { it.url.isBlank() || it.positionMs < 0L || it.durationMs < 0L }) return null
+        if (list.map { it.url }.toSet().size != list.size) return null
+        return list
     }
 
     // ---------- 新段：直播 prefs 直读直写 ----------
@@ -775,7 +809,20 @@ object BackupManager {
         }
     }
 
+    /** v1.2.13：播放历史段恢复——整表写回（读坏时 restoreAll 拒绝并返回 false）。 */
+    private fun restoreHistory(context: Context, items: List<HistoryEntry>): Boolean {
+        return try {
+            HistoryStore.restoreAll(context, items)
+        } catch (e: Exception) {
+            Log.w(TAG, "播放历史段恢复失败", e)
+            false
+        }
+    }
+
     // ---------- 新段：回读比对 ----------
+
+    /** v1.2.13：播放历史段上限，与 HistoryStore.MAX_SIZE 同值（本版导出最多 50 条）。 */
+    private const val MAX_HISTORY_ENTRIES = 50
 
     private suspend fun verifyExtras(
         context: Context,
@@ -783,6 +830,7 @@ object BackupManager {
         bookshelf: BookshelfParsed?,
         music: MusicParsed?,
         live: LiveParsed?,
+        history: List<HistoryEntry>?,
     ): Boolean {
         if (followItems != null) {
             val gotFollow = FollowStore.readSync(context).associateBy { it.id }
@@ -871,6 +919,18 @@ object BackupManager {
             if (manual != live.manual) return false
             if (favs != live.favs) return false
             if (raw[LIVE_KEY_EPG].orEmpty() != live.globalEpg) return false
+        }
+        if (history != null) {
+            val got = HistoryStore.getHistory(context)
+            if (got.map { it.url } != history.map { it.url }) return false
+            history.forEach { want ->
+                val entry = got.firstOrNull { it.url == want.url } ?: return false
+                if (entry.positionMs != want.positionMs || entry.durationMs != want.durationMs ||
+                    entry.timestamp != want.timestamp
+                ) {
+                    return false
+                }
+            }
         }
         return true
     }

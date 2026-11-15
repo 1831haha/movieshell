@@ -54,6 +54,19 @@ object EmbyApi {
         val PlayedPercentage: Double? = null,
     )
 
+    /** Emby / Jellyfin 章节（片头片尾跳过用；只有取详情时 Fields 带 Chapters 才回）。 */
+    @Serializable
+    data class EmbyChapter(
+        val Name: String = "",
+        val StartPositionTicks: Long = 0L,
+    )
+
+    /** 片头 / 片尾跳过目标：按钮文案 + 点按后 seek 到的毫秒位置。 */
+    data class SkipTarget(
+        val label: String,
+        val seekToMs: Long,
+    )
+
     @Serializable
     data class EmbyItem(
         val Id: String = "",
@@ -70,6 +83,7 @@ object EmbyApi {
         val SeriesName: String? = null,
         val SeasonId: String? = null,
         val UserData: EmbyUserData? = null,
+        val Chapters: List<EmbyChapter> = emptyList(),
     )
 
     @Serializable
@@ -104,6 +118,43 @@ object EmbyApi {
 
     /** Emby/Jellyfin 用 100 纳秒 tick 计时长：1ms = 10_000 tick。 */
     fun ticksToMs(ticks: Long): Long = (ticks / 10_000L).coerceAtLeast(0L)
+
+    /**
+     * 章节跳过判定（纯函数，可单测）。
+     *
+     * 当前进度落在某个片头 / 片尾章节内时，返回跳过目标（按钮文案 + 该章节结尾）；
+     * 否则返回 null（调用方不显示按钮，一切照旧）。
+     * 章节结尾 = 下一章开头；最后一章的结尾 = 片长（片长未知时不跳）。
+     * 章节名忽略大小写匹配：片头 Intro / Introduction / Opening / 片头 / OP；
+     * 片尾 Ending / End Credits / Outro / Credits / 片尾 / ED。
+     */
+    fun findSkipTarget(
+        chapters: List<EmbyChapter>,
+        positionMs: Long,
+        durationMs: Long,
+    ): SkipTarget? {
+        if (chapters.isEmpty() || positionMs < 0L) return null
+        val sorted = chapters.sortedBy { it.StartPositionTicks }
+        for ((index, chapter) in sorted.withIndex()) {
+            val startMs = ticksToMs(chapter.StartPositionTicks)
+            val endMs = if (index + 1 < sorted.size) {
+                ticksToMs(sorted[index + 1].StartPositionTicks)
+            } else {
+                durationMs
+            }
+            if (positionMs < startMs || positionMs >= endMs) continue
+            if (endMs <= positionMs || endMs <= 0L) return null
+            val name = chapter.Name.lowercase()
+            return when {
+                name == "op" || "intro" in name || "introduction" in name ||
+                    "opening" in name || "片头" in name -> SkipTarget("跳过片头", endMs)
+                name == "ed" || "outro" in name || "ending" in name ||
+                    "credits" in name || "片尾" in name -> SkipTarget("跳过片尾", endMs)
+                else -> null
+            }
+        }
+        return null
+    }
 
     /** 原画直链：Static=true 不转码，api_key 走 query（播放器直连用，不经过 App 中转）。 */
     fun streamUrl(baseUrl: String, type: ServerType, token: String, itemId: String): String {
@@ -244,5 +295,21 @@ object EmbyApi {
         if (!seasonId.isNullOrBlank()) builder.addQueryParameter("SeasonId", seasonId)
         val text = getText(builder.build().toString(), deviceId, auth.token) ?: return@ioSafe emptyList()
         jsonLenient.decodeFromString<EmbyItemsResponse>(text).Items
+    }
+
+    /**
+     * 单条详情（带章节）。
+     *
+     * 列表接口的 Fields 不带 Chapters（200 条全带章节会把列表回包撑大），
+     * 播放前单独取一次详情拿章节；失败返回 null，调用方按无章节照常播。
+     */
+    suspend fun item(
+        baseUrl: String, type: ServerType, deviceId: String, auth: Auth, itemId: String,
+    ): EmbyItem? = ioSafe(TAG, null) {
+        val url = "${apiBase(baseUrl, type)}/Users/${auth.userId}/Items/$itemId".toHttpUrlOrNull()?.newBuilder()
+            ?.addQueryParameter("Fields", "Chapters,Overview,ProductionYear,RunTimeTicks,UserData")
+            ?.build() ?: return@ioSafe null
+        val text = getText(url.toString(), deviceId, auth.token) ?: return@ioSafe null
+        jsonLenient.decodeFromString<EmbyItem>(text)
     }
 }

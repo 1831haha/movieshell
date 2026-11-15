@@ -62,6 +62,27 @@ object HistoryStore {
     fun hasCorruptBackup(context: Context): Boolean =
         prefs(context).contains(KEY_LIST_CORRUPT_BAK)
 
+    /** 读坏标记是否立着（备份恢复用：立着时恢复写盘必须拒绝，不能顶掉旧历史）。 */
+    fun isCorruptLoaded(): Boolean = corruptLoaded
+
+    /**
+     * v1.2.13：备份恢复整表写回（去重按 url 取第一条，最多 MAX_SIZE 条）。
+     *
+     * 读坏守卫与 saveProgress/deleteEntries 同款：本地历史已损坏时拒绝写盘，
+     * 返回 false，调用方明确报错、不静默丢数据（用户须先在历史页处理损坏数据）。
+     * 写盘走 commit() 同款同步落盘，与 deleteEntries 的持久性口径一致。
+     */
+    fun restoreAll(context: Context, entries: List<HistoryEntry>): Boolean {
+        if (corruptLoaded) {
+            Log.w(TAG, "历史记录读坏未处理，拒绝恢复写盘（请先在历史页处理损坏数据）")
+            return false
+        }
+        val deduped = entries.filter { it.url.isNotBlank() }.distinctBy { it.url }.take(MAX_SIZE)
+        return prefs(context).edit()
+            .putString(KEY_LIST, json.encodeToString(deduped))
+            .commit()
+    }
+
     /**
      * 用户在横幅上点的“重新开始”：删掉损坏的历史与备份，标记清零
      * （备份本身就是坏串，无法解析回表，变显式放弃而非静默丢失）。

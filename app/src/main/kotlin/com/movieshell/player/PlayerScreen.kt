@@ -12,6 +12,7 @@ import com.movieshell.ui.components.AppToast
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
+import com.movieshell.data.source.EmbyApi
 import com.movieshell.data.source_mgr.DrpySourceManager
 import com.movieshell.data.source_mgr.SiteRepository
 import com.movieshell.data.store.FollowItem
@@ -2210,6 +2211,27 @@ fun PlayerScreen(
                     // v0.69.1：嵌入模式收窄底部黑边
                     .padding(horizontal = 12.dp, vertical = if (embedded) 0.dp else 2.dp),
             ) {
+                // v1.2.13：Emby 章节跳过——当前进度落在片头/片尾章节内时，右下角出跳过按钮，
+                // 点按 seek 到该章节结尾；无章节或不在片头片尾章节内时不显示。
+                val embyChapters = remember { PlaySession.chapters }
+                val skipTarget = if (!isLive && embyChapters.isNotEmpty() && dur > 0L) {
+                    EmbyApi.findSkipTarget(embyChapters, if (scrubbing) scrubPos else pos, dur)
+                } else {
+                    null
+                }
+                if (skipTarget != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        AppButton(
+                            text = skipTarget.label,
+                            onClick = { EngineHost.seekTo(skipTarget.seekToMs) },
+                            variant = AppButtonVariant.Primary,
+                            compact = true,
+                        )
+                    }
+                }
                 // 第一行：当前时间 + 进度条 + 总时长；v0.86.0：直播没有进度可言，直接隐藏
                 // v1.1.19：单行控制时这行隐藏，进度条改放单行控制行里。
                 if (!isLive && !(embedded && !isFullscreen)) {

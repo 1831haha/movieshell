@@ -10,8 +10,8 @@ import org.json.JSONObject
  * v1.2.7：设置页“活布局”——可拖动的设置项住哪、按什么顺序，由这张表说了算。
  *
  * 容器 = 一组设置行住的地方：main:playback（设置页“播放 · 解析”组）、
- * page:playback_settings（“播放设置”子页面）。可移项只有 5 个（播放器内核 /
- * 直播自动播放 / 去广告 / 同时下载数 / 重力感应横屏），导航入口、统计环、
+ * page:playback_settings（“播放设置”子页面）。可移项有 6 个（播放器内核 /
+ * 直播自动播放 / 去广告 / 同时下载数 / 重力感应横屏 / TMDB Key），导航入口、统计环、
  * 工具磁贴不参与拖动。布局存 SharedPreferences，下次打开还在；恢复默认回
  * 到下面这张 DEFAULT_LAYOUT。机制通用，以后别的行要加入拖动，只需往
  * ALL_ITEMS 与 DEFAULT_LAYOUT 里加一项。
@@ -25,12 +25,14 @@ object SettingsLayoutStore {
     const val ITEM_ADFILTER = "adfilter"
     const val ITEM_MAX_PARALLEL = "max_parallel"
     const val ITEM_GRAVITY = "gravity"
+    /** v1.2.13：TMDB Key（本地文件夹海报墙用，默认公用 Key，可填自己的）。 */
+    const val ITEM_TMDB_KEY = "tmdb_key"
 
-    val ALL_ITEMS = listOf(ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_GRAVITY)
+    val ALL_ITEMS = listOf(ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_GRAVITY, ITEM_TMDB_KEY)
 
     val DEFAULT_LAYOUT: Map<String, List<String>> = mapOf(
         MAIN_PLAYBACK to listOf(ITEM_GRAVITY),
-        PAGE_PLAYBACK to listOf(ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL),
+        PAGE_PLAYBACK to listOf(ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_TMDB_KEY),
     )
 
     private const val PREFS = "movieshell_prefs"

@@ -1,13 +1,18 @@
 package com.movieshell.ui.settings
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -15,16 +20,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.source.SniffConfig
+import com.movieshell.data.source.TmdbClient
 import com.movieshell.data.store.DownloadStore
 import com.movieshell.data.store.PlayerSettings
 import com.movieshell.data.store.SettingsLayoutStore
 import com.movieshell.domain.model.PlayerEngine
 import com.movieshell.player.MpvPluginLoader
 import com.movieshell.ui.components.AppSwitch
+import com.movieshell.ui.components.TechDialog
 
 /**
  * v1.2.7：可拖动的设置项注册表。
@@ -204,6 +213,59 @@ private fun settingRowContent(id: String, onOpenMarketClick: () -> Unit): Settin
                 },
                 trailing = {
                     Text("$maxParallel", style = MaterialTheme.typography.titleMedium, color = cs.primary)
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_TMDB_KEY -> {
+            // v1.2.13：TMDB Key（本地文件夹海报墙用）——默认公用 Key，点行弹输入框改自己的；
+            // 清空后海报墙不联网只显示占位；key 本身不显示在副标题里。
+            var showDialog by remember { mutableStateOf(false) }
+            var keyText by remember { mutableStateOf("") }
+            val stored = TmdbClient.storedApiKey(context)
+            SettingRowContent(
+                icon = Icons.Outlined.Image,
+                title = "TMDB Key",
+                subtitle = when {
+                    stored == null -> "默认公用 Key · 海报墙匹配用"
+                    stored.isBlank() -> "已清空 · 海报墙不联网，只显示占位"
+                    else -> "已填自定义 Key · 海报墙匹配用"
+                },
+                onClick = {
+                    keyText = stored.orEmpty()
+                    showDialog = true
+                },
+                dialog = {
+                    if (showDialog) {
+                        TechDialog(
+                            onDismissRequest = { showDialog = false },
+                            title = "TMDB Key",
+                            confirmText = "保存",
+                            onConfirm = {
+                                TmdbClient.setApiKey(context, keyText)
+                                showDialog = false
+                            },
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = keyText,
+                                    onValueChange = { keyText = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("TMDB API Key") },
+                                    placeholder = { Text("留空 = 不联网；恢复默认 = 用公用 Key") },
+                                    singleLine = true,
+                                )
+                                Text(
+                                    text = "留空保存后海报墙不联网，只显示占位；点“恢复默认”回到公用 Key。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                TextButton(onClick = {
+                                    TmdbClient.clearApiKeyOverride(context)
+                                    showDialog = false
+                                }) { Text("恢复默认") }
+                            }
+                        }
+                    }
                 },
             )
         }

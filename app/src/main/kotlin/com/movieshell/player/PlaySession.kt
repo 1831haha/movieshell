@@ -1,6 +1,7 @@
 package com.movieshell.player
 
 import android.content.Context
+import com.movieshell.data.source.EmbyApi
 import com.movieshell.domain.model.Episode
 import com.movieshell.domain.model.PlayLine
 
@@ -55,6 +56,18 @@ object PlaySession {
      */
     var returnToEmbedded: Boolean = false
 
+    /**
+     * v1.2.13：Emby / Jellyfin 章节（片头片尾跳过用）。
+     * 媒体服务器入口播前写入，播放器按进度查跳过目标；播放器退出时随 clear 清掉，
+     * 非 Emby 入口从不写，旧会话不会污染下一次播放。
+     */
+    var chapters: List<EmbyApi.EmbyChapter> = emptyList()
+        private set
+
+    fun setChapters(list: List<EmbyApi.EmbyChapter>) {
+        chapters = list
+    }
+
     fun moveTo(lineIndex: Int, episodeIndex: Int) {
         this.lineIndex = lineIndex.coerceIn(0, (lines.size - 1).coerceAtLeast(0))
         this.episodeIndex = episodeIndex.coerceAtLeast(0)
@@ -65,5 +78,6 @@ object PlaySession {
         lineIndex = 0
         episodeIndex = 0
         resolver = null
+        chapters = emptyList()
     }
 }
