@@ -7,17 +7,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -43,6 +46,7 @@ import com.movieshell.data.source.TmdbClient
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.components.TabTopBar
+import com.movieshell.ui.components.V5Segmented
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
@@ -173,6 +177,7 @@ fun OpenListBrowseScreen(
                             title = parsed.title,
                             year = parsed.year,
                             cachedAt = System.currentTimeMillis(),
+                            found = false,
                         )
                     entry.name to match
                 }
@@ -206,11 +211,22 @@ fun OpenListBrowseScreen(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = {
-                    val next = !posterView
-                    posterView = next
-                    TmdbClient.setPosterView(context, next)
-                }) { Text(if (posterView) "列表" else "海报墙") }
+                // v1.2.13：列表/海报墙分段切换（选中 secondaryContainer 底色一眼可见，
+                // 整段 48dp 触摸目标，图标+文字居中对齐；选择即记住偏好）。
+                V5Segmented(
+                    options = listOf("列表", "海报墙"),
+                    icons = listOf(Icons.Filled.List, Icons.Filled.GridView),
+                    selected = if (posterView) 1 else 0,
+                    onSelect = { i ->
+                        val next = i == 1
+                        posterView = next
+                        TmdbClient.setPosterView(context, next)
+                    },
+                    // 段内用 weight 等分，必须给定宽（跟直播源分段每格定宽同款写法），
+                    // 否则 Row 父容器里会撑满剩余宽度、把“当前目录”标题压没。
+                    modifier = Modifier.width(160.dp),
+                    height = 48.dp,
+                )
                 if (pathStack.size > 1) {
                     TextButton(onClick = { goBack() }) { Text("上级") }
                 }
@@ -297,6 +313,7 @@ fun OpenListBrowseScreen(
                     needLogin = needLogin,
                     total = total,
                     shownCount = entries.size,
+                    tmdbKeyBlank = tmdbKey.isBlank(),
                     onDirClick = { pathStack = pathStack + it },
                     onPlayFile = { playFile(it) },
                     onLoadMore = {
@@ -400,6 +417,7 @@ private fun OpenListPosterGrid(
     needLogin: Boolean,
     total: Int,
     shownCount: Int,
+    tmdbKeyBlank: Boolean,
     onDirClick: (String) -> Unit,
     onPlayFile: (OpenListClient.OlEntry) -> Unit,
     onLoadMore: () -> Unit,
@@ -409,8 +427,19 @@ private fun OpenListPosterGrid(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // v1.2.13：没填 key 时海报墙只显示占位，这里提示去设置里填，不报错、不发请求。
+        if (tmdbKeyBlank) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text(
+                    text = "未填 TMDB Key，海报暂不可用——去设置 → 播放设置 → TMDB Key 填写自己的 Key。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            }
+        }
         val dirs = shown.filter { it.isDir }
         val videos = shown.filter { !it.isDir }
         dirs.forEach { dir ->
@@ -445,11 +474,21 @@ private fun OpenListPosterGrid(
         videos.forEach { entry ->
             item(key = entry.path) {
                 val match = matches[entry.name]
+                // 占位态各有说法：没填 key（角标“未填 Key”，顶部另有去设置的提示）、
+                // 搜到但没海报（“无海报”）、搜过没结果（“未找到”）；还在请求中则无角标、
+                // 纯占位（首字+主题色），不闪白。
+                val badge = when {
+                    match == null && tmdbKeyBlank -> "未填 Key"
+                    match != null && match.posterPath.isBlank() && match.found -> "无海报"
+                    match != null && match.posterPath.isBlank() && !match.found -> "未找到"
+                    else -> null
+                }
                 PosterCard(
                     title = match?.title?.takeIf { it.isNotBlank() } ?: entry.name,
                     subtitle = match?.year?.toString(),
+                    badge = badge,
                     posterUrl = match?.posterPath?.takeIf { it.isNotBlank() }?.let { TmdbClient.posterUrl(it) },
-                    modifier = Modifier.aspectRatio(2f / 3f),
+                    posterAspectRatio = 2f / 3f,
                     onClick = { onPlayFile(entry) },
                 )
             }

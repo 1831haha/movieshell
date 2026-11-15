@@ -25,7 +25,7 @@ object SettingsLayoutStore {
     const val ITEM_ADFILTER = "adfilter"
     const val ITEM_MAX_PARALLEL = "max_parallel"
     const val ITEM_GRAVITY = "gravity"
-    /** v1.2.13：TMDB Key（本地文件夹海报墙用，默认公用 Key，可填自己的）。 */
+    /** v1.2.13：TMDB Key（本地文件夹海报墙用，用户自己填）。 */
     const val ITEM_TMDB_KEY = "tmdb_key"
 
     val ALL_ITEMS = listOf(ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_GRAVITY, ITEM_TMDB_KEY)

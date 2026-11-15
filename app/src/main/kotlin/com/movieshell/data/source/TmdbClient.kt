@@ -26,9 +26,6 @@ object TmdbClient {
 
     private const val TAG = "TmdbClient"
 
-    /** 用户给的公用 key（2026-11-15 沙箱实测：搜电影、搜剧、取图均通）。 */
-    const val DEFAULT_API_KEY = "7507cde1025c02b8cf583894e7b30cc4"
-
     private const val SEARCH_BASE = "https://api.themoviedb.org/3"
     private const val IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
 
@@ -48,6 +45,8 @@ object TmdbClient {
         val title: String = "",
         val year: Int? = null,
         val cachedAt: Long = 0L,
+        /** v1.2.13：是否在 TMDB 搜到条目（false = 搜过但无结果，占位显示“未找到”）。 */
+        val found: Boolean = true,
     )
 
     /** 文件名解析结果。 */
@@ -72,13 +71,13 @@ object TmdbClient {
 
     // ---------------- Key 与视图偏好（设置页覆盖用） ----------------
 
-    /** 当前生效的 key：没存过用公用默认 key；存过空串表示用户已清空（不联网）。 */
+    /** 当前生效的 key：没填过返回空串（海报墙不联网，只显示占位）；存过空串表示用户已清空（不联网）。 */
     fun apiKey(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return if (prefs.contains(KEY_API_KEY)) prefs.getString(KEY_API_KEY, "").orEmpty() else DEFAULT_API_KEY
+        return if (prefs.contains(KEY_API_KEY)) prefs.getString(KEY_API_KEY, "").orEmpty() else ""
     }
 
-    /** 设置页存的原始值：null=没改过（走默认 key），空串=用户已清空。 */
+    /** 设置页存的原始值：null=没填过，空串=用户已清空。 */
     fun storedApiKey(context: Context): String? {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         return if (prefs.contains(KEY_API_KEY)) prefs.getString(KEY_API_KEY, "").orEmpty() else null
@@ -87,12 +86,6 @@ object TmdbClient {
     fun setApiKey(context: Context, key: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_API_KEY, key.trim()).apply()
-    }
-
-    /** 恢复默认：删掉覆盖项，下次取 key 回到公用默认 key。 */
-    fun clearApiKeyOverride(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .remove(KEY_API_KEY).apply()
     }
 
     /** 海报墙视图偏好（默认列表，记住选择）。 */

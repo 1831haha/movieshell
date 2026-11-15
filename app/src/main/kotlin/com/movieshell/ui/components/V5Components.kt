@@ -234,6 +234,7 @@ fun V5TopTabs(
 /**
  * M3 分段按钮（SingleChoiceSegmentedButtonRow 外观：outline 1dp 描边、整胶囊两端；
  * 选中 secondaryContainer + 勾）。用于 主题模式、直播 源1–6 等。
+ * v1.2.13：加可选 icons（与文案同行、16dp，传了图标时不画勾，图标+文字居中对齐）。
  */
 @Composable
 fun V5Segmented(
@@ -243,6 +244,7 @@ fun V5Segmented(
     modifier: Modifier = Modifier,
     height: Dp = 40.dp,
     showCheck: Boolean = true,
+    icons: List<ImageVector>? = null,
 ) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(50)
@@ -276,7 +278,11 @@ fun V5Segmented(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
             ) {
-                if (on && showCheck && !compact) {
+                val icon = icons?.getOrNull(i)
+                if (icon != null) {
+                    Icon(icon, null, tint = if (on) cs.onSecondaryContainer else cs.onSurface, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                } else if (on && showCheck && !compact) {
                     Icon(Icons.Filled.Check, null, tint = cs.onSecondaryContainer, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                 }

@@ -38,6 +38,11 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
@@ -2211,24 +2216,38 @@ fun PlayerScreen(
                     // v0.69.1：嵌入模式收窄底部黑边
                     .padding(horizontal = 12.dp, vertical = if (embedded) 0.dp else 2.dp),
             ) {
-                // v1.2.13：Emby 章节跳过——当前进度落在片头/片尾章节内时，右下角出跳过按钮，
-                // 点按 seek 到该章节结尾；无章节或不在片头片尾章节内时不显示。
+                // v1.2.13：Emby 章节跳过——当前进度落在片头/片尾章节内时，进度行上方出跳过按钮
+                // （实底 primary 色，视频上对比度够；不挡下面的弹幕/倍速等控件；底栏底边锚定，
+                // 按钮出现只向上扩展，进度行与控制行不动）。淡入展开进场不闪；点按立即 seek 并
+                // 当场消失（dismissedTarget 记下已点的目标，500ms 轮询到新进度前不再冒出来）。
                 val embyChapters = remember { PlaySession.chapters }
                 val skipTarget = if (!isLive && embyChapters.isNotEmpty() && dur > 0L) {
                     EmbyApi.findSkipTarget(embyChapters, if (scrubbing) scrubPos else pos, dur)
                 } else {
                     null
                 }
-                if (skipTarget != null) {
+                var dismissedTarget by remember { mutableStateOf<EmbyApi.SkipTarget?>(null) }
+                LaunchedEffect(skipTarget) {
+                    if (skipTarget != dismissedTarget) dismissedTarget = null
+                }
+                val visibleTarget = if (skipTarget != null && skipTarget != dismissedTarget) skipTarget else null
+                AnimatedVisibility(
+                    visible = visibleTarget != null,
+                    enter = fadeIn(tween(200)) + expandVertically(tween(200)),
+                    exit = ExitTransition.None,
+                ) {
+                    val target = visibleTarget ?: return@AnimatedVisibility
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
                     ) {
                         AppButton(
-                            text = skipTarget.label,
-                            onClick = { EngineHost.seekTo(skipTarget.seekToMs) },
+                            text = target.label,
+                            onClick = {
+                                dismissedTarget = target
+                                EngineHost.seekTo(target.seekToMs)
+                            },
                             variant = AppButtonVariant.Primary,
-                            compact = true,
                         )
                     }
                 }

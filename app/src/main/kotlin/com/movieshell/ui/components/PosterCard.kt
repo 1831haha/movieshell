@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -43,6 +44,8 @@ fun PosterCard(
     posterUrl: String? = null,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    // v1.2.13：海报区比例（2:3 传 2f/3f）。不传时沿用老口径：海报区 weight(1f) 撑满剩余高度。
+    posterAspectRatio: Float? = null,
 ) {
     // v0.292.0 V5：海报 12dp 圆角 2:3（比例由调用方定），左下角标（62% 黑底 + labelSmall 白字；VIP 用 tertiaryContainer），
     // 下面 titleSmall 14/500 片名 + bodySmall onSurfaceVariant 副标题。无图/图挂时主题色柔和占位 + 片名首字。
@@ -57,7 +60,10 @@ fun PosterCard(
             seed = title,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f),
+                .then(
+                    if (posterAspectRatio != null) Modifier.aspectRatio(posterAspectRatio)
+                    else Modifier.weight(1f),
+                ),
             shape = shape,
             ring = posterUrl.isNullOrBlank(),
         ) {

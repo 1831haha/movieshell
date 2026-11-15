@@ -4,15 +4,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -23,6 +24,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.source.SniffConfig
@@ -33,6 +37,7 @@ import com.movieshell.data.store.SettingsLayoutStore
 import com.movieshell.domain.model.PlayerEngine
 import com.movieshell.player.MpvPluginLoader
 import com.movieshell.ui.components.AppSwitch
+import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TechDialog
 
 /**
@@ -217,18 +222,19 @@ private fun settingRowContent(id: String, onOpenMarketClick: () -> Unit): Settin
             )
         }
         SettingsLayoutStore.ITEM_TMDB_KEY -> {
-            // v1.2.13：TMDB Key（本地文件夹海报墙用）——默认公用 Key，点行弹输入框改自己的；
-            // 清空后海报墙不联网只显示占位；key 本身不显示在副标题里。
+            // v1.2.13：TMDB Key（本地文件夹海报墙用）——key 默认空，用户自己填；
+            // 没填或清空后海报墙不联网只显示占位；key 本身不显示在副标题里。
             var showDialog by remember { mutableStateOf(false) }
             var keyText by remember { mutableStateOf("") }
+            var keyVisible by remember { mutableStateOf(false) }
             val stored = TmdbClient.storedApiKey(context)
             SettingRowContent(
                 icon = Icons.Outlined.Image,
                 title = "TMDB Key",
                 subtitle = when {
-                    stored == null -> "默认公用 Key · 海报墙匹配用"
+                    stored == null -> "未填写 · 海报墙暂不可用"
                     stored.isBlank() -> "已清空 · 海报墙不联网，只显示占位"
-                    else -> "已填自定义 Key · 海报墙匹配用"
+                    else -> "已填写 · 海报墙匹配用"
                 },
                 onClick = {
                     keyText = stored.orEmpty()
@@ -242,6 +248,7 @@ private fun settingRowContent(id: String, onOpenMarketClick: () -> Unit): Settin
                             confirmText = "保存",
                             onConfirm = {
                                 TmdbClient.setApiKey(context, keyText)
+                                AppToast.show(context, "TMDB Key 已保存")
                                 showDialog = false
                             },
                         ) {
@@ -251,18 +258,24 @@ private fun settingRowContent(id: String, onOpenMarketClick: () -> Unit): Settin
                                     onValueChange = { keyText = it },
                                     modifier = Modifier.fillMaxWidth(),
                                     label = { Text("TMDB API Key") },
-                                    placeholder = { Text("留空 = 不联网；恢复默认 = 用公用 Key") },
+                                    placeholder = { Text("粘贴 TMDB API Key（留空 = 不联网）") },
                                     singleLine = true,
+                                    visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                    trailingIcon = {
+                                        IconButton(onClick = { keyVisible = !keyVisible }) {
+                                            Icon(
+                                                imageVector = if (keyVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                                contentDescription = if (keyVisible) "隐藏 Key" else "显示 Key",
+                                            )
+                                        }
+                                    },
                                 )
                                 Text(
-                                    text = "留空保存后海报墙不联网，只显示占位；点“恢复默认”回到公用 Key。",
+                                    text = "去 TMDB 官网申请 API Key 后粘贴进来；留空保存后海报墙不联网，只显示占位。",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                TextButton(onClick = {
-                                    TmdbClient.clearApiKeyOverride(context)
-                                    showDialog = false
-                                }) { Text("恢复默认") }
                             }
                         }
                     }
