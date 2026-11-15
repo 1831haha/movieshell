@@ -143,7 +143,6 @@ object EmbyApi {
                 durationMs
             }
             if (positionMs < startMs || positionMs >= endMs) continue
-            if (endMs <= positionMs || endMs <= 0L) return null
             val name = chapter.Name.lowercase()
             return when {
                 name == "op" || "intro" in name || "introduction" in name ||

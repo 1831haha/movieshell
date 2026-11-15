@@ -44,6 +44,7 @@ import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.PosterCard
 import com.movieshell.ui.components.TabTopBar
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit

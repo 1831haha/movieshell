@@ -237,6 +237,6 @@ object TmdbClient {
             )
             context.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE).edit()
                 .putString(KEY_CACHE, text).apply()
-        }.onFailure { LogBus.w(TAG, "TMDB 缓存写盘失败", it) }
+        }.onFailure { LogBus.w(TAG, "TMDB 缓存写盘失败 ${it.javaClass.simpleName}: ${it.message}") }
     }
 }
