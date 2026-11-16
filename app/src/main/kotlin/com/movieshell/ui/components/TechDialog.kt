@@ -291,10 +291,14 @@ fun TechTextField(
                     }
                     Box(Modifier.weight(1f)) {
                         if (value.isEmpty() && placeholder.isNotBlank()) {
+                            // v1.2.16：占位提示只显示一行、超长省略——原来没限行数，
+                            // 长提示（如 Emby 密码“无密码用户留空”）会在胶囊里折成两三行。
                             Text(
                                 text = placeholder,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                         inner()

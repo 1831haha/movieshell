@@ -10,6 +10,7 @@ import org.junit.Test
  * 默认布局与补齐结果要跟着改，别只改实现不改测试。
  * v1.2.14 B片：默认播放方向 / 转场动画 / 首选音频语言 / 首选字幕语言成第 7–10 个
  * 可移项（默认在 page 末尾，顺序同 ALL_ITEMS）。
+ * v1.2.16：数据组 12 项成第 11–22 个可移项（默认全在 main:data，顺序同设置页原顺序）。
  */
 class SettingsLayoutStoreTest {
 
@@ -111,6 +112,35 @@ class SettingsLayoutStoreTest {
                 "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
             ),
             back[page],
+        )
+    }
+
+    @Test fun normalizePutsDataItemsInMainData() {
+        val data = SettingsLayoutStore.DATA_ITEMS
+        assertEquals(12, data.size)
+        val got = SettingsLayoutStore.normalize(null)
+        assertEquals(data, got[SettingsLayoutStore.MAIN_DATA])
+    }
+
+    @Test fun moveDataRowIntoPlaybackGroup() {
+        val moved = SettingsLayoutStore.moveInLayout(
+            default, "data_webdav", SettingsLayoutStore.MAIN_PLAYBACK, Int.MAX_VALUE,
+        )
+        assertEquals(listOf("gravity", "data_webdav"), moved[SettingsLayoutStore.MAIN_PLAYBACK])
+        assertEquals(
+            SettingsLayoutStore.DATA_ITEMS - "data_webdav",
+            moved[SettingsLayoutStore.MAIN_DATA],
+        )
+    }
+
+    @Test fun movePlaybackRowIntoDataGroup() {
+        val moved = SettingsLayoutStore.moveInLayout(
+            default, "gravity", SettingsLayoutStore.MAIN_DATA, 0,
+        )
+        assertEquals(emptyList<String>(), moved[SettingsLayoutStore.MAIN_PLAYBACK])
+        assertEquals(
+            listOf("gravity") + SettingsLayoutStore.DATA_ITEMS,
+            moved[SettingsLayoutStore.MAIN_DATA],
         )
     }
 

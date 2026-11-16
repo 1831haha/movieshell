@@ -139,7 +139,7 @@ fun PlaybackSettingsScreen(
                         SettingsRow(
                             icon = Icons.Outlined.Restore,
                             title = "恢复默认布局",
-                            subtitle = "重力感应横屏回设置页，其余四项回播放设置",
+                            subtitle = "所有可移行回默认分组",
                             onClick = { SettingsLayoutStore.reset(context) },
                             divider = false,
                         )

@@ -10,15 +10,21 @@ import org.json.JSONObject
  * v1.2.7：设置页“活布局”——可拖动的设置项住哪、按什么顺序，由这张表说了算。
  *
  * 容器 = 一组设置行住的地方：main:playback（设置页“播放 · 解析”组）、
- * page:playback_settings（“播放设置”子页面）。可移项有 10 个（播放器内核 /
+ * main:data（设置页“数据”组，v1.2.16 起可拖，与播放组互拖）、
+ * page:playback_settings（“播放设置”子页面）。可移项有 22 个（播放器内核 /
  * 直播自动播放 / 去广告 / 同时下载数 / 重力感应横屏 / TMDB Key /
- * 默认播放方向 / 转场动画 / 首选音频语言 / 首选字幕语言），导航入口、统计环、
- * 工具磁贴不参与拖动。布局存 SharedPreferences，下次打开还在；恢复默认回
+ * 默认播放方向 / 转场动画 / 首选音频语言 / 首选字幕语言 / 数据组 12 项：
+ * 订阅自动刷新 / 追剧更新提醒 / WebDAV 云同步 / AI 助手 / 打开对话 /
+ * 备份与恢复 / 清理缓存 / 视频缓存上限 / 视频缓存保留时长 / 磁力缓存 /
+ * 磁力引擎 / 清理旧字幕记忆），导航入口、统计环、工具磁贴不参与拖动。
+ * 数据组行进子页面会被挡下（子页面没有数据行的动作上下文），只在主
+ * 页两个组之间互拖。布局存 SharedPreferences，下次打开还在；恢复默认回
  * 到下面这张 DEFAULT_LAYOUT。机制通用，以后别的行要加入拖动，只需往
  * ALL_ITEMS 与 DEFAULT_LAYOUT 里加一项。
  */
 object SettingsLayoutStore {
     const val MAIN_PLAYBACK = "main:playback"
+    const val MAIN_DATA = "main:data"
     const val PAGE_PLAYBACK = "page:playback_settings"
 
     const val ITEM_ENGINE = "engine"
@@ -37,13 +43,45 @@ object SettingsLayoutStore {
     /** v1.2.14 B片（3）：首选字幕语言。 */
     const val ITEM_SUB_LANG = "subtitle_lang"
 
+    /** v1.2.16：数据组 12 项（默认全在 main:data，顺序同设置页原顺序）。 */
+    const val ITEM_DATA_SUB_REFRESH = "data_sub_refresh"
+    const val ITEM_DATA_FOLLOW_REMIND = "data_follow_remind"
+    const val ITEM_DATA_WEBDAV = "data_webdav"
+    const val ITEM_DATA_AI = "data_ai"
+    const val ITEM_DATA_AI_CHAT = "data_ai_chat"
+    const val ITEM_DATA_BACKUP = "data_backup"
+    const val ITEM_DATA_CLEAR_CACHE = "data_clear_cache"
+    const val ITEM_DATA_VIDEO_CAP = "data_video_cap"
+    const val ITEM_DATA_VIDEO_AGE = "data_video_age"
+    const val ITEM_DATA_MAGNET_CACHE = "data_magnet_cache"
+    const val ITEM_DATA_MAGNET_ENGINE = "data_magnet_engine"
+    const val ITEM_DATA_LEGACY_SUBTITLE = "data_legacy_subtitle"
+
     val ALL_ITEMS = listOf(
         ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_GRAVITY,
         ITEM_TMDB_KEY, ITEM_DEF_ORIENTATION, ITEM_TRANSITION, ITEM_AUDIO_LANG, ITEM_SUB_LANG,
+        ITEM_DATA_SUB_REFRESH, ITEM_DATA_FOLLOW_REMIND, ITEM_DATA_WEBDAV, ITEM_DATA_AI,
+        ITEM_DATA_AI_CHAT, ITEM_DATA_BACKUP, ITEM_DATA_CLEAR_CACHE, ITEM_DATA_VIDEO_CAP,
+        ITEM_DATA_VIDEO_AGE, ITEM_DATA_MAGNET_CACHE, ITEM_DATA_MAGNET_ENGINE,
+        ITEM_DATA_LEGACY_SUBTITLE,
+    )
+
+    /** v1.2.16：数据组行（只能在主页面两个组之间互拖，进不了播放设置子页面）。 */
+    val DATA_ITEMS = listOf(
+        ITEM_DATA_SUB_REFRESH, ITEM_DATA_FOLLOW_REMIND, ITEM_DATA_WEBDAV, ITEM_DATA_AI,
+        ITEM_DATA_AI_CHAT, ITEM_DATA_BACKUP, ITEM_DATA_CLEAR_CACHE, ITEM_DATA_VIDEO_CAP,
+        ITEM_DATA_VIDEO_AGE, ITEM_DATA_MAGNET_CACHE, ITEM_DATA_MAGNET_ENGINE,
+        ITEM_DATA_LEGACY_SUBTITLE,
     )
 
     val DEFAULT_LAYOUT: Map<String, List<String>> = mapOf(
         MAIN_PLAYBACK to listOf(ITEM_GRAVITY),
+        MAIN_DATA to listOf(
+            ITEM_DATA_SUB_REFRESH, ITEM_DATA_FOLLOW_REMIND, ITEM_DATA_WEBDAV, ITEM_DATA_AI,
+            ITEM_DATA_AI_CHAT, ITEM_DATA_BACKUP, ITEM_DATA_CLEAR_CACHE, ITEM_DATA_VIDEO_CAP,
+            ITEM_DATA_VIDEO_AGE, ITEM_DATA_MAGNET_CACHE, ITEM_DATA_MAGNET_ENGINE,
+            ITEM_DATA_LEGACY_SUBTITLE,
+        ),
         PAGE_PLAYBACK to listOf(
             ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_TMDB_KEY,
             ITEM_DEF_ORIENTATION, ITEM_TRANSITION, ITEM_AUDIO_LANG, ITEM_SUB_LANG,

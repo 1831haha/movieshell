@@ -678,9 +678,11 @@ fun MediaServerScreen(
             dismissText = "取消",
         ) {
             // v1.2.15：输入框统一样式（全胶囊、淡描边、底色对比、收窄）+ 表单收窄到
-            // 标题宽度附近（160dp，左对齐；密码眼睛图标与主机名还留得下），内容区滚动、按钮常驻。
+            // 标题宽度附近，内容区滚动、按钮常驻。
+            // v1.2.16：160dp 太窄、长提示在胶囊里折成两三行（密码那行折了三行）——
+            // 放宽到 240dp，长提示改短、说明挪到框外小字，框里不再折行。
             Column(
-                modifier = Modifier.width(160.dp),
+                modifier = Modifier.width(240.dp),
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
             ) {
                 TechTextField(
@@ -706,7 +708,7 @@ fun MediaServerScreen(
                     value = formRemark,
                     onValueChange = { formRemark = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = "备注（可空，多服时列表里区分）",
+                    placeholder = "备注（可空）",
                     singleLine = true,
                 )
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -741,12 +743,12 @@ fun MediaServerScreen(
                     value = formPath,
                     onValueChange = { formPath = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = "路径（可空，反代用）",
+                    placeholder = "路径（可空）",
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
                 Text(
-                    "拼成完整地址：协议://主机:端口/路径，不填也行。",
+                    "拼成完整地址：协议://主机:端口/路径。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -781,7 +783,7 @@ fun MediaServerScreen(
                     value = formPass,
                     onValueChange = { formPass = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = "密码（无密码用户留空）",
+                    placeholder = "密码",
                     singleLine = true,
                     visualTransformation = if (formPassVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -793,6 +795,11 @@ fun MediaServerScreen(
                             )
                         }
                     },
+                )
+                Text(
+                    "无密码用户留空",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     "或用 API Key（可选，填了可免密码）",

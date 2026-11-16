@@ -2,34 +2,54 @@ package com.movieshell.ui.settings
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.movieshell.data.ai.AiRepairSettings
 import com.movieshell.data.download.DownloadManager
+import com.movieshell.data.download.FollowCheckWorker
+import com.movieshell.data.download.SubRefreshWorker
 import com.movieshell.data.source.SniffConfig
 import com.movieshell.data.source.TmdbClient
 import com.movieshell.data.source.subtitle.SubtitleLanguage
 import com.movieshell.data.store.DownloadStore
+import com.movieshell.data.store.FollowStore
 import com.movieshell.data.store.PlayerSettings
 import com.movieshell.data.store.SettingsLayoutStore
+import com.movieshell.data.store.SubRefreshStore
+import com.movieshell.data.sync.CloudSyncManager
 import com.movieshell.domain.model.PlayerEngine
+import com.movieshell.player.EnginePlugins
+import com.movieshell.player.MagnetCache
+import com.movieshell.player.MagnetRemote
 import com.movieshell.player.MpvPluginLoader
 import com.movieshell.player.TrackLanguage
+import com.movieshell.player.VideoCacheSettings
 import com.movieshell.ui.components.AppSwitch
+import com.movieshell.ui.components.AppToast
+import com.movieshell.ui.components.TechDialog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * v1.2.7：可拖动的设置项注册表。
@@ -39,6 +59,11 @@ import com.movieshell.ui.components.AppSwitch
  * 设置页走 SegItem 卡片行，子页面走 SettingsRow 细行，内容与动作完全一样。
  * 新行要加入拖动：在 settingRowContent 里加一个分支，再往
  * SettingsLayoutStore.ALL_ITEMS 与 DEFAULT_LAYOUT 里登记。
+ * v1.2.16：数据组 12 行也进了注册表（订阅自动刷新 / 追剧更新提醒 /
+ * WebDAV / AI 助手 / 打开对话 / 备份与恢复 / 清理缓存 / 视频缓存上限 /
+ * 视频缓存保留时长 / 磁力缓存 / 磁力引擎 / 清理旧字幕记忆），与播放组
+ * 在主页面互拖；其中云同步与 AI 助手两个大弹窗仍归设置页管（动作里只
+ * 传“打开弹窗”的回调），其余行自带状态、点开即用。
  */
 enum class SettingRowStyle { Card, Plain }
 
@@ -51,6 +76,22 @@ data class SettingRowContent(
     val dialog: (@Composable () -> Unit)? = null,
 )
 
+/**
+ * v1.2.16：数据行里必须回设置页拿的东西（大弹窗、跨页跳转、备份展开态、
+ * 两处共用的缓存占用）。其余状态各分支自带（读 store、本地 remember），
+ * 行被拖进播放组照样能用；子页面不传这份动作，数据行进不了子页面。
+ */
+data class DataRowActions(
+    val cacheSize: String = "计算中…",
+    val videoSize: String = "计算中…",
+    val onAiChatClick: () -> Unit = {},
+    val isBackupExpanded: Boolean = false,
+    val onBackupToggle: () -> Unit = {},
+    val onShowCloudDialog: () -> Unit = {},
+    val onShowAiDialog: () -> Unit = {},
+    val onShowClearCacheDialog: () -> Unit = {},
+)
+
 @Composable
 internal fun MovableSettingRow(
     id: String,
@@ -60,8 +101,10 @@ internal fun MovableSettingRow(
     onOpenMarketClick: () -> Unit,
     // v1.2.14：TMDB 行点进独立页（SettingItems 里不再弹 Key 弹窗）
     onTmdbSettingsClick: () -> Unit = {},
+    // v1.2.16：数据行动作（见 DataRowActions）；播放行不用，默认即可。
+    dataActions: DataRowActions = DataRowActions(),
 ) {
-    val c = settingRowContent(id, onOpenMarketClick, onTmdbSettingsClick)
+    val c = settingRowContent(id, onOpenMarketClick, onTmdbSettingsClick, dataActions)
     when (style) {
         SettingRowStyle.Card -> SegItem(
             position = cardPosition,
@@ -88,10 +131,283 @@ private fun settingRowContent(
     id: String,
     onOpenMarketClick: () -> Unit,
     onTmdbSettingsClick: () -> Unit = {},
+    dataActions: DataRowActions = DataRowActions(),
 ): SettingRowContent {
     val context = LocalContext.current
     val cs = MaterialTheme.colorScheme
     return when (id) {
+        // v1.2.16：数据组 12 行（与播放组在主页面互拖；各分支自带状态，动作
+        // 里只回设置页拿云同步/AI 大弹窗、打开对话、备份展开与清理缓存弹窗）。
+        SettingsLayoutStore.ITEM_DATA_SUB_REFRESH -> {
+            // v0.46.0：订阅自动刷新开关
+            var enabled by remember { mutableStateOf(SubRefreshStore.isEnabled(context)) }
+            SettingRowContent(
+                icon = Icons.Outlined.Sync,
+                title = "订阅自动刷新",
+                subtitle = (if (enabled) "每天 1 次" else "关闭") + " · 失效的在订阅管理标出",
+                onClick = {
+                    val next = !enabled
+                    SubRefreshStore.setEnabled(context, next)
+                    enabled = next
+                    SubRefreshWorker.reschedule(context)
+                },
+                trailing = {
+                    AppSwitch(
+                        checked = enabled,
+                        onCheckedChange = {
+                            SubRefreshStore.setEnabled(context, it)
+                            enabled = it
+                            SubRefreshWorker.reschedule(context)
+                        },
+                    )
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_DATA_FOLLOW_REMIND -> {
+            // v0.26.0：追剧更新检测开关
+            var enabled by remember { mutableStateOf(FollowStore.isCheckEnabled(context)) }
+            SettingRowContent(
+                icon = Icons.Outlined.NotificationsActive,
+                title = "追剧更新提醒",
+                subtitle = (if (enabled) "每天 2 次" else "关闭") + " · 有新集数发通知",
+                onClick = {
+                    val next = !enabled
+                    FollowStore.setCheckEnabled(context, next)
+                    enabled = next
+                    FollowCheckWorker.reschedule(context)
+                },
+                trailing = {
+                    AppSwitch(
+                        checked = enabled,
+                        onCheckedChange = {
+                            FollowStore.setCheckEnabled(context, it)
+                            enabled = it
+                            FollowCheckWorker.reschedule(context)
+                        },
+                    )
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_DATA_WEBDAV -> {
+            // v0.51.0：WebDAV 云同步；配置弹窗仍在设置页（170 行左右，不搬）。
+            val cloudConfigured = CloudSyncManager.isConfigured(context)
+            SettingRowContent(
+                icon = Icons.Outlined.CloudSync,
+                title = "WebDAV 云同步",
+                subtitle = if (cloudConfigured) "已配置 · " + CloudSyncManager.lastSyncText(context) else "未配置 · 坚果云/Alist/群晖",
+                onClick = dataActions.onShowCloudDialog,
+            )
+        }
+        SettingsLayoutStore.ITEM_DATA_AI -> {
+            // v1.0.9：AI 助手——先在这里选 AI、填 Key；设置弹窗仍在设置页。
+            val aiProvider = AiRepairSettings.provider(context)
+            val aiConfigured = AiRepairSettings.apiKey(context).isNotBlank()
+            SettingRowContent(
+                icon = Icons.Outlined.AutoFixHigh,
+                title = "AI 助手",
+                subtitle = if (aiConfigured) "${aiProvider.name} · 已填 Key" else "未配置 · DeepSeek / 豆包 / 千问…",
+                onClick = dataActions.onShowAiDialog,
+            )
+        }
+        SettingsLayoutStore.ITEM_DATA_AI_CHAT -> {
+            // v1.1.3：打开对话——和 AI 接着聊写源、修源，可粘贴日志
+            SettingRowContent(
+                icon = Icons.Outlined.SmartToy,
+                title = "打开对话",
+                subtitle = "和 AI 接着聊写源、修源，可粘贴日志",
+                onClick = dataActions.onAiChatClick,
+            )
+        }
+        SettingsLayoutStore.ITEM_DATA_BACKUP -> {
+            // 备份与恢复——点按展开/收起，子行（说明/备份/恢复/中断快照）由设置页
+            // 跟在行后渲染，行搬到哪子行跟到哪。
+            SettingRowContent(
+                icon = Icons.Outlined.Backup,
+                title = "备份与恢复",
+                subtitle = "导出 / 导入 · 订阅·追剧·书架·音乐·直播",
+                onClick = dataActions.onBackupToggle,
+                trailing = {
+                    Icon(
+                        imageVector = if (dataActions.isBackupExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (dataActions.isBackupExpanded) "收起" else "展开",
+                        tint = cs.onSurfaceVariant,
+                    )
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_DATA_CLEAR_CACHE -> {
+            // 清理缓存——确认弹窗仍在设置页（清完要同时刷新视频缓存占用）。
+            SettingRowContent(
+                icon = Icons.Outlined.CleaningServices,
+                title = "清理缓存",
+                subtitle = "${dataActions.cacheSize} · 视频分片 + 图片缓存",
+                onClick = dataActions.onShowClearCacheDialog,
+            )
+        }
+        SettingsLayoutStore.ITEM_DATA_VIDEO_CAP -> {
+            // v1.2.14：第 6 项——视频缓存上限可调（默认 500MB；点按循环切换档位，改动下次播放生效，不用重启）。
+            var videoCapMb by remember { mutableStateOf(VideoCacheSettings.capMb(context)) }
+            fun cycle() {
+                val next = VideoCacheSettings.nextInCycle(
+                    VideoCacheSettings.CAP_CHOICES_MB, videoCapMb,
+                )
+                videoCapMb = next
+                VideoCacheSettings.setCapMb(context, next)
+                AppToast.show(context, "视频缓存上限：${VideoCacheSettings.formatCapMb(next)}，下次播放生效", long = false)
+            }
+            SettingRowContent(
+                icon = Icons.Outlined.CleaningServices,
+                title = "视频缓存上限",
+                subtitle = "已用 ${dataActions.videoSize} · 上限 ${VideoCacheSettings.formatCapMb(videoCapMb)} · 改动下次播放生效",
+                onClick = { cycle() },
+                trailing = {
+                    TextButton(onClick = { cycle() }) { Text("上限 ${VideoCacheSettings.formatCapMb(videoCapMb)}", style = MaterialTheme.typography.labelLarge) }
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_DATA_VIDEO_AGE -> {
+            // v1.2.14：第 6 项——视频缓存保留时长（默认 30 天；超期分片在建缓存完成与写新分片时自动清掉，正在播的不碰）。
+            var videoMaxAgeDays by remember { mutableStateOf(VideoCacheSettings.maxAgeDays(context)) }
+            fun cycle() {
+                val next = VideoCacheSettings.nextInCycle(
+                    VideoCacheSettings.MAX_AGE_CHOICES_DAYS, videoMaxAgeDays,
+                )
+                videoMaxAgeDays = next
+                VideoCacheSettings.setMaxAgeDays(context, next)
+                AppToast.show(context, "视频缓存保留时长：${VideoCacheSettings.formatAge(next)}，下次播放生效", long = false)
+            }
+            SettingRowContent(
+                icon = Icons.Outlined.CleaningServices,
+                title = "视频缓存保留时长",
+                subtitle = if (videoMaxAgeDays <= 0) {
+                    "旧分片不过期 · 只受上限约束 · 改动下次播放生效"
+                } else {
+                    "超过 ${VideoCacheSettings.formatAge(videoMaxAgeDays)}未用的分片自动清理 · 改动下次播放生效"
+                },
+                onClick = { cycle() },
+                trailing = {
+                    TextButton(onClick = { cycle() }) { Text(VideoCacheSettings.formatAge(videoMaxAgeDays), style = MaterialTheme.typography.labelLarge) }
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_DATA_MAGNET_CACHE -> {
+            // v0.294.26：磁力缓存占用 + 清理；尾部点按循环切换上限
+            val scope = rememberCoroutineScope()
+            var magnetSize by remember { mutableStateOf("计算中…") }
+            var magnetCap by remember { mutableStateOf(MagnetCache.capGb(context)) }
+            var showDialog by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                magnetSize = withContext(Dispatchers.IO) {
+                    runCatching { MagnetCache.format(MagnetCache.totalBytes(context)) }.getOrDefault("—")
+                }
+            }
+            SettingRowContent(
+                icon = Icons.Outlined.CleaningServices,
+                title = "磁力缓存",
+                subtitle = "$magnetSize · 超过上限或 3 天未用自动清理",
+                onClick = { showDialog = true },
+                trailing = {
+                    TextButton(onClick = {
+                        val ch = MagnetCache.CAP_CHOICES_GB
+                        val next = ch[(ch.indexOf(magnetCap) + 1).mod(ch.size)]
+                        magnetCap = next
+                        MagnetCache.setCapGb(context, next)
+                        AppToast.show(context, "磁力缓存上限：${next}GB", long = false)
+                    }) { Text("上限 ${magnetCap}GB", style = MaterialTheme.typography.labelLarge) }
+                },
+                dialog = {
+                    if (showDialog) {
+                        TechDialog(
+                            onDismissRequest = { showDialog = false },
+                            title = "清理磁力缓存",
+                            confirmText = "清理",
+                            onConfirm = {
+                                showDialog = false
+                                scope.launch(Dispatchers.IO) {
+                                    // v0.294.31：先结束磁力进程再删，避免删到正在读写的文件
+                                    runCatching { MagnetRemote.stopBlocking(context) }
+                                    val keep = emptySet<String>()
+                                    MagnetCache.dir(context).listFiles()
+                                        ?.filter { it.name !in keep }
+                                        ?.forEach { runCatching { it.deleteRecursively() } }
+                                    magnetSize = MagnetCache.format(MagnetCache.totalBytes(context))
+                                    withContext(Dispatchers.Main) {
+                                        AppToast.show(context, "磁力缓存已清理", long = false)
+                                    }
+                                }
+                            },
+                        ) {
+                            Text(
+                                "删除磁力边下边播留下的视频文件，共 $magnetSize。正在进行的磁力播放会被停止。",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_DATA_MAGNET_ENGINE -> {
+            // v0.294.32：磁力引擎优先级（迅雷优先 / BT 优先），失败自动换另一个
+            var prefer by remember { mutableStateOf(EnginePlugins.prefer(context)) }
+            val bt = EnginePlugins.btInstalled(context)
+            val xl = EnginePlugins.xlInstalled(context)
+            SettingRowContent(
+                icon = Icons.Outlined.CleaningServices,
+                title = "磁力引擎",
+                subtitle = "迅雷${if (xl) "已装" else "未装"} · BT${if (bt) "已装" else "未装"} · 失败自动换另一个",
+                onClick = {
+                    prefer = if (prefer == "bt") "xunlei" else "bt"
+                    EnginePlugins.setPrefer(context, prefer)
+                },
+                trailing = {
+                    Text(
+                        if (prefer == "bt") "BT 优先" else "迅雷优先",
+                        style = MaterialTheme.typography.labelLarge, color = cs.primary,
+                    )
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_DATA_LEGACY_SUBTITLE -> {
+            // v0.188.0：旧字幕 key 清理入口——点开先说明条数，确认后才删
+            // v1.2.14：副标题写实时值——点过一次行后就显示已统计的条数，清理完归零。
+            var legacySubtitleCount by remember { mutableIntStateOf(-1) }
+            var showDialog by remember { mutableStateOf(false) }
+            SettingRowContent(
+                icon = Icons.Outlined.Subtitles,
+                title = "清理旧字幕记忆",
+                subtitle = if (legacySubtitleCount >= 0) "共 $legacySubtitleCount 条旧记忆 · 点按清理" else "只删旧格式按剧记忆，需手动确认",
+                onClick = {
+                    legacySubtitleCount = countLegacyPerShowKeys(context)
+                    showDialog = true
+                },
+                dialog = {
+                    if (showDialog) {
+                        TechDialog(
+                            onDismissRequest = { showDialog = false },
+                            title = "清理旧字幕记忆",
+                            confirmText = "清理",
+                            onConfirm = {
+                                showDialog = false
+                                val n = PlayerSettings.clearLegacyPerShowKeys(context)
+                                legacySubtitleCount = 0
+                                AppToast.show(context, if (n > 0) "已清理旧字幕记忆 $n 条" else "没有旧字幕记忆可清理", long = false)
+                            },
+                        ) {
+                            Text(
+                                if (legacySubtitleCount >= 0) {
+                                    "共 $legacySubtitleCount 条旧格式按剧记忆（旧字幕地址与片头片尾跳过秒数）。" +
+                                        "只删旧格式 key，新格式记忆不受影响；还没在新格式下打开过的剧，" +
+                                        "旧记忆删后不再恢复，确认后再清理。"
+                                } else {
+                                    "只删旧格式按剧记忆，新格式记忆不受影响。"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                },
+            )
+        }
         SettingsLayoutStore.ITEM_ENGINE -> {
             // v0.20.0：播放器内核（Media3 默认，libmpv 可选，记忆选择）
             val engine by PlayerSettings.engine.collectAsState()

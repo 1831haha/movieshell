@@ -175,6 +175,8 @@ fun SettingDragOverlay(
     dragState: SettingDragState,
     originStyle: SettingRowStyle,
     onOpenMarketClick: () -> Unit,
+    // v1.2.16：数据行动作（设置页传，子页面默认即可——数据行进不了子页面）。
+    dataActions: DataRowActions = DataRowActions(),
 ) {
     val id = dragState.draggedId ?: return
     val size = dragState.dragSize
@@ -201,6 +203,7 @@ fun SettingDragOverlay(
                 cardPosition = SegPos.Single,
                 divider = false,
                 onOpenMarketClick = onOpenMarketClick,
+                dataActions = dataActions,
             )
         }
         val target = dragState.hoverTarget
