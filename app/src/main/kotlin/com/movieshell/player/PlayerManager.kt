@@ -16,7 +16,6 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.database.StandaloneDatabaseProvider
@@ -123,6 +122,13 @@ object PlayerManager {
     /** v0.100.0：m3u8/ts 磁盘缓存（App 级单例；同目录建多个 SimpleCache 会抛异常） */
     @Volatile
     private var videoCache: SimpleCache? = null
+
+    /**
+     * v1.2.14：第 6 项——建缓存时用的设置快照（上限 MB 与保留天数）。
+     * 与当前设置不一致时，下次起播 [ensureVideoCacheSettings] 重建缓存生效。
+     */
+    private var cacheCapMbAtBuild: Int = VideoCacheSettings.DEFAULT_CAP_MB
+    private var cacheMaxAgeDaysAtBuild: Int = VideoCacheSettings.DEFAULT_MAX_AGE_DAYS
 
     @Volatile private var firstFrameAt = 0L
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -399,17 +405,20 @@ object PlayerManager {
         // v0.21.0：外层包 DefaultDataSource，字幕时间偏移后的 file:// 本地字幕也能读
         // v0.97.0：受 SniffConfig.adFilterEnabled 总开关门控（顶栏溢出菜单可关，改完即时生效）
         SniffConfig.ensureLoaded(app)
-        // v0.100.0：m3u8 播放列表/ts 分片磁盘缓存（500MB LRU；缓存出错时忽略缓存走网络）
+        // v0.100.0：m3u8 播放列表/ts 分片磁盘缓存（上限与保留时长可调，见 VideoCacheSettings；缓存出错时忽略缓存走网络）
         // v0.109.0 A11：去广告包在缓存外层——缓存里存的是过滤前的原文，
         // 每次读出再按当前 adFilterEnabled 过滤，"改完即时生效"才真正成立；
         // 之前 CacheDataSource 在外层时，被过滤改写过的列表原文会写入 SimpleCache，
         // 关掉总开关后缓存仍按过滤版 serving。
+        // v1.2.14：第 6 项——上限/保留时长改过时，先按新设置重建缓存再起播
+        // （旧源正要被替换，此时重建不丢正在播的分片；设置没变时不动作）。
+        ensureVideoCacheSettings(app)
         val cacheFactory = CacheDataSource.Factory()
             .setCache(videoCache(app))
             .setUpstreamDataSourceFactory(DefaultDataSource.Factory(app, httpFactory))
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         // v0.294.5：直播流不进磁盘缓存——直播分片只播一次，写缓存纯属白耗闪存、
-        // 还会把 500MB LRU 里的点播缓存挤掉；非 http(s) 协议同样直连上游。
+        // 还会把上限内的点播缓存挤掉；非 http(s) 协议同样直连上游。
         val bypassCache = live || isLiveLikeUrl(url)
         val upstreamFactory: androidx.media3.datasource.DataSource.Factory =
             if (bypassCache) DefaultDataSource.Factory(app, httpFactory) else cacheFactory
@@ -526,15 +535,43 @@ object PlayerManager {
     /**
      * v0.100.0：App 级视频磁盘缓存单例。SimpleCache 同一目录只允许一个实例，
      * 这里双重检查锁保证单例；生命周期与 App 一致，不释放。
+     * v1.2.14：第 6 项——上限与保留时长读 VideoCacheSettings（默认 500MB / 30 天），
+     * 驱逐走 VideoCacheEvictor（LRU 尺寸加超期清理）。
      */
     private fun videoCache(app: Context): SimpleCache {
         return videoCache ?: synchronized(this) {
             videoCache ?: SimpleCache(
                 File(app.cacheDir, "video_cache"),
-                LeastRecentlyUsedCacheEvictor(500L * 1024 * 1024),
+                VideoCacheEvictor(
+                    VideoCacheSettings.capBytes(VideoCacheSettings.capMb(app)),
+                    VideoCacheSettings.maxAgeMs(VideoCacheSettings.maxAgeDays(app)),
+                ),
                 StandaloneDatabaseProvider(app),
-            ).also { videoCache = it }
+            ).also {
+                videoCache = it
+                cacheCapMbAtBuild = VideoCacheSettings.capMb(app)
+                cacheMaxAgeDaysAtBuild = VideoCacheSettings.maxAgeDays(app)
+            }
         }
+    }
+
+    /**
+     * v1.2.14：第 6 项——上限或保留时长改动后，下次起播重建缓存生效。
+     *
+     * 只在 play() 里调：此时旧 MediaSource 正要被新源替换，旧源的
+     * CacheDataSource 即便还读着已释放的缓存，也会走
+     * FLAG_IGNORE_CACHE_ON_ERROR 回上游，不会崩、不断播；
+     * 正在播的分片本身不删——超期清理只清 N 天没碰过的分片，
+     * 正在读的分片读前刚被触摸过，时间戳是新的。
+     * 设置没变时直接返回，不动缓存。
+     */
+    private fun ensureVideoCacheSettings(app: Context) {
+        if (videoCache == null) return
+        if (cacheCapMbAtBuild == VideoCacheSettings.capMb(app) &&
+            cacheMaxAgeDaysAtBuild == VideoCacheSettings.maxAgeDays(app)
+        ) return
+        releaseCache()
+        LogBus.i("Player", "视频缓存设置已改，下次播放起用新上限与保留时长重建缓存")
     }
 
     /**

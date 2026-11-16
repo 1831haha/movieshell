@@ -256,6 +256,28 @@ fun SettingsScreen(
     var magnetSize by remember { mutableStateOf("计算中…") }
     var magnetCap by remember { mutableStateOf(com.movieshell.player.MagnetCache.DEFAULT_CAP_GB) }
     var showClearMagnetDialog by remember { mutableStateOf(false) }
+    // v1.2.14：第 6 项——视频缓存上限/保留时长（默认 500MB / 30 天）
+    var videoCapMb by remember { mutableStateOf(com.movieshell.player.VideoCacheSettings.DEFAULT_CAP_MB) }
+    var videoMaxAgeDays by remember { mutableStateOf(com.movieshell.player.VideoCacheSettings.DEFAULT_MAX_AGE_DAYS) }
+    var videoSize by remember { mutableStateOf("计算中…") }
+    // v1.2.14：第 6 项——上限/保留时长档位循环切换；只记设置，
+    // 起播时按新设置重建缓存（播放中途重建会丢正在播的分片），不用重启 App。
+    fun cycleVideoCap() {
+        val next = com.movieshell.player.VideoCacheSettings.nextInCycle(
+            com.movieshell.player.VideoCacheSettings.CAP_CHOICES_MB, videoCapMb,
+        )
+        videoCapMb = next
+        com.movieshell.player.VideoCacheSettings.setCapMb(context, next)
+        AppToast.show(context, "视频缓存上限：${com.movieshell.player.VideoCacheSettings.formatCapMb(next)}，下次播放生效", long = false)
+    }
+    fun cycleVideoMaxAge() {
+        val next = com.movieshell.player.VideoCacheSettings.nextInCycle(
+            com.movieshell.player.VideoCacheSettings.MAX_AGE_CHOICES_DAYS, videoMaxAgeDays,
+        )
+        videoMaxAgeDays = next
+        com.movieshell.player.VideoCacheSettings.setMaxAgeDays(context, next)
+        AppToast.show(context, "视频缓存保留时长：${com.movieshell.player.VideoCacheSettings.formatAge(next)}，下次播放生效", long = false)
+    }
     // v0.188.0：旧字幕记忆清理入口用——只在用户点清理行时统计条数、点确认时删除，
     // 进设置页不自动删任何用户设置。
     var showClearLegacySubtitleDialog by remember { mutableStateOf(false) }
@@ -360,6 +382,12 @@ fun SettingsScreen(
         magnetCap = com.movieshell.player.MagnetCache.capGb(context)
         magnetSize = withContext(Dispatchers.IO) {
             runCatching { com.movieshell.player.MagnetCache.format(com.movieshell.player.MagnetCache.totalBytes(context)) }.getOrDefault("—")
+        }
+        // v1.2.14：第 6 项——视频缓存上限/保留时长与视频分片占用（只算 video_cache 目录）
+        videoCapMb = com.movieshell.player.VideoCacheSettings.capMb(context)
+        videoMaxAgeDays = com.movieshell.player.VideoCacheSettings.maxAgeDays(context)
+        videoSize = withContext(Dispatchers.IO) {
+            runCatching { PluginMarket.formatSize(dirBytes(File(context.cacheDir, "video_cache"))) }.getOrDefault("—")
         }
         // v0.147.0：统计失败不再静默回 0（之前 0 和“真没有”分不出来），记日志方便定位
         // v0.171.0：失败汇总到 statsFailed，界面上显示"—"与"统计失败"而不是 0
@@ -735,6 +763,32 @@ fun SettingsScreen(
                     subtitle = "$cacheSize · 视频分片 + 图片缓存",
                     onClick = { showClearCacheDialog = true },
                 )
+                // v1.2.14：第 6 项——视频缓存上限可调（默认 500MB；点按循环切换档位，改动下次播放生效，不用重启）。
+                SegItem(
+                    position = SegPos.Middle,
+                    icon = Icons.Outlined.CleaningServices,
+                    title = "视频缓存上限",
+                    subtitle = "已用 $videoSize · 上限 ${com.movieshell.player.VideoCacheSettings.formatCapMb(videoCapMb)} · 改动下次播放生效",
+                    onClick = { cycleVideoCap() },
+                    trailing = {
+                        TextButton(onClick = { cycleVideoCap() }) { Text("上限 ${com.movieshell.player.VideoCacheSettings.formatCapMb(videoCapMb)}", style = MaterialTheme.typography.labelLarge) }
+                    },
+                )
+                // v1.2.14：第 6 项——视频缓存保留时长（默认 30 天；超期分片在建缓存完成与写新分片时自动清掉，正在播的不碰）。
+                SegItem(
+                    position = SegPos.Middle,
+                    icon = Icons.Outlined.CleaningServices,
+                    title = "视频缓存保留时长",
+                    subtitle = if (videoMaxAgeDays <= 0) {
+                        "旧分片不过期 · 只受上限约束 · 改动下次播放生效"
+                    } else {
+                        "超过 ${com.movieshell.player.VideoCacheSettings.formatAge(videoMaxAgeDays)}未用的分片自动清理 · 改动下次播放生效"
+                    },
+                    onClick = { cycleVideoMaxAge() },
+                    trailing = {
+                        TextButton(onClick = { cycleVideoMaxAge() }) { Text(com.movieshell.player.VideoCacheSettings.formatAge(videoMaxAgeDays), style = MaterialTheme.typography.labelLarge) }
+                    },
+                )
                 // v0.294.26：磁力缓存占用 + 清理；尾部点按循环切换上限
                 SegItem(
                     position = SegPos.Middle,
@@ -903,6 +957,7 @@ fun SettingsScreen(
                         runCatching { dir.deleteRecursively() }
                     }
                     cacheSize = refreshCacheSize(context)
+                    videoSize = PluginMarket.formatSize(dirBytes(File(context.cacheDir, "video_cache"))).ifBlank { "0 B" }
                     withContext(Dispatchers.Main) {
                         AppToast.show(context, "缓存已清理", long = false)
                     }
