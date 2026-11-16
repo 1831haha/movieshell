@@ -3,6 +3,7 @@ package com.movieshell.ui.mediaserver
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -61,6 +62,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -69,6 +71,7 @@ import com.movieshell.data.store.EmbyServer
 import com.movieshell.data.store.EmbyStore
 import com.movieshell.player.HistoryStore
 import com.movieshell.player.PlaySession
+import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TabTopBar
 import com.movieshell.ui.components.TechDialog
@@ -109,9 +112,16 @@ fun MediaServerScreen(
 
     var formName by remember { mutableStateOf("") }
     var formType by remember { mutableStateOf("emby") }
-    var formAddress by remember { mutableStateOf("") }
+    // v1.2.14：地址拆三格填（主机 / 路径 / 端口），反代 /proxy 友好；保存时拼回整 URL。
+    var formScheme by remember { mutableStateOf("http") }
+    var formHost by remember { mutableStateOf("") }
+    var formPort by remember { mutableStateOf("") }
+    var formPath by remember { mutableStateOf("") }
+    var formRemark by remember { mutableStateOf("") }
+    var formIgnoreCert by remember { mutableStateOf(false) }
     var formUser by remember { mutableStateOf("") }
     var formPass by remember { mutableStateOf("") }
+    var formPassVisible by remember { mutableStateOf(false) }
     var formApiKey by remember { mutableStateOf("") }
     var formError by remember { mutableStateOf("") }
     var formTesting by remember { mutableStateOf(false) }
@@ -137,16 +147,17 @@ fun MediaServerScreen(
             val type = typeOf(server)
             val deviceId = EmbyStore.deviceId(context)
             val auth = authOf(server)
-            if (!EmbyApi.testAuth(server.baseUrl, type, deviceId, auth)) {
+            if (!EmbyApi.testAuth(server.baseUrl, type, deviceId, auth, server.ignoreCert)) {
                 authExpired = true
                 loading = false
                 return@launch
             }
-            views = EmbyApi.views(server.baseUrl, type, deviceId, auth)
+            views = EmbyApi.views(server.baseUrl, type, deviceId, auth, server.ignoreCert)
                 .filter { it.CollectionType == "movies" || it.CollectionType == "tvshows" || it.CollectionType.isNullOrBlank() }
             resumeItems = EmbyApi.items(
                 server.baseUrl, type, deviceId, auth,
                 types = "Movie,Episode", resuming = true, limit = 50,
+                ignoreCert = server.ignoreCert,
             )
             loading = false
         }
@@ -158,7 +169,7 @@ fun MediaServerScreen(
             error = ""
             items = EmbyApi.items(
                 server.baseUrl, typeOf(server), EmbyStore.deviceId(context), authOf(server),
-                parentId = viewId,
+                parentId = viewId, ignoreCert = server.ignoreCert,
             )
             loading = false
         }
@@ -168,7 +179,10 @@ fun MediaServerScreen(
         scope.launch {
             loading = true
             error = ""
-            items = EmbyApi.seasons(server.baseUrl, typeOf(server), EmbyStore.deviceId(context), authOf(server), seriesId)
+            items = EmbyApi.seasons(
+                server.baseUrl, typeOf(server), EmbyStore.deviceId(context), authOf(server), seriesId,
+                server.ignoreCert,
+            )
             loading = false
         }
     }
@@ -177,7 +191,10 @@ fun MediaServerScreen(
         scope.launch {
             loading = true
             error = ""
-            items = EmbyApi.episodes(server.baseUrl, typeOf(server), EmbyStore.deviceId(context), authOf(server), seriesId, seasonId)
+            items = EmbyApi.episodes(
+                server.baseUrl, typeOf(server), EmbyStore.deviceId(context), authOf(server), seriesId, seasonId,
+                server.ignoreCert,
+            )
             loading = false
         }
     }
@@ -190,7 +207,7 @@ fun MediaServerScreen(
             error = ""
             items = EmbyApi.items(
                 server.baseUrl, typeOf(server), EmbyStore.deviceId(context), authOf(server),
-                search = q.trim(),
+                search = q.trim(), ignoreCert = server.ignoreCert,
             )
             loading = false
         }
@@ -240,7 +257,10 @@ fun MediaServerScreen(
         // v1.2.13：片头片尾跳过——播前取一次详情拿章节（列表接口不带 Chapters，
         // 200 条全带会把列表回包撑大）；取不到就按无章节照常播，不挡播放。
         scope.launch {
-            val detail = EmbyApi.item(server.baseUrl, typeOf(server), EmbyStore.deviceId(context), auth, item.Id)
+            val detail = EmbyApi.item(
+                server.baseUrl, typeOf(server), EmbyStore.deviceId(context), auth, item.Id,
+                server.ignoreCert,
+            )
             PlaySession.setChapters(detail?.Chapters ?: item.Chapters)
             onPlay(url, display)
         }
@@ -267,9 +287,15 @@ fun MediaServerScreen(
         editing = null
         formName = ""
         formType = "emby"
-        formAddress = ""
+        formScheme = "http"
+        formHost = ""
+        formPort = ""
+        formPath = ""
+        formRemark = ""
+        formIgnoreCert = false
         formUser = ""
         formPass = ""
+        formPassVisible = false
         formApiKey = ""
         formError = ""
         formTesting = false
@@ -280,9 +306,17 @@ fun MediaServerScreen(
         editing = server
         formName = server.name
         formType = server.type
-        formAddress = server.baseUrl
+        // v1.2.14：旧的整 URL 拆回三格（没写端口/路径的格留空，不丢数据）。
+        val split = EmbyApi.splitBaseUrl(server.baseUrl)
+        formScheme = split.scheme
+        formHost = split.host
+        formPort = split.port
+        formPath = split.path
+        formRemark = server.remark
+        formIgnoreCert = server.ignoreCert
         formUser = server.username
         formPass = ""
+        formPassVisible = false
         formApiKey = ""
         formError = ""
         formTesting = false
@@ -290,13 +324,15 @@ fun MediaServerScreen(
     }
 
     fun saveForm() {
-        val address = formAddress.trim()
-        if (address.isBlank()) {
-            formError = "请填写服务器地址"
+        // v1.2.14：三格拼回整 URL 再保存（端口只认数字、路径自动补斜杠）。
+        val address = EmbyApi.joinAddress(formScheme, formHost, formPort, formPath)
+        if (formHost.isBlank()) {
+            formError = "请填写服务器主机"
             return
         }
-        if (formApiKey.isBlank() && (formUser.isBlank() || formPass.isBlank())) {
-            formError = "请填写用户名和密码，或填写 API Key"
+        // v1.2.14：Emby 允许无密码用户——密码为空也走账号登录，不再强制填密码。
+        if (formApiKey.isBlank() && formUser.isBlank()) {
+            formError = "请填写用户名，或填写 API Key"
             return
         }
         formTesting = true
@@ -305,7 +341,7 @@ fun MediaServerScreen(
             val type = if (formType == "jellyfin") EmbyApi.ServerType.JELLYFIN else EmbyApi.ServerType.EMBY
             val deviceId = EmbyStore.deviceId(context)
             var auth = if (formApiKey.isNotBlank()) {
-                EmbyApi.loginByApiKey(address, type, deviceId, formApiKey.trim())
+                EmbyApi.loginByApiKey(address, type, deviceId, formApiKey.trim(), formIgnoreCert)
             } else {
                 null
             }
@@ -313,8 +349,8 @@ fun MediaServerScreen(
             // v1.1.31 补：API Key 失败但账号密码也填了时，改走账号密码再试一次——
             // API Key 框里误留几个字符不该直接判死刑（2026-11-12 真机实证：框里 3 个字符
             // 导致一直走 API Key 路径拿 401，账号密码一次都没试过）。
-            if (auth == null && formUser.isNotBlank() && formPass.isNotBlank()) {
-                auth = EmbyApi.loginByPassword(address, type, deviceId, formUser.trim(), formPass)
+            if (auth == null && formUser.isNotBlank()) {
+                auth = EmbyApi.loginByPassword(address, type, deviceId, formUser.trim(), formPass, formIgnoreCert)
                 usedApiKey = false
             }
             formTesting = false
@@ -330,6 +366,8 @@ fun MediaServerScreen(
                 authMode = if (usedApiKey) "apikey" else "password",
                 token = auth.token,
                 userId = auth.userId,
+                remark = formRemark.trim(),
+                ignoreCert = formIgnoreCert,
             )
             if (editing == null) EmbyStore.add(context, base) else EmbyStore.update(context, base)
             EmbyStore.setActive(context, base.id)
@@ -358,6 +396,15 @@ fun MediaServerScreen(
                                     text = {
                                         Column {
                                             Text(s.name)
+                                            if (s.remark.isNotBlank()) {
+                                                Text(
+                                                    s.remark,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
                                             Text(
                                                 s.baseUrl,
                                                 style = MaterialTheme.typography.bodySmall,
@@ -447,6 +494,15 @@ fun MediaServerScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(server.name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                        if (server.remark.isNotBlank()) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                server.remark,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                            )
+                        }
                         Spacer(Modifier.width(8.dp))
                         Text(
                             server.baseUrl,
@@ -643,14 +699,79 @@ fun MediaServerScreen(
                     ) { Text("Jellyfin") }
                 }
                 OutlinedTextField(
-                    value = formAddress,
-                    onValueChange = { formAddress = it },
+                    value = formRemark,
+                    onValueChange = { formRemark = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("服务器地址") },
-                    placeholder = { Text("http://192.168.1.10:8096") },
+                    label = { Text("备注（可空，多服时列表里区分）") },
+                    placeholder = { Text("如：家里群晖 / 宿舍小主机") },
+                    singleLine = true,
+                )
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = formScheme == "http",
+                        onClick = { formScheme = "http" },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    ) { Text("http") }
+                    SegmentedButton(
+                        selected = formScheme == "https",
+                        onClick = { formScheme = "https" },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    ) { Text("https") }
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = formHost,
+                        onValueChange = { formHost = it },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("主机") },
+                        placeholder = { Text("192.168.1.10") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    )
+                    OutlinedTextField(
+                        value = formPort,
+                        onValueChange = { formPort = it.filter { c -> c.isDigit() } },
+                        modifier = Modifier.width(96.dp),
+                        label = { Text("端口") },
+                        placeholder = { Text("8096") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                }
+                OutlinedTextField(
+                    value = formPath,
+                    onValueChange = { formPath = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("路径（可空，反代用）") },
+                    placeholder = { Text("/proxy") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
+                Text(
+                    "三格拼成完整地址：协议://主机:端口/路径；不填端口与路径也行。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("忽略证书验证", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "仅在信任该服务器时开启 · 只对这台服务器生效",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    AppSwitch(
+                        checked = formIgnoreCert,
+                        onCheckedChange = { formIgnoreCert = it },
+                    )
+                }
                 Text(
                     "账号登录",
                     style = MaterialTheme.typography.labelMedium,
@@ -668,10 +789,18 @@ fun MediaServerScreen(
                     value = formPass,
                     onValueChange = { formPass = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("密码") },
+                    label = { Text("密码（无密码用户留空）") },
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation = if (formPassVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { formPassVisible = !formPassVisible }) {
+                            Icon(
+                                imageVector = if (formPassVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                contentDescription = if (formPassVisible) "隐藏密码" else "显示密码",
+                            )
+                        }
+                    },
                 )
                 Text(
                     "或用 API Key（可选，填了可免密码）",

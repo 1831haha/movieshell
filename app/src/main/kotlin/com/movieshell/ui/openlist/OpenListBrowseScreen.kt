@@ -171,7 +171,10 @@ fun OpenListBrowseScreen(
             async {
                 semaphore.withPermit {
                     val parsed = TmdbClient.parseFileName(entry.name) ?: return@async null
-                    val match = TmdbClient.searchMatch(parsed.title, parsed.year, tmdbKey)
+                    val match = TmdbClient.searchMatch(
+                        parsed.title, parsed.year, tmdbKey,
+                        TmdbClient.searchBase(context),
+                    )
                         ?: TmdbClient.TmdbMatch(
                             posterPath = "",
                             title = parsed.title,
@@ -422,6 +425,7 @@ private fun OpenListPosterGrid(
     onPlayFile: (OpenListClient.OlEntry) -> Unit,
     onLoadMore: () -> Unit,
 ) {
+    val context = LocalContext.current
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         modifier = Modifier.fillMaxSize(),
@@ -487,7 +491,9 @@ private fun OpenListPosterGrid(
                     title = match?.title?.takeIf { it.isNotBlank() } ?: entry.name,
                     subtitle = match?.year?.toString(),
                     badge = badge,
-                    posterUrl = match?.posterPath?.takeIf { it.isNotBlank() }?.let { TmdbClient.posterUrl(it) },
+                    posterUrl = match?.posterPath?.takeIf { it.isNotBlank() }?.let {
+                        TmdbClient.posterUrl(it, TmdbClient.imageBase(context))
+                    },
                     posterAspectRatio = 2f / 3f,
                     onClick = { onPlayFile(entry) },
                 )

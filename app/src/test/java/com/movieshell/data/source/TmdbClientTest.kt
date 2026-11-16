@@ -80,4 +80,41 @@ class TmdbClientTest {
             TmdbClient.posterUrl("/abc.jpg"),
         )
     }
+
+    @Test
+    fun `poster url uses custom image base`() {
+        assertEquals(
+            "https://img.example.com/t/p/w500/abc.jpg",
+            TmdbClient.posterUrl("/abc.jpg", "https://img.example.com/t/p/w500"),
+        )
+        assertEquals(
+            "https://image.tmdb.org/t/p/w500/abc.jpg",
+            TmdbClient.posterUrl("/abc.jpg", ""),
+        )
+    }
+
+    @Test
+    fun `normalizeBaseUrl trims strips slash and falls back to default when blank`() {
+        assertEquals(
+            "https://api.example.com/3",
+            TmdbClient.normalizeBaseUrl("  https://api.example.com/3/ ", "https://api.themoviedb.org/3"),
+        )
+        assertEquals(
+            "https://api.themoviedb.org/3",
+            TmdbClient.normalizeBaseUrl("", "https://api.themoviedb.org/3"),
+        )
+        assertEquals(
+            "https://api.themoviedb.org/3",
+            TmdbClient.normalizeBaseUrl("   ", "https://api.themoviedb.org/3"),
+        )
+    }
+
+    @Test
+    fun `configurationUrl points at configuration with api key`() {
+        val url = TmdbClient.configurationUrl("https://api.themoviedb.org/3", "key123")
+        assertEquals("https://api.themoviedb.org/3/configuration?api_key=key123", url)
+        val custom = TmdbClient.configurationUrl("https://api.example.com/3", "key123")
+        assertEquals("https://api.example.com/3/configuration?api_key=key123", custom)
+        assertEquals("", TmdbClient.configurationUrl("not a url", "key123"))
+    }
 }
