@@ -101,7 +101,7 @@ class VideoCacheEvictorTest {
         fake.addSpan(fresh)
         // 只用 onStartFile 把缓存引用递给驱逐器（不触发清扫），再调初始化回调；
         // 本用例只验清扫结果，不验之后的尺寸驱逐。
-        evictor.onStartFile(fake, "b", 0, C.LENGTH_UNSET)
+        evictor.onStartFile(fake, "b", 0L, C.LENGTH_UNSET)
         evictor.onCacheInitialized()
         assertFalse(fake.contains(stale))
         assertTrue(fake.contains(fresh))
