@@ -36,6 +36,8 @@ import com.movieshell.ui.theme.V5
  * v1.2.7：活布局——这页里的行按布局表渲染，长按可拖动：组内调顺序、
  * 拖到顶部“回设置页”条松手就搬回设置页“播放 · 解析”组；行按本页细行
  * 样式显示（与设置页卡片行是同一项，样式随所在页面自动换）。
+ * v1.2.19：这页只住播放行（用户定：播放放播放页、数据拖进数据页）；
+ * 数据行进数据设置页，不再进这页，备份展开块与 AI 对话回调随之撤走。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,6 +57,7 @@ fun PlaybackSettingsScreen(
     val onDrop: (String, SettingDropTarget) -> Unit = { id, target ->
         when (target) {
             is SettingDropTarget.Insert -> SettingsLayoutStore.move(context, id, target.container, target.index)
+            // 这页只住播放行，拖回设置页一律回“播放 · 解析”组。
             SettingDropTarget.BackToMain -> SettingsLayoutStore.move(
                 context, id, SettingsLayoutStore.MAIN_PLAYBACK, Int.MAX_VALUE,
             )

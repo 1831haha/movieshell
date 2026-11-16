@@ -83,6 +83,7 @@ import com.movieshell.ui.mediaserver.MediaServerScreen
 import com.movieshell.ui.preview.FilePreviewScreen
 import com.movieshell.ui.reader.ReaderScreen
 import com.movieshell.ui.search.SearchScreen
+import com.movieshell.ui.settings.DataSettingsScreen
 import com.movieshell.ui.settings.ParseSettingsScreen
 import com.movieshell.ui.settings.SettingsScreen
 import com.movieshell.ui.settings.SniffPatternsScreen
@@ -593,6 +594,8 @@ fun NavGraphBuilder.appDestinations(
                                 onThemeCollectionClick = { navController.navigate("theme_collection") },
                                 // v1.2.6：播放设置子页面
                                 onPlaybackSettingsClick = { navController.navigate("playback_settings") },
+                                // v1.2.19：数据设置子页面
+                                onDataSettingsClick = { navController.navigate("data_settings") },
                                 // v1.2.14：TMDB 独立设置页
                                 onTmdbSettingsClick = { navController.navigate("tmdb_settings") },
                                 // v0.127.0：插件中心单入口（原插件市场/服务插件合并）
@@ -634,6 +637,14 @@ fun NavGraphBuilder.appDestinations(
                                 onBack = { navController.popBackStack() },
                                 onOpenMarketClick = { navController.navigate("plugin_center/2") },
                                 onTmdbSettingsClick = { navController.navigate("tmdb_settings") },
+                            )
+                        }
+                        // v1.2.19：数据设置子页面（与播放设置页平行：播放行进播放页，数据行进数据页）
+                        composable("data_settings") {
+                            DataSettingsScreen(
+                                onBack = { navController.popBackStack() },
+                                onOpenMarketClick = { navController.navigate("plugin_center/2") },
+                                onAiChatClick = { navController.navigateTab("ai") },
                             )
                         }
                         // v1.2.14：TMDB 独立设置页

@@ -11,12 +11,15 @@ import org.junit.Test
  * v1.2.14 B片：默认播放方向 / 转场动画 / 首选音频语言 / 首选字幕语言成第 7–10 个
  * 可移项（默认在 page 末尾，顺序同 ALL_ITEMS）。
  * v1.2.16：数据组 12 项成第 11–22 个可移项（默认全在 main:data，顺序同设置页原顺序）。
+ * v1.2.19：数据行进数据设置子页面（moveDataRowIntoDataPage 锁住），子页面只认
+ * 自家行——串页的 move 直接拦下，存坏了的布局由 normalize 搬回主组。
  */
 class SettingsLayoutStoreTest {
 
     private val default = SettingsLayoutStore.DEFAULT_LAYOUT
     private val main = SettingsLayoutStore.MAIN_PLAYBACK
     private val page = SettingsLayoutStore.PAGE_PLAYBACK
+    private val dataPage = SettingsLayoutStore.PAGE_DATA
 
     @Test fun normalizeNullIsDefault() {
         assertEquals(default, SettingsLayoutStore.normalize(null))
@@ -142,6 +145,53 @@ class SettingsLayoutStoreTest {
             listOf("gravity") + SettingsLayoutStore.DATA_ITEMS,
             moved[SettingsLayoutStore.MAIN_DATA],
         )
+    }
+
+    @Test fun moveDataRowIntoDataPage() {
+        // v1.2.19：数据行拖进数据设置子页面（播放行不进这页）。
+        val moved = SettingsLayoutStore.moveInLayout(
+            default, "data_webdav", dataPage, Int.MAX_VALUE,
+        )
+        assertEquals(listOf("data_webdav"), moved[dataPage])
+        assertEquals(
+            SettingsLayoutStore.DATA_ITEMS - "data_webdav",
+            moved[SettingsLayoutStore.MAIN_DATA],
+        )
+    }
+
+    @Test fun moveDataRowIntoPlaybackPageRefused() {
+        // v1.2.19：数据行进不了播放设置子页面，原表不动。
+        val moved = SettingsLayoutStore.moveInLayout(
+            default, "data_webdav", page, Int.MAX_VALUE,
+        )
+        assertEquals(default, moved)
+    }
+
+    @Test fun movePlaybackRowIntoDataPageRefused() {
+        // v1.2.19：播放行进不了数据设置子页面，原表不动。
+        val moved = SettingsLayoutStore.moveInLayout(
+            default, "gravity", dataPage, Int.MAX_VALUE,
+        )
+        assertEquals(default, moved)
+    }
+
+    @Test fun normalizeRepairsMisplacedRows() {
+        // v1.2.19：存坏了——数据行在播放页、播放行在数据页，都搬回各自的主组。
+        val raw = """{"page:playback_settings":["engine","data_webdav"],"page:data_settings":["gravity"]}"""
+        val got = SettingsLayoutStore.normalize(raw)
+        assertEquals(
+            listOf(
+                "engine", "autoplay", "adfilter", "max_parallel", "tmdb_key",
+                "def_orientation", "player_transition", "audio_lang", "subtitle_lang",
+            ),
+            got[page],
+        )
+        assertEquals(emptyList<String>(), got[dataPage])
+        assertEquals(listOf("gravity"), got[main])
+        // 串页的数据行搬回数据组（补在末尾），12 项一项不少。
+        val data = got[SettingsLayoutStore.MAIN_DATA]!!
+        assertEquals(12, data.size)
+        assertEquals("data_webdav", data.last())
     }
 
     @Test fun moveUnknownIsNoop() {

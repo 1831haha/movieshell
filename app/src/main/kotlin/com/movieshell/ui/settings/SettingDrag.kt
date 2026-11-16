@@ -175,7 +175,7 @@ fun SettingDragOverlay(
     dragState: SettingDragState,
     originStyle: SettingRowStyle,
     onOpenMarketClick: () -> Unit,
-    // v1.2.16：数据行动作（设置页传，子页面默认即可——数据行进不了子页面）。
+    // v1.2.16：数据行动作（设置页与数据设置页传，播放设置页只住播放行、不用传）。
     dataActions: DataRowActions = DataRowActions(),
 ) {
     val id = dragState.draggedId ?: return

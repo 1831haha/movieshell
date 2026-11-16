@@ -11,21 +11,26 @@ import org.json.JSONObject
  *
  * 容器 = 一组设置行住的地方：main:playback（设置页“播放 · 解析”组）、
  * main:data（设置页“数据”组，v1.2.16 起可拖，与播放组互拖）、
- * page:playback_settings（“播放设置”子页面）。可移项有 22 个（播放器内核 /
- * 直播自动播放 / 去广告 / 同时下载数 / 重力感应横屏 / TMDB Key /
- * 默认播放方向 / 转场动画 / 首选音频语言 / 首选字幕语言 / 数据组 12 项：
- * 订阅自动刷新 / 追剧更新提醒 / WebDAV 云同步 / AI 助手 / 打开对话 /
- * 备份与恢复 / 清理缓存 / 视频缓存上限 / 视频缓存保留时长 / 磁力缓存 /
- * 磁力引擎 / 清理旧字幕记忆），导航入口、统计环、工具磁贴不参与拖动。
- * 数据组行进子页面会被挡下（子页面没有数据行的动作上下文），只在主
- * 页两个组之间互拖。布局存 SharedPreferences，下次打开还在；恢复默认回
- * 到下面这张 DEFAULT_LAYOUT。机制通用，以后别的行要加入拖动，只需往
- * ALL_ITEMS 与 DEFAULT_LAYOUT 里加一项。
+ * page:playback_settings（“播放设置”子页面，v1.2.19 起只住播放行）、
+ * page:data_settings（“数据设置”子页面，v1.2.19 起只住数据行）。
+ * 可移项有 22 个（播放器内核 / 直播自动播放 / 去广告 / 同时下载数 /
+ * 重力感应横屏 / TMDB Key / 默认播放方向 / 转场动画 / 首选音频语言 /
+ * 首选字幕语言 / 数据组 12 项：订阅自动刷新 / 追剧更新提醒 / WebDAV
+ * 云同步 / AI 助手 / 打开对话 / 备份与恢复 / 清理缓存 / 视频缓存上限 /
+ * 视频缓存保留时长 / 磁力缓存 / 磁力引擎 / 清理旧字幕记忆），导航入口、
+ * 统计环、工具磁贴不参与拖动。分家规则（v1.2.19 用户定：播放放播放页、
+ * 数据拖进数据页）：主页面两个组之间互拖随便，子页面只认自家行——数据行
+ * 进不了播放页，播放行进不了数据页，moveInLayout 直接拦下，存坏了的
+ * 布局由 normalize 搬回主组。布局存 SharedPreferences，下次打开还在；
+ * 恢复默认回到下面这张 DEFAULT_LAYOUT。机制通用，以后别的行要加入拖动，
+ * 只需往 ALL_ITEMS 与 DEFAULT_LAYOUT 里加一项。
  */
 object SettingsLayoutStore {
     const val MAIN_PLAYBACK = "main:playback"
     const val MAIN_DATA = "main:data"
     const val PAGE_PLAYBACK = "page:playback_settings"
+    /** v1.2.19：数据设置子页面（与播放设置页平行：播放行进播放页，数据行进数据页）。 */
+    const val PAGE_DATA = "page:data_settings"
 
     const val ITEM_ENGINE = "engine"
     const val ITEM_AUTOPLAY = "autoplay"
@@ -66,7 +71,7 @@ object SettingsLayoutStore {
         ITEM_DATA_LEGACY_SUBTITLE,
     )
 
-    /** v1.2.16：数据组行（只能在主页面两个组之间互拖，进不了播放设置子页面）。 */
+    /** v1.2.16：数据组行；v1.2.19 起进数据设置子页面（不再进播放设置页）。 */
     val DATA_ITEMS = listOf(
         ITEM_DATA_SUB_REFRESH, ITEM_DATA_FOLLOW_REMIND, ITEM_DATA_WEBDAV, ITEM_DATA_AI,
         ITEM_DATA_AI_CHAT, ITEM_DATA_BACKUP, ITEM_DATA_CLEAR_CACHE, ITEM_DATA_VIDEO_CAP,
@@ -86,6 +91,8 @@ object SettingsLayoutStore {
             ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_TMDB_KEY,
             ITEM_DEF_ORIENTATION, ITEM_TRANSITION, ITEM_AUDIO_LANG, ITEM_SUB_LANG,
         ),
+        // v1.2.19：数据页默认空着（数据行默认全在主页面数据组里，用户长按拖进来收纳）。
+        PAGE_DATA to emptyList(),
     )
 
     private const val PREFS = "movieshell_prefs"
@@ -124,6 +131,16 @@ object SettingsLayoutStore {
                 seen.add(id)
             }
         }
+        // v1.2.19：修串了页的行回主组——数据行进了播放页、播放行进了数据页的，
+        // 都搬回各自的主组（1.2.19 中间态没发过版，纯属兜底，正常布局走不到这）。
+        for (id in out.getValue(PAGE_PLAYBACK).filter { it in DATA_ITEMS }) {
+            out[PAGE_PLAYBACK] = out.getValue(PAGE_PLAYBACK) - id
+            out[MAIN_DATA] = out.getValue(MAIN_DATA) + id
+        }
+        for (id in out.getValue(PAGE_DATA).filter { it !in DATA_ITEMS }) {
+            out[PAGE_DATA] = out.getValue(PAGE_DATA) - id
+            out[MAIN_PLAYBACK] = out.getValue(MAIN_PLAYBACK) + id
+        }
         return out
     }
 
@@ -142,6 +159,10 @@ object SettingsLayoutStore {
         toIndex: Int,
     ): Map<String, List<String>> {
         if (itemId !in ALL_ITEMS || toContainer !in DEFAULT_LAYOUT) return layout
+        // v1.2.19：子页面只认自家行——数据行进不了播放页，播放行进不了数据页；
+        // 主页面两个组之间互拖不受影响。拦下时原表不动（调用方不用另判）。
+        if (toContainer == PAGE_PLAYBACK && itemId in DATA_ITEMS) return layout
+        if (toContainer == PAGE_DATA && itemId !in DATA_ITEMS) return layout
         val next = layout.mapValues { it.value.toMutableList() }.toMutableMap()
         for (list in next.values) list.remove(itemId)
         val target = next.getValue(toContainer)
