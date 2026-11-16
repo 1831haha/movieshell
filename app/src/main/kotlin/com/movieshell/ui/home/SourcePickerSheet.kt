@@ -1281,7 +1281,7 @@ private fun SourceCardFrame(
             )
             .then(
                 if (gradientRing && item.isCurrent) Modifier
-                else Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(corner)),
+                else Modifier.border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(corner)), // v1.2.14 E片：源行描边 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
             )
             .alpha(if (item.unsupportedReason != null) 0.5f else 1f)
             .clickable(onClick = item.onPick)
@@ -1591,7 +1591,7 @@ private fun SourceLogo(logoUrl: String?, name: String, size: Dp) {
             .size(size)
             .clip(RoundedCornerShape(12.dp))
             .background(Brush.linearGradient(brandColors))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp)), // v1.2.14 E片：源 Logo 框描边 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
         contentAlignment = Alignment.Center,
     ) {
         Text(

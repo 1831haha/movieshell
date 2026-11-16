@@ -167,6 +167,10 @@ fun TechDialog(
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary,
+                                // v1.2.14 E片：M3 默认禁用字 onSurface 38% 只有 2.34:1（浅）/3.03:1（深）；
+                                // 禁用字改 65%（5.21/6.59），禁用底仍是淡底、仍一眼可辨是禁用态。
+                                disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                                disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                             ),
                         ) {
                             Text(confirmText, style = MaterialTheme.typography.labelLarge)

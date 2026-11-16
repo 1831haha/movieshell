@@ -59,7 +59,8 @@ fun ListRow(
                 .size(48.dp)
                 .clip(thumbShape)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, thumbShape),
+                // v1.2.14 E片：缩略图框描边 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）。
+                .border(1.dp, MaterialTheme.colorScheme.outline, thumbShape),
             contentAlignment = Alignment.Center,
         ) {
             var imageFailed by remember(thumbUrl) { mutableStateOf(false) }
@@ -74,7 +75,8 @@ fun ListRow(
             } else {
                 Text(
                     text = title.firstOrNull()?.toString() ?: "",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    // v1.2.14 E片：无图占位首字 onSurfaceVariant 0.35 只有约 1.5:1，改 0.8（5.14:1）。
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.SemiBold,
                 )

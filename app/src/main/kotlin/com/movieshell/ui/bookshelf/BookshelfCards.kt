@@ -163,7 +163,7 @@ fun NovelListCard(
                         text = novel.title.firstOrNull()?.toString() ?: "书",
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), // v1.2.14 E片：占位首字 0.5 只有 2.50:1，改 0.8（5.14:1）
                     )
                 }
             }
@@ -321,7 +321,7 @@ fun NovelGridCard(
                     text = novel.title.firstOrNull()?.toString() ?: "书",
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
-                    color = cs.onSurfaceVariant.copy(alpha = 0.5f),
+                    color = cs.onSurfaceVariant.copy(alpha = 0.8f), // v1.2.14 E片：占位首字 0.5 只有 2.50:1，改 0.8（5.14:1）
                 )
             }
             // 进度：封面底部 3dp 细条（读过才显示）

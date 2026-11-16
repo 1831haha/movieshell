@@ -679,7 +679,9 @@ fun V5Chip(
             .clip(shape)
             .then(
                 if (selected) Modifier.background(cs.secondaryContainer)
-                else Modifier.border(1.dp, cs.outlineVariant, shape),
+                // v1.2.14 E片：未选 Chip 边框 outlineVariant 只有 1.62:1（浅）/1.98:1（深），
+                // 远低于边框 3:1；改 outline（4.27/5.86），造型与描边宽度不变。
+                else Modifier.border(1.dp, cs.outline, shape),
             )
             .clickable(role = Role.Checkbox, onClick = onClick)
             .semantics { this.selected = selected }
@@ -1200,17 +1202,25 @@ fun AppButton(
     compact: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
+    // v1.2.14 E片：M3 默认禁用字 onSurface 38% 只有 2.34:1（浅）/3.03:1（深）；
+    // 禁用字改 65%（5.21/6.59），禁用底仍是淡底、仍一眼可辨是禁用态。
+    val disabledContent = cs.onSurface.copy(alpha = 0.65f)
     val colors = when (variant) {
         AppButtonVariant.Primary, AppButtonVariant.Cyan -> ButtonDefaults.buttonColors(
             containerColor = cs.primary,
             contentColor = cs.onPrimary,
+            disabledContainerColor = cs.onSurface.copy(alpha = 0.12f),
+            disabledContentColor = disabledContent,
         )
         AppButtonVariant.Secondary -> ButtonDefaults.filledTonalButtonColors(
             containerColor = cs.secondaryContainer,
             contentColor = cs.onSecondaryContainer,
+            disabledContainerColor = cs.onSurface.copy(alpha = 0.12f),
+            disabledContentColor = disabledContent,
         )
         AppButtonVariant.Ghost -> ButtonDefaults.textButtonColors(
             contentColor = cs.primary,
+            disabledContentColor = disabledContent,
         )
     }
     val shape = RoundedCornerShape(50)

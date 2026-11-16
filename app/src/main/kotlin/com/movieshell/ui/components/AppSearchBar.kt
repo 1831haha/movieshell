@@ -87,7 +87,9 @@ fun AppSearchBar(
             .background(containerColor)
             // v0.294.52：搜索框也一律描边——原来无描边，底色与所在页/弹窗底
             // 接近时框体看不清；outlineVariant 细描边不改胶囊造型。
-            .border(1.dp, cs.outlineVariant, RoundedCornerShape(50))
+            // v1.2.14 E片：outlineVariant 只有 1.62:1（浅）/1.98:1（深），低于边框 3:1；
+            // 改 outline（4.27/5.86），粗细与造型不变。
+            .border(1.dp, cs.outline, RoundedCornerShape(50))
             .padding(start = 4.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

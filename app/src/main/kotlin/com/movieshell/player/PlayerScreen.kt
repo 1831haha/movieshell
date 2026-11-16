@@ -2469,7 +2469,7 @@ fun PlayerScreen(
                                     PlaySession.episodeIndex - 1,
                                 )
                             },
-                            tint = if (hasPrev) Color.White else Color.White.copy(alpha = 0.3f),
+                            tint = if (hasPrev) Color.White else Color.White.copy(alpha = 0.5f), // v1.2.14 E片：禁用上一集图标 0.3 黑底只有约 2.6:1，改 0.5（约 5.3:1），仍明显暗于启用态
                             size = 36.dp,
                         )
                         RoundControlButton(
@@ -2481,7 +2481,7 @@ fun PlayerScreen(
                                     PlaySession.episodeIndex + 1,
                                 )
                             },
-                            tint = if (hasNext) Color.White else Color.White.copy(alpha = 0.3f),
+                            tint = if (hasNext) Color.White else Color.White.copy(alpha = 0.5f), // v1.2.14 E片：禁用下一集图标 0.3 黑底只有约 2.6:1，改 0.5（约 5.3:1），仍明显暗于启用态
                             size = 36.dp,
                         )
                     }

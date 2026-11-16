@@ -234,9 +234,12 @@ private fun DiscoverCapsules(
 
 /** 探测状态点颜色：通绿、慢黄、不通红、未测灰。 */
 private fun probeDotColor(status: String?): Color = when (status) {
-    "OK" -> Color(0xFF3DD68C)
-    "SLOW" -> Color(0xFFE8B45A)
-    "FAIL" -> Color(0xFFFF5A5F)
+    // v1.2.14 E片：探测状态点是 3:1 图形——原色浅色底只有 1.79/1.80/2.91:1；
+    // 通改 #15803D（4.78/3.69）、慢改 #9A6B0F（4.46/3.96）、不通改 #D92D20（4.60/3.84），
+    // 未测灰 #6B7385（4.53/3.90）达标不动。
+    "OK" -> Color(0xFF15803D)
+    "SLOW" -> Color(0xFF9A6B0F)
+    "FAIL" -> Color(0xFFD92D20)
     else -> Color(0xFF6B7385)
 }
 

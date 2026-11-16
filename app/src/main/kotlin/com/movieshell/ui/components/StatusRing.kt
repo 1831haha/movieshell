@@ -40,10 +40,13 @@ enum class StatusRingState {
 fun StatusRingState.color(): Color = when (this) {
     // v0.292.0 V5：状态色对齐 design-tokens（ok 绿 / 加载中琥珀 / 失败 error 红 / 未选 outline 灰），
     // 取深浅两套之间的中间色调，深浅底上都看得清；语义不变。
-    StatusRingState.Ready -> Color(0xFF4FA866)
-    StatusRingState.Loading -> Color(0xFFD9822B)
+    // v1.2.14 E片：环是 3:1 图形——就绪 #4FA866 浅色只有 2.81:1 改 #2E8B47（4.08/4.32），
+    // 加载中 #D9822B 浅色 2.79:1 改 #9C6B00（4.43/3.99），未选 #9E8E82 浅色 3.01:1 太贴线
+    // 改 #757575（4.39/4.02）；失败 #DE3730（4.26/4.14）达标不动。
+    StatusRingState.Ready -> Color(0xFF2E8B47)
+    StatusRingState.Loading -> Color(0xFF9C6B00)
     StatusRingState.Failed -> Color(0xFFDE3730)
-    StatusRingState.Idle -> Color(0xFF9E8E82)
+    StatusRingState.Idle -> Color(0xFF757575)
 }
 
 @Composable

@@ -614,7 +614,8 @@ fun AiScreen() {
                             modifier = Modifier
                                 .weight(1f, fill = false)
                                 .background(v.surfaceContainerHighest, RoundedCornerShape(V5.CornerMd))
-                                .border(1.dp, v.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(V5.CornerMd))
+                                // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
+                                .border(1.dp, v.outline, RoundedCornerShape(V5.CornerMd))
                                 .padding(6.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -642,7 +643,8 @@ fun AiScreen() {
                                     .align(Alignment.TopEnd)
                                     .size(20.dp)
                                     .background(v.surfaceContainer, CircleShape)
-                                    .border(1.dp, v.outlineVariant.copy(alpha = 0.6f), CircleShape)
+                                    // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
+                                    .border(1.dp, v.outline, CircleShape)
                                     .clickable {
                                         pendingImage?.let { AiChatStore.deleteImage(context, it) }
                                         pendingImage = null
@@ -663,7 +665,8 @@ fun AiScreen() {
                             modifier = Modifier
                                 .weight(1f)
                                 .background(v.surfaceContainerHighest, RoundedCornerShape(V5.CornerMd))
-                                .border(1.dp, v.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(V5.CornerMd))
+                                // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
+                                .border(1.dp, v.outline, RoundedCornerShape(V5.CornerMd))
                                 .padding(6.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -697,7 +700,8 @@ fun AiScreen() {
                                     .align(Alignment.TopEnd)
                                     .size(20.dp)
                                     .background(v.surfaceContainer, CircleShape)
-                                    .border(1.dp, v.outlineVariant.copy(alpha = 0.6f), CircleShape)
+                                    // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
+                                    .border(1.dp, v.outline, CircleShape)
                                     .clickable {
                                         pendingFile?.let { AiChatStore.deleteStagedFile(context, it.storedName) }
                                         pendingFile = null
@@ -721,7 +725,8 @@ fun AiScreen() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(v.surfaceContainer, RoundedCornerShape(V5.CornerLg))
-                    .border(1.dp, v.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(V5.CornerLg))
+                    // v1.2.14 E片：描边 outlineVariant 0.6 只有约 1.3:1，改 outline（4.27/5.86）
+                    .border(1.dp, v.outline, RoundedCornerShape(V5.CornerLg))
                     .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

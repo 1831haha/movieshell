@@ -282,7 +282,7 @@ fun ThemeCollectionScreen(onBack: () -> Unit) {
                                 .size(108.dp, 180.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                                .dashedBorder(MaterialTheme.colorScheme.outlineVariant),
+                                .dashedBorder(MaterialTheme.colorScheme.outline), // v1.2.14 E片：上传背景虚线框 outlineVariant 只有 1.62:1（浅）/1.98:1（深），改 outline（4.27/5.86）
                             contentAlignment = Alignment.Center,
                         ) {
                             Text("+", fontSize = 44.sp, fontWeight = FontWeight.Light, color = MaterialTheme.colorScheme.primary)

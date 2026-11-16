@@ -71,9 +71,11 @@ object V5Motion {
 val ColorScheme.isDark: Boolean
     get() = background.luminance() < 0.5f
 
-/** 语义扩展色：ok 状态点（design-tokens：#2E8B47 浅 / #7BD88F 深）。 */
+/** 语义扩展色：ok 状态点（design-tokens：#2E8B47 浅 / #7BD88F 深）。
+ * v1.2.14 E片：浅色 #2E8B47 作文字只有 4.08:1（< 4.5），改深 #2E7D32（4.88:1）；
+ * 深色 #7BD88F（10.64:1）不动；作状态点/图标时两者都过 3:1。 */
 val ColorScheme.ok: Color
-    get() = if (isDark) Color(0xFF7BD88F) else Color(0xFF2E8B47)
+    get() = if (isDark) Color(0xFF7BD88F) else Color(0xFF2E7D32)
 
 /** 媒体叠层（视频/海报之上，深浅通用）：进度填充 = primary tone 80。 */
 val MediaProgressFill = Color(0xFFFFB77A)
