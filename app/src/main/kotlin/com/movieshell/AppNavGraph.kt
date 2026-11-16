@@ -786,10 +786,11 @@ fun NavGraphBuilder.appDestinations(
                         composable("media_server") {
                             MediaServerScreen(
                                 onBack = { navController.popBackStack() },
-                                onPlay = { playUrl, title ->
+                                onPlay = { playUrl, title, ignoreCert ->
                                     navController.navigateToPlayer(
                                         url = playUrl,
                                         title = title,
+                                        ignoreCert = ignoreCert,
                                     )
                                 },
                             )

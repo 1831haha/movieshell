@@ -207,6 +207,8 @@ fun PlayerScreen(
     // 本地规则站或非点播入口为 null/空。替代原全局 DetailSiteHolder。
     siteKey: String? = null,
     isLive: Boolean = false,
+    // v1.2.14：Emby 自签证书播放（路由 ignoreCert 参数透传；其他入口默认关）。
+    ignoreCert: Boolean = false,
     onBack: () -> Unit,
     // v1.1.31：libmpv 未安装时跳插件市场（市场页签）装插件；默认空实现
     onOpenPluginCenter: () -> Unit = {},
@@ -644,6 +646,7 @@ fun PlayerScreen(
             val ok = EngineHost.play(
                 context, playUrl, headers = lastHeaders,
                 startPositionMs = rotatePosMs, subtitleUrl = sub, live = isLive,
+                ignoreCert = ignoreCert,
             )
             if (ok) {
                 EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
@@ -730,6 +733,7 @@ fun PlayerScreen(
             EngineHost.play(
                 context, playUrl, headers = lastHeaders,
                 startPositionMs = startPositionMs, subtitleUrl = sub, live = isLive,
+                ignoreCert = ignoreCert,
             )
         }
     }
@@ -1097,6 +1101,7 @@ fun PlayerScreen(
                         headers = headers,
                         startPositionMs = startPos,
                         subtitleUrl = subtitleUrl, live = isLive,
+                        ignoreCert = ignoreCert,
                     )
                     // v0.21.0：应用字幕样式
                     if (ok) {
@@ -1271,6 +1276,7 @@ fun PlayerScreen(
                 val ok = EngineHost.play(
                     context, playUrl, headers = lastHeaders,
                     startPositionMs = pos, subtitleUrl = sub, live = isLive,
+                    ignoreCert = ignoreCert,
                 )
                 if (ok) EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
                 else AppToast.show(context, "字幕应用失败", long = false)
@@ -1335,6 +1341,7 @@ fun PlayerScreen(
                 val ok = EngineHost.play(
                     context, playUrl, headers = lastHeaders,
                     startPositionMs = pos, subtitleUrl = sub, live = isLive,
+                    ignoreCert = ignoreCert,
                 )
                 if (ok) {
                     EngineHost.applySubtitleStyle(PlayerSettings.subtitleStyle.value, playerView)
@@ -1410,6 +1417,7 @@ fun PlayerScreen(
                                         val ok = EngineHost.play(
                                             context, playUrl, headers = noRefHeaders,
                                             startPositionMs = pos, subtitleUrl = sub, live = isLive,
+                                            ignoreCert = ignoreCert,
                                         )
                                         if (!ok) playError = PlayError.classify("重试失败")
                                     } catch (t: Throwable) {

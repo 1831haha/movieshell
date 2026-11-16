@@ -18,6 +18,7 @@ import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 import kotlin.coroutines.coroutineContext
@@ -244,13 +245,11 @@ object EmbyApi {
         if (ignoreCert) insecureClient else HttpClient.defaultClient()
 
     /**
-     * v1.2.14：忽略证书验证的专属 client——只供某台服务器开了 ignoreCert 时走，
-     * 全局 HttpClient 不动，其它服务器与全 App 请求仍走默认校验。
-     * 信任放行只认这一台服务器的请求：调用方每次按该服务器的 ignoreCert 选
-     * client，不存在“开一次全局放行”的路径。自签 / 过期证书的自建服务器可用，
-     * 公网服务器不要开（中间人可冒充）。超时与默认 client 同口径（15/15/15/60 秒）。
+     * v1.2.14：信任放行的 SSL 构造（信任全部证书 + 不校验主机名），登录/浏览
+     * 与播放两路共用同一份逻辑；放行范围只限调用方显式选了 ignoreCert 的
+     * 那台服务器，全局默认 client 不动。
      */
-    private val insecureClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    private fun insecureSsl(): Pair<SSLSocketFactory, X509TrustManager> {
         val trustManager = object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
             override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
@@ -258,12 +257,43 @@ object EmbyApi {
         }
         val sslContext = SSLContext.getInstance("TLS")
         sslContext.init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
+        return sslContext.socketFactory to trustManager
+    }
+
+    /**
+     * v1.2.14：忽略证书验证的专属 client——只供某台服务器开了 ignoreCert 时走，
+     * 全局 HttpClient 不动，其它服务器与全 App 请求仍走默认校验。
+     * 信任放行只认这一台服务器的请求：调用方每次按该服务器的 ignoreCert 选
+     * client，不存在“开一次全局放行”的路径。自签 / 过期证书的自建服务器可用，
+     * 公网服务器不要开（中间人可冒充）。超时与默认 client 同口径（15/15/15/60 秒）。
+     * 播放走同口径的 [insecurePlaybackClient]，不共用 callTimeout。
+     */
+    private val insecureClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        val (socketFactory, trustManager) = insecureSsl()
         OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
             .callTimeout(60, TimeUnit.SECONDS)
-            .sslSocketFactory(sslContext.socketFactory, trustManager)
+            .sslSocketFactory(socketFactory, trustManager)
+            .hostnameVerifier { _, _ -> true }
+            .build()
+    }
+
+    /**
+     * v1.2.14：播放专用的放行证书 client——与登录/浏览的 insecureClient
+     * 同一套信任放行，只是不设 callTimeout：OkHttp 的 callTimeout 覆盖整条
+     * 流的读取过程，设了会把长视频在 60 秒处掐断；连接/读取/写入超时与
+     * 默认 client 同口径（15 秒）。只供 PlayerManager 在 ignoreCert 播放时
+     * 经 OkHttpDataSource 用，作用域限本次播放的 factory。
+     */
+    val insecurePlaybackClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        val (socketFactory, trustManager) = insecureSsl()
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .sslSocketFactory(socketFactory, trustManager)
             .hostnameVerifier { _, _ -> true }
             .build()
     }

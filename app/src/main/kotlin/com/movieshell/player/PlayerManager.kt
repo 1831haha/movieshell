@@ -18,6 +18,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -33,6 +34,7 @@ import com.movieshell.domain.model.PlayerEngine
 import com.movieshell.core.util.StoragePaths
 import com.movieshell.domain.model.SubtitleStyle
 import com.movieshell.core.net.DEFAULT_UA
+import com.movieshell.data.source.EmbyApi
 import com.movieshell.data.source.SniffConfig
 import com.movieshell.data.store.PlayerSettings
 import java.io.File
@@ -104,6 +106,8 @@ object PlayerManager {
     private var lastUrl: String = ""
     private var lastHeaders: Map<String, String> = emptyMap()
     private var lastSubtitleUrl: String? = null
+    /** v1.2.14：本次播放是否放行证书（硬解失败自动重播时原样带回） */
+    private var lastIgnoreCert: Boolean = false
 
     /** v0.100.0：硬解失败自动 fallback 每次播放只做一次，play() 重置 */
     private var decoderFallbackDone: Boolean = false
@@ -218,7 +222,7 @@ object PlayerManager {
             exoPlayer?.stop()
             EngineHost.markEngineTriedByFallback(PlayerEngine.MEDIA3)
             EngineHost.setEngineOverride(PlayerEngine.LIBMPV)
-            EngineHost.play(app, lastUrl, lastHeaders, pos, lastSubtitleUrl)
+            EngineHost.play(app, lastUrl, lastHeaders, pos, lastSubtitleUrl, ignoreCert = lastIgnoreCert)
         }
     }
 
@@ -243,7 +247,7 @@ object PlayerManager {
                     exoPlayer?.stop()
                     EngineHost.markEngineTriedByFallback(PlayerEngine.MEDIA3)
                     EngineHost.setEngineOverride(PlayerEngine.LIBMPV)
-                    EngineHost.play(app, lastUrl, lastHeaders, pos, lastSubtitleUrl)
+                    EngineHost.play(app, lastUrl, lastHeaders, pos, lastSubtitleUrl, ignoreCert = lastIgnoreCert)
                     return
                 } else if (app != null) {
                     AppToast.show(app, "硬解失败，可在设置安装 libmpv 插件切换", long = false)
@@ -316,6 +320,9 @@ object PlayerManager {
         startPositionMs: Long = 0L,
         subtitleUrl: String? = null,
         live: Boolean = false,
+        // v1.2.14：Emby 自签证书播放（EngineHost 带来，该台服务器的
+        // EmbyServer.ignoreCert）；其他入口默认关，链路一丝不变。
+        ignoreCert: Boolean = false,
     ) {
         // v0.102.0 P2-6：视频开播联动暂停音乐——只暂停不自动恢复，恢复走音乐迷你条手动。
         // MusicPlayer 无 fun pause()（只读），用现有 fadeOutAndPause（保留队列/状态）。
@@ -338,6 +345,7 @@ object PlayerManager {
         lastUrl = url
         lastHeaders = headers
         lastSubtitleUrl = subtitleUrl
+        lastIgnoreCert = ignoreCert
         // v1.1.19：换流清掉旧的尺寸与码率，顶栏不拿上一条流的数据冒充这一条。
         _videoSize.value = null
         _bitrateEstimate.value = 0L
@@ -360,17 +368,30 @@ object PlayerManager {
         // v0.294.7：键名规整（小写 user-agent 也认作 UA，不再被默认 UA 顶掉）
         val rest = PlayHeaders.normalize(headers).toMutableMap()
         val ua = rest.remove("User-Agent")?.takeIf { it.isNotBlank() } ?: DEFAULT_UA
-        val httpFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(ua)
-            .setConnectTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
-            // v0.294.34：本机磁力边下边播（127.0.0.1）读数据要等下载，放宽到 3 分钟，别在缓冲中途超时
-            .setReadTimeoutMs(
-                if (url.startsWith("http://127.0.0.1")) 180_000 else DefaultHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS,
-            )
-            .setAllowCrossProtocolRedirects(true)
-            // v1.1.19：带宽表挂上游——只计量真正走网络的流量（缓存命中不经过这里），
-            // 采样码率进 bitrateEstimate，供顶栏显示网速。
-            .setTransferListener(bandwidthMeter)
+        // v1.2.14：自签 Emby 播放走 OkHttp 放行数据源——media3-datasource-okhttp
+        // 已在依赖里，OkHttpDataSource.Factory 直接吃放行证书的 OkHttpClient，
+        // 作用域只限本次播放的 factory；超时走该 client 自身的 15 秒口径，
+        // 跨协议重定向 OkHttp 默认即跟随；其他播放走原 DefaultHttpDataSource。
+        val httpFactory: androidx.media3.datasource.HttpDataSource.Factory =
+            if (EngineHost.shouldBypassCert(ignoreCert, url)) {
+                OkHttpDataSource.Factory(EmbyApi.insecurePlaybackClient())
+                    .setUserAgent(ua)
+                    // v1.1.19：带宽表挂上游——只计量真正走网络的流量（缓存命中不经过这里），
+                    // 采样码率进 bitrateEstimate，供顶栏显示网速。
+                    .setTransferListener(bandwidthMeter)
+            } else {
+                DefaultHttpDataSource.Factory()
+                    .setUserAgent(ua)
+                    .setConnectTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
+                    // v0.294.34：本机磁力边下边播（127.0.0.1）读数据要等下载，放宽到 3 分钟，别在缓冲中途超时
+                    .setReadTimeoutMs(
+                        if (url.startsWith("http://127.0.0.1")) 180_000 else DefaultHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS,
+                    )
+                    .setAllowCrossProtocolRedirects(true)
+                    // v1.1.19：带宽表挂上游——只计量真正走网络的流量（缓存命中不经过这里），
+                    // 采样码率进 bitrateEstimate，供顶栏显示网速。
+                    .setTransferListener(bandwidthMeter)
+            }
         if (rest.isNotEmpty()) {
             httpFactory.setDefaultRequestProperties(rest)
         }

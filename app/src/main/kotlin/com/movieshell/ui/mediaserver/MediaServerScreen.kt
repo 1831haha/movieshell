@@ -88,7 +88,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun MediaServerScreen(
     onBack: () -> Unit,
-    onPlay: (url: String, title: String) -> Unit,
+    onPlay: (url: String, title: String, ignoreCert: Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -262,7 +262,7 @@ fun MediaServerScreen(
                 server.ignoreCert,
             )
             PlaySession.setChapters(detail?.Chapters ?: item.Chapters)
-            onPlay(url, display)
+            onPlay(url, display, server.ignoreCert)
         }
     }
 

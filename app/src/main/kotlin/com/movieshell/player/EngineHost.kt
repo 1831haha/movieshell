@@ -69,6 +69,9 @@ object EngineHost {
         subtitleUrl: String? = null,
         // v0.294.5：直播（含 HLS 直播/rtmp/flv 直播）——Media3 不走视频磁盘缓存
         live: Boolean = false,
+        // v1.2.14：Emby 自签证书播放（MediaServerScreen.playItem 带来，
+        // 该台服务器的 EmbyServer.ignoreCert）；其他入口默认关。
+        ignoreCert: Boolean = false,
     ): Boolean {
         val t0 = SystemClock.elapsedRealtime()
         appCtx = context.applicationContext
@@ -126,6 +129,16 @@ object EngineHost {
             }
         }
         var eng = engine()
+        // v1.2.14：自签 Emby 播放——libmpv 没有按次放行证书的口子（tls-verify
+        // 是实例级选项，播完再改回有竞态），本次改走 Media3（OkHttp 放行
+        // 数据源）；用户持久化的内核偏好不动，下次非自签播放仍走原内核。
+        // 已有自动换内核覆盖时不插手（硬解失败回退 libmpv 的重试走原路，
+        // 再翻回 Media3 会撞上已知坏解码原地空转）。
+        if (shouldBypassCert(ignoreCert, url) && eng == PlayerEngine.LIBMPV && _override.value == null) {
+            LogBus.i("Play", "自签 Emby 播放切回 Media3（libmpv 不支持按次放行证书）")
+            AppToast.show(context, "自签证书播放已切回 Media3", long = false)
+            eng = PlayerEngine.MEDIA3
+        }
         if (eng == PlayerEngine.LIBMPV && MpvPlayerManager.initFailed) {
             if (MpvPlayerManager.initFailedMissingPlugin && MpvPluginLoader.isInstalled(context)) {
                 // v1.1.31：上次失败是缺插件，现在已补装——清标记重试初始化，不用重启 App
@@ -141,7 +154,7 @@ object EngineHost {
         return try {
             if (eng == PlayerEngine.MEDIA3) {
                 PlayerManager.init(context)
-                PlayerManager.play(url, headers, startPositionMs, subtitleUrl, live)
+                PlayerManager.play(url, headers, startPositionMs, subtitleUrl, live, ignoreCert = ignoreCert)
             } else {
                 MpvPlayerManager.init(context)
                 MpvPlayerManager.play(url, headers, startPositionMs, subtitleUrl, live)
@@ -173,6 +186,14 @@ object EngineHost {
             u.startsWith("rtsp://", true) ||
             u.startsWith("/")
     }
+
+    /**
+     * v1.2.14：本次播放是否放行证书——只当调用方显式传了 ignoreCert
+     * （Emby 服务器开关，MediaServerScreen.playItem 带来）且地址是 https；
+     * http 地址没有 TLS 可放行，其他播放一律走原链路。纯函数，可单测。
+     */
+    fun shouldBypassCert(ignoreCert: Boolean, url: String): Boolean =
+        ignoreCert && url.trim().startsWith("https://", true)
 
     /** URL 脱敏：host（日志不记完整地址）。 */
     private fun urlHost(url: String): String =
