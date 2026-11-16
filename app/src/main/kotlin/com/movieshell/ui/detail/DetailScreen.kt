@@ -2,6 +2,7 @@ package com.movieshell.ui.detail
 
 import com.movieshell.data.source.DoubanReviews
 import com.movieshell.data.source.DoubanReviews.DoubanReview
+import com.movieshell.data.source.ParseProgressBus
 import com.movieshell.data.source.PluginMarket
 import com.movieshell.data.store.PluginStore
 import com.movieshell.util.safeIndex
@@ -54,6 +55,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -605,6 +607,10 @@ fun DetailScreen(
     // v0.205.0：顶部播放区状态——解析中/失败时盖一层状态，不再只剩封面图
     var embeddedResolving by remember(vodId) { mutableStateOf(false) }
     var embeddedError by remember(vodId) { mutableStateOf<String?>(null) }
+    // v1.2.21：解析进度总线——点按顶部解析层时显示当前线路与第几条/共几条
+    val parseState by ParseProgressBus.state.collectAsState()
+    // v1.2.21：解析中点按展开/收起进度；新一轮解析开始（embeddedResolving 翻转）即收起
+    var showParseProgress by remember(vodId, embeddedResolving) { mutableStateOf(false) }
     // v0.164.0：pics:// 图片集不走嵌入视频播放器，单独全屏看图（见外层 Box 末尾的覆盖层）
     var picsUrl by remember(vodId) { mutableStateOf("") }
     var picsTitle by remember(vodId) { mutableStateOf("") }
@@ -2060,7 +2066,15 @@ fun DetailScreen(
                                 )
                             }
                             .aspectRatio(16f / 9f)
-                            .background(Color.Black.copy(alpha = 0.55f)),
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .clickable(
+                                // v1.2.21：解析中点按显示进度——这层自己吃掉点按，不再
+                                // 穿透到下面的海报区弹大图；失败态不启用（重试按钮自带点按）。
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                enabled = embeddedResolving,
+                                onClick = { showParseProgress = !showParseProgress },
+                            ),
                         contentAlignment = Alignment.Center,
                     ) {
                         if (embeddedResolving) {
@@ -2071,6 +2085,23 @@ fun DetailScreen(
                                 )
                                 Spacer(Modifier.height(8.dp))
                                 Text("正在解析…", color = Color.White)
+                                // v1.2.21：点按展开解析进度——当前线路名与第几条/共几条；
+                                // 未走解析总线（直链）时只给一句“正在加载，请稍候”。
+                                Spacer(Modifier.height(6.dp))
+                                val ps = parseState
+                                Text(
+                                    text = if (showParseProgress) {
+                                        if (ps != null && ps.total > 0) {
+                                            "正在尝试 ${ps.current.ifBlank { "线路" }}（${ps.index.coerceAtLeast(1)}/${ps.total}）…"
+                                        } else {
+                                            "正在加载，请稍候…"
+                                        }
+                                    } else {
+                                        "点按查看解析进度"
+                                    },
+                                    color = Color.White.copy(alpha = if (showParseProgress) 0.85f else 0.6f),
+                                    fontSize = 13.sp,
+                                )
                             }
                         } else {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
