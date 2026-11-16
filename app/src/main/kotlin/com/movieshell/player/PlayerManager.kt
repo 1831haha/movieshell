@@ -380,7 +380,7 @@ object PlayerManager {
         // 跨协议重定向 OkHttp 默认即跟随；其他播放走原 DefaultHttpDataSource。
         val httpFactory: androidx.media3.datasource.HttpDataSource.Factory =
             if (EngineHost.shouldBypassCert(ignoreCert, url)) {
-                OkHttpDataSource.Factory(EmbyApi.insecurePlaybackClient())
+                OkHttpDataSource.Factory(EmbyApi.insecurePlaybackClient)
                     .setUserAgent(ua)
                     // v1.1.19：带宽表挂上游——只计量真正走网络的流量（缓存命中不经过这里），
                     // 采样码率进 bitrateEstimate，供顶栏显示网速。
