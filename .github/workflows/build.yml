@@ -52,24 +52,22 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      # v0.27.3：release 包每轮构建现场生成 keystore（有效期 25 年）；
-      # 密码取自 run_id，不提交到仓库；用户每版卸载重装，签名每轮不同无影响。
-      - name: Generate release keystore
+      # v1.2.14：固定签名——keystore 一次生成、存 GitHub Secrets（RELEASE_KEYSTORE_B64 /
+      # RELEASE_KEYSTORE_PASSWORD / RELEASE_KEY_PASSWORD），每轮构建还原同一份；
+      # 备份在工作区 ~/workspace/apk-signing/（600 权限，绝不进仓）。从这版起每版同一
+      # 签名，可直接覆盖安装，不用再卸载。旧做法（每轮现场生成）见 git 历史。
+      - name: Restore release keystore
         run: |
-          keytool -genkeypair -v \
-            -keystore "$RUNNER_TEMP/release.keystore" \
-            -alias movieshell -keyalg RSA -keysize 2048 -validity 9125 \
-            -storepass "release-${{ github.run_id }}-ms" \
-            -keypass "release-${{ github.run_id }}-ms" \
-            -dname "CN=MovieShell, OU=Dev, O=MovieShell, C=CN"
+          echo "${{ secrets.RELEASE_KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          ls -la "$RUNNER_TEMP/release.keystore"
 
       - name: Build release APK
         run: |
           gradle assembleRelease --no-daemon \
             -Pandroid.injected.signing.store.file="$RUNNER_TEMP/release.keystore" \
-            -Pandroid.injected.signing.store.password="release-${{ github.run_id }}-ms" \
+            -Pandroid.injected.signing.store.password="${{ secrets.RELEASE_KEYSTORE_PASSWORD }}" \
             -Pandroid.injected.signing.key.alias=movieshell \
-            -Pandroid.injected.signing.key.password="release-${{ github.run_id }}-ms"
+            -Pandroid.injected.signing.key.password="${{ secrets.RELEASE_KEY_PASSWORD }}"
 
       # v0.156.0：测试步骤失败不阻塞上传——Run unit tests 前置装 pycryptodome 时
       # Chaquopy 索引 chaquo.com 多次超时（run #337 两次同一失败），打包本身已通过；
