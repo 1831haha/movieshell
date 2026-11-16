@@ -730,8 +730,8 @@ fun DetailScreen(
                     watchedEp = maxOf(watchedEp, episodeIndex)
                 }
                 // v0.19.0：写入播放会话，供播放器内切线路 / 失败自动重试
-                PlaySession.start(playLines, lineIndex, episodeIndex) { ctx, e ->
-                    resolvePlayUrl(ctx, subSite, e)
+                PlaySession.start(playLines, lineIndex, episodeIndex) { ctx, e, quiet ->
+                    resolvePlayUrl(ctx, subSite, e, quiet)
                 }
                 // v0.65：不再跳独立播放页，嵌入播放器直接播
                 playingLine = lineIndex

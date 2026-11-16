@@ -10,8 +10,9 @@ import org.json.JSONObject
  * v1.2.7：设置页“活布局”——可拖动的设置项住哪、按什么顺序，由这张表说了算。
  *
  * 容器 = 一组设置行住的地方：main:playback（设置页“播放 · 解析”组）、
- * page:playback_settings（“播放设置”子页面）。可移项有 6 个（播放器内核 /
- * 直播自动播放 / 去广告 / 同时下载数 / 重力感应横屏 / TMDB Key），导航入口、统计环、
+ * page:playback_settings（“播放设置”子页面）。可移项有 10 个（播放器内核 /
+ * 直播自动播放 / 去广告 / 同时下载数 / 重力感应横屏 / TMDB Key /
+ * 默认播放方向 / 转场动画 / 首选音频语言 / 首选字幕语言），导航入口、统计环、
  * 工具磁贴不参与拖动。布局存 SharedPreferences，下次打开还在；恢复默认回
  * 到下面这张 DEFAULT_LAYOUT。机制通用，以后别的行要加入拖动，只需往
  * ALL_ITEMS 与 DEFAULT_LAYOUT 里加一项。
@@ -27,12 +28,26 @@ object SettingsLayoutStore {
     const val ITEM_GRAVITY = "gravity"
     /** v1.2.13：TMDB Key（本地文件夹海报墙用，用户自己填）。 */
     const val ITEM_TMDB_KEY = "tmdb_key"
+    /** v1.2.14 B片（9）：默认播放方向。 */
+    const val ITEM_DEF_ORIENTATION = "def_orientation"
+    /** v1.2.14 B片（9）：播放器转场动画。 */
+    const val ITEM_TRANSITION = "player_transition"
+    /** v1.2.14 B片（3）：首选音频语言。 */
+    const val ITEM_AUDIO_LANG = "audio_lang"
+    /** v1.2.14 B片（3）：首选字幕语言。 */
+    const val ITEM_SUB_LANG = "subtitle_lang"
 
-    val ALL_ITEMS = listOf(ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_GRAVITY, ITEM_TMDB_KEY)
+    val ALL_ITEMS = listOf(
+        ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_GRAVITY,
+        ITEM_TMDB_KEY, ITEM_DEF_ORIENTATION, ITEM_TRANSITION, ITEM_AUDIO_LANG, ITEM_SUB_LANG,
+    )
 
     val DEFAULT_LAYOUT: Map<String, List<String>> = mapOf(
         MAIN_PLAYBACK to listOf(ITEM_GRAVITY),
-        PAGE_PLAYBACK to listOf(ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_TMDB_KEY),
+        PAGE_PLAYBACK to listOf(
+            ITEM_ENGINE, ITEM_AUTOPLAY, ITEM_ADFILTER, ITEM_MAX_PARALLEL, ITEM_TMDB_KEY,
+            ITEM_DEF_ORIENTATION, ITEM_TRANSITION, ITEM_AUDIO_LANG, ITEM_SUB_LANG,
+        ),
     )
 
     private const val PREFS = "movieshell_prefs"

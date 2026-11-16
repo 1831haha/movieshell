@@ -41,16 +41,20 @@ import kotlinx.coroutines.selects.select
  * 给定一集返回可播地址，"" 表示暂无可播地址。磁力地址原样返回，
  * 由调用方（PlayerScreen 的 magnet 分支）决定怎么播。
  * 解析失败经 ParseProgressBus 通知 UI（解析失败对话框，可手动嗅探），不抛异常。
+ * v1.2.14 B片（2）：quiet=true 时静默解析——不弹 Toast、不开网页嗅探、
+ * 不报 ParseProgressBus 失败、不建解析进度会话；专供下一集后台预解析，
+ * 失败只返回 ""，不影响当前播放。
  */
 suspend fun resolvePlayUrl(
     context: Context,
     subSite: Site?,
     episode: Episode,
+    quiet: Boolean = false,
 ): String {
     if (MagnetPlayer.isMagnet(episode.url)) return episode.url
     val flag = episode.flag.ifBlank { "" }
     val epUrl = episode.url
-    return normalizeResolvedPlayUrl(resolvePlayUrlRaw(context, subSite, flag, epUrl))
+    return normalizeResolvedPlayUrl(resolvePlayUrlRaw(context, subSite, flag, epUrl, quiet))
 }
 
 /** v0.294.2：原 resolvePlayUrl 主体；出口统一经 [normalizeResolvedPlayUrl] 剥「集名$」前缀。 */
@@ -59,6 +63,7 @@ private suspend fun resolvePlayUrlRaw(
     subSite: Site?,
     flag: String,
     epUrl: String,
+    quiet: Boolean,
 ): String {
     // v0.246.0：取消重抛——原来外层 runCatching 把取消当普通失败吞掉返回 ""，
     // 调用方以为只是没地址，实际是任务被取消。内层三路顺延同理。
@@ -72,27 +77,27 @@ private suspend fun resolvePlayUrlRaw(
                 var result = ""
                 if (DrpySourceManager.hasActiveRule()) {
                     val raw = safeRaw { DrpySourceManager.playRaw(flag, epUrl) }
-                    if (raw.url.isNotBlank()) result = finishRaw(ctx, raw)
+                    if (raw.url.isNotBlank()) result = finishRaw(ctx, raw, quiet)
                 }
                 if (result.isBlank() && PySourceManager.hasActiveRule()) {
                     val raw = retryOnce { PySourceManager.playRaw(flag, epUrl) }
-                    if (raw.url.isNotBlank()) result = finishRaw(ctx, raw)
+                    if (raw.url.isNotBlank()) result = finishRaw(ctx, raw, quiet)
                 }
                 if (result.isBlank() && PhpSourceManager.activeRuleName() != null) {
                     val raw = retryOnce { PhpCliEngine.playRaw(context, flag, epUrl) }
-                    if (raw.url.isNotBlank()) result = finishRaw(ctx, raw)
+                    if (raw.url.isNotBlank()) result = finishRaw(ctx, raw, quiet)
                 }
                 if (result.isBlank() && WebParseSourceManager.hasActiveSite()) {
                     val raw = retryOnce { WebParseSourceManager.playRaw(flag, epUrl) }
-                    if (raw.url.isNotBlank()) result = finishRaw(ctx, raw)
+                    if (raw.url.isNotBlank()) result = finishRaw(ctx, raw, quiet)
                     if (result.isBlank() && !ctx.cancelled &&
                         (epUrl.startsWith("http://", true) || epUrl.startsWith("https://", true))
                     ) {
-                        val sniffed = sniffPage(ctx, epUrl, raw)
+                        val sniffed = sniffPage(ctx, epUrl, raw, quiet)
                         if (!sniffed.isNullOrBlank()) result = sniffed
                     }
                 }
-                if (result.isBlank() && !ctx.cancelled && !ctx.failureReported) {
+                if (result.isBlank() && !ctx.cancelled && !ctx.failureReported && !quiet) {
                     AppToast.show(context, "该规则未返回播放地址", long = true)
                 }
                 result
@@ -105,7 +110,7 @@ private suspend fun resolvePlayUrlRaw(
                 val ctx = RouteContext(context, subSite, flag)
                 val route = PlayRouting.decide(RawPlay(url = u), flag, ctx.vipFlags(), ctx.sitePlayUrl())
                 if (route !is PlayRoute.Direct && route.url.isNotBlank()) {
-                    val r = execute(ctx, route, RawPlay(url = u), fromParse1 = false)
+                    val r = execute(ctx, route, RawPlay(url = u), fromParse1 = false, quiet = quiet)
                     if (r.isNotBlank() || ctx.cancelled) return r
                 }
                 if (u.isNotBlank()) {
@@ -119,12 +124,12 @@ private suspend fun resolvePlayUrlRaw(
             subSite.isPySite() -> {
                 val ctx = RouteContext(context, subSite, flag)
                 val vip = ctx.vipFlags()
-                finishOrToast(ctx, retryOnce { SubSiteEngines.pyPlayRaw(subSite, flag, epUrl, vip) })
+                finishOrToast(ctx, retryOnce { SubSiteEngines.pyPlayRaw(subSite, flag, epUrl, vip) }, quiet)
             }
             // type=4 站：GET {api}?ac=play&flag=&id= 拿直链与 header
             subSite.isType4Site() -> {
                 val ctx = RouteContext(context, subSite, flag)
-                finishRaw(ctx, safeRaw { SiteRepository().type4Play(subSite, flag, epUrl).toRaw() })
+                finishRaw(ctx, safeRaw { SiteRepository().type4Play(subSite, flag, epUrl).toRaw() }, quiet)
             }
             // PHP 站（CLI）：playerContent 拿播放 JSON
             subSite.isPhpSite() -> {
@@ -134,18 +139,18 @@ private suspend fun resolvePlayUrlRaw(
                         context, flag, epUrl,
                         PhpCliEngine.scriptNameForSite(subSite.key, subSite.api),
                     )
-                })
+                }, quiet)
             }
             // Java spider 站：playerContent(flag, id, vipFlags) 拿播放 JSON
             subSite.isJavaSpider() -> {
                 val ctx = RouteContext(context, subSite, flag)
                 val vip = ctx.vipFlags()
-                finishRaw(ctx, safeRaw { SpiderEngine.play(subSite, flag, epUrl, vip).toRaw() })
+                finishRaw(ctx, safeRaw { SpiderEngine.play(subSite, flag, epUrl, vip).toRaw() }, quiet)
             }
             else -> {
                 val ctx = RouteContext(context, subSite, flag)
                 val engine = SubSiteEngines.drpyEngineFor(subSite) ?: return ""
-                finishRaw(ctx, safeRaw { engine.playRaw(flag, epUrl) })
+                finishRaw(ctx, safeRaw { engine.playRaw(flag, epUrl) }, quiet)
             }
         }
     } catch (e: CancellationException) {
@@ -209,12 +214,12 @@ private suspend fun retryOnce(produce: suspend () -> RawPlay): RawPlay {
     return safeRaw(produce)
 }
 
-private suspend fun finishOrToast(ctx: RouteContext, raw: RawPlay): String {
+private suspend fun finishOrToast(ctx: RouteContext, raw: RawPlay, quiet: Boolean = false): String {
     if (normalizeResolvedPlayUrl(raw.url).isBlank()) {
-        AppToast.show(ctx.context, "该规则未返回播放地址", long = true)
+        if (!quiet) AppToast.show(ctx.context, "该规则未返回播放地址", long = true)
         return ""
     }
-    return finishRaw(ctx, raw)
+    return finishRaw(ctx, raw, quiet)
 }
 
 /**
@@ -222,16 +227,16 @@ private suspend fun finishOrToast(ctx: RouteContext, raw: RawPlay): String {
  * 直链直接播；jx=1 / VIP 走解析线路；parse=1 非 VIP 先站内嗅探、失败回退解析线路（旧路径）；
  * playUrl 前缀（json: / parse: / http）按 TVBox 语义。规则 header 始终透传给播放器。
  */
-private suspend fun finishRaw(ctx: RouteContext, raw0: RawPlay): String {
+private suspend fun finishRaw(ctx: RouteContext, raw0: RawPlay, quiet: Boolean = false): String {
     val url = normalizeResolvedPlayUrl(raw0.url)
     if (url.isBlank()) return ""
     val raw = raw0.copy(url = url, header = PlayHeaders.normalize(raw0.header))
     val route = PlayRouting.decide(raw, ctx.flag, ctx.vipFlags(), ctx.sitePlayUrl())
     if (route !is PlayRoute.Direct) LogBus.i("Play", "播放路由：${route::class.simpleName}（parse=${raw.parse} jx=${raw.jx}）")
-    return execute(ctx, route, raw, fromParse1 = raw.parse == 1 || raw.jx == 1)
+    return execute(ctx, route, raw, fromParse1 = raw.parse == 1 || raw.jx == 1, quiet = quiet)
 }
 
-private suspend fun execute(ctx: RouteContext, route: PlayRoute, raw: RawPlay, fromParse1: Boolean): String {
+private suspend fun execute(ctx: RouteContext, route: PlayRoute, raw: RawPlay, fromParse1: Boolean, quiet: Boolean = false): String {
     val u = route.url
     if (u.isBlank()) return ""
     val result = when (route) {
@@ -239,19 +244,19 @@ private suspend fun execute(ctx: RouteContext, route: PlayRoute, raw: RawPlay, f
             if (raw.header.isNotEmpty()) SniffPlayHeaders.put(u, raw.header)
             return u
         }
-        is PlayRoute.JxList -> jxList(ctx, u, raw)
-        is PlayRoute.SniffPage -> sniffPage(ctx, u, raw)
-            ?: if (ctx.cancelled) "" else jxList(ctx, u, raw)
-        is PlayRoute.JsonPrefix -> parseWith(ctx, listOf(ParseConfig(name = "json", url = route.api, type = 1)), u, raw)
-            ?: if (ctx.cancelled) "" else jxList(ctx, u, raw)
+        is PlayRoute.JxList -> jxList(ctx, u, raw, quiet)
+        is PlayRoute.SniffPage -> sniffPage(ctx, u, raw, quiet)
+            ?: if (ctx.cancelled) "" else jxList(ctx, u, raw, quiet)
+        is PlayRoute.JsonPrefix -> parseWith(ctx, listOf(ParseConfig(name = "json", url = route.api, type = 1)), u, raw, quiet)
+            ?: if (ctx.cancelled) "" else jxList(ctx, u, raw, quiet)
         is PlayRoute.NamedParse -> {
             val line = ctx.parses().firstOrNull { it.name.trim().equals(route.name, ignoreCase = true) }
-            (if (line != null) parseWith(ctx, listOf(line), u, raw) else null)
-                ?: if (ctx.cancelled) "" else jxList(ctx, u, raw)
+            (if (line != null) parseWith(ctx, listOf(line), u, raw, quiet) else null)
+                ?: if (ctx.cancelled) "" else jxList(ctx, u, raw, quiet)
         }
         is PlayRoute.PrefixSniff -> {
             val target = route.prefix + u
-            sniffPage(ctx, target, raw) ?: if (ctx.cancelled) "" else jxList(ctx, u, raw)
+            sniffPage(ctx, target, raw, quiet) ?: if (ctx.cancelled) "" else jxList(ctx, u, raw, quiet)
         }
     }
     if (result.isNotBlank() || ctx.cancelled) return result
@@ -260,23 +265,25 @@ private suspend fun execute(ctx: RouteContext, route: PlayRoute, raw: RawPlay, f
         if (raw.header.isNotEmpty()) SniffPlayHeaders.put(u, raw.header)
         return u
     }
-    ctx.failureReported = true
-    ParseProgressBus.reportFailure(u)
+    if (!quiet) {
+        ctx.failureReported = true
+        ParseProgressBus.reportFailure(u)
+    }
     return ""
 }
 
-private suspend fun jxList(ctx: RouteContext, u: String, raw: RawPlay): String {
+private suspend fun jxList(ctx: RouteContext, u: String, raw: RawPlay, quiet: Boolean = false): String {
     val parses = ctx.parses()
     if (parses.isEmpty()) {
         LogBus.w("Play", "没有可用的解析线路")
         return ""
     }
-    return parseWith(ctx, parses, u, raw).orEmpty()
+    return parseWith(ctx, parses, u, raw, quiet).orEmpty()
 }
 
-private suspend fun parseWith(ctx: RouteContext, parses: List<ParseConfig>, u: String, raw: RawPlay): String? {
+private suspend fun parseWith(ctx: RouteContext, parses: List<ParseConfig>, u: String, raw: RawPlay, quiet: Boolean = false): String? {
     val api = ParseApi()
-    val hit = api.parseDetailed(parses, u, ctx.context, ctx.flag)
+    val hit = api.parseDetailed(parses, u, ctx.context, ctx.flag, showProgress = !quiet)
     if (api.cancelledByUser) ctx.cancelled = true
     hit ?: return null
     // v1.2.8：记下这次命中的解析线路（按结果地址），播失败时按地址反查记死
@@ -290,14 +297,17 @@ private suspend fun parseWith(ctx: RouteContext, parses: List<ParseConfig>, u: S
 }
 
 /** 站内页嗅探（H4）：后台 WebView 抓真实流；可在进度条上取消。 */
-private suspend fun sniffPage(ctx: RouteContext, page: String, raw: RawPlay): String? {
+private suspend fun sniffPage(ctx: RouteContext, page: String, raw: RawPlay, quiet: Boolean = false): String? {
+    // v1.2.14 B片（2）：静默预解析不走网页嗅探——后台开 WebView 抓流又重又会弹
+    // 解析进度/失败 UI；嗅探型集数预解析直接失败，等用户真切集时再走正常链路。
+    if (quiet) return null
     // v0.294.9：苹果CMS 播放页免嗅——源码里直接有 player_aaaa 配置时不开 WebView
     val mac = runCatching { com.movieshell.data.source.MacCmsPlayer.fetch(page, raw.header) }
         .onFailure { if (it is CancellationException) throw it }.getOrNull()
     if (!mac.isNullOrBlank()) {
         when {
             PlayRouting.isVipUrl(mac) -> {
-                val r = jxList(ctx, mac, raw)
+                val r = jxList(ctx, mac, raw, quiet)
                 if (r.isNotBlank() || ctx.cancelled) return r.ifBlank { null }
             }
             PlayRouting.isMediaUrl(mac) -> {

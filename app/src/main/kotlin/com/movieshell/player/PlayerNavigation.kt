@@ -1,6 +1,11 @@
 package com.movieshell.player
 
 import android.net.Uri
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
@@ -9,6 +14,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.movieshell.data.source_mgr.DetailSiteRoute
+import com.movieshell.data.store.PlayerSettings
 
 /**
  * 播放器路由：player?url={url}&title={title}&vod={vodId}&live={0/1}&site={siteKey}
@@ -60,6 +66,28 @@ fun NavGraphBuilder.playerDestination(
             navArgument("live") { type = NavType.StringType; defaultValue = "0" },
             navArgument("site") { type = NavType.StringType; defaultValue = "" },
         ),
+        // v1.2.14 B片（9）：播放器转场动画按设置走（目的地级覆盖 NavHost 全局淡入+位移）；
+        // 系统默认返回 null（用全局转场），淡入/缩放/海报碎片各给一对进出场。
+        // 海报碎片的进场主体是 PlayerScreen 内的碎片拼贴揭示，这里只配一个
+        // 快速淡入打底；退场碎片做不了（页已离场），统一淡出。
+        enterTransition = {
+            when (PlayerSettings.transitionMode.value) {
+                PlayerSettings.TRANSITION_FADE -> fadeIn(tween(250))
+                PlayerSettings.TRANSITION_SCALE ->
+                    scaleIn(tween(250), initialScale = 0.96f) + fadeIn(tween(250))
+                PlayerSettings.TRANSITION_SHARDS -> fadeIn(tween(120))
+                else -> null
+            }
+        },
+        popExitTransition = {
+            when (PlayerSettings.transitionMode.value) {
+                PlayerSettings.TRANSITION_FADE -> fadeOut(tween(200))
+                PlayerSettings.TRANSITION_SCALE ->
+                    scaleOut(tween(200), targetScale = 0.96f) + fadeOut(tween(200))
+                PlayerSettings.TRANSITION_SHARDS -> fadeOut(tween(250))
+                else -> null
+            }
+        },
     ) { entry ->
         val navUrl = entry.arguments?.getString("url").orEmpty()
         // v0.164.0：pics:// 图片集不进视频播放器，独立路由也分流到看图页

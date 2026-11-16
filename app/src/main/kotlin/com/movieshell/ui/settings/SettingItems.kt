@@ -31,11 +31,13 @@ import androidx.compose.ui.unit.dp
 import com.movieshell.data.download.DownloadManager
 import com.movieshell.data.source.SniffConfig
 import com.movieshell.data.source.TmdbClient
+import com.movieshell.data.source.subtitle.SubtitleLanguage
 import com.movieshell.data.store.DownloadStore
 import com.movieshell.data.store.PlayerSettings
 import com.movieshell.data.store.SettingsLayoutStore
 import com.movieshell.domain.model.PlayerEngine
 import com.movieshell.player.MpvPluginLoader
+import com.movieshell.player.TrackLanguage
 import com.movieshell.ui.components.AppSwitch
 import com.movieshell.ui.components.AppToast
 import com.movieshell.ui.components.TechDialog
@@ -278,6 +280,116 @@ private fun settingRowContent(id: String, onOpenMarketClick: () -> Unit): Settin
                                 )
                             }
                         }
+                    }
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_DEF_ORIENTATION -> {
+            // v1.2.14 B片（9）：默认播放方向——进播放器时锁定的方向，默认跟随重力感应
+            val defOrientation by PlayerSettings.defaultOrientation.collectAsState()
+            var showDialog by remember { mutableStateOf(false) }
+            val labels = listOf("跟随重力感应", "横屏", "竖屏")
+            SettingRowContent(
+                icon = Icons.Outlined.ScreenRotation,
+                title = "默认播放方向",
+                subtitle = "进播放器时" + labels.getOrElse(defOrientation) { labels[0] },
+                onClick = { showDialog = true },
+                dialog = {
+                    if (showDialog) {
+                        SingleChoiceDialog(
+                            title = "默认播放方向",
+                            options = labels,
+                            selected = labels.getOrElse(defOrientation) { labels[0] },
+                            onDismiss = { showDialog = false },
+                            onSelect = {
+                                PlayerSettings.setDefaultOrientation(context, labels.indexOf(it))
+                                showDialog = false
+                            },
+                        )
+                    }
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_TRANSITION -> {
+            // v1.2.14 B片（9）：播放器打开/关闭的转场动画
+            val transitionMode by PlayerSettings.transitionMode.collectAsState()
+            var showDialog by remember { mutableStateOf(false) }
+            val labels = listOf("系统默认", "淡入", "缩放", "海报碎片")
+            SettingRowContent(
+                icon = Icons.Outlined.Movie,
+                title = "转场动画",
+                subtitle = "打开/关闭播放器时" + labels.getOrElse(transitionMode) { labels[0] },
+                onClick = { showDialog = true },
+                dialog = {
+                    if (showDialog) {
+                        SingleChoiceDialog(
+                            title = "转场动画",
+                            options = labels,
+                            selected = labels.getOrElse(transitionMode) { labels[0] },
+                            onDismiss = { showDialog = false },
+                            onSelect = {
+                                PlayerSettings.setTransitionMode(context, labels.indexOf(it))
+                                showDialog = false
+                            },
+                        )
+                    }
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_AUDIO_LANG -> {
+            // v1.2.14 B片（3）：首选音频语言——多音轨时起播自动选，齿轮页可手动改
+            val audioLang by PlayerSettings.audioLanguage.collectAsState()
+            var showDialog by remember { mutableStateOf(false) }
+            val options = TrackLanguage.AUDIO_LANGUAGE_OPTIONS
+            SettingRowContent(
+                icon = Icons.Outlined.MusicNote,
+                title = "首选音频语言",
+                subtitle = "多音轨时优先选" + TrackLanguage.optionLabel(audioLang),
+                onClick = { showDialog = true },
+                dialog = {
+                    if (showDialog) {
+                        SingleChoiceDialog(
+                            title = "首选音频语言",
+                            options = options.map { it.second },
+                            selected = TrackLanguage.optionLabel(audioLang),
+                            onDismiss = { showDialog = false },
+                            onSelect = { label ->
+                                PlayerSettings.setAudioLanguage(
+                                    context,
+                                    options.firstOrNull { it.second == label }?.first.orEmpty(),
+                                )
+                                showDialog = false
+                            },
+                        )
+                    }
+                },
+            )
+        }
+        SettingsLayoutStore.ITEM_SUB_LANG -> {
+            // v1.2.14 B片（3）：首选字幕语言——在线字幕搜索时匹配的排前面
+            val subLang by PlayerSettings.subtitleLanguage.collectAsState()
+            var showDialog by remember { mutableStateOf(false) }
+            val options = SubtitleLanguage.SUBTITLE_LANGUAGE_OPTIONS
+            SettingRowContent(
+                icon = Icons.Outlined.Subtitles,
+                title = "首选字幕语言",
+                subtitle = "在线字幕搜索时优先" + SubtitleLanguage.optionLabel(subLang),
+                onClick = { showDialog = true },
+                dialog = {
+                    if (showDialog) {
+                        SingleChoiceDialog(
+                            title = "首选字幕语言",
+                            options = options.map { it.second },
+                            selected = SubtitleLanguage.optionLabel(subLang),
+                            onDismiss = { showDialog = false },
+                            onSelect = { label ->
+                                PlayerSettings.setSubtitleLanguage(
+                                    context,
+                                    options.firstOrNull { it.second == label }?.first.orEmpty(),
+                                )
+                                showDialog = false
+                            },
+                        )
                     }
                 },
             )
