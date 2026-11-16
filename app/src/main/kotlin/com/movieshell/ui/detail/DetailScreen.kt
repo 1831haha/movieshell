@@ -1121,18 +1121,18 @@ fun DetailScreen(
                                 if (coverUrl.isNotBlank()) {
                                     AsyncImage(
                                         model = coverUrl,
-                                        contentDescription = "海报，点按播放，长按看大图",
+                                        contentDescription = "海报，点按播放",
                                         modifier = Modifier
                                             .width(134.dp)
                                             .aspectRatio(2f / 3f)
                                             .clip(RoundedCornerShape(V5.CornerLg))
                                             .background(v.surfaceContainerHigh)
-                                            .combinedClickable(
-                                                // v1.1.13：点海报播放入口，与顶部播放区共用 playFromPoster；
-                                                // v1.2.21：海报放大改走长按，点按不再弹大图。
-                                                onClick = { playFromPoster() },
-                                                onLongClick = { showCoverDialog = true },
-                                            ),
+                                            .clickable {
+                                                // v1.1.13：点海报播放入口，与顶部播放区共用 playFromPoster。
+                                                // v1.2.21：简介卡海报就是图片，不动——长按看大图只留顶部
+                                                // 播放区，这里不加长按。
+                                                playFromPoster()
+                                            },
                                         contentScale = ContentScale.Crop,
                                     )
                                     Spacer(Modifier.width(20.dp))
